@@ -213,10 +213,15 @@ def register_dcr_client(metadata: dict, redirect_uri: str) -> tuple[str, str | N
     if not registration_endpoint:
         raise ValueError("Authorization server does not support Dynamic Client Registration")
 
+    # Request the grant types the server advertises, intersected with what we support.
+    # Some servers (e.g. mem0) reject registration unless refresh_token is requested.
+    supported_grants = metadata.get("grant_types_supported") or ["authorization_code"]
+    grant_types = [g for g in ("authorization_code", "refresh_token") if g in supported_grants]
+
     payload: dict[str, object] = {
         "client_name": "MCP Store (PostHog)",
         "redirect_uris": [redirect_uri],
-        "grant_types": ["authorization_code"],
+        "grant_types": grant_types or ["authorization_code"],
         "response_types": ["code"],
         "token_endpoint_auth_method": "none",
     }

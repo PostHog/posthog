@@ -885,6 +885,44 @@ class TestRegisterDCRClient(TestCase):
 
         assert result == expected
 
+    @parameterized.expand(
+        [
+            (
+                "requests_refresh_token_when_advertised",
+                ["authorization_code", "refresh_token"],
+                ["authorization_code", "refresh_token"],
+            ),
+            (
+                "omits_refresh_token_when_not_advertised",
+                ["authorization_code"],
+                ["authorization_code"],
+            ),
+            (
+                "defaults_to_authorization_code_when_metadata_silent",
+                None,
+                ["authorization_code"],
+            ),
+        ]
+    )
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, ""))
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_requests_grant_types_the_server_advertises(
+        self, _name, grant_types_supported, expected_grant_types, mock_post, _allow
+    ):
+        mock_response = MagicMock()
+        mock_response.ok = True
+        mock_response.json.return_value = {"client_id": "abc", "token_endpoint_auth_method": "none"}
+        mock_post.return_value = mock_response
+
+        metadata: dict = {"registration_endpoint": "https://auth.example.com/register"}
+        if grant_types_supported is not None:
+            metadata["grant_types_supported"] = grant_types_supported
+
+        register_dcr_client(metadata, "https://app.posthog.com/callback")
+
+        sent_payload = mock_post.call_args.kwargs["json"]
+        assert sent_payload["grant_types"] == expected_grant_types
+
 
 class TestResolveInstallationOauthContext(BaseTest):
     def test_template_backed_install_returns_template_creds(self):
