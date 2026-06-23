@@ -8,7 +8,7 @@ a ceiling, and the decision the team needs to make next.
 
 > **Framing first:** preview is an **authoring-iteration aid**, not a faithful
 > end-to-end test. It answers "does my draft gather the right context and
-> *decide* the right action?" — it does **not** prove the action works. The
+> _decide_ the right action?" — it does **not** prove the action works. The
 > docs and UI should say this plainly; a half-true "preview is isolated" claim
 > is worse than none, because authors trust it.
 
@@ -69,6 +69,7 @@ and untrusted, so we currently suppress all MCP calls (blinding MCP reads too).
 Two real directions (not mutually exclusive):
 
 ### A. Explicit read/write classification + central fail-closed gate
+
 Add a first-class read/write classification to native tool defs (default:
 write), plumb MCP `readOnlyHint`, and gate once at the dispatch boundary —
 default-deny writes in preview. Structurally fail-closed; closes every current
@@ -79,16 +80,18 @@ and future path.
   reads value degrades exactly where agents lean on MCP.
 
 ### B. Sandbox-real side effects
+
 Stop suppressing. Route writes to **disposable targets** — a scratch Slack
 channel, temp tables, a throwaway memory namespace, a sandbox API account — so
 the chain runs **for real but harmlessly**.
 
-- **Upside:** dissolves the finding class *and* the safe-vs-faithful trade —
+- **Upside:** dissolves the finding class _and_ the safe-vs-faithful trade —
   nothing is faked, so multi-step chains stay honest.
 - **Limit:** not every external system has a safe target (an arbitrary customer
   API has no "scratch" account).
 
 ### Recommendation: hybrid
+
 Sandbox-real wherever a disposable target exists; fail-closed suppression
 (approach A) only as the backstop for writes with no safe target. And regardless
 of approach, **reframe preview in the product as an iteration aid, not a test.**
@@ -96,8 +99,8 @@ of approach, **reframe preview in the product as an iteration aid, not a test.**
 ## Tracked debt
 
 - [ ] PostHog-API management **write** tools ungated in preview (needs read/write
-  classification, not method gating — see above). Severity: low.
+      classification, not method gating — see above). Severity: low.
 - [ ] MCP suppression is wholesale (blinds reads). Replace with classification
-  or sandbox-real.
+      or sandbox-real.
 - [ ] Custom/sandbox tool suppression is wholesale (blinds reads). Same.
 - [ ] Decide A vs B vs hybrid; then implement once, at the dispatch boundary.
