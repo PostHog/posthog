@@ -18,7 +18,7 @@ from posthog.temporal.data_imports.sources.workable.settings import PAGE_SIZE, W
 # Workable account subdomains are DNS labels — letters, digits and hyphens. Validating this before
 # building the URL prevents host injection (e.g. a `subdomain` of `evil.com/` would otherwise retarget
 # the request and exfiltrate the stored token).
-_SUBDOMAIN_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9-]*$")
+_SUBDOMAIN_RE = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$")
 
 DEFAULT_TIMEOUT = 60
 RETRYABLE_STATUSES = {429, 500, 502, 503, 504}

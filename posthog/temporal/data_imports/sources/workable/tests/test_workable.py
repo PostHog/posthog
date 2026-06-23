@@ -28,6 +28,7 @@ class TestValidateSubdomain:
         [
             ("simple", "groove-tech", "groove-tech"),
             ("alnum", "company123", "company123"),
+            ("single_char", "a", "a"),
             ("trims_whitespace", "  acme  ", "acme"),
         ]
     )
@@ -41,6 +42,8 @@ class TestValidateSubdomain:
             ("slash", "acme/foo"),
             ("at_sign", "user@host"),
             ("leading_hyphen_ok_but_dot_not", "a.b"),
+            ("trailing_hyphen", "acme-"),
+            ("leading_hyphen", "-acme"),
             ("space_inside", "ac me"),
         ]
     )
@@ -139,7 +142,7 @@ class _FakeResumableManager:
         self.saved.append(data)
 
 
-def _collect(manager: _FakeResumableManager, monkeypatch: Any, pages: dict[str, dict], **kwargs: Any) -> list[dict]:
+def _collect(manager: _FakeResumableManager, monkeypatch: Any, pages: dict[str, Any], **kwargs: Any) -> list[dict]:
     def fake_fetch(_session: Any, url: str, _logger: Any) -> dict:
         return pages[url]
 
@@ -192,7 +195,7 @@ class TestGetRows:
 
     def test_empty_page_terminates(self, monkeypatch: Any) -> None:
         first = f"https://acme.workable.com/spi/v3/stages?limit={PAGE_SIZE}"
-        pages = {first: {"stages": [], "paging": {}}}
+        pages: dict[str, Any] = {first: {"stages": [], "paging": {}}}
         rows = _collect(_FakeResumableManager(), monkeypatch, pages, endpoint="stages")
         assert rows == []
 
@@ -210,7 +213,7 @@ class TestFetchPage:
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
     def test_non_retryable_statuses_raise_http_error(self, _name: str, status: int) -> None:
         response = MagicMock(status_code=status, ok=False, text="nope")
-        response.raise_for_status.side_effect = requests.HTTPError(f"{status} Client Error")
+        response.raise_for_status.side_effect = requests.HTTPError(f"{status} Client Error", response=response)
         session = MagicMock()
         session.get.return_value = response
         with pytest.raises(requests.HTTPError):

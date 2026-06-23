@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import WorkableSourceConfig
@@ -42,6 +42,7 @@ class TestSourceConfig:
 
     def test_api_token_field_is_secret(self) -> None:
         token_field = next(f for f in WorkableSource().get_source_config.fields if f.name == "api_token")
+        assert isinstance(token_field, SourceFieldInputConfig)
         assert token_field.secret is True
 
 
@@ -137,7 +138,7 @@ class TestMisc:
         inputs.incremental_field = "updated_at"
         manager = MagicMock()
 
-        result = WorkableSource().source_for_pipeline(_config(), manager, inputs)
+        result: Any = WorkableSource().source_for_pipeline(_config(), manager, inputs)
         assert result == "response"
         assert captured["subdomain"] == "acme"
         assert captured["api_token"] == "tok"
