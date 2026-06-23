@@ -3,7 +3,12 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfigType
+from posthog.schema import (
+    DataWarehouseSourceCategory,
+    ReleaseStatus,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+)
 
 from posthog.temporal.data_imports.sources.clockify.clockify import ClockifyResumeConfig
 from posthog.temporal.data_imports.sources.clockify.settings import CLOCKIFY_ENDPOINTS, ENDPOINTS
@@ -33,6 +38,7 @@ class TestClockifySource:
         fields = self.source.get_source_config.fields
         assert len(fields) == 1
         api_key_field = fields[0]
+        assert isinstance(api_key_field, SourceFieldInputConfig)
         assert api_key_field.name == "api_key"
         assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
         assert api_key_field.required is True
@@ -98,9 +104,8 @@ class TestClockifySource:
     def test_source_for_pipeline_plumbs_endpoint_and_incremental(self, monkeypatch: Any) -> None:
         captured: dict[str, Any] = {}
 
-        def fake_source(**kwargs: Any) -> str:
+        def fake_source(**kwargs: Any) -> None:
             captured.update(kwargs)
-            return "response"
 
         monkeypatch.setattr("posthog.temporal.data_imports.sources.clockify.source.clockify_source", fake_source)
 
@@ -111,8 +116,7 @@ class TestClockifySource:
         inputs.incremental_field = "time_interval_start"
         manager = MagicMock()
 
-        result = self.source.source_for_pipeline(ClockifySourceConfig(api_key="key"), manager, inputs)
-        assert result == "response"
+        self.source.source_for_pipeline(ClockifySourceConfig(api_key="key"), manager, inputs)
         assert captured["api_key"] == "key"
         assert captured["endpoint"] == "time_entries"
         assert captured["should_use_incremental_field"] is True

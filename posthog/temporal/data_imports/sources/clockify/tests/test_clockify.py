@@ -21,6 +21,7 @@ from posthog.temporal.data_imports.sources.clockify.clockify import (
     get_rows,
 )
 from posthog.temporal.data_imports.sources.clockify.settings import CLOCKIFY_ENDPOINTS, ClockifyEndpointConfig
+from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 
 class TestFormatDatetimeZ:
@@ -82,7 +83,9 @@ class TestFlattenTimeEntry:
         assert (_get_item_mapper(endpoint) is not None) == has_mapper
 
 
-class _FakeManager:
+class _FakeManager(ResumableSourceManager[ClockifyResumeConfig]):
+    """In-memory stand-in: overrides __init__ to skip Redis wiring, records saved state."""
+
     def __init__(self, state: ClockifyResumeConfig | None = None) -> None:
         self._state = state
         self.saved: list[ClockifyResumeConfig] = []
