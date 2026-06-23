@@ -15,6 +15,10 @@ from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 
+from products.error_tracking.backend.facade import (
+    api as facade_api,
+    queries as query_facade,
+)
 from products.error_tracking.backend.facade.query_utils import (
     CONTEXT_EVENT_SELECTS,
     EVENT_SELECTS,
@@ -37,8 +41,6 @@ from products.error_tracking.backend.facade.query_utils import (
     normalize_volume_resolution,
     pick_fields,
 )
-from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
-from products.error_tracking.backend.models import ErrorTrackingIssue, resolve_fingerprints_for_issues
 from products.error_tracking.backend.presentation.views.query_serializers import (
     ErrorTrackingIssueDetailSerializer,
     ErrorTrackingIssueEventsQueryRequestSerializer,
@@ -98,8 +100,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             withLastEvent=False,
             tags={"productKey": "error_tracking"},
         )
-        with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY):
-            data = ErrorTrackingQueryRunner(team=self.team, query=query).calculate().model_dump(mode="json")
+        data = query_facade.run_error_tracking_query(self.team, query)
         raw_results_value = data.get("results")
         raw_results: list[object] = raw_results_value if isinstance(raw_results_value, list) else []
         results = [pick_fields(cast(dict[str, object], issue), LIST_ISSUE_FIELDS) for issue in raw_results[:limit]]
@@ -128,10 +129,10 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         volume_resolution = cast(int, params.get("volumeResolution", 0))
         if include_sparkline and volume_resolution <= 0:
             volume_resolution = 12
-        issue_model = ErrorTrackingIssue.objects.filter(team=self.team, id=issue_id).first()
-        if issue_model is None:
+        issue_basics = facade_api.get_issue_basics(self.team.id, issue_id)
+        if issue_basics is None:
             return Response(status=status.HTTP_404_NOT_FOUND)
-        fingerprints = resolve_fingerprints_for_issues(team_id=self.team.pk, issue_ids=[issue_id])
+        fingerprints = facade_api.resolve_fingerprints(self.team.pk, [issue_id])
         query = ErrorTrackingQuery(
             kind="ErrorTrackingQuery",
             issueId=issue_id,
@@ -147,17 +148,16 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             withLastEvent=False,
             tags={"productKey": "error_tracking"},
         )
-        with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY):
-            data = ErrorTrackingQueryRunner(team=self.team, query=query).calculate().model_dump(mode="json")
+        data = query_facade.run_error_tracking_query(self.team, query)
         raw_results_value = data.get("results")
         raw_results: list[object] = raw_results_value if isinstance(raw_results_value, list) else []
         if not raw_results:
             payload: dict[str, object] = compact_dict(
                 {
-                    "id": str(issue_model.id),
-                    "name": issue_model.name,
-                    "description": issue_model.description,
-                    "status": issue_model.status,
+                    "id": str(issue_basics.id),
+                    "name": issue_basics.name,
+                    "description": issue_basics.description,
+                    "status": issue_basics.status,
                 }
             )
             payload["impact"] = {}
@@ -227,10 +227,10 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         issue_id = str(params["issueId"])
         limit = cast(int, params.get("limit", 1))
         offset = cast(int, params.get("offset", 0))
-        if not ErrorTrackingIssue.objects.filter(team=self.team, id=issue_id).exists():
+        if not facade_api.issue_exists_by_id(self.team.id, issue_id):
             return Response(status=status.HTTP_404_NOT_FOUND)
         date_range = build_date_range(params.get("dateRange"))
-        fingerprints = resolve_fingerprints_for_issues(team_id=self.team.pk, issue_ids=[issue_id])
+        fingerprints = facade_api.resolve_fingerprints(self.team.pk, [issue_id])
         if not fingerprints:
             return Response({"results": [], "hasMore": False, "limit": limit, "offset": offset})
         query = EventsQuery(

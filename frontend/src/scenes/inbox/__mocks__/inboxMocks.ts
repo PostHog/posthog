@@ -335,8 +335,30 @@ export function mockReportTasks(reportId: string): { results: any[]; count: numb
     }
 }
 
-export function mockTask(taskId: string): any {
-    const failed = taskId.includes('research')
+function makeTaskRun(taskId: string, runId: string, status: string): any {
+    return {
+        id: runId,
+        task: taskId,
+        stage: null,
+        branch: 'inbox/fix-invites',
+        status,
+        environment: 'cloud',
+        log_url: null,
+        error_message: null,
+        output: taskId.includes('impl') ? { pr_url: 'https://github.com/PostHog/posthog/pull/12001' } : {},
+        state: {},
+        artifacts: [],
+        created_at: BASE_DATE,
+        updated_at: BASE_DATE,
+        completed_at: status === 'in_progress' ? null : BASE_DATE,
+    }
+}
+
+// `runStatus` overrides the linked run's status; defaults keep the research task finished and the
+// implementation task live. Pass a terminal status (e.g. 'completed') to render the run viewer's
+// static replay rather than a live SSE stream.
+export function mockTask(taskId: string, runStatus?: string): any {
+    const status = runStatus ?? (taskId.includes('research') ? 'completed' : 'in_progress')
     return {
         id: taskId,
         task_number: 42,
@@ -348,26 +370,41 @@ export function mockTask(taskId: string): any {
         github_integration: 1,
         json_schema: null,
         internal: false,
-        latest_run: {
-            id: `${taskId}-run`,
-            task: taskId,
-            stage: null,
-            branch: 'inbox/fix-invites',
-            status: failed ? 'completed' : 'in_progress',
-            environment: 'cloud',
-            log_url: null,
-            error_message: null,
-            output: taskId.includes('impl') ? { pr_url: 'https://github.com/PostHog/posthog/pull/12001' } : {},
-            state: {},
-            artifacts: [],
-            created_at: BASE_DATE,
-            updated_at: BASE_DATE,
-            completed_at: failed ? BASE_DATE : null,
-        },
+        latest_run: makeTaskRun(taskId, `${taskId}-run`, status),
         created_at: BASE_DATE,
         updated_at: BASE_DATE,
         created_by: null,
     }
+}
+
+/** The run-status payload (`/runs/:runId`) the `SandboxRunViewer` reads before replaying its log. */
+export function mockTaskRun(taskId: string, runId: string): any {
+    return makeTaskRun(taskId, runId, 'completed')
+}
+
+/**
+ * A single-message agent run log as JSONL — what the `/runs/:runId/logs` endpoint returns (one
+ * `StoredLogEntry` per line). One `agent_message` frame so the run viewer renders a single assistant
+ * bubble instead of the "conversation backing run not found" error.
+ */
+export function mockRunLog(): string {
+    const entry = {
+        type: 'notification',
+        notification: {
+            method: 'session/update',
+            params: {
+                update: {
+                    sessionUpdate: 'agent_message',
+                    messageId: 'inbox-run-msg',
+                    content: {
+                        type: 'text',
+                        text: 'Investigated the invite failures, confirmed the missing-recipient 500, and opened a fix.',
+                    },
+                },
+            },
+        },
+    }
+    return JSON.stringify(entry)
 }
 
 export const mockSourceConfigs = {

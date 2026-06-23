@@ -2,9 +2,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -193,8 +191,6 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
             ['eventId', 'searchQuery', 'initialTab'],
             dataNodeLogic(getDataNodeLogicProps(props)),
             ['elapsedTime', 'response', 'responseLoading', 'responseError'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
         actions: [aiObservabilityTraceLogic, ['setEventId']],
     })),
@@ -508,7 +504,7 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
                 llmPersonsLazyLoaderLogic.actions.ensurePersonLoaded(trace.distinctId)
             }
 
-            if (trace?.id && values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]) {
+            if (trace?.id) {
                 llmSentimentLazyLoaderLogic.actions.ensureSentimentLoaded(trace.id, {
                     dateFrom: trace.createdAt,
                     dateTo: dayjs(trace.createdAt).add(SENTIMENT_DATE_WINDOW_DAYS, 'day').toISOString(),

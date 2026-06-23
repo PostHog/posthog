@@ -17876,6 +17876,7 @@ export namespace Schemas {
       conclusion?: ConclusionEnum | null;
       /**
          * Optional comment about the experiment conclusion.
+         * @maxLength 4000
          * @nullable
          */
       conclusion_comment?: string | null;
@@ -18712,9 +18713,14 @@ export namespace Schemas {
       sessions?: number;
     }
 
-    export interface ErrorTrackingIssueAssignment {
+    export interface ErrorTrackingIssueAssigneeRead {
       readonly id: number | string | null;
-      readonly type: string;
+      type: string;
+    }
+
+    export interface ErrorTrackingIssueCohortRead {
+      id: number;
+      name: string;
     }
 
     export interface ErrorTrackingTopFrame {
@@ -18930,46 +18936,6 @@ export namespace Schemas {
       nextOffset?: number;
     }
 
-    /**
-     * @nullable
-     */
-    export type ErrorTrackingIssueFullCohort = {
-      readonly id?: number;
-      readonly name?: string;
-    } | null;
-
-    /**
-     * * `archived` - Archived
-     * * `active` - Active
-     * * `resolved` - Resolved
-     * * `pending_release` - Pending release
-     * * `suppressed` - Suppressed
-     */
-    export type ErrorTrackingIssueFullStatusEnum = typeof ErrorTrackingIssueFullStatusEnum[keyof typeof ErrorTrackingIssueFullStatusEnum];
-
-
-    export const ErrorTrackingIssueFullStatusEnum = {
-      Archived: 'archived',
-      Active: 'active',
-      Resolved: 'resolved',
-      PendingRelease: 'pending_release',
-      Suppressed: 'suppressed',
-    } as const;
-
-    export interface ErrorTrackingIssueFull {
-      readonly id: string;
-      status?: ErrorTrackingIssueFullStatusEnum;
-      /** @nullable */
-      name?: string | null;
-      /** @nullable */
-      description?: string | null;
-      first_seen: string;
-      assignee: ErrorTrackingIssueAssignment;
-      external_issues: ErrorTrackingExternalReferenceResult[];
-      /** @nullable */
-      readonly cohort: ErrorTrackingIssueFullCohort;
-    }
-
     export interface ErrorTrackingIssueListItem {
       /** Error tracking issue ID. */
       id: string;
@@ -19054,6 +19020,23 @@ export namespace Schemas {
       volumeResolution?: number;
       /** Set true to include a compact numeric occurrence sparkline. Defaults to false. */
       includeSparkline?: boolean;
+    }
+
+    /**
+     * Read-only serializer for issue contract types returned by the facade.
+     */
+    export interface ErrorTrackingIssueRead {
+      id: string;
+      status: string;
+      /** @nullable */
+      name: string | null;
+      /** @nullable */
+      description: string | null;
+      /** @nullable */
+      first_seen: string | null;
+      assignee: ErrorTrackingIssueAssigneeRead | null;
+      external_issues: ErrorTrackingExternalReferenceResult[];
+      cohort: ErrorTrackingIssueCohortRead | null;
     }
 
     export interface ErrorTrackingIssueSplitFingerprint {
@@ -19253,51 +19236,31 @@ export namespace Schemas {
       ErrorTrackingList: 'error_tracking_list',
     } as const;
 
-    /**
-     * Recommendation payload, shape depends on type.
-     */
-    export type ErrorTrackingRecommendationMeta = { [key: string]: unknown };
-
-    /**
-     * * `ready` - Ready
-     * * `computing` - Computing
-     */
-    export type ErrorTrackingRecommendationStatusEnum = typeof ErrorTrackingRecommendationStatusEnum[keyof typeof ErrorTrackingRecommendationStatusEnum];
-
-
-    export const ErrorTrackingRecommendationStatusEnum = {
-      Ready: 'ready',
-      Computing: 'computing',
-    } as const;
-
     export interface ErrorTrackingRecommendation {
       /** Recommendation UUID. */
-      readonly id: string;
+      id: string;
       /** Recommendation type identifier (e.g. 'alerts'). */
-      readonly type: string;
+      type: string;
       /** Recommendation payload, shape depends on type. */
-      readonly meta: ErrorTrackingRecommendationMeta;
+      meta: unknown;
       /** Whether the recommendation's recommended action has been satisfied. */
-      readonly completed: boolean;
-      /** 'ready' if meta is fresh, 'computing' if a refresh is in progress.
-       *
-       * * `ready` - Ready
-       * * `computing` - Computing */
-      readonly status: ErrorTrackingRecommendationStatusEnum;
+      completed: boolean;
+      /** 'ready' if meta is fresh, 'computing' if a refresh is in progress. */
+      status: string;
       /**
          * Timestamp meta was last successfully computed.
          * @nullable
          */
-      readonly computed_at: string | null;
+      computed_at: string | null;
       /**
          * Timestamp the user dismissed this recommendation, if any.
          * @nullable
          */
-      readonly dismissed_at: string | null;
+      dismissed_at: string | null;
       /** Timestamp the recommendation row was first created. */
-      readonly created_at: string;
+      created_at: string;
       /** Timestamp the recommendation row was last updated. */
-      readonly updated_at: string;
+      updated_at: string;
     }
 
     /**
@@ -19548,38 +19511,17 @@ export namespace Schemas {
       sampling_rate?: number;
     }
 
-    /**
-     * Release associated with this symbol set, if any.
-     * @nullable
-     */
-    export type ErrorTrackingSymbolSetRelease = { [key: string]: unknown } | null;
-
     export interface ErrorTrackingSymbolSet {
-      /** Unique symbol set ID. */
-      readonly id: string;
-      /** Reference used to match stack frames to this symbol set. */
-      readonly ref: string;
-      /** Project/team ID that owns this symbol set. */
-      readonly team_id: number;
-      /** When this symbol set row was created. */
-      readonly created_at: string;
-      /**
-         * When this symbol set was last used to resolve a stack frame.
-         * @nullable
-         */
-      readonly last_used: string | null;
-      /**
-         * Reason symbol lookup failed, if the source map is missing or invalid.
-         * @nullable
-         */
-      readonly failure_reason: string | null;
-      /** Whether this symbol set has an uploaded source map file available to download. */
-      readonly has_uploaded_file: boolean;
-      /**
-         * Release associated with this symbol set, if any.
-         * @nullable
-         */
-      readonly release: ErrorTrackingSymbolSetRelease;
+      id: string;
+      ref: string;
+      team_id: number;
+      created_at: string;
+      /** @nullable */
+      last_used: string | null;
+      /** @nullable */
+      failure_reason: string | null;
+      has_uploaded_file: boolean;
+      release: ErrorTrackingRelease | null;
     }
 
     export interface ErrorTrackingSymbolSetBulkDelete {
@@ -19707,6 +19649,7 @@ export namespace Schemas {
      * * `trial_limit_reached` - Trial evaluation limit reached
      * * `model_not_allowed` - Model not available on the trial plan
      * * `provider_key_deleted` - Provider API key was deleted
+     * * `no_default_model` - No default model available for the selected provider
      */
     export type StatusReasonEnum = typeof StatusReasonEnum[keyof typeof StatusReasonEnum];
 
@@ -19715,6 +19658,7 @@ export namespace Schemas {
       TrialLimitReached: 'trial_limit_reached',
       ModelNotAllowed: 'model_not_allowed',
       ProviderKeyDeleted: 'provider_key_deleted',
+      NoDefaultModel: 'no_default_model',
     } as const;
 
     /**
@@ -20402,6 +20346,11 @@ export namespace Schemas {
       split_percent?: number | null;
     }
 
+    /**
+     * Free-text notes per variant, keyed by variant key. Use to document what each variant does or its reroute URL.
+     */
+    export type ExperimentParametersVariantNotes = {[key: string]: string} | null;
+
     export interface ExperimentParameters {
       /** Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. */
       excluded_variants?: string[] | null;
@@ -20411,6 +20360,8 @@ export namespace Schemas {
       minimum_detectable_effect?: number | null;
       /** Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100. */
       rollout_percentage?: number | null;
+      /** Free-text notes per variant, keyed by variant key. Use to document what each variant does or its reroute URL. */
+      variant_notes?: ExperimentParametersVariantNotes;
     }
 
     export type ManualMetricType = typeof ManualMetricType[keyof typeof ManualMetricType];
@@ -20618,7 +20569,7 @@ export namespace Schemas {
       holdout_id?: number | null;
       /** @nullable */
       readonly exposure_cohort: number | null;
-      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
+      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded), and `variant_notes` (free-text notes per variant, keyed by variant key). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
       parameters?: ExperimentParameters | null;
       /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
       running_time_calculation?: ExperimentRunningTimeCalculation | null;
@@ -20663,6 +20614,7 @@ export namespace Schemas {
       conclusion?: ConclusionEnum | null;
       /**
          * Comment about the experiment conclusion.
+         * @maxLength 4000
          * @nullable
          */
       conclusion_comment?: string | null;
@@ -20721,7 +20673,7 @@ export namespace Schemas {
       readonly holdout: ExperimentHoldout;
       /** @nullable */
       readonly exposure_cohort: number | null;
-      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
+      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded), and `variant_notes` (free-text notes per variant, keyed by variant key). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
       parameters?: ExperimentParameters | null;
       /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
       running_time_calculation?: ExperimentRunningTimeCalculation | null;
@@ -20747,6 +20699,7 @@ export namespace Schemas {
       conclusion?: ConclusionEnum | null;
       /**
          * Comment about the experiment conclusion.
+         * @maxLength 4000
          * @nullable
          */
       conclusion_comment?: string | null;
@@ -22183,6 +22136,18 @@ export namespace Schemas {
     export const ExternalQueryStatus = {
       Success: 'success',
       Error: 'error',
+    } as const;
+
+    /**
+     * * `severity_text` - severity_text
+     * * `service_name` - service_name
+     */
+    export type FacetFieldEnum = typeof FacetFieldEnum[keyof typeof FacetFieldEnum];
+
+
+    export const FacetFieldEnum = {
+      SeverityText: 'severity_text',
+      ServiceName: 'service_name',
     } as const;
 
     export type FeatureFlagFilters = { [key: string]: unknown };
@@ -29780,13 +29745,13 @@ export namespace Schemas {
       results: ErrorTrackingFingerprint[];
     }
 
-    export interface PaginatedErrorTrackingIssueFullList {
+    export interface PaginatedErrorTrackingIssueReadList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: ErrorTrackingIssueFull[];
+      results: ErrorTrackingIssueRead[];
     }
 
     export interface PaginatedErrorTrackingRecommendationList {
@@ -35238,25 +35203,20 @@ export namespace Schemas {
     }
 
     /**
-     * @nullable
+     * Read-only serializer for issue contract types returned by the facade.
      */
-    export type PatchedErrorTrackingIssueFullCohort = {
-      readonly id?: number;
-      readonly name?: string;
-    } | null;
-
-    export interface PatchedErrorTrackingIssueFull {
-      readonly id?: string;
-      status?: ErrorTrackingIssueFullStatusEnum;
+    export interface PatchedErrorTrackingIssueRead {
+      id?: string;
+      status?: string;
       /** @nullable */
       name?: string | null;
       /** @nullable */
       description?: string | null;
-      first_seen?: string;
-      assignee?: ErrorTrackingIssueAssignment;
-      external_issues?: ErrorTrackingExternalReferenceResult[];
       /** @nullable */
-      readonly cohort?: PatchedErrorTrackingIssueFullCohort;
+      first_seen?: string | null;
+      assignee?: ErrorTrackingIssueAssigneeRead | null;
+      external_issues?: ErrorTrackingExternalReferenceResult[];
+      cohort?: ErrorTrackingIssueCohortRead | null;
     }
 
     export interface PatchedErrorTrackingIssueWrite {
@@ -35548,7 +35508,7 @@ export namespace Schemas {
       holdout_id?: number | null;
       /** @nullable */
       readonly exposure_cohort?: number | null;
-      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
+      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded), and `variant_notes` (free-text notes per variant, keyed by variant key). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
       parameters?: ExperimentParameters | null;
       /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
       running_time_calculation?: ExperimentRunningTimeCalculation | null;
@@ -35593,6 +35553,7 @@ export namespace Schemas {
       conclusion?: ConclusionEnum | null;
       /**
          * Comment about the experiment conclusion.
+         * @maxLength 4000
          * @nullable
          */
       conclusion_comment?: string | null;
@@ -45319,7 +45280,7 @@ export namespace Schemas {
      * change without a deploy to either app.
      */
     export interface ScoutMetadata {
-      /** Whether this project is enrolled to run scouts (set via the signals-scout flag allowlist). */
+      /** Whether this project runs scouts. True when the project is in the signals-scout flag's enrollment set — either listed explicitly in guaranteed_team_ids or covered by the "*" wildcard (every project that turns scouts on) — and not in skip_team_ids. */
       enrolled: boolean;
       /**
          * Free-form announcement banner to show above the scout UI (e.g. alpha run-limit notice), or null when unset.
@@ -45693,6 +45654,7 @@ export namespace Schemas {
       conclusion?: ConclusionEnum | null;
       /**
          * Optional comment about the experiment conclusion.
+         * @maxLength 4000
          * @nullable
          */
       conclusion_comment?: string | null;
@@ -50184,6 +50146,13 @@ export namespace Schemas {
       event_name?: string;
     }
 
+    export interface _LogFacetValue {
+      /** The facet value (e.g. a severity level or service name). */
+      value: string;
+      /** Number of matching log records, with all active filters applied except this facet's own selection. */
+      count: number;
+    }
+
     /**
      * * `log` - log
      * * `log_attribute` - log_attribute
@@ -50329,6 +50298,41 @@ export namespace Schemas {
     export interface _LogsCountResponse {
       /** Number of log entries matching the filters. */
       count: number;
+    }
+
+    export interface _LogsFacetValuesBody {
+      /** Top-level column to facet on. Provide exactly one of facetField or facetResourceAttribute. Its own filter is excluded so counts reflect the other active filters.
+       *
+       * * `severity_text` - severity_text
+       * * `service_name` - service_name */
+      facetField?: FacetFieldEnum | null;
+      /**
+         * Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of facetField or facetResourceAttribute. Its own log_resource_attribute filter is excluded so counts reflect the other active filters.
+         * @nullable
+         */
+      facetResourceAttribute?: string | null;
+      /** Date range. Defaults to last hour. */
+      dateRange?: _DateRange;
+      /** Filter by log severity levels (ignored when faceting on severity_text). */
+      severityLevels?: SeverityLevelsEnum[];
+      /** Filter by service names (ignored when faceting on service_name). */
+      serviceNames?: string[];
+      /** Full-text search term to filter log bodies. */
+      searchTerm?: string;
+      /** Type-ahead filter over the faceted field's own values (case-insensitive substring match). Distinct from searchTerm, which searches log bodies. */
+      facetSearch?: string;
+      /** Property filters for the query. */
+      filterGroup?: _LogPropertyFilter[];
+    }
+
+    export interface _LogsFacetValuesRequest {
+      /** The facet values query to execute. */
+      query: _LogsFacetValuesBody;
+    }
+
+    export interface _LogsFacetValuesResponse {
+      /** Facet values with cross-filtered counts, ordered by count descending. */
+      results: _LogFacetValue[];
     }
 
     export interface _LogsQueryBody {

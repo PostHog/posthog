@@ -1,6 +1,8 @@
 import logging
 from typing import TYPE_CHECKING, Optional, cast
 
+from django.db import OperationalError as DjangoOperationalError
+
 import structlog
 from psycopg import OperationalError
 from sshtunnel import BaseSSHTunnelForwarderError
@@ -802,13 +804,24 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 conn.close()
 
     def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        from posthog.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
+        from posthog.temporal.data_imports.sources.postgres.exceptions import (
+            CDCHandledExternally,
+            PostHogDatabaseConnectionError,
+        )
 
         from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
         ssh_tunnel = self.make_ssh_tunnel_func(config)
 
-        schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
+        # This reads sync metadata from PostHog's own database, not the customer's Postgres. A
+        # transient failure reaching our database here (e.g. a DNS blip resolving our host) raises
+        # the same "Name or service not known" wording a customer host misconfig would, which
+        # `get_non_retryable_errors` would misclassify as non-retryable and permanently stop a
+        # healthy sync. Re-raise as a retryable error whose message doesn't collide with those.
+        try:
+            schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
+        except DjangoOperationalError as e:
+            raise PostHogDatabaseConnectionError("Failed to load sync metadata from PostHog's database") from e
         schema_metadata = schema.schema_metadata or {}
         source_schema = (
             schema_metadata.get("source_schema") if isinstance(schema_metadata.get("source_schema"), str) else None

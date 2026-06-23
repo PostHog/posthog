@@ -1619,7 +1619,7 @@ class TestJudgePromptAssembly:
 
         with (
             patch(
-                "posthog.temporal.ai_observability.evaluation_llm_judge.EvaluationConfig.objects.get_or_create"
+                "posthog.temporal.ai_observability.model_resolution.EvaluationConfig.objects.get_or_create"
             ) as mock_get_or_create,
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
         ):
@@ -1673,7 +1673,7 @@ class TestJudgePromptAssembly:
 
         with (
             patch(
-                "posthog.temporal.ai_observability.evaluation_llm_judge.EvaluationConfig.objects.get_or_create"
+                "posthog.temporal.ai_observability.model_resolution.EvaluationConfig.objects.get_or_create"
             ) as mock_get_or_create,
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
         ):
