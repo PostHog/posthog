@@ -11,7 +11,7 @@ from posthog.temporal.data_imports.sources.canny.canny import (
     CannyRetryableError,
     _build_body,
     _extract_records,
-    _fetch_page,
+    _handle_response,
     canny_source,
     get_rows,
     validate_credentials,
@@ -23,7 +23,7 @@ _POSTS = CANNY_ENDPOINTS["posts"]
 _BOARDS = CANNY_ENDPOINTS["boards"]
 
 
-def _resp(body: Any, status: int = 200) -> MagicMock:
+def _resp(body: Any, status: int = 200) -> Any:
     response = MagicMock()
     response.status_code = status
     response.ok = 200 <= status < 400
@@ -65,7 +65,7 @@ class TestBuildBody:
 
 class TestExtractRecords:
     def test_extracts_configured_key(self) -> None:
-        config = CannyEndpointConfig(name="x", path="/v1/x/list", data_key="statusChanges")
+        config = CannyEndpointConfig(path="/v1/x/list", data_key="statusChanges")
         assert _extract_records({"statusChanges": [{"id": "1"}]}, config) == [{"id": "1"}]
 
     @pytest.mark.parametrize("body", [{}, {"posts": None}, {"posts": {"id": "1"}}, {"other": [{"id": "1"}]}])
@@ -73,33 +73,31 @@ class TestExtractRecords:
         assert _extract_records(body, _POSTS) == []
 
 
-class TestFetchPage:
-    # Call through the tenacity-undecorated function so a single attempt's classification can be
-    # asserted without incurring real backoff sleeps.
-    def _fetch_once(self, response: Any) -> dict[str, Any]:
-        session = MagicMock()
-        session.post.return_value = response
-        return _fetch_page.__wrapped__(session, "https://canny.io/api/v1/posts/list", {"apiKey": "k"}, MagicMock())
+class TestHandleResponse:
+    # Exercise the per-response classification directly, so a single attempt's behaviour can be
+    # asserted without driving the tenacity retry loop (and its real backoff sleeps).
+    def _handle(self, response: Any) -> dict[str, Any]:
+        return _handle_response(response, "https://canny.io/api/v1/posts/list", MagicMock())
 
     @pytest.mark.parametrize("status", [429, 500, 503])
     def test_retryable_statuses_raise_retryable_error(self, status: int) -> None:
         with pytest.raises(CannyRetryableError):
-            self._fetch_once(_resp({}, status=status))
+            self._handle(_resp({}, status=status))
 
     @pytest.mark.parametrize("status", [400, 401, 403])
     def test_client_errors_raise_http_error(self, status: int) -> None:
         response = _resp({}, status=status)
-        response.raise_for_status.side_effect = requests.HTTPError(f"{status} Client Error")
+        response.raise_for_status.side_effect = requests.HTTPError(f"{status} Client Error", response=response)
         with pytest.raises(requests.HTTPError):
-            self._fetch_once(response)
+            self._handle(response)
 
     def test_error_body_on_200_raises_http_error(self) -> None:
         # Canny can return 200 with an {"error": ...} body for a bad API key.
         with pytest.raises(requests.HTTPError, match="invalid API key"):
-            self._fetch_once(_resp({"error": "invalid API key"}))
+            self._handle(_resp({"error": "invalid API key"}))
 
     def test_success_returns_body(self) -> None:
-        assert self._fetch_once(_resp({"posts": [], "hasMore": False})) == {"posts": [], "hasMore": False}
+        assert self._handle(_resp({"posts": [], "hasMore": False})) == {"posts": [], "hasMore": False}
 
 
 class TestGetRows:
@@ -168,6 +166,18 @@ class TestGetRows:
         with pytest.raises(requests.HTTPError):
             _drive("posts", manager, [_resp({"error": "invalid API key"})])
 
+    def test_registers_api_key_for_redaction(self) -> None:
+        # The secret rides in the POST body through the tracked transport; it must be redacted so it
+        # never lands in HTTP logs/samples.
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = False
+
+        with patch("posthog.temporal.data_imports.sources.canny.canny.make_tracked_session") as MockSession:
+            MockSession.return_value.post.return_value = _resp({"posts": [], "hasMore": False})
+            list(get_rows(api_key="secret", endpoint="posts", logger=MagicMock(), resumable_source_manager=manager))
+
+        MockSession.assert_called_once_with(redact_values=("secret",))
+
 
 class TestValidateCredentials:
     def _validate(self, response: Any = None, raises: Exception | None = None) -> bool:
@@ -190,6 +200,13 @@ class TestValidateCredentials:
 
     def test_network_error_is_invalid(self) -> None:
         assert self._validate(raises=requests.ConnectionError("boom")) is False
+
+    def test_registers_api_key_for_redaction(self) -> None:
+        with patch("posthog.temporal.data_imports.sources.canny.canny.make_tracked_session") as MockSession:
+            MockSession.return_value.post.return_value = _resp({"boards": []})
+            validate_credentials("secret")
+
+        MockSession.assert_called_once_with(redact_values=("secret",))
 
 
 class TestCannySource:

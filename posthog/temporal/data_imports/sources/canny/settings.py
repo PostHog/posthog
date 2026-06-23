@@ -11,7 +11,6 @@ from products.data_warehouse.backend.types import IncrementalField
 
 @dataclass
 class CannyEndpointConfig:
-    name: str
     # Path under the API base (https://canny.io/api). Canny still serves every
     # resource we sync from its v1 list endpoints.
     path: str
@@ -27,19 +26,17 @@ class CannyEndpointConfig:
 
 
 CANNY_ENDPOINTS: dict[str, CannyEndpointConfig] = {
-    "boards": CannyEndpointConfig(name="boards", path="/v1/boards/list", data_key="boards", paginated=False),
-    "categories": CannyEndpointConfig(name="categories", path="/v1/categories/list", data_key="categories"),
+    "boards": CannyEndpointConfig(path="/v1/boards/list", data_key="boards", paginated=False),
+    "categories": CannyEndpointConfig(path="/v1/categories/list", data_key="categories"),
     # Changelog entries live under the `entries` list endpoint.
-    "changelog_entries": CannyEndpointConfig(name="changelog_entries", path="/v1/entries/list", data_key="entries"),
-    "comments": CannyEndpointConfig(name="comments", path="/v1/comments/list", data_key="comments"),
-    "companies": CannyEndpointConfig(name="companies", path="/v1/companies/list", data_key="companies"),
-    "posts": CannyEndpointConfig(name="posts", path="/v1/posts/list", data_key="posts"),
-    "status_changes": CannyEndpointConfig(
-        name="status_changes", path="/v1/status_changes/list", data_key="statusChanges"
-    ),
-    "tags": CannyEndpointConfig(name="tags", path="/v1/tags/list", data_key="tags"),
-    "users": CannyEndpointConfig(name="users", path="/v1/users/list", data_key="users"),
-    "votes": CannyEndpointConfig(name="votes", path="/v1/votes/list", data_key="votes"),
+    "changelog_entries": CannyEndpointConfig(path="/v1/entries/list", data_key="entries"),
+    "comments": CannyEndpointConfig(path="/v1/comments/list", data_key="comments"),
+    "companies": CannyEndpointConfig(path="/v1/companies/list", data_key="companies"),
+    "posts": CannyEndpointConfig(path="/v1/posts/list", data_key="posts"),
+    "status_changes": CannyEndpointConfig(path="/v1/status_changes/list", data_key="statusChanges"),
+    "tags": CannyEndpointConfig(path="/v1/tags/list", data_key="tags"),
+    "users": CannyEndpointConfig(path="/v1/users/list", data_key="users"),
+    "votes": CannyEndpointConfig(path="/v1/votes/list", data_key="votes"),
 }
 
 ENDPOINTS = tuple(CANNY_ENDPOINTS.keys())
