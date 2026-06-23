@@ -316,6 +316,8 @@ async def _relay_loop(
                                 continue
 
                             await redis_stream.write_event(event_data)
+                            if task_run is not None and _is_permission_request_event(event_data):
+                                await asyncio.to_thread(_safe_dispatch_slack_permission_request, task_run, event_data)
                             reconnect_count = 0
                             last_event_time[0] = time.monotonic()
 
@@ -500,6 +502,15 @@ def _is_terminal_event(event_data: dict) -> bool:
     return method in TERMINAL_NOTIFICATION_METHODS
 
 
+def _is_permission_request_event(event_data: dict) -> bool:
+    if event_data.get("type") == "permission_request":
+        return True
+    if event_data.get("type") != "notification":
+        return False
+    notification = event_data.get("notification")
+    return isinstance(notification, dict) and notification.get("method") == "_posthog/permission_request"
+
+
 def _safe_dispatch_awaiting_input(task_run: TaskRunModel) -> None:
     """Schedule a push when an interactive run idles waiting on the user.
 
@@ -515,6 +526,20 @@ def _safe_dispatch_awaiting_input(task_run: TaskRunModel) -> None:
     except Exception:
         logger.warning(
             "relay_sandbox_events_push_dispatch_failed",
+            run_id=str(task_run.id),
+            exc_info=True,
+        )
+
+
+def _safe_dispatch_slack_permission_request(task_run: TaskRunModel, event_data: dict) -> None:
+    """Post Slack approval controls for sandbox permission requests when this is a Slack run."""
+    try:
+        from products.slack_app.backend.services.agent_permissions import post_slack_permission_request_for_task_run
+
+        post_slack_permission_request_for_task_run(task_run, event_data)
+    except Exception:
+        logger.warning(
+            "relay_sandbox_events_slack_permission_prompt_failed",
             run_id=str(task_run.id),
             exc_info=True,
         )

@@ -17,6 +17,17 @@ _RE_TABLE_SEPARATOR_CELL = re.compile(r"^:?-{2,}:?$")
 _RE_FENCE = re.compile(r"^\s*(```|~~~)")
 _RE_INLINE_MARKDOWN_MARKERS = re.compile(r"\*\*|__|\*|_|~~|`")
 _RE_MD_LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+_RE_DELIVERY_CLAIM = re.compile(r"\b(?:attached|uploaded|shared)\b", re.IGNORECASE)
+_RE_DELIVERY_NEGATION = re.compile(
+    r"\b(?:not|never|cannot|can't|could not|couldn't|unable to|no file was)\s+"
+    r"(?:actually\s+)?(?:be\s+)?(?:attached|uploaded|shared)\b",
+    re.IGNORECASE,
+)
+_RE_LOCAL_DELIVERABLE_REFERENCE = re.compile(
+    r"(?:/tmp/workspace/|\b(?:report|pdf|spreadsheet|document|file)\b|\.(?:pdf|xlsx|csv|docx|txt|md|html)\b)",
+    re.IGNORECASE,
+)
+_UNCONFIRMED_ATTACHMENT_NOTICE = "\n\n_Note: I can relay text here, but no file was attached to Slack for this run._"
 
 # Repair pattern: bold/italic markers placed *inside* the close of a Slack-style
 # angle-bracket link, e.g. ``**<https://example.com**>`` instead of
@@ -60,6 +71,26 @@ def _markdown_to_slack_mrkdwn(text: str) -> str:
         return text
     repaired = _wrap_bare_urls_in_emphasis(_repair_link_trailing_markers(text))
     return _CONVERTER.convert(_tables_to_fenced_code_blocks(repaired))
+
+
+def _append_unconfirmed_attachment_notice(
+    text: str,
+    *,
+    artifacts: list[dict[str, Any]] | None,
+    origin_product: str | None,
+) -> str:
+    if origin_product != "slack" or artifacts:
+        return text
+
+    normalized = " ".join(text.split())
+    if _RE_DELIVERY_NEGATION.search(normalized):
+        return text
+    if not _RE_DELIVERY_CLAIM.search(normalized):
+        return text
+    if not _RE_LOCAL_DELIVERABLE_REFERENCE.search(normalized):
+        return text
+
+    return f"{text.rstrip()}{_UNCONFIRMED_ATTACHMENT_NOTICE}"
 
 
 def _repair_link_trailing_markers(text: str) -> str:
@@ -309,6 +340,12 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     if not text:
         logger.info("slack_relay_empty_text", run_id=input.run_id, relay_id=input.relay_id)
         return
+
+    text = _append_unconfirmed_attachment_notice(
+        text,
+        artifacts=task_run.artifacts,
+        origin_product=mapping.task.origin_product,
+    )
 
     # Split the raw markdown first, then convert each chunk independently. Converting
     # per-chunk means an inline span broken by a hard char split (e.g. ``**bold**``
