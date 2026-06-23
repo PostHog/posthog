@@ -275,10 +275,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             actions.removeQueuedAction(action)
                             actions.movedItem(action.item, oldPath, newPath)
                             if (action.item.type === 'dashboard') {
-                                // Arm-agnostic primary-metric signal for the dashboards-list-view experiment.
-                                // Fires once per move, the Undo re-move included; method + multi_select_count
-                                // and undo net-out are deferred to the measurement increment (this shared path
-                                // can't attribute the interaction).
+                                // Arm-agnostic primary-metric signal for the dashboards-list-view experiment;
+                                // method/multi_select_count + undo net-out deferred to the measurement increment.
                                 eventUsageLogic.actions.reportDashboardMovedToFolder(oldPath, newPath)
                             }
                             lemonToast.success('Item moved successfully', {

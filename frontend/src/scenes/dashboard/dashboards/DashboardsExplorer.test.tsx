@@ -52,6 +52,8 @@ describe('DashboardsExplorer', () => {
             dashboards: [],
             filters: { search: '' },
             breadcrumbWithSiblings: [],
+            dashboardFileSystemEntriesLoading: false,
+            folderEntriesLoading: false,
             ...overrides,
         })
     }
@@ -148,17 +150,22 @@ describe('DashboardsExplorer', () => {
         expect(navigateToFolder).toHaveBeenCalledWith('')
     })
 
-    it('shows a loading spinner before data arrives (no folder body yet)', () => {
+    it.each([
+        ['the dashboard list is loading', { dashboardsLoading: true }],
+        ['the file-system entries are loading', { dashboardFileSystemEntriesLoading: true }],
+        ['the folder rows are loading', { folderEntriesLoading: true }],
+    ])('shows a loading spinner (no empty-folder flash) while %s', (_desc, loadingFlag) => {
         mockValues({
-            dashboardsLoading: true,
             currentFolderContents: { subfolders: [], dashboards: [] },
             compactedSubfolders: [],
             breadcrumbWithSiblings: [{ label: 'All dashboards', path: '', siblings: [] }],
+            ...loadingFlag,
         })
         render(<DashboardsExplorer />)
-        // The spinner branch returns before the body, so the filters bar / breadcrumb are not rendered.
+        // The spinner branch returns before the body, so neither the filters bar / breadcrumb nor the
+        // "This folder is empty." message render while any of the three sources is still loading.
         expect(screen.queryByText('filters-bar')).not.toBeInTheDocument()
-        expect(screen.queryByLabelText('Folder breadcrumb')).not.toBeInTheDocument()
+        expect(screen.queryByText('This folder is empty.')).not.toBeInTheDocument()
     })
 
     it('shows a flat list of matches and hides folders when a search query is active', () => {

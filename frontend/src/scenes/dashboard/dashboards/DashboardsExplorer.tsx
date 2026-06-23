@@ -28,6 +28,8 @@ export function DashboardsExplorer(): JSX.Element {
         currentFolder,
         clipboard,
         renamingDashboardId,
+        dashboardFileSystemEntriesLoading,
+        folderEntriesLoading,
     } = useValues(dashboardsFileSystemLogic)
     const { navigateToFolder, moveDashboardToFolder, pasteIntoFolder } = useActions(dashboardsFileSystemLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
@@ -37,7 +39,10 @@ export function DashboardsExplorer(): JSX.Element {
     const searching = !!filters.search?.trim()
 
     const isEmpty = compactedSubfolders.length === 0 && currentFolderContents.dashboards.length === 0
-    if (dashboardsLoading && isEmpty && !searching) {
+    // The dashboard list and the folder-structure rows load independently; hold the spinner until all
+    // three settle so we don't flash "This folder is empty" when the list returns before the FS rows do.
+    const loading = dashboardsLoading || dashboardFileSystemEntriesLoading || folderEntriesLoading
+    if (loading && isEmpty && !searching) {
         return <Spinner className="text-2xl" />
     }
 

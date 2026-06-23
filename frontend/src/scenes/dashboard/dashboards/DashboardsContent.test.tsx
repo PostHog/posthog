@@ -30,5 +30,6 @@ describe('DashboardsContent', () => {
     it('renders the explorer for the explorer variant', () => {
         renderWithFlag('explorer')
         expect(screen.getByText('explorer-arm')).toBeInTheDocument()
+        expect(screen.queryByText('table-arm')).not.toBeInTheDocument()
     })
 })

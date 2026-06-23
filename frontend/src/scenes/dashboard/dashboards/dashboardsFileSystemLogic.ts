@@ -215,11 +215,17 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
         [dashboardsModel.actionTypes.duplicateDashboardSuccess]: () => {
             actions.loadDashboardFileSystemEntries()
         },
-        // A move (drag, clipboard cut-paste, or any sidebar move) lands as movedItem AFTER the server
-        // commit; refetch so entryByRef reflects the new path and the moved dashboard leaves its old folder.
-        [projectTreeDataLogic.actionTypes.movedItem]: () => {
-            actions.loadDashboardFileSystemEntries()
-            actions.loadFolderEntries()
+        // A move lands as movedItem AFTER the server commit. A dashboard move changes its own path; a
+        // folder move re-parents the dashboards beneath it (and the folder rows). Either needs the
+        // dashboard entries; only a folder move needs the folder rows. Other item types (insights,
+        // notebooks) don't affect this view, so skip the refetch for them.
+        [projectTreeDataLogic.actionTypes.movedItem]: ({ item }) => {
+            if (item.type === 'dashboard' || item.type === 'folder') {
+                actions.loadDashboardFileSystemEntries()
+            }
+            if (item.type === 'folder') {
+                actions.loadFolderEntries()
+            }
         },
         loadDashboardFileSystemEntriesFailure: () => {
             // Without this the folder structure silently collapses to Unfiled (kea-loaders only

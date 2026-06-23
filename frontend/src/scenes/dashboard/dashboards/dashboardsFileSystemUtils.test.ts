@@ -115,6 +115,10 @@ describe('dashboardsFileSystemUtils', () => {
         })
     })
 
+    it('compactFolderChain returns an empty folder unchanged', () => {
+        expect(compactFolderChain('Ideas', [], {})).toEqual({ path: 'Ideas', label: 'Ideas' })
+    })
+
     it('compactFolderChain stops where a folder has a direct dashboard or multiple subfolders', () => {
         const byRef = buildEntryByRef([entry('1', 'Marketing/A'), entry('2', 'Marketing/Q1/B')])
         expect(compactFolderChain('Marketing', [dash(1, 'A'), dash(2, 'B')], byRef)).toEqual({

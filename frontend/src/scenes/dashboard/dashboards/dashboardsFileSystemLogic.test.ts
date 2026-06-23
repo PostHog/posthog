@@ -92,6 +92,17 @@ describe('dashboardsFileSystemLogic', () => {
         expect(logic.values.entryByRef['1']?.path).toEqual('Product/A')
     })
 
+    it('ignores moves of non-dashboard, non-folder items (no wasted refetch)', async () => {
+        await expectLogic(logic).toDispatchActions([
+            'loadDashboardFileSystemEntriesSuccess',
+            'loadFolderEntriesSuccess',
+        ])
+        ;(api.fileSystem.list as jest.Mock).mockClear()
+        projectTreeDataLogic.actions.movedItem({ id: 'i-1', type: 'insight', path: 'a' } as any, 'a', 'b')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(api.fileSystem.list).not.toHaveBeenCalled()
+    })
+
     it('navigates folders and exposes a breadcrumb', async () => {
         await expectLogic(logic, () => logic.actions.navigateToFolder('Marketing')).toMatchValues({
             currentFolder: 'Marketing',
