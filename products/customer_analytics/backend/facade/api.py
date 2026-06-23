@@ -38,6 +38,7 @@ from products.customer_analytics.backend.logic.usage_spike_notifications import 
 from products.customer_analytics.backend.models import Account, CustomerJourney, CustomerProfileConfig
 from products.customer_analytics.backend.models.account import AccountProperties as _ModelAccountProperties
 from products.notebooks.backend.facade import api as notebooks
+from products.notebooks.backend.models import Notebook, ResourceNotebook
 
 from . import contracts
 
