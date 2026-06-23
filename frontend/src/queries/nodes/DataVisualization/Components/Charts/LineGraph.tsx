@@ -7,6 +7,7 @@ import ChartjsPluginStacked100 from 'chartjs-plugin-stacked100'
 import chartTrendline from 'chartjs-plugin-trendline'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useEffect, useMemo } from 'react'
 
 import { IconX } from '@posthog/icons'
@@ -176,6 +177,20 @@ const LegacyLineGraph = ({
     const isStackedBarChart = visualizationType === ChartDisplayType.ActionsStackedBar
     const isAreaChart = visualizationType === ChartDisplayType.ActionsAreaGraph
     const isHighlightBarMode = isBarChart && isStackedBarChart && isShiftPressed
+
+    // Track engagement with the (undocumented) shift-to-highlight gesture so we can gauge whether it's
+    // worth carrying into the quill-charts rebuild. Keyed on isHighlightBarMode alone so it fires once
+    // per engagement (the rising edge), not on every re-render while shift stays held.
+    useEffect(() => {
+        if (isHighlightBarMode) {
+            posthog.capture('insight bar shift-highlight used', {
+                visualization_type: visualizationType,
+                series_count: yData?.length ?? 0,
+                on_dashboard: !!dashboardId,
+            })
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isHighlightBarMode])
 
     useEffect(() => {
         if (exceedsMaxSeries(yData, dashboardId)) {
