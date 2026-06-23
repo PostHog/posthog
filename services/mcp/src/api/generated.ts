@@ -13007,6 +13007,17 @@ export namespace Schemas {
       source_comment?: string | null;
     }
 
+    /**
+     * Response for the `commit` artefact diff endpoint — the commit's branch rendered against the
+     * repository default branch.
+     */
+    export interface CommitDiffResponse {
+      /** Unified diff (patch) text of the branch against the repository default branch, from the GitHub compare API. */
+      readonly diff: string;
+      /** True when the diff was too large to return in full and has been truncated. */
+      readonly truncated: boolean;
+    }
+
     export interface CompareItem {
       label: string;
       value: string;
@@ -31499,6 +31510,73 @@ export namespace Schemas {
     }
 
     /**
+     * * `video_segment` - Video Segment
+     * * `safety_judgment` - Safety Judgment
+     * * `actionability_judgment` - Actionability Judgment
+     * * `priority_judgment` - Priority Judgment
+     * * `signal_finding` - Signal Finding
+     * * `repo_selection` - Repo Selection
+     * * `suggested_reviewers` - Suggested Reviewers
+     * * `dismissal` - Dismissal
+     * * `code_reference` - Code Reference
+     * * `commit` - Commit
+     * * `task_run` - Task Run
+     * * `note` - Note
+     */
+    export type SignalReportArtefactTypeEnum = typeof SignalReportArtefactTypeEnum[keyof typeof SignalReportArtefactTypeEnum];
+
+
+    export const SignalReportArtefactTypeEnum = {
+      VideoSegment: 'video_segment',
+      SafetyJudgment: 'safety_judgment',
+      ActionabilityJudgment: 'actionability_judgment',
+      PriorityJudgment: 'priority_judgment',
+      SignalFinding: 'signal_finding',
+      RepoSelection: 'repo_selection',
+      SuggestedReviewers: 'suggested_reviewers',
+      Dismissal: 'dismissal',
+      CodeReference: 'code_reference',
+      Commit: 'commit',
+      TaskRun: 'task_run',
+      Note: 'note',
+    } as const;
+
+    export interface _User {
+      readonly id: number;
+      readonly uuid: string;
+      readonly first_name: string;
+      readonly last_name: string;
+      readonly email: string;
+    }
+
+    export type SignalReportArtefactContent = { [key: string]: unknown } | unknown[];
+
+    export interface SignalReportArtefact {
+      readonly id: string;
+      readonly type: SignalReportArtefactTypeEnum;
+      readonly content: SignalReportArtefactContent;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      /** User the artefact is attributed to, when a user produced it. Null for task/system writes. */
+      readonly created_by: _User | null;
+      /**
+         * Task the artefact is attributed to, when an agent produced it. Null for user/system writes.
+         * @nullable
+         */
+      readonly task_id: string | null;
+    }
+
+    export interface PaginatedSignalReportArtefactList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SignalReportArtefact[];
+    }
+
+    /**
      * * `potential` - Potential
      * * `candidate` - Candidate
      * * `in_progress` - In Progress
@@ -38665,6 +38743,16 @@ export namespace Schemas {
       custom_tags?: PatchedSessionSummariesConfigCustomTags;
     }
 
+    /**
+     * Body for replacing the content of an existing artefact (addressed by id).
+     *
+     * Per-type schema validation happens in the view, which knows the artefact's type.
+     */
+    export interface PatchedSignalReportArtefactLogUpdate {
+      /** The new artefact payload as a JSON object or array, matching the artefact type's schema. */
+      content?: unknown;
+    }
+
     export type ScoutOriginEnum = typeof ScoutOriginEnum[keyof typeof ScoutOriginEnum];
 
 
@@ -45615,6 +45703,46 @@ export namespace Schemas {
     }
 
     /**
+     * Body for appending an artefact to a report.
+     *
+     * Everything is append-only: log artefacts accumulate, status artefacts supersede the previous
+     * version (latest-wins). The `content` shape depends on `artefact_type` and is validated
+     * against the type's schema (see `products/signals/backend/artefact_schemas.py`).
+     */
+    export interface SignalReportArtefactLogCreate {
+      /** The artefact type. One of: actionability_judgment, code_reference, commit, dismissal, note, priority_judgment, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
+      artefact_type: string;
+      /** The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema. */
+      content: unknown;
+    }
+
+    /**
+     * Response shape for the log-artefact create/update endpoints — echoes the stored row.
+     */
+    export interface SignalReportArtefactWriteResponse {
+      /** The artefact's unique id. */
+      readonly id: string;
+      /** The id of the report this artefact belongs to. */
+      readonly report_id: string;
+      /** The artefact type. */
+      readonly type: string;
+      /** The artefact payload, parsed from storage. */
+      readonly content: unknown;
+      /** When the artefact was created. */
+      readonly created_at: string;
+      /**
+         * When the artefact was last written — set on creation and refreshed on each edit. Null only for rows created before this field existed.
+         * @nullable
+         */
+      readonly updated_at: string | null;
+      /**
+         * Task the artefact is attributed to, when an agent produced it. Null for user writes.
+         * @nullable
+         */
+      readonly task_id: string | null;
+    }
+
+    /**
      * * `suppressed` - suppressed
      * * `potential` - potential
      */
@@ -45925,14 +46053,6 @@ export namespace Schemas {
       emitted_count: number;
       /** The `finding_id`s behind `emitted_count`, in emit order. Each maps to a `Signal` with `source_id = run:<run_id>:finding:<finding_id>`. Empty for non-emitting runs. */
       emitted_finding_ids: string[];
-    }
-
-    export interface _User {
-      readonly id: number;
-      readonly uuid: string;
-      readonly first_name: string;
-      readonly last_name: string;
-      readonly email: string;
     }
 
     export interface SignalUserAutonomyConfig {
@@ -61637,6 +61757,21 @@ export namespace Schemas {
      * Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.
      */
     suggested_reviewers?: string;
+    /**
+     * Only reports associated with this task (via the report's task associations).
+     */
+    task_id?: string;
+    };
+
+    export type SignalsReportArtefactsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type SignalsScoutProjectProfileGetParams = {
