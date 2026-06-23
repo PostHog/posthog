@@ -89,6 +89,26 @@ export const InertFirstStepTrack: Story = {
     },
 }
 
+// `bars[i].trackColor` paints that bar's track as a flat neutral "no data" backdrop — here step 1,
+// which has no drop-off — so it reads distinctly from the series-colored hatched drop-off tracks on
+// later steps, and it doesn't highlight on hover.
+const FUNNEL_COMPARE_NEUTRAL: Series[] = [
+    { key: 'current', label: 'Current', color: '', data: [70, 45, 30, 18], bars: [{ trackColor: '#c9ced4' }] },
+    { key: 'previous', label: 'Previous', color: '', data: [100, 60, 38, 20], bars: [{ trackColor: '#c9ced4' }] },
+]
+
+export const NeutralFirstStepTrack: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const config: BarChartConfig = { barLayout: 'grouped', showGrid: true, bars: { track: true, cornerRadius: 6 } }
+        return (
+            <Stage>
+                <BarChart series={FUNNEL_COMPARE_NEUTRAL} labels={FUNNEL_STEPS} config={config} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
 export const Percent: Story = {
     render: () => {
         const theme = useReactiveTheme()

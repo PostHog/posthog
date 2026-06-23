@@ -100,6 +100,11 @@ export function resolveBarHoverItems(
                 barLayout === 'grouped' &&
                 hoverPosition != null &&
                 cursorOutsideBarFillExtent(bar, hoverPosition, isHorizontal)
+            // A neutral per-bar track (`bars[i].trackColor`) is an inert "no data" backdrop —
+            // don't highlight it on hover. The bar's filled extent still highlights normally.
+            if (isTrackHighlight && s.bars?.[bar.dataIndex]?.trackColor != null) {
+                continue
+            }
             items.push({ series: s, bar, isTrackHighlight })
             composition += isTrackHighlight ? 't' : 'b'
         }

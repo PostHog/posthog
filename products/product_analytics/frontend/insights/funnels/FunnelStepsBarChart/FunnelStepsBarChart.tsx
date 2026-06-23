@@ -42,6 +42,14 @@ const handleChartError = (error: Error, info: ErrorInfo): void => {
     })
 }
 
+// Flat grey for the first step's non-drop-off backdrop, matching the horizontal chart's filler.
+function getNeutralTrackColor(): string {
+    if (typeof document === 'undefined') {
+        return 'rgba(0, 0, 0, 0.08)'
+    }
+    return getComputedStyle(document.body).getPropertyValue('--color-border-primary').trim() || 'rgba(0, 0, 0, 0.08)'
+}
+
 export function FunnelStepsBarChart({
     showPersonsModal: showPersonsModalProp = true,
     inCardView,
@@ -61,10 +69,13 @@ export function FunnelStepsBarChart({
     const showPersonsModal = canOpenPersonModal && showPersonsModalProp
     const steps = visibleStepsWithConversionMetrics
 
+    const neutralTrackColor = useMemo(() => getNeutralTrackColor(), [isDarkModeOn])
+
     const { series, labels } = useMemo(
         () =>
             buildFunnelStepsBarData(steps, {
                 getColor: getFunnelsColor,
+                neutralTrackColor,
                 // Breakdown + compare bars share a breakdown value across periods, so the legend
                 // must also name the period; plain breakdown/compare bars keep their single label.
                 getLabel: (variant) =>
@@ -74,7 +85,7 @@ export function FunnelStepsBarChart({
                           }`
                         : String(variant.breakdown_value ?? variant.name ?? ''),
             }),
-        [steps, getFunnelsColor]
+        [steps, getFunnelsColor, neutralTrackColor]
     )
 
     // Only breakdown + compare needs a legend mapping color → breakdown value (and period); plain

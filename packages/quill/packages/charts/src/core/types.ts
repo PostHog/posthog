@@ -44,8 +44,11 @@ export interface Series<Meta = unknown> {
     /** Bar charts only: per-bar overrides of the series-level `color`/`label`/`meta`, indexed by
      *  data index. Lets one series draw bars with distinct identity (e.g. an aggregated breakdown,
      *  one bar per breakdown value) instead of paying the O(n²) cost of one series per bar. Read by
-     *  bar fill, hover highlight, and the tooltip; not by track decorations (`drawBarTracks`). */
-    bars?: { color?: string; label?: string; meta?: Meta }[]
+     *  bar fill, hover highlight, and the tooltip. `trackColor` overrides the bar's `bars.track`
+     *  backdrop (the remainder-to-100%): set it to a ready CSS color to draw a flat neutral "no
+     *  data" track — distinct from the tinted+hatched series-colored drop-off tracks — which also
+     *  doesn't highlight on hover. Defaults to the series-colored hatched track. */
+    bars?: { color?: string; label?: string; meta?: Meta; trackColor?: string }[]
     /** Which y-axis this series is scaled against. Defaults to {@link DEFAULT_Y_AXIS_ID}. */
     yAxisId?: string
     /** Mixed-type charts ({@link ComboChart}) read this to draw the series as a bar, line, or
