@@ -147,8 +147,9 @@ def get_rows(
     # One session reused across every page so urllib3 keeps the connection alive.
     session = make_tracked_session()
 
-    # personal_info returns a single document, not a {data: [...], next_token} envelope.
-    if config.date_filter is None and endpoint == "personal_info":
+    # Single-document endpoints (e.g. personal_info) return a flat object, not a
+    # {data: [...], next_token} envelope.
+    if config.is_single_document:
         document = _fetch_page(session, _build_url(config.path, {}), headers, logger)
         yield [document]
         return
@@ -163,7 +164,9 @@ def get_rows(
     while True:
         data = _fetch_page(session, _build_url(config.path, params), headers, logger)
 
-        items = data.get("data", [])
+        # Use `data["data"]` (not `.get`) so an unexpected 200 without the documented envelope
+        # raises a KeyError and fails the sync loudly, rather than silently ingesting zero rows.
+        items = data["data"]
         next_token = data.get("next_token")
 
         if items:

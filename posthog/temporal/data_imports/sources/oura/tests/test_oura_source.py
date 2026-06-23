@@ -4,6 +4,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.schema import SourceFieldInputConfig
+
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.oura import source as oura_source_module
@@ -53,6 +55,7 @@ class TestSourceConfig:
         fields = OuraSource().get_source_config.fields
         assert [f.name for f in fields] == ["access_token"]
         token_field = fields[0]
+        assert isinstance(token_field, SourceFieldInputConfig)
         assert token_field.required is True
         assert token_field.type == "password"
         assert token_field.secret is True

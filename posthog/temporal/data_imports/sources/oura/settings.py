@@ -21,6 +21,9 @@ class OuraEndpointConfig:
     # most usercollection endpoints), "datetime" -> start_datetime/end_datetime (time-series), and
     # None -> no date filtering at all (single/static documents -> full refresh only).
     date_filter: Optional[str] = None
+    # Some endpoints (personal_info) return a single flat document rather than a
+    # `{data: [...], next_token}` collection envelope; the transport dispatches on this.
+    is_single_document: bool = False
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     should_sync_default: bool = True
 
@@ -186,6 +189,7 @@ OURA_ENDPOINTS: dict[str, OuraEndpointConfig] = {
         name="personal_info",
         path="/usercollection/personal_info",
         date_filter=None,
+        is_single_document=True,
         incremental_fields=[],
     ),
     # Ring hardware/configuration records. No date filtering -> full refresh.

@@ -194,7 +194,7 @@ class TestGetRows:
 
     def test_empty_page_is_not_yielded(self) -> None:
         base = "https://api.ouraring.com/v2/usercollection/daily_sleep"
-        pages = {f"{base}?start_date={DEFAULT_START_DATE}": {"data": [], "next_token": None}}
+        pages: dict[str, Any] = {f"{base}?start_date={DEFAULT_START_DATE}": {"data": [], "next_token": None}}
         batches = self._collect(_FakeResumableManager(), pages)
         assert batches == []
 
@@ -217,7 +217,7 @@ class TestProbeEndpoint:
 
 class TestOuraSourceResponse:
     def test_daily_endpoint_partitions_on_day(self) -> None:
-        response = oura_source("tok", "daily_sleep", MagicMock(), MagicMock())  # type: ignore[arg-type]
+        response = oura_source("tok", "daily_sleep", MagicMock(), MagicMock())
         assert response.name == "daily_sleep"
         assert response.primary_keys == ["id"]
         assert response.partition_keys == ["day"]
@@ -226,16 +226,16 @@ class TestOuraSourceResponse:
         assert response.sort_mode == "asc"
 
     def test_heartrate_uses_composite_key_and_timestamp_partition(self) -> None:
-        response = oura_source("tok", "heartrate", MagicMock(), MagicMock())  # type: ignore[arg-type]
+        response = oura_source("tok", "heartrate", MagicMock(), MagicMock())
         assert response.primary_keys == ["timestamp", "source"]
         assert response.partition_keys == ["timestamp"]
 
     def test_enhanced_tag_partitions_on_start_day(self) -> None:
-        response = oura_source("tok", "enhanced_tag", MagicMock(), MagicMock())  # type: ignore[arg-type]
+        response = oura_source("tok", "enhanced_tag", MagicMock(), MagicMock())
         assert response.partition_keys == ["start_day"]
 
     @parameterized.expand([("personal_info",), ("ring_configuration",)])
     def test_full_refresh_endpoints_are_unpartitioned(self, endpoint: str) -> None:
-        response = oura_source("tok", endpoint, MagicMock(), MagicMock())  # type: ignore[arg-type]
+        response = oura_source("tok", endpoint, MagicMock(), MagicMock())
         assert response.partition_keys is None
         assert response.partition_mode is None
