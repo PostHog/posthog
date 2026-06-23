@@ -658,7 +658,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         finally:
             # Always update the count and cohort state, even if processing failed
             try:
-                count = count_cohort_members(cohort_id=self.id, team_id=self.team_id, consistency="strong")
+                count = count_cohort_members(cohort_id=self.id, team_id=self.team_id, consistency="eventual")
                 self.count = count
             except Exception as count_err:
                 # If count calculation fails, log the error but don't override the processing error.
