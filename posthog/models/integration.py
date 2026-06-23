@@ -3443,8 +3443,7 @@ def _create_unique_s3_integration(
     Unlike most integrations, `name` is a free-form user-supplied identifier rather than one derived
     from the external connection (an OAuth account id, service-account email, etc.). So we create
     rather than upsert — re-using a name is a 400, not a silent overwrite of an unrelated credential
-    set — matching the only other user-named integration (Anthropic). Rotating credentials is
-    therefore delete-and-recreate (the viewset is create-only; there is no update endpoint).
+    set.
     """
     try:
         # Savepoint so the unique-constraint IntegrityError aborts only this INSERT, not the
