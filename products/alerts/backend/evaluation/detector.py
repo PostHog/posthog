@@ -221,6 +221,10 @@ def simulate_detector_on_insight(
     tag_queries(product=Product.PRODUCT_ANALYTICS, feature=Feature.ALERTING)
     detector_type_str = detector_config.get("type", "zscore")
 
+    # This per-kind dispatch parallels dispatcher.DETECTOR_EXTRACTORS but can't reuse it: the
+    # registry's extractors take an AlertConfiguration, while simulation is alert-less and threads
+    # kind-specific params (series_index/date_from for trends, config for SQL). Keep the two in
+    # sync — a kind added to DETECTOR_EXTRACTORS must also get a branch here, or it raises below.
     if kind == NodeKind.TRENDS_QUERY:
         trends_query = TrendsQuery.model_validate(query)
         result = extract_detector_series(
