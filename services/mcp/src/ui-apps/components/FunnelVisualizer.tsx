@@ -46,7 +46,17 @@ function renderTooltip(rows: FunnelStepsBarRow[]) {
 export function FunnelVisualizer({ results }: FunnelVisualizerProps): ReactElement {
     const theme = useMcpChartTheme()
     const steps = normalizeFunnelSteps(results)
-    const { series, labels, rows, overall } = buildFunnelStepsBars(steps, { color: FUNNEL_COLOR })
+    const { series, rows, overall } = buildFunnelStepsBars(steps, { color: FUNNEL_COLOR })
+
+    // The band scale (d3 scalePoint) dedupes its domain, so identical step names — e.g. two `$pageview`
+    // steps — would collapse onto one slot and overlap into a single bar. Key the band by step index
+    // (always unique) and map each tick back to its step name for display, matching the web funnel which
+    // positions by index and labels each bar with the bare step name.
+    const bandLabels = rows.map((row) => String(row.stepIndex))
+    const config: typeof CHART_CONFIG = {
+        ...CHART_CONFIG,
+        xTickFormatter: (_value, index) => rows[index]?.name ?? '',
+    }
 
     if (steps.length === 0) {
         return (
@@ -68,9 +78,9 @@ export function FunnelVisualizer({ results }: FunnelVisualizerProps): ReactEleme
             <div className="flex flex-col h-72 w-full">
                 <BarChart
                     series={series}
-                    labels={labels}
+                    labels={bandLabels}
                     theme={theme}
-                    config={CHART_CONFIG}
+                    config={config}
                     tooltip={renderTooltip(rows)}
                     onError={NOOP}
                 />
