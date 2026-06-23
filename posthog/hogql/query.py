@@ -59,6 +59,7 @@ from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.resolver import Resolver
 from posthog.hogql.resolver_utils import extract_base_table_types, extract_select_queries
+from posthog.hogql.snowflake_connection_cache import cached_snowflake_connection
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
 from posthog.hogql.variables import replace_variables
@@ -964,7 +965,9 @@ class HogQLQueryExecutor:
 
         try:
             with self.timings.measure("snowflake_execute"), observe_direct_query("snowflake"):
-                with snowflake_implementation.connect(source_config) as connection:
+                # Reuse a per-thread connection across queries — the auth handshake is the
+                # dominant cost for interactive use.
+                with cached_snowflake_connection(snowflake_implementation, source_config) as connection:
                     with connection.cursor() as cursor:
                         # Server-side backstop: refuse stacked statements regardless of what the
                         # connector default is, so the single-statement parse gate can't be bypassed.

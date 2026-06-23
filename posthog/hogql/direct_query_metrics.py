@@ -37,6 +37,11 @@ DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL = PromCounter(
     "Direct queries rejected for exceeding the result-row cap, by dialect.",
     labelnames=["dialect"],
 )
+SNOWFLAKE_CONNECTION_CACHE_TOTAL = PromCounter(
+    "hogql_snowflake_connection_cache_total",
+    "Direct Snowflake connection-cache lookups by result (reused vs opened).",
+    labelnames=["result"],
+)
 
 
 @contextmanager

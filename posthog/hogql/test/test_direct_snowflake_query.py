@@ -1,5 +1,7 @@
+from types import SimpleNamespace
 from uuid import uuid4
 
+import unittest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -9,6 +11,10 @@ from parameterized import parameterized
 from posthog.hogql.direct_connection import validate_snowflake_account_id
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import HogQLQueryExecutor, snowflake_error_to_message, snowflake_field_type_to_clickhouse_type
+from posthog.hogql.snowflake_connection_cache import (
+    cached_snowflake_connection,
+    clear_thread_local_snowflake_connections,
+)
 
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
@@ -35,6 +41,12 @@ MAP = 17
 
 
 class TestDirectSnowflakeQuery(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # The connection cache is thread-local module state; isolate each test.
+        clear_thread_local_snowflake_connections()
+        self.addCleanup(clear_thread_local_snowflake_connections)
+
     def _create_source(self, prefix: str = "wh") -> ExternalDataSource:
         return ExternalDataSource.objects.create(
             team=self.team,
@@ -132,6 +144,7 @@ class TestDirectSnowflakeQuery(APIBaseTest):
         cursor.fetchmany.return_value = rows
         cursor.description = description
         connection = MagicMock()
+        connection.is_closed.return_value = False
         connection.cursor.return_value.__enter__.return_value = cursor
         connection.cursor.return_value.__exit__.return_value = False
 
@@ -277,3 +290,92 @@ class TestDirectSnowflakeQuery(APIBaseTest):
 
         # The statement passed the read-only gate and reached execution unchanged.
         self.assertEqual(executor.direct_sql, query)
+
+
+class TestSnowflakeConnectionCache(unittest.TestCase):
+    def setUp(self):
+        clear_thread_local_snowflake_connections()
+        self.addCleanup(clear_thread_local_snowflake_connections)
+
+    def _impl_and_config(
+        self, secret: str = "pw", account: str = "acme-prod"
+    ) -> tuple[MagicMock, SimpleNamespace, MagicMock]:
+        connection = MagicMock()
+        connection.is_closed.return_value = False
+        cm = MagicMock()
+        cm.__enter__.return_value = connection
+        cm.__exit__.return_value = False
+        implementation = MagicMock()
+        implementation.connect.return_value = cm
+        auth = SimpleNamespace(selection="password", user="svc", password=secret, private_key=None, passphrase=None)
+        config = SimpleNamespace(
+            account_id=account, warehouse="WH", database="DB", role="R", schema="PUBLIC", auth_type=auth
+        )
+        return implementation, config, connection
+
+    def test_reuses_connection_across_calls(self):
+        implementation, config, connection = self._impl_and_config()
+
+        with cached_snowflake_connection(implementation, config) as first:
+            self.assertIs(first, connection)
+        with cached_snowflake_connection(implementation, config) as second:
+            self.assertIs(second, connection)
+
+        implementation.connect.assert_called_once()
+
+    def test_reopens_after_ttl(self):
+        implementation, config, _connection = self._impl_and_config()
+
+        with patch("posthog.hogql.snowflake_connection_cache.SNOWFLAKE_CONNECTION_CACHE_TTL_SECONDS", 0):
+            with cached_snowflake_connection(implementation, config):
+                pass
+            with cached_snowflake_connection(implementation, config):
+                pass
+
+        self.assertEqual(implementation.connect.call_count, 2)
+
+    def test_reopens_when_connection_reports_closed(self):
+        implementation, config, connection = self._impl_and_config()
+
+        with cached_snowflake_connection(implementation, config):
+            pass
+        connection.is_closed.return_value = True
+        with cached_snowflake_connection(implementation, config):
+            pass
+
+        self.assertEqual(implementation.connect.call_count, 2)
+
+    def test_evicts_on_connection_level_error(self):
+        implementation, config, _connection = self._impl_and_config()
+
+        with self.assertRaises(snowflake.connector.errors.OperationalError):
+            with cached_snowflake_connection(implementation, config):
+                raise snowflake.connector.errors.OperationalError(msg="connection dropped")
+        with cached_snowflake_connection(implementation, config):
+            pass
+
+        # The suspect connection was dropped, so the next call reopens.
+        self.assertEqual(implementation.connect.call_count, 2)
+
+    def test_keeps_connection_on_sql_error(self):
+        implementation, config, _connection = self._impl_and_config()
+
+        with self.assertRaises(snowflake.connector.errors.ProgrammingError):
+            with cached_snowflake_connection(implementation, config):
+                raise snowflake.connector.errors.ProgrammingError(msg="bad sql")
+        with cached_snowflake_connection(implementation, config):
+            pass
+
+        # A SQL error leaves the connection healthy, so it's reused.
+        implementation.connect.assert_called_once()
+
+    def test_different_credentials_use_separate_connections(self):
+        implementation, config_a, _connection = self._impl_and_config(secret="pw-a")
+        _implementation_b, config_b, _connection_b = self._impl_and_config(secret="pw-b")
+
+        with cached_snowflake_connection(implementation, config_a):
+            pass
+        with cached_snowflake_connection(implementation, config_b):
+            pass
+
+        self.assertEqual(implementation.connect.call_count, 2)
