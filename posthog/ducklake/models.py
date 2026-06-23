@@ -101,6 +101,9 @@ class DuckgresServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         db_table = "posthog_duckgresserver"
         verbose_name = "Duckgres server"
         verbose_name_plural = "Duckgres servers"
+        permissions = [
+            ("manage_duckgresserver_control_plane", "Can manage Duckgres control-plane operations"),
+        ]
 
 
 class DuckgresServerTeam(CreatedMetaFields, UpdatedMetaFields, UUIDModel):

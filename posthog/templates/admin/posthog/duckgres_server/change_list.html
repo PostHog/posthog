@@ -2,8 +2,10 @@
 {% load i18n %}
 
 {% block object-tools-items %}
-    <li>
-        <a href="{% url 'admin:posthog_duckgresserver_provision' %}" class="addlink">Provision managed warehouse</a>
-    </li>
+    {% if can_manage_duckgres_control_plane %}
+        <li>
+            <a href="{% url 'admin:posthog_duckgresserver_provision' %}" class="addlink">Provision managed warehouse</a>
+        </li>
+    {% endif %}
     {{ block.super }}
 {% endblock %}

@@ -3,7 +3,7 @@
 
 {% block object-tools-items %}
     {{ block.super }}
-    {% if original.pk %}
+    {% if original.pk and can_manage_duckgres_control_plane %}
         <li>
             <a href="{% url 'admin:posthog_duckgresserver_enable_backfill' original.pk %}">Enable backfill for a team</a>
         </li>

@@ -2,15 +2,17 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.contrib.admin.sites import AdminSite
+from django.contrib.auth.models import Permission
 from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
+from django.core.exceptions import PermissionDenied
 from django.http import Http404, HttpRequest
 from django.test import RequestFactory
 from django.urls import reverse
 
 from rest_framework.response import Response
 
-from posthog.admin.admins.duckgres_server_admin import DuckgresServerAdmin
+from posthog.admin.admins.duckgres_server_admin import MANAGE_DUCKGRES_CONTROL_PLANE_PERMISSION, DuckgresServerAdmin
 from posthog.models import DuckgresServer, Organization, Team
 
 MW = "products.data_warehouse.backend.api.managed_warehouse"
@@ -30,6 +32,7 @@ class TestDuckgresServerAdminProvision(BaseTest):
         super().setUp()
         self.user.is_staff = True
         self.user.save()
+        self._grant_admin_permissions()
         self.factory = RequestFactory()
         self.admin = DuckgresServerAdmin(DuckgresServer, AdminSite())
 
@@ -45,10 +48,50 @@ class TestDuckgresServerAdminProvision(BaseTest):
         _attach_messages(request)
         return request
 
+    def _head(self, url: str) -> HttpRequest:
+        request = self.factory.head(url)
+        request.user = self.user
+        _attach_messages(request)
+        return request
+
     def _server(self) -> DuckgresServer:
         return DuckgresServer.objects.create(
             organization=self.organization, host="h", port=5432, database="ducklake", username="root", password="x"
         )
+
+    def _grant_admin_permissions(self) -> None:
+        permissions = Permission.objects.filter(
+            content_type__app_label="posthog",
+            codename__in=[
+                "add_duckgresserver",
+                "change_duckgresserver",
+                "delete_duckgresserver",
+                "manage_duckgresserver_control_plane",
+            ],
+        )
+        self.user.user_permissions.add(*permissions)
+
+    def test_change_fieldsets_do_not_expose_password_for_existing_server(self) -> None:
+        request = self._get("/admin/posthog/duckgresserver/")
+        server = self._server()
+
+        field_names = {
+            field_name
+            for _, fieldset_options in self.admin.get_fieldsets(request, server)
+            for field_name in fieldset_options["fields"]
+        }
+
+        assert "username" in field_names
+        assert "password" not in field_names
+
+    def test_managed_warehouse_actions_require_control_plane_permission(self) -> None:
+        app_label, codename = MANAGE_DUCKGRES_CONTROL_PLANE_PERMISSION.split(".")
+        permission = Permission.objects.get(content_type__app_label=app_label, codename=codename)
+        self.user.user_permissions.remove(permission)
+        request = self._get("/admin/posthog/duckgresserver/provision/")
+
+        with self.assertRaises(PermissionDenied):
+            self.admin.provision_view(request)
 
     def test_provision_post_calls_managed_warehouse_bypassing_flag(self) -> None:
         request = self._post(
@@ -133,6 +176,16 @@ class TestDuckgresServerAdminProvision(BaseTest):
 
         with self.assertRaises(Http404):
             self.admin.deprovision_view(request, "999999")
+
+    def test_deprovision_head_does_not_call_helper(self) -> None:
+        server = self._server()
+        request = self._head(f"/admin/posthog/duckgresserver/{server.pk}/deprovision/")
+
+        with patch(f"{MW}.deprovision") as mock_deprovision:
+            response = self.admin.deprovision_view(request, str(server.pk))
+
+        assert response.status_code == 405
+        mock_deprovision.assert_not_called()
 
     def test_deprovision_failure_returns_to_change_page_and_logs(self) -> None:
         server = self._server()
