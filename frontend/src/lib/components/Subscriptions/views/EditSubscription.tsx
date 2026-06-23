@@ -548,20 +548,22 @@ function EditSubscriptionForm({
                                             </LemonField>
                                         )}
 
-                                        <LemonField
-                                            name="post_all_insights_in_main_message"
-                                            help="By default, extra insights are posted in a thread reply. Enable this to post every insight image in the main Slack message instead."
-                                        >
-                                            {({ value, onChange }) => (
-                                                <LemonSwitch
-                                                    checked={value}
-                                                    onChange={onChange}
-                                                    bordered
-                                                    fullWidth
-                                                    label="Post all insights in the main message"
-                                                />
-                                            )}
-                                        </LemonField>
+                                        {subscription.integration_id && subscription.target_value && (
+                                            <LemonField
+                                                name="post_all_insights_in_main_message"
+                                                help="By default, extra insights are posted in a thread reply. Enable this to post every insight image in the main Slack message instead."
+                                            >
+                                                {({ value, onChange }) => (
+                                                    <LemonSwitch
+                                                        checked={value}
+                                                        onChange={onChange}
+                                                        bordered
+                                                        fullWidth
+                                                        label="Post all insights in the main message"
+                                                    />
+                                                )}
+                                            </LemonField>
+                                        )}
                                     </>
                                 )}
                             </>
