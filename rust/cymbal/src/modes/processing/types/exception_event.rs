@@ -10,7 +10,7 @@
 
 use std::collections::HashMap;
 
-use serde_json::Value;
+use serde_json::{json, Map, Value};
 use uuid::Uuid;
 
 use crate::core::sanitize::recursively_sanitize_properties;
@@ -143,17 +143,23 @@ impl ExceptionEvent<Fingerprinted> {
     }
 }
 
-impl ExceptionEvent<Linked> {
-    /// Project to the internal-events wire shape (`OutputErrProps`). The
-    /// materialized search arrays are derived from `exception_list` here rather
-    /// than stored on the event.
-    pub fn to_output(&self) -> OutputErrProps {
+impl<S> ExceptionEvent<S> {
+    /// Build the internal-events wire shape (`OutputErrProps`) from the envelope
+    /// plus the fingerprint/issue data the caller has in hand. The materialized
+    /// search arrays are derived from `exception_list` here rather than stored.
+    fn build_output(
+        &self,
+        fingerprint: String,
+        proposed_fingerprint: String,
+        record: Vec<FingerprintRecordPart>,
+        issue_id: Uuid,
+    ) -> OutputErrProps {
         OutputErrProps {
             exception_list: self.exception_list.clone(),
-            fingerprint: self.stage.fingerprint.clone(),
-            proposed_fingerprint: self.stage.proposed_fingerprint.clone(),
-            fingerprint_record: self.stage.record.clone(),
-            issue_id: self.stage.issue_id,
+            fingerprint,
+            proposed_fingerprint,
+            fingerprint_record: record,
+            issue_id,
             other: self.other.clone(),
             handled: self
                 .handled
@@ -164,6 +170,114 @@ impl ExceptionEvent<Linked> {
             sources: self.exception_list.get_unique_sources(),
             functions: self.exception_list.get_unique_functions(),
         }
+    }
+}
+
+impl ExceptionEvent<Raw> {
+    /// Properties object used to evaluate grouping rules — the resolved event
+    /// properties as a rule would see them (derived arrays included). Mirrors
+    /// what the legacy pipeline fed grouping after `PropertiesResolver` ran.
+    pub fn to_grouping_value(&self) -> Value {
+        let mut map = Map::new();
+        for (k, v) in &self.other {
+            map.insert(k.clone(), v.clone());
+        }
+        map.insert(
+            "$exception_list".into(),
+            serde_json::to_value(&self.exception_list).unwrap_or(Value::Null),
+        );
+        map.insert(
+            "$exception_types".into(),
+            json!(self.exception_list.get_unique_types()),
+        );
+        map.insert(
+            "$exception_values".into(),
+            json!(self.exception_list.get_unique_messages()),
+        );
+        map.insert(
+            "$exception_sources".into(),
+            json!(self.exception_list.get_unique_sources()),
+        );
+        map.insert(
+            "$exception_functions".into(),
+            json!(self.exception_list.get_unique_functions()),
+        );
+        map.insert(
+            "$exception_handled".into(),
+            json!(self
+                .handled
+                .unwrap_or_else(|| self.exception_list.get_is_handled())),
+        );
+        let releases = self.exception_list.get_release_map();
+        if !releases.is_empty() {
+            map.insert(
+                "$exception_releases".into(),
+                serde_json::to_value(releases).unwrap_or(Value::Null),
+            );
+        }
+        if let Some(fp) = &self.stage.client_fingerprint {
+            map.insert("$exception_fingerprint".into(), json!(fp));
+        }
+        if let Some(n) = &self.proposed_issue_name {
+            map.insert("$issue_name".into(), json!(n));
+        }
+        if let Some(d) = &self.proposed_issue_description {
+            map.insert("$issue_description".into(), json!(d));
+        }
+        if !self.debug_images.is_empty() {
+            map.insert(
+                "$debug_images".into(),
+                serde_json::to_value(&self.debug_images).unwrap_or(Value::Null),
+            );
+        }
+        Value::Object(map)
+    }
+}
+
+impl ExceptionEvent<Fingerprinted> {
+    /// Project to the internal-events wire shape, given the issue this event is
+    /// being linked to. Used during linking before the `Linked` transition.
+    pub fn to_output(&self, issue_id: Uuid) -> OutputErrProps {
+        self.build_output(
+            self.stage.fingerprint.clone(),
+            self.stage.proposed_fingerprint.clone(),
+            self.stage.record.clone(),
+            issue_id,
+        )
+    }
+}
+
+impl ExceptionEvent<Linked> {
+    /// Project to the internal-events wire shape (`OutputErrProps`).
+    pub fn to_output(&self) -> OutputErrProps {
+        self.build_output(
+            self.stage.fingerprint.clone(),
+            self.stage.proposed_fingerprint.clone(),
+            self.stage.record.clone(),
+            self.stage.issue_id,
+        )
+    }
+
+    /// Project to the ClickHouse-bound event-properties shape. This is the
+    /// internal-events shape plus the client-facing `$issue_name`,
+    /// `$issue_description`, and `$debug_images` that the pipeline preserves.
+    pub fn to_clickhouse_value(&self) -> Value {
+        let mut value = serde_json::to_value(self.to_output()).unwrap_or(Value::Null);
+        if let Value::Object(map) = &mut value {
+            if let Some(name) = &self.proposed_issue_name {
+                map.insert("$issue_name".into(), json!(name));
+            }
+            if let Some(description) = &self.proposed_issue_description {
+                map.insert("$issue_description".into(), json!(description));
+            }
+            if !self.debug_images.is_empty() {
+                map.insert(
+                    "$debug_images".into(),
+                    serde_json::to_value(&self.debug_images).unwrap_or(Value::Null),
+                );
+            }
+        }
+        value
     }
 }
 
