@@ -448,12 +448,15 @@ class EndpointExecutionService(PydanticModelMixin):
             self.log_rejected_run(endpoint, self.format_validation_detail(exc.detail))
             raise
 
+        use_materialized = self.should_use_materialized_table(endpoint, data, version_obj)
+
         report_user_action(
             cast("User | SyntheticUser", self.request.user),
             "endpoint executed",
             {
                 "endpoint_id": str(endpoint.id),
                 "endpoint_name": endpoint.name,
+                "is_materialized": use_materialized,
                 "has_filters_override": bool(data.filters_override),
                 "has_variables": bool(data.variables),
                 "has_limit": data.limit is not None,
@@ -466,9 +469,6 @@ class EndpointExecutionService(PydanticModelMixin):
             team=self.team,
             analytics_props=get_request_analytics_properties(self.request),
         )
-
-        # Check if we should use materialization for this version
-        use_materialized = self.should_use_materialized_table(endpoint, data, version_obj)
 
         debug = data.debug or False
         execution_type: ExecutionType = "materialized" if use_materialized else "inline"

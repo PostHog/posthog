@@ -20,6 +20,7 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import ResumableData, SourceInputs, SourceResponse
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -74,6 +75,18 @@ class _BaseSource(ABC, Generic[ConfigType]):
         Returns `dict[str, str | None]`:
             key = a partial error message to match on
             value = a friendly error message to show to users. We fallback to displaying the key when this is missing
+        """
+
+        return {}
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        """Curated, documentation-sourced descriptions for this source's well-known tables/endpoints.
+
+        Keyed by schema/endpoint name (matching what `get_schemas` returns). Each entry may carry a
+        table `description`, a `docs_url`, and per-`columns` descriptions. The default empty mapping
+        means every table falls back to LLM enrichment. Only meaningful for fixed-schema sources
+        (SaaS APIs); SQL sources with arbitrary user schemas leave this empty. Override with a lazy
+        import of the source's sibling `canonical_descriptions.py`.
         """
 
         return {}

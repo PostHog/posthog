@@ -139,6 +139,26 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
+ * Archive an ended experiment.
+ *
+ * Hides the experiment from the default list view. The experiment can be
+ * restored at any time by updating archived=false. When the linked feature
+ * flag is still enabled, pass disable_feature_flag=true to also disable and
+ * archive it. Returns 400 if the experiment is already archived or has not
+ * ended yet.
+ */
+export const experimentsArchiveCreateBodyDisableFeatureFlagDefault = false
+
+export const ExperimentsArchiveCreateBody = /* @__PURE__ */ zod.object({
+    disable_feature_flag: zod
+        .boolean()
+        .default(experimentsArchiveCreateBodyDisableFeatureFlagDefault)
+        .describe(
+            'When the linked feature flag is still enabled, also disable and archive it along with the experiment. Has no effect if the flag is already disabled (it is archived either way).'
+        ),
+})
+
+/**
  * Copy an experiment into another project in the same organization as a new draft.
  */
 export const ExperimentsCopyToProjectCreateBody = /* @__PURE__ */ zod.object({
@@ -193,6 +213,8 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
  *
  * Returns 400 if the experiment is not running.
  */
+export const experimentsEndCreateBodyConclusionCommentMax = 4000
+
 export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
     conclusion: zod
         .union([
@@ -207,7 +229,11 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'The conclusion of the experiment.\n\n\* `won` - won\n\* `lost` - lost\n\* `inconclusive` - inconclusive\n\* `stopped_early` - stopped_early\n\* `invalid` - invalid'
         ),
-    conclusion_comment: zod.string().nullish().describe('Optional comment about the experiment conclusion.'),
+    conclusion_comment: zod
+        .string()
+        .max(experimentsEndCreateBodyConclusionCommentMax)
+        .nullish()
+        .describe('Optional comment about the experiment conclusion.'),
 })
 
 /**
@@ -277,6 +303,8 @@ export const ExperimentsRecalculateTimeseriesCreateBody = /* @__PURE__ */ zod
  * Returns 400 if the experiment is in draft state, the variant_key is not found
  * on the flag, or the experiment has no linked feature flag.
  */
+export const experimentsShipVariantCreateBodyConclusionCommentMax = 4000
+
 export const experimentsShipVariantCreateBodyReleaseToEveryoneDefault = false
 
 export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
@@ -293,7 +321,11 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'The conclusion of the experiment.\n\n\* `won` - won\n\* `lost` - lost\n\* `inconclusive` - inconclusive\n\* `stopped_early` - stopped_early\n\* `invalid` - invalid'
         ),
-    conclusion_comment: zod.string().nullish().describe('Optional comment about the experiment conclusion.'),
+    conclusion_comment: zod
+        .string()
+        .max(experimentsShipVariantCreateBodyConclusionCommentMax)
+        .nullish()
+        .describe('Optional comment about the experiment conclusion.'),
     variant_key: zod.string().describe('The key of the variant to ship.'),
     release_to_everyone: zod
         .boolean()

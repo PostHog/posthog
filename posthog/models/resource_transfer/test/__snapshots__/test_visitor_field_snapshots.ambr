@@ -205,7 +205,9 @@
 # name: TestVisitorFieldSnapshots.test_primitive_fields_Experiment
   list([
     'description',
+    'excluded_variants',
     'exposure_criteria',
+    'feature_flag_auto_archived',
     'filters',
     'metrics',
     'metrics_secondary',
@@ -245,6 +247,7 @@
 # name: TestVisitorFieldSnapshots.test_primitive_fields_FeatureFlag
   list([
     'active',
+    'archived',
     'bucketing_identifier',
     'created_at',
     'ensure_experience_continuity',
