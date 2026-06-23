@@ -128,7 +128,7 @@ export function LemonTabs<T extends string | number>({
                                     onClick={onChange && !disabled ? () => onChange(tab.key) : undefined}
                                     role="tab"
                                     aria-selected={tab.key === activeKey}
-                                    aria-disabled={disabled}
+                                    aria-disabled={disabled || undefined}
                                     tabIndex={disabled ? -1 : 0}
                                     onKeyDown={
                                         onChange && !disabled

@@ -83,7 +83,7 @@ export function InboxTabBar({
     }))
 
     const tabs = onboarding
-        ? [{ key: WELCOME_TAB_KEY, label: <span>Welcome</span>, content: <></> }, ...realTabs]
+        ? [{ key: WELCOME_TAB_KEY as InboxTabBarKey, label: <span>Welcome</span>, content: <></> }, ...realTabs]
         : realTabs
 
     return (

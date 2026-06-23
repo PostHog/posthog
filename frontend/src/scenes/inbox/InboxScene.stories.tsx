@@ -90,11 +90,16 @@ export const SelfDrivingOnboarding: Story = {
 }
 
 // Had self-driving before (reports exist) but nothing is watching now → the sleek re-enable banner
-// over the normal inbox, so existing work stays accessible.
+// over the normal inbox, so existing work stays accessible. Reports are mocked explicitly (not
+// inherited) so "existing work" is unambiguous and the banner – not the takeover – is shown.
 export const SelfDrivingPaused: Story = {
     decorators: [
         mswDecorator({
             get: {
+                '/api/projects/:id/signals/reports': () => [
+                    200,
+                    { results: allReports, count: allReports.length, next: null, previous: null },
+                ],
                 '/api/projects/:id/signals/source_configs': () => [200, { results: [], count: 0 }],
                 '/api/projects/:id/signals/scout/configs': () => [200, []],
             },
