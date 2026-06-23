@@ -4192,6 +4192,8 @@ snapshots:
         hash: v1.k794b7964.09249f0d06bf5ef94eaddfcd5a97b97943ed42cae7097741dd3989418ec11f50.ROO2zs_uTFgPB7eI8fwi2GIwSo_HHTlhAal5XWBmz7Y
     mcp-apps-feature-flags--testing-no-match--light:
         hash: v1.k794b7964.b5eec4d4100dc834d4c7c891e4962c9effa643ff190f3b0957d816d82ebb7269.9Hg0pCpNp895WlYr8k2m97K0fvniLuzPcRSAIWUCtg8
+    mcp-apps-funnels--duplicate-step-names--light:
+        hash: v1.k794b7964.2f566a1901569cdad84ab37230918b1b219e8c19d9918bf226cc64a923b877f4.Usd-BBA4l0MnrnhYDGyIitmfjjMj8NqB1rW0VPOinEg
     mcp-apps-funnels--steep-dropoff--light:
         hash: v1.k794b7964.9b1c95cfbfaa751ecc06b1b998af2a9e79304f9d6bb463e83639fea231a786f8.A2qfI1EvER2HUN40tOYPTXKw9MB1Q10TEY7XdsWr-m4
     mcp-apps-funnels--three-step--light:
