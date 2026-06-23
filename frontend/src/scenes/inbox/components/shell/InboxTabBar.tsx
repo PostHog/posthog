@@ -1,7 +1,7 @@
 import { useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { LemonTabs, LemonTag } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -33,7 +33,10 @@ function FlatTabCount({ tabKey }: { tabKey: InboxFlatListTabKey }): JSX.Element 
     const logic = reportListLogic({ tabKey, listParams: INBOX_FLAT_TAB_LIST_PARAMS[tabKey] })
     useMountedLogic(logic)
     const { count } = useValues(logic)
-    return <span className="text-xs text-muted tabular-nums">{count ?? 0}</span>
+    if (count === null) {
+        return <LemonSkeleton className="h-3 w-3 rounded" />
+    }
+    return <span className="text-xs text-muted tabular-nums">{count}</span>
 }
 
 /** Synthetic key for the onboarding "Welcome" tab – presentational only, never routed to. */
@@ -58,7 +61,7 @@ export function InboxTabBar({
     showConfigTab?: boolean
     onboarding?: boolean
 }): JSX.Element {
-    const { activeTab, isStaff, runsCount } = useValues(inboxSceneLogic)
+    const { activeTab, isStaff, runsCount, runsResponse } = useValues(inboxSceneLogic)
 
     const visibleTabKeys = INBOX_TAB_KEYS.filter(
         (key) => (key !== 'config' || showConfigTab) && (!isStaffOnlyTabKey(key) || isStaff)
@@ -70,7 +73,12 @@ export function InboxTabBar({
             <span className="flex items-center gap-1.5">
                 <span>{INBOX_TAB_LABEL[key]}</span>
                 {isFlatListTabKey(key) && <FlatTabCount tabKey={key} />}
-                {key === 'runs' && <span className="text-xs text-muted tabular-nums">{runsCount}</span>}
+                {key === 'runs' &&
+                    (runsResponse === null ? (
+                        <LemonSkeleton className="h-3 w-3 rounded" />
+                    ) : (
+                        <span className="text-xs text-muted tabular-nums">{runsCount}</span>
+                    ))}
                 {isStaffOnlyTabKey(key) && (
                     <LemonTag type="completion" size="small">
                         Staff
