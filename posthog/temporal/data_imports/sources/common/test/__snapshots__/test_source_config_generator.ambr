@@ -492,6 +492,7 @@
           ExternalDataSourceType.QUALAROO: QualarooSourceConfig,
           ExternalDataSourceType.QUALTRICS: QualtricsSourceConfig,
           ExternalDataSourceType.QUICKBOOKS: QuickBooksSourceConfig,
+          ExternalDataSourceType.RB2B: RB2BSourceConfig,
           ExternalDataSourceType.RDSTATIONMARKETING: RDStationMarketingSourceConfig,
           ExternalDataSourceType.RKICOVID: RKICovidSourceConfig,
           ExternalDataSourceType.RAILZ: RailzSourceConfig,
