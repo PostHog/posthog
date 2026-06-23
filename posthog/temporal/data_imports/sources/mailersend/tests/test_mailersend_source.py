@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import MailerSendSourceConfig
@@ -36,6 +36,7 @@ class TestMailerSendSourceConfig:
         fields = MailerSendSource().get_source_config.fields
         assert [f.name for f in fields] == ["api_token"]
         api_token = fields[0]
+        assert isinstance(api_token, SourceFieldInputConfig)
         assert api_token.required is True
         assert api_token.secret is True
 
@@ -122,9 +123,9 @@ class TestResumableWiring:
     def test_source_for_pipeline_plumbs_arguments(self, monkeypatch: Any) -> None:
         captured: dict[str, Any] = {}
 
-        def fake_source(**kwargs: Any) -> str:
+        def fake_source(**kwargs: Any) -> Any:
             captured.update(kwargs)
-            return "resource"
+            return MagicMock()
 
         monkeypatch.setattr(source_module, "mailersend_source", fake_source)
 
@@ -134,9 +135,8 @@ class TestResumableWiring:
         inputs.db_incremental_field_last_value = "2026-06-01T00:00:00Z"
         manager = MagicMock()
 
-        result = MailerSendSource().source_for_pipeline(_config(), manager, inputs)
+        MailerSendSource().source_for_pipeline(_config(), manager, inputs)
 
-        assert result == "resource"
         assert captured["api_token"] == "mlsn.token"
         assert captured["endpoint"] == "activity"
         assert captured["should_use_incremental_field"] is True

@@ -271,6 +271,27 @@ class TestActivityFanOut:
         )
         assert [r["id"] for r in rows] == ["a2"]
 
+    def test_no_checkpoint_skips_unflushed_small_domains(self, monkeypatch: Any) -> None:
+        # Domains smaller than one batcher chunk never yield mid-domain, so their rows are still
+        # buffered when the domain's loop ends. A cross-domain bookmark saved there would skip those
+        # un-flushed rows on a crash. With only after-yield checkpoints, nothing is saved at all here.
+        manager = _FakeResumableManager()
+        pages = {
+            ("https://api.mailersend.com/v1/domains", 1): self._domains_page("d1", "d2"),
+            ("https://api.mailersend.com/v1/activity/d1", 1): {"data": [{"id": "a1"}], "links": {"next": None}},
+            ("https://api.mailersend.com/v1/activity/d2", 1): {"data": [{"id": "a2"}], "links": {"next": None}},
+        }
+        rows = _collect(
+            "activity",
+            manager,
+            monkeypatch,
+            pages,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 6, 1, tzinfo=UTC),
+        )
+        assert [r["id"] for r in rows] == ["a1", "a2"]
+        assert manager.saved == []
+
 
 class TestSourceResponseShape:
     @parameterized.expand(["domains", "recipients", "templates", "messages", "activity"])

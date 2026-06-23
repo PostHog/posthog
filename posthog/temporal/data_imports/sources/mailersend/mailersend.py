@@ -234,9 +234,12 @@ def _iter_activity_rows(
                 break
             page += 1
 
-        # Advance the bookmark to the next domain so a crash between domains resumes correctly.
-        if index + 1 < len(remaining):
-            resumable_source_manager.save_state(MailerSendResumeConfig(next_page=1, domain_id=remaining[index + 1]))
+        # Deliberately NO cross-domain checkpoint here. A domain smaller than one batcher chunk
+        # (~20 pages) never triggers a mid-domain yield, so its rows are still buffered and unwritten
+        # when its loop ends — advancing the bookmark to the next domain would skip them on a crash.
+        # The only checkpoints are the after-yield saves above, each written only once its full chunk
+        # has been flushed. On resume we restart from the last such checkpoint and re-fetch forward
+        # across the remaining domains; merge upsert dedupes the re-pulled rows, so nothing is lost.
 
 
 def get_rows(
