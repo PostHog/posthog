@@ -117,6 +117,7 @@ the row lists both.
 | iterable          | HTTP                        | requests                                                        | ✅                          |
 | jira              | HTTP                        | requests                                                        | ✅                          |
 | klaviyo           | HTTP                        | requests                                                        | ✅                          |
+| lago              | HTTP                        | requests                                                        | ✅                          |
 | launchdarkly      | HTTP                        | requests                                                        | ✅                          |
 | kustomer          | HTTP                        | requests                                                        | ✅                          |
 | lattice           | HTTP                        | requests                                                        | ✅                          |
@@ -452,7 +453,6 @@ doesn't conflict with concurrent PRs.
 - klaus
 - knock
 - kyve
-- lago
 - leadfeeder
 - leexi
 - lemlist
