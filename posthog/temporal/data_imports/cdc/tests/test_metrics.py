@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 import pytest
 from unittest.mock import MagicMock, patch
 
+from temporalio.common import MetricMeter
 from temporalio.runtime import MetricBuffer, Runtime, TelemetryConfig
 from temporalio.testing import ActivityEnvironment
 
@@ -15,6 +16,7 @@ from posthog.temporal.data_imports.cdc.activities import (
     cdc_extract_activity,
     cleanup_orphan_slots_activity,
 )
+from posthog.temporal.data_imports.cdc.batcher import ChangeEventBatcher
 from posthog.temporal.data_imports.cdc.types import ChangeEvent
 from posthog.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
 
@@ -27,6 +29,9 @@ class TestMetricsOutsideActivityContext:
     """Outside an activity context the meter is a no-op, so every factory must build a
     usable metric and its emit call must not raise — this is the branch the direct-
     instantiation activity tests rely on."""
+
+    def test_meter_falls_back_to_noop(self):
+        assert metrics._meter() is MetricMeter.noop
 
     def test_counters_record_without_raising(self):
         metrics.get_events_extracted_metric(1, "s").add(5)
@@ -172,6 +177,28 @@ class TestExtractionMetricsSmoke:
                 env.run(cdc_extract_activity, CDCExtractInput(team_id=1, source_id=source.id))
 
         assert "cdc_extraction_duration_seconds" in _emitted_names(buffer)
+
+    def test_slot_advance_failure_emits_failure_metric(self, metric_env):
+        env, buffer = metric_env
+        source = _make_source()
+        events = [_make_event(position="0/100")]
+        with _extract_patches(source, [_make_schema()], events) as (_, reader, _s3):
+            reader.confirm_position.side_effect = RuntimeError("advance failed")
+            with pytest.raises(RuntimeError, match="advance failed"):
+                env.run(cdc_extract_activity, CDCExtractInput(team_id=1, source_id=source.id))
+
+        assert "cdc_slot_advance_failures_total" in _emitted_names(buffer)
+
+    def test_micro_flush_emits_micro_batch_metric(self, metric_env):
+        env, buffer = metric_env
+        source = _make_source()
+        events = [_make_event(position="0/100"), _make_event(op="U", position="0/200")]
+        # Force a mid-run flush so the read loop's micro-batch path runs.
+        with _extract_patches(source, [_make_schema()], events):
+            with patch.object(ChangeEventBatcher, "should_flush", property(lambda self: self.event_count > 0)):
+                env.run(cdc_extract_activity, CDCExtractInput(team_id=1, source_id=source.id))
+
+        assert "cdc_micro_batches_flushed_total" in _emitted_names(buffer)
 
 
 def _sweeper_adapter(*, lag_bytes=0, retention_cap_mb=None):

@@ -159,6 +159,16 @@ class CDCExtractActivity:
             time.monotonic() - self._run_started_at
         )
 
+    def _emit_deferred_runs_depth(self) -> None:
+        """Set the per-source deferred-runs gauge to the current depth across all CDC schemas.
+
+        A gauge re-exports its last value, so it must be refreshed whenever deferred runs are
+        stored OR drained — otherwise it reads stale-high after a flush. Summed across schemas
+        because the gauge is keyed by source, not schema.
+        """
+        depth = sum(len(s.sync_type_config.get("cdc_deferred_runs") or []) for s in self.cdc_schemas)
+        metrics.get_deferred_runs_depth_metric(self.inputs.team_id, str(self.inputs.source_id)).set(depth)
+
     def _confirm_position(self, lsn: str) -> None:
         """Advance the replication slot, recording success/failure metrics."""
         source_id = str(self.inputs.source_id)
@@ -256,6 +266,7 @@ class CDCExtractActivity:
 
         schema.sync_type_config["cdc_deferred_runs"] = []
         schema.save(update_fields=["sync_type_config", "updated_at"])
+        self._emit_deferred_runs_depth()
 
         log.info("deferred_runs_flushed", schema_id=str(schema.id))
 
@@ -409,7 +420,7 @@ class CDCExtractActivity:
         entry["total_rows"] = tracker.total_rows
 
         schema.save(update_fields=["sync_type_config", "updated_at"])
-        metrics.get_deferred_runs_depth_metric(self.inputs.team_id, str(self.inputs.source_id)).set(len(deferred))
+        self._emit_deferred_runs_depth()
 
         self._schema_log(schema).info(
             "cdc_deferred_run_stored",
@@ -551,6 +562,7 @@ class CDCExtractActivity:
             if self.adapter is not None and self.adapter.is_slot_invalidation_error(exc):
                 try:
                     self._recover_from_slot_invalidation(exc)
+                    self._emit_run_duration("recovered")
                     return
                 except Exception as recovery_exc:
                     self.log.exception("cdc_slot_recovery_failed")
@@ -812,6 +824,8 @@ class CDCExtractActivity:
             schema.sync_type_config.pop("cdc_deferred_runs", None)
         schema.initial_sync_complete = False
         schema.save(update_fields=["sync_type_config", "initial_sync_complete", "updated_at"])
+        if clear_deferred_runs:
+            self._emit_deferred_runs_depth()
 
     def _unpause_schema_schedule(self, schema: ExternalDataSchema) -> None:
         schema_log = self._schema_log(schema)
