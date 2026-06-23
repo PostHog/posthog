@@ -8467,6 +8467,18 @@ export namespace Schemas {
       resolved_natives: string[];
     }
 
+    /**
+     * * `langgraph` - LangGraph
+     * * `sandbox` - Sandbox
+     */
+    export type AgentRuntimeEnum = typeof AgentRuntimeEnum[keyof typeof AgentRuntimeEnum];
+
+
+    export const AgentRuntimeEnum = {
+      Langgraph: 'langgraph',
+      Sandbox: 'sandbox',
+    } as const;
+
     export interface AgentTableHeader {
       /** Table name. */
       name: string;
@@ -9202,6 +9214,11 @@ export namespace Schemas {
     export interface ApproveRunRequestInput {
       /** Snapshots to mark reviewed, each with `identifier` and `new_hash`. This only records the review in the database (the per-snapshot "Accept change" action) — it does not change the baseline or the GitHub gate. Commit the baseline and green the gate with the finalize endpoint. */
       snapshots: ApproveSnapshotInput[];
+    }
+
+    export interface ArchiveExperiment {
+      /** When the linked feature flag is still enabled, also disable and archive it along with the experiment. Has no effect if the flag is already disabled (it is archived either way). */
+      disable_feature_flag?: boolean;
     }
 
     export interface Artifact {
@@ -11348,6 +11365,8 @@ export namespace Schemas {
       affected: number;
       /** Total number of users */
       total: number;
+      /** Maximum allowed audience size for batch triggers for this team. */
+      limit: number;
     }
 
     /**
@@ -11547,8 +11566,12 @@ export namespace Schemas {
       excluded_properties?: string;
       /** Tag names to filter by. Flags carrying at least one of these tags match. */
       tags?: string[];
+      /** Tag names to exclude. Flags carrying any of these tags are filtered out. */
+      excluded_tags?: string[];
       /** When true, only matches flags with at least one evaluation context. */
       has_evaluation_contexts?: boolean;
+      /** Filter by archived state. When omitted, archived flags are excluded. */
+      archived?: boolean;
     }
 
     export interface BulkDeleteRequest {
@@ -12291,10 +12314,10 @@ export namespace Schemas {
      * * `bypassPermissions` - bypassPermissions
      * * `auto` - auto
      */
-    export type ClaudeTaskRunCreateSchemaInitialPermissionModeEnum = typeof ClaudeTaskRunCreateSchemaInitialPermissionModeEnum[keyof typeof ClaudeTaskRunCreateSchemaInitialPermissionModeEnum];
+    export type InitialPermissionModeEnum = typeof InitialPermissionModeEnum[keyof typeof InitialPermissionModeEnum];
 
 
-    export const ClaudeTaskRunCreateSchemaInitialPermissionModeEnum = {
+    export const InitialPermissionModeEnum = {
       Default: 'default',
       AcceptEdits: 'acceptEdits',
       Plan: 'plan',
@@ -12363,7 +12386,7 @@ export namespace Schemas {
        * * `plan` - plan
        * * `bypassPermissions` - bypassPermissions
        * * `auto` - auto */
-      initial_permission_mode?: ClaudeTaskRunCreateSchemaInitialPermissionModeEnum;
+      initial_permission_mode?: InitialPermissionModeEnum;
     }
 
     export type ClickhouseEventProperties = { [key: string]: unknown };
@@ -12984,6 +13007,17 @@ export namespace Schemas {
       source_comment?: string | null;
     }
 
+    /**
+     * Response for the `commit` artefact diff endpoint — the commit's branch rendered against the
+     * repository default branch.
+     */
+    export interface CommitDiffResponse {
+      /** Unified diff (patch) text of the branch against the repository default branch, from the GitHub compare API. */
+      readonly diff: string;
+      /** True when the diff was too large to return in full and has been truncated. */
+      readonly truncated: boolean;
+    }
+
     export interface CompareItem {
       label: string;
       value: string;
@@ -13134,6 +13168,79 @@ export namespace Schemas {
       Slack: 'slack',
     } as const;
 
+    /**
+     * @nullable
+     */
+    export type TaskUserBasicInfoHedgehogConfig = { [key: string]: unknown } | null;
+
+    /**
+     * Response shape for a task creator, mirroring core ``UserBasicSerializer`` output.
+     */
+    export interface TaskUserBasicInfo {
+      id: number;
+      uuid: string;
+      distinct_id: string;
+      first_name: string;
+      last_name: string;
+      email: string;
+      /** @nullable */
+      is_email_verified?: boolean | null;
+      /** @nullable */
+      hedgehog_config?: TaskUserBasicInfoHedgehogConfig;
+      /** @nullable */
+      role_at_organization?: string | null;
+    }
+
+    /**
+     * @nullable
+     */
+    export type TaskDetailDTOJsonSchema = { [key: string]: unknown } | null;
+
+    /**
+     * Conversation envelope variant: ``latest_run`` is just the latest run's id, not the nested
+     * run detail. The frontend only needs the id to reconnect to sandbox logs, and emitting the id
+     * avoids presigning a log URL per conversation.
+     *
+     * Read access here follows the conversation (the share-by-link unit), not per-creator task
+     * visibility — write/send stays creator-gated. See ``tasks_facade.get_conversation_task_dtos``.
+     */
+    export interface TaskDetailDTO {
+      id: string;
+      /** @nullable */
+      task_number: number | null;
+      slug: string;
+      title: string;
+      title_manually_set: boolean;
+      description: string;
+      origin_product: string;
+      /** @nullable */
+      repository: string | null;
+      /** @nullable */
+      github_integration: number | null;
+      /** @nullable */
+      github_user_integration: string | null;
+      /** @nullable */
+      signal_report: string | null;
+      /** @nullable */
+      json_schema: TaskDetailDTOJsonSchema;
+      internal: boolean;
+      archived: boolean;
+      /** @nullable */
+      archived_at: string | null;
+      /**
+         * Id of the latest TaskRun; null when the task has no runs.
+         * @nullable
+         */
+      readonly latest_run: string | null;
+      /** @nullable */
+      created_at?: string | null;
+      /** @nullable */
+      updated_at?: string | null;
+      created_by?: TaskUserBasicInfo | null;
+      /** @nullable */
+      ci_prompt: string | null;
+    }
+
     export interface Conversation {
       readonly id: string;
       readonly status: ConversationStatus;
@@ -13179,12 +13286,18 @@ export namespace Schemas {
       readonly has_unsupported_content: boolean;
       /** @nullable */
       readonly agent_mode: string | null;
+      /** Runtime that owns this conversation. 'langgraph' conversations return their messages in the `messages` field; born-'sandbox' conversations return an empty `messages` array and load history from the products/tasks logs endpoint. A converted conversation is 'sandbox' but still returns its legacy thread in `messages`.
+       *
+       * * `langgraph` - LangGraph
+       * * `sandbox` - Sandbox */
+      readonly agent_runtime: AgentRuntimeEnum;
       readonly is_sandbox: boolean;
       /** Return pending approval cards as structured data.
        *
        * Combines metadata from conversation.approval_decisions with payload from checkpoint
        * interrupts (single source of truth for payload data). */
       readonly pending_approvals: readonly ConversationPendingApprovalsItem[];
+      readonly task: TaskDetailDTO | null;
     }
 
     export interface ConversationMinimal {
@@ -13228,6 +13341,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly slack_workspace_domain: string | null;
+      readonly task: TaskDetailDTO | null;
     }
 
     export interface ConversionGoalSummary {
@@ -13810,6 +13924,8 @@ export namespace Schemas {
       name: string;
       /** Raw text to index. Capped at 1 MB; larger payloads should be split into multiple sources or wait for URL/file support in Stage 2/3. */
       text: string;
+      /** When true, this source's content is injected into every support reply prompt as general context (tone, policies, direction). */
+      always_include?: boolean;
     }
 
     export interface TileLayoutBox {
@@ -21017,6 +21133,11 @@ export namespace Schemas {
       readonly expires_after: string | null;
       /** @nullable */
       readonly exception: string | null;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     /**
@@ -22111,6 +22232,8 @@ export namespace Schemas {
       filters?: FeatureFlagFilters;
       deleted?: boolean;
       active?: boolean;
+      /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
+      archived?: boolean;
       readonly created_by: UserBasic;
       created_at?: string;
       /** @nullable */
@@ -22610,6 +22733,8 @@ export namespace Schemas {
       filters?: FeatureFlagFiltersSchema;
       /** Whether the feature flag is active. */
       active?: boolean;
+      /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
+      archived?: boolean;
       /** Organizational tags for this feature flag. */
       tags?: string[];
       /** Evaluation contexts that control where this flag evaluates at runtime. */
@@ -22652,7 +22777,7 @@ export namespace Schemas {
     }
 
     export interface FeatureFlagStatusResponse {
-      /** Flag staleness/evaluation status: active, stale, deleted, or unknown. 'active' means the flag was recently evaluated (or has no usage data yet) — it does NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness. */
+      /** Flag staleness/evaluation status: active, stale, archived, deleted, or unknown. 'active' means the flag was recently evaluated (or has no usage data yet) — it does NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness. */
       status: string;
       /** Human-readable explanation of the status */
       reason: string;
@@ -23355,6 +23480,17 @@ export namespace Schemas {
       samples: GoalEventSample[];
       /** Caveats about the breakdown (sampling, attribution, etc.) */
       notes: string[];
+    }
+
+    export interface GoogleSearchConsoleSite {
+      /** Site URL in canonical Google format — `https://example.com/` for URL-prefix properties (trailing slash mandatory) or `sc-domain:example.com` for Domain properties. */
+      siteUrl: string;
+      /** The connected user's permission level for this site. One of `siteOwner`, `siteFullUser`, `siteRestrictedUser`, `siteUnverifiedUser`. */
+      permissionLevel: string;
+    }
+
+    export interface GoogleSearchConsoleSitesResponse {
+      sites: GoogleSearchConsoleSite[];
     }
 
     /**
@@ -25715,6 +25851,11 @@ export namespace Schemas {
       tags?: TagDefinition[];
     }
 
+    export interface IdentityMatchingError {
+      /** Human-readable explanation of why the request could not be served. */
+      detail: string;
+    }
+
     /**
      * * `high` - high
      * * `medium` - medium
@@ -26354,6 +26495,7 @@ export namespace Schemas {
       readonly file_content_type: string;
       /** @nullable */
       readonly file_size_bytes: number | null;
+      readonly always_include: boolean;
     }
 
     export interface LLMModelInfo {
@@ -29080,6 +29222,7 @@ export namespace Schemas {
      * * `slack` - Slack
      * * `support_queue` - Support Queue
      * * `session_summaries` - Session Summaries
+     * * `posthog_ai` - PostHog AI
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
      * * `support_reply` - Support Reply
@@ -29095,6 +29238,7 @@ export namespace Schemas {
       Slack: 'slack',
       SupportQueue: 'support_queue',
       SessionSummaries: 'session_summaries',
+      PosthogAi: 'posthog_ai',
       SignalReport: 'signal_report',
       SignalsScout: 'signals_scout',
       SupportReply: 'support_reply',
@@ -31039,29 +31183,6 @@ export namespace Schemas {
     }
 
     /**
-     * @nullable
-     */
-    export type TaskUserBasicInfoHedgehogConfig = { [key: string]: unknown } | null;
-
-    /**
-     * Response shape for a `created_by` user — mirrors core `UserBasicSerializer` output.
-     */
-    export interface TaskUserBasicInfo {
-      id: number;
-      uuid: string;
-      distinct_id: string;
-      first_name: string;
-      last_name: string;
-      email: string;
-      /** @nullable */
-      is_email_verified?: boolean | null;
-      /** @nullable */
-      hedgehog_config?: TaskUserBasicInfoHedgehogConfig;
-      /** @nullable */
-      role_at_organization?: string | null;
-    }
-
-    /**
      * List response for sandbox environments (subset of fields).
      */
     export interface SandboxEnvironmentDTO {
@@ -31386,6 +31507,73 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: SessionRecordingPlaylist[];
+    }
+
+    /**
+     * * `video_segment` - Video Segment
+     * * `safety_judgment` - Safety Judgment
+     * * `actionability_judgment` - Actionability Judgment
+     * * `priority_judgment` - Priority Judgment
+     * * `signal_finding` - Signal Finding
+     * * `repo_selection` - Repo Selection
+     * * `suggested_reviewers` - Suggested Reviewers
+     * * `dismissal` - Dismissal
+     * * `code_reference` - Code Reference
+     * * `commit` - Commit
+     * * `task_run` - Task Run
+     * * `note` - Note
+     */
+    export type SignalReportArtefactTypeEnum = typeof SignalReportArtefactTypeEnum[keyof typeof SignalReportArtefactTypeEnum];
+
+
+    export const SignalReportArtefactTypeEnum = {
+      VideoSegment: 'video_segment',
+      SafetyJudgment: 'safety_judgment',
+      ActionabilityJudgment: 'actionability_judgment',
+      PriorityJudgment: 'priority_judgment',
+      SignalFinding: 'signal_finding',
+      RepoSelection: 'repo_selection',
+      SuggestedReviewers: 'suggested_reviewers',
+      Dismissal: 'dismissal',
+      CodeReference: 'code_reference',
+      Commit: 'commit',
+      TaskRun: 'task_run',
+      Note: 'note',
+    } as const;
+
+    export interface _User {
+      readonly id: number;
+      readonly uuid: string;
+      readonly first_name: string;
+      readonly last_name: string;
+      readonly email: string;
+    }
+
+    export type SignalReportArtefactContent = { [key: string]: unknown } | unknown[];
+
+    export interface SignalReportArtefact {
+      readonly id: string;
+      readonly type: SignalReportArtefactTypeEnum;
+      readonly content: SignalReportArtefactContent;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      /** User the artefact is attributed to, when a user produced it. Null for task/system writes. */
+      readonly created_by: _User | null;
+      /**
+         * Task the artefact is attributed to, when an agent produced it. Null for user/system writes.
+         * @nullable
+         */
+      readonly task_id: string | null;
+    }
+
+    export interface PaginatedSignalReportArtefactList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SignalReportArtefact[];
     }
 
     /**
@@ -32416,6 +32604,15 @@ export namespace Schemas {
       results: TaskAutomationDTO[];
     }
 
+    export interface PaginatedTaskDetailDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TaskDetailDTO[];
+    }
+
     /**
      * * `claude` - claude
      * * `codex` - codex
@@ -32524,61 +32721,6 @@ export namespace Schemas {
       updated_at?: string | null;
       /** @nullable */
       completed_at?: string | null;
-    }
-
-    /**
-     * @nullable
-     */
-    export type TaskDetailDTOJsonSchema = { [key: string]: unknown } | null;
-
-    /**
-     * Detail response for a task.
-     *
-     * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
-     * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
-     * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
-     */
-    export interface TaskDetailDTO {
-      id: string;
-      /** @nullable */
-      task_number: number | null;
-      slug: string;
-      title: string;
-      title_manually_set: boolean;
-      description: string;
-      origin_product: string;
-      /** @nullable */
-      repository: string | null;
-      /** @nullable */
-      github_integration: number | null;
-      /** @nullable */
-      github_user_integration: string | null;
-      /** @nullable */
-      signal_report: string | null;
-      /** @nullable */
-      json_schema: TaskDetailDTOJsonSchema;
-      internal: boolean;
-      archived: boolean;
-      /** @nullable */
-      archived_at: string | null;
-      /** Latest run details for this task */
-      latest_run?: TaskRunDetailDTO | null;
-      /** @nullable */
-      created_at?: string | null;
-      /** @nullable */
-      updated_at?: string | null;
-      created_by?: TaskUserBasicInfo | null;
-      /** @nullable */
-      ci_prompt: string | null;
-    }
-
-    export interface PaginatedTaskDetailDTOList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: TaskDetailDTO[];
     }
 
     export interface PaginatedTaskRunDetailDTOList {
@@ -34422,12 +34564,18 @@ export namespace Schemas {
       readonly has_unsupported_content?: boolean;
       /** @nullable */
       readonly agent_mode?: string | null;
+      /** Runtime that owns this conversation. 'langgraph' conversations return their messages in the `messages` field; born-'sandbox' conversations return an empty `messages` array and load history from the products/tasks logs endpoint. A converted conversation is 'sandbox' but still returns its legacy thread in `messages`.
+       *
+       * * `langgraph` - LangGraph
+       * * `sandbox` - Sandbox */
+      readonly agent_runtime?: AgentRuntimeEnum;
       readonly is_sandbox?: boolean;
       /** Return pending approval cards as structured data.
        *
        * Combines metadata from conversation.approval_decisions with payload from checkpoint
        * interrupts (single source of truth for payload data). */
       readonly pending_approvals?: readonly PatchedConversationPendingApprovalsItem[];
+      readonly task?: TaskDetailDTO | null;
     }
 
     export interface PatchedCoreEvent {
@@ -35709,6 +35857,8 @@ export namespace Schemas {
       filters?: FeatureFlagFiltersSchema;
       /** Whether the feature flag is active. */
       active?: boolean;
+      /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
+      archived?: boolean;
       /** Organizational tags for this feature flag. */
       tags?: string[];
       /** Evaluation contexts that control where this flag evaluates at runtime. */
@@ -38593,6 +38743,16 @@ export namespace Schemas {
       custom_tags?: PatchedSessionSummariesConfigCustomTags;
     }
 
+    /**
+     * Body for replacing the content of an existing artefact (addressed by id).
+     *
+     * Per-type schema validation happens in the view, which knows the artefact's type.
+     */
+    export interface PatchedSignalReportArtefactLogUpdate {
+      /** The new artefact payload as a JSON object or array, matching the artefact type's schema. */
+      content?: unknown;
+    }
+
     export type ScoutOriginEnum = typeof ScoutOriginEnum[keyof typeof ScoutOriginEnum];
 
 
@@ -39618,6 +39778,7 @@ export namespace Schemas {
        * * `slack` - Slack
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
+       * * `posthog_ai` - PostHog AI
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
        * * `support_reply` - Support Reply */
@@ -40000,8 +40161,8 @@ export namespace Schemas {
     }
 
     /**
-     * PATCH payload for text sources. Both fields optional, at least one
-     * required. `text` triggers a re-chunk; `name` alone does not.
+     * PATCH payload for text sources. All fields optional, at least one
+     * required. `text` triggers a re-chunk; `name` or `always_include` alone does not.
      */
     export interface PatchedUpdateTextSource {
       /**
@@ -40011,6 +40172,8 @@ export namespace Schemas {
       name?: string;
       /** Replacement text. Omit to keep the existing content. */
       text?: string;
+      /** When true, this source's content is injected into every support reply prompt as general context. */
+      always_include?: boolean;
     }
 
     /**
@@ -44872,6 +45035,53 @@ export namespace Schemas {
     }
 
     /**
+     * * `action` - action
+     * * `dashboard` - dashboard
+     * * `error_tracking_issue` - error_tracking_issue
+     * * `evaluation` - evaluation
+     * * `event` - event
+     * * `insight` - insight
+     * * `notebook` - notebook
+     * * `text` - text
+     */
+    export type SandboxAttachedContextItemTypeEnum = typeof SandboxAttachedContextItemTypeEnum[keyof typeof SandboxAttachedContextItemTypeEnum];
+
+
+    export const SandboxAttachedContextItemTypeEnum = {
+      Action: 'action',
+      Dashboard: 'dashboard',
+      ErrorTrackingIssue: 'error_tracking_issue',
+      Evaluation: 'evaluation',
+      Event: 'event',
+      Insight: 'insight',
+      Notebook: 'notebook',
+      Text: 'text',
+    } as const;
+
+    /**
+     * One typed attachment carried by a sandbox message.
+     */
+    export interface SandboxAttachedContextItem {
+      /** Attachment kind. Entity types carry `id` (+ optional `name`); `text` carries `value`.
+       *
+       * * `action` - action
+       * * `dashboard` - dashboard
+       * * `error_tracking_issue` - error_tracking_issue
+       * * `evaluation` - evaluation
+       * * `event` - event
+       * * `insight` - insight
+       * * `notebook` - notebook
+       * * `text` - text */
+      type: SandboxAttachedContextItemTypeEnum;
+      /** Entity identifier — integer for `dashboard`/`action`, string short_id/UUID otherwise. Absent for `text`. */
+      id?: unknown;
+      /** Optional human-readable label rendered in the context block. */
+      name?: string;
+      /** Free-text content. Only for `text` attachments. */
+      value?: string;
+    }
+
+    /**
      * Request body for creating or updating a sandbox environment.
      */
     export interface SandboxEnvironmentWrite {
@@ -44902,6 +45112,52 @@ export namespace Schemas {
       environment_variables?: unknown;
       /** If true, only the creator can see this environment; otherwise the whole team can. */
       private?: boolean;
+    }
+
+    /**
+     * Response for `POST /conversations/{id}/open/` — the IDs the frontend opens SSE against.
+     */
+    export interface SandboxMessageResponse {
+      /** The products/tasks Task backing the conversation. */
+      task_id: string;
+      /** The Run the frontend opens SSE against. */
+      run_id: string;
+      /**
+         * Echo of the request trace id, if provided.
+         * @nullable
+         */
+      trace_id: string | null;
+      /** Current status of the targeted Run (e.g. `queued`, `in_progress`). */
+      run_status: string;
+      /** True when a new Run was created (first message, terminal resume, or fresh warm); false for an in-progress follow-up or a reused warm Run. */
+      just_created_run: boolean;
+    }
+
+    /**
+     * Request body for `POST /conversations/{id}/open/`. A string `content` processes a turn; a
+     * null/absent `content` warms a sandbox that idles awaiting the first message.
+     */
+    export interface SandboxOpen {
+      /**
+         * The user's message text. Omit or null to warm a sandbox (boot + idle) ahead of the first message.
+         * @maxLength 40000
+         * @nullable
+         */
+      content?: string | null;
+      /** Client-generated trace id correlated with the resulting Run's SSE stream. */
+      trace_id?: string;
+      /** Typed PostHog entities (and free text) attached to this message. */
+      attached_context?: SandboxAttachedContextItem[];
+      /** Initial permission mode for the sandbox agent session. Defaults to `auto`, which allows safe tool use while preserving explicit confirmations.
+       *
+       * * `default` - default
+       * * `acceptEdits` - acceptEdits
+       * * `plan` - plan
+       * * `bypassPermissions` - bypassPermissions
+       * * `auto` - auto */
+      initial_permission_mode?: InitialPermissionModeEnum;
+      /** Bind a brand-new sandbox conversation to an existing Task so the first message resumes that Task's run. Honored only when this request creates the conversation row; ignored for an already-existing conversation. */
+      task_id?: string;
     }
 
     export interface SavedHeatmapListResponse {
@@ -45031,6 +45287,47 @@ export namespace Schemas {
       source_id: string;
       /** The inbox report this finding linked to, or null if none could be resolved. */
       report: LinkedSignalReport | null;
+    }
+
+    /**
+     * A team's enforced scout run caps and current usage.
+     *
+     * These are the values the coordinator actually applies at dispatch (resolved per-team override →
+     * fleet-wide default → code constant), so the UI can show the real throttle rather than what a
+     * user thinks they configured.
+     */
+    export interface ScoutLimits {
+      /** Most scout runs the team can start in a single 30-minute coordinator tick. */
+      max_runs_per_tick: number;
+      /**
+         * Most scout runs the team can start per rolling 24 hours, or null when uncapped.
+         * @nullable
+         */
+      max_runs_per_day: number | null;
+      /** Scout runs the team has started in the trailing 24 hours. */
+      runs_today: number;
+      /**
+         * Runs still allowed in the trailing 24h window (max_runs_per_day − runs_today), or null when uncapped.
+         * @nullable
+         */
+      runs_remaining_today: number | null;
+    }
+
+    /**
+     * Team-scoped scout metadata for the inbox / Code-app UIs: enrollment, the alpha banner, and
+     * the enforced limits. Sourced from the `signals-scout` flag payload so the banner and caps can
+     * change without a deploy to either app.
+     */
+    export interface ScoutMetadata {
+      /** Whether this project is enrolled to run scouts (set via the signals-scout flag allowlist). */
+      enrolled: boolean;
+      /**
+         * Free-form announcement banner to show above the scout UI (e.g. alpha run-limit notice), or null when unset.
+         * @nullable
+         */
+      banner_message: string | null;
+      /** The team's enforced scout run caps and current usage. */
+      limits: ScoutLimits;
     }
 
     /**
@@ -45406,6 +45703,46 @@ export namespace Schemas {
     }
 
     /**
+     * Body for appending an artefact to a report.
+     *
+     * Everything is append-only: log artefacts accumulate, status artefacts supersede the previous
+     * version (latest-wins). The `content` shape depends on `artefact_type` and is validated
+     * against the type's schema (see `products/signals/backend/artefact_schemas.py`).
+     */
+    export interface SignalReportArtefactLogCreate {
+      /** The artefact type. One of: actionability_judgment, code_reference, commit, dismissal, note, priority_judgment, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. */
+      artefact_type: string;
+      /** The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema. */
+      content: unknown;
+    }
+
+    /**
+     * Response shape for the log-artefact create/update endpoints — echoes the stored row.
+     */
+    export interface SignalReportArtefactWriteResponse {
+      /** The artefact's unique id. */
+      readonly id: string;
+      /** The id of the report this artefact belongs to. */
+      readonly report_id: string;
+      /** The artefact type. */
+      readonly type: string;
+      /** The artefact payload, parsed from storage. */
+      readonly content: unknown;
+      /** When the artefact was created. */
+      readonly created_at: string;
+      /**
+         * When the artefact was last written — set on creation and refreshed on each edit. Null only for rows created before this field existed.
+         * @nullable
+         */
+      readonly updated_at: string | null;
+      /**
+         * Task the artefact is attributed to, when an agent produced it. Null for user writes.
+         * @nullable
+         */
+      readonly task_id: string | null;
+    }
+
+    /**
      * * `suppressed` - suppressed
      * * `potential` - potential
      */
@@ -45557,7 +45894,7 @@ export namespace Schemas {
       /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
       emit?: boolean;
       /**
-         * Minutes between runs (10–43200). Defaults to 180 (every 3 hours).
+         * Minutes between runs (10–43200). Defaults to 1440 (every 24 hours).
          * @minimum 10
          * @maximum 43200
          */
@@ -45716,14 +46053,6 @@ export namespace Schemas {
       emitted_count: number;
       /** The `finding_id`s behind `emitted_count`, in emit order. Each maps to a `Signal` with `source_id = run:<run_id>:finding:<finding_id>`. Empty for non-emitting runs. */
       emitted_finding_ids: string[];
-    }
-
-    export interface _User {
-      readonly id: number;
-      readonly uuid: string;
-      readonly first_name: string;
-      readonly last_name: string;
-      readonly email: string;
     }
 
     export interface SignalUserAutonomyConfig {
@@ -47400,15 +47729,6 @@ export namespace Schemas {
       interesting_notes: InterestingNote[];
     }
 
-    export interface SuggestReplyError {
-      detail: string;
-      error_type?: string;
-    }
-
-    export interface SuggestReplyResponse {
-      suggestion: string;
-    }
-
     /**
      * * `trace` - trace
      * * `event` - event
@@ -48733,6 +49053,7 @@ export namespace Schemas {
        * * `slack` - Slack
        * * `support_queue` - Support Queue
        * * `session_summaries` - Session Summaries
+       * * `posthog_ai` - PostHog AI
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
        * * `support_reply` - Support Reply */
@@ -49140,6 +49461,11 @@ export namespace Schemas {
       text: string;
       /** Metadata about the text representation */
       metadata: TextReprMetadata;
+    }
+
+    export interface TicketError {
+      detail: string;
+      error_type?: string;
     }
 
     /**
@@ -52030,6 +52356,38 @@ export namespace Schemas {
     offset?: number;
     /**
      * A search term.
+     */
+    search?: string;
+    };
+
+    export type EnvironmentsExternalDataSchemasLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
      */
     search?: string;
     };
@@ -58020,6 +58378,38 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type ExternalDataSchemasLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string;
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string;
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string;
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string;
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number;
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string;
+    };
+
     export type ExternalDataSourcesListParams = {
     /**
      * Number of results to return per page.
@@ -58091,6 +58481,10 @@ export namespace Schemas {
     export type FeatureFlagsListParams = {
     active?: FeatureFlagsListActive;
     /**
+     * Filter by archived state. When omitted, archived flags are excluded.
+     */
+    archived?: FeatureFlagsListArchived;
+    /**
      * Filter by the user(s) who created the feature flag. Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.
      */
     created_by_id?: string;
@@ -58102,6 +58496,10 @@ export namespace Schemas {
      * JSON-encoded list of feature flag keys to exclude from the results.
      */
     excluded_properties?: string;
+    /**
+     * JSON-encoded list of tag names to exclude. Flags carrying any of these tags are filtered out.
+     */
+    excluded_tags?: string;
     /**
      * Filter feature flags by presence of evaluation contexts. 'true' returns only flags with at least one evaluation context, 'false' returns only flags without.
      */
@@ -58130,6 +58528,14 @@ export namespace Schemas {
 
     export const FeatureFlagsListActive = {
       Stale: 'STALE',
+      False: 'false',
+      True: 'true',
+    } as const;
+
+    export type FeatureFlagsListArchived = typeof FeatureFlagsListArchived[keyof typeof FeatureFlagsListArchived];
+
+
+    export const FeatureFlagsListArchived = {
       False: 'false',
       True: 'true',
     } as const;
@@ -61351,6 +61757,21 @@ export namespace Schemas {
      * Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.
      */
     suggested_reviewers?: string;
+    /**
+     * Only reports associated with this task (via the report's task associations).
+     */
+    task_id?: string;
+    };
+
+    export type SignalsReportArtefactsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type SignalsScoutProjectProfileGetParams = {
@@ -61867,6 +62288,13 @@ export namespace Schemas {
      * @minimum 0
      */
     offset?: number;
+    };
+
+    export type TasksRunsStreamRetrieveParams = {
+    /**
+     * Set to `latest` to skip the event backlog and only receive events published after connecting.
+     */
+    start?: string;
     };
 
     export type TasksRepositoryReadinessRetrieveParams = {
