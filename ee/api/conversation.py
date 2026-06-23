@@ -795,7 +795,7 @@ class ConversationViewSet(
 
         Runs only on a first message — no backing Task yet (`task_id is None`) and real content.
         Followups and resumes reuse the existing Task's repository, and warming has no message to
-        route on, so neither triggers the explicit repository mention match. Selection never raises;
+        route on, so neither triggers the (potentially heavy) selection. Selection never raises;
         any failure degrades to None — a repo-less sandbox — so it can't block the conversation.
         """
         if conversation.task_id is not None:
