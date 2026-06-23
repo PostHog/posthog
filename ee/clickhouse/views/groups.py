@@ -844,6 +844,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 where_extra = "AND value ILIKE {value_filter}"
                 placeholders["value_filter"] = ast.Constant(value=f"%{value_filter}%")
 
+            # nosemgrep: hogql-fstring-audit (only constant SQL fragments value_expr/where_extra are interpolated; key/value/index go through parse_select placeholders)
             query = parse_select(
                 f"""
                 SELECT {value_expr}, count(*) AS count
