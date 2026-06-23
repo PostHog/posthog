@@ -300,6 +300,7 @@ from .kissmetrics.source import KissmetricsSource
 from .klarna.source import KlarnaSource
 from .klaus.source import KlausSource
 from .klaviyo.source import KlaviyoSource
+from .knock.source import KnockSource
 from .kustomer.source import KustomerSource
 from .kyve.source import KYVESource
 from .lago.source import LagoSource

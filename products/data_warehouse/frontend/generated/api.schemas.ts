@@ -1537,7 +1537,8 @@ export interface CredentialApi {
  * * `Chatwoot` - Chatwoot
  * * `Sanity` - Sanity
  * * `Metronome` - Metronome
- * * `Jobber` - Jobber
+ * * `Jobber` - Jobber,
+ * * `Knock` - Knock
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2179,6 +2180,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Sanity: 'Sanity',
     Metronome: 'Metronome',
     Jobber: 'Jobber',
+    Knock: 'Knock',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

@@ -1799,6 +1799,7 @@ class ExternalDataSourceType(StrEnum):
     SANITY = "Sanity"
     METRONOME = "Metronome"
     JOBBER = "Jobber"
+    KNOCK = "Knock"
 
 
 class ExternalQueryErrorCode(StrEnum):

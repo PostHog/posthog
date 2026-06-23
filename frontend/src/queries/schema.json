@@ -21464,7 +21464,8 @@
                 "Chatwoot",
                 "Sanity",
                 "Metronome",
-                "Jobber"
+                "Jobber",
+                "Knock"
             ],
             "type": "string"
         },
