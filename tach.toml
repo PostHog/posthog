@@ -137,6 +137,11 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.ai_gateway"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[modules]]
 path = "products.alerts"
 depends_on = [
     "ee",
@@ -461,6 +466,7 @@ depends_on = [
     "products.event_definitions",
     "products.ai_observability",
     "products.logs",
+    "products.tasks",
 ]
 layer = "modules"
 

@@ -22,6 +22,8 @@ from posthog.event_usage import EventSource, get_event_source, groups
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.organization import Organization
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.security.url_validation import is_url_allowed
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
@@ -51,7 +53,7 @@ def get_full_video_exports_limit_for_organization(organization: Organization | N
 logger = structlog.get_logger(__name__)
 
 
-class ExportedAssetSerializer(serializers.ModelSerializer):
+class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     """Standard ExportedAsset serializer that doesn't return content."""
 
     has_content = serializers.BooleanField(read_only=True)
@@ -70,6 +72,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             "filename",
             "expires_after",
             "exception",
+            "user_access_level",
         ]
         read_only_fields = ["id", "created_at", "has_content", "filename", "expires_after", "exception"]
 
@@ -436,6 +439,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
 @extend_schema(extensions={"x-product": "core"})
 class ExportedAssetViewSet(
     TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     mixins.CreateModelMixin,

@@ -54,6 +54,13 @@ class NotionNotFoundError(Exception):
     is recoverable — skip it and keep syncing the rest rather than crashing the whole sync."""
 
 
+class NotionBadRequestError(Exception):
+    """Notion returned 400 for a per-page resource. Some blocks advertise has_children but cannot be
+    expanded via the API (e.g. blocks backed by synced/external content), so Notion rejects the
+    children request. Like a 404, this is recoverable in the fan-out streams (blocks/comments): skip
+    the offending block/page and keep syncing rather than crashing the whole sync."""
+
+
 @dataclasses.dataclass
 class NotionResumeConfig:
     next_cursor: str
@@ -134,6 +141,14 @@ def _request(
     # on the collection endpoints (search/users) it is unexpected and propagates as a sync failure.
     if response.status_code == 404:
         raise NotionNotFoundError(f"Notion resource not found: url={url}")
+
+    # A 400 on a per-page resource (block children) means Notion rejects expanding that specific
+    # block even though it advertised has_children. The fan-out streams skip it; on the collection
+    # endpoints (search/users) a 400 is a genuine bad request and propagates as a sync failure.
+    if response.status_code == 400:
+        # Carry Notion's error body so callers can log its `code`/`message` (e.g. `validation_error`),
+        # which distinguishes the known has_children quirk from an unexpected 400.
+        raise NotionBadRequestError(f"Notion rejected request: url={url}, body={response.text}")
 
     if not response.ok:
         logger.error(f"Notion API error: status={response.status_code}, body={response.text}, url={url}")
@@ -273,6 +288,14 @@ def _iter_block_children(
                 block_id=block_id,
             )
             return
+        except NotionBadRequestError as e:
+            logger.warning(
+                "Notion: skipping block whose children Notion rejected",
+                page_id=page_id,
+                block_id=block_id,
+                error=str(e),
+            )
+            return
         for block in data.get("results", []):
             block["_page_id"] = page_id
             yield block
@@ -323,6 +346,13 @@ def _comments_stream(session: requests.Session, logger: FilteringBoundLogger) ->
                 logger.warning(
                     "Notion: skipping comments for missing or unshared page",
                     page_id=page_id,
+                )
+                break
+            except NotionBadRequestError as e:
+                logger.warning(
+                    "Notion: skipping comments Notion rejected for page",
+                    page_id=page_id,
+                    error=str(e),
                 )
                 break
             for comment in data.get("results", []):

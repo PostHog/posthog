@@ -6,8 +6,11 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { signalsScoutMetadataGet } from 'products/signals/frontend/generated/api'
+import type { ScoutMetadataApi } from 'products/signals/frontend/generated/api.schemas'
 import { OriginProduct } from 'products/tasks/frontend/types'
 
 import { SignalScoutConfig, SignalScoutConfigUpdate, SignalScoutRunSummary } from '../types'
@@ -67,6 +70,18 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             {
                 loadScoutConfigs: async () => {
                     return await api.signalScout.configs.list()
+                },
+            },
+        ],
+        scoutMetadata: [
+            null as ScoutMetadataApi | null,
+            {
+                loadScoutMetadata: async () => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return null
+                    }
+                    return await signalsScoutMetadataGet(String(teamId))
                 },
             },
         ],
@@ -167,6 +182,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
     }),
 
     selectors({
+        // Editorial alpha/announcement banner from the signals-scout flag, or null when unset.
+        scoutBannerMessage: [
+            (s) => [s.scoutMetadata],
+            (scoutMetadata): string | null => scoutMetadata?.banner_message ?? null,
+        ],
         rollups: [
             (s) => [s.runsWindow],
             (runsWindow): Map<string, ScoutRollup> => computeScoutRollups(runsWindow.runs),
@@ -267,6 +287,8 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             // Configs are cheap and the always-mounted setup widget needs them. The paginated
             // runs window is loaded + polled only while the fleet list is open (startRunsPolling).
             actions.loadScoutConfigs()
+            // Metadata carries the alpha banner; a one-shot read is enough (it changes rarely).
+            actions.loadScoutMetadata()
         },
     })),
 ])
