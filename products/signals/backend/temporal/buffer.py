@@ -32,11 +32,8 @@ logger = structlog.get_logger(__name__)
 BUFFER_MAX_SIZE = 20
 BUFFER_FLUSH_TIMEOUT_SECONDS = 5
 
-# Patch ID for the ingestion quota gate. Buffer workflows run continuously (one per team) and
-# continue_as_new every batch, so in-flight runs drain fast — but a run mid-batch at deploy time
-# recorded its history without the quota activity, so guard the new activity behind
-# workflow.patched() to keep replay deterministic. Once all such runs have drained, replace this
-# with workflow.deprecate_patch() and eventually remove.
+# Guards the ingestion quota gate so runs that recorded history before it was added replay
+# deterministically. Switch to workflow.deprecate_patch() once those have drained, then remove.
 _PATCH_QUOTA_INGESTION_GATE = "signals-quota-ingestion-gate-v1"
 
 OBJECT_STORAGE_SIGNALS_PREFIX = "signals/signal_batches"
@@ -82,12 +79,7 @@ class CheckSignalsQuotaInput:
 @scoped_temporal()
 @close_db_connections
 async def check_signals_quota_limited_activity(input: CheckSignalsQuotaInput) -> bool:
-    """Whether the team is over its Signals credits quota.
-
-    Signals enforces its credit quota at ingestion rather than at the LLM gateway: the buffer
-    workflow calls this before flushing a batch downstream and drops the batch when limited, so
-    no LLM work (grouping, report generation, implementation) runs for an over-quota team.
-    """
+    """Whether the team is over its Signals credits quota."""
     team = await Team.objects.only("api_token").aget(pk=input.team_id)
     return await sync_to_async(is_team_signals_quota_limited)(team.api_token)
 
@@ -212,11 +204,7 @@ class BufferSignalsWorkflow:
             batch = list(self._signal_buffer)
             self._signal_buffer.clear()
 
-            # Ingestion gate: drop the batch when the team is over its Signals credits quota, before
-            # any downstream LLM work (safety filter, grouping, report generation, implementation).
-            # Signals enforces its quota here rather than returning 429s from the LLM gateway. Guarded
-            # by workflow.patched() so in-flight runs that recorded history before this change replay
-            # on the old path (no quota activity) instead of hitting a non-determinism error.
+            # Drop the batch when the team is over its Signals credits quota, before any downstream work.
             if workflow.patched(_PATCH_QUOTA_INGESTION_GATE):
                 over_quota = await workflow.execute_activity(
                     check_signals_quota_limited_activity,
