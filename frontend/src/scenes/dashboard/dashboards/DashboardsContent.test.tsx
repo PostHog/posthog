@@ -8,7 +8,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { DashboardsContent } from './DashboardsContent'
 
 jest.mock('./DashboardsTable', () => ({ DashboardsTableContainer: () => <div>table-arm</div> }))
-jest.mock('./DashboardsExplorer', () => ({ DashboardsExplorer: () => <div>explorer-arm</div> }))
+jest.mock('./DashboardsTree', () => ({ DashboardsTree: () => <div>tree-arm</div> }))
 jest.mock('kea', () => ({ ...jest.requireActual('kea'), useValues: jest.fn() }))
 
 function renderWithFlag(value: string | undefined): void {
@@ -21,15 +21,18 @@ function renderWithFlag(value: string | undefined): void {
 describe('DashboardsContent', () => {
     afterEach(cleanup)
 
-    it.each([undefined, 'control', 'bogus', 'grid', 'finder', 'tree'])('renders the table for variant %p', (value) => {
-        renderWithFlag(value)
-        expect(screen.getByText('table-arm')).toBeInTheDocument()
-        expect(screen.queryByText('explorer-arm')).not.toBeInTheDocument()
-    })
+    it.each([undefined, 'control', 'bogus', 'grid', 'finder', 'explorer'])(
+        'renders the table for variant %p',
+        (value) => {
+            renderWithFlag(value)
+            expect(screen.getByText('table-arm')).toBeInTheDocument()
+            expect(screen.queryByText('tree-arm')).not.toBeInTheDocument()
+        }
+    )
 
-    it('renders the explorer for the explorer variant', () => {
-        renderWithFlag('explorer')
-        expect(screen.getByText('explorer-arm')).toBeInTheDocument()
+    it('renders the tree for the tree variant', () => {
+        renderWithFlag('tree')
+        expect(screen.getByText('tree-arm')).toBeInTheDocument()
         expect(screen.queryByText('table-arm')).not.toBeInTheDocument()
     })
 })

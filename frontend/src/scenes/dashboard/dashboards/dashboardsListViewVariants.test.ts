@@ -10,9 +10,9 @@ describe('resolveDashboardsListViewVariant', () => {
         ['unknown', 'control'],
         [true, 'control'],
         ['control', 'control'],
-        ['explorer', 'explorer'],
+        ['tree', 'tree'],
         // Retired arm names now fall back to control rather than enrolling a treatment arm.
-        ['tree', 'control'],
+        ['explorer', 'control'],
         ['grid', 'control'],
         ['finder', 'control'],
     ]

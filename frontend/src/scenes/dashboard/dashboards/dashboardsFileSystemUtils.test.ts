@@ -1,18 +1,7 @@
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { DashboardBasicType } from '~/types'
 
-import {
-    buildEntryByRef,
-    buildFolderTree,
-    compactFolderChain,
-    dashboardDraggableId,
-    folderBreadcrumb,
-    folderContents,
-    folderDroppableId,
-    folderLabel,
-    folderSiblings,
-    parseDashboardDragEnd,
-} from './dashboardsFileSystemUtils'
+import { buildEntryByRef, buildFolderTree, subtreeDashboards } from './dashboardsFileSystemUtils'
 
 const dash = (id: number, name: string): DashboardBasicType => ({ id, name }) as DashboardBasicType
 const entry = (ref: string, path: string): FileSystemEntry =>
@@ -51,79 +40,22 @@ describe('dashboardsFileSystemUtils', () => {
         expect(tree.find((node) => node.path === 'Archive')?.children.map((c) => c.path)).toEqual(['Archive/2024'])
     })
 
-    it('folderContents includes empty folder rows as immediate subfolders', () => {
-        const byRef = buildEntryByRef([entry('1', 'Marketing/A')])
-        expect(folderContents([dash(1, 'A')], byRef, '', ['Ideas']).subfolders).toEqual(['Ideas', 'Marketing'])
-    })
-
-    it('round-trips a card drag onto a folder header', () => {
-        const result = parseDashboardDragEnd(dashboardDraggableId(42), folderDroppableId('Marketing/Q1'))
-        expect(result).toEqual({ dashboardId: 42, folder: 'Marketing/Q1' })
-    })
-
-    it.each([
-        ['no active id', undefined, folderDroppableId('Marketing')],
-        ['no over id', dashboardDraggableId(1), undefined],
-        ['over is not a folder', dashboardDraggableId(1), 'something-else'],
-        ['active is not a dashboard', 'something-else', folderDroppableId('Marketing')],
-    ])('returns null when %s', (_description, active, over) => {
-        expect(parseDashboardDragEnd(active, over)).toBeNull()
-    })
-
-    it('folderContents returns immediate subfolders and direct dashboards at a path', () => {
-        const byRef = buildEntryByRef([entry('1', 'Marketing/A'), entry('2', 'Marketing/Q1/B')])
-        expect(folderContents([dash(1, 'A'), dash(2, 'B'), dash(3, 'C')], byRef, 'Marketing')).toEqual({
-            subfolders: ['Marketing/Q1'],
-            dashboards: [dash(1, 'A')],
-        })
-    })
-
-    it('folderContents at root lists top-level folders only', () => {
-        const byRef = buildEntryByRef([entry('1', 'Marketing/A'), entry('2', 'Unfiled/Dashboards/B')])
-        expect(folderContents([dash(1, 'A'), dash(2, 'B')], byRef, '')).toEqual({
-            subfolders: ['Marketing', 'Unfiled'],
-            dashboards: [],
-        })
-    })
-
-    it('folderBreadcrumb builds root-to-current crumbs', () => {
-        expect(folderBreadcrumb('Marketing/Q1')).toEqual([
-            { label: 'All dashboards', path: '' },
-            { label: 'Marketing', path: 'Marketing' },
-            { label: 'Q1', path: 'Marketing/Q1' },
+    it('subtreeDashboards returns every dashboard at or below a folder (root = all)', () => {
+        const byRef = buildEntryByRef([
+            entry('1', 'Marketing/A'),
+            entry('2', 'Marketing/Q1/B'),
+            entry('3', 'Product/C'),
         ])
-        expect(folderBreadcrumb('')).toEqual([{ label: 'All dashboards', path: '' }])
+        const dashboards = [dash(1, 'A'), dash(2, 'B'), dash(3, 'C')]
+        expect(subtreeDashboards(dashboards, byRef, 'Marketing')).toEqual([dash(1, 'A'), dash(2, 'B')])
+        expect(subtreeDashboards(dashboards, byRef, '').map((d) => d.id)).toEqual([1, 2, 3])
     })
 
-    it('folderLabel returns the last path segment', () => {
-        expect(folderLabel('Marketing/Q1')).toEqual('Q1')
-    })
-
-    it('folderSiblings returns the siblings of a path (children of its parent)', () => {
-        const tree = buildFolderTree([], {}, ['Marketing/Q1', 'Marketing/Q2', 'Product'])
-        // siblings of a top-level folder = the tree roots
-        expect(folderSiblings('Marketing', tree).map((node) => node.path)).toEqual(['Marketing', 'Product'])
-        // siblings of a nested folder = its parent's children
-        expect(folderSiblings('Marketing/Q1', tree).map((node) => node.path)).toEqual(['Marketing/Q1', 'Marketing/Q2'])
-    })
-
-    it('compactFolderChain collapses a single-child pass-through chain to the deepest folder', () => {
-        const byRef = buildEntryByRef([entry('1', 'Marketing/Q1/Campaigns/Email/Dash')])
-        expect(compactFolderChain('Marketing', [dash(1, 'Dash')], byRef)).toEqual({
-            path: 'Marketing/Q1/Campaigns/Email',
-            label: 'Marketing / Q1 / Campaigns / Email',
-        })
-    })
-
-    it('compactFolderChain returns an empty folder unchanged', () => {
-        expect(compactFolderChain('Ideas', [], {})).toEqual({ path: 'Ideas', label: 'Ideas' })
-    })
-
-    it('compactFolderChain stops where a folder has a direct dashboard or multiple subfolders', () => {
-        const byRef = buildEntryByRef([entry('1', 'Marketing/A'), entry('2', 'Marketing/Q1/B')])
-        expect(compactFolderChain('Marketing', [dash(1, 'A'), dash(2, 'B')], byRef)).toEqual({
-            path: 'Marketing',
-            label: 'Marketing',
-        })
+    it('subtreeDashboards treats dashboards with no folder entry as Unfiled', () => {
+        const byRef = buildEntryByRef([entry('1', 'Marketing/A')])
+        const dashboards = [dash(1, 'A'), dash(2, 'B')]
+        // id 2 has no entry → Unfiled/Dashboards; only matches the Unfiled subtree, not Marketing.
+        expect(subtreeDashboards(dashboards, byRef, 'Marketing').map((d) => d.id)).toEqual([1])
+        expect(subtreeDashboards(dashboards, byRef, 'Unfiled').map((d) => d.id)).toEqual([2])
     })
 })

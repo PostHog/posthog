@@ -25,9 +25,9 @@ export function buildEntryByRef(entries: FileSystemEntry[]): Record<string, File
     return byRef
 }
 
-// Build the nested folder tree: every folder that contains a dashboard (plus all its ancestors), unioned
-// with the explicit `folderPaths` (real folder rows) so empty folders also appear. Unfiled dashboards
-// contribute the Unfiled subtree. Feeds the explorer's breadcrumb sibling-folder dropdowns (folderSiblings).
+// Build the nested folder tree the tree arm renders in its LemonTree panel: every folder that contains a
+// dashboard (plus all its ancestors), unioned with the explicit `folderPaths` (real folder rows) so empty
+// folders also appear. Unfiled dashboards contribute the Unfiled subtree.
 export function buildFolderTree(
     dashboards: DashboardBasicType[],
     entryByRef: Record<string, FileSystemEntry>,
@@ -69,154 +69,17 @@ export function buildFolderTree(
     return roots
 }
 
-// dnd-kit ids for the explorer's drag-to-folder: dashboards are draggable, folder cards are droppable. We
-// namespace and round-trip the dashboard id / folder path through the id so the drag-end handler can resolve them.
-const DRAG_PREFIX = 'dashboards-explorer-dnd'
-const DASH_PREFIX = `${DRAG_PREFIX}:dash:`
-const FOLDER_PREFIX = `${DRAG_PREFIX}:folder:`
-
-export function dashboardDraggableId(dashboardId: number): string {
-    return `${DASH_PREFIX}${dashboardId}`
-}
-
-export function folderDroppableId(folder: string): string {
-    return `${FOLDER_PREFIX}${folder}`
-}
-
-// Resolve a drag-end (dragged card → dropped-on folder card) to a move, or null if it isn't a
-// valid card-onto-folder drop.
-export function parseDashboardDragEnd(
-    activeId: string | number | undefined | null,
-    overId: string | number | undefined | null
-): { dashboardId: number; folder: string } | null {
-    if (!activeId || !overId) {
-        return null
-    }
-    const active = String(activeId)
-    const over = String(overId)
-    if (!active.startsWith(DASH_PREFIX) || !over.startsWith(FOLDER_PREFIX)) {
-        return null
-    }
-    const dashboardId = Number(active.slice(DASH_PREFIX.length))
-    if (!Number.isInteger(dashboardId)) {
-        return null
-    }
-    return { dashboardId, folder: over.slice(FOLDER_PREFIX.length) }
-}
-
-export interface FolderContents {
-    // Full paths of the immediate child folders of `currentFolder`.
-    subfolders: string[]
-    // Dashboards filed directly in `currentFolder` (not in a subfolder).
-    dashboards: DashboardBasicType[]
-}
-
-// Explorer arm: given the current folder, return its immediate subfolders and the dashboards directly in
-// it. Subfolders come from each dashboard's folder path unioned with the explicit `folderPaths` (real
-// folder rows), so empty folders also show up as navigable, droppable subfolders.
-export function folderContents(
+// Every dashboard at or below `currentFolder`, recursively. Root ('') returns all dashboards. The tree
+// arm feeds these to the dashboards table, scoped to the selected folder's subtree.
+export function subtreeDashboards(
     dashboards: DashboardBasicType[],
     entryByRef: Record<string, FileSystemEntry>,
-    currentFolder: string,
-    folderPaths: string[] = []
-): FolderContents {
-    const currentSegments = currentFolder ? splitPath(currentFolder) : []
-    const subfolders = new Set<string>()
-    const directDashboards: DashboardBasicType[] = []
-
-    const isWithinCurrent = (segments: string[]): boolean =>
-        currentSegments.every((segment, index) => segments[index] === segment)
-    const addImmediateSubfolder = (segments: string[]): void => {
-        subfolders.add(joinPath(segments.slice(0, currentSegments.length + 1)))
-    }
-
-    for (const dashboard of dashboards) {
+    currentFolder: string
+): DashboardBasicType[] {
+    const prefix = currentFolder ? splitPath(currentFolder) : []
+    return dashboards.filter((dashboard) => {
         const entry = entryByRef[String(dashboard.id)]
-        // Parent segments of the dashboard's path in one split (no joinPath→splitPath round-trip).
-        const parentSegments = entry?.path ? splitPath(entry.path).slice(0, -1) : []
-        const segments = parentSegments.length > 0 ? parentSegments : UNFILED_SEGMENTS
-        if (!isWithinCurrent(segments)) {
-            continue
-        }
-        if (segments.length === currentSegments.length) {
-            directDashboards.push(dashboard)
-        } else {
-            addImmediateSubfolder(segments)
-        }
-    }
-
-    for (const folderPath of folderPaths) {
-        const segments = splitPath(folderPath)
-        if (isWithinCurrent(segments) && segments.length > currentSegments.length) {
-            addImmediateSubfolder(segments)
-        }
-    }
-
-    return { subfolders: [...subfolders].sort((a, b) => a.localeCompare(b)), dashboards: directDashboards }
-}
-
-export interface FolderBreadcrumb {
-    label: string
-    path: string
-}
-
-// Breadcrumb from the dashboards root to `currentFolder`, each crumb carrying the path to navigate to.
-export function folderBreadcrumb(currentFolder: string): FolderBreadcrumb[] {
-    const crumbs: FolderBreadcrumb[] = [{ label: 'All dashboards', path: '' }]
-    if (currentFolder) {
-        const segments = splitPath(currentFolder)
-        segments.forEach((segment, index) => {
-            crumbs.push({ label: segment, path: joinPath(segments.slice(0, index + 1)) })
-        })
-    }
-    return crumbs
-}
-
-// Display label for a folder card = its last path segment.
-export function folderLabel(folder: string): string {
-    return splitPath(folder).at(-1) ?? folder
-}
-
-// Sibling folders of `path` (the children of its parent), for the explorer breadcrumb's jump-to-sibling
-// dropdown. A top-level path's siblings are the tree roots; returns [] if the parent isn't in the tree.
-export function folderSiblings(path: string, folderTree: FolderTreeNode[]): FolderTreeNode[] {
-    const segments = splitPath(path)
-    let level = folderTree
-    for (let depth = 1; depth < segments.length; depth++) {
-        const ancestor = level.find((node) => node.path === joinPath(segments.slice(0, depth)))
-        if (!ancestor) {
-            return []
-        }
-        level = ancestor.children
-    }
-    return level
-}
-
-export interface CompactedSubfolder {
-    // The deepest folder to navigate to (the end of a single-child chain) when the card is clicked.
-    path: string
-    // Compacted display label, e.g. 'Q1 / Campaigns / Email' for a pass-through chain.
-    label: string
-}
-
-// Collapse a single-child pass-through chain: from `folder`, while it has exactly one subfolder and no
-// direct dashboards, descend. Lets the explorer reach a buried dashboard in one click instead of one
-// click per empty intermediate folder.
-export function compactFolderChain(
-    folder: string,
-    dashboards: DashboardBasicType[],
-    entryByRef: Record<string, FileSystemEntry>,
-    folderPaths: string[] = []
-): CompactedSubfolder {
-    const labels = [folderLabel(folder)]
-    let path = folder
-    for (;;) {
-        const { subfolders, dashboards: direct } = folderContents(dashboards, entryByRef, path, folderPaths)
-        if (subfolders.length !== 1 || direct.length !== 0) {
-            break
-        }
-        path = subfolders[0]
-        labels.push(folderLabel(path))
-    }
-    return { path, label: labels.join(' / ') }
+        const segments = entry?.path ? splitPath(entry.path).slice(0, -1) : UNFILED_SEGMENTS
+        return prefix.every((segment, index) => segments[index] === segment)
+    })
 }
