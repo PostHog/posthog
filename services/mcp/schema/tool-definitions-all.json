@@ -711,6 +711,21 @@
         },
         "feature_flag": "agent-platform"
     },
+    "agent-applications-session-logs": {
+        "description": "The append-only event log for one session — the runner's own record of what happened, separate from the conversation transcript. Entries carry a level (info / warn / error), a message, and structured metadata: tool executions + results, MCP open successes / failures (with a coarse failure category), identity resolution decisions (`identity.resolved` — which credential source acted as whom, never the token), approval gates, and errors. Use this to debug WHY a session behaved as it did when the transcript alone isn't enough (e.g. a tool degraded, an MCP failed to open, or an asker's identity resolved unexpectedly). Pair with `agent-applications-sessions-retrieve` for the transcript. Playbook: read the `debugging-sessions` playbook via `agent-resolve-resource` for the failure taxonomy and how to read the logs.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Get a session's structured event log",
+        "title": "Get a session's structured event log",
+        "required_scopes": ["agents:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "agent-platform"
+    },
     "agent-applications-sessions-list": {
         "description": "Newest-first list of sessions for this agent across all revisions. Each summary carries id, state (queued / running / completed / closed / cancelled / failed), revision_id, principal, turn count, retry count, timestamps, a `preview` of the last assistant text (~120 chars), and `usage_total` (tokens + cost aggregated over the whole conversation). The transcript body is omitted — use `agent-applications-sessions-retrieve` for that. Filters: `state` (comma-separated for multiple, e.g. `completed,failed`), `revision_id` (UUID), `created_after` / `created_before` (ISO datetimes). Paging via `limit` (default 100, capped at 500) + `offset`. Filters AND together. Playbook: read the `debugging-sessions` playbook via `agent-resolve-resource` for the failure taxonomy and how to read the logs.",
         "category": "Agent stack",
@@ -8272,6 +8287,48 @@
             "readOnlyHint": true
         },
         "feature_flag": "visual-review"
+    },
+    "warehouse-column-annotations-create": {
+        "description": "Add a semantic description for a data warehouse table or column. Provide the table id, the column_name (empty string for a table-level description), and the description. The new annotation is recorded as user-edited, which prevents automatic enrichment from overwriting it.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Add a warehouse column description",
+        "title": "Add a warehouse column description",
+        "required_scopes": ["external_data_source:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "warehouse-column-annotations-list": {
+        "description": "List semantic descriptions of data warehouse tables and columns. Pass ?table_id=<uuid> to scope to one table. Each entry has the column_name (empty string = table-level description), the description, and its source (canonical from the source's API documentation, ai_generated, or user_edited). Use this to see what the imported data means before writing SQL against it.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "List warehouse column descriptions",
+        "title": "List warehouse column descriptions",
+        "required_scopes": ["external_data_source:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "warehouse-column-annotations-partial-update": {
+        "description": "Update the description of an existing warehouse table or column annotation by its id. The annotation is marked user-edited, so automatic enrichment will no longer overwrite it.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Edit a warehouse column description",
+        "title": "Edit a warehouse column description",
+        "required_scopes": ["external_data_source:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
     },
     "warehouse-tables-refresh-schema-create": {
         "description": "Re-introspect a self-managed (manually linked) data warehouse table's schema from its underlying source files and overwrite its stored column list. Use this when the source schema has evolved (e.g. new columns added to the underlying Delta/Parquet/CSV files) but HogQL queries still fail to resolve the new columns — PostHog serves a cached column snapshot until the table is refreshed. Does not apply to tables managed by an external data source sync (those refresh on their own schedule); for those, trigger a sync instead.",
