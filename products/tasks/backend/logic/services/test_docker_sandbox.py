@@ -538,6 +538,7 @@ class TestDockerSandboxUnit:
                     model="gpt-5.3-codex",
                     reasoning_effort="medium",
                     event_ingest_token="ingest-token",
+                    event_ingest_url="http://localhost:8003",
                 )
 
         command = _agent_server_launch_command(mock_execute)
@@ -546,6 +547,8 @@ class TestDockerSandboxUnit:
         assert "POSTHOG_CODE_MODEL=gpt-5.3-codex" in command
         assert "POSTHOG_CODE_REASONING_EFFORT=medium" in command
         assert "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=ingest-token" in command
+        # The host proxy URL is rewritten so it resolves from inside the container.
+        assert "POSTHOG_TASK_RUN_EVENT_INGEST_URL=http://host.docker.internal:8003" in command
 
 
 @pytest.mark.skipif(is_ci() or not docker_available(), reason="Docker sandbox tests only run locally, not in CI")

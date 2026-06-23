@@ -285,6 +285,7 @@ from .ip2whois.source import IP2WhoisSource
 from .iterable.source import IterableSource
 from .jamf_pro.source import JamfProSource
 from .jira.source import JiraSource
+from .jobber.source import JobberSource
 from .jobnimbus.source import JobNimbusSource
 from .jotform.source import JotformSource
 from .judgeme_reviews.source import JudgeMeReviewsSource
@@ -299,6 +300,7 @@ from .kissmetrics.source import KissmetricsSource
 from .klarna.source import KlarnaSource
 from .klaus.source import KlausSource
 from .klaviyo.source import KlaviyoSource
+from .knock.source import KnockSource
 from .kustomer.source import KustomerSource
 from .kyve.source import KYVESource
 from .lago.source import LagoSource
