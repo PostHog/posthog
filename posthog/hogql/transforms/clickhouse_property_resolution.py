@@ -337,17 +337,19 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
         return ast.Constant(value=None, type=ast.StringType(nullable=True))
 
     source = resolve_materialized_property_source(field_type, first_key, context)
-    _record_property_usage(context, source.kind if source is not None else None)
     if source is None:
         # A physical Map column (logs/spans/metrics attributes) reads an un-grouped key via map subscript — the JSON
         # fallback would print JSONExtract, which ClickHouse rejects on a Map. Plain JSON blobs (events.properties)
         # keep the JSON fallback.
         if isinstance(field_type.resolve_database_field(context), MapStringDatabaseField):
+            _record_property_usage(context, "map_subscript")
             head = _map_value_read(node.expr, first_key)
             if not deeper_keys:
                 return head
             return ast.PropertyAccess(expr=head, keys=deeper_keys, type=ast.StringType(nullable=True))
+        _record_property_usage(context, None)
         return None
+    _record_property_usage(context, source.kind)
 
     head = _materialized_head_expr(
         source,
