@@ -3,8 +3,6 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
-from django.utils import timezone
-
 import structlog
 import temporalio
 import posthoganalytics
@@ -22,8 +20,9 @@ from posthog.temporal.ai_observability.metrics import (
     increment_provider_model,
     increment_tokens,
 )
+from posthog.temporal.ai_observability.model_resolution import model_spec
 
-from products.ai_observability.backend.llm import TRIAL_MODEL_IDS, Client, CompletionRequest
+from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Client, CompletionRequest
 from products.ai_observability.backend.llm.config import get_eval_config
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
@@ -33,12 +32,10 @@ from products.ai_observability.backend.llm.errors import (
     RateLimitError,
     StructuredOutputParseError,
 )
-from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
-from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
 logger = structlog.get_logger(__name__)
 
-DEFAULT_JUDGE_MODEL = "gpt-5-mini"
+DEFAULT_JUDGE_MODEL = DEFAULT_MODEL_BY_PROVIDER["openai"]
 
 LLM_JUDGE_RETRY_POLICY = RetryPolicy(
     maximum_attempts=3,
@@ -212,82 +209,11 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
         return _build_errored_trace_result(allows_na)
 
     team_id = evaluation["team_id"]
-    model_configuration = evaluation.get("model_configuration")
-
-    def _get_legacy_provider_key() -> LLMProviderKey | None:
-        config, _ = EvaluationConfig.objects.get_or_create(team_id=team_id)
-
-        if config.active_provider_key:
-            key = config.active_provider_key
-            if key.state == LLMProviderKey.State.OK:
-                key.last_used_at = timezone.now()
-                key.save(update_fields=["last_used_at"])
-                return key
-            raise ApplicationError(
-                f"This API key has been disabled (status: {key.state}). Re-validate to recover, or replace it.",
-                {"error_type": "key_invalid", "key_id": str(key.id), "key_state": key.state},
-                non_retryable=True,
-            )
-
-        if config.trial_evals_used >= config.trial_eval_limit:
-            raise ApplicationError(
-                f"Trial evaluation limit ({config.trial_eval_limit}) reached. Add your own API key to continue.",
-                {"error_type": "trial_limit_reached", "trial_eval_limit": config.trial_eval_limit},
-                non_retryable=True,
-            )
-
-        return None
-
-    def _get_provider_key_by_id(key_id: str) -> LLMProviderKey:
-        try:
-            key = LLMProviderKey.objects.get(id=key_id, team_id=team_id)
-            if key.state != LLMProviderKey.State.OK:
-                raise ApplicationError(
-                    f"This API key has been disabled (status: {key.state}). Re-validate to recover, or replace it.",
-                    {"error_type": "key_invalid", "key_id": str(key.id), "key_state": key.state},
-                    non_retryable=True,
-                )
-            key.last_used_at = timezone.now()
-            key.save(update_fields=["last_used_at"])
-            return key
-        except LLMProviderKey.DoesNotExist:
-            raise ApplicationError(
-                "Provider key not found.",
-                {"error_type": "key_not_found", "key_id": key_id},
-                non_retryable=True,
-            )
-
-    def _check_trial_quota() -> None:
-        config, _ = EvaluationConfig.objects.get_or_create(team_id=team_id)
-        if config.trial_evals_used >= config.trial_eval_limit:
-            raise ApplicationError(
-                f"Trial evaluation limit ({config.trial_eval_limit}) reached. Add your own API key to continue.",
-                {"error_type": "trial_limit_reached", "trial_eval_limit": config.trial_eval_limit},
-                non_retryable=True,
-            )
-
-    if model_configuration:
-        provider = model_configuration["provider"]
-        model = model_configuration["model"]
-        provider_key_id = model_configuration.get("provider_key_id")
-
-        if provider_key_id:
-            provider_key = _get_provider_key_by_id(provider_key_id)
-        else:
-            if model not in TRIAL_MODEL_IDS:
-                raise ApplicationError(
-                    f"Model '{model}' is not available on the trial plan. Please add your own API key to use this model.",
-                    {"error_type": "model_not_allowed", "model": model},
-                    non_retryable=True,
-                )
-            _check_trial_quota()
-            provider_key = None
-    else:
-        provider = "openai"
-        model = DEFAULT_JUDGE_MODEL
-        provider_key = _get_legacy_provider_key()
-
-    is_byok = provider_key is not None
+    resolved = model_spec(evaluation.get("model_configuration")).resolve(team_id)
+    provider = resolved.provider
+    model = resolved.model
+    provider_key = resolved.provider_key
+    is_byok = resolved.is_byok
     key_id = str(provider_key.id) if provider_key else None
 
     input_raw, output_raw = extract_event_io(event_type, properties)

@@ -251,13 +251,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
             0,
             {
                 loadCommentCount: async (_, breakpoint) => {
-                    if (
-                        !values.traceId ||
-                        !(
-                            values.featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS] ||
-                            values.featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
-                        )
-                    ) {
+                    if (!values.traceId) {
                         return 0
                     }
 
@@ -385,16 +379,13 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         olderTraceId: [(s) => [s.neighbors], (neighbors) => neighbors?.olderTraceId ?? null],
         olderTimestamp: [(s) => [s.neighbors], (neighbors) => neighbors?.olderTimestamp ?? null],
         [SIDE_PANEL_CONTEXT_KEY]: [
-            (s) => [s.traceId, s.featureFlags],
-            (traceId, featureFlags): SidePanelSceneContext => {
+            (s) => [s.traceId],
+            (traceId): SidePanelSceneContext => {
                 // Discussions are always at the trace level, accessible from anywhere in the trace
                 return {
                     activity_scope: ActivityScope.LLM_TRACE,
                     activity_item_id: traceId || '',
-                    discussions_disabled: !(
-                        featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS] ||
-                        featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
-                    ),
+                    discussions_disabled: false,
                     activity_item_context: { trace_id: traceId || '' },
                 }
             },

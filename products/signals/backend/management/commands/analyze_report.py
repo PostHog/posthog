@@ -234,16 +234,18 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("=== Research Result ==="))
         self.stdout.write(f"Title: {result.title}")
         self.stdout.write(f"Summary: {result.summary}")
-        self.stdout.write(f"Actionability: {result.actionability.actionability}")
-        self.stdout.write(f"Already addressed: {result.actionability.already_addressed}")
-        self.stdout.write(f"Actionability explanation: {result.actionability.explanation}")
-        if result.priority:
-            self.stdout.write(f"Priority: {result.priority.priority}")
-            self.stdout.write(f"Priority explanation: {result.priority.explanation}")
+        actionability = result.effective_actionability()
+        priority = result.effective_priority()
+        self.stdout.write(f"Actionability: {actionability.actionability}")
+        self.stdout.write(f"Already addressed: {actionability.already_addressed}")
+        self.stdout.write(f"Actionability explanation: {actionability.explanation}")
+        if priority:
+            self.stdout.write(f"Priority: {priority.priority}")
+            self.stdout.write(f"Priority explanation: {priority.explanation}")
         else:
             self.stdout.write("Priority: N/A (not actionable)")
         self.stdout.write("")
-        for finding in result.findings:
+        for finding in result.effective_findings():
             self.stdout.write(self.style.WARNING(f"--- Signal: {finding.signal_id} ---"))
             self.stdout.write(f"  Verified: {finding.verified}")
             self.stdout.write(f"  Code paths: {finding.relevant_code_paths}")

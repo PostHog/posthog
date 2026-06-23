@@ -5,7 +5,7 @@ on:
         paths:
             - 'frontend/src/scenes/surveys/**'
             - 'docs/published/surveys/**'
-            - 'frontend/bin/build-survey-sdk-docs.ts'
+            - 'frontend/bin/docs/build-survey-sdk-docs.ts'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -60,6 +60,7 @@ jobs:
         uses: ./.github/workflows/ci-docs-check.yml
         with:
             source_file: frontend/src/scenes/surveys/surveyVersionRequirements.ts
+            additional_source_files: frontend/bin/docs/build-survey-sdk-docs.ts
             build_command: pnpm --filter=@posthog/frontend build:survey-sdk-docs
             output_file: docs/published/docs/surveys/sdk-feature-support.mdx
             fail_on_outdated: true

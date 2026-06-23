@@ -81,7 +81,13 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     if (!teamId) {
                         return null
                     }
-                    return await signalsScoutMetadataGet(String(teamId))
+                    try {
+                        return await signalsScoutMetadataGet(String(teamId))
+                    } catch {
+                        // The metadata feeds only the optional alpha banner, so a transient
+                        // backend blip should degrade silently rather than surface a hard error.
+                        return null
+                    }
                 },
             },
         ],
