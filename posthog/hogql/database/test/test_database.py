@@ -742,7 +742,10 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         event_field = db.get_table("events").fields["event"]
         assert isinstance(event_field, StringDatabaseField)
-        assert event_field.name == "event" and event_field.nullable is False
+        assert event_field.name == "event"
+        assert event_field.nullable is False
+        assert not event_field.array
+        assert event_field.hidden is False
 
     def test_database_expression_fields(self):
         db = Database.create_for(team=self.team)

@@ -87,7 +87,9 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
 LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "id": StringDatabaseField(name="id", description="Session identifier; matches `events.$session_id`."),
     # # TODO remove this, it's a duplicate of the correct session_id field below to get some trends working on a deadline
-    "session_id": StringDatabaseField(name="session_id", description="Session identifier; matches `events.$session_id`."),
+    "session_id": StringDatabaseField(
+        name="session_id", description="Session identifier; matches `events.$session_id`."
+    ),
     "session_id_v7": IntegerDatabaseField(name="session_id_v7"),
     "team_id": IntegerDatabaseField(name="team_id"),
     "distinct_id": StringDatabaseField(name="distinct_id"),

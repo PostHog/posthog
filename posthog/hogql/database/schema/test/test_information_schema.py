@@ -163,6 +163,25 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
         )
         assert columns[0][0] == "Stripe charge identifier (ch_...)."
 
+    def test_ordinal_positions_are_unique_within_a_table(self):
+        # `events` exposes nested virtual-table columns (e.g. `group_0.*`); their ordinals must
+        # continue the parent table's numbering rather than restart at 1 and collide.
+        response = execute_hogql_query(
+            """
+            SELECT column_name, ordinal_position
+            FROM system.information_schema.columns
+            WHERE table_name = 'events'
+            """,
+            team=self.team,
+        )
+        results = response.results or []
+        ordinals = [row[1] for row in results]
+        assert len(ordinals) == len(set(ordinals))
+        # Numbering is contiguous from 1, so the highest ordinal equals the column count.
+        assert sorted(ordinals) == list(range(1, len(ordinals) + 1))
+        # Sanity check that at least one nested virtual-table column was surfaced.
+        assert any("." in row[0] for row in results)
+
     def test_columns_filter_and_join_against_tables(self):
         # Proves the virtual tables behave like real relations: WHERE + JOIN both work.
         response = execute_hogql_query(

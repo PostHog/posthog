@@ -65,9 +65,7 @@ class EventsGroupSubTable(VirtualTable):
 class EventsTable(Table):
     description: str = "Every analytics event captured for the project. The central fact table for product analytics."
     fields: dict[str, FieldOrTable] = {
-        "uuid": StringDatabaseField(
-            name="uuid", nullable=False, description="Unique identifier of this event row."
-        ),
+        "uuid": StringDatabaseField(name="uuid", nullable=False, description="Unique identifier of this event row."),
         "event": StringDatabaseField(
             name="event",
             nullable=False,

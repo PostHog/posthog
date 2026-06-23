@@ -14,6 +14,8 @@ uniformly from `FieldOrTable.description`; for data warehouse tables they are me
 
 from typing import TYPE_CHECKING, Any, Optional
 
+import structlog
+
 from posthog.hogql import ast
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
@@ -45,6 +47,8 @@ from posthog.hogql.database.models import (
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
     from posthog.hogql.database.database import Database
+
+logger = structlog.get_logger(__name__)
 
 
 # --- value coercion --------------------------------------------------------------------------- #
@@ -184,7 +188,9 @@ def _warehouse_metadata(team_id: Optional[int]) -> tuple[dict[tuple[str, str], s
             for table_name, row_count in DataWarehouseTable.objects.values_list("name", "row_count"):
                 row_counts[table_name] = row_count
     except Exception:
-        # Schema discovery must never fail a query because the warehouse metadata could not be read.
+        # Schema discovery must never fail a query because the warehouse metadata could not be read,
+        # but log so a transient DB error can be told apart from a real bug in the fetch loop.
+        logger.exception("information_schema: failed to load warehouse metadata", team_id=team_id)
         return {}, {}
 
     return descriptions, row_counts
@@ -249,7 +255,8 @@ class _Introspection:
         *,
         prefix: str = "",
         ordinal_start: int = 1,
-    ) -> None:
+    ) -> int:
+        """Append column/relationship rows for `fields` and return the next free ordinal_position."""
         ordinal = ordinal_start
         for field_name, field in fields.items():
             if field.hidden:
@@ -301,7 +308,7 @@ class _Introspection:
                     [table_schema, table_name, qualified, ordinal, "VirtualTable", False, False, "virtual_table", None]
                 )
                 ordinal += 1
-                self._collect_fields(
+                ordinal = self._collect_fields(
                     table_name,
                     table_schema,
                     table_type,
@@ -310,7 +317,21 @@ class _Introspection:
                     column_rows,
                     relationship_rows,
                     prefix=f"{qualified}.",
+                    ordinal_start=ordinal,
                 )
+
+        return ordinal
+
+
+def _introspect(context: "HogQLContext") -> tuple[list[list[Any]], list[list[Any]], list[list[Any]]]:
+    """Introspect the database once per query, reusing the result across information_schema tables.
+
+    A query that joins several information_schema tables would otherwise rebuild the full
+    introspection — including the warehouse-metadata ORM queries — once per referenced table.
+    """
+    if context.information_schema_introspection is None:
+        context.information_schema_introspection = _Introspection(context.database, context).collect()
+    return context.information_schema_introspection
 
 
 # --- the virtual tables ----------------------------------------------------------------------- #
@@ -378,7 +399,7 @@ class InformationSchemaTablesTable(LazyTable):
     }
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
-        table_rows, _, _ = _Introspection(context.database, context).collect()
+        table_rows, _, _ = _introspect(context)
         return _constant_rows_select(_TABLES_COLUMNS, table_rows)
 
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:
@@ -402,7 +423,7 @@ class InformationSchemaColumnsTable(LazyTable):
     }
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
-        _, column_rows, _ = _Introspection(context.database, context).collect()
+        _, column_rows, _ = _introspect(context)
         return _constant_rows_select(_COLUMNS_COLUMNS, column_rows)
 
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:
@@ -423,7 +444,7 @@ class InformationSchemaRelationshipsTable(LazyTable):
     }
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
-        _, _, relationship_rows = _Introspection(context.database, context).collect()
+        _, _, relationship_rows = _introspect(context)
         return _constant_rows_select(_RELATIONSHIPS_COLUMNS, relationship_rows)
 
     def to_printed_clickhouse(self, context: "HogQLContext") -> str:
