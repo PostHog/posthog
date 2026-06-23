@@ -88,10 +88,11 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
     const isBoxPlot = display === ChartDisplayType.BoxPlot
     const isCalendarHeatmap = display === ChartDisplayType.CalendarHeatmap
     // The in-chart quill legend supports placement, so it gets a single "Legend" select (Hide +
-    // position) instead of the legacy show/hide checkbox.
+    // position) instead of the legacy show/hide checkbox. Lifecycle always uses the internal
+    // chart legend (no flag gate), so it always gets the position selector.
     const useQuillLegendOptions =
-        quillLegendEnabled &&
-        ((isTrends && isLineDisplay) || (isStickiness && (isLineDisplay || isBarDisplay)) || isLifecycle)
+        isLifecycle ||
+        (quillLegendEnabled && ((isTrends && isLineDisplay) || (isStickiness && (isLineDisplay || isBarDisplay))))
 
     const showDisplaySection =
         (isTrends && !isCalendarHeatmap) || isRetention || isTrendsFunnel || isStickiness || isLifecycle
