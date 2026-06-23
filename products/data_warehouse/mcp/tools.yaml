@@ -169,6 +169,9 @@ tools:
             Update an existing SQL variable by ID. You can change the name, type, default_value, or allowed values for
             List variables. If the name changes, check the response for the current code_name before writing queries
             that reference it.
+    sql-visualization-create:
+        operation: sql_visualization_create
+        enabled: false
     view-create:
         operation: warehouse_saved_queries_create
         enabled: true
