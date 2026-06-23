@@ -1180,9 +1180,10 @@ class TestExternalDataSchema(APIBaseTest):
             # Rejected before the interval is persisted.
             assert schema.sync_frequency_interval != timedelta(minutes=1)
 
-    def test_update_schema_one_minute_cannot_survive_switch_away_from_cdc(self):
-        # Closing the gap where a CDC schema on a 1-minute schedule is switched to a non-CDC sync
-        # type without re-sending sync_frequency — the existing 1-minute interval must be rejected.
+    def test_update_schema_one_minute_clamps_on_switch_away_from_cdc(self):
+        # A CDC schema on a 1-minute schedule switched to a non-CDC sync type without re-sending
+        # sync_frequency would otherwise dead-end (1-minute is CDC-only). Instead of rejecting the
+        # switch, clamp the inherited cadence to the non-CDC floor so the switch goes through.
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_type=ExternalDataSourceType.POSTGRES,
@@ -1199,16 +1200,23 @@ class TestExternalDataSchema(APIBaseTest):
             sync_frequency_interval=timedelta(minutes=1),
         )
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
-            data={"sync_type": "incremental"},
-        )
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch("products.data_warehouse.backend.api.external_data_schema.sync_external_data_job_workflow"),
+            mock.patch("products.data_warehouse.backend.api.external_data_schema.sync_cdc_extraction_schedule"),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "full_refresh"},
+            )
 
-        assert response.status_code == 400, response.content
-        assert "cdc" in str(response.json()).lower()
+        assert response.status_code == 200, response.content
         schema.refresh_from_db()
-        assert schema.sync_frequency_interval == timedelta(minutes=1)
-        assert schema.sync_type == ExternalDataSchema.SyncType.CDC
+        assert schema.sync_frequency_interval == timedelta(minutes=5)
+        assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
     def test_update_schema_frequency_on_disabled_schema_does_not_touch_missing_schedule(self):
         # A disabled / never-activated schema has no Temporal schedule. Changing its sync frequency

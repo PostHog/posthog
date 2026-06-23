@@ -76,7 +76,7 @@ runbooks/
 
 **Reads are open; writes are gated.** `@posthog/memory-search` /
 `-list` / `-read` need no approval. `@posthog/memory-write` /
-`-update` are **approval-gated** (`approvers: ["team_admins"]`,
+`-update` are **approval-gated** (`type: "agent"`,
 `allow_edit: true`): when the bot proposes a runbook change it gets a
 synthetic `queued` envelope back instead of a write, surfaces the
 `approval_url` to the user, and the change only lands once a human

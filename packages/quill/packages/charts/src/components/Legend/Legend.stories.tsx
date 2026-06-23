@@ -69,6 +69,26 @@ export const ManyItemsWraps: Story = {
     ),
 }
 
+const LONG_LABELS: LegendItem[] = [
+    { key: 'a', label: 'pageview · Chrome · United States · organic search', color: '#22c55e' },
+    { key: 'b', label: 'pageview · Safari · United Kingdom · paid social', color: '#3b82f6' },
+    { key: 'c', label: 'Short one', color: '#f97316' },
+]
+
+// Long labels clip to a max width with an ellipsis; the full text is on the row's `title` tooltip.
+export const LongLabelsTruncate: Story = {
+    render: () => (
+        <div className="flex flex-col gap-4">
+            <div className="w-[480px] border border-border rounded p-2">
+                <Legend items={LONG_LABELS} />
+            </div>
+            <div className="w-[200px] border border-border rounded p-2">
+                <Legend items={LONG_LABELS} orientation="vertical" align="start" />
+            </div>
+        </div>
+    ),
+}
+
 function ChartLegendStory({
     show = true,
     position,

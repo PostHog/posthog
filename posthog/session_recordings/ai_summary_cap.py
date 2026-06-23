@@ -24,7 +24,7 @@ from posthog.redis import get_client
 logger = structlog.get_logger(__name__)
 
 # Bump in a deploy. Per-team lowering is allowed via SignalSourceConfig.
-DEFAULT_MAX_SUMMARIES_PER_PERIOD = 4 * 1000
+DEFAULT_MAX_SUMMARIES_PER_PERIOD = 2500
 
 # JSON key on SignalSourceConfig.config.
 CONFIG_KEY = "max_summaries_per_period"

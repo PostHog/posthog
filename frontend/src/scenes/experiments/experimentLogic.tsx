@@ -714,12 +714,13 @@ export const experimentLogic = kea<experimentLogicType>([
         }) => ({ selectedVariantKey, releaseToEveryone }),
         pauseExperiment: true,
         resumeExperiment: true,
-        archiveExperiment: true,
+        archiveExperiment: (disableFeatureFlag: boolean = false) => ({ disableFeatureFlag }),
         unarchiveExperiment: true,
         resetRunningExperiment: true,
         updateExperimentVariantImages: (variantPreviewMediaIds: Record<string, string[]>) => ({
             variantPreviewMediaIds,
         }),
+        updateExperimentVariantNotes: (variantNotes: Record<string, string>) => ({ variantNotes }),
         setExposureCriteria: (exposureCriteria: ExperimentExposureCriteria) => ({ exposureCriteria }),
         createExperimentDashboard: true,
         setIsCreatingExperimentDashboard: (isCreating: boolean) => ({ isCreating }),
@@ -1560,10 +1561,11 @@ export const experimentLogic = kea<experimentLogicType>([
                 lemonToast.error(error.detail || 'Failed to resume experiment')
             }
         },
-        archiveExperiment: async () => {
+        archiveExperiment: async ({ disableFeatureFlag }) => {
             try {
                 const response: Experiment = await api.create(
-                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/archive`
+                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/archive`,
+                    { disable_feature_flag: disableFeatureFlag }
                 )
                 actions.setExperiment(response)
                 refreshTreeItem('experiment', String(values.experimentId))
@@ -1866,6 +1868,23 @@ export const experimentLogic = kea<experimentLogicType>([
                 })
             } catch {
                 lemonToast.error('Failed to update experiment variant images')
+            }
+        },
+        updateExperimentVariantNotes: async ({ variantNotes }) => {
+            try {
+                const updatedParameters = {
+                    ...values.experiment.parameters,
+                    variant_notes: variantNotes,
+                }
+                await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
+                    parameters: updatedParameters,
+                    update_feature_flag_params: false,
+                })
+                actions.setExperiment({
+                    parameters: updatedParameters,
+                })
+            } catch {
+                lemonToast.error('Failed to update experiment variant notes')
             }
         },
         updateDistribution: async ({ variants, rolloutPercentage }) => {
@@ -2630,7 +2649,20 @@ export const experimentLogic = kea<experimentLogicType>([
                         end_date: experiment.end_date,
                         holdout: experiment.holdout,
                     })
-                    return await performQuery(query, undefined, getExperimentRefreshMode(values.featureFlags, refresh))
+                    // Show the cached exposures immediately when the backend is recomputing in the
+                    // background, instead of hanging on the spinner until the recompute finishes.
+                    return await performQuery(
+                        query,
+                        undefined,
+                        getExperimentRefreshMode(values.featureFlags, refresh),
+                        undefined, // queryId
+                        undefined, // setPollResponse
+                        undefined, // filtersOverride
+                        undefined, // variablesOverride
+                        false, // pollOnly
+                        undefined, // limitContext
+                        true // acceptStaleCache
+                    )
                 },
             },
         ],
