@@ -1402,3 +1402,42 @@ class TestGithubWebhookSource:
         assert info.url == webhook_url
         assert info.status == "active"
         assert info.enabled_events == ["workflow_job", "workflow_run"]
+
+    def test_delete_webhook_treats_404_as_success(self) -> None:
+        # The hook is found in the list but DELETE races a concurrent removal and
+        # 404s — the desired end state, so it must not surface as a permission error.
+        webhook_url = "https://app.posthog.com/webhook"
+        session = mock.Mock()
+        session.get.return_value = _make_response(status=200, body=[{"id": 42, "config": {"url": webhook_url}}])
+        session.delete.return_value = _make_response(status=404, body={"message": "Not Found"})
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+            return_value=session,
+        ):
+            result = self.source.delete_webhook(_pat_config(), webhook_url, team_id=1)
+
+        assert result.success is True
+        assert result.error is None
+
+    def test_get_external_webhook_info_skips_hook_with_null_config(self) -> None:
+        # A hook whose `config` is present-but-null must be skipped, not crash the
+        # match loop — the real hook still resolves.
+        webhook_url = "https://app.posthog.com/webhook"
+        session = mock.Mock()
+        session.get.return_value = _make_response(
+            status=200,
+            body=[
+                {"id": 7, "config": None},
+                {"id": 42, "active": True, "events": ["workflow_job"], "config": {"url": webhook_url}},
+            ],
+        )
+
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.github.github.make_tracked_session",
+            return_value=session,
+        ):
+            info = self.source.get_external_webhook_info(_pat_config(), webhook_url, team_id=1)
+
+        assert info.exists is True
+        assert info.url == webhook_url

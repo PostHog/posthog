@@ -694,7 +694,9 @@ def _list_repo_hooks(token: str, repo: str) -> tuple[list[dict[str, Any]] | None
 def _match_hook_by_url(hooks: list[dict[str, Any]], webhook_url: str) -> dict[str, Any] | None:
     """Return the hook whose config.url matches webhook_url, or None."""
     for hook in hooks:
-        if hook.get("config", {}).get("url") == webhook_url:
+        # `config` can be present-but-null on some hook shapes; `or {}` guards the
+        # null case that a plain `.get("config", {})` default would not.
+        if (hook.get("config") or {}).get("url") == webhook_url:
             return hook
     return None
 
@@ -730,7 +732,10 @@ def delete_repo_webhook(token: str, repo: str, webhook_url: str) -> WebhookDelet
     except requests.exceptions.RequestException as e:
         return WebhookDeletionResult(success=False, error=f"Failed to delete webhook: {e}")
 
-    if response.status_code in (200, 204):
+    # 404 here means the hook vanished between the list and the DELETE (concurrent
+    # delete, manual removal) — the end state we wanted, so treat it as success
+    # rather than the permission case _is_repo_hook_permission_error would assign.
+    if response.status_code in (200, 204, 404):
         return WebhookDeletionResult(success=True)
     if _is_repo_hook_permission_error(response):
         return WebhookDeletionResult(
