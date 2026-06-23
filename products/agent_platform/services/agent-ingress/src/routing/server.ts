@@ -492,7 +492,9 @@ export function buildApp(opts: BuildAppOpts): Express {
             return
         }
         const lastNRaw = typeof req.query.last_n === 'string' ? Number.parseInt(req.query.last_n, 10) : undefined
-        const lastN = lastNRaw !== undefined && Number.isFinite(lastNRaw) && lastNRaw >= 0 ? lastNRaw : undefined
+        // `> 0`, not `>= 0`: `slice(-0)` is `slice(0)` (the whole array), so a
+        // `last_n=0` must fall through to the no-trim branch, not "return zero".
+        const lastN = lastNRaw !== undefined && Number.isFinite(lastNRaw) && lastNRaw > 0 ? lastNRaw : undefined
         if (lastN !== undefined && lastN < session.conversation.length) {
             res.json({
                 ...session,
