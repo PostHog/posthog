@@ -3,6 +3,7 @@ from datetime import timedelta
 from typing import Any
 
 import structlog
+from django.apps import apps
 
 from posthog.cache_utils import cache_for
 from posthog.exceptions_capture import capture_exception
@@ -51,8 +52,9 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
 
     from products.data_modeling.backend.models import Edge, Node
     from products.early_access_features.backend.models import EarlyAccessFeature
-    from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
     from products.product_analytics.backend.models.insight_caching_state import InsightCachingState
+
+    error_tracking_fingerprint = apps.get_model("error_tracking", "ErrorTrackingIssueFingerprintV2")
 
     # Data modeling Edge/Node must be deleted before the Team row: Team cascades to
     # DataWarehouseSavedQuery, which has PROTECT on delete.
@@ -60,7 +62,7 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
     _raw_delete_batch(Node.objects.filter(team_id__in=team_ids))
     _raw_delete_batch(FileSystemViewLog.objects.filter(team_id__in=team_ids))
     _raw_delete_batch(EarlyAccessFeature.objects.filter(team_id__in=team_ids))
-    _raw_delete_batch(ErrorTrackingIssueFingerprintV2.objects.filter(team_id__in=team_ids))
+    _raw_delete_batch(error_tracking_fingerprint.objects.filter(team_id__in=team_ids))
     # FeatureFlagHashKeyOverride references Person, so it must go before persons are deleted.
     _delete_hash_key_overrides_for_teams(team_ids)
     _raw_delete_batch(InsightCachingState.objects.filter(team_id__in=team_ids))

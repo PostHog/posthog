@@ -38,7 +38,6 @@ from products.data_modeling.backend.models.data_modeling_job import DataModeling
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.endpoints.backend.models import Endpoint, EndpointVersion
-from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingSymbolSet
 from products.experiments.backend.models.experiment import Experiment
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -57,6 +56,14 @@ if TYPE_CHECKING:
     from products.customer_analytics.backend.models.account import Account
 else:
     Account = apps.get_model("customer_analytics", "Account")
+
+ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
+ErrorTrackingSymbolSet = apps.get_model("error_tracking", "ErrorTrackingSymbolSet")
+ErrorTrackingIssueAssignment = apps.get_model("error_tracking", "ErrorTrackingIssueAssignment")
+ErrorTrackingIssueFingerprintV2 = apps.get_model("error_tracking", "ErrorTrackingIssueFingerprintV2")
+ErrorTrackingAssignmentRule = apps.get_model("error_tracking", "ErrorTrackingAssignmentRule")
+ErrorTrackingSuppressionRule = apps.get_model("error_tracking", "ErrorTrackingSuppressionRule")
+ErrorTrackingRelease = apps.get_model("error_tracking", "ErrorTrackingRelease")
 
 ALL_SYSTEM_TABLE_NAMES = sorted(SystemTables().children.keys())
 
@@ -275,38 +282,28 @@ def _create_error_tracking_issue(team: Team, label: str) -> ErrorTrackingIssue:
 
 
 def _create_error_tracking_issue_assignment(team: Team, label: str):
-    from products.error_tracking.backend.models import ErrorTrackingIssueAssignment
-
     issue = ErrorTrackingIssue.objects.create(team=team, name=f"assigned_issue_{label}", status="active")
     return ErrorTrackingIssueAssignment.objects.create(team=team, issue=issue)
 
 
 def _create_error_tracking_issue_fingerprint(team: Team, label: str):
-    from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
-
     issue = ErrorTrackingIssue.objects.create(team=team, name=f"fp_issue_{label}", status="active")
     return ErrorTrackingIssueFingerprintV2.objects.create(team=team, issue=issue, fingerprint=f"fp_{label}")
 
 
 def _create_error_tracking_assignment_rule(team: Team, label: str):
-    from products.error_tracking.backend.models import ErrorTrackingAssignmentRule
-
     return ErrorTrackingAssignmentRule.objects.create(
         team=team, filters={"type": "AND", "values": []}, bytecode=[], order_key=0
     )
 
 
 def _create_error_tracking_suppression_rule(team: Team, label: str):
-    from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
-
     return ErrorTrackingSuppressionRule.objects.create(
         team=team, filters={"type": "AND", "values": []}, bytecode=[], order_key=0, sampling_rate=1.0
     )
 
 
 def _create_error_tracking_release(team: Team, label: str):
-    from products.error_tracking.backend.models import ErrorTrackingRelease
-
     return ErrorTrackingRelease.objects.create(
         team=team, hash_id=f"hash_{label}", version=f"v_{label}", project=f"proj_{label}"
     )

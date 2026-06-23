@@ -12,7 +12,7 @@ import posthoganalytics
 from posthog.event_usage import groups
 
 from .. import logic, weekly_digest
-from ..models import resolve_fingerprints_for_issues
+from ..models import ErrorTrackingIssue, resolve_fingerprints_for_issues
 from . import contracts
 
 IssueNotFoundError = logic.ErrorTrackingIssueNotFoundError
@@ -580,3 +580,7 @@ def get_source_maps_recommendation_for_team(team: Any) -> dict[str, Any] | None:
 
 def build_ingestion_failures_url(team_id: int) -> str:
     return weekly_digest.build_ingestion_failures_url(team_id)
+
+
+def has_resolved_issues(team_id: int) -> bool:
+    return ErrorTrackingIssue.objects.filter(team_id=team_id, status=ErrorTrackingIssue.Status.RESOLVED).exists()

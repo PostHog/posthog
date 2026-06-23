@@ -2,6 +2,7 @@ import json
 import logging
 from datetime import timedelta
 
+from django.apps import apps
 from django.core.management.base import BaseCommand
 
 import structlog
@@ -10,7 +11,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.kafka_client.routing import producer_scope
 from posthog.kafka_client.topics import KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_EMBEDDINGS
 
-from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
+ErrorTrackingIssueFingerprintV2 = apps.get_model("error_tracking", "ErrorTrackingIssueFingerprintV2")
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)

@@ -1,5 +1,6 @@
 import logging
 
+from django.apps import apps
 from django.core.management.base import BaseCommand
 
 import structlog
@@ -7,10 +8,9 @@ import structlog
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.kafka_client.routing import flush_all_producers
 
-from products.error_tracking.backend.models import (
-    ErrorTrackingIssueFingerprintV2,
-    override_error_tracking_issue_fingerprint,
-)
+from products.error_tracking.backend.facade import override_error_tracking_issue_fingerprint
+
+ErrorTrackingIssueFingerprintV2 = apps.get_model("error_tracking", "ErrorTrackingIssueFingerprintV2")
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)

@@ -25,7 +25,12 @@ from hogli_commands.product.checks import (
     validate_interface_blocks,
     validate_tach_references,
 )
-from hogli_commands.product.isolation import has_narrowed_turbo_inputs, routes_in_turbo_inputs
+from hogli_commands.product.isolation import (
+    has_narrowed_turbo_inputs,
+    permanent_interface_modules,
+    routes_in_turbo_inputs,
+    uncovered_permanent_modules,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -673,6 +678,111 @@ from = [
 
     def test_regex_from_does_not_false_positive(self) -> None:
         assert has_legacy_interface_leaks(_TACH_SAMPLE, "products.mcp") is False
+
+
+# ---------------------------------------------------------------------------
+# permanent-interface marker
+# ---------------------------------------------------------------------------
+
+_TACH_PERMANENT = """\
+# Facade + views: canonical public surface
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products\\.(error_tracking|experiments)",
+]
+
+# isolation:permanent-interface
+# error_tracking exposes its ClickHouse DDL to core's schema registry + frozen migrations.
+[[interfaces]]
+expose = [
+    "backend\\.embedding.*",
+    "backend\\.indexed_embedding.*",
+    "backend\\.sql.*",
+]
+from = [
+    "products.error_tracking",
+]
+
+# Legacy leaks — experiments (unmarked, a real leak)
+[[interfaces]]
+expose = [
+    "backend\\.models.*",
+]
+from = [
+    "products.experiments",
+]
+"""
+
+
+class TestPermanentInterface:
+    def test_marked_block_is_not_a_leak(self) -> None:
+        # The DDL exposure carries the marker, so it must not hold the external seal open.
+        assert has_legacy_interface_leaks(_TACH_PERMANENT, "products.error_tracking") is False
+
+    def test_unmarked_block_is_still_a_leak(self) -> None:
+        # The experiments block exposes internals with no marker — a genuine leak.
+        assert has_legacy_interface_leaks(_TACH_PERMANENT, "products.experiments") is True
+
+    def test_marker_does_not_leak_across_blocks(self) -> None:
+        # The marker sits above the error_tracking block; the previous block's body separates
+        # it from the facade block, so the facade block is not mistaken for permanent (and the
+        # experiments leak below stays a leak — already covered above).
+        assert permanent_interface_modules(_TACH_PERMANENT, "products.experiments") == set()
+
+    def test_exposed_modules_returned(self) -> None:
+        assert permanent_interface_modules(_TACH_PERMANENT, "products.error_tracking") == {
+            "backend.embedding",
+            "backend.indexed_embedding",
+            "backend.sql",
+        }
+
+    def test_unmarked_exposure_is_not_permanent(self) -> None:
+        assert permanent_interface_modules(_TACH_SAMPLE, "products.experiments") == set()
+
+    @pytest.mark.parametrize(
+        "inputs, expected",
+        [
+            # the three DDL modules + facade satisfy the extended-surface narrowing
+            (["backend/facade/**", "backend/sql.py", "backend/embedding.py", "backend/indexed_embedding.py"], True),
+            # facade alone still narrows (permanent modules are allowed, not required, here)
+            (["backend/facade/**"], True),
+            # a broad glob alongside still keeps the skip inert
+            (["backend/**", "backend/sql.py"], False),
+            # a permanent module without any facade/presentation glob is not a real surface
+            (["backend/sql.py"], False),
+        ],
+    )
+    def test_permanent_modules_count_as_extended_surface(
+        self, tmp_path: Path, inputs: list[str], expected: bool
+    ) -> None:
+        (tmp_path / "turbo.json").write_text(json.dumps({"tasks": {"backend:contract-check": {"inputs": inputs}}}))
+        permanent = frozenset({"backend.sql", "backend.embedding", "backend.indexed_embedding"})
+        assert has_narrowed_turbo_inputs(tmp_path, permanent) is expected
+
+    def test_uncovered_permanent_modules_detected(self, tmp_path: Path) -> None:
+        (tmp_path / "turbo.json").write_text(
+            json.dumps({"tasks": {"backend:contract-check": {"inputs": ["backend/facade/**", "backend/sql.py"]}}})
+        )
+        permanent = frozenset({"backend.sql", "backend.embedding", "backend.indexed_embedding"})
+        assert uncovered_permanent_modules(tmp_path, permanent) == {"backend.embedding", "backend.indexed_embedding"}
+
+    def test_all_permanent_modules_covered(self, tmp_path: Path) -> None:
+        (tmp_path / "turbo.json").write_text(
+            json.dumps(
+                {
+                    "tasks": {
+                        "backend:contract-check": {
+                            "inputs": ["backend/facade/**", "backend/sql.py", "backend/embedding.py"]
+                        }
+                    }
+                }
+            )
+        )
+        assert uncovered_permanent_modules(tmp_path, frozenset({"backend.sql", "backend.embedding"})) == set()
 
 
 # ---------------------------------------------------------------------------

@@ -3,6 +3,7 @@ from datetime import timedelta
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.apps import apps
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -18,8 +19,9 @@ from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT, Person
 from posthog.models.team.team import Team
 from posthog.models.utils import SHA256_HASH_PREFIX, generate_random_token_personal, hash_key_value
 
-from products.error_tracking.backend.models import ErrorTrackingIssue
 from products.product_analytics.backend.models.insight import Insight
+
+ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
 
 
 class TestPersonalAPIKeysAPI(APIBaseTest):

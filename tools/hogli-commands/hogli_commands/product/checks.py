@@ -712,6 +712,20 @@ class IsolationChainCheck(ProductCheck):
                 f'routes-only change would skip the Django suite. Add "{routes_glob}" to the contract-check inputs'
             )
 
+        # Watching the permanent-interface exposures: a marked [[interfaces]] block lets core
+        # depend on these modules outside the import graph (ClickHouse DDL in the schema registry
+        # and frozen migrations). That coupling can't be sealed, so the skip stays sound only if a
+        # change to those modules still re-runs the suite — they must be in the contract-check
+        # inputs. Mirrors routes_unwatched.
+        if has_narrowed and status.uncovered_permanent_exposures:
+            globs = ", ".join(f"{m.replace('.', '/')}.py" for m in status.uncovered_permanent_exposures)
+            result.issues.append(
+                "turbo.json narrows contract-check inputs but omits the permanently-exposed module(s) "
+                f"{', '.join(status.uncovered_permanent_exposures)} — core depends on them outside the import "
+                "graph (ClickHouse DDL in the schema registry and frozen migrations), so a change to them "
+                f"would skip the Django suite. Add the matching input(s) ({globs}) to keep the skip sound"
+            )
+
         # Note: a product that has the contract-check script *and* deferred
         # presentation-wave ignore_imports entries is hard-blocked by
         # PackageJsonScriptsCheck — the skip can't be enabled until the wave empties them.

@@ -22,6 +22,7 @@ from posthog.test.base import (
 )
 from unittest.mock import MagicMock, Mock, patch
 
+from django.apps import apps
 from django.test import TestCase
 from django.utils.timezone import now
 
@@ -78,7 +79,6 @@ from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_warehouse.backend.types import ExternalDataSourceType
-from products.error_tracking.backend.models import ErrorTrackingIssue
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -88,6 +88,8 @@ from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.materialized_columns.columns import materialize
 from ee.models.license import License
+
+ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
 
 logger = structlog.get_logger(__name__)
 

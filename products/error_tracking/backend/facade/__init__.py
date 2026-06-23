@@ -1,3 +1,5 @@
+from ..models import override_error_tracking_issue_fingerprint, sync_issues_to_clickhouse
+from ..remote_config import build_error_tracking_config
 from . import contracts
 from .api import (
     ExternalReferenceValidationError,
@@ -41,6 +43,7 @@ from .api import (
     get_symbol_set_counts_by_team,
     get_top_issues_for_team,
     has_filter_values,
+    has_resolved_issues,
     is_supported_external_issue_provider,
     issue_exists,
     list_assignment_rules,
@@ -69,6 +72,7 @@ __all__ = [
     "ReleaseHashInUseError",
     "auto_select_project_for_user",
     "batch_get_stack_frames",
+    "build_error_tracking_config",
     "build_ingestion_failures_url",
     "contracts",
     "count_issues_created_since",
@@ -106,6 +110,7 @@ __all__ = [
     "get_symbol_set_counts_by_team",
     "get_top_issues_for_team",
     "has_filter_values",
+    "has_resolved_issues",
     "is_supported_external_issue_provider",
     "issue_exists",
     "list_assignment_rules",
@@ -117,9 +122,11 @@ __all__ = [
     "list_spike_events",
     "list_stack_frames",
     "list_suppression_rules",
+    "override_error_tracking_issue_fingerprint",
     "reorder_assignment_rules",
     "reorder_grouping_rules",
     "reorder_suppression_rules",
+    "sync_issues_to_clickhouse",
     "update_assignment_rule",
     "update_grouping_rule",
     "update_release",

@@ -7,6 +7,7 @@ from io import StringIO
 from typing import TYPE_CHECKING, Any, Optional, TypedDict, cast
 from urllib.parse import urlparse, urlunparse
 
+from django.apps import apps
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError
@@ -62,12 +63,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.endpoints.backend.models import Endpoint, EndpointVersion
-from products.error_tracking.backend.models import (
-    ErrorTrackingIssue,
-    ErrorTrackingIssueFingerprintV2,
-    ErrorTrackingStackFrame,
-    sync_issues_to_clickhouse,
-)
+from products.error_tracking.backend.facade import sync_issues_to_clickhouse
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.event_definitions.backend.models.property_definition import PropertyType
 from products.event_definitions.backend.models.schema import (
@@ -109,6 +105,10 @@ from .taxonomy import (
 if TYPE_CHECKING:
     from posthog.models.team import Team
     from posthog.models.user import User
+
+ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
+ErrorTrackingIssueFingerprintV2 = apps.get_model("error_tracking", "ErrorTrackingIssueFingerprintV2")
+ErrorTrackingStackFrame = apps.get_model("error_tracking", "ErrorTrackingStackFrame")
 
 
 @dataclass
