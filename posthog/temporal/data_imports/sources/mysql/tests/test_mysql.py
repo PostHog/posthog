@@ -1276,20 +1276,42 @@ class TestMySQLSourceValidateCredentials:
     @pytest.mark.parametrize(
         "raised,expected_error",
         [
-            # The exact error that fired this triage: an unreachable host surfaces as a
-            # pymysql OperationalError(2003) wrapping an OSError — already non-retryable.
-            # A connection failure keeps the generic "check connection details" message.
+            # pymysql collapses every connect-level failure into OperationalError(2003)
+            # wrapping an OSError; the OS detail is matched to give a specific, actionable
+            # message instead of the generic "check connection details" fallback.
             (
                 pymysql.err.OperationalError(
-                    2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 101] Network is unreachable)"
+                    2003, "Can't connect to MySQL server on 'db.example.com' ([Errno -2] Name or service not known)"
                 ),
-                "Could not connect to MySQL. Please check all connection details are valid.",
+                "Host could not be resolved. Check the host is spelled correctly and reachable from PostHog.",
             ),
             (
                 pymysql.err.OperationalError(
                     2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 111] Connection refused)"
                 ),
-                "Could not connect to MySQL. Please check all connection details are valid.",
+                "Could not connect to the host on the port given. Check the host and port are correct and the MySQL server is accepting connections.",
+            ),
+            (
+                pymysql.err.OperationalError(2003, "Can't connect to MySQL server on 'db.example.com' (timed out)"),
+                "Connection timed out. Does your database have our IP addresses allowed?",
+            ),
+            (
+                pymysql.err.OperationalError(
+                    2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 113] No route to host)"
+                ),
+                "Could not reach the host. Check the host is correct and that PostHog's IP addresses are allowed through your firewall.",
+            ),
+            (
+                pymysql.err.OperationalError(
+                    2003, "Can't connect to MySQL server on 'db.example.com' ([Errno 101] Network is unreachable)"
+                ),
+                "Could not reach the host. Check the host is correct and that PostHog's IP addresses are allowed through your firewall.",
+            ),
+            # Server error 1049: the host/port/credentials are fine but the named database
+            # doesn't exist. Previously fell through to capture as an unexpected error.
+            (
+                pymysql.err.OperationalError(1049, "Unknown database 'nope'"),
+                "Database does not exist. Check the database name is correct.",
             ),
             # An auth failure (error 1045) must name the credentials, not the generic message
             # that sends the user to inspect the host/port instead. Mirrors Postgres.
