@@ -237,6 +237,8 @@ export const experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOne
 export const experimentsCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax = 1
 
 export const experimentsCreateBodyAllowUnknownEventsDefault = false
+export const experimentsCreateBodyConclusionCommentMax = 4000
+
 export const experimentsCreateBodyUpdateFeatureFlagParamsDefault = false
 
 export const ExperimentsCreateBody = /* @__PURE__ */ zod
@@ -2501,7 +2503,11 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
             ),
-        conclusion_comment: zod.string().nullish().describe('Comment about the experiment conclusion.'),
+        conclusion_comment: zod
+            .string()
+            .max(experimentsCreateBodyConclusionCommentMax)
+            .nullish()
+            .describe('Comment about the experiment conclusion.'),
         primary_metrics_ordered_uuids: zod.unknown().optional(),
         secondary_metrics_ordered_uuids: zod.unknown().optional(),
         only_count_matured_users: zod.boolean().optional(),
@@ -2607,6 +2613,8 @@ export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePro
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemStartEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMin = 0
 export const experimentsPartialUpdateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax = 1
+
+export const experimentsPartialUpdateBodyConclusionCommentMax = 4000
 
 export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -4876,7 +4884,11 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
             ),
-        conclusion_comment: zod.string().nullish().describe('Comment about the experiment conclusion.'),
+        conclusion_comment: zod
+            .string()
+            .max(experimentsPartialUpdateBodyConclusionCommentMax)
+            .nullish()
+            .describe('Comment about the experiment conclusion.'),
         primary_metrics_ordered_uuids: zod.unknown().optional(),
         secondary_metrics_ordered_uuids: zod.unknown().optional(),
         only_count_matured_users: zod.boolean().optional(),
@@ -5036,6 +5048,8 @@ export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemUpperBoundPerc
 export const experimentsDuplicateCreateBodyMetricsSecondaryOneItemUpperBoundPercentileOneMax = 1
 
 export const experimentsDuplicateCreateBodyAllowUnknownEventsDefault = false
+export const experimentsDuplicateCreateBodyConclusionCommentMax = 4000
+
 export const experimentsDuplicateCreateBodyUpdateFeatureFlagParamsDefault = false
 
 export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
@@ -7308,7 +7322,11 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
             ),
-        conclusion_comment: zod.string().nullish().describe('Comment about the experiment conclusion.'),
+        conclusion_comment: zod
+            .string()
+            .max(experimentsDuplicateCreateBodyConclusionCommentMax)
+            .nullish()
+            .describe('Comment about the experiment conclusion.'),
         primary_metrics_ordered_uuids: zod.unknown().optional(),
         secondary_metrics_ordered_uuids: zod.unknown().optional(),
         only_count_matured_users: zod.boolean().optional(),
@@ -7356,6 +7374,8 @@ export const ExperimentsEndCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const experimentsEndCreateBodyConclusionCommentMax = 4000
+
 export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
     conclusion: zod
         .union([
@@ -7370,7 +7390,11 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'The conclusion of the experiment.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
         ),
-    conclusion_comment: zod.string().nullish().describe('Optional comment about the experiment conclusion.'),
+    conclusion_comment: zod
+        .string()
+        .max(experimentsEndCreateBodyConclusionCommentMax)
+        .nullish()
+        .describe('Optional comment about the experiment conclusion.'),
 })
 
 /**
@@ -7476,6 +7500,8 @@ export const ExperimentsShipVariantCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const experimentsShipVariantCreateBodyConclusionCommentMax = 4000
+
 export const experimentsShipVariantCreateBodyReleaseToEveryoneDefault = false
 
 export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
@@ -7492,7 +7518,11 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'The conclusion of the experiment.\n\n* `won` - won\n* `lost` - lost\n* `inconclusive` - inconclusive\n* `stopped_early` - stopped_early\n* `invalid` - invalid'
         ),
-    conclusion_comment: zod.string().nullish().describe('Optional comment about the experiment conclusion.'),
+    conclusion_comment: zod
+        .string()
+        .max(experimentsShipVariantCreateBodyConclusionCommentMax)
+        .nullish()
+        .describe('Optional comment about the experiment conclusion.'),
     variant_key: zod.string().describe('The key of the variant to ship.'),
     release_to_everyone: zod
         .boolean()

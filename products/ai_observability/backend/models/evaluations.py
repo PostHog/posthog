@@ -211,6 +211,11 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
 def evaluation_saved(sender, instance, created, **kwargs):
     from posthog.plugins.plugin_server_api import reload_evaluations_on_workers
 
+    from .evaluation_reports import EvaluationReport
+
+    if instance.deleted:
+        EvaluationReport.objects.filter(evaluation_id=instance.id, deleted=False).update(deleted=True, enabled=False)
+
     # Defer publishing to workers until the surrounding transaction commits — otherwise
     # workers can fire before the row is visible, especially now that perform_create wraps
     # the save + EvaluationReport create in transaction.atomic(). In auto-commit mode

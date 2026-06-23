@@ -4,46 +4,39 @@ import { useCallback, useMemo, useRef } from 'react'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 
-import { LogSeverityLevel } from '~/queries/schema/schema-general'
-
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
-import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { serviceFilterLogic } from 'products/logs/frontend/components/LogsViewer/Filters/serviceFilterLogic'
-import { SEVERITY_BAR_COLORS } from 'products/logs/frontend/components/VirtualizedLogsList/columnDefinitions'
 
 import { Facet, FacetOption } from './Facet'
+import { facetCountsLogic } from './facetCountsLogic'
 import { facetRailLogic } from './facetRailLogic'
+import { FacetConfig, FacetFilterKey, FacetField, facetsByGroup } from './facets'
 
 const DEFAULT_WIDTH_PX = 240
 const COLLAPSE_THRESHOLD_PX = 120
-
-// Colors mirror the severity bar in the log rows (SEVERITY_BAR_COLORS) so the rail matches the viewer.
-const SEVERITY_OPTIONS: FacetOption[] = (
-    [
-        ['trace', 'Trace'],
-        ['debug', 'Debug'],
-        ['info', 'Info'],
-        ['warn', 'Warn'],
-        ['error', 'Error'],
-        ['fatal', 'Fatal'],
-    ] as const
-).map(([value, label]) => ({ value, label, color: SEVERITY_BAR_COLORS[value] }))
 
 export interface FacetRailProps {
     id: string
 }
 
-/** Resizable left-hand facet rail. Level + Service today; more facets and counts land in follow-up work. */
+/** Resizable left-hand facet rail, rendered entirely from the FACETS config (see facets.ts). */
 export function FacetRail({ id }: FacetRailProps): JSX.Element {
     const railRef = useRef<HTMLDivElement>(null)
     const { setFacetRailCollapsed } = useActions(logsViewerConfigLogic)
     const { severityLevels, serviceNames, utcDateRange } = useValues(logsViewerFiltersLogic)
-    const { severityTotals } = useValues(logsViewerDataLogic)
+    const { levelCounts, serviceCounts } = useValues(facetCountsLogic({ id }))
     const { collapsedFacets } = useValues(facetRailLogic({ id }))
-    const { toggleSeverityLevel, toggleServiceName, toggleFacetCollapsed } = useActions(facetRailLogic({ id }))
+    const { toggleFacetValue, toggleFacetCollapsed } = useActions(facetRailLogic({ id }))
 
-    const levelOptions = SEVERITY_OPTIONS.map((option) => ({ ...option, count: severityTotals?.[option.value] }))
+    const selectedByKey: Record<FacetFilterKey, string[]> = {
+        severityLevels: severityLevels ?? [],
+        serviceNames: serviceNames ?? [],
+    }
+    const countsByField: Record<FacetField, Record<string, number>> = {
+        severity_text: levelCounts,
+        service_name: serviceCounts,
+    }
 
     const onToggleClosed = useCallback(
         (shouldBeClosed: boolean) => setFacetRailCollapsed(shouldBeClosed),
@@ -63,6 +56,27 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
     )
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
 
+    const renderFacet = (facet: FacetConfig): JSX.Element => {
+        const selected = selectedByKey[facet.filterKey]
+        const counts = countsByField[facet.facetField] ?? {}
+        const shared = {
+            facet,
+            selected,
+            counts,
+            collapsed: collapsedFacets.includes(facet.key),
+            onToggle: (value: string) => toggleFacetValue(facet.filterKey, value),
+            onToggleCollapsed: () => toggleFacetCollapsed(facet.key),
+        }
+        if (facet.kind === 'dynamic') {
+            return (
+                <BindLogic key={facet.key} logic={serviceFilterLogic} props={{ dateRange: utcDateRange }}>
+                    <DynamicFacet {...shared} />
+                </BindLogic>
+            )
+        }
+        return <FixedFacet key={facet.key} {...shared} />
+    }
+
     return (
         <div
             ref={railRef}
@@ -75,61 +89,82 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
                 <span className="text-xs font-semibold text-secondary uppercase tracking-wide">Filters</span>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto p-2">
-                <div className="px-1 pb-1 mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted border-b border-primary">
-                    Standard
-                </div>
-                <Facet
-                    title="Level"
-                    options={levelOptions}
-                    selected={severityLevels ?? []}
-                    onToggle={(value) => toggleSeverityLevel(value as LogSeverityLevel)}
-                    collapsed={collapsedFacets.includes('level')}
-                    onToggleCollapsed={() => toggleFacetCollapsed('level')}
-                />
-                <BindLogic logic={serviceFilterLogic} props={{ dateRange: utcDateRange }}>
-                    <ServiceFacet
-                        selected={serviceNames ?? []}
-                        onToggle={toggleServiceName}
-                        collapsed={collapsedFacets.includes('service')}
-                        onToggleCollapsed={() => toggleFacetCollapsed('service')}
-                    />
-                </BindLogic>
+                {facetsByGroup().map(([group, facets]) => (
+                    <div key={group}>
+                        <div className="px-1 pb-1 mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted border-b border-primary">
+                            {group}
+                        </div>
+                        {facets.map(renderFacet)}
+                    </div>
+                ))}
             </div>
             <Resizer {...resizerLogicProps} visible={false} offset="0.25rem" handleClassName="rounded my-1" />
         </div>
     )
 }
 
-function ServiceFacet({
-    selected,
-    onToggle,
-    collapsed,
-    onToggleCollapsed,
-}: {
+interface FacetRenderProps {
+    facet: FacetConfig
     selected: string[]
-    onToggle: (name: string) => void
+    counts: Record<string, number>
     collapsed: boolean
+    onToggle: (value: string) => void
     onToggleCollapsed: () => void
-}): JSX.Element {
-    const { serviceValues, allServiceNamesLoading, search } = useValues(serviceFilterLogic)
+}
+
+/** Fixed facet: the closed value set from config, with counts overlaid. */
+function FixedFacet({
+    facet,
+    selected,
+    counts,
+    collapsed,
+    onToggle,
+    onToggleCollapsed,
+}: FacetRenderProps): JSX.Element {
+    const options: FacetOption[] = (facet.fixedOptions ?? []).map((option) => ({
+        ...option,
+        count: counts[option.value],
+    }))
+    return (
+        <Facet
+            title={facet.title}
+            options={options}
+            selected={selected}
+            onToggle={onToggle}
+            collapsed={collapsed}
+            onToggleCollapsed={onToggleCollapsed}
+        />
+    )
+}
+
+/** Dynamic facet: values discovered from the data. PR1 keeps the service list/search on serviceFilterLogic. */
+function DynamicFacet({
+    facet,
+    selected,
+    counts,
+    collapsed,
+    onToggle,
+    onToggleCollapsed,
+}: FacetRenderProps): JSX.Element {
+    const { serviceNames, allServiceNamesLoading, search } = useValues(serviceFilterLogic)
     const { setSearch } = useActions(serviceFilterLogic)
 
-    const options: FacetOption[] = serviceValues.map((s) => ({ value: s.name, label: s.name, count: s.count }))
+    const options: FacetOption[] = serviceNames.map((name) => ({ value: name, label: name, count: counts[name] }))
 
     return (
         <Facet
-            title="Service"
+            title={facet.title}
             options={options}
             selected={selected}
             onToggle={onToggle}
             loading={allServiceNamesLoading}
-            emptyLabel="No services"
-            searchValue={search}
-            onSearchChange={setSearch}
-            searchPlaceholder="Search services…"
+            emptyLabel={facet.emptyLabel}
+            searchValue={facet.searchable ? search : undefined}
+            onSearchChange={facet.searchable ? setSearch : undefined}
+            searchPlaceholder={facet.searchPlaceholder}
             collapsed={collapsed}
             onToggleCollapsed={onToggleCollapsed}
-            maxHeight={300}
+            maxHeight={facet.maxHeight}
         />
     )
 }
