@@ -1,5 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { useActions } from 'kea'
 import { HttpResponse } from 'msw'
+import { useEffect } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -133,14 +135,15 @@ const overviewDecorator = (streakThresholds: number[]): ReturnType<typeof mswDec
         },
     })
 
-const openAchievementsModal = (): void => {
-    webAnalyticsAchievementsLogic.findMounted()?.actions.openModal()
-}
-
-const openWithExpandedTrack = (trackKey: string) => (): void => {
-    const logic = webAnalyticsAchievementsLogic.findMounted()
-    logic?.actions.openModal()
-    logic?.actions.toggleTrackExpanded(trackKey)
+function OpenAchievementsModal({ expandTrack }: { expandTrack?: string }): JSX.Element {
+    const { openModal, toggleTrackExpanded } = useActions(webAnalyticsAchievementsLogic)
+    useEffect(() => {
+        openModal()
+        if (expandTrack) {
+            toggleTrackExpanded(expandTrack)
+        }
+    }, [openModal, toggleTrackExpanded, expandTrack])
+    return <WebAnalyticsAchievementsModal />
 }
 
 const meta: Meta = {
@@ -163,8 +166,7 @@ export const HybridArm: Story = {
             [FEATURE_FLAGS.WEB_ANALYTICS_STREAK_CADENCE]: 'hybrid',
         },
     },
-    render: () => <WebAnalyticsAchievementsModal />,
-    play: openAchievementsModal,
+    render: () => <OpenAchievementsModal />,
 }
 
 export const DailyOnlyArm: Story = {
@@ -175,8 +177,7 @@ export const DailyOnlyArm: Story = {
             [FEATURE_FLAGS.WEB_ANALYTICS_STREAK_CADENCE]: 'daily-only',
         },
     },
-    render: () => <WebAnalyticsAchievementsModal />,
-    play: openAchievementsModal,
+    render: () => <OpenAchievementsModal />,
 }
 
 export const WeeklyOnlyArm: Story = {
@@ -187,8 +188,7 @@ export const WeeklyOnlyArm: Story = {
             [FEATURE_FLAGS.WEB_ANALYTICS_STREAK_CADENCE]: 'weekly-only',
         },
     },
-    render: () => <WebAnalyticsAchievementsModal />,
-    play: openAchievementsModal,
+    render: () => <OpenAchievementsModal />,
 }
 
 export const TierColors: Story = {
@@ -206,8 +206,7 @@ export const TierColors: Story = {
             [FEATURE_FLAGS.WEB_ANALYTICS_STREAK_CADENCE]: 'hybrid',
         },
     },
-    render: () => <WebAnalyticsAchievementsModal />,
-    play: openAchievementsModal,
+    render: () => <OpenAchievementsModal />,
 }
 
 export const ExpandedLadder: Story = {
@@ -218,6 +217,5 @@ export const ExpandedLadder: Story = {
             [FEATURE_FLAGS.WEB_ANALYTICS_STREAK_CADENCE]: 'hybrid',
         },
     },
-    render: () => <WebAnalyticsAchievementsModal />,
-    play: openWithExpandedTrack('explorer'),
+    render: () => <OpenAchievementsModal expandTrack="explorer" />,
 }
