@@ -110,7 +110,7 @@ class TestIsRateLimited:
         ]
     )
     def test_is_rate_limited(self, _name: str, status: int, body: Any, expected: bool) -> None:
-        assert _is_rate_limited(_FakeResponse(status_code=status, json_data=body)) is expected
+        assert _is_rate_limited(_FakeResponse(status_code=status, json_data=body)) is expected  # type: ignore[arg-type]
 
 
 class TestFetch:

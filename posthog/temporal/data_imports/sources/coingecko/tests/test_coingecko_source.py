@@ -88,7 +88,11 @@ class TestCoinGeckoSource:
         "mock_return, expected_valid, expected_message",
         [
             (True, True, None),
-            (False, False, "Invalid CoinGecko API key"),
+            (
+                False,
+                False,
+                "Unable to verify your CoinGecko API key. Check that the key is correct and that CoinGecko is reachable.",
+            ),
         ],
     )
     @mock.patch("posthog.temporal.data_imports.sources.coingecko.source.validate_coingecko_credentials")

@@ -121,7 +121,12 @@ CoinGecko enforces tight per-minute rate limits and monthly credit caps, especia
         if validate_coingecko_credentials(config.plan, config.api_key):
             return True, None
 
-        return False, "Invalid CoinGecko API key"
+        # The probe also returns False on transient network/timeout errors, so don't claim the key is
+        # definitively invalid — point at both possibilities.
+        return (
+            False,
+            "Unable to verify your CoinGecko API key. Check that the key is correct and that CoinGecko is reachable.",
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[CoinGeckoResumeConfig]:
         return ResumableSourceManager[CoinGeckoResumeConfig](inputs, CoinGeckoResumeConfig)
