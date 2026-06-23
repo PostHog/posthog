@@ -3803,6 +3803,54 @@ class TestIntegrationConnectPermissions(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert Integration.objects.filter(id=integration.id).exists()
 
+    @patch("posthog.models.integration.GitHubIntegration.verify_user_installation_access", return_value=True)
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_member_can_link_existing_github(self, mock_from_install, _mock_verify):
+        source_team = Team.objects.create(organization=self.organization, name="Source Team")
+        Integration.objects.create(
+            team=source_team,
+            kind="github",
+            integration_id="12345",
+            config={"installation_id": "12345", "account": {"type": "Organization", "name": "acme"}},
+            sensitive_config={"access_token": "ghs_source"},
+            created_by=self.user,
+        )
+        # Personal integration proving the requesting member has access to the installation.
+        UserIntegration.objects.create(
+            user=self.user,
+            kind="github",
+            integration_id="12345",
+            config={"account": {"type": "Organization", "name": "acme"}},
+            sensitive_config={"access_token": "ghu_user"},
+        )
+        mock_from_install.return_value = Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="12345",
+            config={"installation_id": "12345", "account": {"type": "Organization", "name": "acme"}},
+            sensitive_config={"access_token": "ghs_cloned"},
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"{self._url()}github/link_existing/",
+            {"source_team_id": source_team.id},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+
+    def test_member_can_oauth_authorize_github(self):
+        with patch.object(django_settings, "GITHUB_APP_CLIENT_ID", "test-client-id"):
+            response = self.client.post(
+                f"{self._url()}github/oauth_authorize/",
+                {"installation_id": "12345"},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert "oauth_url" in response.json()
+
 
 class TestGoogleSearchConsoleSitesEndpoint:
     _SESSION_PATH = (
