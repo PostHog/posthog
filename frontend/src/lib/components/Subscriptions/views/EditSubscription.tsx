@@ -548,7 +548,10 @@ function EditSubscriptionForm({
                                             </LemonField>
                                         )}
 
-                                        <LemonField name="post_all_insights_in_main_message">
+                                        <LemonField
+                                            name="post_all_insights_in_main_message"
+                                            help="By default, extra insights are posted in a thread reply. Enable this to post every insight image in the main Slack message instead."
+                                        >
                                             {({ value, onChange }) => (
                                                 <LemonSwitch
                                                     checked={value}
@@ -559,10 +562,6 @@ function EditSubscriptionForm({
                                                 />
                                             )}
                                         </LemonField>
-                                        <div className="text-xs text-secondary">
-                                            By default, extra insights are posted in a thread reply. Enable this to
-                                            post every insight image in the main Slack message instead.
-                                        </div>
                                     </>
                                 )}
                             </>

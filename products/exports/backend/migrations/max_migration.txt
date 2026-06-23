@@ -1,1 +1,1 @@
-0003_alter_subscription_target_type
+0004_subscription_post_all_insights_in_main_message

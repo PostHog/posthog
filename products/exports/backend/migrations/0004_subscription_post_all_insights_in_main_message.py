@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1233_backfill_duckgresserverteam"),
+        ("exports", "0003_alter_subscription_target_type"),
     ]
 
     operations = [
