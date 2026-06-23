@@ -48,6 +48,7 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 DEFAULT_INITIAL_PERMISSION_MODE: InitialPermissionMode = "auto"
+POSTHOG_AI_INTERACTION_ORIGIN = tasks_facade.TaskOriginProduct.POSTHOG_AI.value
 
 # A PostHog AI sandbox session is a live chat: if the user goes quiet for this long
 # they've moved on, so the Run's workflow times out and reclaims the sandbox. Passed
@@ -228,6 +229,7 @@ class SandboxSession(BaseSandboxService):
                 self.team.pk,
                 self.user.pk,
                 extra_state={
+                    "interaction_origin": POSTHOG_AI_INTERACTION_ORIGIN,
                     "systemPrompt": system_prompt,
                     "initial_permission_mode": initial_permission_mode,
                     "inactivity_timeout_seconds": SANDBOX_INACTIVITY_TIMEOUT_SECONDS,
@@ -281,6 +283,7 @@ class SandboxSession(BaseSandboxService):
             repository=repository,
             create_pr=False,
             mode="interactive",
+            interaction_origin=POSTHOG_AI_INTERACTION_ORIGIN,
             inactivity_timeout_seconds=SANDBOX_INACTIVITY_TIMEOUT_SECONDS,
             # Defer the workflow so the initial run state can carry the PostHog AI keys.
             start_workflow=False,
@@ -298,6 +301,7 @@ class SandboxSession(BaseSandboxService):
             system_prompt=system_prompt,
             attached_context=attached_context,
             initial_permission_mode=initial_permission_mode,
+            interaction_origin=POSTHOG_AI_INTERACTION_ORIGIN,
             pending_user_message=wrapped,
         )
         state_updates = ph_state.model_dump(mode="json", by_alias=True, exclude_unset=True)
@@ -449,6 +453,7 @@ class SandboxSession(BaseSandboxService):
                 run = current
 
             extra_state: dict[str, Any] = {
+                "interaction_origin": POSTHOG_AI_INTERACTION_ORIGIN,
                 "resume_from_run_id": str(run.id),
                 "pending_user_message": wrapped,
                 "systemPrompt": system_prompt,
