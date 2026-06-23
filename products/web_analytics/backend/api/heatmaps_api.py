@@ -952,7 +952,6 @@ class SavedHeatmapRequestSerializer(serializers.ModelSerializer):
             "deleted": {"required": False, "help_text": "Set true to soft-delete the saved heatmap."},
             "block_consent_modals": {
                 "required": False,
-                "default": False,
                 "help_text": "When true, ask the headless browser to dismiss cookie/consent banners before "
                 "capturing the screenshot. Off by default: the blocker can stall the render on some sites and "
                 "time out. Only applies to 'screenshot' heatmaps.",
