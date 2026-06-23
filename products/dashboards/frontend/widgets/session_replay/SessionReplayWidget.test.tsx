@@ -3,6 +3,7 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
@@ -118,8 +119,10 @@ describe('SessionReplayWidget', () => {
         })
     })
 
-    it('falls back to opening without highlights when the matching events fetch fails', async () => {
-        jest.spyOn(api.recordings, 'getMatchingEvents').mockRejectedValue(new Error('boom'))
+    it('falls back to opening without highlights and captures the error when the fetch fails', async () => {
+        const error = new Error('boom')
+        jest.spyOn(api.recordings, 'getMatchingEvents').mockRejectedValue(error)
+        const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
         sessionPlayerModalLogic.mount()
 
         render(
@@ -136,5 +139,34 @@ describe('SessionReplayWidget', () => {
         await waitFor(() =>
             expect(sessionPlayerModalLogic.values.activeSessionRecording).toEqual({ id: 'recording-1' })
         )
+        // A broken query must not degrade silently.
+        expect(captureException).toHaveBeenCalledWith(error, expect.objectContaining({ feature: expect.any(String) }))
+    })
+
+    it('shows a loading affordance on the row while matching events are being fetched', async () => {
+        let resolveFetch: (value: { results: { uuid: string; timestamp: string }[] }) => void = () => {}
+        jest.spyOn(api.recordings, 'getMatchingEvents').mockReturnValue(
+            new Promise((resolve) => {
+                resolveFetch = resolve
+            })
+        )
+        sessionPlayerModalLogic.mount()
+
+        const { container } = render(
+            <SessionReplayWidget
+                tileId={1}
+                config={{ limit: 10 }}
+                loading={false}
+                result={{ results: [recording], matchingEventsQuery }}
+            />
+        )
+
+        fireEvent.click(screen.getByText('recording-1'))
+
+        await waitFor(() => expect(container.querySelector('[aria-busy="true"]')).toBeInTheDocument())
+
+        resolveFetch({ results: [] })
+
+        await waitFor(() => expect(container.querySelector('[aria-busy="true"]')).not.toBeInTheDocument())
     })
 })

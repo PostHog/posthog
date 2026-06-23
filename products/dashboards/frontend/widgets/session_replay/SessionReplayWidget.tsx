@@ -1,9 +1,12 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import api from 'lib/api'
 import { CardTopHeadingRow } from 'lib/components/Cards/CardTopHeadingRow'
 import { FilmCameraHog } from 'lib/components/hedgehogs'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { toParams } from 'lib/utils/url'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import 'scenes/session-recordings/playlist/SessionRecordingPreview.scss'
@@ -75,8 +78,10 @@ function SessionReplayWidgetRecordingRow({
                 id: recording.id,
                 matching_events: [{ session_id: recording.id, events: response.results }],
             })
-        } catch {
-            // Highlighting matching events is best-effort; fall back to opening without it.
+        } catch (error) {
+            // Highlighting matching events is best-effort; fall back to opening without it, but
+            // surface the failure so a systematically broken query doesn't degrade silently.
+            posthog.captureException(error, { feature: 'session-replay-widget-matching-events' })
             openSessionPlayer({ id: recording.id })
         } finally {
             setIsOpening(false)
@@ -84,8 +89,17 @@ function SessionReplayWidgetRecordingRow({
     }
 
     return (
-        <div className="border-b" onClick={() => void openRecording()}>
+        <div
+            className={clsx('relative border-b', isOpening && 'pointer-events-none opacity-60')}
+            onClick={() => void openRecording()}
+            aria-busy={isOpening}
+        >
             <SessionRecordingPreview recording={recording} order={order} />
+            {isOpening && (
+                <div className="absolute inset-y-0 right-2 flex items-center">
+                    <Spinner />
+                </div>
+            )}
         </div>
     )
 }

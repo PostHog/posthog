@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from posthog.schema import PropertyFilterType, RecordingOrder, RecordingOrderDirection, RecordingsQuery
+from posthog.schema import RecordingOrder, RecordingOrderDirection, RecordingsQuery
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team import Team
@@ -11,7 +11,7 @@ from posthog.models.user import User
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.playlist_filters import convert_playlist_to_recordings_query
 from posthog.session_recordings.session_recording_api import run_recordings_list_query
-from posthog.session_recordings.utils import filter_from_params_to_query
+from posthog.session_recordings.utils import filter_from_params_to_query, recordings_query_has_event_filters
 
 from products.dashboards.backend.constants import MAX_WIDGET_RESULT_LIMIT
 from products.dashboards.backend.widget_specs.configs import SESSION_REPLAY_LIST_WIDGET_TYPE
@@ -91,10 +91,7 @@ def _build_matching_events_query(query: RecordingsQuery) -> dict[str, Any] | Non
     # the query the backend just resolved (saved-filter playlist included), so the client never has to
     # reconstruct it; it only adds the session id per row. The matching_events endpoint requires at
     # least one event/action/event-property filter, so omit the query when there's nothing to match.
-    has_event_properties = any(
-        getattr(prop, "type", None) == PropertyFilterType.EVENT for prop in (query.properties or [])
-    )
-    if not query.events and not query.actions and not has_event_properties:
+    if not recordings_query_has_event_filters(query):
         return None
 
     payload = query.model_dump(mode="json", exclude_none=True)
