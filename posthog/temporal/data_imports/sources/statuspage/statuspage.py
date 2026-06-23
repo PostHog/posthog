@@ -51,14 +51,25 @@ def _build_url(path: str, params: dict[str, Any]) -> str:
     return f"{STATUSPAGE_BASE_URL}{path}?{urlencode(params)}"
 
 
+def _get_session(api_key: str) -> requests.Session:
+    # One session per sync so keep-alive is preserved across pages and retries. `redact_values`
+    # masks the key from request telemetry/log samples, and `allow_redirects=False` keeps a
+    # credentialed request pinned to the validated Statuspage host (it can't be replayed elsewhere).
+    return make_tracked_session(
+        headers=_get_headers(api_key),
+        redact_values=(api_key,),
+        allow_redirects=False,
+    )
+
+
 @retry(
     retry=retry_if_exception_type((StatuspageRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(_MAX_ATTEMPTS),
     wait=wait_exponential_jitter(initial=2, max=60),
     reraise=True,
 )
-def _fetch_page(url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> requests.Response:
-    response = make_tracked_session().get(url, headers=headers, timeout=_REQUEST_TIMEOUT_SECONDS)
+def _fetch_page(session: requests.Session, url: str, logger: FilteringBoundLogger) -> requests.Response:
+    response = session.get(url, timeout=_REQUEST_TIMEOUT_SECONDS)
 
     if response.status_code in (420, 429) or response.status_code >= 500:
         raise StatuspageRetryableError(f"Statuspage API error (retryable): status={response.status_code}, url={url}")
@@ -71,8 +82,8 @@ def _fetch_page(url: str, headers: dict[str, str], logger: FilteringBoundLogger)
 
 
 def _iter_resource(
+    session: requests.Session,
     path: str,
-    headers: dict[str, str],
     config: StatuspageEndpointConfig,
     logger: FilteringBoundLogger,
     start_page: int = 1,
@@ -87,7 +98,7 @@ def _iter_resource(
     page = start_page
     while True:
         params = {config.page_size_param: config.page_size, "page": page}
-        response = _fetch_page(_build_url(path, params), headers, logger)
+        response = _fetch_page(session, _build_url(path, params), logger)
         data = response.json()
         if not isinstance(data, list) or not data:
             return
@@ -95,15 +106,15 @@ def _iter_resource(
         page += 1
 
 
-def _list_page_ids(headers: dict[str, str], logger: FilteringBoundLogger) -> list[str]:
+def _list_page_ids(session: requests.Session, logger: FilteringBoundLogger) -> list[str]:
     """List every status page id the key can see — the parents that page-scoped endpoints fan out over."""
     pages_config = STATUSPAGE_ENDPOINTS["pages"]
     page_ids: list[str] = []
-    for rows, _page in _iter_resource(pages_config.path, headers, pages_config, logger):
+    for rows, _page in _iter_resource(session, pages_config.path, pages_config, logger):
         for row in rows:
-            page_id = row.get("id")
-            if page_id is not None:
-                page_ids.append(page_id)
+            # Direct access: page_id drives the entire child fan-out, so a page without an id is a
+            # malformed response we want to surface loudly rather than silently drop its children.
+            page_ids.append(row["id"])
     return page_ids
 
 
@@ -114,19 +125,19 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[StatuspageResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     config = STATUSPAGE_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key)
+    session = _get_session(api_key)
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
     if not config.page_scoped:
         start_page = resume.page if resume is not None else 1
         if resume is not None:
             logger.debug(f"Statuspage: resuming {endpoint} from page {start_page}")
-        for rows, page in _iter_resource(config.path, headers, config, logger, start_page=start_page):
+        for rows, page in _iter_resource(session, config.path, config, logger, start_page=start_page):
             yield rows
             resumable_source_manager.save_state(StatuspageResumeConfig(page=page, parent_page_id=None))
         return
 
-    page_ids = _list_page_ids(headers, logger)
+    page_ids = _list_page_ids(session, logger)
 
     start_index = 0
     resume_start_page = 1
@@ -141,7 +152,7 @@ def get_rows(
         page_id = page_ids[idx]
         path = config.path.format(page_id=page_id)
         start_page = resume_start_page if idx == start_index else 1
-        for rows, page in _iter_resource(path, headers, config, logger, start_page=start_page):
+        for rows, page in _iter_resource(session, path, config, logger, start_page=start_page):
             # Inject the parent page id so the composite primary key is unique table-wide — a sync
             # aggregates rows from every page, and the bare resource id is only unique within a page.
             for row in rows:
@@ -154,7 +165,7 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     """Confirm the API key is genuine with one cheap probe against the pages listing."""
     url = _build_url("/pages", {"per_page": 1, "page": 1})
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
+        response = _get_session(api_key).get(url, timeout=10)
     except requests.exceptions.RequestException as e:
         return False, str(e)
 

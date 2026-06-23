@@ -1,7 +1,12 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfigType
+from posthog.schema import (
+    DataWarehouseSourceCategory,
+    ReleaseStatus,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+)
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import StatuspageSourceConfig
@@ -31,6 +36,7 @@ class TestStatuspageSource:
         fields = self.source.get_source_config.fields
         assert len(fields) == 1
         api_key = fields[0]
+        assert isinstance(api_key, SourceFieldInputConfig)
         assert api_key.name == "api_key"
         assert api_key.type == SourceFieldInputConfigType.PASSWORD
         assert api_key.required is True

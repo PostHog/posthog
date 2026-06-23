@@ -62,25 +62,25 @@ class TestBuildUrl:
 
 class TestFetchPage:
     @pytest.mark.parametrize("status_code", [420, 429, 500, 502, 503])
-    @mock.patch(_TRANSPORT)
-    def test_retryable_statuses_raise(self, mock_session, status_code):
-        mock_session.return_value.get.return_value = _response([], status_code=status_code)
+    def test_retryable_statuses_raise(self, status_code):
+        session = mock.MagicMock()
+        session.get.return_value = _response([], status_code=status_code)
         # reraise=True surfaces the final StatuspageRetryableError after retries are exhausted.
         with pytest.raises(StatuspageRetryableError):
-            _fetch_page("https://api.statuspage.io/v1/pages", {}, mock.MagicMock())
+            _fetch_page(session, "https://api.statuspage.io/v1/pages", mock.MagicMock())
 
-    @mock.patch(_TRANSPORT)
-    def test_client_error_raises_for_status(self, mock_session):
+    def test_client_error_raises_for_status(self):
         resp = _response({"error": "Could not authenticate"}, status_code=401)
-        resp.raise_for_status.side_effect = requests.HTTPError("401 Client Error")
-        mock_session.return_value.get.return_value = resp
+        resp.raise_for_status.side_effect = requests.HTTPError("401 Client Error", response=resp)
+        session = mock.MagicMock()
+        session.get.return_value = resp
         with pytest.raises(requests.HTTPError):
-            _fetch_page("https://api.statuspage.io/v1/pages", {}, mock.MagicMock())
+            _fetch_page(session, "https://api.statuspage.io/v1/pages", mock.MagicMock())
 
-    @mock.patch(_TRANSPORT)
-    def test_ok_response_returned(self, mock_session):
-        mock_session.return_value.get.return_value = _response([{"id": "p1"}])
-        resp = _fetch_page("https://api.statuspage.io/v1/pages", {}, mock.MagicMock())
+    def test_ok_response_returned(self):
+        session = mock.MagicMock()
+        session.get.return_value = _response([{"id": "p1"}])
+        resp = _fetch_page(session, "https://api.statuspage.io/v1/pages", mock.MagicMock())
         assert resp.json() == [{"id": "p1"}]
 
 
@@ -199,14 +199,13 @@ class TestGetRowsFanOut:
 
 
 class TestListPageIds:
-    @mock.patch(_TRANSPORT)
-    def test_collects_ids_across_pages(self, mock_session):
-        mock_session.return_value = _session_returning(
+    def test_collects_ids_across_pages(self):
+        session = _session_returning(
             [{"id": "p1"}, {"id": "p2"}],
             [{"id": "p3"}],
             [],
         )
-        assert _list_page_ids({}, mock.MagicMock()) == ["p1", "p2", "p3"]
+        assert _list_page_ids(session, mock.MagicMock()) == ["p1", "p2", "p3"]
 
 
 class TestStatuspageSource:
