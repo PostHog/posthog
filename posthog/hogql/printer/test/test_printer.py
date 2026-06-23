@@ -1298,6 +1298,22 @@ class TestPrinter(BaseTest):
             "tostring(event)",
             "Unsupported function call 'tostring(...)'. Perhaps you meant 'toString(...)'?",
         )
+        self._assert_expr_error(
+            "int(event)",
+            "Unsupported function call 'int(...)'. Perhaps you meant 'toInt(...)'?",
+        )
+        self._assert_expr_error(
+            "float(event)",
+            "Unsupported function call 'float(...)'. Perhaps you meant 'toFloat(...)'?",
+        )
+        self._assert_expr_error(
+            "string(event)",
+            "Unsupported function call 'string(...)'. Perhaps you meant 'toString(...)'?",
+        )
+        self._assert_expr_error(
+            "uuid(event)",
+            "Unsupported function call 'uuid(...)'. Perhaps you meant 'toUUID(...)'?",
+        )
         self._assert_expr_error("yeet.the.cloud", "Unable to resolve field: yeet")
         self._assert_expr_error("chipotle", "Unable to resolve field: chipotle")
         self._assert_expr_error(
@@ -2966,6 +2982,32 @@ class TestPrinter(BaseTest):
         query = parse_select("SELECT col1 FROM csv_table")
         printed, _ = prepare_and_print_ast(query, context, "clickhouse")
         assert "format_csv_allow_double_quotes=1" in printed
+
+    @parameterized.expand(["Parquet", "Delta", "DeltaS3Wrapper"])
+    def test_warehouse_parquet_table_disables_prewhere_scoped(self, fmt: str):
+        from posthog.hogql.database.models import TableNode
+        from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
+
+        parquet_table = HogQLDataWarehouseTable(
+            name="parquet_table",
+            url="https://example.com/test.parquet",
+            format=fmt,
+            fields={"col1": StringDatabaseField(name="col1")},
+            structure="`col1` String",
+        )
+        db = Database()
+        root = TableNode()
+        root.add_child(TableNode(name="parquet_table", table=parquet_table))
+        db._add_warehouse_tables(root)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
+        query = parse_select("SELECT col1 FROM parquet_table")
+        printed, _ = prepare_and_print_ast(query, context, "clickhouse")
+        # PREWHERE is disabled only inside the subquery wrapping the read, so the
+        # surrounding query keeps PREWHERE. The read renders as s3() for Parquet/
+        # DeltaS3Wrapper and deltaLake() for Delta, so assert on the wrap, not the function.
+        assert "(SELECT * FROM " in printed
+        assert "SETTINGS optimize_move_to_prewhere = 0)" in printed
+        assert printed.count("optimize_move_to_prewhere") == 1
 
     def test_pretty_print(self):
         printed = self._pretty("SELECT 1, event FROM events")

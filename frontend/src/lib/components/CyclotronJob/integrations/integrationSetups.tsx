@@ -2,6 +2,7 @@ import { AzureBlobSetupModal } from 'scenes/integrations/azure-blob/AzureBlobSet
 import { DatabricksSetupModal } from 'scenes/integrations/databricks/DatabricksSetupModal'
 import { GitLabSetupModal } from 'scenes/integrations/gitlab/GitLabSetupModal'
 import { GoogleCloudServiceAccountSetupModal } from 'scenes/integrations/google-cloud-service-account/GoogleCloudServiceAccountSetupModal'
+import { PostgreSQLSetupModal } from 'scenes/integrations/postgresql/PostgreSQLSetupModal'
 import { urls } from 'scenes/urls'
 
 import { ChannelSetupModal } from 'products/workflows/frontend/Channels/ChannelSetupModal'
@@ -52,6 +53,17 @@ registerIntegrationSetup({
     }),
     SetupModal: ({ isOpen, integration, onComplete }) => (
         <DatabricksSetupModal isOpen={isOpen} integration={integration} onComplete={onComplete} />
+    ),
+})
+
+registerIntegrationSetup({
+    kind: 'postgresql',
+    menuItem: ({ openModal }) => ({
+        label: 'Configure new PostgreSQL connection',
+        onClick: () => openModal('postgresql'),
+    }),
+    SetupModal: ({ isOpen, integration, onComplete }) => (
+        <PostgreSQLSetupModal isOpen={isOpen} integration={integration} onComplete={onComplete} />
     ),
 })
 

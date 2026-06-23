@@ -2,11 +2,12 @@ import json
 import uuid
 import base64
 import shutil
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
 from django.conf import settings
+from django.utils import timezone
 
 import pytz
 from temporalio import activity
@@ -21,11 +22,22 @@ from posthog.session_recordings.session_recording_v2_service import fetch_blocks
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
-from posthog.temporal.session_replay.export_recording.types import ExportContext, ExportRecordingInput, RedisConfig
+from posthog.temporal.session_replay.export_recording.types import (
+    ExportContext,
+    ExportRecordingInput,
+    MarkExportFailedInput,
+    RedisConfig,
+)
 
 from products.replay.backend.models.exported_recording import ExportedRecording
 
 LOGGER = get_write_only_logger()
+
+# Set safely beyond the export workflow's maximum legitimate lifetime (build 3h + parallel export
+# 6h + store 6h + cleanup 3h, which a workflow-level retry can roughly double) so an actively
+# running export is never reaped. Anything older is wedged (e.g. a worker died before its failure
+# handler ran). We reap these opportunistically when a new export starts.
+STALE_EXPORT_AFTER = timedelta(hours=48)
 
 
 def _redis_url(config: RedisConfig) -> str:
@@ -41,6 +53,8 @@ def _redis_key(export_id: uuid.UUID, key_type: str, suffix: str = "") -> str:
 async def build_recording_export_context(input: ExportRecordingInput) -> ExportContext:
     logger = LOGGER.bind()
     logger.info(f"Building export context for recording {input.exported_recording_id}")
+
+    await _reap_stale_exports(logger)
 
     export_record = (
         await ExportedRecording.objects.select_related("team")
@@ -98,8 +112,13 @@ async def export_event_clickhouse_rows(input: ExportContext) -> None:
     logger = LOGGER.bind()
     logger.info(f"Exporting event ClickHouse rows for session {input.session_id}")
 
+    # Exclude internal materialized columns: mat_/dmat_ materialized properties and the
+    # properties_group_* map columns. The latter churn (added/dropped by migrations, e.g.
+    # properties_group_ai_large), and a bare SELECT * breaks with "no column ... in table
+    # 'sharded_events'" whenever the distributed and sharded schemas are briefly out of step.
+    # They duplicate data already in `properties`, so an export never needs them.
     query: str = """
-        SELECT * EXCEPT('mat_.*|dmat_.*')
+        SELECT * EXCEPT('mat_.*|dmat_.*|properties_group_.*')
         FROM events
         WHERE
             team_id = %(team_id)s AND
@@ -281,6 +300,51 @@ async def store_export_data(input: ExportContext) -> None:
     await database_sync_to_async(export_record.save)(update_fields=["export_location", "status"])
 
     logger.info(f"Updated ExportedRecording {input.exported_recording_id} with export_location {s3_key}")
+
+
+@activity.defn
+async def mark_export_failed(input: MarkExportFailedInput) -> None:
+    logger = LOGGER.bind()
+    logger.warning(f"Marking export {input.exported_recording_id} as failed: {input.error_message}")
+
+    try:
+        export_record = await ExportedRecording.objects.aget(id=input.exported_recording_id)
+    except ExportedRecording.DoesNotExist:
+        # the row was deleted while the export ran; there is nothing left to mark failed
+        logger.warning(f"Export {input.exported_recording_id} no longer exists; nothing to mark failed")
+        return
+
+    if export_record.status == ExportedRecording.Status.COMPLETE:
+        # a post-upload step (e.g. cleanup) can fail after the export already succeeded; never
+        # flip a completed export back to failed
+        logger.info(f"Export {input.exported_recording_id} already complete; not marking failed")
+        return
+
+    export_record.status = ExportedRecording.Status.FAILED
+    # error messages (e.g. ClickHouse exceptions) can be very long; keep the row sane
+    export_record.error_message = input.error_message[:2000]
+    await database_sync_to_async(export_record.save)(update_fields=["status", "error_message"])
+
+    logger.info(f"Marked ExportedRecording {input.exported_recording_id} as failed")
+
+
+def _mark_stale_exports_failed() -> int:
+    cutoff = timezone.now() - STALE_EXPORT_AFTER
+    return ExportedRecording.objects.filter(
+        status__in=[ExportedRecording.Status.PENDING, ExportedRecording.Status.RUNNING],
+        created_at__lt=cutoff,
+    ).update(status=ExportedRecording.Status.FAILED, error_message="timed out")
+
+
+async def _reap_stale_exports(logger) -> None:
+    # best-effort fallback: a worker can die before its failure handler runs, leaving a row stuck
+    # in RUNNING. We have no scheduled sweep, so reap on the next export. Never let this block one.
+    try:
+        count = await database_sync_to_async(_mark_stale_exports_failed)()
+        if count:
+            logger.warning(f"Reaped {count} stale recording export(s) before starting this one")
+    except Exception:
+        logger.warning("Failed to reap stale exports; continuing with this export", exc_info=True)
 
 
 @activity.defn

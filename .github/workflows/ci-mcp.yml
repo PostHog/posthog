@@ -23,7 +23,7 @@ permissions:
     pull-requests: read
 
 env:
-    DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+    DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
     DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
 jobs:
@@ -132,18 +132,10 @@ jobs:
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
-            - name: Setup pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Setup Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
               with:
-                  node-version-file: .nvmrc
-                  cache: 'pnpm'
-                  token: ${{ github.token }}
-
-            - name: Install dependencies
-              run: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
+                  install-command: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
 
             - name: Build package
               run: cd services/mcp && pnpm build
@@ -185,18 +177,10 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-            - name: Setup pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Setup Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
               with:
-                  node-version-file: .nvmrc
-                  cache: 'pnpm'
-                  token: ${{ github.token }}
-
-            - name: Install dependencies
-              run: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
+                  install-command: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
 
             # The workers-pool project in vitest.config.mts parses wrangler.jsonc
             # up front and needs `assets.directory` (./public/) populated and
@@ -356,23 +340,15 @@ jobs:
               run: |
                   sudo apt-get update && sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
-            - name: Setup pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Setup Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
-              with:
-                  node-version-file: .nvmrc
-                  cache: 'pnpm'
-                  token: ${{ github.token }}
-
             - name: Install Python dependencies
               shell: bash
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
-            - name: Install Node dependencies
-              run: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
 
             - name: Set up needed files
               shell: bash
@@ -415,7 +391,7 @@ jobs:
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Start Docker services

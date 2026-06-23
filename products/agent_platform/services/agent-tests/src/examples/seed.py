@@ -17,10 +17,10 @@ Usage:
     PAT=phx_... python services/agent-tests/src/examples/seed.py
 
     # Seed a subset — selectors match a bundle slug exactly or as a substring:
-    PAT=phx_... python services/agent-tests/src/examples/seed.py concierge approval
+    PAT=phx_... python services/agent-tests/src/examples/seed.py builder approval
 
     # Same, comma-separated:
-    PAT=phx_... python services/agent-tests/src/examples/seed.py --only agent-concierge,agent-approval-demo
+    PAT=phx_... python services/agent-tests/src/examples/seed.py --only agent-builder,agent-approval-demo
 
     # Show what would be seeded without touching anything:
     python services/agent-tests/src/examples/seed.py --list
@@ -46,6 +46,8 @@ Env vars:
     AUTH_MODE      Override every bundle's auth modes (e.g. `public`, `pat`)
     MCP_URL        Rewrite every mcps[].url across all bundles (local-dev)
     MCP_URL_<id>   Rewrite only the mcps entry whose id matches; wins over MCP_URL
+                   (PostHog MCPs — auth.provider=posthog — otherwise default to
+                   the MCP host for POSTHOG_API's region: local / us / eu.)
 
 Exit codes:
     0  every selected bundle deployed / re-promoted / no-op
@@ -63,6 +65,7 @@ import subprocess
 import urllib.error
 import urllib.request
 from pathlib import Path
+from urllib.parse import urlparse
 
 EXAMPLES_ROOT = Path(__file__).resolve().parent
 API = os.environ.get("POSTHOG_API", "http://localhost:8010").rstrip("/")
@@ -78,8 +81,8 @@ METADATA: dict[str, dict[str, str]] = {
         "name": "Approval demo agent",
         "description": "Smallest possible agent that demonstrates approval-gated tool calls — chat with it and ask it to save a note.",
     },
-    "agent-concierge": {
-        "name": "Agent concierge",
+    "agent-builder": {
+        "name": "Agent Builder",
         "description": "Meta-agent for the platform.",
     },
 }
@@ -231,17 +234,38 @@ def load_v0_spec(spec_file: Path) -> dict:
             # Intrinsic-auth triggers (slack / cron) carry no auth modes.
             t.pop("auth", None)
 
-    # MCP URL overrides — let a local seed point at localhost:8787/mcp without
-    # editing the canonical bundle. `MCP_URL` rewrites every entry; per-id
-    # `MCP_URL_<id>` rewrites only that entry and wins over the bare form.
+    # MCP URL resolution. A PostHog MCP (one authed by the `posthog` identity
+    # provider) tracks the seed target's region by default — localhost when
+    # seeding locally, the us/eu cloud MCP when seeding to those hosts — so the
+    # canonical bundle ships the localhost URL and still works in every env.
+    # Explicit overrides win: `MCP_URL` rewrites every entry, per-id
+    # `MCP_URL_<id>` rewrites only that entry and beats the bare form.
     bare_override = os.environ.get("MCP_URL")
+    region_mcp_url = posthog_mcp_url_for_target(API)
     for m in spec.get("mcps", []):
         per_id = os.environ.get(f"MCP_URL_{m.get('id', '')}")
-        override = per_id or bare_override
-        if override:
-            m["url"] = override
+        if per_id:
+            m["url"] = per_id
+        elif bare_override:
+            m["url"] = bare_override
+        elif isinstance(m.get("auth"), dict) and m["auth"].get("provider") == "posthog":
+            m["url"] = region_mcp_url
 
     return spec
+
+
+def posthog_mcp_url_for_target(api_base: str) -> str:
+    """The PostHog MCP URL matching the seed target: local → the local MCP, the
+    us/eu cloud hosts → their region MCP, anything else → the region-agnostic
+    host. Default for `posthog`-authed MCP entries; explicit MCP_URL wins."""
+    host = (urlparse(api_base).hostname or "").lower()
+    if host in ("localhost", "127.0.0.1") or host.endswith(".localhost"):
+        return "http://localhost:8787/mcp"
+    if "eu.posthog.com" in host:
+        return "https://mcp.eu.posthog.com/mcp"
+    if "us.posthog.com" in host or "app.posthog.com" in host:
+        return "https://mcp.us.posthog.com/mcp"
+    return "https://mcp.posthog.com/mcp"
 
 
 def load_bundle_files(bundle_root: Path) -> dict[str, str]:
@@ -305,15 +329,18 @@ def required_secret_keys(spec: dict) -> list[str]:
     return keys
 
 
-def ensure_dummy_secrets(slug: str, app_id: str, spec: dict) -> None:
-    """Set placeholder values for any required secret not already set. Uses the
-    per-key env endpoint so real values (if present) are never overwritten."""
+def ensure_dummy_secrets(slug: str, app_id: str, rev_id: str, spec: dict) -> None:
+    """Set placeholder values for any required secret not already set. `encrypted_env`
+    lives on the revision, so this targets the per-revision env endpoint and must
+    run after the draft exists and before promote (the promote gate reads it).
+    Never overwrites a real value (the GET `is_set` check)."""
+    base = f"/agent_applications/{app_id}/revisions/{rev_id}/env_keys"
     set_keys: list[str] = []
     for key in required_secret_keys(spec):
-        status, payload = _req("GET", f"/agent_applications/{app_id}/env_keys/{key}/")
+        status, payload = _req("GET", f"{base}/{key}/")
         if status == 200 and payload.get("is_set"):
             continue
-        status, payload = _req("PUT", f"/agent_applications/{app_id}/env_keys/{key}/", {"value": f"placeholder-{key}"})
+        status, payload = _req("PUT", f"{base}/{key}/", {"value": f"placeholder-{key}"})
         if status != 200:
             raise SeedError(f"failed to set placeholder secret {key}: {status} {payload}")
         set_keys.append(key)
@@ -453,8 +480,6 @@ def seed_bundle(bundle_root: Path) -> None:
     log(slug, f"target bundle: {len(files)} files")
 
     app_id = find_or_create_application(slug)
-    if SEED_DUMMY_SECRETS and not DRY_RUN:
-        ensure_dummy_secrets(slug, app_id, spec)
     if DRY_RUN:
         log(slug, "would deploy: draft -> bundle -> spec -> validate -> freeze -> promote")
         return
@@ -473,6 +498,8 @@ def seed_bundle(bundle_root: Path) -> None:
     rev_id = create_draft(slug, app_id, parent=live_rev, spec=spec)
     push_bundle(slug, app_id, rev_id, files, spec)
     patch_spec(slug, app_id, rev_id, spec)
+    if SEED_DUMMY_SECRETS:
+        ensure_dummy_secrets(slug, app_id, rev_id, spec)
     validate(slug, app_id, rev_id)
     new_sha = freeze(slug, app_id, rev_id)
     log(slug, f"frozen sha={new_sha[:12]}...")
@@ -496,7 +523,7 @@ def parse_args(argv: list[str]) -> tuple[bool, list[str]]:
         elif arg.startswith("--only="):
             selectors.extend(s for s in arg.split("=", 1)[1].split(",") if s)
         elif arg == "--only":
-            die("--only needs a value, e.g. --only=agent-concierge")
+            die("--only needs a value, e.g. --only=agent-builder")
         elif arg.startswith("--"):
             die(f"unknown flag {arg!r}")
         else:
@@ -510,7 +537,15 @@ def mint_dev_pat() -> str | None:
     return its value, adding the agents scopes the seed needs. Dev-only; returns
     None if it can't (no flox, command failed, no users). Lets `seed.py` run
     without the caller hunting down a PAT."""
-    repo_root = EXAMPLES_ROOT.parents[3]
+    # The repo root is the ancestor that holds `manage.py` — find it rather than
+    # hardcoding a parent index, which silently breaks if this file ever moves.
+    repo_root = next(
+        (p for p in EXAMPLES_ROOT.parents if (p / "manage.py").is_file()),
+        None,
+    )
+    if repo_root is None:
+        log("pat", "couldn't locate repo root (no manage.py in any parent dir)")
+        return None
     try:
         out = subprocess.run(
             [

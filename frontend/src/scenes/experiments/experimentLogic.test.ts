@@ -1114,7 +1114,9 @@ describe('experimentLogic', () => {
                 .toDispatchActions(['archiveExperiment', 'setExperiment'])
                 .toFinishAllListeners()
 
-            expect(createSpy).toHaveBeenCalledWith(expect.stringContaining(`/experiments/${experiment.id}/archive`))
+            expect(createSpy).toHaveBeenCalledWith(expect.stringContaining(`/experiments/${experiment.id}/archive`), {
+                disable_feature_flag: false,
+            })
             createSpy.mockRestore()
             keyed.unmount()
         })
