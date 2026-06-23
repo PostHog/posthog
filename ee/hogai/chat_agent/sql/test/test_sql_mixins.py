@@ -79,6 +79,31 @@ class TestSQLMixins(NonAtomicBaseTest):
         self.assertEqual(result.query.chartSettings.yAxis[0].column, "events")
         self.assertEqual(result.query.chartSettings.yAxis[0].settings.formatting.style, "short")
 
+    def test_parse_output_with_generated_vega_lite_prompt(self):
+        mixin = self._node
+        prompt = "Create a beautiful colorful pie chart of event counts."
+
+        result = mixin._parse_output(
+            {
+                "query": "SELECT event, count() AS events FROM events GROUP BY event",
+                "display": "GeneratedVegaLite",
+                "x_axis": None,
+                "y_axis": [],
+                "series_breakdown_column": None,
+                "y_axis_format": None,
+                "y_axis_decimal_places": None,
+                "y_axis_prefix": None,
+                "y_axis_suffix": None,
+                "show_legend": True,
+                "generated_vega_lite_prompt": prompt,
+            }
+        )
+
+        self.assertEqual(result.query.display, ChartDisplayType.GENERATED_VEGA_LITE)
+        self.assertEqual(result.query.chartSettings.generatedVegaLite.prompt, prompt)
+        self.assertIsNone(result.query.chartSettings.xAxis)
+        self.assertIsNone(result.query.chartSettings.yAxis)
+
     def test_parse_output_with_none_axis_format_omits_empty_formatting(self):
         mixin = self._node
 

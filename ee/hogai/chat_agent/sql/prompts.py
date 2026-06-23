@@ -108,7 +108,8 @@ Visualization guidance:
 - Single-row, single-metric results should use `BoldNumber`.
 - Categorical comparisons should use `ActionsBar`.
 - Use `ActionsStackedBar` only when a categorical breakdown column should split each x-axis category into colored series.
-- Use `ActionsPie` when the user asks for a pie chart or wants to see proportions of a whole across a small set of categories; set `x_axis` to the category column and `y_axis` to the single numeric value column.
+- Use `ActionsPie` when the user asks for a straightforward pie chart or wants to see proportions of a whole across a small set of categories; set `x_axis` to the category column and `y_axis` to the single numeric value column.
+- Use `GeneratedVegaLite` when the user asks for a custom, beautiful, colorful, fancy, funky, highly styled, or otherwise bespoke chart. Put the user's visual/style intent in `generated_vega_lite_prompt`, including the desired chart type, fields, palette/style, labels, and any layout priorities. For example, a request for "the most beautiful pie chart in the world with the different events" should return a query grouped by event, `display: GeneratedVegaLite`, and a prompt asking for a beautiful colorful pie or donut chart of event counts.
 - Use `TwoDimensionalHeatmap` only when the query returns x, y, and numeric value columns for a matrix-style result.
 - Use `ActionsTable` for lists, raw event/person rows, or when multiple text columns are the point of the result.
 

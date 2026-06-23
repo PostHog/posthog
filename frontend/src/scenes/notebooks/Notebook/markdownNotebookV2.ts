@@ -32,6 +32,10 @@ export type MarkdownNotebookV2Node = {
 }
 
 const MARKDOWN_NOTEBOOK_NODE_ID = 'markdown-notebook-v2'
+const GENERATED_VEGA_LITE_CHART_INTENT_PATTERN =
+    /\b(chart|graph|plot|visuali[sz]ation|pie|donut|bar|line|area|scatter|heatmap|treemap|radial)\b/i
+const GENERATED_VEGA_LITE_STYLE_INTENT_PATTERN =
+    /\b(beautiful|pretty|colorful|colourful|fancy|funky|custom|styled|gorgeous|stunning|polished|elegant|playful|creative|spectacular|modern|sleek|vibrant|aesthetic|palette|gradient)\b/i
 
 export const NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG: Partial<Record<NotebookNodeType, string>> = {
     [NotebookNodeType.Query]: 'Query',
@@ -298,11 +302,17 @@ function notebookArtifactBlockToMarkdownNodes(block: DocumentBlock): NotebookBlo
 
 function getNotebookArtifactVisualizationQuery(block: VisualizationBlock): NotebookPropValue | null {
     const source = block.query as QuerySchemaRoot
-    const display = getNotebookArtifactVisualizationDisplay(block)
+    const overrides = getNotebookArtifactVisualizationOverrides(block)
     const query: QuerySchemaRoot | DataVisualizationNode | InsightVizNode = isHogQLQuery(source)
-        ? { kind: NodeKind.DataVisualizationNode, source, ...(display ? { display } : {}) }
-        : isDataVisualizationNode(source) && !source.display && display
-          ? { ...source, display }
+        ? { kind: NodeKind.DataVisualizationNode, source, ...overrides }
+        : isDataVisualizationNode(source) && !source.display && overrides
+          ? {
+                ...source,
+                display: overrides.display,
+                ...(overrides.chartSettings
+                    ? { chartSettings: { ...source.chartSettings, ...overrides.chartSettings } }
+                    : {}),
+            }
           : isInsightQueryNode(source)
             ? { kind: NodeKind.InsightVizNode, source, showHeader: true }
             : source
@@ -310,8 +320,35 @@ function getNotebookArtifactVisualizationQuery(block: VisualizationBlock): Noteb
     return toNotebookPropValue(query)
 }
 
-function getNotebookArtifactVisualizationDisplay(block: VisualizationBlock): ChartDisplayType | null {
-    return /\bpie\b/i.test(block.title ?? '') ? ChartDisplayType.ActionsPie : null
+function getNotebookArtifactVisualizationOverrides(
+    block: VisualizationBlock
+): Pick<DataVisualizationNode, 'display' | 'chartSettings'> | null {
+    const prompt = getNotebookArtifactGeneratedVegaLitePrompt(block)
+    if (prompt) {
+        return {
+            display: ChartDisplayType.GeneratedVegaLite,
+            chartSettings: {
+                generatedVegaLite: {
+                    prompt,
+                },
+            },
+        }
+    }
+
+    return /\bpie\b/i.test(block.title ?? '') ? { display: ChartDisplayType.ActionsPie } : null
+}
+
+function getNotebookArtifactGeneratedVegaLitePrompt(block: VisualizationBlock): string | null {
+    const title = normalizeArtifactTitle(block.title)
+    if (
+        !title ||
+        !GENERATED_VEGA_LITE_CHART_INTENT_PATTERN.test(title) ||
+        !GENERATED_VEGA_LITE_STYLE_INTENT_PATTERN.test(title)
+    ) {
+        return null
+    }
+
+    return title
 }
 
 function getVisualizationArtifactTitle(content: VisualizationArtifactContent): string | null {

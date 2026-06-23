@@ -11,6 +11,7 @@ from posthog.schema import (
     ChartSettings,
     ChartSettingsFormatting,
     DataVisualizationNode,
+    GeneratedVegaLiteChartSettings,
     HogQLQuery,
     Settings,
     Style,
@@ -58,6 +59,7 @@ class RawSQLSchemaGeneratorOutput(BaseModel):
     y_axis_prefix: str | None = None
     y_axis_suffix: str | None = None
     show_legend: bool | None = None
+    generated_vega_lite_prompt: str | None = None
 
 
 SQLSchemaGeneratorOutput = SchemaGeneratorOutput[DataVisualizationNode]
@@ -102,7 +104,11 @@ class HogQLOutputParserMixin(HogQLDatabaseMixin):
         ]
 
         chart_settings = None
-        if result.display not in (None, ChartDisplayType.ACTIONS_TABLE, ChartDisplayType.BOLD_NUMBER):
+        if result.display == ChartDisplayType.GENERATED_VEGA_LITE:
+            chart_settings = ChartSettings(
+                generatedVegaLite=GeneratedVegaLiteChartSettings(prompt=result.generated_vega_lite_prompt)
+            )
+        elif result.display not in (None, ChartDisplayType.ACTIONS_TABLE, ChartDisplayType.BOLD_NUMBER):
             chart_settings = ChartSettings(
                 xAxis=ChartAxis(column=result.x_axis) if result.x_axis else None,
                 yAxis=y_axis or None,

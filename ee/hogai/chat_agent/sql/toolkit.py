@@ -20,14 +20,16 @@ def generate_sql_schema() -> dict:
                         "ActionsStackedBar",
                         "ActionsPie",
                         "TwoDimensionalHeatmap",
+                        "GeneratedVegaLite",
                     ],
                     "description": (
                         "The visualization type for the query results. Use ActionsLineGraph or ActionsAreaGraph for "
                         "time-based data, BoldNumber for a single value, ActionsBar for categorical comparisons, "
                         "ActionsStackedBar when a breakdown column should split bars into series, "
                         "ActionsPie for part-of-a-whole proportions across a small number of categories, "
-                        "TwoDimensionalHeatmap for x/y/value grids, and ActionsTable only when rows are the intended "
-                        "output."
+                        "TwoDimensionalHeatmap for x/y/value grids, GeneratedVegaLite when the user asks for a "
+                        "custom, highly styled, beautiful, colorful, fancy, funky, or otherwise bespoke chart, and "
+                        "ActionsTable only when rows are the intended output."
                     ),
                 },
                 "x_axis": {
@@ -76,6 +78,14 @@ def generate_sql_schema() -> dict:
                     "type": "boolean",
                     "description": "Whether the chart should show a legend. Use true for multiple y-axis series or breakdowns.",
                 },
+                "generated_vega_lite_prompt": {
+                    "type": ["string", "null"],
+                    "description": (
+                        "Required when display is GeneratedVegaLite, otherwise null. Summarize the user's visual and "
+                        "style intent as a concise prompt for a Vega-Lite chart, including requested chart type, "
+                        "color/style guidance, and which result fields should drive the visualization."
+                    ),
+                },
             },
             "additionalProperties": False,
             "required": [
@@ -89,6 +99,7 @@ def generate_sql_schema() -> dict:
                 "y_axis_prefix",
                 "y_axis_suffix",
                 "show_legend",
+                "generated_vega_lite_prompt",
             ],
         },
     }

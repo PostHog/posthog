@@ -330,6 +330,28 @@ Users activated faster.
         )
     })
 
+    it('preserves styled SQL chart intent as generated Vega-Lite from notebook artifacts', () => {
+        const title =
+            'show me the most beautiful pie chart in the world with the different events we have in the system'
+        const content: NotebookArtifactContent = {
+            content_type: ArtifactContentType.Notebook,
+            blocks: [
+                {
+                    type: 'visualization',
+                    title,
+                    query: {
+                        kind: NodeKind.HogQLQuery,
+                        query: 'select event, count() from events group by event',
+                    },
+                },
+            ],
+        }
+
+        expect(notebookArtifactContentToMarkdown(content)).toEqual(
+            `<Query query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event, count() from events group by event"},"display":"GeneratedVegaLite","chartSettings":{"generatedVegaLite":{"prompt":"${title}"}}}} title="${title}" />`
+        )
+    })
+
     it('converts visualization artifacts to notebook query content', () => {
         const content: VisualizationArtifactContent = {
             content_type: ArtifactContentType.Visualization,
