@@ -71,7 +71,8 @@ def _next_url(data: dict[str, Any]) -> str | None:
 def validate_credentials(api_key: str) -> bool:
     url = f"{EMAILOCTOPUS_BASE_URL}/lists?{urlencode({'limit': 1})}"
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
+        session = make_tracked_session(redact_values=(api_key,))
+        response = session.get(url, headers=_get_headers(api_key), timeout=10)
         return response.status_code == 200
     except Exception:
         return False
@@ -257,6 +258,12 @@ def _get_contact_rows(
             else:
                 raise
 
+        # Flush residual batcher items before advancing the bookmark so a crash between pairs can't
+        # silently drop rows that are buffered (below a full chunk) but not yet yielded — on resume we
+        # start at the next pair and would never re-fetch them.
+        if batcher.should_yield(include_incomplete_chunk=True):
+            yield batcher.get_table()
+
         # Advance the bookmark to the next pair so a crash between pairs resumes correctly; its first
         # page is built fresh (next_url=None) when the loop reaches it.
         if index + 1 < len(remaining):
@@ -285,8 +292,9 @@ def get_rows(
     headers = _get_headers(api_key)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
     # One session reused across every page (and, for fan-out, every list) so urllib3 keeps the
-    # connection alive instead of re-handshaking per request.
-    session = make_tracked_session()
+    # connection alive instead of re-handshaking per request. Redact the API key so it can't leak
+    # into logged URLs or sampled requests via the Bearer auth header.
+    session = make_tracked_session(redact_values=(api_key,))
 
     if config.fan_out_over_lists:
         yield from _get_contact_rows(

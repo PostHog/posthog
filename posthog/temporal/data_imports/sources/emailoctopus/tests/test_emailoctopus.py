@@ -9,6 +9,7 @@ from parameterized import parameterized
 
 from posthog.temporal.data_imports.sources.emailoctopus import emailoctopus
 from posthog.temporal.data_imports.sources.emailoctopus.emailoctopus import (
+    EMAILOCTOPUS_BASE_URL as BASE,
     EmailOctopusResumeConfig,
     _build_contact_params,
     _format_incremental_value,
@@ -19,8 +20,6 @@ from posthog.temporal.data_imports.sources.emailoctopus.emailoctopus import (
     validate_credentials,
 )
 from posthog.temporal.data_imports.sources.emailoctopus.settings import EMAILOCTOPUS_ENDPOINTS
-
-BASE = "https://api.emailoctopus.com"
 
 
 class TestFormatIncrementalValue:
@@ -264,6 +263,42 @@ class TestContactsFanOut:
         }
         with pytest.raises(requests.HTTPError):
             _collect("contacts", _FakeResumableManager(), monkeypatch, pages)
+
+    def test_buffered_rows_flushed_before_advancing_pair_bookmark(self, monkeypatch: Any) -> None:
+        # A crash right after the bookmark advances to the next list must not lose rows still
+        # buffered (below a full chunk) from the previous list — so they must be yielded first.
+        events: list[tuple[str, Any]] = []
+
+        class _RecordingManager(_FakeResumableManager):
+            def save_state(self, data: EmailOctopusResumeConfig) -> None:
+                super().save_state(data)
+                events.append(("save", (data.list_id, data.status, data.next_url)))
+
+        pages = {
+            f"{BASE}/lists": {"data": [{"id": "L1"}, {"id": "L2"}], "paging": {"next": None}},
+            f"{BASE}/lists/L1/contacts?status=subscribed": {"data": [{"id": "a"}], "paging": {"next": None}},
+            f"{BASE}/lists/L1/contacts?status=unsubscribed": {"data": [], "paging": {"next": None}},
+            f"{BASE}/lists/L1/contacts?status=pending": {"data": [], "paging": {"next": None}},
+            f"{BASE}/lists/L2/contacts?status=subscribed": {"data": [{"id": "b"}], "paging": {"next": None}},
+            f"{BASE}/lists/L2/contacts?status=unsubscribed": {"data": [], "paging": {"next": None}},
+            f"{BASE}/lists/L2/contacts?status=pending": {"data": [], "paging": {"next": None}},
+        }
+        manager = _RecordingManager()
+        monkeypatch.setattr(emailoctopus, "_fetch_page", _make_fake_fetch(pages))
+        for table in get_rows(
+            api_key="eo_key",
+            endpoint="contacts",
+            logger=MagicMock(),
+            resumable_source_manager=manager,  # type: ignore[arg-type]
+        ):
+            for row in table.to_pylist():
+                events.append(("row", row["id"]))
+
+        l1_row = events.index(("row", "a"))
+        advance_to_l2 = next(
+            i for i, (kind, payload) in enumerate(events) if kind == "save" and payload[:2] == ("L2", "subscribed")
+        )
+        assert l1_row < advance_to_l2
 
     def test_resume_from_deleted_bookmark_restarts(self, monkeypatch: Any) -> None:
         # Bookmark points at a list that no longer exists -> start over from the first pair.
