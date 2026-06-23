@@ -376,7 +376,12 @@ describe('engineeringAnalyticsLogic', () => {
         ['a bad day spikes', { completed: 25, successes: 22, failures: 3 }, 0.12, 'Jun 5 · 3 of 25 failed'],
         ['an all-green day stays flat', { completed: 25, successes: 25, failures: 0 }, 0, 'Jun 5 · 0 of 25 failed'],
         // Skipped/cancelled/action_required runs are completed but not failures — they must not spike the bar.
-        ['skipped/cancelled runs are not failures', { completed: 25, successes: 20, failures: 0 }, 0, 'Jun 5 · 0 of 25 failed'],
+        [
+            'skipped/cancelled runs are not failures',
+            { completed: 25, successes: 20, failures: 0 },
+            0,
+            'Jun 5 · 0 of 25 failed',
+        ],
         [
             'a day with nothing completed stays flat',
             { completed: 0, successes: 0, failures: 0 },

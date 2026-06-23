@@ -62,8 +62,7 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
         branchInput,
         appliedBranch,
     } = useValues(engineeringAnalyticsLogic)
-    const { setWorkflowDateRange, setBranchFilter, applyBranchFilter, refresh } =
-        useActions(engineeringAnalyticsLogic)
+    const { setWorkflowDateRange, setBranchFilter, applyBranchFilter, refresh } = useActions(engineeringAnalyticsLogic)
 
     if (notConnected) {
         return <ConnectGitHubSource />

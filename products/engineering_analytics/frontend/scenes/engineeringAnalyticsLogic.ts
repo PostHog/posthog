@@ -105,9 +105,7 @@ export function workflowTrendSeries(daily: WorkflowHealthDay[]): { values: numbe
     const values = daily.map((d) => (d.completed > 0 ? d.failures / d.completed : 0))
     const labels = daily.map((d) => {
         const date = dayjs(d.day).format('MMM D')
-        return d.completed > 0
-            ? `${date} · ${d.failures} of ${d.completed} failed`
-            : `${date} · no completed runs`
+        return d.completed > 0 ? `${date} · ${d.failures} of ${d.completed} failed` : `${date} · no completed runs`
     })
     return { values, labels }
 }
