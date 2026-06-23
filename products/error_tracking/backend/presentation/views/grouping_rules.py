@@ -6,7 +6,7 @@ import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_serializer
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 
 from posthog.schema import PropertyGroupFilterValue
@@ -158,7 +158,12 @@ class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
         return Response(self.get_serializer(rule).data)
 
     def _apply_rule_update(self, request: ValidatedRequest, pk: str) -> Response:
-        rule = error_tracking_api.update_grouping_rule(self.team.id, pk, filters=request.validated_data.get("filters"))
+        try:
+            rule = error_tracking_api.update_grouping_rule(
+                self.team.id, pk, filters=request.validated_data.get("filters")
+            )
+        except error_tracking_api.InvalidBytecodeError as err:
+            raise ValidationError(str(err)) from err
         if rule is None:
             raise NotFound()
         posthoganalytics.capture(
@@ -195,12 +200,15 @@ class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
         responses={201: OpenApiResponse(response=ErrorTrackingGroupingRuleSerializer)},
     )
     def create(self, request: ValidatedRequest, *args, **kwargs) -> Response:
-        rule = error_tracking_api.create_grouping_rule(
-            self.team.id,
-            filters=request.validated_data["filters"],
-            assignee=request.validated_data.get("assignee"),
-            description=request.validated_data.get("description"),
-        )
+        try:
+            rule = error_tracking_api.create_grouping_rule(
+                self.team.id,
+                filters=request.validated_data["filters"],
+                assignee=request.validated_data.get("assignee"),
+                description=request.validated_data.get("description"),
+            )
+        except error_tracking_api.InvalidBytecodeError as err:
+            raise ValidationError(str(err)) from err
         posthoganalytics.capture(
             "error_tracking_grouping_rule_created",
             groups=groups(self.team.organization, self.team),

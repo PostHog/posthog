@@ -13,12 +13,12 @@ from django.utils import timezone
 
 import pydantic
 from parameterized import parameterized
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.test import APIRequestFactory
 
 from posthog.schema import EventsNode, ExperimentMetric
 
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.actions.backend.models.action import Action
@@ -2151,6 +2151,258 @@ class TestExperimentService(APIBaseTest):
 
         assert archived.archived is True
         assert archived.status == Experiment.Status.STOPPED
+
+    def test_archive_experiment_archives_disabled_flag(self):
+        experiment = self._create_ended_experiment(name="Archive Flag", feature_flag_key="archive-linked-flag")
+        experiment.feature_flag.active = False
+        experiment.feature_flag.save()
+
+        self._service().archive_experiment(experiment)
+
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.archived is True
+
+    def test_archive_experiment_keeps_enabled_flag_unarchived(self):
+        # An enabled flag may still be serving traffic (e.g. rolling out the winning
+        # variant), so archiving the experiment must not archive it.
+        experiment = self._create_ended_experiment(name="Archive Active Flag", feature_flag_key="still-active-flag")
+        assert experiment.feature_flag.active is True
+
+        self._service().archive_experiment(experiment)
+
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.archived is False
+
+    def test_archive_experiment_disables_and_archives_enabled_flag_when_opted_in(self):
+        experiment = self._create_ended_experiment(name="Disable On Archive", feature_flag_key="disable-on-archive")
+        assert experiment.feature_flag.active is True
+
+        self._service().archive_experiment(experiment, disable_feature_flag=True)
+
+        experiment.refresh_from_db()
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.active is False
+        assert flag.archived is True
+        assert experiment.feature_flag_auto_archived is True
+
+    def test_archive_experiment_denies_disabling_flag_without_editor_access(self):
+        # A user who can archive the experiment but lacks editor access to the flag must not
+        # be able to disable it via disable_feature_flag — and the experiment archive rolls back.
+        experiment = self._create_ended_experiment(name="No Flag Access", feature_flag_key="no-flag-access")
+        service = self._service()
+
+        with patch.object(service, "_user_can_edit_flag", return_value=False):
+            with self.assertRaises(PermissionDenied):
+                service.archive_experiment(experiment, disable_feature_flag=True)
+
+        experiment.refresh_from_db()
+        assert experiment.archived is False
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.active is True
+        assert flag.archived is False
+
+    def test_archive_experiment_denies_disabling_flag_for_user_without_real_access(self):
+        # Exercises the real _user_can_edit_flag check (no patching): a user with no access to
+        # the flag is refused, so an inverted/broken access check would fail this test.
+        experiment = self._create_ended_experiment(name="Real No Access", feature_flag_key="real-no-access-flag")
+        outsider = User.objects.create_user("outsider@example.com", None, "Outsider")
+        service = ExperimentService(team=self.team, user=outsider)
+
+        with self.assertRaises(PermissionDenied):
+            service.archive_experiment(experiment, disable_feature_flag=True)
+
+        experiment.refresh_from_db()
+        assert experiment.archived is False
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.active is True
+        assert flag.archived is False
+
+    def test_archive_experiment_denies_disabling_active_flag_without_feature_flag_write_scope(self):
+        # An experiment-only token must not be able to disable an active flag via disable_feature_flag.
+        experiment = self._create_ended_experiment(
+            name="No FF Scope Active", feature_flag_key="no-ff-scope-active-flag"
+        )
+
+        with self.assertRaises(PermissionDenied):
+            self._service().archive_experiment(experiment, disable_feature_flag=True, can_write_feature_flag=False)
+
+        experiment.refresh_from_db()
+        assert experiment.archived is False
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.active is True
+        assert flag.archived is False
+
+    def test_archive_experiment_skips_flag_cleanup_without_feature_flag_write_scope(self):
+        # A token scoped only to experiments must not archive the linked flag as a side effect.
+        experiment = self._create_ended_experiment(name="No FF Scope", feature_flag_key="no-ff-scope-flag")
+        experiment.feature_flag.active = False
+        experiment.feature_flag.save()
+
+        self._service().archive_experiment(experiment, can_write_feature_flag=False)
+
+        experiment.refresh_from_db()
+        assert experiment.archived is True
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.archived is False
+        assert experiment.feature_flag_auto_archived is False
+
+    def test_unarchive_experiment_skips_flag_without_feature_flag_write_scope(self):
+        # Unarchiving the flag is a feature_flag write — skipped (flag stays archived, bookkeeping
+        # intact) for an experiment-only token, recoverable on a later unarchive with the scope.
+        experiment = self._create_ended_experiment(name="Unarchive No Scope", feature_flag_key="unarchive-no-scope")
+        experiment.feature_flag.active = False
+        experiment.feature_flag.save()
+        service = self._service()
+        service.archive_experiment(experiment)
+        experiment.refresh_from_db()
+        assert experiment.feature_flag_auto_archived is True
+
+        service.unarchive_experiment(experiment, can_write_feature_flag=False)
+
+        experiment.refresh_from_db()
+        assert experiment.archived is False
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.archived is True
+        assert experiment.feature_flag_auto_archived is True
+
+    def test_archive_experiment_denies_disabling_flag_when_approval_required(self):
+        experiment = self._create_ended_experiment(name="Approval Gated", feature_flag_key="approval-gated-flag")
+        service = self._service()
+
+        with (
+            patch.object(service, "_user_can_edit_flag", return_value=True),
+            patch.object(service, "_flag_disable_requires_approval", return_value=True),
+        ):
+            with self.assertRaises(PermissionDenied):
+                service.archive_experiment(experiment, disable_feature_flag=True)
+
+        experiment.refresh_from_db()
+        assert experiment.archived is False
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.active is True
+        assert flag.archived is False
+
+    def test_archive_experiment_denies_disabling_flag_with_dependents(self):
+        # Mirror the feature flag API: disabling a flag other active flags depend on is rejected.
+        experiment = self._create_ended_experiment(name="Has Dependents", feature_flag_key="depended-on-flag")
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="dependent-flag",
+            active=True,
+            filters={
+                "groups": [{"properties": [{"type": "flag", "key": str(experiment.feature_flag_id), "value": "true"}]}]
+            },
+        )
+
+        with self.assertRaises(ValidationError):
+            self._service().archive_experiment(experiment, disable_feature_flag=True)
+
+        experiment.refresh_from_db()
+        assert experiment.archived is False
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.active is True
+        assert flag.archived is False
+
+    def test_archive_experiment_skips_flag_cleanup_without_editor_access(self):
+        # The implicit archive-only cleanup of an already-disabled flag is skipped (not an error)
+        # when the caller can't edit the flag — the experiment still archives.
+        experiment = self._create_ended_experiment(name="Skip Cleanup", feature_flag_key="skip-cleanup-flag")
+        experiment.feature_flag.active = False
+        experiment.feature_flag.save()
+        service = self._service()
+
+        with patch.object(service, "_user_can_edit_flag", return_value=False):
+            service.archive_experiment(experiment)
+
+        experiment.refresh_from_db()
+        assert experiment.archived is True
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.archived is False
+        assert experiment.feature_flag_auto_archived is False
+
+    def test_archive_experiment_keeps_flag_shared_with_live_experiment(self):
+        experiment = self._create_ended_experiment(name="Shared Flag", feature_flag_key="shared-flag")
+        experiment.feature_flag.active = False
+        experiment.feature_flag.save()
+        Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Other experiment on same flag",
+            feature_flag=experiment.feature_flag,
+        )
+
+        self._service().archive_experiment(experiment)
+
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.archived is False
+
+    def test_archive_experiment_keeps_shared_flag_even_when_opted_in(self):
+        # Opting in to disable the flag must still never touch a flag a live experiment relies on.
+        experiment = self._create_ended_experiment(name="Shared Opt In", feature_flag_key="shared-opt-in-flag")
+        Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Other experiment on same flag",
+            feature_flag=experiment.feature_flag,
+        )
+
+        self._service().archive_experiment(experiment, disable_feature_flag=True)
+
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.active is True
+        assert experiment.feature_flag.archived is False
+
+    def test_unarchive_experiment_keeps_opted_in_flag_disabled(self):
+        # When archiving disabled an enabled flag, unarchiving un-archives it but leaves it
+        # disabled — re-enabling stays an explicit user decision.
+        experiment = self._create_ended_experiment(name="Unarchive Opt In", feature_flag_key="unarchive-opt-in-flag")
+        service = self._service()
+        service.archive_experiment(experiment, disable_feature_flag=True)
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.archived is True
+
+        service.unarchive_experiment(experiment)
+
+        experiment.refresh_from_db()
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.archived is False
+        assert flag.active is False
+        assert experiment.feature_flag_auto_archived is False
+
+    def test_unarchive_experiment_unarchives_flag(self):
+        experiment = self._create_ended_experiment(name="Unarchive Flag", feature_flag_key="unarchive-linked-flag")
+        experiment.feature_flag.active = False
+        experiment.feature_flag.save()
+        service = self._service()
+        service.archive_experiment(experiment)
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.archived is True
+        assert experiment.feature_flag_auto_archived is True
+
+        service.unarchive_experiment(experiment)
+
+        refreshed = Experiment.objects.get(pk=experiment.id)
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.archived is False
+        assert refreshed.feature_flag_auto_archived is False
+        # The flag stays disabled — re-enabling is an explicit user decision
+        assert flag.active is False
+
+    def test_unarchive_experiment_keeps_manually_archived_flag(self):
+        # The user archived the flag themselves, so unarchiving the experiment must not undo it.
+        experiment = self._create_ended_experiment(name="Manual Archive", feature_flag_key="manually-archived-flag")
+        experiment.feature_flag.active = False
+        experiment.feature_flag.archived = True
+        experiment.feature_flag.save()
+        service = self._service()
+        service.archive_experiment(experiment)
+        assert experiment.feature_flag_auto_archived is False
+
+        service.unarchive_experiment(experiment)
+
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.archived is True
 
     def test_archive_experiment_already_archived_raises(self):
         experiment = self._create_ended_experiment(name="Already Archived", feature_flag_key="already-archived-flag")

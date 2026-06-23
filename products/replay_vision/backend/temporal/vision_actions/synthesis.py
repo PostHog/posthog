@@ -64,9 +64,11 @@ async def synthesize_group_summary_activity(inputs: SynthesizeGroupSummaryInputs
 
 
 def _synthesize(inputs: SynthesizeGroupSummaryInputs) -> SynthesizeGroupSummaryResult:
-    run = VisionActionRun.all_teams.select_related(
-        "vision_action", "team", "team__organization", "vision_action__created_by"
-    ).get(pk=inputs.run_id)
+    run = (
+        VisionActionRun.objects.for_team(inputs.team_id)
+        .select_related("vision_action", "team", "team__organization", "vision_action__created_by")
+        .get(pk=inputs.run_id)
+    )
     action = run.vision_action
     team = run.team
 

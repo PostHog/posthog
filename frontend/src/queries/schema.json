@@ -19904,6 +19904,13 @@
                 "rollout_percentage": {
                     "description": "Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100.",
                     "type": "number"
+                },
+                "variant_notes": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "description": "Free-text notes per variant, keyed by variant key. Use to document what each variant does or its reroute URL.",
+                    "type": "object"
                 }
             },
             "type": "object"

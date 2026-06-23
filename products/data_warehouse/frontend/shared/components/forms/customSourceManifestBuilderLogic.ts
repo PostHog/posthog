@@ -15,15 +15,15 @@ import type { FieldName } from 'kea-forms'
 import {
     buildManifest,
     emptyHeader,
-    emptyStream,
+    emptyTable,
     extractAuthSecrets,
     type HeaderEntry,
     type ManifestState,
     type Paginator,
     parseManifestIntoState,
-    removeStreamFromList,
-    type StreamForm,
-    updateStreamInList,
+    removeTableFromList,
+    type TableForm,
+    updateTableInList,
 } from './customSourceManifest'
 import type { customSourceManifestBuilderLogicType } from './customSourceManifestBuilderLogicType'
 
@@ -41,7 +41,7 @@ export interface CustomSourceManifestBuilderLogicProps {
 
 /**
  * Owns the Custom REST source's manifest-builder form state (base URL, auth,
- * headers, streams) and mirrors it into the outer source form as
+ * headers, tables) and mirrors it into the outer source form as
  * `payload.manifest_json` (the non-secret RESTAPIConfig structure) plus separate
  * `payload.auth_*` secret fields for the credentials.
  *
@@ -62,10 +62,10 @@ export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderL
     actions({
         setManifestState: (state: ManifestState) => ({ state }),
         updateState: (patch: Partial<ManifestState>) => ({ patch }),
-        updateStream: (index: number, patch: Partial<StreamForm>) => ({ index, patch }),
+        updateTable: (index: number, patch: Partial<TableForm>) => ({ index, patch }),
         updatePaginator: (index: number, paginator: Paginator) => ({ index, paginator }),
-        addStream: true,
-        removeStream: (index: number) => ({ index }),
+        addTable: true,
+        removeTable: (index: number) => ({ index }),
         addHeader: true,
         removeHeader: (index: number) => ({ index }),
         updateHeader: (index: number, patch: Partial<HeaderEntry>) => ({ index, patch }),
@@ -82,20 +82,20 @@ export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderL
             {
                 setManifestState: (_, { state }) => state,
                 updateState: (state, { patch }) => ({ ...state, ...patch }),
-                // Rename/remove cascade to dependent child streams lives in the
+                // Rename/remove cascade to dependent child tables lives in the
                 // pure helpers so it stays unit-testable.
-                updateStream: (state, { index, patch }) => ({
+                updateTable: (state, { index, patch }) => ({
                     ...state,
-                    streams: updateStreamInList(state.streams, index, patch),
+                    tables: updateTableInList(state.tables, index, patch),
                 }),
                 updatePaginator: (state, { index, paginator }) => ({
                     ...state,
-                    streams: state.streams.map((stream, i) => (i === index ? { ...stream, paginator } : stream)),
+                    tables: state.tables.map((table, i) => (i === index ? { ...table, paginator } : table)),
                 }),
-                addStream: (state) => ({ ...state, streams: [...state.streams, emptyStream()] }),
-                removeStream: (state, { index }) => ({
+                addTable: (state) => ({ ...state, tables: [...state.tables, emptyTable()] }),
+                removeTable: (state, { index }) => ({
                     ...state,
-                    streams: removeStreamFromList(state.streams, index),
+                    tables: removeTableFromList(state.tables, index),
                 }),
                 addHeader: (state) => ({ ...state, headers: [...state.headers, emptyHeader()] }),
                 removeHeader: (state, { index }) => ({
@@ -117,10 +117,10 @@ export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderL
             {
                 setManifestState: () => true,
                 updateState: () => true,
-                updateStream: () => true,
+                updateTable: () => true,
                 updatePaginator: () => true,
-                addStream: () => true,
-                removeStream: () => true,
+                addTable: () => true,
+                removeTable: () => true,
                 addHeader: () => true,
                 removeHeader: () => true,
                 updateHeader: () => true,
@@ -134,10 +134,10 @@ export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderL
             false,
             {
                 updateState: () => true,
-                updateStream: () => true,
+                updateTable: () => true,
                 updatePaginator: () => true,
-                addStream: () => true,
-                removeStream: () => true,
+                addTable: () => true,
+                removeTable: () => true,
                 addHeader: () => true,
                 removeHeader: () => true,
                 updateHeader: () => true,
@@ -172,10 +172,10 @@ export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderL
     listeners(({ sharedListeners }) => ({
         setManifestState: sharedListeners.pushManifestToOuterForm,
         updateState: sharedListeners.pushManifestToOuterForm,
-        updateStream: sharedListeners.pushManifestToOuterForm,
+        updateTable: sharedListeners.pushManifestToOuterForm,
         updatePaginator: sharedListeners.pushManifestToOuterForm,
-        addStream: sharedListeners.pushManifestToOuterForm,
-        removeStream: sharedListeners.pushManifestToOuterForm,
+        addTable: sharedListeners.pushManifestToOuterForm,
+        removeTable: sharedListeners.pushManifestToOuterForm,
         addHeader: sharedListeners.pushManifestToOuterForm,
         removeHeader: sharedListeners.pushManifestToOuterForm,
         updateHeader: sharedListeners.pushManifestToOuterForm,
