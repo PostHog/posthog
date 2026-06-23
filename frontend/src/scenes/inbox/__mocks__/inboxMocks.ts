@@ -309,30 +309,54 @@ export function mockArtefacts(reportId: string): { results: any[]; count: number
             ],
             created_at: BASE_DATE,
         },
+        // Task↔report associations now live in the artefact log as `task_run` artefacts; the
+        // detail logic derives the Runs list + purpose from these (no more `/tasks/` endpoint).
+        {
+            id: `${reportId}-tr-research`,
+            type: 'task_run',
+            content: {
+                task_id: `${reportId}-task-research`,
+                run_id: `${reportId}-task-research-run`,
+                product: 'signals',
+                type: 'research',
+            },
+            created_at: BASE_DATE,
+            task_id: `${reportId}-task-research`,
+        },
+        {
+            id: `${reportId}-tr-impl`,
+            type: 'task_run',
+            content: {
+                task_id: `${reportId}-task-impl`,
+                run_id: `${reportId}-task-impl-run`,
+                product: 'signals',
+                type: 'implementation',
+            },
+            created_at: BASE_DATE,
+            task_id: `${reportId}-task-impl`,
+        },
+        // A handful of log artefacts so the Activity timeline has something to render.
+        {
+            id: `${reportId}-note`,
+            type: 'note',
+            content: { note: 'Confirmed the validation gap reproduces on an empty recipient row.' },
+            created_at: BASE_DATE,
+            created_by: { id: 1, uuid: 'u-1', email: 'octo@example.com', first_name: 'Octo', last_name: 'Cat' },
+        },
+        {
+            id: `${reportId}-commit`,
+            type: 'commit',
+            content: {
+                repository: 'PostHog/posthog',
+                branch: 'inbox/fix-invites',
+                commit_sha: 'a1b2c3d4e5f6a1b2c3d4e5f6',
+                message: 'fix(invites): reject empty recipient rows before submit',
+            },
+            created_at: BASE_DATE,
+            task_id: `${reportId}-task-impl`,
+        },
     ]
     return { results, count: results.length }
-}
-
-export function mockReportTasks(reportId: string): { results: any[]; count: number; next: null; previous: null } {
-    return {
-        results: [
-            {
-                id: `${reportId}-t1`,
-                relationship: 'research',
-                task_id: `${reportId}-task-research`,
-                created_at: BASE_DATE,
-            },
-            {
-                id: `${reportId}-t2`,
-                relationship: 'implementation',
-                task_id: `${reportId}-task-impl`,
-                created_at: BASE_DATE,
-            },
-        ],
-        count: 2,
-        next: null,
-        previous: null,
-    }
 }
 
 function makeTaskRun(taskId: string, runId: string, status: string): any {

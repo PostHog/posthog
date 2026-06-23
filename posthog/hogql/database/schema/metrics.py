@@ -5,6 +5,7 @@ from posthog.hogql.database.models import (
     FieldOrTable,
     FloatDatabaseField,
     IntegerDatabaseField,
+    MapStringDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
     Table,
@@ -37,10 +38,10 @@ class MetricsTable(Table):
         "unit": StringDatabaseField(name="unit", nullable=False),
         "aggregation_temporality": StringDatabaseField(name="aggregation_temporality", nullable=False),
         "is_monotonic": BooleanDatabaseField(name="is_monotonic", nullable=False),
-        "resource_attributes": StringJSONDatabaseField(name="resource_attributes", nullable=False),
+        "resource_attributes": MapStringDatabaseField(name="resource_attributes", nullable=False),
         "resource_fingerprint": IntegerDatabaseField(name="resource_fingerprint", nullable=False),
         "instrumentation_scope": StringDatabaseField(name="instrumentation_scope", nullable=False),
-        "attributes": StringJSONDatabaseField(name="attributes", nullable=False),
+        "attributes": MapStringDatabaseField(name="attributes", nullable=False),
     }
 
     def to_printed_clickhouse(self, context):

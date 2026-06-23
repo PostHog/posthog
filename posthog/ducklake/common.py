@@ -550,8 +550,109 @@ def sanitize_ducklake_identifier(raw: str, *, default_prefix: str) -> str:
     return cleaned[:63]
 
 
+TABLE_SUFFIX_MAX_LENGTH = 63
+# The table name the user supplies is used verbatim as the suffix in `events_<suffix>` /
+# `persons_<suffix>`, so it must already be a safe SQL identifier — lowercase letters,
+# numbers, and underscores. We validate rather than silently rewrite, so what the user
+# types is exactly what they get.
+TABLE_SUFFIX_PATTERN = re.compile(r"^[a-z0-9_]+$")
+
+
+def validate_table_suffix(name: str | None) -> str | None:
+    """Return a human-readable error if `name` isn't a valid table suffix, else None."""
+    if not name:
+        return "table_name is required"
+    if len(name) > TABLE_SUFFIX_MAX_LENGTH:
+        return f"Table name must be at most {TABLE_SUFFIX_MAX_LENGTH} characters"
+    if not TABLE_SUFFIX_PATTERN.match(name):
+        return "Table name must use only lowercase letters, numbers, and underscores"
+    return None
+
+
+class DucklingBackfillEnableError(Exception):
+    """Raised when a team's warehouse backfill cannot be enabled (no server, name collision)."""
+
+
+def enable_team_backfill(*, team_id: int, organization_id: str | UUID, table_name: str) -> str:
+    """Enable a team's warehouse backfill with a dedicated set of per-environment tables.
+
+    The user-supplied ``table_name`` is used verbatim as the table suffix (validated, not
+    rewritten). Records first-class team↔duckling membership (DuckgresServerTeam) and persists
+    the suffix on the team's DuckLakeBackfill so the Dagster backfill writes to ``events_<suffix>``
+    / ``persons_<suffix>`` instead of the shared tables.
+
+    **Write-once.** The suffix is fixed when the backfill is first created and cannot be changed
+    afterward — including switching a legacy NULL suffix (shared tables) to a real name. Changing
+    it would make the Dagster job write to a different table and split the team's existing data
+    across two tables. Re-calling with the team's current name is an idempotent no-op.
+
+    The org must already have a provisioned DuckgresServer, the name must be a valid identifier,
+    and the suffix must be unique among the org's environments. Returns the suffix, or raises
+    DucklingBackfillEnableError with a user-facing message.
+    """
+    from django.db import transaction
+
+    from posthog.ducklake.models import DuckgresServer, DuckgresServerTeam, DuckLakeBackfill
+
+    error = validate_table_suffix(table_name)
+    if error:
+        raise DucklingBackfillEnableError(error)
+    suffix = table_name
+
+    try:
+        server = DuckgresServer.objects.get(organization_id=organization_id)
+    except DuckgresServer.DoesNotExist:
+        raise DucklingBackfillEnableError(
+            "No managed warehouse is provisioned for this organization. Provision one first."
+        )
+
+    existing = DuckLakeBackfill.objects.filter(team_id=team_id).first()
+    if existing is not None:
+        if existing.table_suffix == suffix:
+            # Same name — ensure membership is recorded, then leave the backfill untouched.
+            DuckgresServerTeam.objects.get_or_create(server=server, team_id=team_id)
+            return suffix
+        current = f"events_{existing.table_suffix}" if existing.table_suffix else "the shared tables"
+        raise DucklingBackfillEnableError(
+            f"This project already writes to {current}, and its warehouse table can't be changed — "
+            "that would split its existing data across two tables."
+        )
+
+    collision = (
+        DuckLakeBackfill.objects.filter(team__organization_id=organization_id, table_suffix=suffix)
+        .exclude(team_id=team_id)
+        .exists()
+    )
+    if collision:
+        raise DucklingBackfillEnableError(
+            f"The table name '{suffix}' is already used by another environment in this organization."
+        )
+
+    with transaction.atomic():
+        DuckgresServerTeam.objects.get_or_create(server=server, team_id=team_id)
+        DuckLakeBackfill.objects.create(team_id=team_id, enabled=True, table_suffix=suffix)
+    return suffix
+
+
+def get_team_backfill_state(team_id: int) -> dict[str, object]:
+    """Return the team's duckling backfill state for the warehouse-status UI.
+
+    ``has_backfill`` distinguishes a team that has never been set up (no row → the enable form is
+    safe to show) from one already backfilling (a row exists → show read-only, since the table is
+    immutable). ``table_suffix`` is None for legacy teams still on the shared tables.
+    """
+    from posthog.ducklake.models import DuckLakeBackfill
+
+    backfill = DuckLakeBackfill.objects.filter(team_id=team_id).values("table_suffix").first()
+    if backfill is None:
+        return {"has_backfill": False, "table_suffix": None}
+    return {"has_backfill": True, "table_suffix": backfill["table_suffix"]}
+
+
 __all__ = [
+    "DucklingBackfillEnableError",
     "attach_catalog",
+    "enable_team_backfill",
     "escape",
     "get_config",
     "get_ducklake_catalog_for_organization",
@@ -570,7 +671,9 @@ __all__ = [
     "is_version_mismatch",
     "parse_postgres_dsn",
     "is_dev_mode",
+    "get_team_backfill_state",
     "reset_ducklake_catalog",
     "run_smoke_check",
     "sanitize_ducklake_identifier",
+    "validate_table_suffix",
 ]

@@ -26,6 +26,7 @@ from posthog.temporal.data_imports.sources.common.resumable import ResumableSour
 from posthog.temporal.data_imports.sources.sentry.settings import (
     ALLOWED_SENTRY_API_BASE_URLS,
     DEFAULT_SENTRY_API_BASE_URL,
+    REQUIRED_SENTRY_SCOPES,
     SENTRY_ENDPOINTS,
     SentryEndpointConfig,
 )
@@ -487,7 +488,12 @@ def validate_credentials(
         if response.status_code == 401:
             return False, "Invalid Sentry auth token"
         if response.status_code == 403:
-            return False, "Sentry token is missing required scopes"
+            return (
+                False,
+                "Sentry token is missing required scopes. Create a token with these scopes and reconnect: "
+                + ", ".join(REQUIRED_SENTRY_SCOPES)
+                + ".",
+            )
         if response.status_code == 404:
             return False, f"Sentry organization '{organization_slug}' not found"
 

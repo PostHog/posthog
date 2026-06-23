@@ -81,6 +81,7 @@ class DuckgresBatchQueue:
         limit: int = 50,
         retry_backoff_base_seconds: int = 0,
         team_ids: list[int] | None = None,
+        exclude_keys: set[tuple[int, str]] | None = None,
     ) -> list[PendingBatch]:
         """Fetch Duckgres-eligible batches whose Delta load has succeeded.
 
@@ -94,6 +95,10 @@ class DuckgresBatchQueue:
         filter, for tests/dev). The sink must never claim batches for orgs without
         a Duckgres deployment — they would burn retries and fail runs for nothing.
 
+        ``exclude_keys`` skips ``(team_id, schema_id)`` groups already in flight on
+        this pod, so a poll cannot re-claim batches for a group whose advisory lock
+        the engine is still holding.
+
         Cross-run head-of-line: a batch is ineligible while an older run (by run
         start time) of the same (team_id, schema_id) still has unapplied,
         non-failed data batches. Without this, a newer run's batch-0
@@ -102,6 +107,26 @@ class DuckgresBatchQueue:
         Liveness: older runs either complete, fail (max attempts), or are
         superseded by ``supersede_replaced_runs`` — all three unblock the gate.
         """
+        exclude_clause = ""
+        params: dict[str, Any] = {
+            "limit": limit,
+            "backoff": retry_backoff_base_seconds,
+            "team_ids": team_ids,
+        }
+        if exclude_keys:
+            value_placeholders = ",".join(
+                f"(%(xk_t_{i})s::bigint, %(xk_s_{i})s::text)" for i in range(len(exclude_keys))
+            )
+            exclude_clause = f"""
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM (VALUES {value_placeholders}) AS excl(team_id, schema_id)
+                            WHERE excl.team_id = b.team_id AND excl.schema_id = b.schema_id
+                        )"""
+            for i, (t, s) in enumerate(exclude_keys):
+                params[f"xk_t_{i}"] = t
+                params[f"xk_s_{i}"] = s
+
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 f"""
@@ -115,7 +140,7 @@ class DuckgresBatchQueue:
                     LEFT JOIN {DUCKGRES_STATUS_VIEW} dgs ON b.id = dgs.batch_id
                     WHERE
                         b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                        AND (%(team_ids)s::bigint[] IS NULL OR b.team_id = ANY(%(team_ids)s))
+                        AND (%(team_ids)s::bigint[] IS NULL OR b.team_id = ANY(%(team_ids)s)){exclude_clause}
                         AND ds.job_state = 'succeeded'
                         AND (
                             dgs.batch_id IS NULL
@@ -185,7 +210,7 @@ class DuckgresBatchQueue:
                 )
                 ORDER BY c.created_at ASC, c.batch_index ASC, c.is_final_batch ASC
                 """,
-                {"limit": limit, "backoff": retry_backoff_base_seconds, "team_ids": team_ids},
+                params,
             )
             rows = await cur.fetchall()
         return [PendingBatch(**row) for row in rows]

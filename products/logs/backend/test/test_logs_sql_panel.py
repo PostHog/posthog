@@ -1,20 +1,28 @@
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from parameterized import parameterized
+
 from posthog.schema import HogQLQuery
 
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 
 
 class TestLogsSqlPanel(ClickhouseTestMixin, APIBaseTest):
-    def test_attribute_filter_uses_map_not_json(self):
-        # Arbitrary HogQL from the SQL panel reads logs attributes via the `attributes_map_str` Map column.
-        # This relies on the LOGS workload forcing propertyGroupsMode=OPTIMIZED; without it the read falls
-        # back to JSONExtract, which is illegal on a Map and errors at execution time.
-        runner = HogQLQueryRunner(
-            query=HogQLQuery(query="SELECT count() FROM logs WHERE attributes.`log.iostream__str` = 'stderr'"),
-            team=self.team,
-        )
+    @parameterized.expand(
+        [
+            # logical key (what a user writes) — reads the `attributes` Map ALIAS via map subscript
+            ("dot_logical", "SELECT count() FROM logs WHERE attributes.tennis_session_id = 'x'"),
+            ("subscript_logical", "SELECT count() FROM logs WHERE attributes['tennis_session_id'] = 'x'"),
+            ("has_logical", "SELECT count() FROM logs WHERE has(attributes, 'tennis_session_id')"),
+            ("resource_logical", "SELECT count() FROM logs WHERE resource_attributes['k8s.namespace'] = 'x'"),
+            # suffixed key (internal filter form) — routed to the typed `attributes_map_str` via property groups
+            ("dot_suffixed", "SELECT count() FROM logs WHERE attributes.`tennis_session_id__str` = 'x'"),
+        ]
+    )
+    def test_attribute_access_never_uses_json_extract(self, _name, query):
+        # Logs attributes are physical ClickHouse Map columns, not JSON blobs. Every access form must compile to a
+        # map read (subscript or property-group column) — JSONExtract is illegal on a Map and errors at execution.
+        runner = HogQLQueryRunner(query=HogQLQuery(query=query), team=self.team)
         response = runner.calculate()
         sql = response.clickhouse or ""
         assert "JSONExtract" not in sql
-        assert "attributes_map_str" in sql

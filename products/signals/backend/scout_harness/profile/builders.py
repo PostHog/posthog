@@ -56,7 +56,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 # enforced, migrate this to a facade `list_recent_experiments(team, limit)` helper.
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.notebooks.backend.models import Notebook
+from products.notebooks.backend.facade import api as notebooks
 from products.signals.backend.models import SignalReport, SignalSourceConfig
 from products.signals.backend.scout_harness.profile.schema import Inventory
 from products.surveys.backend.models import Survey
@@ -501,18 +501,16 @@ def _recent_notebooks(team: Team) -> dict[str, Any]:
     scope (405 edits in 14d), so this section is high-signal even at small recent-
     list size.
     """
-    qs = Notebook.objects.filter(team=team, deleted=False)
-    total = qs.count()
-    recent = qs.order_by("-last_modified_at")[:RECENT_ENTITY_LIMIT].values("short_id", "title", "last_modified_at")
+    summary = notebooks.get_notebook_activity_summary(team.id, RECENT_ENTITY_LIMIT)
     return {
-        "total_count": total,
+        "total_count": summary.total_count,
         "recent": [
             {
-                "short_id": row["short_id"],
-                "title": (row["title"] or "").strip(),
-                "last_modified_at": row["last_modified_at"].isoformat() if row["last_modified_at"] else None,
+                "short_id": entry.short_id,
+                "title": (entry.title or "").strip(),
+                "last_modified_at": entry.last_modified_at.isoformat() if entry.last_modified_at else None,
             }
-            for row in recent
+            for entry in summary.recent
         ],
     }
 

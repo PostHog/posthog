@@ -140,6 +140,27 @@ def normalize_site_url(raw: str) -> str:
     return site
 
 
+def suggest_registered_site(site_url: str, registered: collections.abc.Iterable[str]) -> str | None:
+    """Return the registered property a bare-hostname entry most likely meant, else None.
+
+    ``normalize_site_url`` deliberately leaves a bare hostname (e.g. ``example.com``)
+    untouched because it can't tell a URL-prefix property (``https://example.com/``) from
+    a domain property (``sc-domain:example.com``). When such an entry matches no property,
+    check whether either canonical form *is* registered and point the user at it, so a
+    dead-end "not visible" error becomes "enter this exact value instead".
+    """
+    if urlparse(site_url).scheme or site_url.startswith("sc-domain:"):
+        return None
+    host = site_url.strip().strip("/").lower()
+    if not host:
+        return None
+    registered_set = set(registered)
+    for candidate in (f"https://{host}/", f"http://{host}/", f"sc-domain:{host}"):
+        if candidate in registered_set:
+            return candidate
+    return None
+
+
 def _credentials(integration_id: int, team_id: int) -> OAuthCredentials:
     # Temporal activities run in a thread pool where Django DB connections can go
     # stale between uses (Postgres closes the connection server-side). This is

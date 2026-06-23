@@ -1,6 +1,7 @@
-import { GenericMcpToolRenderer } from '../../sandbox/components/tool/GenericMcpToolRenderer'
-import { SandboxDataToolRow } from '../../sandbox/components/tool/SandboxDataToolRow'
-import type { SandboxToolRendererProps } from '../../sandbox/sandboxToolRegistry'
+import { GenericMcpToolRenderer } from 'products/posthog_ai/frontend/sandbox/components/tool/GenericMcpToolRenderer'
+import { SandboxDataToolRow } from 'products/posthog_ai/frontend/sandbox/components/tool/SandboxDataToolRow'
+import type { SandboxToolRendererProps } from 'products/posthog_ai/frontend/sandbox/sandboxToolRegistry'
+
 import { VisualizationWidget } from '../VisualizationWidget'
 import { extractQueryResult } from './extractors'
 

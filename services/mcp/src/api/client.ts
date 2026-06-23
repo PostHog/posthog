@@ -1265,6 +1265,11 @@ export class ApiClient {
             // Stickiness drills into one bar (`day` = active-interval count). The runner projects only
             // `actor_id` with no `matching_events`, so there is no recordings column — same as lifecycle.
             stickinessActors: async ({ query }: { query: Record<string, unknown> }) => runActorsQuery(query, ['actor']),
+
+            // Funnel actors project `actor` (+ `matched_recordings` when `includeRecordings`, handled
+            // by runActorsQuery). The query carries the step/trends-dropoff selectors on the inner
+            // FunnelsActorsQuery; ordering is backend-determined, so orderBy stays empty.
+            funnelActors: async ({ query }: { query: Record<string, unknown> }) => runActorsQuery(query, ['actor']),
         }
     }
 

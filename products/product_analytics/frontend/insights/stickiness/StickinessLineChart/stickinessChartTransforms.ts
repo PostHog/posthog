@@ -1,6 +1,7 @@
 import { DEFAULT_Y_AXIS_ID } from '@posthog/quill-charts'
 import type { Series, TimeSeriesLineChartConfig, TooltipConfig, YAxisConfig } from '@posthog/quill-charts'
 
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 
 import { ChartDisplayType } from '~/types'
@@ -76,8 +77,7 @@ export function buildStickinessSeries<R extends StickinessResultLike, M = unknow
  * duplicate the interval prefix when paired with a stickiness-style axis, so we
  * synthesize them from the bucket count. Mirrors `formatIntervalLabels` in the legacy LineGraph. */
 export function buildStickinessLabels(count: number, interval: string | null | undefined): string[] {
-    const unit = interval ?? 'day'
-    const prefix = `${unit.slice(0, 1).toUpperCase()}${unit.slice(1)}`
+    const prefix = capitalizeFirstLetter(interval ?? 'day')
     return Array.from({ length: count }, (_, i) => `${prefix} ${i}`)
 }
 
@@ -91,14 +91,14 @@ export function stickinessPercentFormatter(value: number): string {
 export const STICKINESS_TOOLTIP_CONFIG: TooltipConfig = { pinnable: true, placement: 'top' }
 
 /** Stickiness `date` is an interval-count integer (1, 2, …), not a date.
- *  Render "stickiness on {interval} {day}" so InsightTooltip doesn't try to
+ *  Render "Stickiness on {interval} {day}" so InsightTooltip doesn't try to
  *  format it as a calendar date (which would land on 1970-01-01). */
 export function buildStickinessTooltipTitle(
     interval: string | null | undefined
 ): (seriesData: SeriesDatum[]) => string {
     return (seriesData) => {
         const day = seriesData[0]?.date_label ?? ''
-        return `stickiness on ${interval || 'day'} ${day}`
+        return `Stickiness on ${interval || 'day'} ${day}`
     }
 }
 
