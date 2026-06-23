@@ -392,3 +392,28 @@ class TestSimulateDetectorBreakdowns:
         )
 
         assert len(result["breakdown_results"]) == MAX_DETECTOR_BREAKDOWN_VALUES
+
+    @patch("products.alerts.backend.evaluation.detector.upgrade_query")
+    @patch("products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight")
+    def test_simulates_a_hogql_insight_through_the_registry(
+        self, mock_calc: MagicMock, _mock_upgrade: MagicMock
+    ) -> None:
+        # Exercises the HogQLDetectorExtractor.simulate() dispatch route end-to-end: a HOG_QL_QUERY
+        # insight resolves to the SQL extractor via DETECTOR_EXTRACTORS and scores its own rows.
+        rows = [[v] for v in [*([10.0, 11.0, 10.0, 9.0] * 10), 500.0]]  # 41 single-column rows, spike last
+        mock_calc.return_value = MagicMock(result=rows, columns=["value"])
+
+        insight = MagicMock(spec=Insight)
+        insight.query = {"kind": "HogQLQuery", "query": "SELECT value FROM events"}
+        team = MagicMock()
+
+        result = simulate_detector_on_insight(
+            insight=insight,
+            team=team,
+            detector_config=ZSCORE_DETECTOR_CONFIG,
+        )
+
+        assert "breakdown_results" not in result  # SQL rows are a single series, not a breakdown
+        assert result["interval"] is None  # SQL insights have no chart interval
+        assert result["anomaly_count"] >= 1  # the trailing spike is flagged — the full path scored
+        assert len(result["scores"]) == result["total_points"]
