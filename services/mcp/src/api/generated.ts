@@ -1839,6 +1839,37 @@ export namespace Schemas {
       ActivityEventsList: 'activity_events_list',
     } as const;
 
+    /**
+     * Widget type of the tile being updated (the config discriminator). Immutable.
+     *
+     * * `activity_events_list` - activity_events_list
+     */
+    export type ActivityEventsListWidgetUpdateRequestOpenApiWidgetType = typeof ActivityEventsListWidgetUpdateRequestOpenApiWidgetType[keyof typeof ActivityEventsListWidgetUpdateRequestOpenApiWidgetType];
+
+
+    export const ActivityEventsListWidgetUpdateRequestOpenApiWidgetType = {
+      ActivityEventsList: 'activity_events_list',
+    } as const;
+
+    export interface ActivityEventsListWidgetUpdateRequestOpenApi {
+      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+      tile_id: number;
+      /**
+         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** New markdown description for the widget. Omit to leave unchanged. */
+      description?: string;
+      /** Widget type of the tile being updated (the config discriminator). Immutable.
+       *
+       * * `activity_events_list` - activity_events_list */
+      widget_type: ActivityEventsListWidgetUpdateRequestOpenApiWidgetType;
+      /** New configuration for the recent events widget. Omit to leave unchanged. */
+      config?: ActivityEventsListWidgetConfig;
+    }
+
     export interface ActivityLog {
       readonly id: string;
       user: UserBasic;
@@ -19389,6 +19420,37 @@ export namespace Schemas {
       ErrorTrackingList: 'error_tracking_list',
     } as const;
 
+    /**
+     * Widget type of the tile being updated (the config discriminator). Immutable.
+     *
+     * * `error_tracking_list` - error_tracking_list
+     */
+    export type ErrorTrackingListWidgetUpdateRequestOpenApiWidgetType = typeof ErrorTrackingListWidgetUpdateRequestOpenApiWidgetType[keyof typeof ErrorTrackingListWidgetUpdateRequestOpenApiWidgetType];
+
+
+    export const ErrorTrackingListWidgetUpdateRequestOpenApiWidgetType = {
+      ErrorTrackingList: 'error_tracking_list',
+    } as const;
+
+    export interface ErrorTrackingListWidgetUpdateRequestOpenApi {
+      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+      tile_id: number;
+      /**
+         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** New markdown description for the widget. Omit to leave unchanged. */
+      description?: string;
+      /** Widget type of the tile being updated (the config discriminator). Immutable.
+       *
+       * * `error_tracking_list` - error_tracking_list */
+      widget_type: ErrorTrackingListWidgetUpdateRequestOpenApiWidgetType;
+      /** New configuration for the top issues widget. Omit to leave unchanged. */
+      config?: ErrorTrackingListWidgetConfig;
+    }
+
     export interface ErrorTrackingRecommendation {
       /** Recommendation UUID. */
       id: string;
@@ -21141,6 +21203,37 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Widget type of the tile being updated (the config discriminator). Immutable.
+     *
+     * * `experiment_results` - experiment_results
+     */
+    export type ExperimentResultsWidgetUpdateRequestOpenApiWidgetType = typeof ExperimentResultsWidgetUpdateRequestOpenApiWidgetType[keyof typeof ExperimentResultsWidgetUpdateRequestOpenApiWidgetType];
+
+
+    export const ExperimentResultsWidgetUpdateRequestOpenApiWidgetType = {
+      ExperimentResults: 'experiment_results',
+    } as const;
+
+    export interface ExperimentResultsWidgetUpdateRequestOpenApi {
+      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+      tile_id: number;
+      /**
+         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** New markdown description for the widget. Omit to leave unchanged. */
+      description?: string;
+      /** Widget type of the tile being updated (the config discriminator). Immutable.
+       *
+       * * `experiment_results` - experiment_results */
+      widget_type: ExperimentResultsWidgetUpdateRequestOpenApiWidgetType;
+      /** New configuration for the experiment results widget. Omit to leave unchanged. */
+      config?: ExperimentResultsWidgetConfig;
+    }
+
+    /**
      * Mixin for serializers to add user access control fields
      */
     export interface ExperimentSavedMetric {
@@ -21197,6 +21290,37 @@ export namespace Schemas {
     export const ExperimentsListWidgetTypeEnum = {
       ExperimentsList: 'experiments_list',
     } as const;
+
+    /**
+     * Widget type of the tile being updated (the config discriminator). Immutable.
+     *
+     * * `experiments_list` - experiments_list
+     */
+    export type ExperimentsListWidgetUpdateRequestOpenApiWidgetType = typeof ExperimentsListWidgetUpdateRequestOpenApiWidgetType[keyof typeof ExperimentsListWidgetUpdateRequestOpenApiWidgetType];
+
+
+    export const ExperimentsListWidgetUpdateRequestOpenApiWidgetType = {
+      ExperimentsList: 'experiments_list',
+    } as const;
+
+    export interface ExperimentsListWidgetUpdateRequestOpenApi {
+      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+      tile_id: number;
+      /**
+         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** New markdown description for the widget. Omit to leave unchanged. */
+      description?: string;
+      /** Widget type of the tile being updated (the config discriminator). Immutable.
+       *
+       * * `experiments_list` - experiments_list */
+      widget_type: ExperimentsListWidgetUpdateRequestOpenApiWidgetType;
+      /** New configuration for the experiments list widget. Omit to leave unchanged. */
+      config?: ExperimentsListWidgetConfig;
+    }
 
     export interface ExplainRequest {
       /** UUID of the log entry to explain */
@@ -40527,6 +40651,51 @@ export namespace Schemas {
     }
 
     /**
+     * Widget type of the tile being updated (the config discriminator). Immutable.
+     *
+     * * `session_replay_list` - session_replay_list
+     */
+    export type SessionReplayListWidgetUpdateRequestOpenApiWidgetType = typeof SessionReplayListWidgetUpdateRequestOpenApiWidgetType[keyof typeof SessionReplayListWidgetUpdateRequestOpenApiWidgetType];
+
+
+    export const SessionReplayListWidgetUpdateRequestOpenApiWidgetType = {
+      SessionReplayList: 'session_replay_list',
+    } as const;
+
+    export interface SessionReplayListWidgetUpdateRequestOpenApi {
+      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+      tile_id: number;
+      /**
+         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** New markdown description for the widget. Omit to leave unchanged. */
+      description?: string;
+      /** Widget type of the tile being updated (the config discriminator). Immutable.
+       *
+       * * `session_replay_list` - session_replay_list */
+      widget_type: SessionReplayListWidgetUpdateRequestOpenApiWidgetType;
+      /** New configuration for the recent recordings widget. Omit to leave unchanged. */
+      config?: SessionReplayListWidgetConfig;
+    }
+
+    export type UpdateDashboardWidgetRequest = ActivityEventsListWidgetUpdateRequestOpenApi | ErrorTrackingListWidgetUpdateRequestOpenApi | SessionReplayListWidgetUpdateRequestOpenApi | ExperimentsListWidgetUpdateRequestOpenApi | ExperimentResultsWidgetUpdateRequestOpenApi;
+
+    /**
+     * OpenAPI-only batch-update schema with widget_type-discriminated config shapes for agents.
+     */
+    export interface PatchedUpdateDashboardWidgetsBatchRequestOpenApi {
+      /**
+         * Widget tiles to update atomically, each identified by its tile_id. config shape is per widget_type; see dashboard-widget-catalog-list for per-type config_schema (1–10 per request).
+         * @minItems 1
+         * @maxItems 10
+         */
+      widgets?: UpdateDashboardWidgetRequest[];
+    }
+
+    /**
      * @nullable
      */
     export type PatchedUpdateRepoRequestInputBaselineFilePaths = {[key: string]: string} | null;
@@ -50031,6 +50200,11 @@ export namespace Schemas {
       target_language?: string;
     }
 
+    export interface UpdateDashboardWidgetsBatchResponse {
+      /** Updated dashboard widget tiles in request order. */
+      tiles: DashboardTile[];
+    }
+
     export interface UpdateTextTileRequest {
       /** ID of the dashboard tile to update. Use dashboard-get to look up tile IDs. */
       tile_id: number;
@@ -52312,6 +52486,18 @@ export namespace Schemas {
 
 
     export const EnvironmentsDashboardsWidgetsBatchCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type EnvironmentsDashboardsUpdateWidgetsBatchParams = {
+    format?: EnvironmentsDashboardsUpdateWidgetsBatchFormat;
+    };
+
+    export type EnvironmentsDashboardsUpdateWidgetsBatchFormat = typeof EnvironmentsDashboardsUpdateWidgetsBatchFormat[keyof typeof EnvironmentsDashboardsUpdateWidgetsBatchFormat];
+
+
+    export const EnvironmentsDashboardsUpdateWidgetsBatchFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -58059,6 +58245,18 @@ export namespace Schemas {
 
 
     export const DashboardsWidgetsBatchCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type DashboardsUpdateWidgetsBatchParams = {
+    format?: DashboardsUpdateWidgetsBatchFormat;
+    };
+
+    export type DashboardsUpdateWidgetsBatchFormat = typeof DashboardsUpdateWidgetsBatchFormat[keyof typeof DashboardsUpdateWidgetsBatchFormat];
+
+
+    export const DashboardsUpdateWidgetsBatchFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
