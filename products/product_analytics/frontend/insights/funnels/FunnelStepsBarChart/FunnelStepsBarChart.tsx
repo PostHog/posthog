@@ -44,10 +44,7 @@ const handleChartError = (error: Error, info: ErrorInfo): void => {
 
 // Flat grey for the first step's non-drop-off backdrop, matching the horizontal chart's filler.
 function getNeutralTrackColor(): string {
-    if (typeof document === 'undefined') {
-        return 'rgba(0, 0, 0, 0.08)'
-    }
-    return getComputedStyle(document.body).getPropertyValue('--color-border-primary').trim() || 'rgba(0, 0, 0, 0.08)'
+    return 'rgba(0, 0, 0, 0.08)'
 }
 
 export function FunnelStepsBarChart({
