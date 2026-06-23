@@ -252,14 +252,15 @@ class TestPostgresSourceMetadataConnectionErrors:
         # "Name or service not known" wording a customer host misconfig would, so it must be
         # re-raised as PostHogDatabaseConnectionError to avoid being misclassified as non-retryable.
         source = PostgresSource()
-        source.make_ssh_tunnel_func = MagicMock(return_value=None)  # type: ignore[method-assign]
-
         config = MagicMock()
         inputs = MagicMock()
 
-        with patch(
-            "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema"
-        ) as mock_schema_model:
+        with (
+            patch.object(PostgresSource, "make_ssh_tunnel_func", return_value=None),
+            patch(
+                "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema"
+            ) as mock_schema_model,
+        ):
             mock_schema_model.objects.select_related.return_value.get.side_effect = DjangoOperationalError(
                 "[Errno -2] Name or service not known"
             )
