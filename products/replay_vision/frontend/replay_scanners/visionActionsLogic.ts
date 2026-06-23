@@ -109,8 +109,13 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
     forms(({ props, values }) => ({
         visionActionForm: {
             defaults: NEW_ACTION_FORM(),
-            errors: ({ name, integration_id, channel }) => ({
+            errors: ({ name, cadence, integration_id, channel }) => ({
                 name: !name?.trim() ? 'Give this action a name' : undefined,
+                // weekdays is a number[], which kea-forms can't carry a string error on, so we hang
+                // the "pick a day" error on the cadence object via `hour` to mark the form invalid.
+                // This blocks Enter-to-submit (enableFormOnSubmit); the user-facing message is the
+                // inline danger text + the submit button's disabledReason.
+                cadence: cadence.weekdays.length === 0 ? { hour: 'Pick at least one day' } : undefined,
                 channel: integration_id && !channel ? 'Pick a channel' : undefined,
             }),
             submit: async (form) => {
