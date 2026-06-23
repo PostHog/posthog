@@ -59,6 +59,24 @@ class TestPersonStrategyGetActors(PersonhogTestMixin, BaseTest):
         entry = result[str(person.uuid)]
         assert set(entry["distinct_ids"]) == {"did-a", "did-b", "did-c"}
 
+    def test_distinct_ids_prefer_identified_over_anonymous(self):
+        # The anonymous-looking ID is seeded first, but the identified one must come first in the
+        # result so consumers reading distinct_ids[0] (person links, CSV exports) get the
+        # human-readable ID rather than the auto-generated anonymous one.
+        anonymous_id = "0190f8e1-1234-7abc-89de-f0123456789a"
+        person = self._seed_person(
+            team=self.team,
+            distinct_ids=[anonymous_id, "user@example.com"],
+            properties={},
+        )
+
+        strategy = _make_strategy(self.team)
+        result = strategy.get_actors([str(person.uuid)])
+
+        entry = result[str(person.uuid)]
+        assert entry["distinct_ids"][0] == "user@example.com"
+        assert set(entry["distinct_ids"]) == {anonymous_id, "user@example.com"}
+
     def test_multiple_persons(self):
         p1 = self._seed_person(team=self.team, distinct_ids=["u1"], properties={"n": "1"})
         p2 = self._seed_person(team=self.team, distinct_ids=["u2"], properties={"n": "2"})

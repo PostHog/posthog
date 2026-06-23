@@ -41,7 +41,7 @@ import {
     coercePropertyValue,
     getHogqlQueryStringForPersonId,
     parsePersonFromHogQLRow,
-    scoreDistinctId,
+    pickBestPersonDistinctId,
 } from './person-utils'
 import type { personsLogicType } from './personsLogicType'
 
@@ -415,12 +415,7 @@ export const personsLogic = kea<personsLogicType>([
         feedEnabled: [(s) => [s.featureFlags], (featureFlags) => !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS]],
         primaryDistinctId: [
             (s) => [s.person],
-            (person): string | null => {
-                if (!person?.distinct_ids.length) {
-                    return null
-                }
-                return person.distinct_ids.slice().sort((a, b) => scoreDistinctId(b) - scoreDistinctId(a))[0]
-            },
+            (person): string | null => pickBestPersonDistinctId(person?.distinct_ids) ?? null,
         ],
         eventsQueryIsDirty: [
             (s) => [s.eventsQuery, s.person],
