@@ -54,13 +54,13 @@ class TestCDCErrorInfo:
 class TestClassifyCDCError:
     def test_delegates_to_adapter(self):
         adapter = _StubAdapter("boom", CDCErrorCategory.AUTH_FAILED)
-        info = classify_cdc_error(RuntimeError("boom"), adapter)
+        info = classify_cdc_error(RuntimeError("boom"), adapter)  # type: ignore[arg-type]
         assert info.category is CDCErrorCategory.AUTH_FAILED
         assert info.retryable is False
 
     def test_unknown_when_adapter_returns_none(self):
         adapter = _StubAdapter("never", CDCErrorCategory.AUTH_FAILED)
-        info = classify_cdc_error(RuntimeError("something else"), adapter)
+        info = classify_cdc_error(RuntimeError("something else"), adapter)  # type: ignore[arg-type]
         assert info.category is CDCErrorCategory.UNKNOWN
         assert info.retryable is True
 
