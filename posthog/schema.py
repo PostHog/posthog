@@ -3102,8 +3102,15 @@ class AggregatedSpanRow(BaseModel):
     count: int
     error_count: int
     name: str
-    p50_duration_nano: float
-    p95_duration_nano: float
+    p50_duration_nano: float = Field(..., description="Median wall-clock span duration, in nanoseconds.")
+    p95_duration_nano: float = Field(..., description="95th-percentile wall-clock span duration, in nanoseconds.")
+    p999_duration_nano: float = Field(
+        ...,
+        description=(
+            "99.9th-percentile wall-clock span duration, in nanoseconds. Only meaningful with enough spans per group."
+        ),
+    )
+    p99_duration_nano: float = Field(..., description="99th-percentile wall-clock span duration, in nanoseconds.")
     service_name: str
     total_duration_nano: float
 
@@ -6973,8 +6980,15 @@ class SpanTreeNode(BaseModel):
     count: int
     error_count: int
     name: str
-    p50_duration_nano: float
-    p95_duration_nano: float
+    p50_duration_nano: float = Field(..., description="Median wall-clock span duration, in nanoseconds.")
+    p95_duration_nano: float = Field(..., description="95th-percentile wall-clock span duration, in nanoseconds.")
+    p999_duration_nano: float = Field(
+        ...,
+        description=(
+            "99.9th-percentile wall-clock span duration, in nanoseconds. Only meaningful with enough spans per edge."
+        ),
+    )
+    p99_duration_nano: float = Field(..., description="99th-percentile wall-clock span duration, in nanoseconds.")
     parent_name: str
     parent_service: str
     service_name: str

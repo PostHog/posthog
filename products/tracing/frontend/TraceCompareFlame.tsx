@@ -62,6 +62,8 @@ function mergeRows(rows: SpanTreeNode[]): SpanTreeNode {
     let errorCount = 0
     let p50Weighted = 0
     let p95Weighted = 0
+    let p99Weighted = 0
+    let p999Weighted = 0
     let avgDurationWeighted = 0
     let startOffsetWeighted = 0
     for (const row of rows) {
@@ -70,6 +72,8 @@ function mergeRows(rows: SpanTreeNode[]): SpanTreeNode {
         errorCount += row.error_count
         p50Weighted += row.p50_duration_nano * row.count
         p95Weighted += row.p95_duration_nano * row.count
+        p99Weighted += row.p99_duration_nano * row.count
+        p999Weighted += row.p999_duration_nano * row.count
         avgDurationWeighted += row.avg_duration_nano * row.count
         startOffsetWeighted += row.avg_start_offset_nano * row.count
     }
@@ -82,6 +86,8 @@ function mergeRows(rows: SpanTreeNode[]): SpanTreeNode {
         error_count: errorCount,
         p50_duration_nano: p50Weighted / denom,
         p95_duration_nano: p95Weighted / denom,
+        p99_duration_nano: p99Weighted / denom,
+        p999_duration_nano: p999Weighted / denom,
         avg_duration_nano: avgDurationWeighted / denom,
         avg_start_offset_nano: startOffsetWeighted / denom,
     }
@@ -243,6 +249,10 @@ function FlameRow({ node, fraction, selfPath, onFocus }: FlameRowProps): JSX.Ele
             p95: {fmtDur(current?.p95_duration_nano)}
             <DeltaPct current={current?.p95_duration_nano} previous={previous?.p95_duration_nano} higherIsWorse />
             {previous ? ` (prev ${fmtDur(previous.p95_duration_nano)})` : ''}
+            <br />
+            p99: {fmtDur(current?.p99_duration_nano)}
+            <DeltaPct current={current?.p99_duration_nano} previous={previous?.p99_duration_nano} higherIsWorse />
+            {previous ? ` (prev ${fmtDur(previous.p99_duration_nano)})` : ''}
             <br />
             total: {fmtDur(current?.total_duration_nano)}
             <DeltaPct current={current?.total_duration_nano} previous={previous?.total_duration_nano} higherIsWorse />

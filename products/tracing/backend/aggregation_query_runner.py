@@ -266,8 +266,8 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
                 count() AS count,
                 sum(duration_nano) AS total_duration_nano,
                 avg(duration_nano) AS avg_duration_nano,
-                quantile(0.5)(duration_nano) AS p50_duration_nano,
-                quantile(0.95)(duration_nano) AS p95_duration_nano,
+                -- Single aggregate computes all four levels; unpacked in declared order downstream.
+                quantiles(0.5, 0.95, 0.99, 0.999)(duration_nano) AS duration_quantiles,
                 countIf(status_code = 2) AS error_count
             FROM posthog.trace_spans
             WHERE {where}
@@ -290,15 +290,18 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
         return query
 
     def _row_from_clickhouse(self, row: list) -> AggregatedSpanRow:
+        p50, p95, p99, p999 = row[5] or (0.0, 0.0, 0.0, 0.0)
         return AggregatedSpanRow(
             service_name=row[0] or "",
             name=row[1] or "",
             count=row[2],
             total_duration_nano=float(row[3] or 0),
             avg_duration_nano=float(row[4] or 0),
-            p50_duration_nano=float(row[5] or 0),
-            p95_duration_nano=float(row[6] or 0),
-            error_count=row[7] or 0,
+            p50_duration_nano=float(p50 or 0),
+            p95_duration_nano=float(p95 or 0),
+            p99_duration_nano=float(p99 or 0),
+            p999_duration_nano=float(p999 or 0),
+            error_count=row[6] or 0,
         )
 
     def run(self, *args, **kwargs) -> TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse:
@@ -387,8 +390,8 @@ class TraceSpansTreeQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunner[Trac
                 count() AS count,
                 sum(s.duration_nano) AS total_duration_nano,
                 avg(s.duration_nano) AS avg_duration_nano,
-                quantile(0.5)(s.duration_nano) AS p50_duration_nano,
-                quantile(0.95)(s.duration_nano) AS p95_duration_nano,
+                -- Single aggregate computes all four levels; unpacked in declared order downstream.
+                quantiles(0.5, 0.95, 0.99, 0.999)(s.duration_nano) AS duration_quantiles,
                 countIf(s.status_code = 2) AS error_count,
                 avg(
                     if(
@@ -419,6 +422,7 @@ class TraceSpansTreeQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunner[Trac
         return query
 
     def _row_from_clickhouse(self, row: list) -> SpanTreeNode:
+        p50, p95, p99, p999 = row[7] or (0.0, 0.0, 0.0, 0.0)
         return SpanTreeNode(
             parent_service=row[0] or "",
             parent_name=row[1] or "<ROOT>",
@@ -427,10 +431,12 @@ class TraceSpansTreeQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunner[Trac
             count=row[4],
             total_duration_nano=float(row[5] or 0),
             avg_duration_nano=float(row[6] or 0),
-            p50_duration_nano=float(row[7] or 0),
-            p95_duration_nano=float(row[8] or 0),
-            error_count=row[9] or 0,
-            avg_start_offset_nano=float(row[10] or 0),
+            p50_duration_nano=float(p50 or 0),
+            p95_duration_nano=float(p95 or 0),
+            p99_duration_nano=float(p99 or 0),
+            p999_duration_nano=float(p999 or 0),
+            error_count=row[8] or 0,
+            avg_start_offset_nano=float(row[9] or 0),
         )
 
     def run(self, *args, **kwargs) -> TraceSpansTreeQueryResponse | CachedTraceSpansTreeQueryResponse:

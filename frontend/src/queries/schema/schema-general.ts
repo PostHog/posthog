@@ -3293,8 +3293,14 @@ export interface AggregatedSpanRow {
     count: integer
     total_duration_nano: number
     avg_duration_nano: number
+    /** Median wall-clock span duration, in nanoseconds. */
     p50_duration_nano: number
+    /** 95th-percentile wall-clock span duration, in nanoseconds. */
     p95_duration_nano: number
+    /** 99th-percentile wall-clock span duration, in nanoseconds. */
+    p99_duration_nano: number
+    /** 99.9th-percentile wall-clock span duration, in nanoseconds. Only meaningful with enough spans per group. */
+    p999_duration_nano: number
     error_count: integer
 }
 
@@ -3328,8 +3334,14 @@ export interface SpanTreeNode {
     count: integer
     total_duration_nano: number
     avg_duration_nano: number
+    /** Median wall-clock span duration, in nanoseconds. */
     p50_duration_nano: number
+    /** 95th-percentile wall-clock span duration, in nanoseconds. */
     p95_duration_nano: number
+    /** 99th-percentile wall-clock span duration, in nanoseconds. */
+    p99_duration_nano: number
+    /** 99.9th-percentile wall-clock span duration, in nanoseconds. Only meaningful with enough spans per edge. */
+    p999_duration_nano: number
     error_count: integer
     /**
      * Average nanoseconds from the parent span's start to this span's start. Zero for

@@ -6,13 +6,15 @@ from posthog.schema import DateRange
 
 from posthog.clickhouse.client import sync_execute
 
-from products.tracing.backend.logic import run_tree_query
+from products.tracing.backend.logic import run_aggregation_query, run_tree_query
 from products.tracing.backend.tests.test_keyset_pagination import DATE_FROM, DATE_TO, _b64, _TraceSpansTestBase
 
 # Child starts 40ms after its parent. In nanoseconds that's 40_000_000 — the unit the
 # avg_start_offset_nano column claims to report.
 CHILD_OFFSET_MS = 40
 EXPECTED_OFFSET_NANO = CHILD_OFFSET_MS * 1_000_000
+
+MS_TO_NANO = 1_000_000
 
 
 class TestTraceSpansTreeStartOffset(_TraceSpansTestBase):
@@ -111,3 +113,57 @@ class TestTraceSpansTreeCallRatio(_TraceSpansTestBase):
         )
         root_edge = next(node for node in response.results if node.parent_name == "<ROOT>")
         self.assertIsNone(root_edge.calls_per_parent_invocation)
+
+
+class TestTraceSpansAggregationPercentiles(_TraceSpansTestBase):
+    SERVICE = "web"
+    NAME = "GET /api/things"
+    # (duration_ms, span_count). 1000 spans banded so each percentile of n=1000 lands strictly
+    # inside one uniform band: p50 in the 10ms band, p95 in 100ms, p99 in 1000ms, p99.9 in 5000ms.
+    # Every level then resolves to that band's exact value, so a mis-wired quantile level or a
+    # shifted unpack index moves the result into a different band and the assertion fails.
+    BANDS = [(10, 600), (100, 360), (1000, 35), (5000, 5)]
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls._recreate_trace_spans_tables()
+
+        trace_id = _b64((1).to_bytes(16, "big"))
+        base_ts = dt.datetime(2026, 6, 2, 8, 0, 0)
+        start_str = base_ts.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+        rows: list[str] = []
+        idx = 0
+        for duration_ms, count in cls.BANDS:
+            end_str = (base_ts + dt.timedelta(milliseconds=duration_ms)).strftime("%Y-%m-%d %H:%M:%S.%f")
+            for _ in range(count):
+                idx += 1
+                span_id = _b64(idx.to_bytes(8, "big"))
+                rows.append(
+                    f"('019e8760-0000-0000-0000-{idx:012d}', {cls.team.id}, '{trace_id}', "
+                    f"'{span_id}', '', '{cls.NAME}', 2, '{start_str}', '{end_str}', '{start_str}', 0, '{cls.SERVICE}')"
+                )
+        sync_execute(
+            "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, "
+            "timestamp, end_time, observed_timestamp, status_code, service_name) VALUES " + ",".join(rows)
+        )
+
+    @parameterized.expand(
+        [
+            ("p50", "p50_duration_nano", 10 * MS_TO_NANO),
+            ("p95", "p95_duration_nano", 100 * MS_TO_NANO),
+            ("p99", "p99_duration_nano", 1000 * MS_TO_NANO),
+            ("p999", "p999_duration_nano", 5000 * MS_TO_NANO),
+        ]
+    )
+    def test_duration_percentile(self, _name, field, expected_nano):
+        response = run_aggregation_query(
+            team=self.team,
+            date_range=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+            service_names=[self.SERVICE],
+        )
+        row = next(r for r in response.results if r.name == self.NAME)
+        # 1ms tolerance: bands are ≥90ms apart, so this distinguishes levels while absorbing
+        # any sub-ms interpolation at the band edges.
+        self.assertAlmostEqual(getattr(row, field), expected_nano, delta=MS_TO_NANO)
