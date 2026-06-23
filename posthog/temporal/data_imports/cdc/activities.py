@@ -1046,7 +1046,6 @@ def cleanup_orphan_slots_activity() -> None:
                 continue
 
             sources_checked += 1
-            source_started = dt.datetime.now(tz=dt.UTC)
 
             source_log = log.bind(
                 source_id=str(source.id),
@@ -1077,6 +1076,7 @@ def cleanup_orphan_slots_activity() -> None:
                 continue
 
             # 2. Active sources — check WAL lag
+            source_started = dt.datetime.now(tz=dt.UTC)
             try:
                 with adapter.management_connection(source, connect_timeout=10) as conn:
                     lag_bytes = adapter.get_lag_bytes(conn, cdc_config.slot_name)

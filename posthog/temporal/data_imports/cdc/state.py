@@ -24,8 +24,8 @@ def update_cdc_state(source_id: uuid.UUID | str, **fields: typing.Any) -> dict[s
     must serialize or they clobber each other's keys.
     """
     with transaction.atomic():
-        # `of=("self",)` locks only the source row — the default manager select_relateds
-        # revenue_analytics_config, which we have no reason to lock here.
+        # `of=("self",)` locks only the source row; the default manager applies
+        # select_related("revenue_analytics_config"), which we have no reason to lock here.
         source = ExternalDataSource.objects.select_for_update(of=("self",)).get(pk=source_id)
         state = dict(source.cdc_state or {})
         state.update(fields)
