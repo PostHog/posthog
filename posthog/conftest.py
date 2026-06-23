@@ -585,10 +585,12 @@ def enforce_detail_object_permissions(monkeypatch, request):
        a ``model_to_resource`` in ``ACCESS_CONTROL_RESOURCES``) that is loaded
        by a primary key the user supplied in the request (body or query) MUST
        have been access-gated by one of the enforcement mechanisms before
-       the request returns 2xx — an explicit ``check_access_level_for_object``
-       call, emerging from a queryset passed through
-       ``filter_queryset_by_access_level``, or consulted via the legacy
-       ``UserPermissions.dashboard()/.insight()`` privilege subsystem. Catches the
+       the request returns 2xx — its access level was evaluated via the
+       ``UserAccessControl.get_user_access_level`` primitive (used by
+       ``check_access_level_for_object`` and by open-coded checks alike), it
+       emerged from a queryset passed through ``filter_queryset_by_access_level``,
+       or it was consulted via the legacy ``UserPermissions.dashboard()/.insight()``
+       privilege subsystem. Catches the
        duplicate/copy-from pattern where a same-team resource the caller is
        explicitly denied is read via a raw ``Model.objects.get(id=...)``
        (e.g. CVE-class IDOR in dashboard ``use_dashboard`` duplication).
@@ -620,7 +622,7 @@ def enforce_detail_object_permissions(monkeypatch, request):
     original_dispatch = APIView.dispatch
     original_has_object_permission = AccessControlPermission.has_object_permission
     original_save = drf_serializers.BaseSerializer.save
-    original_check_access = UserAccessControl.check_access_level_for_object
+    original_get_user_access_level = UserAccessControl.get_user_access_level
     original_filter_qs = UserAccessControl.filter_queryset_by_access_level
     original_clone = QuerySet._clone
     original_fetch_all = QuerySet._fetch_all
@@ -707,16 +709,13 @@ def enforce_detail_object_permissions(monkeypatch, request):
             pass
         return out
 
-    def tracked_check_access(self, obj, required_level, explicit=False):
-        result = original_check_access(self, obj, required_level, explicit=explicit)
-        try:
-            resource = model_to_resource(obj)
-            pk = getattr(obj, "pk", None)
-            if resource and pk is not None:
-                checked_objects.add((resource, str(pk)))
-        except Exception:
-            pass
-        return result
+    def tracked_get_user_access_level(self, obj, explicit=False):
+        # Fundamental UserAccessControl primitive: every object-level RBAC decision routes
+        # through get_user_access_level — both the check_access_level_for_object wrapper and
+        # code that open-codes get_user_access_level + access_level_satisfied_for_resource
+        # (e.g. FeatureFlagViewSet.bulk_delete). Recording here covers all of them generically.
+        _record_gated(obj)
+        return original_get_user_access_level(self, obj, explicit=explicit)
 
     def _record_gated(obj) -> None:
         try:
@@ -900,9 +899,9 @@ def enforce_detail_object_permissions(monkeypatch, request):
                     raise AssertionError(
                         f"Secondary-object IDOR detected: {label}#{pk} (resource '{resource}') "
                         f"was loaded by a user-supplied id during "
-                        f"{self.__class__.__name__}.{getattr(self, 'action', '?')} but it was never "
-                        f"access-gated (no check_access_level_for_object call and not from an "
-                        f"access-filtered queryset).\n"
+                        f"{self.__class__.__name__}.{getattr(self, 'action', '?')} but its access was "
+                        f"never evaluated (no get_user_access_level call, not from an access-filtered "
+                        f"queryset, and not consulted via UserPermissions).\n"
                         f"\n"
                         f"An access-controlled object referenced by id in the request was read without an\n"
                         f"object-level access check. To fix:\n"
@@ -953,7 +952,7 @@ def enforce_detail_object_permissions(monkeypatch, request):
     monkeypatch.setattr(AccessControlPermission, "has_object_permission", tracked_has_object_permission)
     monkeypatch.setattr(APIView, "dispatch", patched_dispatch)
     monkeypatch.setattr(drf_serializers.BaseSerializer, "save", tracked_save)
-    monkeypatch.setattr(UserAccessControl, "check_access_level_for_object", tracked_check_access)
+    monkeypatch.setattr(UserAccessControl, "get_user_access_level", tracked_get_user_access_level)
     monkeypatch.setattr(UserAccessControl, "filter_queryset_by_access_level", tracked_filter_qs)
     # Patch the full object-level surface of the legacy privilege subsystem.
     for _accessor_name in ("dashboard", "insight"):
