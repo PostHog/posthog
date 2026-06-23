@@ -1042,7 +1042,8 @@ describe('Hogflow Executor', () => {
                     {
                         finished: false,
                         scheduledAt: DateTime.fromISO('2025-01-01T02:00:00.000Z').toUTC(),
-                        nextActionId: 'exit',
+                        // Still pending, so the delay parks without advancing currentAction
+                        nextActionId: 'delay',
                     },
                 ],
                 [
