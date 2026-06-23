@@ -322,6 +322,7 @@
           ExternalDataSourceType.JAMFPRO: JamfProSourceConfig,
           ExternalDataSourceType.JIRA: JiraSourceConfig,
           ExternalDataSourceType.JOBNIMBUS: JobNimbusSourceConfig,
+          ExternalDataSourceType.JOBBER: JobberSourceConfig,
           ExternalDataSourceType.JOTFORM: JotformSourceConfig,
           ExternalDataSourceType.JUDGEMEREVIEWS: JudgeMeReviewsSourceConfig,
           ExternalDataSourceType.JUSTCALL: JustCallSourceConfig,

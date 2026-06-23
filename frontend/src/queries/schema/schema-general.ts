@@ -6916,6 +6916,7 @@ export const externalDataSources = [
     'Chatwoot',
     'Sanity',
     'Metronome',
+    'Jobber',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
