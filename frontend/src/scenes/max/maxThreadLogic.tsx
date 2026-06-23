@@ -622,13 +622,24 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             actions.setTraceId(traceId)
 
             if (generationAttempt === 0 && streamData.content && addToThread) {
-                const message: ThreadMessage = {
-                    type: AssistantMessageType.Human,
-                    content: streamData.content,
-                    status: 'completed',
-                    trace_id: traceId,
+                // Guard against a duplicate provisional bubble when the ask flow fires more than
+                // once before the first response arrives (e.g. maxThreadLogic remounts as the
+                // conversation id resolves and an effect keyed on the askMax action re-issues the
+                // ask): if the most recent message is already an identical human bubble we just
+                // added, skip it so the streamed human echo replaces a single provisional instead
+                // of leaving the earlier one orphaned.
+                const lastMessage = values.threadRaw.at(-1)
+                const isDuplicateProvisional =
+                    !!lastMessage && isHumanMessage(lastMessage) && lastMessage.content === streamData.content
+                if (!isDuplicateProvisional) {
+                    const message: ThreadMessage = {
+                        type: AssistantMessageType.Human,
+                        content: streamData.content,
+                        status: 'completed',
+                        trace_id: traceId,
+                    }
+                    actions.addMessage(message)
                 }
-                actions.addMessage(message)
             }
 
             let caughtException = false
