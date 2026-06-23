@@ -57,7 +57,7 @@ export function ScoutRowCard({
                         {asHeader ? (
                             // min-w keeps the name from being squeezed to zero width by the
                             // trailing badges — truncate should clip to an ellipsis, never vanish.
-                            <span className="truncate font-medium text-sm min-w-[6rem] flex-1">{displayName}</span>
+                            <span className="truncate font-medium text-sm min-w-[6rem]">{displayName}</span>
                         ) : (
                             <Tooltip title={`${config.skill_name} · view scout`}>
                                 <Link
@@ -66,14 +66,15 @@ export function ScoutRowCard({
                                     // (hidden) list subtree — close it so it doesn't cover the detail page.
                                     onClick={() => closeSetupModal()}
                                     subtle
-                                    className="truncate font-medium text-sm min-w-[6rem] flex-1"
+                                    className="truncate font-medium text-sm min-w-[6rem]"
                                 >
                                     {displayName}
                                 </Link>
                             </Tooltip>
                         )}
-                        {/* Icon + badges never shrink: the name (flex-1) absorbs width pressure and
-                            truncates, so the Custom/Canonical pill is never sliced mid-badge. */}
+                        {/* Badges hug the name instead of being shoved to the column's right edge.
+                            They never shrink (shrink-0); the name absorbs width pressure by shrinking
+                            and truncating (down to its min-w floor), so the pill is never sliced. */}
                         <div className="flex items-center gap-2 shrink-0">
                             <Tooltip title={`${config.skill_name} · open skill`}>
                                 <Link
