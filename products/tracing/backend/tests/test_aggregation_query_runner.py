@@ -162,3 +162,58 @@ class TestTraceSpansAggregationPercentiles(_TraceSpansTestBase):
         )
         row = next(r for r in response.results if r.name == self.NAME)
         self.assertAlmostEqual(getattr(row, field), expected_nano, delta=MS_TO_NANO)
+
+
+class TestTraceSpansTreePercentiles(_TraceSpansTestBase):
+    SERVICE = "web"
+    PARENT_NAME = "entry-op"
+    CHILD_NAME = "GET /api/things"
+    # Same banding as the flat test, applied to the 1000 child spans of one (parent → child) edge.
+    BANDS = [(10, 600), (100, 360), (1000, 35), (5000, 5)]
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls._recreate_trace_spans_tables()
+
+        trace_id = _b64((1).to_bytes(16, "big"))
+        parent_span_id = _b64((1).to_bytes(8, "big"))
+        base_ts = dt.datetime(2026, 6, 2, 8, 0, 0)
+        start_str = base_ts.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+        rows = [
+            f"('019e8761-0000-0000-0000-000000000000', {cls.team.id}, '{trace_id}', "
+            f"'{parent_span_id}', '', '{cls.PARENT_NAME}', 2, '{start_str}', '{start_str}', '{start_str}', 0, '{cls.SERVICE}')"
+        ]
+        idx = 0
+        for duration_ms, count in cls.BANDS:
+            end_str = (base_ts + dt.timedelta(milliseconds=duration_ms)).strftime("%Y-%m-%d %H:%M:%S.%f")
+            for _ in range(count):
+                idx += 1
+                child_span_id = _b64((idx + 1).to_bytes(8, "big"))
+                rows.append(
+                    f"('019e8761-0000-0000-0001-{idx:012d}', {cls.team.id}, '{trace_id}', "
+                    f"'{child_span_id}', '{parent_span_id}', '{cls.CHILD_NAME}', 2, '{start_str}', '{end_str}', '{start_str}', 0, '{cls.SERVICE}')"
+                )
+        sync_execute(
+            "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, "
+            "timestamp, end_time, observed_timestamp, status_code, service_name) VALUES " + ",".join(rows)
+        )
+
+    @parameterized.expand(
+        [
+            ("p50", "p50_duration_nano", 10 * MS_TO_NANO),
+            ("p95", "p95_duration_nano", 100 * MS_TO_NANO),
+            ("p99", "p99_duration_nano", 1000 * MS_TO_NANO),
+            ("p999", "p999_duration_nano", 5000 * MS_TO_NANO),
+        ]
+    )
+    def test_duration_percentile(self, _name, field, expected_nano):
+        response = run_tree_query(
+            team=self.team,
+            date_range=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+            span_name=self.CHILD_NAME,
+            service_name=self.SERVICE,
+        )
+        edge = next(n for n in response.results if n.name == self.CHILD_NAME)
+        self.assertAlmostEqual(getattr(edge, field), expected_nano, delta=MS_TO_NANO)
