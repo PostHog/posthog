@@ -60,8 +60,8 @@ async fn consume_loop(consumer: SingleTopicConsumer, mut shutdown_rx: watch::Rec
     loop {
         tokio::select! {
             biased;
-            _ = shutdown_rx.changed() => {
-                if *shutdown_rx.borrow() {
+            changed = shutdown_rx.changed() => {
+                if changed.is_err() || *shutdown_rx.borrow() {
                     info!("notifications consumer shutting down");
                     break;
                 }
