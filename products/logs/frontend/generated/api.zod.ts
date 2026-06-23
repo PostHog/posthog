@@ -605,10 +605,21 @@ export const LogsFacetValuesCreateBody = /* @__PURE__ */ zod.object({
     query: zod
         .object({
             facetField: zod
-                .enum(['severity_text', 'service_name'])
-                .describe('\* `severity_text` - severity_text\n\* `service_name` - service_name')
+                .union([
+                    zod
+                        .enum(['severity_text', 'service_name'])
+                        .describe('\* `severity_text` - severity_text\n\* `service_name` - service_name'),
+                    zod.null(),
+                ])
+                .optional()
                 .describe(
-                    'Column to facet on. Its own filter is excluded so counts reflect the other active filters.\n\n\* `severity_text` - severity_text\n\* `service_name` - service_name'
+                    'Top-level column to facet on. Provide exactly one of facetField or facetResourceAttribute. Its own filter is excluded so counts reflect the other active filters.\n\n\* `severity_text` - severity_text\n\* `service_name` - service_name'
+                ),
+            facetResourceAttribute: zod
+                .string()
+                .nullish()
+                .describe(
+                    "Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of facetField or facetResourceAttribute. Its own log_resource_attribute filter is excluded so counts reflect the other active filters."
                 ),
             dateRange: zod
                 .object({
