@@ -168,7 +168,6 @@ async function run(
         model: fauxModel((over.script as AssistantMessage[]) ?? [stop('ok')]),
         bundle,
         sandbox: null,
-        integrations: {},
         secrets: {},
         inputs: new PgSessionQueue(pool),
         bus: driverTestBus,

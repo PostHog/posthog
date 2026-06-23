@@ -414,7 +414,6 @@ export type AgentRevisionApiSpecToolsItem =
       }
 
 export type AgentRevisionApiSpecMcpsItemAuth = {
-    integration?: string
     provider?: string
 }
 
@@ -550,7 +549,6 @@ export type AgentRevisionApiSpec = {
     tools: AgentRevisionApiSpecToolsItem[]
     mcps: AgentRevisionApiSpecMcpsItem[]
     skills: AgentRevisionApiSpecSkillsItem[]
-    integrations: string[]
     identity_providers?: AgentRevisionApiSpecIdentityProvidersItem[]
     secrets: AgentRevisionApiSpecSecretsItem[]
     limits: AgentRevisionApiSpecLimits
@@ -794,7 +792,6 @@ export type PatchedAgentRevisionApiSpecToolsItem =
       }
 
 export type PatchedAgentRevisionApiSpecMcpsItemAuth = {
-    integration?: string
     provider?: string
 }
 
@@ -952,7 +949,6 @@ export type PatchedAgentRevisionApiSpec = {
     tools: PatchedAgentRevisionApiSpecToolsItem[]
     mcps: PatchedAgentRevisionApiSpecMcpsItem[]
     skills: PatchedAgentRevisionApiSpecSkillsItem[]
-    integrations: string[]
     identity_providers?: PatchedAgentRevisionApiSpecIdentityProvidersItem[]
     secrets: PatchedAgentRevisionApiSpecSecretsItem[]
     limits: PatchedAgentRevisionApiSpecLimits

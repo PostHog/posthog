@@ -30,7 +30,7 @@ import request from 'supertest'
 
 import { AuthProvider, buildApp, SessionEventBus } from '@posthog/agent-ingress'
 import { buildJanitorApp } from '@posthog/agent-janitor'
-import { IntegrationHostValidator, McpTransportFactory, Worker } from '@posthog/agent-runner'
+import { McpTransportFactory, Worker } from '@posthog/agent-runner'
 import type { AnalyticsEvent, IdentityStore, LogEntry } from '@posthog/agent-shared'
 import {
     AgentApplication,
@@ -234,10 +234,6 @@ export interface BuildClusterOpts {
     slackSigningSecretResolver?: SecretResolver
     /** Override the per-session secret resolver (defaults to empty). */
     resolveSecrets?: (sessionId: string) => Promise<Record<string, string>>
-    /** Override the per-session integrations resolver (defaults to empty). */
-    resolveIntegrations?: (
-        sessionId: string
-    ) => Promise<Record<string, { kind: string; access_token: string; refresh_token?: string }>>
     authProvider?: AuthProvider
     /**
      * Optional initial script for the faux provider. Tests that script per-test
@@ -257,13 +253,6 @@ export interface BuildClusterOpts {
      * `cases/mcp-tools.test.ts`.
      */
     mcpTransportFactory?: McpTransportFactory
-    /**
-     * Gates the `auth.integration` bearer attachment on `external` MCP refs.
-     * Defaults to a permissive `() => true` so the common e2e cases don't
-     * have to think about it; security-flavoured tests pass a stricter
-     * implementation to exercise the rejection paths.
-     */
-    integrationHostValidator?: IntegrationHostValidator
     /**
      * Substitute the outbound HTTP client the runner threads into
      * `ToolContext.http`. Tests that want to assert on outbound headers
@@ -424,7 +413,6 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         bus,
         logs: logSink,
         analytics: analyticsSink,
-        resolveIntegrations: opts.resolveIntegrations ? async (s) => opts.resolveIntegrations!(s.id) : async () => ({}),
         resolveSecrets: opts.resolveSecrets ? async (s) => opts.resolveSecrets!(s.id) : async () => ({}),
         resolveModel: resolveModelForHarness,
         approvals,
@@ -432,10 +420,6 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         memoryStore,
         tabularStore,
         mcpTransportFactory: opts.mcpTransportFactory,
-        // Permissive default so the common e2e suite doesn't have to know
-        // about the security gate; the runtime-mcps cases that specifically
-        // exercise integration auth (none in the suite yet) can override.
-        integrationHostValidator: opts.integrationHostValidator ?? (() => true),
         maxConcurrency: 1, // tests prefer serial for deterministic state checks
         // Real HttpClient with no proxy by default — tests that exercise
         // outbound HTTP hit real localhost servers (matches the wider harness

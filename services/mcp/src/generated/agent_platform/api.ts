@@ -218,7 +218,6 @@ export const agentApplicationsRevisionsCreateBodySpecMcpsDefault = []
 export const agentApplicationsRevisionsCreateBodySpecSkillsItemVersionMin = 0
 
 export const agentApplicationsRevisionsCreateBodySpecSkillsDefault = []
-export const agentApplicationsRevisionsCreateBodySpecIntegrationsDefault = []
 export const agentApplicationsRevisionsCreateBodySpecIdentityProvidersItemOneIdDefault = `posthog`
 
 export const agentApplicationsRevisionsCreateBodySpecIdentityProvidersItemOneBindingDefault = `principal`
@@ -584,7 +583,6 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                         url: zod.url(),
                         auth: zod
                             .object({
-                                integration: zod.string().optional(),
                                 provider: zod.string().optional(),
                             })
                             .optional(),
@@ -650,7 +648,6 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                     })
                 )
                 .default(agentApplicationsRevisionsCreateBodySpecSkillsDefault),
-            integrations: zod.array(zod.string()).default(agentApplicationsRevisionsCreateBodySpecIntegrationsDefault),
             identity_providers: zod
                 .array(
                     zod.union([
@@ -906,7 +903,6 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecSkillsItemVersionMin = 0
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecSkillsDefault = []
-export const agentApplicationsRevisionsPartialUpdateBodySpecIntegrationsDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersItemOneIdDefault = `posthog`
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersItemOneBindingDefault = `principal`
@@ -1288,7 +1284,6 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                         url: zod.url(),
                         auth: zod
                             .object({
-                                integration: zod.string().optional(),
                                 provider: zod.string().optional(),
                             })
                             .optional(),
@@ -1354,9 +1349,6 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                     })
                 )
                 .default(agentApplicationsRevisionsPartialUpdateBodySpecSkillsDefault),
-            integrations: zod
-                .array(zod.string())
-                .default(agentApplicationsRevisionsPartialUpdateBodySpecIntegrationsDefault),
             identity_providers: zod
                 .array(
                     zod.union([

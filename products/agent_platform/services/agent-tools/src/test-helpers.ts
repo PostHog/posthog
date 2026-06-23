@@ -8,7 +8,6 @@ export function makeCtx(overrides?: Partial<ToolContext>): ToolContext {
         teamId: 1,
         applicationId: 'test-app',
         sessionId: 'test-session',
-        integrations: {},
         secret: (_name: string) => undefined,
         secretAllowedHosts: (_name: string) => undefined,
         log: (level, msg, meta) => {
@@ -30,7 +29,6 @@ export function makeCapturingCtx(): {
         teamId: 1,
         applicationId: 'test-app',
         sessionId: 'test-session',
-        integrations: {},
         secret: () => undefined,
         secretAllowedHosts: () => undefined,
         log: (level, msg, meta) => {

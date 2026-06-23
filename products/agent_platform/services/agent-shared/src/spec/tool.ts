@@ -53,8 +53,6 @@ export interface ToolContext {
     /** The agent (application) running this session — the memory scope key. */
     applicationId: string
     sessionId: string
-    /** Resolved integration tokens, keyed by integration id ("slack:T01..."). */
-    integrations: Record<string, IntegrationCredentials>
     /** Fetch resolved secret value for a name from spec.secrets. */
     secret(name: string): string | undefined
     /**
@@ -64,9 +62,7 @@ export interface ToolContext {
      *     UNBOUND — `@posthog/http-request` refuses substitution).
      *   - `undefined` when the name isn't declared in `spec.secrets[]` at all.
      *
-     * Fail-closed by design: the bare-string `null` return is the same shape
-     * as `mcp-clients.ts` refusing an `auth.integration` ref when its host
-     * validator isn't wired. Authors who want to call out to a service with
+     * Fail-closed by design: an author who wants to call out to a service with
      * a secret MUST pin that secret to the destination host(s) — a prompt-
      * injected `${TOKEN}` against an attacker URL then refuses before fetch
      * rather than leaking the credential.
@@ -150,13 +146,6 @@ export interface ToolContext {
      * reads inside tool code.
      */
     posthogApiBaseUrl: string
-}
-
-export interface IntegrationCredentials {
-    kind: string
-    access_token: string
-    refresh_token?: string
-    metadata?: Record<string, unknown>
 }
 
 /** Outcome of `ctx.identity.resolve`: a usable credential, a link to send, or no-go.

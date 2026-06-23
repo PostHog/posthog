@@ -348,7 +348,6 @@
             "description": "Hard rules \u2014 what the Agent Builder MUST NOT do regardless of user request. Load IMMEDIATELY if a request feels like it crosses into raw-secret handling, unprompted promotion, irreversible deletion, or impersonation of another user."
         }
     ],
-    "integrations": [],
     "identity_providers": [
         {
             "kind": "posthog",

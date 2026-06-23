@@ -46,7 +46,6 @@ import {
     PgIdentityCredentialStore,
     PgIdentityLinkStateStore,
     PgIdentityStore,
-    PgIntegrationStore,
     PgRevisionStore,
     PgSandboxInstanceStore,
     PgSessionQueue,
@@ -65,7 +64,6 @@ import { defaultApiKeyFromConfig, loadAgentRunnerConfig } from './config'
 import { posthogAiGatewayModel } from './models/ai-gateway-model'
 import { resolveModelCached } from './models/pi-client'
 import { makeEncryptedEnvResolver } from './resolvers/encrypted-env-resolver'
-import { makeIntegrationHostValidator } from './resolvers/integration-host-registry'
 import { Worker } from './workers/worker'
 
 const log = createLogger('agent-runner')
@@ -141,19 +139,6 @@ async function main(): Promise<void> {
     // config; prod must set ENCRYPTION_SALT_KEYS explicitly.
     const encryption = new EncryptedFields(config.encryptionSaltKeys)
     const resolveSecrets = makeEncryptedEnvResolver({ revisions, encryption })
-
-    // Integration credentials live in PostHog's existing `posthog_integration`
-    // table (the same one Settings → Integrations writes to and HogFunctions
-    // read from). Unconditionally wired now that encryption is required.
-    const integrations = new PgIntegrationStore(posthogDb, encryption)
-    const resolveIntegrations = async (session: {
-        team_id: number
-        revision_id: string
-    }): Promise<Awaited<ReturnType<typeof integrations.resolveForSpec>>> => {
-        const rev = await revisions.getRevision(session.revision_id)
-        const kinds = rev?.spec?.integrations ?? []
-        return integrations.resolveForSpec(session.team_id, kinds)
-    }
 
     // Cross-process event bus. REDIS_URL is required — ingress /listen on host A
     // subscribes to events the runner publishes on host B via the same Redis.
@@ -306,7 +291,6 @@ async function main(): Promise<void> {
         buildApprovalUrl: (requestId) => `${config.approvalLinkScheme}://approval/${requestId}`,
         bus,
         logs: logSink,
-        resolveIntegrations,
         resolveSecrets,
         resolveModel: config.useAiGateway
             ? // Route every model through PostHog's ai-gateway as a drop-in proxy.
@@ -351,11 +335,6 @@ async function main(): Promise<void> {
         identities,
         linkRedirectBaseUrl: config.linkRedirectBaseUrl,
         devMcpBearerToken: config.devMcpBearerToken,
-        // Per-integration-kind host allowlist. Without this, any external MCP
-        // ref with `auth.integration` fails closed at open with
-        // `mcp_integration_host_validator_not_wired`. Registry seeded with
-        // slack; extend in integration-host-registry.ts as kinds are added.
-        integrationHostValidator: makeIntegrationHostValidator(),
         http,
         posthogApiBaseUrl: config.posthogApiBaseUrl,
         failureNotifier,

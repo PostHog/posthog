@@ -8201,7 +8201,6 @@ export namespace Schemas {
     };
 
     export type AgentRevisionSpecMcpsItemAuth = {
-      integration?: string;
       provider?: string;
     };
 
@@ -8353,7 +8352,6 @@ export namespace Schemas {
       tools: AgentRevisionSpecToolsItem[];
       mcps: AgentRevisionSpecMcpsItem[];
       skills: AgentRevisionSpecSkillsItem[];
-      integrations: string[];
       identity_providers?: AgentRevisionSpecIdentityProvidersItem[];
       secrets: AgentRevisionSpecSecretsItem[];
       limits: AgentRevisionSpecLimits;
@@ -34067,7 +34065,6 @@ export namespace Schemas {
     };
 
     export type PatchedAgentRevisionSpecMcpsItemAuth = {
-      integration?: string;
       provider?: string;
     };
 
@@ -34219,7 +34216,6 @@ export namespace Schemas {
       tools: PatchedAgentRevisionSpecToolsItem[];
       mcps: PatchedAgentRevisionSpecMcpsItem[];
       skills: PatchedAgentRevisionSpecSkillsItem[];
-      integrations: string[];
       identity_providers?: PatchedAgentRevisionSpecIdentityProvidersItem[];
       secrets: PatchedAgentRevisionSpecSecretsItem[];
       limits: PatchedAgentRevisionSpecLimits;
