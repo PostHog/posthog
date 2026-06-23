@@ -266,7 +266,6 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
                 count() AS count,
                 sum(duration_nano) AS total_duration_nano,
                 avg(duration_nano) AS avg_duration_nano,
-                -- Single aggregate computes all four levels; unpacked in declared order downstream.
                 quantiles(0.5, 0.95, 0.99, 0.999)(duration_nano) AS duration_quantiles,
                 countIf(status_code = 2) AS error_count
             FROM posthog.trace_spans
@@ -390,7 +389,6 @@ class TraceSpansTreeQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunner[Trac
                 count() AS count,
                 sum(s.duration_nano) AS total_duration_nano,
                 avg(s.duration_nano) AS avg_duration_nano,
-                -- Single aggregate computes all four levels; unpacked in declared order downstream.
                 quantiles(0.5, 0.95, 0.99, 0.999)(s.duration_nano) AS duration_quantiles,
                 countIf(s.status_code = 2) AS error_count,
                 avg(

@@ -118,10 +118,7 @@ class TestTraceSpansTreeCallRatio(_TraceSpansTestBase):
 class TestTraceSpansAggregationPercentiles(_TraceSpansTestBase):
     SERVICE = "web"
     NAME = "GET /api/things"
-    # (duration_ms, span_count). 1000 spans banded so each percentile of n=1000 lands strictly
-    # inside one uniform band: p50 in the 10ms band, p95 in 100ms, p99 in 1000ms, p99.9 in 5000ms.
-    # Every level then resolves to that band's exact value, so a mis-wired quantile level or a
-    # shifted unpack index moves the result into a different band and the assertion fails.
+    # (duration_ms, span_count): sized so each percentile of n=1000 lands inside one uniform band.
     BANDS = [(10, 600), (100, 360), (1000, 35), (5000, 5)]
 
     @classmethod
@@ -164,6 +161,4 @@ class TestTraceSpansAggregationPercentiles(_TraceSpansTestBase):
             service_names=[self.SERVICE],
         )
         row = next(r for r in response.results if r.name == self.NAME)
-        # 1ms tolerance: bands are ≥90ms apart, so this distinguishes levels while absorbing
-        # any sub-ms interpolation at the band edges.
         self.assertAlmostEqual(getattr(row, field), expected_nano, delta=MS_TO_NANO)

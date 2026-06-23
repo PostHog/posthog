@@ -571,19 +571,15 @@
                     "type": "string"
                 },
                 "p50_duration_nano": {
-                    "description": "Median wall-clock span duration, in nanoseconds.",
                     "type": "number"
                 },
                 "p95_duration_nano": {
-                    "description": "95th-percentile wall-clock span duration, in nanoseconds.",
                     "type": "number"
                 },
                 "p999_duration_nano": {
-                    "description": "99.9th-percentile wall-clock span duration, in nanoseconds. Only meaningful with enough spans per group.",
                     "type": "number"
                 },
                 "p99_duration_nano": {
-                    "description": "99th-percentile wall-clock span duration, in nanoseconds.",
                     "type": "number"
                 },
                 "service_name": {
@@ -41247,19 +41243,15 @@
                     "type": "string"
                 },
                 "p50_duration_nano": {
-                    "description": "Median wall-clock span duration, in nanoseconds.",
                     "type": "number"
                 },
                 "p95_duration_nano": {
-                    "description": "95th-percentile wall-clock span duration, in nanoseconds.",
                     "type": "number"
                 },
                 "p999_duration_nano": {
-                    "description": "99.9th-percentile wall-clock span duration, in nanoseconds. Only meaningful with enough spans per edge.",
                     "type": "number"
                 },
                 "p99_duration_nano": {
-                    "description": "99th-percentile wall-clock span duration, in nanoseconds.",
                     "type": "number"
                 },
                 "parent_name": {
