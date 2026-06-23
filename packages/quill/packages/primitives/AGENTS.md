@@ -142,8 +142,8 @@ Don't hand-roll `<p className="text-xs text-muted-foreground">` when `<Text size
 | SkeletonText | —                                                        | —                                                    | lines, minWidth, maxWidth                                                                                              |
 | Progress     | —                                                        | —                                                    | value: 0-100                                                                                                           |
 | Slider       | —                                                        | —                                                    | value, min, max                                                                                                        |
-| Avatar       | —                                                        | default, sm                                          | Compose `Avatar > AvatarImage + AvatarFallback`; image errors fall back to initials/icon                               |
-| AvatarGroup  | —                                                        | default, sm                                          | Row of Avatars; `stacked` overlaps + spreads on hover (no reflow), `reverse` spreads left; `size` forwards to children |
+| Avatar       | —                                                        | default, sm, xs                                      | Compose `Avatar > AvatarImage + AvatarFallback`; image errors fall back to initials/icon                               |
+| AvatarGroup  | —                                                        | default, sm, xs                                      | Row of Avatars; `stacked` overlaps + spreads on hover (no reflow), `reverse` spreads left; `size` forwards to children |
 
 ---
 
@@ -681,7 +681,7 @@ Item sizes: default, sm, xs
 
 ### Avatar
 
-Compose `Avatar > AvatarImage + AvatarFallback`. The fallback (initials or a bare lucide icon — don't `size-*` it) shows when there's no image or the image errors. `size="sm"` (1.5rem) or default (2rem).
+Compose `Avatar > AvatarImage + AvatarFallback`. The fallback (initials or a bare lucide icon — don't `size-*` it) shows when there's no image or the image errors. `size="xs"` (1.25rem), `"sm"` (1.5rem), or default (2rem).
 
 ```tsx
 <Avatar>

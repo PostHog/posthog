@@ -29,6 +29,12 @@
         font-size: var(--text-xxs, 0.625rem);
     }
 
+    .quill-avatar[data-size='xs'] {
+        --avatar-size: 1.25rem;
+
+        font-size: var(--text-xxs, 0.625rem);
+    }
+
     .quill-avatar__image {
         width: 100%;
         height: 100%;
@@ -70,6 +76,10 @@
 
     .quill-avatar-group[data-size='sm'] {
         --avatar-overlap: 0.5rem;
+    }
+
+    .quill-avatar-group[data-size='xs'] {
+        --avatar-overlap: 0.4375rem;
     }
 
     .quill-avatar-group__item {

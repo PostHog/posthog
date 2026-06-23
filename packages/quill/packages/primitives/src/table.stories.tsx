@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { ChevronsUpDown, Inbox, MoreHorizontal, Plus } from 'lucide-react'
 import * as React from 'react'
 
+import { Avatar, AvatarFallback, AvatarGroup, AvatarImage } from './avatar'
 import { Badge } from './badge'
 import { Button } from './button'
 import { Card, CardContent, CardHeader, CardTitle } from './card'
@@ -25,6 +26,7 @@ import {
     TableHeader,
     TableRow,
 } from './table'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './tooltip'
 
 const meta = {
     title: 'Primitives/Table',
@@ -258,6 +260,60 @@ const manyRows = Array.from({ length: 40 }, (_, i) => ({
     role: i % 3 === 0 ? 'Admin' : 'Member',
     status: i % 4 === 0 ? 'Invited' : 'Active',
 }))
+
+const TEAM = ['Ada', 'Grace', 'Alan', 'Katherine', 'Edsger', 'Linus', 'Margaret', 'Donald', 'Barbara']
+
+// Avatars inside table cells: a stacked `size="xs"` AvatarGroup "Team" column
+// (last, so its hover spread runs into empty space), each avatar a tooltip trigger.
+// One TooltipProvider wraps the table; its delay matches the 200ms spread so a name
+// shows once the pile has finished expanding. The avatars sit on the table surface,
+// so the group's ring keeps its default (app background) here.
+export const WithAvatars: Story = {
+    render: () => (
+        <TooltipProvider delay={200}>
+            <Table className="max-w-2xl">
+                <TableHeader>
+                    <TableRow>
+                        <TableHead expand>Member</TableHead>
+                        <TableHead>Role</TableHead>
+                        <TableHead>Team</TableHead>
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
+                    {manyRows.slice(0, 6).map((row, i) => (
+                        <TableRow key={row.id}>
+                            <TableCell className="font-medium">{row.name}</TableCell>
+                            <TableCell>{row.role}</TableCell>
+                            <TableCell>
+                                <AvatarGroup stacked size="xs" reverse>
+                                    {Array.from({ length: 3 }, (_, j) => {
+                                        const name = TEAM[(i * 3 + j) % TEAM.length]
+                                        return (
+                                            <Tooltip key={j}>
+                                                <TooltipTrigger
+                                                    render={
+                                                        <Avatar size="xs">
+                                                            <AvatarImage
+                                                                src={`https://i.pravatar.cc/48?img=${i * 3 + j + 20}`}
+                                                                alt={name}
+                                                            />
+                                                            <AvatarFallback>{name[0]}</AvatarFallback>
+                                                        </Avatar>
+                                                    }
+                                                />
+                                                <TooltipContent>{name}</TooltipContent>
+                                            </Tooltip>
+                                        )
+                                    })}
+                                </AvatarGroup>
+                            </TableCell>
+                        </TableRow>
+                    ))}
+                </TableBody>
+            </Table>
+        </TooltipProvider>
+    ),
+} satisfies Story
 
 export const StickyHeader: Story = {
     render: () => (

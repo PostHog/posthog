@@ -32,11 +32,15 @@ export const Default: Story = {
     ),
 } satisfies Story
 
-// `size="sm"` (1.5rem) next to the default (2rem). The fallback text and any icon
-// track the circle size automatically.
+// `size="xs"` (1.25rem) and `"sm"` (1.5rem) next to the default (2rem). The
+// fallback text and any icon track the circle size automatically.
 export const Sizes: Story = {
     render: () => (
         <div className="flex items-center gap-4">
+            <Avatar size="xs">
+                <AvatarImage src={FACES[1]} alt="Grace Hopper" />
+                <AvatarFallback>GH</AvatarFallback>
+            </Avatar>
             <Avatar size="sm">
                 <AvatarImage src={FACES[1]} alt="Grace Hopper" />
                 <AvatarFallback>GH</AvatarFallback>
