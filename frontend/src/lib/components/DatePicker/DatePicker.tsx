@@ -1,12 +1,23 @@
+import { useState } from 'react'
+
+import { IconCalendar, IconX } from '@posthog/icons'
+import { DatePicker as QuillDatePicker } from '@posthog/quill-components'
+import { Button, Popover, PopoverContent, PopoverTrigger } from '@posthog/quill-primitives'
+
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonCalendarSelectInput, LemonCalendarSelectInputProps } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 
 /**
  * Design-system-agnostic single-date picker — the migration seam between the LemonUI
  * calendar family and Quill's DateTimePicker. Callers depend on this dayjs-facing API;
  * the internal rendering swaps from LemonUI to Quill in one place without touching callers.
- * That swap should land behind a feature flag so LemonUI and Quill can run side by side
- * and roll back without a revert.
+ *
+ * The swap is gated by the `QUILL_DATE_PICKER` feature flag so LemonUI and Quill run side
+ * by side and roll back without a revert. The Quill panel does not yet cover the whole
+ * feature surface, so `quillCanRender` falls back to LemonUI whenever a request needs a
+ * capability Quill is missing (time, selection windows, multi-month, controlled
+ * visibility). Each Quill panel increment removes one fallback condition.
  *
  * Trigger concerns (placeholder, clearable, format, ...) live here by design — Quill
  * separates the trigger from the picker panel, so the wrapper owns the trigger.
@@ -57,7 +68,86 @@ export interface DatePickerProps {
     'data-attr'?: string
 }
 
-export function DatePicker({
+const QUILL_TRIGGER_FORMAT = 'MMMM D, YYYY'
+
+function quillCanRender(props: DatePickerProps): boolean {
+    return (
+        props.granularity === undefined &&
+        props.selectionPeriod === undefined &&
+        props.showTimeToggle === undefined &&
+        props.use24HourFormat === undefined &&
+        props.months === undefined &&
+        props.visible === undefined
+    )
+}
+
+export function DatePicker(props: DatePickerProps): JSX.Element {
+    const quillEnabled = useFeatureFlag('QUILL_DATE_PICKER')
+    if (quillEnabled && quillCanRender(props)) {
+        return <DatePickerQuill {...props} />
+    }
+    return <DatePickerLemon {...props} />
+}
+
+function DatePickerQuill({
+    value,
+    onChange,
+    placeholder,
+    clearable,
+    format,
+    fullWidth = true,
+    disabledReason,
+    'data-attr': dataAttr,
+}: DatePickerProps): JSX.Element {
+    const [open, setOpen] = useState(false)
+    const label = value ? value.format(format ?? QUILL_TRIGGER_FORMAT) : (placeholder ?? 'Select date')
+
+    const applyDate = (next: Date): void => {
+        onChange(dayjs(next))
+        setOpen(false)
+    }
+
+    return (
+        <div className={fullWidth ? 'flex w-full items-center gap-1' : 'flex items-center gap-1'}>
+            <Popover open={open} onOpenChange={setOpen}>
+                <PopoverTrigger
+                    render={
+                        <Button
+                            variant="outline"
+                            data-attr={dataAttr}
+                            data-quill
+                            disabled={!!disabledReason}
+                            title={disabledReason}
+                            className={fullWidth ? 'w-full justify-start' : 'justify-start'}
+                        >
+                            <IconCalendar />
+                            {label}
+                        </Button>
+                    }
+                />
+                <PopoverContent align="start" className="w-auto p-0">
+                    <QuillDatePicker
+                        value={value ? value.toDate() : new Date()}
+                        onApply={applyDate}
+                        onCancel={() => setOpen(false)}
+                    />
+                </PopoverContent>
+            </Popover>
+            {clearable && value && !disabledReason && (
+                <Button
+                    variant="outline"
+                    aria-label="Clear"
+                    data-attr={dataAttr ? `${dataAttr}-clear` : undefined}
+                    onClick={() => onChange(null)}
+                >
+                    <IconX />
+                </Button>
+            )}
+        </div>
+    )
+}
+
+function DatePickerLemon({
     value,
     onChange,
     granularity,

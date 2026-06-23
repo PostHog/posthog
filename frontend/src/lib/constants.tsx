@@ -280,13 +280,13 @@ export const FEATURE_FLAGS = {
     DATA_MODELING_MULTI_DAG: 'data-modeling-multi-dag', // owner: #team-data-modeling
     DATA_MODELING_TAB: 'data-modeling-tab', // owner: #team-data-modeling
     DATA_WAREHOUSE_SCENE: 'data-warehouse-scene', // owner: #team-data-modeling
+    DATA_WAREHOUSE_SEMANTIC_ENRICHMENT: 'data-warehouse-semantic-enrichment', // owner: #team-warehouse-sources
     DEFAULT_EVALUATION_ENVIRONMENTS: 'default-evaluation-environments', // owner: @dmarticus #team-feature-flags
     DROP_PERSON_LIST_ORDER_BY: 'drop-person-list-order-by', // owner: @arthurdedeus #team-customer-analytics
     DWH_JOIN_TABLE_PREVIEW: 'dwh-join-table-preview', // owner: @arthurdedeus #team-customer-analytics
     DWH_POSTGRES_CDC: 'dwh-postgres-cdc', // owner: #team-warehouse-sources
     DWH_POSTGRES_XMIN: 'dwh-postgres-xmin', // owner: #team-warehouse-sources
     DWH_SOURCE_METRICS: 'dwh-source-metrics', // owner: #team-warehouse-sources
-    DATA_WAREHOUSE_SEMANTIC_ENRICHMENT: 'data-warehouse-semantic-enrichment', // owner: #team-warehouse-sources
     EDITOR_DRAFTS: 'editor-drafts', // owner: @EDsCODE #team-data-tools
     ENDPOINTS: 'embedded-analytics', // owner: @sakce #team-clickhouse
     ENGINEERING_ANALYTICS: 'engineering-analytics', // owner: #team-devex
@@ -437,6 +437,7 @@ export const FEATURE_FLAGS = {
     PROMOTED_PRODUCT: 'promoted-product', // owner: @pauldambra #team-growth multivariate=control,control_b,intent,intent_plus, experiment for surfacing the team's primary onboarding product directly under Home
     PROPERTY_ACCESS_CONTROL: 'property-access-control', // owner: @reecejones #team-platform-features
     QUICK_START_PULSE_INDICATOR: 'quick-start-pulse-indicator', // owner: @fercgomes #team-growth multivariate=control,test
+    QUILL_DATE_PICKER: 'quill-date-picker', // owner: @pauldambra, flips the lib/components/DatePicker seam from LemonUI to Quill
     RBAC_UI_REDESIGN: 'rbac-ui-redesign', // owner: @reece #team-platform-features
     READ_ONLY_MODE: 'read-only-mode', // owner: @pauldambra, experiment: force users into read-only and steer mutations through Max/MCP
     REAL_TIME_NOTIFICATIONS: 'real-time-notifications', // owner: #team-platform-features
