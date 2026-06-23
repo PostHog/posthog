@@ -43,6 +43,7 @@ WORKFLOWS = [
     CDCExtractionWorkflow,
     CDCSlotCleanupWorkflow,
     DiscoverSchemasWorkflow,
+    EnrichTableSemanticsWorkflow,
 ]
 
 ACTIVITIES = [
@@ -61,6 +62,7 @@ ACTIVITIES = [
     check_pipeline_version_activity,
     acquire_v3_pipeline_lock_activity,
     release_v3_pipeline_lock_activity,
+    enrich_table_semantics_activity,
 ]
 
 # Workflow + activities that run on the VIDEO_EXPORT_TASK_QUEUE (signals worker)
@@ -68,11 +70,9 @@ EMIT_SIGNALS_WORKFLOWS = [
     EmitDataImportSignalsWorkflow,
     ConversationsSignalsCoordinatorWorkflow,
     EmitConversationsSignalsWorkflow,
-    EnrichTableSemanticsWorkflow,
 ]
 EMIT_SIGNALS_ACTIVITIES = [
     emit_data_import_signals_activity,
     emit_conversations_signals_activity,
     get_conversations_signals_enabled_teams_activity,
-    enrich_table_semantics_activity,
 ]

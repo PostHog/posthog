@@ -488,8 +488,8 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 )
 
             # Generate semantic descriptions for the synced table (gated by feature flag inside the
-            # activity, and idempotent — it no-ops once a table is enriched). Fire-and-forget on the
-            # signals queue so it never blocks or fails the import.
+            # activity, and idempotent — it no-ops once a table is enriched). Fire-and-forget child on
+            # the data-warehouse queue; ABANDON means it never blocks or fails the import.
             await workflow.start_child_workflow(
                 EnrichTableSemanticsWorkflow.run,
                 EnrichTableSemanticsInputs(
@@ -498,7 +498,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 ),
                 id=f"enrich-warehouse-table-semantics-{job_id}",
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+                task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
                 parent_close_policy=ParentClosePolicy.ABANDON,
                 execution_timeout=dt.timedelta(minutes=30),
             )
