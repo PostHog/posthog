@@ -2,8 +2,9 @@ import time
 from datetime import timedelta
 from typing import Any
 
-import structlog
 from django.apps import apps
+
+import structlog
 
 from posthog.cache_utils import cache_for
 from posthog.exceptions_capture import capture_exception

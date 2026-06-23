@@ -285,25 +285,25 @@ in `facade/api.py` with the viewset deferred.
       only police the import channel; a mechanical check for these
       non-import channels is a known gap, noted and deferred.
    - **Permanent-interface exception (irreducible import coupling).** Some
-      import coupling genuinely cannot be drained: ClickHouse DDL modules
-      (`backend.sql`, `backend.embedding`, …) are imported by core's
-      `posthog/clickhouse/schema.py` registry, `conftest.py`, and **frozen**
-      ClickHouse migrations that hardcode the import path forever. You cannot
-      reroute a frozen migration or move the module. For this, mark the
-      tach `[[interfaces]]` block that exposes those modules with a
-      `# isolation:permanent-interface` comment on the line(s) directly above
-      it. The marker tells `hogli product:lint` the block is a declared,
-      irreducible exposure — **not** a legacy leak — so it stops withholding
-      `backend:contract-check`. Soundness is preserved by pairing it with
-      turbo.json: every permanently-exposed module **must** appear in the
-      contract-check `inputs` (e.g. `backend/sql.py`), so a change to it still
-      re-runs the full suite. `IsolationChainCheck` enforces that pairing and
-      fails if a marked module is missing from the inputs. Use this only for
-      coupling that is both non-behavioral-over-HTTP and impossible to reroute
-      (frozen-migration / schema-registry DDL) — not as an escape hatch for
-      model/logic imports you simply haven't migrated yet. `error_tracking` is
-      the worked example; `cohorts` and `event_definitions` share the same DDL
-      shape and can follow it.
+     import coupling genuinely cannot be drained: ClickHouse DDL modules
+     (`backend.sql`, `backend.embedding`, …) are imported by core's
+     `posthog/clickhouse/schema.py` registry, `conftest.py`, and **frozen**
+     ClickHouse migrations that hardcode the import path forever. You cannot
+     reroute a frozen migration or move the module. For this, mark the
+     tach `[[interfaces]]` block that exposes those modules with a
+     `# isolation:permanent-interface` comment on the line(s) directly above
+     it. The marker tells `hogli product:lint` the block is a declared,
+     irreducible exposure — **not** a legacy leak — so it stops withholding
+     `backend:contract-check`. Soundness is preserved by pairing it with
+     turbo.json: every permanently-exposed module **must** appear in the
+     contract-check `inputs` (e.g. `backend/sql.py`), so a change to it still
+     re-runs the full suite. `IsolationChainCheck` enforces that pairing and
+     fails if a marked module is missing from the inputs. Use this only for
+     coupling that is both non-behavioral-over-HTTP and impossible to reroute
+     (frozen-migration / schema-registry DDL) — not as an escape hatch for
+     model/logic imports you simply haven't migrated yet. `error_tracking` is
+     the worked example; `cohorts` and `event_definitions` share the same DDL
+     shape and can follow it.
    - Verify with `tach check --dependencies --interfaces`, `lint-imports`
      (import-linter contract for presentation → facade), and `hogli product:lint <name>`.
    - Use `hogli product:maturity <name>` for a detailed breakdown of remaining
