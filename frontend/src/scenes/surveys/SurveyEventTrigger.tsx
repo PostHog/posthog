@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { PropertyMatchType } from 'posthog-js'
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 
 import { IconX } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonCheckbox, LemonCollapse } from '@posthog/lemon-ui'
@@ -114,7 +114,24 @@ function SurveyEventSelector({
     const { setSurveyValue } = useActions(surveyLogic)
     const excludedObjectProperties = useExcludedObjectProperties()
 
-    const events: SurveyEventsWithProperties[] = survey.conditions?.[conditionField]?.values || []
+    // Guard against malformed/legacy conditions (e.g. edited as raw JSON) where `values` is a
+    // truthy non-array — `|| []` only catches null/undefined, so a non-array would reach `.map` and throw.
+    const conditionValues = survey.conditions?.[conditionField]?.values
+    const events: SurveyEventsWithProperties[] = Array.isArray(conditionValues) ? conditionValues : []
+
+    // Stable per-row keys so adding an event only mounts the new panel and never remounts existing
+    // ones. Remounting a LemonCollapse mid-render races the AddEventButton popover's deferred portal
+    // teardown and triggers a `removeChild` DOMException. Grown idempotently during render (safe under
+    // StrictMode double-invoke) and spliced on removal so surviving rows keep their key.
+    const panelKeysRef = useRef<string[]>([])
+    const panelKeyCounterRef = useRef(0)
+    if (panelKeysRef.current.length < events.length) {
+        while (panelKeysRef.current.length < events.length) {
+            panelKeysRef.current.push(`${conditionField}-panel-${panelKeyCounterRef.current++}`)
+        }
+    } else if (panelKeysRef.current.length > events.length) {
+        panelKeysRef.current = panelKeysRef.current.slice(0, events.length)
+    }
 
     const updateEventAtIndex = (index: number, updatedEvent: SurveyEventsWithProperties): void => {
         const newEvents = [...events]
@@ -129,6 +146,7 @@ function SurveyEventSelector({
     }
 
     const removeEventAtIndex = (index: number): void => {
+        panelKeysRef.current.splice(index, 1)
         const newEvents = events.filter((_, i) => i !== index)
         setSurveyValue('conditions', {
             ...survey.conditions,
@@ -166,7 +184,7 @@ function SurveyEventSelector({
 
                             return (
                                 <LemonCollapse
-                                    key={`${conditionField}-${event.name}-${index}`}
+                                    key={panelKeysRef.current[index]}
                                     defaultActiveKey={panelKey}
                                     panels={[
                                         {

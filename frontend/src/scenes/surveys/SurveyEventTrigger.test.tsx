@@ -82,6 +82,28 @@ describe('Survey event trigger property filters', () => {
         expect(screen.getByText('Property filters for signed_up')).toBeInTheDocument()
     })
 
+    it('renders without crashing when conditions.events.values is a malformed non-array', async () => {
+        const wizardLogic = surveyWizardLogic({ id: 'new' })
+        wizardLogic.mount()
+        const logic = surveyLogic({ id: 'new' })
+        logic.mount()
+        // Legacy/raw-JSON-edited conditions can carry a truthy non-array `values`, which used to
+        // reach `.map` and throw a full-page React error.
+        logic.actions.setSurveyValue('conditions', {
+            events: { values: 'signed_up' as any, repeatedActivation: false },
+        })
+
+        render(
+            <Provider>
+                <BindLogic logic={surveyLogic} props={{ id: 'new' }}>
+                    <SurveyEventTrigger />
+                </BindLogic>
+            </Provider>
+        )
+
+        expect(await screen.findByText('No events selected')).toBeInTheDocument()
+    })
+
     it('shows inline property filters in the guided editor and persists changes', async () => {
         const logic = mountSurveyWithTriggerEvent()
 
