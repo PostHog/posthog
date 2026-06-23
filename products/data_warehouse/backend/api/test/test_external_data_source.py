@@ -3128,6 +3128,86 @@ class TestExternalDataSource(APIBaseTest):
         mock_setup_cdc_resources.assert_not_called()
         mock_add_table.assert_not_called()
 
+    @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
+    @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
+    @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
+    @patch("products.data_warehouse.backend.api.external_data_source.get_primary_key_columns")
+    @patch("products.data_warehouse.backend.api.external_data_source.cdc_pg_connection")
+    @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
+    def test_create_postgres_cdc_returns_400_when_pk_detection_connection_fails(
+        self,
+        mock_get_source,
+        mock_cdc_pg_connection,
+        mock_get_primary_key_columns,
+        mock_setup_cdc_resources,
+        _mock_is_cdc_enabled_for_team,
+        mock_capture_exception,
+    ):
+        # Credential validation connects with sslmode=prefer (falls back to unencrypted), but the
+        # CDC primary-key detection connection requires SSL. A database that doesn't support SSL
+        # raises SSLRequiredError here — a user/upstream connection problem, not a bug. It must
+        # surface as a clean 400, leave no source row behind, and not be captured as error noise.
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        parsed_config = Mock()
+        parsed_config.schema = "public"
+        parsed_config.to_dict.return_value = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "public",
+        }
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="borrower",
+                supports_incremental=True,
+                supports_append=True,
+                supports_cdc=True,
+                columns=[("id", "uuid", False)],
+                foreign_keys=[],
+                source_schema="public",
+                source_table_name="borrower",
+            )
+        ]
+
+        mock_cdc_pg_connection.return_value.__enter__.side_effect = SSLRequiredError(
+            "SSL/TLS connection is required but your database does not support it. "
+            "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "created_via": "web",
+                "payload": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "app",
+                    "user": "user",
+                    "password": "pass",
+                    "schema": "public",
+                    "cdc_enabled": True,
+                    "schemas": [
+                        {"name": "borrower", "should_sync": True, "sync_type": "cdc"},
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "change data capture" in response.json()["message"].lower()
+        # No source row left behind on a connection failure.
+        assert ExternalDataSource.objects.filter(team_id=self.team.pk).count() == 0
+        # CDC slot setup must not run, and the expected connection failure isn't captured as noise.
+        mock_get_primary_key_columns.assert_not_called()
+        mock_setup_cdc_resources.assert_not_called()
+        mock_capture_exception.assert_not_called()
+
     @patch("products.data_warehouse.backend.api.external_data_source.is_cdc_enabled_for_team", return_value=True)
     @patch("products.data_warehouse.backend.api.external_data_source.ExternalDataSourceViewSet._setup_cdc_resources")
     @patch("products.data_warehouse.backend.api.external_data_source.SourceRegistry.get_source")
@@ -9133,6 +9213,18 @@ class TestExternalDataSourceSetup(APIBaseTest):
 
         source = ExternalDataSource.objects.get(pk=response.json()["id"])
         assert source.direct_query_enabled is False
+
+    @patch("products.data_warehouse.backend.api.external_data_source.capture_exception")
+    def test_setup_rejects_source_without_schema_discovery(self, mock_capture_exception):
+        # AmazonS3 doesn't implement get_schemas, so the base raises NotImplementedError.
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/setup/",
+            data={"source_type": "AmazonS3", "prefix": "s3_setup_test", "payload": {}},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "does not support one-shot setup" in response.json()["message"]
+        mock_capture_exception.assert_not_called()
+        assert not ExternalDataSource.objects.filter(team=self.team).exists()
 
     def _create_stripe_webhook_template(self):
         from products.cdp.backend.models.hog_function_template import HogFunctionTemplate

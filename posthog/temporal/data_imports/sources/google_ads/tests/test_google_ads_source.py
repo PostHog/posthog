@@ -7,6 +7,7 @@ from google.ads.googleads.errors import GoogleAdsException
 from google.ads.googleads.v23.enums import types as ga_enums
 from google.ads.googleads.v23.errors.types.errors import ErrorCode, GoogleAdsError, GoogleAdsFailure
 from google.ads.googleads.v23.errors.types.request_error import RequestErrorEnum
+from google.auth import exceptions as google_auth_exceptions
 
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
@@ -15,6 +16,7 @@ from posthog.temporal.data_imports.sources.google_ads.google_ads import (
     GoogleAdsColumn,
     GoogleAdsTable,
     _is_invalid_page_token_error,
+    _load_client_with_transient_retry,
     _search_as_arrow_tables,
 )
 from posthog.temporal.data_imports.sources.google_ads.source import GoogleAdsSource
@@ -443,3 +445,60 @@ class TestSearchPageTokenResumption:
 
         assert always_failing.calls == [""]
         assert manager.saved_states == []
+
+
+_CLIENT_PATH = "posthog.temporal.data_imports.sources.google_ads.google_ads.GoogleAdsClient"
+_SLEEP_PATH = "posthog.temporal.data_imports.sources.google_ads.google_ads.time.sleep"
+
+
+class TestLoadClientTransientRetry:
+    def test_retries_transport_error_then_succeeds(self):
+        client = object()
+        load = mock.Mock(
+            side_effect=[
+                google_auth_exceptions.TransportError("timed out"),
+                google_auth_exceptions.TransportError("timed out"),
+                client,
+            ]
+        )
+
+        with mock.patch(_CLIENT_PATH) as ga_client, mock.patch(_SLEEP_PATH) as sleep:
+            ga_client.load_from_dict = load
+            result = _load_client_with_transient_retry({"refresh_token": "x"})
+
+        assert result is client
+        assert load.call_count == 3
+        # Backoff grows per attempt per `min(2 * attempt, 30)`: 2s after the 1st failure, 4s after the 2nd.
+        assert sleep.call_args_list == [mock.call(2), mock.call(4)]
+
+    def test_reraises_after_exhausting_attempts(self):
+        load = mock.Mock(side_effect=google_auth_exceptions.TransportError("timed out"))
+
+        with mock.patch(_CLIENT_PATH) as ga_client, mock.patch(_SLEEP_PATH) as sleep:
+            ga_client.load_from_dict = load
+            with pytest.raises(google_auth_exceptions.TransportError):
+                _load_client_with_transient_retry({"refresh_token": "x"}, max_attempts=3)
+
+        assert load.call_count == 3
+        # One sleep fewer than attempts — no backoff after the final failure.
+        assert sleep.call_args_list == [mock.call(2), mock.call(4)]
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            # A revoked/expired credential surfaces as RefreshError, not TransportError — it must
+            # not be retried as if it were transient (it's handled as non-retryable elsewhere).
+            google_auth_exceptions.RefreshError("invalid_grant"),
+            ValueError("boom"),
+        ],
+    )
+    def test_non_transient_error_is_not_retried(self, error):
+        load = mock.Mock(side_effect=error)
+
+        with mock.patch(_CLIENT_PATH) as ga_client, mock.patch(_SLEEP_PATH) as sleep:
+            ga_client.load_from_dict = load
+            with pytest.raises(type(error)):
+                _load_client_with_transient_retry({"refresh_token": "x"})
+
+        assert load.call_count == 1
+        assert sleep.call_args_list == []

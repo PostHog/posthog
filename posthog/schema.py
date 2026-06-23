@@ -1633,14 +1633,6 @@ class LogAttributeResult(BaseModel):
     propertyFilterType: str = Field(..., description="Either 'log_attribute' or 'log_resource_attribute'.")
 
 
-class LogValueResult(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    id: str
-    name: str
-
-
 class LogsAlertStateChangeSignalExtra(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5048,6 +5040,13 @@ class ExperimentParameters(BaseModel):
             " are excluded from analysis. Default: 100."
         ),
     )
+    variant_notes: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "Free-text notes per variant, keyed by variant key. Use to document what"
+            " each variant does or its reroute URL."
+        ),
+    )
 
 
 class ExperimentStatsBase(BaseModel):
@@ -5615,6 +5614,21 @@ class LogPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: LogPropertyFilterType
     value: list[str | float | bool] | str | float | bool | None = None
+
+
+class LogValueResult(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count: int | None = Field(
+        default=None,
+        description=(
+            "Number of log records with this attribute value, over the current date"
+            " range, service, and resource filters."
+        ),
+    )
+    id: str
+    name: str
 
 
 class LogsAlertStateChangeSignalInput(BaseModel):
@@ -21316,6 +21330,34 @@ class AssistantRetentionActorsQuery(BaseModel):
     source: AssistantRetentionQuery = Field(
         ...,
         description=("The source retention insight query whose cohort we are drilling into."),
+    )
+
+
+class AssistantStickinessActorsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compare: Compare | None = Field(
+        default=None,
+        description=("Whether to pull from the previous period when `compareFilter` is enabled in the source."),
+    )
+    day: int = Field(
+        ...,
+        description=(
+            "The number of active intervals to drill into — the X-axis value of the"
+            " stickiness bar. Despite the name, this is an interval **count**, not a"
+            " date: for a daily insight, `day: 13` lists the users who were active on"
+            " exactly 13 days within the source's date range."
+        ),
+    )
+    kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
+    series: int | None = Field(
+        default=None,
+        description=("0-based index of the series to drill into when the source has multiple series. Defaults to 0."),
+    )
+    source: AssistantStickinessQuery = Field(
+        ...,
+        description=("The source stickiness insight query whose bar we are drilling into."),
     )
 
 

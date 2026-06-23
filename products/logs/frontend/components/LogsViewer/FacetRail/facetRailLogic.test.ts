@@ -24,23 +24,33 @@ describe('facetRailLogic', () => {
 
     describe('severity level toggling', () => {
         it('adds, accumulates (OR), and removes levels on the shared filters logic', async () => {
-            await expectLogic(logic, () => logic.actions.toggleSeverityLevel('error')).toFinishAllListeners()
+            await expectLogic(logic, () =>
+                logic.actions.toggleFacetValue('severityLevels', 'error')
+            ).toFinishAllListeners()
             expect(filtersLogic.values.severityLevels).toEqual(['error'])
 
-            await expectLogic(logic, () => logic.actions.toggleSeverityLevel('warn')).toFinishAllListeners()
+            await expectLogic(logic, () =>
+                logic.actions.toggleFacetValue('severityLevels', 'warn')
+            ).toFinishAllListeners()
             expect(filtersLogic.values.severityLevels).toEqual(['error', 'warn'])
 
-            await expectLogic(logic, () => logic.actions.toggleSeverityLevel('error')).toFinishAllListeners()
+            await expectLogic(logic, () =>
+                logic.actions.toggleFacetValue('severityLevels', 'error')
+            ).toFinishAllListeners()
             expect(filtersLogic.values.severityLevels).toEqual(['warn'])
         })
 
         it.each(['trace', 'info', 'error', 'fatal'] as const)(
             'toggling %s on then off round-trips to empty',
             async (level) => {
-                await expectLogic(logic, () => logic.actions.toggleSeverityLevel(level)).toFinishAllListeners()
+                await expectLogic(logic, () =>
+                    logic.actions.toggleFacetValue('severityLevels', level)
+                ).toFinishAllListeners()
                 expect(filtersLogic.values.severityLevels).toEqual([level])
 
-                await expectLogic(logic, () => logic.actions.toggleSeverityLevel(level)).toFinishAllListeners()
+                await expectLogic(logic, () =>
+                    logic.actions.toggleFacetValue('severityLevels', level)
+                ).toFinishAllListeners()
                 expect(filtersLogic.values.severityLevels).toEqual([])
             }
         )
@@ -62,10 +72,10 @@ describe('facetRailLogic', () => {
 
     describe('service name toggling', () => {
         it('adds then removes a service on the shared filters logic', async () => {
-            await expectLogic(logic, () => logic.actions.toggleServiceName('api')).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.toggleFacetValue('serviceNames', 'api')).toFinishAllListeners()
             expect(filtersLogic.values.serviceNames).toEqual(['api'])
 
-            await expectLogic(logic, () => logic.actions.toggleServiceName('api')).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.toggleFacetValue('serviceNames', 'api')).toFinishAllListeners()
             expect(filtersLogic.values.serviceNames).toEqual([])
         })
     })
@@ -75,7 +85,9 @@ describe('facetRailLogic', () => {
             filtersLogic.actions.setSeverityLevels(['info'])
             await expectLogic(filtersLogic).toFinishAllListeners()
 
-            await expectLogic(logic, () => logic.actions.toggleSeverityLevel('error')).toFinishAllListeners()
+            await expectLogic(logic, () =>
+                logic.actions.toggleFacetValue('severityLevels', 'error')
+            ).toFinishAllListeners()
             expect(filtersLogic.values.severityLevels).toEqual(['info', 'error'])
         })
     })

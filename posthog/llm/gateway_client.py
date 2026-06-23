@@ -23,6 +23,7 @@ Product = Literal[
     "subscriptions",
     "signals",
     "conversations",
+    "warehouse_semantic_enrichment",
 ]  # If you add a product here, make sure it's also in services/llm-gateway/src/llm_gateway/products/config.py
 
 

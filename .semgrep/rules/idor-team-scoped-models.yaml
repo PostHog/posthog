@@ -59,6 +59,8 @@ rules:
                               |Action
                               |AgentApplication
                               |AgentArtifact
+                              |AgentIdentityCredential
+                              |AgentIdentityLinkState
                               |AgentRevision
                               |AgentSandboxInstance
                               |AgentSession
@@ -225,6 +227,7 @@ rules:
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
                               |SourceBatch
+                              |SourceBatchDuckgresApply
                               |StreamlitApp
                               |Subscription
                               |SubscriptionDelivery
@@ -254,6 +257,7 @@ rules:
                               |UserRepoPreference
                               |VisionAction
                               |VisionActionRun
+                              |WarehouseColumnAnnotation
                               |WebAnalyticsAchievementProgress
                               |WebAnalyticsFilterPreset
                               |WebAnalyticsInteraction
@@ -319,6 +323,8 @@ rules:
                         |Action
                         |AgentApplication
                         |AgentArtifact
+                        |AgentIdentityCredential
+                        |AgentIdentityLinkState
                         |AgentRevision
                         |AgentSandboxInstance
                         |AgentSession
@@ -481,6 +487,7 @@ rules:
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
                         |SourceBatch
+                        |SourceBatchDuckgresApply
                         |StreamlitApp
                         |Subscription
                         |SubscriptionDelivery
@@ -510,6 +517,7 @@ rules:
                         |UserRepoPreference
                         |VisionAction
                         |VisionActionRun
+                        |WarehouseColumnAnnotation
                         |WebAnalyticsAchievementProgress
                         |WebAnalyticsFilterPreset
                         |WebAnalyticsInteraction

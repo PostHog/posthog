@@ -53,6 +53,7 @@ import type {
     AgentRevisionValidateResponseApi,
     AgentTableRowsResponseApi,
     AgentTablesListResponseApi,
+    AgentUsersListApi,
     CloneFromRequestApi,
     DecideApprovalRequestApi,
     NewDraftRevisionRequestApi,
@@ -1630,9 +1631,13 @@ export const getAgentApplicationsApprovalsDecideUrl = (projectId: string, id: st
 }
 
 /**
- * Approve or reject a queued tool-approval request. Team-admin only
- * (plan §6.1). The runtime side runs the tool platform-side on approve
- * and wakes the session with a synthetic tool_result either way.
+ * Approve or reject a queued `agent`-type tool-approval request.
+ *
+ * This is the OWNER decision surface — the only PostHog-authoritative one:
+ * team admins decide here, in the console. `principal`-type approvals are
+ * decided by the session principal at the ingress decision API, not here.
+ * The runtime side runs the tool platform-side on approve and wakes the
+ * session with a synthetic tool_result either way.
  */
 export const agentApplicationsApprovalsDecide = async (
     projectId: string,
@@ -1942,6 +1947,49 @@ export const agentApplicationsStats = async (
     return apiMutator<AgentAggregateStatsApi>(getAgentApplicationsStatsUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getAgentApplicationsUsersListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/agent_applications/${id}/users/`
+}
+
+/**
+ * List this agent's end-users (the stable identities behind inbound principals) and each user's linked external connections. Connection metadata only — credential material is never returned.
+ */
+export const agentApplicationsUsersList = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AgentUsersListApi> => {
+    return apiMutator<AgentUsersListApi>(getAgentApplicationsUsersListUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAgentApplicationsUsersConnectionDeleteUrl = (
+    projectId: string,
+    id: string,
+    agentUserId: string,
+    provider: string
+) => {
+    return `/api/projects/${projectId}/agent_applications/${id}/users/${agentUserId}/connections/${provider}/`
+}
+
+/**
+ * Revoke one of an end-user's linked connections. The credential is marked revoked (kept for audit), so the agent can no longer act as that user on the provider.
+ */
+export const agentApplicationsUsersConnectionDelete = async (
+    projectId: string,
+    id: string,
+    agentUserId: string,
+    provider: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getAgentApplicationsUsersConnectionDeleteUrl(projectId, id, agentUserId, provider), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

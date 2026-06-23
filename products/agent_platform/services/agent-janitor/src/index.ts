@@ -29,6 +29,7 @@ import {
     MemoryStore,
     MultiBackendSandboxTerminator,
     PgApprovalStore,
+    PgIdentityAdminStore,
     PgRevisionStore,
     PgSandboxInstanceStore,
     PgSessionQueue,
@@ -98,6 +99,9 @@ async function main(): Promise<void> {
     // (same secret_env entries the runner reads).
     const sandboxInstances = new PgSandboxInstanceStore(agentDb)
     const sandboxTerminator = new MultiBackendSandboxTerminator(createModalSandboxTerminator())
+    // Keyless admin view over agent_user + agent_identity_credential for the
+    // console "Users" pane. No decryption key — metadata only.
+    const identityAdmin = new PgIdentityAdminStore(agentDb)
 
     const sweep = {
         queue,
@@ -158,6 +162,7 @@ async function main(): Promise<void> {
         bundles,
         memoryStore,
         tabularStore,
+        identityAdmin,
         internalSigningKey: config.internalSigningKey,
     })
     app.listen(config.port, () => {

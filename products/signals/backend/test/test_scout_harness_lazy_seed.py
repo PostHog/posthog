@@ -817,6 +817,60 @@ class TestSyncCanonicalSkills(BaseTest):
         assert hasattr(result, "diverged_skill_names")
         assert hasattr(result, "tombstoned_skill_names")
 
+    def test_withheld_skill_is_not_seeded(self) -> None:
+        # A scout on the per-team holdback denylist never materializes a row for that team.
+        allowed = _make_canonical("signals-scout-alpha", body="x")
+        withheld = _make_canonical("signals-scout-error-tracking", body="y")
+        with self._patch_canonicals((allowed, withheld)):
+            result = sync_canonical_skills(self.team, withheld_skill_names={"signals-scout-error-tracking"})
+
+        assert result.created_skill_names == ("signals-scout-alpha",)
+        assert LLMSkill.objects.filter(team=self.team, name="signals-scout-alpha", deleted=False).exists()
+        assert not LLMSkill.objects.filter(team=self.team, name="signals-scout-error-tracking").exists()
+
+    def test_withheld_skill_does_not_update_existing_row(self) -> None:
+        # Seed a row, then withhold the skill and change canonical content: the existing row is
+        # left untouched (no update, no version bump) rather than tombstoned.
+        v1 = _make_canonical("signals-scout-error-tracking", body="v1")
+        with self._patch_canonicals((v1,)):
+            sync_canonical_skills(self.team)
+        v2 = _make_canonical("signals-scout-error-tracking", body="v2")
+        with self._patch_canonicals((v2,)):
+            result = sync_canonical_skills(self.team, withheld_skill_names={"signals-scout-error-tracking"})
+
+        assert result.updated_skill_names == ()
+        row = LLMSkill.objects.get(team=self.team, name="signals-scout-error-tracking", is_latest=True, deleted=False)
+        assert row.body == "v1"
+
+    def test_withheld_skill_not_pruned_as_orphan(self) -> None:
+        # A withheld skill is still on disk, so the prune pass must not reap it as an orphan.
+        v1 = _make_canonical("signals-scout-error-tracking", body="v1")
+        with self._patch_canonicals((v1,)):
+            sync_canonical_skills(self.team)
+        with self._patch_canonicals((v1,)):
+            result = sync_canonical_skills(self.team, prune=True, withheld_skill_names={"signals-scout-error-tracking"})
+
+        assert result.pruned_skill_names == ()
+        row = LLMSkill.objects.get(team=self.team, name="signals-scout-error-tracking", is_latest=True)
+        assert row.deleted is False
+
+    def test_register_missing_configs_excludes_withheld(self) -> None:
+        # Even if a withheld scout's skill row exists (e.g. a team previously allowed), no config
+        # is seeded for it and it's dropped from the returned live-skill set the coordinator
+        # dispatches from — so it can never run.
+        allowed = _make_canonical("signals-scout-alpha")
+        withheld = _make_canonical("signals-scout-error-tracking")
+        with self._patch_canonicals((allowed, withheld)):
+            sync_canonical_skills(self.team)  # no withholding at seed: both rows exist
+
+        live = register_missing_configs(self.team.id, withheld_skill_names={"signals-scout-error-tracking"})
+
+        assert live == {"signals-scout-alpha"}
+        assert SignalScoutConfig.all_teams.filter(team=self.team, skill_name="signals-scout-alpha").exists()
+        assert not SignalScoutConfig.all_teams.filter(
+            team=self.team, skill_name="signals-scout-error-tracking"
+        ).exists()
+
 
 class TestSeedCanonicalSkillsAlias(BaseTest):
     """`seed_canonical_skills` is kept as a thin alias for `sync_canonical_skills` so older

@@ -54,8 +54,11 @@ the revision row. It declares:
 - `reasoning` — provider-specific thinking level (`minimal` → `xhigh`)
 
 This is the conceptual map. For the exact field shapes, enums, and
-defaults, call `@posthog/agent-applications-spec-schema` — the live
-schema the API validates against, not this prose.
+defaults, don't guess — run a candidate spec through
+`posthog__agent-applications-revisions-validate-create` and read its
+errors, and cross-check tool ids against
+`posthog__agent-native-tools-list`. Those reflect what the API actually
+validates against, not this prose.
 
 A **bundle** is the content layer of a revision. A filesystem-like
 tree stored in S3, with a manifest in Postgres. Always contains
@@ -130,7 +133,7 @@ This is the most common source of confusion. Be precise.
 | **MCP** (`spec.mcps`) | Not in `tools[]` — listed in `spec.mcps[]` instead | In a remote MCP server   | Anything any MCP exposes. Routed by prefix `<id>__<name>`.               |
 | **Client**            | `{ kind: "client", id, description, args_schema }` | In the connecting client | `focus_revision`, `focus_session`, `focus_file`, `toast`                 |
 
-Native tools are catalogued via `@posthog/agent-applications-native-tools-list`. MCP
+Native tools are catalogued via `posthog__agent-native-tools-list`. MCP
 tools are discoverable per server via the MCP `tools/list` call
 made at session start. Client tools are declared in the spec; the
 connecting client opts into the subset it implements.

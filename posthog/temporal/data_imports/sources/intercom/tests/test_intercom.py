@@ -312,15 +312,16 @@ class TestSubstreamGenerators:
             list(_conversation_parts_generator(mock_session, "updated_at", None))
 
     def test_company_segments_skips_404_parent(self):
-        # The parent companies walk (scroll) and the per-company segments fetch
-        # both go through GET, so the calls interleave on `session.get` in order:
-        # scroll page -> segments(co1) -> segments(co2) -> empty scroll page.
+        # The scroll is drained fully before any per-company segment fetch, so
+        # `session.get` is called in order: scroll page -> empty scroll page ->
+        # segments(co1) -> segments(co2). A 404 on a single segment fetch (the
+        # company vanished between listing and fetch) skips that company only.
         mock_session = mock.MagicMock()
         mock_session.get.side_effect = [
             _make_response({"data": [{"id": "co1"}, {"id": "co2"}], "scroll_param": "s1"}),
+            _make_response({"data": [], "scroll_param": "s2"}),
             _make_response(None, status_code=404, text="Not Found"),
             _make_response({"data": [{"id": "s2"}]}),
-            _make_response({"data": [], "scroll_param": "s2"}),
         ]
 
         segments = list(_company_segments_generator(mock_session))
@@ -329,9 +330,13 @@ class TestSubstreamGenerators:
         assert segments[0]["company_id"] == "co2"
 
     def test_company_segments_reraises_non_404(self):
+        # 500 is retried inline by `_scroll_companies_get`; a non-404 on the
+        # per-company segment fetch (not the scroll) must surface. Drain the
+        # scroll first, then fail the segment fetch with a 500.
         mock_session = mock.MagicMock()
         mock_session.get.side_effect = [
             _make_response({"data": [{"id": "co1"}], "scroll_param": "s1"}),
+            _make_response({"data": []}),
             _make_response(None, status_code=500, text="Server Error"),
         ]
 
@@ -342,9 +347,9 @@ class TestSubstreamGenerators:
         mock_session = mock.MagicMock()
         mock_session.get.side_effect = [
             _make_response({"data": [{"id": "co1"}, {"id": "co2"}], "scroll_param": "s1"}),
+            _make_response({"data": [], "scroll_param": "s2"}),
             _make_response({"data": [{"id": "s1"}]}),
             _make_response({"data": [{"id": "s2"}, {"id": "s3"}]}),
-            _make_response({"data": [], "scroll_param": "s2"}),
         ]
 
         segments = list(_company_segments_generator(mock_session))
@@ -352,6 +357,28 @@ class TestSubstreamGenerators:
         assert [s["id"] for s in segments] == ["s1", "s2", "s3"]
         assert segments[0]["company_id"] == "co1"
         assert segments[1]["company_id"] == "co2"
+
+    def test_company_segments_drains_scroll_before_fetching_segments(self):
+        # Intercom expires an idle companies scroll after ~1 min. Fetching
+        # segments between scroll pages let the cursor lapse mid-walk, 404ing the
+        # next continuation. The scroll must be fully walked before any segment
+        # fetch, so the scroll requests stay back-to-back.
+        mock_session = mock.MagicMock()
+        mock_session.get.side_effect = [
+            _make_response({"data": [{"id": "co1"}], "scroll_param": "s1"}),
+            _make_response({"data": [{"id": "co2"}], "scroll_param": "s2"}),
+            _make_response({"data": []}),
+            _make_response({"data": [{"id": "seg1"}]}),
+            _make_response({"data": [{"id": "seg2"}]}),
+        ]
+
+        segments = list(_company_segments_generator(mock_session))
+
+        assert [s["id"] for s in segments] == ["seg1", "seg2"]
+        urls = [call.args[0] for call in mock_session.get.call_args_list]
+        last_scroll = max(i for i, u in enumerate(urls) if u.endswith("/companies/scroll"))
+        first_segments = min(i for i, u in enumerate(urls) if u.endswith("/segments"))
+        assert last_scroll < first_segments
 
     def test_iter_companies_walks_scroll(self):
         # `POST /companies/list` is capped at 10,000 companies (60 * 167 page

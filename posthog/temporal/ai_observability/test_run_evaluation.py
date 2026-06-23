@@ -11,6 +11,7 @@ from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 
 from posthog.models import Organization, Team
+from posthog.temporal.ai_observability.sentiment.extraction import truncate_to_head_tail
 from posthog.temporal.ai_observability.sentiment.schema import SentimentResult
 
 from products.ai_observability.backend.llm.errors import StructuredOutputParseError
@@ -1110,6 +1111,45 @@ class TestExecuteSentimentEvalActivity:
         assert result["sentiment_messages"]["1"]["label"] == "positive"
 
     @pytest.mark.asyncio
+    async def test_sentiment_eval_classifies_only_last_user_message(self):
+        evaluation = {
+            "id": "sentiment-eval-id",
+            "name": "Sentiment Eval",
+            "evaluation_type": "sentiment",
+            "evaluation_config": {"source": "user_messages"},
+            "output_type": "sentiment",
+            "output_config": {},
+            "team_id": 1,
+        }
+        last_message = ("I am really frustrated. " * 20) + ("Here are logs: " * 80) + "please fix this"
+        event_data = create_mock_event_data(
+            1,
+            properties={
+                "$ai_input": [
+                    {"role": "user", "content": "Earlier context that should not be classified."},
+                    {"role": "assistant", "content": "Can you share more detail?"},
+                    {"role": "user", "content": last_message},
+                ],
+                "$ai_output": "I can help.",
+            },
+        )
+
+        classification = SentimentResult(
+            label="negative",
+            score=0.8,
+            scores={"positive": 0.05, "neutral": 0.15, "negative": 0.8},
+        )
+        with patch(
+            "posthog.temporal.ai_observability.sentiment.model.classify", return_value=[classification]
+        ) as mock_classify:
+            result = await execute_sentiment_eval_activity(evaluation, event_data)
+
+        mock_classify.assert_called_once_with([truncate_to_head_tail(last_message)])
+        assert result["sentiment_label"] == "negative"
+        assert result["sentiment_message_count"] == 1
+        assert result["sentiment_messages"]["2"]["label"] == "negative"
+
+    @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
     async def test_sentiment_eval_defaults_to_neutral_without_user_messages(self, setup_data):
         team = setup_data["team"]
@@ -1579,7 +1619,7 @@ class TestJudgePromptAssembly:
 
         with (
             patch(
-                "posthog.temporal.ai_observability.evaluation_llm_judge.EvaluationConfig.objects.get_or_create"
+                "posthog.temporal.ai_observability.model_resolution.EvaluationConfig.objects.get_or_create"
             ) as mock_get_or_create,
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
         ):
@@ -1633,7 +1673,7 @@ class TestJudgePromptAssembly:
 
         with (
             patch(
-                "posthog.temporal.ai_observability.evaluation_llm_judge.EvaluationConfig.objects.get_or_create"
+                "posthog.temporal.ai_observability.model_resolution.EvaluationConfig.objects.get_or_create"
             ) as mock_get_or_create,
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
         ):

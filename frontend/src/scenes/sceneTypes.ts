@@ -236,7 +236,6 @@ export interface SceneExport<T = SceneProps> {
 // we use an untyped SceneProps to satisfy the types
 export interface LoadedScene extends SceneExport<SceneProps> {
     id: string
-    tabId?: string
     sceneParams: SceneParams
 }
 
@@ -361,6 +360,9 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     // Experiments
     [Scene.Experiment]: AccessControlResourceType.Experiment,
     [Scene.Experiments]: AccessControlResourceType.Experiment,
+
+    // Exports
+    [Scene.Exports]: AccessControlResourceType.Export,
 
     // Customer analytics (only journey scenes — configuration uses project-level admin)
     [Scene.CustomerJourneyBuilder]: AccessControlResourceType.CustomerAnalytics,
