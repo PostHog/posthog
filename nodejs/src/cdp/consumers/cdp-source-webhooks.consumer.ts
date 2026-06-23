@@ -1,7 +1,9 @@
 import { DateTime } from 'luxon'
+import { Counter } from 'prom-client'
 
 import type { ModifiedRequest } from '~/api/router'
 import { instrumented } from '~/common/tracing/tracing-utils'
+import { DailySaltProvider, deriveTeamDailySalt } from '~/ingestion/common/cookieless/daily-salt-provider'
 import { HogFlow } from '~/schema/hogflow'
 
 import { HealthCheckResult, HealthCheckResultOk, PluginsServerConfig } from '../../types'
@@ -42,6 +44,11 @@ const DISALLOWED_HEADERS = [
 const getFirstHeaderValue = (value: string | string[] | undefined): string | undefined => {
     return Array.isArray(value) ? value[0] : value
 }
+
+const sourceWebhookSaltFallbackCounter = new Counter({
+    name: 'cdp_source_webhook_salt_fallback',
+    help: 'Number of source-webhook invocations that fell back to an empty daily salt (Redis unavailable or date out of range)',
+})
 
 export type HogFunctionWebhookResult = {
     status: number
@@ -91,12 +98,33 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
     constructor(
         config: PluginsServerConfig,
         deps: CdpConsumerBaseDeps,
-        jobQueues: { hogQueue: JobQueue; hogflowQueue: JobQueue }
+        jobQueues: { hogQueue: JobQueue; hogflowQueue: JobQueue },
+        private dailySaltProvider: DailySaltProvider
     ) {
         super(config, deps)
         this.promiseScheduler = new PromiseScheduler()
         this.hogQueue = jobQueues.hogQueue
         this.hogflowQueue = jobQueues.hogflowQueue
+    }
+
+    /**
+     * Per-team daily-rotating salt to inject as the `salt` global before running source-webhook Hog.
+     * Forward-derivable, irreversible (built on the discarded cookieless daily salt). Never throws —
+     * a salt lookup must not fail the webhook, so on any error we fall back to an empty salt.
+     */
+    private async getTeamDailySalt(teamId: number): Promise<string> {
+        // UTC calendar day — matches the Vercel template's `day` (formatDateTime(now(), '%Y-%m-%d')).
+        const yyyymmdd = new Date(Date.now()).toISOString().slice(0, 10)
+        try {
+            const saltResult = await this.dailySaltProvider.getSaltForDay(yyyymmdd, Date.now())
+            if (saltResult.success) {
+                return deriveTeamDailySalt(saltResult.salt, teamId, yyyymmdd)
+            }
+        } catch (error) {
+            logger.warn('Failed to fetch daily rotating salt for source webhook', { teamId, error })
+        }
+        sourceWebhookSaltFallbackCounter.inc()
+        return ''
     }
 
     public async getWebhook(webhookId: string): Promise<{ hogFlow?: HogFlow; hogFunction: HogFunctionType } | null> {
@@ -344,6 +372,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
 
         try {
             const globals: HogFunctionInvocationGlobals = this.buildRequestGlobals(hogFunction, req)
+            globals.salt = await this.getTeamDailySalt(hogFunction.team_id)
             const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
             const invocation = createInvocation(globalsWithInputs, hogFunction)
 

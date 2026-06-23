@@ -165,7 +165,9 @@ let scheme := proxy.scheme ?? 'https'
 let path := proxy.path ?? log.path ?? ''
 
 let day := formatDateTime(now(), '%Y-%m-%d')
-let salt := inputs.salt_secret ?? ''
+let userSalt := inputs.salt_secret ?? ''
+// PostHog-managed per-team daily-rotating salt, injected as the 'salt' runtime global before this runs.
+let managedSalt := salt ?? ''
 let strategy := inputs.distinct_id_strategy ?? 'fixed_salt'
 let activeStrategy := strategy
 let distinctId := ''
@@ -177,17 +179,21 @@ fun shortHash(input) {
     return substring(sha256(input, 'base64'), 1, 22)
 }
 
-if (strategy == 'rotating_salt') {
-    distinctId := f'http_log_{shortHash(f'{salt}:{day}:{clientIp}:{host}:{userAgent}')}'
+if (strategy == 'managed_rotating_salt') {
+    // PostHog-managed daily salt — rotates daily and is irreversible by design (the underlying daily
+    // salt is random and discarded after its TTL), so there's no secret to configure or store.
+    distinctId := f'http_log_{shortHash(f'{managedSalt}:{day}:{clientIp}:{host}:{userAgent}')}'
+} else if (strategy == 'rotating_salt') {
+    distinctId := f'http_log_{shortHash(f'{userSalt}:{day}:{clientIp}:{host}:{userAgent}')}'
 } else if (strategy == 'fixed_salt') {
-    distinctId := f'http_log_{shortHash(f'{salt}:{clientIp}:{host}:{userAgent}')}'
+    distinctId := f'http_log_{shortHash(f'{userSalt}:{clientIp}:{host}:{userAgent}')}'
 } else if (strategy == 'ip') {
     distinctId := f'http_log_{clientIp}'
 } else if (strategy == 'custom') {
     let customTemplate := inputs.custom_template ?? ''
     if (empty(customTemplate)) {
         print('vercel log drain: custom_template empty, falling back to rotating_salt')
-        distinctId := f'http_log_{shortHash(f'{salt}:{day}:{clientIp}:{host}:{userAgent}')}'
+        distinctId := f'http_log_{shortHash(f'{userSalt}:{day}:{clientIp}:{host}:{userAgent}')}'
         activeStrategy := 'rotating_salt_fallback'
     } else {
         let result := customTemplate
@@ -203,7 +209,7 @@ if (strategy == 'rotating_salt') {
         // so we don't collapse all such requests onto a single 'http_log_' id.
         if (empty(result)) {
             print('vercel log drain: custom_template substituted to empty, falling back to rotating_salt')
-            distinctId := f'http_log_{shortHash(f'{salt}:{day}:{clientIp}:{host}:{userAgent}')}'
+            distinctId := f'http_log_{shortHash(f'{userSalt}:{day}:{clientIp}:{host}:{userAgent}')}'
             activeStrategy := 'rotating_salt_fallback'
         } else {
             distinctId := f'http_log_{result}'
@@ -211,7 +217,7 @@ if (strategy == 'rotating_salt') {
     }
 } else {
     // Unknown strategy value — treat as rotating_salt
-    distinctId := f'http_log_{shortHash(f'{salt}:{day}:{clientIp}:{host}:{userAgent}')}'
+    distinctId := f'http_log_{shortHash(f'{userSalt}:{day}:{clientIp}:{host}:{userAgent}')}'
     activeStrategy := 'rotating_salt'
 }
 
@@ -365,7 +371,7 @@ return {
             type: 'choice',
             label: 'Distinct ID strategy',
             description:
-                'How distinct IDs are derived from the request. Because events are anonymous by default (no person profiles), this affects unique-visitor counting rather than cost. The default, fixed salt, gives one stable ID per client (IP + host + user agent) for accurate uniques. Rotating salt rotates that ID daily for extra privacy, at the cost of inflated unique counts. The active strategy is recorded on each event as $distinct_id_strategy for debugging.',
+                'How distinct IDs are derived from the request. Because events are anonymous by default (no person profiles), this affects unique-visitor counting rather than cost. The default, fixed salt, gives one stable ID per client (IP + host + user agent) for accurate uniques. Rotating salt rotates that ID daily for extra privacy, at the cost of inflated unique counts. Managed rotating salt does the same using a PostHog-managed daily salt, so there is no secret to configure and prior days become irreversible. The active strategy is recorded on each event as $distinct_id_strategy for debugging.',
             choices: [
                 {
                     value: 'fixed_salt',
@@ -374,6 +380,10 @@ return {
                 {
                     value: 'rotating_salt',
                     label: 'Rotating salt (sha256(salt:day:ip:host:ua)) — rotates daily for privacy',
+                },
+                {
+                    value: 'managed_rotating_salt',
+                    label: 'Managed rotating salt — PostHog-managed daily salt, rotates daily, no secret needed',
                 },
                 {
                     value: 'ip',

@@ -65,6 +65,7 @@ export type DeepPartialHogFunctionInvocationGlobals = {
     person?: Partial<HogFunctionInvocationGlobals['person']>
     source?: Partial<HogFunctionInvocationGlobals['source']>
     request?: HogFunctionInvocationGlobals['request']
+    salt?: string
 }
 
 const compileObject = async (
@@ -137,6 +138,8 @@ const createGlobals = (
 ): HogFunctionInvocationGlobalsWithInputs => {
     return {
         ...globals,
+        // Source-webhook runtime global; default to '' so templates reading `salt` always resolve it.
+        salt: globals.salt ?? '',
         inputs: {},
         project: { id: 1, name: 'project-name', url: 'https://us.posthog.com/projects/1' },
         event: {

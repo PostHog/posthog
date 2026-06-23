@@ -108,6 +108,11 @@ export type HogFunctionInvocationGlobals = {
         stringBody: string
     }
 
+    // Per-team daily-rotating salt, injected on the source-webhook path before the VM runs (see
+    // CdpSourceWebhooksConsumer). Lets Hog derive privacy-preserving distinct_ids without a configured
+    // secret. Readable from Hog — emitting it is the function author's choice (their distinct_id handling).
+    salt?: string
+
     unsubscribe_url?: string // For email actions, the unsubscribe URL to use
     unsubscribe_url_one_click?: string // For email actions, the one-click unsubscribe URL to use
 

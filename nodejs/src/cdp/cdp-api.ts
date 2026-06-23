@@ -2,15 +2,19 @@ import { DateTime } from 'luxon'
 import express from 'ultimate-express'
 
 import { ModifiedRequest } from '~/api/router'
+import { DailySaltProvider } from '~/ingestion/common/cookieless/daily-salt-provider'
 import { PluginEvent } from '~/plugin-scaffold'
 
+import { createCookielessRedisConnectionConfig } from '../config/redis-pools'
 import {
     HealthCheckResult,
     HealthCheckResultError,
     HealthCheckResultOk,
     PluginServerService,
     PluginsServerConfig,
+    RedisPool,
 } from '../types'
+import { createRedisPoolFromConfig } from '../utils/db/redis'
 import { logger } from '../utils/logger'
 import { UUID, UUIDT, delay } from '../utils/utils'
 import { getAsyncFunctionHandler, getRegisteredAsyncFunctionNames } from './async-function-registry'
@@ -98,6 +102,8 @@ export class CdpApi {
     private outputs: CdpOutputs
     private batchExportHogFunctionService: BatchExportHogFunctionService
     private groupsManager: GroupsManagerService
+    private cookielessRedisPool: RedisPool
+    private dailySaltProvider: DailySaltProvider
 
     constructor(
         private config: PluginsServerConfig,
@@ -125,7 +131,23 @@ export class CdpApi {
         })
         this.hogQueue = jobQueues.hogQueue
         this.hogflowQueue = jobQueues.hogflowQueue
-        this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(config, deps, jobQueues)
+        // Source webhooks derive a per-team daily-rotating salt from the shared cookieless salt store —
+        // same Redis instance ingestion writes to, so both read the same salt for a given day.
+        this.cookielessRedisPool = createRedisPoolFromConfig({
+            connection: createCookielessRedisConnectionConfig(config),
+            // Lazy (min 0): the salt is fetched at most once per process per day (then cached in the
+            // provider), so we don't keep a warm connection — and we don't open one until a webhook needs it.
+            poolMinSize: 0,
+            poolMaxSize: config.REDIS_POOL_MAX_SIZE,
+        })
+        this.dailySaltProvider = new DailySaltProvider(
+            {
+                saltTtlSeconds: config.COOKIELESS_SALT_TTL_SECONDS,
+                deleteExpiredLocalSaltsIntervalMs: config.COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS,
+            },
+            this.cookielessRedisPool
+        )
+        this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(config, deps, jobQueues, this.dailySaltProvider)
         this.emailTrackingService = new EmailTrackingService(
             this.hogFunctionManager,
             this.hogFlowManager,
@@ -175,10 +197,12 @@ export class CdpApi {
 
     async stop(): Promise<void> {
         // CdpSourceWebhooksConsumer.stop() calls stopProducer on both queues
+        this.dailySaltProvider.shutdown()
         await Promise.all([
             this.cdpSourceWebhooksConsumer.stop(),
             this.batchExportHogFunctionService.stop(),
             this.rerunJobManager?.disconnect() ?? Promise.resolve(),
+            this.cookielessRedisPool.drain().then(() => this.cookielessRedisPool.clear()),
         ])
     }
 

@@ -1,11 +1,9 @@
-import { randomBytes } from 'crypto'
 import { Pool as GenericPool } from 'generic-pool'
 import Redis from 'ioredis'
 import { parse } from 'ipaddr.js'
 import { DateTime } from 'luxon'
 import { isIPv6 } from 'net'
 import { Message } from 'node-rdkafka'
-import { Counter } from 'prom-client'
 import { getDomain } from 'tldts'
 
 import * as siphashDouble from '@posthog/siphash/lib/siphash-double'
@@ -17,12 +15,15 @@ import { IngestionConsumerConfig } from '~/ingestion/config'
 import { PipelineResult, dlq, drop, isOkResult, ok } from '~/ingestion/framework/results'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 import { CookielessServerHashMode, EventHeaders, IncomingEventWithTeam, PipelineEvent, RedisPool, Team } from '~/types'
-import { ConcurrencyController } from '~/utils/concurrencyController'
 import { RedisOperationError } from '~/utils/db/error'
 import { logger } from '~/utils/logger'
 import { UUID7, bufferToUint32ArrayLE, uint32ArrayLEToBuffer } from '~/utils/utils'
 
+import { DailySaltProvider, DailySaltResult } from './daily-salt-provider'
 import { RedisHelpers } from './redis-helpers'
+
+// Re-exported for backwards compatibility — the implementation now lives in daily-salt-provider.
+export { isCalendarDateValid } from './daily-salt-provider'
 
 /* ---------------------------------------------------------------------
  * This pipeline step is used to get the distinct id and session id for events that are using the cookieless server hash mode.
@@ -74,12 +75,8 @@ const TIMEZONE_FALLBACK = 'UTC'
 export const COOKIELESS_SENTINEL_VALUE = '$posthog_cookieless'
 export const COOKIELESS_MODE_FLAG_PROPERTY = '$cookieless_mode'
 export const COOKIELESS_EXTRA_HASH_CONTENTS_PROPERTY = '$cookieless_extra'
-const MAX_NEGATIVE_TIMEZONE_HOURS = 12
-const MAX_POSITIVE_TIMEZONE_HOURS = 14
-const MAX_SUPPORTED_INGESTION_LAG_HOURS = 72 // if changing this, you will also need to change the TTLs
-
 // Result type for getSaltForDay which can fail if the date is out of range
-type SaltResult = { success: true; salt: Buffer } | { success: false; reason: 'date_out_of_range' }
+type SaltResult = DailySaltResult
 
 interface CookielessConfig {
     disabled: boolean
@@ -117,10 +114,7 @@ export type CookielessServerConfig = CookielessManagerConfig &
 export class CookielessManager {
     public readonly redisHelpers: RedisHelpers
     public readonly config: CookielessConfig
-
-    private readonly localSaltMap: Record<string, Buffer> = {}
-    private readonly mutex = new ConcurrencyController(1)
-    private cleanupInterval: NodeJS.Timeout | null = null
+    private readonly saltProvider: DailySaltProvider
 
     constructor(config: CookielessManagerConfig, redis: GenericPool<Redis.Redis>) {
         this.config = {
@@ -134,101 +128,25 @@ export class CookielessManager {
         }
 
         this.redisHelpers = new RedisHelpers(redis)
-        // Periodically delete expired salts from the local cache. Note that this doesn't delete them from redis, but
-        // that's handled by using redis TTLs. Deleting these salts is what allows us to use the hash of PII data in a
-        // non PII way. Of course, these are also deleted when the node process restarts.
-        this.cleanupInterval = setInterval(this.deleteExpiredLocalSalts, this.config.deleteExpiredLocalSaltsIntervalMs)
-        // Call unref on the timer object, so that it doesn't prevent node from exiting.
-        this.cleanupInterval.unref()
+        this.saltProvider = new DailySaltProvider(
+            {
+                saltTtlSeconds: this.config.saltTtlSeconds,
+                deleteExpiredLocalSaltsIntervalMs: this.config.deleteExpiredLocalSaltsIntervalMs,
+            },
+            redis
+        )
     }
 
     getSaltForDay(yyyymmdd: string, timestampMs: number): Promise<SaltResult> {
-        if (!isCalendarDateValid(yyyymmdd)) {
-            return Promise.resolve({ success: false, reason: 'date_out_of_range' })
-        }
-
-        // see if we have it locally
-        if (this.localSaltMap[yyyymmdd]) {
-            return Promise.resolve({ success: true, salt: this.localSaltMap[yyyymmdd] })
-        }
-
-        // get the salt for the day from redis, but only do this once for this node process
-        return this.mutex.run({
-            fn: async (): Promise<SaltResult> => {
-                // check if we got the salt while waiting for the mutex
-                if (this.localSaltMap[yyyymmdd]) {
-                    return { success: true, salt: this.localSaltMap[yyyymmdd] }
-                }
-
-                // try to get it from redis instead
-                const saltBase64 = await this.redisHelpers.redisGet<string | null>(
-                    `cookieless_salt:${yyyymmdd}`,
-                    null,
-                    'cookielessServerHashStep',
-                    { jsonSerialize: false }
-                )
-                if (saltBase64) {
-                    cookielessCacheHitCounter.labels({ operation: 'getSaltForDay', day: yyyymmdd }).inc()
-                    const salt = Buffer.from(saltBase64, 'base64')
-                    this.localSaltMap[yyyymmdd] = salt
-                    return { success: true, salt }
-                }
-                cookielessCacheMissCounter.labels({ operation: 'getSaltForDay', day: yyyymmdd }).inc()
-
-                // try to write a new one to redis, but don't overwrite
-                const newSalt = randomBytes(16)
-                const setResult = await this.redisHelpers.redisSetNX(
-                    `cookieless_salt:${yyyymmdd}`,
-                    newSalt.toString('base64'),
-                    'cookielessServerHashStep',
-                    this.config.saltTtlSeconds,
-                    { jsonSerialize: false }
-                )
-                if (setResult === 'OK') {
-                    this.localSaltMap[yyyymmdd] = newSalt
-                    return { success: true, salt: newSalt }
-                }
-
-                // if we couldn't write, it means that it exists in redis already
-                const saltBase64Retry = await this.redisHelpers.redisGet<string | null>(
-                    `cookieless_salt:${yyyymmdd}`,
-                    null,
-                    'cookielessServerHashStep',
-                    { jsonSerialize: false }
-                )
-                if (!saltBase64Retry) {
-                    throw new Error('Failed to get salt from redis')
-                }
-
-                const salt = Buffer.from(saltBase64Retry, 'base64')
-                this.localSaltMap[yyyymmdd] = salt
-
-                return { success: true, salt }
-            },
-            priority: timestampMs,
-        })
-    }
-
-    deleteExpiredLocalSalts = () => {
-        for (const key in this.localSaltMap) {
-            if (!isCalendarDateValid(key)) {
-                delete this.localSaltMap[key]
-            }
-        }
+        return this.saltProvider.getSaltForDay(yyyymmdd, timestampMs)
     }
 
     deleteAllLocalSalts(): void {
-        for (const key in this.localSaltMap) {
-            delete this.localSaltMap[key]
-        }
+        this.saltProvider.deleteAllLocalSalts()
     }
 
     shutdown(): void {
-        if (this.cleanupInterval) {
-            clearInterval(this.cleanupInterval)
-            this.cleanupInterval = null
-        }
-        this.deleteAllLocalSalts()
+        this.saltProvider.shutdown()
     }
 
     async doHashForDay({
@@ -781,28 +699,6 @@ function getProperties(
     return { userAgent, ip, host, timezone, timestampMs, hashExtra }
 }
 
-export function isCalendarDateValid(yyyymmdd: string): boolean {
-    // make sure that the date is not in the future, i.e. at least one timezone could plausibly be in this calendar day,
-    // and not too far in the past (with some buffer for ingestion lag)
-    const utcDate = new Date(`${yyyymmdd}T00:00:00Z`)
-
-    // Current time in UTC
-    const nowUTC = new Date(Date.now())
-
-    // Define the range of the calendar day in UTC
-    const startOfDayMinus12 = new Date(utcDate)
-    startOfDayMinus12.setUTCHours(-MAX_NEGATIVE_TIMEZONE_HOURS) // Start at UTC−12
-
-    const endOfDayPlus14 = new Date(utcDate)
-    endOfDayPlus14.setUTCHours(MAX_POSITIVE_TIMEZONE_HOURS + MAX_SUPPORTED_INGESTION_LAG_HOURS) // End at UTC+14 (72h ingestion lag buffer)
-
-    const isGteMinimum = nowUTC >= startOfDayMinus12
-    const isLtMaximum = nowUTC < endOfDayPlus14
-
-    // Check if the current UTC time falls within this range
-    return isGteMinimum && isLtMaximum
-}
-
 export function hashToDistinctId(hash: Buffer): string {
     // add a prefix so that we can recognise one of these in the wild
     return 'cookieless_' + hash.toString('base64').replace(/=+$/, '')
@@ -945,18 +841,6 @@ export function sessionStateToBuffer({ sessionId, lastActivityTimestamp }: Sessi
     buffer.writeBigUInt64LE(BigInt(lastActivityTimestamp), 16)
     return buffer
 }
-
-const cookielessCacheHitCounter = new Counter({
-    name: 'cookieless_salt_cache_hit',
-    help: 'Number of local cache hits for cookieless salt',
-    labelNames: ['operation', 'day'],
-})
-
-const cookielessCacheMissCounter = new Counter({
-    name: 'cookieless_salt_cache_miss',
-    help: 'Number of local cache misses for cookieless salt',
-    labelNames: ['operation', 'day'],
-})
 
 /**
  * Extract the root domain from a host string

@@ -617,6 +617,51 @@ describe('vercel log drain template', () => {
             expect(day1.capturedPostHogEvents[0].properties.$distinct_id_strategy).toBe('fixed_salt')
         })
 
+        it('managed_rotating_salt: rotates by day and by injected salt', async () => {
+            setMockedDay('2025-01-01T00:00:00Z')
+            const day1 = await tester.invoke(
+                { distinct_id_strategy: 'managed_rotating_salt' },
+                { request: createVercelRequest(vercelLogDrain), salt: 'team-a-2025-01-01' }
+            )
+            const day1Repeat = await tester.invoke(
+                { distinct_id_strategy: 'managed_rotating_salt' },
+                { request: createVercelRequest(vercelLogDrain), salt: 'team-a-2025-01-01' }
+            )
+            // Different injected salt (another team, or the next day's derived salt) → different id
+            const otherTeam = await tester.invoke(
+                { distinct_id_strategy: 'managed_rotating_salt' },
+                { request: createVercelRequest(vercelLogDrain), salt: 'team-b-2025-01-01' }
+            )
+            // Next calendar day → different id even with the same injected salt (the {day} component)
+            setMockedDay('2025-01-02T00:00:00Z')
+            const day2 = await tester.invoke(
+                { distinct_id_strategy: 'managed_rotating_salt' },
+                { request: createVercelRequest(vercelLogDrain), salt: 'team-a-2025-01-01' }
+            )
+
+            const id1 = day1.capturedPostHogEvents[0].distinct_id
+            expect(id1).toMatch(/^http_log_[A-Za-z0-9+/]{22}$/)
+            expect(day1Repeat.capturedPostHogEvents[0].distinct_id).toBe(id1)
+            expect(otherTeam.capturedPostHogEvents[0].distinct_id).not.toBe(id1)
+            expect(day2.capturedPostHogEvents[0].distinct_id).not.toBe(id1)
+            expect(day1.capturedPostHogEvents[0].properties.$distinct_id_strategy).toBe('managed_rotating_salt')
+        })
+
+        it('managed_rotating_salt: derived from the injected salt, not inputs.salt_secret', async () => {
+            setMockedDay('2025-01-01T00:00:00Z')
+            const base = await tester.invoke(
+                { salt_secret: 'secret-one', distinct_id_strategy: 'managed_rotating_salt' },
+                { request: createVercelRequest(vercelLogDrain), salt: 'team-a-salt' }
+            )
+            // Changing the user secret must NOT change the id — guards against the local shadowing the global.
+            const differentSecret = await tester.invoke(
+                { salt_secret: 'secret-two', distinct_id_strategy: 'managed_rotating_salt' },
+                { request: createVercelRequest(vercelLogDrain), salt: 'team-a-salt' }
+            )
+
+            expect(differentSecret.capturedPostHogEvents[0].distinct_id).toBe(base.capturedPostHogEvents[0].distinct_id)
+        })
+
         it('ip: literal client IP after the prefix; stable across days', async () => {
             setMockedDay('2025-01-01T00:00:00Z')
             const day1 = await tester.invoke(
