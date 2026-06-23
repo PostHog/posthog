@@ -120,6 +120,22 @@ class DashboardExportInsightsField(serializers.Field):
         return data
 
 
+class DeliveryConfigSerializer(serializers.Serializer):
+    """Typed view over the Subscription.delivery_config JSON blob. New per-delivery options
+    are added as fields here so the generated API/MCP types stay typed and extensible without
+    a migration per option."""
+
+    post_all_insights_in_main_message = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Slack only: when true, all insight images are posted in the main Slack message instead "
+            "of posting the first image in the main message and the rest as threaded replies. "
+            "Defaults to false (threaded). Has no effect on email delivery."
+        ),
+    )
+
+
 class SubscriptionSerializer(serializers.ModelSerializer):
     """Standard Subscription serializer."""
 
@@ -151,6 +167,10 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "Read-only — derived from the populated target (insight → insight, "
             "dashboard → dashboard, prompt → ai_prompt)."
         ),
+    )
+    delivery_config = DeliveryConfigSerializer(
+        required=False,
+        help_text="Per-delivery options (e.g. Slack layout). Slack-only options have no effect on email delivery.",
     )
 
     class Meta:
@@ -184,7 +204,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "invite_message",
             "summary_enabled",
             "summary_prompt_guide",
-            "post_all_insights_in_main_message",
+            "delivery_config",
         ]
         read_only_fields = [
             "id",
@@ -244,13 +264,6 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                     "Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics "
                     "to emphasize. Only settable when AI summary context is enabled for the organization; "
                     "clearing it (empty string) is always allowed."
-                ),
-            },
-            "post_all_insights_in_main_message": {
-                "help_text": (
-                    "Slack only: when true, all insight images are posted in the main Slack message instead "
-                    "of posting the first image in the main message and the rest as threaded replies. "
-                    "Defaults to false (threaded). Has no effect on email delivery."
                 ),
             },
         }
@@ -416,6 +429,18 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 )
             if integration.kind != "slack":
                 raise ValidationError({"integration_id": ["Slack subscriptions require a Slack integration."]})
+
+        # delivery_config currently holds Slack-only options; reject them on non-Slack subs so the
+        # API contract doesn't silently accept a value that never takes effect (mirrors integration_id).
+        delivery_config = attrs.get("delivery_config")
+        if (
+            delivery_config
+            and delivery_config.get("post_all_insights_in_main_message")
+            and target_type != Subscription.SubscriptionTarget.SLACK
+        ):
+            raise ValidationError(
+                {"delivery_config": ["post_all_insights_in_main_message is only supported for Slack subscriptions."]}
+            )
 
         # Only gate non-empty writes to `summary_prompt_guide`. Clearing (empty string)
         # and field-absent PATCHes always pass through so users aren't stuck with a value
@@ -613,7 +638,13 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         invite_message = validated_data.pop("invite_message", "")
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
+        # delivery_config is a nested serializer; DRF's default create() rejects writable nested
+        # fields, so pop it and apply it once the row exists.
+        delivery_config = validated_data.pop("delivery_config", None)
         instance: Subscription = super().create(validated_data)
+        if delivery_config is not None:
+            instance.delivery_config = delivery_config
+            instance.save(update_fields=["delivery_config"])
 
         # Bust the org-wide active-summary count cache so the next quota
         # fetch reflects this row, regardless of summary_enabled — over-busting
@@ -683,6 +714,11 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         is_delete = not instance.deleted and validated_data.get("deleted") is True
         invite_message = validated_data.pop("invite_message", "")
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
+        # delivery_config is a nested serializer; pop it and set it directly so DRF's default
+        # update() (which rejects writable nested fields) still persists it via instance.save().
+        delivery_config = validated_data.pop("delivery_config", None)
+        if delivery_config is not None:
+            instance.delivery_config = delivery_config
 
         if is_delete:
             with slo_operation(

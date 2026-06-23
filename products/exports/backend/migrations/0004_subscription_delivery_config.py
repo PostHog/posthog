@@ -9,7 +9,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="subscription",
-            name="post_all_insights_in_main_message",
-            field=models.BooleanField(default=False),
+            name="delivery_config",
+            field=models.JSONField(default=dict),
         ),
     ]

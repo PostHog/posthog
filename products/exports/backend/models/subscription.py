@@ -177,9 +177,10 @@ class Subscription(ModelActivityMixin, models.Model):
     summary_enabled = models.BooleanField(default=False)
     summary_prompt_guide = models.CharField(max_length=500, blank=True, default="")
 
-    # Slack-only: when True, all insight images go in the main message instead of the
-    # first in the main message and the rest as threaded replies.
-    post_all_insights_in_main_message = models.BooleanField(default=False)
+    # Per-delivery options keyed by name. Slack-only today:
+    # post_all_insights_in_main_message (bool) — post every insight image in the main
+    # message instead of the first in the main message and the rest as threaded replies.
+    delivery_config = models.JSONField(default=dict)
 
     class Meta:
         indexes = [

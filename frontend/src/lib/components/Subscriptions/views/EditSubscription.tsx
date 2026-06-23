@@ -550,7 +550,7 @@ function EditSubscriptionForm({
 
                                         {subscription.integration_id && subscription.target_value && (
                                             <LemonField
-                                                name="post_all_insights_in_main_message"
+                                                name={['delivery_config', 'post_all_insights_in_main_message']}
                                                 help="By default, extra insights are posted in a thread reply. Enable this to post every insight image in the main Slack message instead."
                                             >
                                                 {({ value, onChange }) => (

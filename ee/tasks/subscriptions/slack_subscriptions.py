@@ -184,7 +184,16 @@ def _prepare_slack_message(
             }
         )
 
-    post_all_in_main = subscription.post_all_insights_in_main_message
+    post_all_in_main = subscription.delivery_config.get("post_all_insights_in_main_message", False)
+    if post_all_in_main:
+        # Surfaces the active layout for on-call if a delivery ever trips Slack's block/content limits.
+        # Assets are capped at DEFAULT_MAX_ASSET_COUNT (6), so the main-message layout stays well under
+        # Slack's 50-blocks-per-message limit even with the title, summary, overflow and action blocks.
+        logger.info(
+            "slack_subscription_post_all_in_main",
+            subscription_id=subscription.id,
+            asset_count=len(assets),
+        )
 
     overflow_block: dict | None = None
     if total_asset_count > len(assets):

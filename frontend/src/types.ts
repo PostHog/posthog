@@ -5257,7 +5257,9 @@ export interface SubscriptionType {
     enabled?: boolean
     summary_enabled?: boolean
     summary_prompt_guide?: string
-    post_all_insights_in_main_message?: boolean
+    delivery_config?: {
+        post_all_insights_in_main_message?: boolean
+    }
 }
 
 export type SmallTimeUnit = 'hours' | 'minutes' | 'seconds'
