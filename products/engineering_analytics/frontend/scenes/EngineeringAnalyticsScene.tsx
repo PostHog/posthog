@@ -3,7 +3,6 @@ import { combineUrl, router } from 'kea-router'
 
 import { LemonBanner, LemonButton, LemonSelect, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
-import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -28,8 +27,6 @@ export function EngineeringAnalyticsScene(): JSX.Element {
     const { searchParams } = useValues(router)
     const { activeTab } = useValues(engineeringAnalyticsSceneLogic)
     const logic = engineeringAnalyticsLogic()
-    // Keep the data logic alive for the scene's lifetime, independent of which inner tab renders.
-    useAttachedLogic(logic, engineeringAnalyticsSceneLogic)
     const { anyLoading, hasMultipleSources, sourceOptions, sourceId } = useValues(logic)
     const { refresh, setSourceId } = useActions(logic)
 
