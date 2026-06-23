@@ -71,7 +71,7 @@ import { summariseAssistantThread } from './handsFreeUtils'
 import { EnhancedToolCall, MODE_DEFINITIONS, TOOL_DEFINITIONS, ToolRegistration } from './max-constants'
 import { MaxBillingContext, MaxBillingContextSubscriptionLevel, maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
-import { SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
+import { SCENE_PANEL_ID, SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
 import { MaxUIContext } from './maxTypes'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
@@ -110,12 +110,9 @@ export interface MaxThreadLogicProps {
 }
 
 export const maxThreadLogic = kea<maxThreadLogicType>([
-    key((props) => {
-        if (!props.panelId) {
-            throw new Error('Max thread logic must have a panelId prop')
-        }
-        return `${props.conversationId}-${props.panelId}`
-    }),
+    // Mirror maxLogic's key fallback: the bare /ai scene has no panelId, and both logics must
+    // resolve to the same `scene` instance (maxThreadLogic connects to maxLogic({ panelId })).
+    key((props) => `${props.conversationId}-${props.panelId || SCENE_PANEL_ID}`),
 
     path((key) => ['scenes', 'max', 'maxThreadLogic', key]),
 
