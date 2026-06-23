@@ -97,17 +97,18 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
 
         model = await _get_external_data_job(inputs.run_id)
 
-        attempt = current_activity_attempt()
-        if attempt > 1 and model.status in TERMINAL_JOB_STATUSES:
-            await logger.ainfo(
-                "Skipping retry - job already terminal",
-                status=model.status,
-                attempt=attempt,
-            )
-            return PipelineResult(
-                should_trigger_cdp_producer=False,
-                consumer_manages_job_status=True,
-            )
+        if model.pipeline_version == ExternalDataJob.PipelineVersion.V3:
+            attempt = current_activity_attempt()
+            if attempt > 1 and model.status in TERMINAL_JOB_STATUSES:
+                await logger.ainfo(
+                    "Skipping retry - job already terminal",
+                    status=model.status,
+                    attempt=attempt,
+                )
+                return PipelineResult(
+                    should_trigger_cdp_producer=False,
+                    consumer_manages_job_status=True,
+                )
 
         await logger.adebug("Running import_data_activity")
 
@@ -229,7 +230,6 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
                     )
             except CDCHandledExternally:
                 await logger.ainfo("Schema is in CDC streaming mode — handled by CDCExtractionWorkflow, skipping")
-                from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
                 await database_sync_to_async_pool(ExternalDataJob.objects.filter(id=job_inputs.run_id).update)(
                     billable=False, status=ExternalDataJob.Status.COMPLETED, finished_at=dt.datetime.now(dt.UTC)
