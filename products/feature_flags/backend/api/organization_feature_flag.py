@@ -1,7 +1,7 @@
 import copy
 from typing import cast
 
-from django.db.models import Case, IntegerField, Q, Value, When
+from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
 
 import structlog
 from drf_spectacular.types import OpenApiTypes
@@ -17,6 +17,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.models import Team
 from posthog.models.filters.filter import Filter
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.user_permissions import UserPermissions
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
@@ -115,10 +116,12 @@ class OrganizationFeatureFlagView(
         org_team_ids = set(self.organization.teams.values_list("id", flat=True))
         team_ids = list(org_team_ids & set(accessible_team_ids))
 
-        flags = FeatureFlag.objects.filter(
+        flags_qs = FeatureFlag.objects.filter(
             key=feature_flag_key,
             team_id__in=team_ids,
         )
+        flags_qs = self._filter_flags_by_rbac(flags_qs, team_ids)
+        flags = list(flags_qs)
 
         counts_by_team = get_cached_evaluations_7d_by_team(
             cast(str, feature_flag_key), [flag.team_id for flag in flags]
@@ -194,6 +197,7 @@ class OrganizationFeatureFlagView(
 
         search = (request.query_params.get("search") or "").strip()
         flags_qs = FeatureFlag.objects.filter(team_id__in=ordered_team_ids, deleted=False)
+        flags_qs = self._filter_flags_by_rbac(flags_qs, ordered_team_ids)
         if search:
             flags_qs = flags_qs.filter(Q(key__icontains=search) | Q(name__icontains=search))
 
@@ -535,6 +539,28 @@ class OrganizationFeatureFlagView(
                             continue
 
         return updated_payload
+
+    def _filter_flags_by_rbac(self, flags_qs: QuerySet, team_ids: list[int]) -> QuerySet:
+        """Apply per-team RBAC object-level filtering to a cross-team flag queryset.
+
+        For each team, instantiate a UserAccessControl scoped to that team and apply
+        filter_queryset_by_access_level so that flags the user has been explicitly denied
+        (via resource-level or object-level access controls) are excluded.  Org admins
+        always pass through — filter_queryset_by_access_level short-circuits for them.
+        """
+        teams = {t.id: t for t in Team.objects.filter(id__in=team_ids)}
+
+        allowed_ids: set[int] = set()
+        for team_id in team_ids:
+            team = teams.get(team_id)
+            if team is None:
+                continue
+            uac = UserAccessControl(user=self.request.user, team=team)
+            team_qs = flags_qs.filter(team_id=team_id)
+            filtered_qs = uac.filter_queryset_by_access_level(team_qs, include_all_if_admin=True)
+            allowed_ids.update(filtered_qs.values_list("id", flat=True))
+
+        return flags_qs.filter(id__in=allowed_ids)
 
     def _extract_cohort_ids_from_schedules(self, schedules):
         """Extract all cohort IDs referenced in pending scheduled changes."""

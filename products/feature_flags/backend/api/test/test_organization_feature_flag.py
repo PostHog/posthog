@@ -132,6 +132,40 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(response_data), 1)
         self.assertEqual(response_data[0]["team_id"], self.team_1.id)
 
+    def test_get_feature_flag_filters_flag_denied_by_object_level_access_control(self):
+        from posthog.constants import AvailableFeature
+
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
+        from ee.models.rbac.access_control import AccessControl
+
+        # Create a second user and log in as them (not the flag creator) so that
+        # the "creator is always visible" exception does not apply.
+        other_user = self._create_user("other@posthog.com")
+        self.client.force_login(other_user)
+
+        # Deny the non-creator user access to feature_flag_2 at the object level.
+        AccessControl.objects.create(
+            team=self.team_2,
+            resource="feature_flag",
+            resource_id=str(self.feature_flag_2.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/{self.feature_flag_key}"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        # Only team_1's flag should be returned; team_2's flag is denied.
+        self.assertEqual(len(response_data), 1)
+        self.assertEqual(response_data[0]["team_id"], self.team_1.id)
+
 
 class TestOrganizationFeatureFlagKeys(APIBaseTest):
     def setUp(self):
@@ -253,6 +287,43 @@ class TestOrganizationFeatureFlagKeys(APIBaseTest):
     def test_keys_invalid_param_returns_400(self):
         response = self.client.get(self._keys_url(team_ids=self.team_1.id) + "&limit=abc")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_keys_excludes_flags_denied_by_object_level_access_control(self):
+        from posthog.constants import AvailableFeature
+
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
+        from ee.models.rbac.access_control import AccessControl
+
+        # Use a second user (not the flag creator) so the creator-always-visible
+        # exception in filter_queryset_by_access_level does not apply.
+        other_user = self._create_user("other-keys@posthog.com")
+        self.client.force_login(other_user)
+
+        # Deny the non-creator user access to the "shared" flag in team_2 at the object level.
+        shared_flag_team2 = FeatureFlag.objects.get(team=self.team_2, key="shared")
+        AccessControl.objects.create(
+            team=self.team_2,
+            resource="feature_flag",
+            resource_id=str(shared_flag_team2.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+
+        response = self.client.get(self._keys_url(team_ids=self.team_1.id) + f"&team_ids={self.team_2.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # "shared" key still appears because team_1's copy is accessible; team_2's is excluded.
+        rows = response.json()["results"]
+        keys = [row["key"] for row in rows]
+        self.assertIn("shared", keys)
+        shared_row = next(row for row in rows if row["key"] == "shared")
+        # Representative must be from team_1, not team_2 (team_2's flag is denied).
+        self.assertEqual(shared_row["team_id"], self.team_1.id)
 
 
 class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
