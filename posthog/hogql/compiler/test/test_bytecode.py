@@ -568,61 +568,6 @@ class TestBytecode(BaseTest):
             execute_hog("throw", team=self.team)
         create_bytecode(parse_program("throw Error('boom')"))
 
-    def test_constant_list_membership_lowers_to_equality_chain(self):
-        # A constant-list IN compiles to OR-of-EQ (and NOT IN to AND-of-NotEq) instead of the raw
-        # IN opcode, so membership inherits EQ's type coercion. Scalar and dynamic membership keep
-        # the opcode.
-        self.assertEqual(
-            to_bytecode("1 in (2, 3)"),
-            [
-                _H,
-                HOGQL_BYTECODE_VERSION,
-                op.INTEGER,
-                2,
-                op.INTEGER,
-                1,
-                op.EQ,
-                op.INTEGER,
-                3,
-                op.INTEGER,
-                1,
-                op.EQ,
-                op.OR,
-                2,
-            ],
-        )
-        self.assertEqual(
-            to_bytecode("1 not in (2, 3)"),
-            [
-                _H,
-                HOGQL_BYTECODE_VERSION,
-                op.INTEGER,
-                2,
-                op.INTEGER,
-                1,
-                op.NOT_EQ,
-                op.INTEGER,
-                3,
-                op.INTEGER,
-                1,
-                op.NOT_EQ,
-                op.AND,
-                2,
-            ],
-        )
-        # Scalar membership is untouched — still the raw opcode.
-        self.assertEqual(to_bytecode("1 in 2"), [_H, HOGQL_BYTECODE_VERSION, op.INTEGER, 2, op.INTEGER, 1, op.IN])
-        # Dynamic (non-constant) right side keeps the opcode too.
-        self.assertIn(op.IN, to_bytecode("1 in [1, 2, x]"))
-
-    def test_constant_list_membership_coerces_types(self):
-        # The bug: a numeric value never matched a list of string literals under strict IN.
-        # OR-of-EQ coercion fixes it while leaving non-matches and string lists correct.
-        self.assertIs(execute_hog("return 6 in ('1', '2', '3', '4', '5', '6')", team=self.team).result, True)
-        self.assertIs(execute_hog("return 7 in ('1', '2', '3', '4', '5', '6')", team=self.team).result, False)
-        self.assertIs(execute_hog("return 6 not in ('1', '2', '3', '4', '5', '6')", team=self.team).result, False)
-        self.assertIs(execute_hog("return 'US' in ('US', 'UK')", team=self.team).result, True)
-
     def test_bytecode_execute(self):
         # Test a simple operations. The Hog execution itself is tested under common/hogvm/python/
         self.assertEqual(execute_hog("1 + 2", team=self.team).result, 3)

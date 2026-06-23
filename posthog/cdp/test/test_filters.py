@@ -222,7 +222,7 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
                 }
             ]
         }
-        bytecode = self.filters_to_bytecode(filters=filters)
+        bytecode = compile_filters_bytecode(filters, self.team)["bytecode"]
         assert execute_bytecode(bytecode, {"properties": {"$survey_response_1": 6}}).result is True
         assert execute_bytecode(bytecode, {"properties": {"$survey_response_1": 7}}).result is False
 
