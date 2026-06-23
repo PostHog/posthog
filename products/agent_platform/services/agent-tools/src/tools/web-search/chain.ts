@@ -30,8 +30,12 @@ export interface WebSearchProviderConfig {
      * as a fallback (natural order).
      */
     fallbacks?: string
-    /** Per-provider API keys — a provider is usable only when its key is set. */
-    keys: Partial<Record<WebSearchProviderName, string | undefined>>
+    /** Per-provider API keys — a provider is usable only when its key is set.
+     *  Non-partial Record so adding a new id to `WEB_SEARCH_PROVIDER_NAMES`
+     *  forces every call site (notably agent-runner/src/index.ts) to wire a
+     *  matching `<name>ApiKey` config field; missing it would otherwise
+     *  silently drop the new provider from the chain. */
+    keys: Record<WebSearchProviderName, string | undefined>
 }
 
 function isProviderName(n: string): n is WebSearchProviderName {
@@ -45,7 +49,9 @@ function isProviderName(n: string): n is WebSearchProviderName {
  *
  * An unrecognised name in `fallbacks` (the primary is enum-validated at config
  * load) is skipped with a `warn` so a misconfigured deployment is self-diagnosing
- * rather than silently running a shorter chain.
+ * rather than silently running a shorter chain. A configured primary whose key
+ * is missing emits its own `warn` for the same reason — the operator chose that
+ * provider and silently falling through hides intent from `web_search.enabled`.
  */
 export function buildWebSearchProviders(cfg: WebSearchProviderConfig, log?: Logger): WebSearchProvider[] {
     const order: string[] = []
@@ -61,17 +67,13 @@ export function buildWebSearchProviders(cfg: WebSearchProviderConfig, log?: Logg
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean)
-    if (explicitFallbacks.length > 0) {
-        for (const f of explicitFallbacks) {
-            push(f)
-        }
-    } else {
-        // No explicit fallbacks → any other keyed provider is a last-resort fallback.
-        for (const n of WEB_SEARCH_PROVIDER_NAMES) {
-            push(n)
-        }
+    // Explicit list when given, otherwise every other keyed provider as a last-resort fallback.
+    const fallbackSource = explicitFallbacks.length > 0 ? explicitFallbacks : WEB_SEARCH_PROVIDER_NAMES
+    for (const n of fallbackSource) {
+        push(n)
     }
 
+    const primaryName = cfg.primary?.trim().toLowerCase()
     const chain: WebSearchProvider[] = []
     for (const name of order) {
         if (!isProviderName(name)) {
@@ -81,8 +83,18 @@ export function buildWebSearchProviders(cfg: WebSearchProviderConfig, log?: Logg
             )
             continue
         }
-        const key = cfg.keys[name]
+        // Trim once at construction so env vars with trailing whitespace / CRLF
+        // (`EXA_API_KEY=…\n` from a poorly-templated secret) don't reach undici
+        // as `Invalid character in header content` and don't pass `!key` only
+        // to return blanket 401s from the vendor.
+        const key = cfg.keys[name]?.trim()
         if (!key) {
+            if (name === primaryName) {
+                log?.warn(
+                    { provider: name },
+                    'web_search.primary_key_missing — configured primary has no API key, dropping'
+                )
+            }
             continue
         }
         chain.push(PROVIDER_FACTORIES[name](key))

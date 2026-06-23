@@ -255,8 +255,23 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
     webSearchFallbacks: z
         .string()
         .optional()
+        .refine(
+            (v) => {
+                if (!v) {
+                    return true
+                }
+                const tokens = v
+                    .split(',')
+                    .map((s) => s.trim().toLowerCase())
+                    .filter(Boolean)
+                return tokens.every((t) => (WEB_SEARCH_PROVIDER_NAMES as readonly string[]).includes(t))
+            },
+            {
+                message: `webSearchFallbacks must be a comma-separated list of: ${WEB_SEARCH_PROVIDER_NAMES.join(', ')}`,
+            }
+        )
         .describe(
-            'Comma-separated ordered fallback provider ids tried after the primary on error. Empty → every other keyed provider is a last-resort fallback in natural order (exa, tavily, brave).'
+            'Comma-separated ordered fallback provider ids tried after the primary on error. A typo fails fast at config load (matches the primary). Empty → every other keyed provider is a last-resort fallback in natural order (exa, tavily, brave).'
         ),
     exaApiKey: z.string().optional().describe('Exa search API key. Enables the `exa` web-search provider.'),
     tavilyApiKey: z.string().optional().describe('Tavily search API key. Enables the `tavily` web-search provider.'),

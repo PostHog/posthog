@@ -114,4 +114,24 @@ describe('web-search providers', () => {
         const out = await new ExaProvider('k').search(INPUT, http)
         expect(out[0].snippet.length).toBe(2_000)
     })
+
+    it('falls back to text when highlights are all empty rather than emitting bare ellipses', async () => {
+        const { http } = jsonFetch({
+            results: [{ title: 'A', url: 'https://a', highlights: ['', ''], text: 'actual text' }],
+        })
+        const out = await new ExaProvider('k').search(INPUT, http)
+        expect(out[0].snippet).toBe('actual text')
+    })
+
+    it('treats a JSON null response body as an empty result set rather than throwing a TypeError', async () => {
+        expect(await new ExaProvider('k').search(INPUT, jsonFetch(null).http)).toEqual([])
+        expect(await new TavilyProvider('k').search(INPUT, jsonFetch(null).http)).toEqual([])
+        expect(await new BraveProvider('k').search(INPUT, jsonFetch(null).http)).toEqual([])
+    })
+
+    it('does not expose the API key on enumerable instance properties', () => {
+        const provider = new ExaProvider('secret-key')
+        expect(JSON.stringify(provider)).not.toContain('secret-key')
+        expect(JSON.stringify(provider)).toBe('{"name":"exa"}')
+    })
 })

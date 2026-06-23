@@ -17,8 +17,11 @@ export const webSearchV1 = defineNativeTool({
         limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 20, default: 10 })),
     }),
     returns: Type.Object({
-        /** Which configured provider served the results (primary or a fallback). */
-        provider: Type.String(),
+        /** Which configured provider served the results (primary or a fallback).
+         *  Closed literal union so the JSON Schema sent to the LLM enumerates
+         *  the possible values rather than `string`. Mirror this if
+         *  `WEB_SEARCH_PROVIDER_NAMES` grows. */
+        provider: Type.Union([Type.Literal('exa'), Type.Literal('tavily'), Type.Literal('brave')]),
         results: Type.Array(
             Type.Object({
                 title: Type.String(),

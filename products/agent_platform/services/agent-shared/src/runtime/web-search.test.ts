@@ -53,7 +53,8 @@ describe('searchWithFallback', () => {
         )
     })
 
-    it('throws web_search_all_providers_failed with each error when every provider fails', async () => {
+    it('throws web_search_all_providers_failed naming the providers tried (without raw err.message) when all fail', async () => {
+        const log = vi.fn()
         await expect(
             searchWithFallback(
                 [
@@ -61,13 +62,39 @@ describe('searchWithFallback', () => {
                         throw new Error('exa_http_500')
                     }),
                     provider('brave', async () => {
-                        throw new Error('brave_http_429')
+                        throw new Error('fetch failed: https://api.search.brave.com/...?q=sensitive')
                     }),
                 ],
-                { query: 'q', limit: 5 },
+                { query: 'sensitive', limit: 5 },
+                noopHttp,
+                log
+            )
+        ).rejects.toThrow(/web_search_all_providers_failed: tried exa, brave/)
+        // Per-provider warns keep the structured detail for operators...
+        expect(log).toHaveBeenCalledWith(
+            'warn',
+            'web_search.provider_failed',
+            expect.objectContaining({ provider: 'brave', error: expect.stringContaining('sensitive') })
+        )
+    })
+
+    it('does not echo raw provider error messages (which can embed the user query) into the thrown aggregate', async () => {
+        let captured: Error | undefined
+        try {
+            await searchWithFallback(
+                [
+                    provider('brave', async () => {
+                        throw new Error('fetch failed: https://api.search.brave.com/?q=top-secret-query')
+                    }),
+                ],
+                { query: 'top-secret-query', limit: 5 },
                 noopHttp,
                 noopLog
             )
-        ).rejects.toThrow(/web_search_all_providers_failed: exa: exa_http_500; brave: brave_http_429/)
+        } catch (e) {
+            captured = e as Error
+        }
+        expect(captured?.message).not.toContain('top-secret-query')
+        expect(captured?.message).toMatch(/^web_search_all_providers_failed: tried brave/)
     })
 })

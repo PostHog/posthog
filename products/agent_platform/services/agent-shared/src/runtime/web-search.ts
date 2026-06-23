@@ -56,6 +56,13 @@ type WebSearchLog = (level: 'info' | 'warn' | 'error', msg: string, meta?: Recor
  * Try each provider in order, returning the first success. A provider that
  * throws (HTTP error / network / parse) is logged and the next is tried.
  * Throws only when nothing is configured or every provider failed.
+ *
+ * The thrown error names the providers tried but NOT their raw err.message:
+ * undici fetch failures embed the request URL in the message, and the Brave
+ * provider puts the user query in `?q=…` — so concatenating raw messages into
+ * the final error would round-trip the query (which may contain PII) back to
+ * the LLM-visible tool result. The per-provider warn logs above keep the
+ * structured error code for operator triage.
  */
 export async function searchWithFallback(
     providers: readonly WebSearchProvider[],
@@ -66,16 +73,16 @@ export async function searchWithFallback(
     if (providers.length === 0) {
         throw new Error('web_search_not_configured')
     }
-    const errors: string[] = []
+    const triedProviders: string[] = []
     for (const provider of providers) {
         try {
             const results = await provider.search(input, http)
             return { results, provider: provider.name }
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err)
-            errors.push(`${provider.name}: ${message}`)
+            triedProviders.push(provider.name)
             log('warn', 'web_search.provider_failed', { provider: provider.name, error: message })
         }
     }
-    throw new Error(`web_search_all_providers_failed: ${errors.join('; ')}`)
+    throw new Error(`web_search_all_providers_failed: tried ${triedProviders.join(', ')} (see warn logs for details)`)
 }

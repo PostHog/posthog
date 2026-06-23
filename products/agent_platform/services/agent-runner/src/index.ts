@@ -119,10 +119,7 @@ async function main(): Promise<void> {
         },
         log
     )
-    log.info(
-        { providers: webSearchProviders.map((p) => p.name) },
-        webSearchProviders.length > 0 ? 'web_search.enabled' : 'web_search.disabled'
-    )
+    log.info({ providers: webSearchProviders.map((p) => p.name) }, 'web_search.boot')
 
     // S3 bundle storage is required (enforced on `bundleS3Bucket` in config —
     // dev default, fail closed at config-load in prod). Endpoint is optional:
