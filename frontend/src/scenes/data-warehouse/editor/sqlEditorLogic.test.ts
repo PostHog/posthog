@@ -212,9 +212,6 @@ describe('sqlEditorLogic', () => {
         sceneLogic.mount()
         databaseLogic = databaseTableListLogic()
         databaseLogic.mount()
-        sceneLogic.actions.setTabs([
-            { id: TAB_ID, title: 'SQL', pathname: '/sql', search: '', hash: '', active: true, iconType: 'blank' },
-        ])
         await expectLogic(teamLogic).toFinishAllListeners()
     })
 

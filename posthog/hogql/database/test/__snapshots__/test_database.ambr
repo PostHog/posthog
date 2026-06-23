@@ -277,6 +277,7 @@
          "posthog_externaldatasource"."description",
          "posthog_externaldatasource"."created_via",
          "posthog_externaldatasource"."access_method",
+         "posthog_externaldatasource"."direct_query_enabled",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -355,11 +356,6 @@
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
          AND NOT ("posthog_externaldatasource"."deleted"
                   AND "posthog_externaldatasource"."deleted" IS NOT NULL)
-         AND NOT ("posthog_datawarehousetable"."id" IN ('00000000000000000000000000000000'::uuid,
-                                                        '00000000000000000000000000000000'::uuid,
-                                                        '00000000000000000000000000000000'::uuid,
-                                                        '00000000000000000000000000000000'::uuid,
-                                                        '00000000000000000000000000000000'::uuid))
          AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
                   AND "posthog_externaldatasource"."access_method" IS NOT NULL))
   ORDER BY "posthog_datawarehousetable"."created_at" DESC
@@ -613,6 +609,7 @@
          "posthog_externaldatasource"."description",
          "posthog_externaldatasource"."created_via",
          "posthog_externaldatasource"."access_method",
+         "posthog_externaldatasource"."direct_query_enabled",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -691,16 +688,6 @@
                   AND "posthog_datawarehousetable"."deleted" IS NOT NULL)
          AND NOT ("posthog_externaldatasource"."deleted"
                   AND "posthog_externaldatasource"."deleted" IS NOT NULL)
-         AND NOT ("posthog_datawarehousetable"."id" IN ('00000000000000000000000000000000'::uuid,
-                                                        '00000000000000000000000000000000'::uuid,
-                                                        '00000000000000000000000000000000'::uuid,
-                                                        '00000000000000000000000000000000'::uuid,
-                                                        '00000000000000000000000000000000'::uuid,
-                                                        '00000000000000000000000000000000'::uuid,
-                                                        '00000000000000000000000000000000'::uuid,
-                                                        '00000000000000000000000000000000'::uuid,
-                                                        '00000000000000000000000000000000'::uuid,
-                                                        '00000000000000000000000000000000'::uuid))
          AND NOT ("posthog_externaldatasource"."access_method" = 'direct'
                   AND "posthog_externaldatasource"."access_method" IS NOT NULL))
   ORDER BY "posthog_datawarehousetable"."created_at" DESC
@@ -5501,6 +5488,124 @@
           },
           "id": "system.feature_flags",
           "name": "system.feature_flags",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.file_system": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "path": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "path",
+                  "id": null,
+                  "name": "path",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "depth": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "depth",
+                  "id": null,
+                  "name": "depth",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "type",
+                  "id": null,
+                  "name": "type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "ref": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "ref",
+                  "id": null,
+                  "name": "ref",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "href": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "href",
+                  "id": null,
+                  "name": "href",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "meta": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "meta",
+                  "id": null,
+                  "name": "meta",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "surface": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "surface",
+                  "id": null,
+                  "name": "surface",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "shortcut": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "shortcut",
+                  "id": null,
+                  "name": "shortcut",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              }
+          },
+          "id": "system.file_system",
+          "name": "system.file_system",
           "row_count": null,
           "type": "system"
       },
@@ -13508,6 +13613,124 @@
           },
           "id": "system.feature_flags",
           "name": "system.feature_flags",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.file_system": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "path": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "path",
+                  "id": null,
+                  "name": "path",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "depth": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "depth",
+                  "id": null,
+                  "name": "depth",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "type",
+                  "id": null,
+                  "name": "type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "ref": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "ref",
+                  "id": null,
+                  "name": "ref",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "href": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "href",
+                  "id": null,
+                  "name": "href",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "meta": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "meta",
+                  "id": null,
+                  "name": "meta",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "surface": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "surface",
+                  "id": null,
+                  "name": "surface",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "shortcut": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "shortcut",
+                  "id": null,
+                  "name": "shortcut",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              }
+          },
+          "id": "system.file_system",
+          "name": "system.file_system",
           "row_count": null,
           "type": "system"
       },

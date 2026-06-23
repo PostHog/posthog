@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
+import { teamLogic } from '~/scenes/teamLogic'
 import { initKeaTests } from '~/test/init'
 import { TeamType } from '~/types'
 
@@ -150,6 +151,54 @@ describe('supportSettingsLogic', () => {
             })
                 .toDispatchActions(['removeTeamsChannelPair', 'loadCurrentTeam', 'setTeamsChannelPairLoading'])
                 .toMatchValues({ teamsChannelPairLoading: null })
+        })
+
+        it('allows adding a second channel in the same group', async () => {
+            const existingChannels = [
+                { team_id: 't1', team_name: 'Team 1', channel_id: 'ch-1', channel_name: 'Channel 1' },
+            ]
+            const updatedChannels = [
+                ...existingChannels,
+                { team_id: 't1', team_name: 'Team 1', channel_id: 'ch-2', channel_name: 'Channel 2' },
+            ]
+
+            useMocks({
+                get: {
+                    'api/conversations/v1/email/status': { configs: [] },
+                },
+                post: {
+                    'api/environments/:team_id/': async ({ request }) => [200, await request.json()],
+                    'api/conversations/v1/teams/select-channel': { ok: true, teams_channels: updatedChannels },
+                    'api/conversations/v1/teams/install': { ok: true, status: 'installed' },
+                    'api/conversations/v1/teams/channels': { channels: [] },
+                },
+            })
+
+            initKeaTests(true, {
+                conversations_settings: {
+                    teams_enabled: true,
+                    teams_channels: existingChannels,
+                },
+            } as unknown as TeamType)
+
+            logic = supportSettingsLogic()
+            logic.mount()
+
+            await expectLogic(logic).toMatchValues({
+                teamsChannelPairs: existingChannels,
+            })
+
+            // Verify the add action dispatches correctly
+            await expectLogic(logic, () => {
+                logic.actions.addTeamsChannelPair('t1', 'ch-2')
+            }).toDispatchActions(['addTeamsChannelPair', 'loadCurrentTeam'])
+
+            // Simulate the team reload completing with both channels
+            teamLogic.actions.loadCurrentTeamSuccess({
+                conversations_settings: { teams_enabled: true, teams_channels: updatedChannels },
+            } as unknown as TeamType)
+
+            expect(logic.values.teamsChannelPairs).toEqual(updatedChannels)
         })
     })
 })

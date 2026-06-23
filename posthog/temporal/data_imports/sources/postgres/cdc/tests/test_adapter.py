@@ -122,13 +122,24 @@ class TestRecreateSlot:
         assert mock_create.call_args.args[1] == "posthog_slot"
         mock_create_slot_and_pub.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "tables,expected_pairs",
+        [
+            # Bare names fall back to the source's default schema.
+            (["users"], [("public", "users")]),
+            # A schema-qualified name keeps its own schema; a bare name still uses the default.
+            # Regression: previously every table was forced under the source default schema,
+            # so `tll.students` became `public."tll.students"` and CREATE PUBLICATION failed.
+            (["tll.students", "orders"], [("tll", "students"), ("public", "orders")]),
+        ],
+    )
     @patch(f"{_ADAPTER}.create_slot_and_publication", return_value="0/BB")
     @patch(f"{_ADAPTER}.create_slot")
     @patch(f"{_ADAPTER}.publication_exists", return_value=False)
     @patch(f"{_ADAPTER}.drop_slot")
     @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
-    def test_recreates_publication_when_posthog_managed_and_missing(
-        self, _conn, mock_drop, _pub_exists, mock_create, mock_create_slot_and_pub
+    def test_recreates_publication_qualifying_each_table_by_its_own_schema(
+        self, _conn, mock_drop, _pub_exists, mock_create, mock_create_slot_and_pub, tables, expected_pairs
     ) -> None:
         source = _source(
             cdc_enabled=True,
@@ -137,12 +148,12 @@ class TestRecreateSlot:
             cdc_publication_name="posthog_pub",
         )
 
-        fields = PostgresCDCAdapter().recreate_slot(source, tables=["users"])
+        fields = PostgresCDCAdapter().recreate_slot(source, tables=tables)
 
         assert fields == {"cdc_consistent_point": "0/BB"}
         mock_create_slot_and_pub.assert_called_once()
         assert mock_create_slot_and_pub.call_args.args[1:3] == ("posthog_slot", "posthog_pub")
-        assert mock_create_slot_and_pub.call_args.kwargs["tables"] == ["users"]
+        assert mock_create_slot_and_pub.call_args.kwargs["tables"] == expected_pairs
         mock_create.assert_not_called()
 
     @patch(f"{_ADAPTER}.create_slot_and_publication")

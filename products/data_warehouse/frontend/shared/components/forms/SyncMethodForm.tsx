@@ -2,6 +2,7 @@ import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
 
 import { LemonButton, LemonInput, LemonSelect, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
@@ -123,8 +124,12 @@ const getCdcSyncSupported = (
     }
 }
 
+// xmin is offered only when the source advertises it for the table and the gating flag is on.
+export const shouldOfferXmin = (schema: ExternalDataSourceSyncSchema, xminFlagEnabled: boolean): boolean =>
+    !schema.webhook_only && xminFlagEnabled && !!schema.xmin_available
+
 const getSaveDisabledReason = (
-    syncType: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | undefined,
+    syncType: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | 'xmin' | undefined,
     incrementalField: string | null,
     appendField: string | null
 ): string | undefined => {
@@ -145,7 +150,7 @@ const getInitialRadioState = (
     schema: ExternalDataSourceSyncSchema,
     incrementalSyncSupported: boolean,
     appendSyncSupported: boolean
-): 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' => {
+): 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | 'xmin' => {
     if (schema.sync_type) {
         return schema.sync_type
     }
@@ -183,6 +188,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     },
     ref
 ): JSX.Element {
+    const xminFlagEnabled = useFeatureFlag('DWH_POSTGRES_XMIN')
     const incrementalSyncSupported = getIncrementalSyncSupported(schema)
     const appendSyncSupported = getAppendOnlySyncSupported(schema)
     const cdcSyncSupported = getCdcSyncSupported(schema)
@@ -224,7 +230,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
         lookbackAmount != null && lookbackAmount > 0 ? lookbackAmount * LOOKBACK_UNIT_SECONDS[lookbackUnit] : null
 
     const radioOptions: {
-        value: 'webhook' | 'incremental' | 'append' | 'full_refresh' | 'cdc'
+        value: 'webhook' | 'incremental' | 'append' | 'full_refresh' | 'cdc' | 'xmin'
         disabledReason?: string
         label: JSX.Element
     }[] = []
@@ -320,6 +326,28 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                             />
                         </div>
                     )}
+                </div>
+            ),
+        })
+    }
+
+    if (shouldOfferXmin(schema, xminFlagEnabled)) {
+        radioOptions.push({
+            value: 'xmin',
+            label: (
+                <div className="mb-4 font-normal">
+                    <div className="items-center flex leading-[normal] overflow-hidden mb-1">
+                        <h4 className="mb-0 mr-2 text-base font-semibold">xmin replication</h4>
+                    </div>
+                    <p className="mb-2">
+                        Incremental replication using Postgres' internal <code>xmin</code> system column to track
+                        changed rows — no <code>updated_at</code> column required. Each sync reads only rows inserted or
+                        updated since the last run. Requires a primary key on the source table.
+                    </p>
+                    <p className="mb-2">
+                        Does not capture row deletes, and reads the full table on every sync (the <code>xmin</code>{' '}
+                        column is unindexed). Choose CDC if you need deletes or have a very large, high-churn table.
+                    </p>
                 </div>
             ),
         })
@@ -607,6 +635,9 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
             onSave('webhook', null, null, null)
         } else if (radioValue === 'cdc') {
             onSave('cdc', null, null, null, cdcTableMode)
+        } else if (radioValue === 'xmin') {
+            // xmin carries no user-picked incremental field; the source projects the system column.
+            onSave('xmin', null, null, null)
         } else if (radioValue === 'incremental') {
             const fieldSelected = schema.incremental_fields.find((n) => n.field === incrementalFieldValue)
             if (!fieldSelected) {

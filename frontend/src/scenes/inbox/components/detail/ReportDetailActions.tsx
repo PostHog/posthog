@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconArchive, IconPullRequest, IconUndo } from '@posthog/icons'
@@ -9,24 +8,13 @@ import { LemonButton, lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
+import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
+import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport, SignalReportStatus } from '../../types'
 import { useReportArchive } from '../cards/useReportArchive'
-
-/** Mirror desktop's `Inbox report action` analytics for detail-pane actions. */
-function fireReportAction(report: SignalReport, action: 'create_pr', extras: Record<string, unknown> = {}): void {
-    posthog.capture('Inbox report action', {
-        report_id: report.id,
-        report_title: report.title ?? null,
-        priority: report.priority ?? null,
-        actionability: report.actionability ?? null,
-        action_type: action,
-        surface: 'detail_pane',
-        ...extras,
-    })
-}
 
 /**
  * Should the Create PR action be offered? Mirrors desktop `canCreateImplementationPr` /
@@ -56,17 +44,26 @@ function canCreateImplementationPr(report: SignalReport): boolean {
 export function ReportDetailActions({ report }: { report: SignalReport }): JSX.Element {
     const { isCreatingPr } = useValues(inboxTaskKickoffLogic)
     const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
+    const { reportArchived } = useActions(inboxBulkActionsLogic)
     const { activeTab } = useValues(inboxSceneLogic)
     const [isRestoring, setIsRestoring] = useState(false)
 
     const showCreatePr = canCreateImplementationPr(report)
     const isArchived = report.status === SignalReportStatus.SUPPRESSED
+    // Resolved reports are terminal (their implementation PR merged) – nothing to archive, restore, or kick off.
+    const isResolved = report.status === SignalReportStatus.RESOLVED
 
     const { isArchiving, onArchiveClick } = useReportArchive({
         reportId: report.id,
         cardTitle: report.title ?? 'Untitled report',
-        // Back to the list once archived – the suppressed report drops out on the list's refetch.
-        onArchived: () => router.actions.push(urls.inbox(activeTab)),
+        report,
+        surface: 'detail_pane',
+        // Once the suppress persists, broadcast so every mounted list reconciles against the server
+        // (the report leaves Reports/Pull requests and joins Archived), then return to the list.
+        onArchived: () => {
+            reportArchived()
+            router.actions.push(urls.inbox(activeTab))
+        },
     })
 
     const onRestoreClick = async (): Promise<void> => {
@@ -77,6 +74,7 @@ export function ReportDetailActions({ report }: { report: SignalReport }): JSX.E
             listParams: INBOX_FLAT_TAB_LIST_PARAMS.archived,
         })
         if (archivedList) {
+            // The list logic fires the `restore` analytics; just drive navigation here.
             archivedList.actions.restoreReport(report.id)
             router.actions.push(urls.inbox(activeTab))
             return
@@ -85,6 +83,7 @@ export function ReportDetailActions({ report }: { report: SignalReport }): JSX.E
         setIsRestoring(true)
         try {
             await api.signalReports.setState(report.id, { state: 'potential' })
+            captureInboxReportAction({ report, actionType: 'restore', surface: 'detail_pane' })
             lemonToast.success('Report restored to inbox')
             router.actions.push(urls.inbox(activeTab))
         } catch (error: any) {
@@ -92,6 +91,11 @@ export function ReportDetailActions({ report }: { report: SignalReport }): JSX.E
         } finally {
             setIsRestoring(false)
         }
+    }
+
+    // A resolved report is terminal – its PR already merged, so no detail actions apply.
+    if (isResolved) {
+        return <></>
     }
 
     // An already-archived report offers Restore instead of Archive (and no Create PR).
@@ -131,7 +135,7 @@ export function ReportDetailActions({ report }: { report: SignalReport }): JSX.E
                     loading={isCreatingPr}
                     tooltip="Have Self-driving open a pull request for this report"
                     onClick={() => {
-                        fireReportAction(report, 'create_pr')
+                        captureInboxReportAction({ report, actionType: 'create_pr', surface: 'detail_pane' })
                         createPrFromReport(report)
                     }}
                 >

@@ -7,6 +7,8 @@ from unittest.mock import patch
 
 from django.db.models import Model
 
+from posthog.models.signals import model_activity_signal
+
 from products.data_warehouse.backend.types import IncrementalFieldType
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -98,6 +100,97 @@ class TestExternalDataSchemaSave(BaseTest):
         assert schema.s3_folder_name == "orders"
 
 
+class TestExternalDataSchemaActivityLogging(BaseTest):
+    """Internal pipeline-driven bookkeeping saves must bypass ModelActivityMixin so they neither
+    emit a (low-value) activity signal nor perform the extra `_get_before_update` SELECT — that
+    read can raise OperationalError when the transaction pooler drops the connection mid-sync."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.signal_received = False
+        self.source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Postgres",
+        )
+
+    def _signal_handler(self, sender, **kwargs) -> None:
+        self.signal_received = True
+
+    def _create(self, **kwargs) -> ExternalDataSchema:
+        return ExternalDataSchema.objects.create(team_id=self.team.pk, source=self.source, name="users", **kwargs)
+
+    def test_normal_update_triggers_activity_signal(self) -> None:
+        schema = self._create()
+        model_activity_signal.connect(self._signal_handler, sender=ExternalDataSchema)
+        try:
+            schema.should_sync = False
+            schema.save()
+            assert self.signal_received
+        finally:
+            model_activity_signal.disconnect(self._signal_handler, sender=ExternalDataSchema)
+
+    def test_skip_activity_log_bypasses_before_update_read(self) -> None:
+        schema = self._create()
+        with patch.object(ExternalDataSchema, "_get_before_update") as before_update:
+            schema.status = "Running"
+            schema.save(skip_activity_log=True)
+            assert not before_update.called
+
+    def test_default_save_performs_before_update_read(self) -> None:
+        schema = self._create()
+        # return_value=None matches the "no prior row" path the activity handler already tolerates.
+        with patch.object(ExternalDataSchema, "_get_before_update", return_value=None) as before_update:
+            schema.status = "Running"
+            schema.save()
+            assert before_update.called
+
+    def test_reset_pipeline_save_skips_activity_log(self) -> None:
+        schema = self._create(
+            sync_type=ExternalDataSchema.SyncType.XMIN,
+            sync_type_config={"xmin_last_value": 100, "xmin_ceiling": 4294967396, "xmin_num_wraparound": 1},
+            initial_sync_complete=True,
+        )
+        model_activity_signal.connect(self._signal_handler, sender=ExternalDataSchema)
+        try:
+            with patch.object(ExternalDataSchema, "_get_before_update") as before_update:
+                schema.update_sync_type_config_for_reset_pipeline()
+                assert not before_update.called
+            assert not self.signal_received
+        finally:
+            model_activity_signal.disconnect(self._signal_handler, sender=ExternalDataSchema)
+        schema.refresh_from_db()
+        assert schema.initial_sync_complete is False
+        assert "xmin_last_value" not in schema.sync_type_config
+
+    def test_update_xmin_state_save_skips_activity_log(self) -> None:
+        schema = self._create(sync_type=ExternalDataSchema.SyncType.XMIN, sync_type_config={})
+        model_activity_signal.connect(self._signal_handler, sender=ExternalDataSchema)
+        try:
+            schema.update_xmin_state(ceiling_xid=100, ceiling_xid8=4294967396, num_wraparound=1)
+            assert not self.signal_received
+        finally:
+            model_activity_signal.disconnect(self._signal_handler, sender=ExternalDataSchema)
+        schema.refresh_from_db()
+        assert schema.xmin_last_value == 100
+
+    def test_update_incremental_field_value_save_skips_activity_log(self) -> None:
+        schema = self._create(
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={"incremental_field_type": IncrementalFieldType.Integer},
+        )
+        model_activity_signal.connect(self._signal_handler, sender=ExternalDataSchema)
+        try:
+            schema.update_incremental_field_value(42)
+            assert not self.signal_received
+        finally:
+            model_activity_signal.disconnect(self._signal_handler, sender=ExternalDataSchema)
+        schema.refresh_from_db()
+        assert schema.incremental_field_last_value == 42
+
+
 @pytest.mark.parametrize(
     "clickhouse_type,expected",
     [
@@ -186,3 +279,79 @@ def test_process_incremental_value_xid_returns_value_as_is() -> None:
 )
 def test_apply_incremental_lookback(value, field_type, lookback_seconds, expected) -> None:
     assert apply_incremental_lookback(value, field_type, lookback_seconds) == expected
+
+
+class TestStagedIncrementalCursor:
+    def _make_schema(self, **config: object) -> ExternalDataSchema:
+        schema = ExternalDataSchema(
+            sync_type_config={
+                "incremental_field_type": IncrementalFieldType.Integer,
+                **config,
+            }
+        )
+        return schema
+
+    def test_stage_writes_run_uuid_and_last_value(self) -> None:
+        schema = self._make_schema()
+        with patch.object(schema, "save"):
+            schema.stage_incremental_field_value("run-1", 42)
+        staged = schema.sync_type_config["incremental_staged"]
+        assert staged == {"run_uuid": "run-1", "last_value": 42}
+
+    def test_stage_writes_earliest_value(self) -> None:
+        schema = self._make_schema()
+        with patch.object(schema, "save"):
+            schema.stage_incremental_field_value("run-1", None, earliest_value=10)
+        staged = schema.sync_type_config["incremental_staged"]
+        assert staged == {"run_uuid": "run-1", "earliest_value": 10}
+
+    def test_stage_overwrites_when_different_run_uuid(self) -> None:
+        schema = self._make_schema(incremental_staged={"run_uuid": "old", "last_value": 1, "earliest_value": 5})
+        with patch.object(schema, "save"):
+            schema.stage_incremental_field_value("run-2", 99)
+        staged = schema.sync_type_config["incremental_staged"]
+        assert staged["run_uuid"] == "run-2"
+        assert staged["last_value"] == 99
+        assert "earliest_value" not in staged
+
+    def test_stage_merges_when_same_run_uuid(self) -> None:
+        schema = self._make_schema()
+        with patch.object(schema, "save"):
+            schema.stage_incremental_field_value("run-1", None, earliest_value=10)
+            schema.stage_incremental_field_value("run-1", 42)
+        staged = schema.sync_type_config["incremental_staged"]
+        assert staged == {"run_uuid": "run-1", "earliest_value": 10, "last_value": 42}
+
+    def test_promote_moves_last_value_to_live(self) -> None:
+        schema = self._make_schema(incremental_staged={"run_uuid": "run-1", "last_value": 42})
+        with patch.object(schema, "save"):
+            result = schema.promote_staged_incremental_values("run-1")
+        assert result is True
+        assert schema.sync_type_config["incremental_field_last_value"] == 42
+        assert "incremental_staged" not in schema.sync_type_config
+
+    def test_promote_moves_earliest_value_to_live(self) -> None:
+        schema = self._make_schema(incremental_staged={"run_uuid": "run-1", "earliest_value": 5})
+        with patch.object(schema, "save"):
+            result = schema.promote_staged_incremental_values("run-1")
+        assert result is True
+        assert schema.sync_type_config["incremental_field_earliest_value"] == 5
+
+    def test_promote_rejects_wrong_run_uuid(self) -> None:
+        schema = self._make_schema(incremental_staged={"run_uuid": "run-1", "last_value": 42})
+        with patch.object(schema, "save"):
+            result = schema.promote_staged_incremental_values("run-WRONG")
+        assert result is False
+        assert "incremental_field_last_value" not in schema.sync_type_config
+
+    def test_promote_returns_false_when_no_staged(self) -> None:
+        schema = self._make_schema()
+        with patch.object(schema, "save"):
+            result = schema.promote_staged_incremental_values("run-1")
+        assert result is False
+
+    def test_reset_pipeline_clears_staged(self) -> None:
+        schema = self._make_schema(incremental_staged={"run_uuid": "run-1", "last_value": 42})
+        with patch.object(schema, "save"):
+            schema.update_sync_type_config_for_reset_pipeline()
+        assert "incremental_staged" not in schema.sync_type_config

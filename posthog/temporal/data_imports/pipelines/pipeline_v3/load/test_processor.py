@@ -1,12 +1,16 @@
 from typing import Any
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
 from parameterized import parameterized
 
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
-from posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor import _apply_partitioning, _get_write_type
+from posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
+    _apply_partitioning,
+    _get_write_type,
+    _promote_staged_cursor,
+)
 from posthog.temporal.data_imports.pipelines.test_mocks import mock_delta_table
 
 
@@ -111,3 +115,42 @@ class TestApplyPartitioning:
 
         assert PARTITION_KEY not in result.column_names
         assert result.equals(pa_table)
+
+
+class TestPromoteStagedCursor:
+    def _make_signal(self, **overrides: Any) -> MagicMock:
+        signal = MagicMock()
+        signal.schema_id = overrides.get("schema_id", "schema-1")
+        signal.team_id = overrides.get("team_id", 1)
+        signal.run_uuid = overrides.get("run_uuid", "run-abc-a1")
+        signal.job_id = overrides.get("job_id", "job-1")
+        return signal
+
+    @patch("posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor.ExternalDataSchema.objects")
+    def test_promotes_when_run_uuid_matches(self, mock_objects: MagicMock) -> None:
+        schema = MagicMock()
+        schema.promote_staged_incremental_values.return_value = True
+        mock_objects.get.return_value = schema
+
+        signal = self._make_signal()
+        _promote_staged_cursor(signal)
+
+        mock_objects.get.assert_called_once_with(id="schema-1", team_id=1)
+        schema.promote_staged_incremental_values.assert_called_once_with("run-abc-a1")
+
+    @patch("posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor.ExternalDataSchema.objects")
+    def test_does_not_raise_on_promotion_failure(self, mock_objects: MagicMock) -> None:
+        schema = MagicMock()
+        schema.promote_staged_incremental_values.side_effect = RuntimeError("db error")
+        mock_objects.get.return_value = schema
+
+        signal = self._make_signal()
+        _promote_staged_cursor(signal)
+
+    @patch("posthog.temporal.data_imports.pipelines.pipeline_v3.load.processor.ExternalDataSchema.objects")
+    def test_does_not_raise_when_schema_missing(self, mock_objects: MagicMock) -> None:
+        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+
+        mock_objects.get.side_effect = ExternalDataSchema.DoesNotExist()
+        signal = self._make_signal()
+        _promote_staged_cursor(signal)

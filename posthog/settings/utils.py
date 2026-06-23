@@ -6,7 +6,28 @@ from django.core.exceptions import ImproperlyConfigured
 
 from posthog.utils import str_to_bool
 
-__all__ = ["generate_rsa_private_key_pem", "get_from_env", "get_list", "str_to_bool"]
+__all__ = [
+    "assert_debug_not_in_production",
+    "generate_rsa_private_key_pem",
+    "get_from_env",
+    "get_list",
+    "str_to_bool",
+]
+
+
+def assert_debug_not_in_production(*, debug: bool, cloud_deployment: Optional[str], test: bool) -> None:
+    """Refuse to boot with DEBUG enabled on a deployed cloud environment (US/EU/DEV).
+
+    DEBUG relaxes authentication (e.g. the dev OAuth login bypass in posthog/views.py) and exposes
+    debugging surfaces, so it must never run on PostHog Cloud US/EU or the hosted dev/staging env.
+    TEST is excluded because the suite runs with DEBUG=1 (see posthog/settings/overrides.py). E2E is
+    not listed: it runs only in automated tests and never sets DEBUG, so the guard can't fire there.
+    """
+    if debug and not test and (cloud_deployment or "").upper() in ("US", "EU", "DEV"):
+        raise ImproperlyConfigured(
+            f"DEBUG must not be enabled on deployed cloud environments (CLOUD_DEPLOYMENT={cloud_deployment!r}). "
+            "Unset DEBUG."
+        )
 
 
 def generate_rsa_private_key_pem() -> str:

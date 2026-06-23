@@ -89,7 +89,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     class Meta:
         db_table = "posthog_externaldataschema"
 
-    def save(self, *args: Any, **kwargs: Any) -> None:
+    def save(self, *args: Any, skip_activity_log: bool = False, **kwargs: Any) -> None:
         # Populate the S3 folder on first write so the column is always authoritative for new rows.
         # Legacy/qualified rows set it explicitly before renaming (see `_qualify_legacy_row`); this
         # only fills it when empty, so an existing folder is never overwritten by a later rename.
@@ -98,7 +98,15 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             update_fields = kwargs.get("update_fields")
             if update_fields is not None:
                 kwargs["update_fields"] = {*update_fields, "s3_folder_name"}
-        super().save(*args, **kwargs)
+
+        if skip_activity_log:
+            # Internal pipeline-driven bookkeeping saves (sync_type_config / xmin state) don't need
+            # an audit trail. Bypass ModelActivityMixin.save() so we skip its extra _get_before_update
+            # SELECT — that read needs a fresh pooler connection and raises OperationalError when the
+            # transaction pooler has dropped the connection mid-sync, failing the import activity.
+            super(ModelActivityMixin, self).save(*args, **kwargs)
+        else:
+            super().save(*args, **kwargs)
 
     def folder_path(self) -> str:
         return f"team_{self.team_id}_{self.source.source_type}_{str(self.id)}".lower().replace("-", "_")
@@ -319,10 +327,64 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config["partition_format"] = partition_format
         self.save()
 
+    def stage_incremental_field_value(self, run_uuid: str, last_value: Any, earliest_value: Any = None) -> None:
+        existing = self.sync_type_config.get("incremental_staged", {})
+        if existing.get("run_uuid") == run_uuid:
+            staged = existing
+        else:
+            staged = {"run_uuid": run_uuid}
+        if last_value is not None:
+            staged["last_value"] = self._serialize_incremental_value(last_value)
+        if earliest_value is not None:
+            staged["earliest_value"] = self._serialize_incremental_value(earliest_value)
+        self.sync_type_config["incremental_staged"] = staged
+        self.save()
+
+    def promote_staged_incremental_values(self, run_uuid: str) -> bool:
+        staged = self.sync_type_config.get("incremental_staged")
+        if not staged or staged.get("run_uuid") != run_uuid:
+            return False
+        if "last_value" in staged:
+            self.sync_type_config["incremental_field_last_value"] = staged["last_value"]
+        if "earliest_value" in staged:
+            self.sync_type_config["incremental_field_earliest_value"] = staged["earliest_value"]
+        self.sync_type_config.pop("incremental_staged", None)
+        self.save()
+        return True
+
+    def _serialize_incremental_value(self, value: Any) -> Any:
+        incremental_field_type = self.sync_type_config.get("incremental_field_type")
+        if "numpy" in sys.modules:
+            import numpy  # noqa: PLC0415
+
+            value = value.item() if isinstance(value, numpy.generic) else value
+        if value is None:
+            return None
+        if (
+            incremental_field_type == IncrementalFieldType.Integer
+            or incremental_field_type == IncrementalFieldType.Numeric
+        ):
+            if isinstance(value, int | float):
+                return value
+            elif isinstance(value, datetime):
+                return value.isoformat()
+            else:
+                return int(value)
+        elif (
+            incremental_field_type == IncrementalFieldType.DateTime
+            or incremental_field_type == IncrementalFieldType.Timestamp
+        ):
+            if isinstance(value, datetime):
+                return value.isoformat()
+            else:
+                return str(value)
+        return str(value)
+
     def update_sync_type_config_for_reset_pipeline(self) -> None:
         self.sync_type_config.pop("reset_pipeline", None)
         self.sync_type_config.pop("incremental_field_last_value", None)
         self.sync_type_config.pop("incremental_field_earliest_value", None)
+        self.sync_type_config.pop("incremental_staged", None)
         self.sync_type_config.pop("partitioning_enabled", None)
         self.sync_type_config.pop("partition_size", None)
         self.sync_type_config.pop("partition_count", None)
@@ -337,7 +399,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
         self.initial_sync_complete = False
 
-        self.save()
+        self.save(skip_activity_log=True)
 
     def update_incremental_field_value(
         self, last_value: Any, save: bool = True, type: Literal["last"] | Literal["earliest"] = "last"
@@ -386,7 +448,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             raise ValueError(f"Unsupported type for update_incremental_field_value: {type}")
 
         if save:
-            self.save()
+            self.save(skip_activity_log=True)
 
     def update_xmin_state(self, ceiling_xid: int, ceiling_xid8: int, num_wraparound: int, save: bool = True) -> None:
         # Call at job completion, not per-batch: a mid-run crash then re-reads the window
@@ -396,7 +458,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config["xmin_num_wraparound"] = num_wraparound
 
         if save:
-            self.save()
+            self.save(skip_activity_log=True)
 
     def soft_delete(self):
         self.deleted = True

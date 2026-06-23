@@ -51,7 +51,7 @@ import { workflowLogic } from '../../workflowLogic'
 import { HogFlowEventFilters, WORKFLOW_OPERATOR_ALLOWLIST } from '../filters/HogFlowFilters'
 import { getRegisteredTriggerTypes } from '../registry/triggers/triggerTypeRegistry'
 import { HogFlowAction } from '../types'
-import { batchTriggerLogic, BLAST_RADIUS_LIMIT } from './batchTriggerLogic'
+import { batchTriggerLogic } from './batchTriggerLogic'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 import { RecurringSchedulePicker } from './components/RecurringSchedulePicker'
 import { ScheduleStatusBadge } from './components/ScheduleStatusBadge'
@@ -526,19 +526,19 @@ function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; fil
         return null
     }
 
-    const { affected, total } = blastRadius
+    const { affected, total, limit } = blastRadius
 
     if (affected != null && total != null) {
-        const exceeded = affected > BLAST_RADIUS_LIMIT
+        const exceeded = limit != null && affected > limit
         return (
             <div className="text-muted">
                 <div className={exceeded ? 'text-danger font-semibold' : 'text-muted'}>
                     approximately {humanFriendlyNumber(affected)} of {humanFriendlyNumber(total)} persons.
                 </div>
-                {exceeded && (
+                {exceeded && limit != null && (
                     <div className="text-danger text-xs">
-                        Batch size exceeds the limit of {humanFriendlyNumber(BLAST_RADIUS_LIMIT)} users. Add filters to
-                        narrow your audience. This limit will be loosened in the future.
+                        Batch size exceeds the limit of {humanFriendlyNumber(limit)} users. Add filters to narrow your
+                        audience. This limit will be loosened in the future.
                     </div>
                 )}
             </div>

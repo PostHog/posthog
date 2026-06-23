@@ -300,45 +300,84 @@ export const TriggerSchema = z.discriminatedUnion('type', [
 ])
 
 /**
- * Approval policy attached to a tool ref. Authoritative defaults live here —
- * the dispatcher reads `ToolRef.approval_policy` directly after Zod parsing,
- * so omitting fields in the spec falls through to these values.
+ * Approval `type` — who clears a gated call. Two independent authorities:
+ *   - `principal` (default) — the session's principal: whoever drove this
+ *     session. A *generic identity match* (slack user id / jwt sub / posthog
+ *     uuid == the session principal), NOT a PostHog-authority check, so it works
+ *     for a Slack or embedded-app asker with no PostHog account. Decided via the
+ *     lightweight ingress decision API (a Slack button, a client tool, or the
+ *     PostHog Code approval card).
+ *   - `agent` — the agent's owning-team admins (org-membership ADMIN level on
+ *     the owning team; see Django `_require_team_admin`). The one intrinsically-
+ *     PostHog authority; decided only in the authenticated console / approvals
+ *     inbox. (A creator who isn't a team admin can't decide today — kept simple
+ *     until a finer owner grant exists.)
  *
- * `approvers` is a closed set in v0 (`team_admins` only); see plan §6.1 for
- * why richer scopes are deferred.
+ * Neither auto-dispatches: the owner/principal being the *asker* is not consent
+ * to the specific call the model emitted (prompt injection in content the agent
+ * read could steer it), so every gated call queues for an explicit human action.
  */
-/**
- * Approver scopes accepted in v0:
- *   - `team_admins` — any user with the `org_admin` / `team_admin` role on
- *     the owning team. The default scope on every gated tool.
- *   - `session_principal` — the auth-time principal stored on the session
- *     row (NOT the most recent /send sender — see B1 in
- *     `runtime-mcps.md` "Resolved design"). Used by the concierge so the
- *     session owner can authorise their own destructive call without
- *     round-tripping through a team admin; a second user posting to a
- *     resumed session can't bypass the gate. v0 is per-asker fast-path
- *     only — queued-approval routing to the session principal widens
- *     later via approver-scope routing in `approval-gated-tools.md` §6.
- */
-export const ApproverScopeSchema = z.enum(['team_admins', 'session_principal'])
+export const ApprovalTypeSchema = z.enum(['principal', 'agent'])
+export type ApprovalType = z.infer<typeof ApprovalTypeSchema>
 
-export const ApprovalPolicySchema = z.object({
-    approvers: z.array(ApproverScopeSchema).min(1).default(['team_admins']),
-    allow_edit: z.boolean().default(false),
-    ttl_ms: z
-        .number()
-        .int()
-        .min(60_000) // 1 minute
-        .max(7 * 24 * 60 * 60 * 1000) // 7 days
-        .default(24 * 60 * 60 * 1000), // 24h
-    allow_agent_approver: z.boolean().default(false),
-})
+/**
+ * Map a pre-rebuild `approvers[]` scope to the new `type`, so specs frozen
+ * before the principal/agent split keep parsing. `team_admins` was the owner
+ * authority → `agent`; `session_principal` → `principal`.
+ */
+function legacyApproversToApprovalType(approvers: unknown): ApprovalType | undefined {
+    if (!Array.isArray(approvers)) {
+        return undefined
+    }
+    if (approvers.includes('team_admins')) {
+        return 'agent'
+    }
+    if (approvers.includes('session_principal')) {
+        return 'principal'
+    }
+    return undefined
+}
+
+/**
+ * Approval policy attached to a tool ref / MCP tool entry. Authoritative
+ * defaults live here — the dispatcher reads `approval_policy` directly after Zod
+ * parsing, so omitting fields falls through to these values.
+ */
+export const ApprovalPolicySchema = z.preprocess(
+    (raw) => {
+        // Back-compat: pre-rebuild specs carry `approvers[]` + `allow_agent_approver`
+        // instead of `type`. Derive `type` from the old scope and drop the legacy
+        // keys so old frozen revisions still validate.
+        if (
+            raw &&
+            typeof raw === 'object' &&
+            !Array.isArray(raw) &&
+            (raw as Record<string, unknown>).type === undefined
+        ) {
+            const obj = { ...(raw as Record<string, unknown>) }
+            const type = legacyApproversToApprovalType(obj.approvers)
+            delete obj.approvers
+            delete obj.allow_agent_approver
+            return type ? { ...obj, type } : obj
+        }
+        return raw
+    },
+    z.object({
+        type: ApprovalTypeSchema.default('principal'),
+        allow_edit: z.boolean().default(false),
+        ttl_ms: z
+            .number()
+            .int()
+            .min(60_000) // 1 minute
+            .max(7 * 24 * 60 * 60 * 1000) // 7 days
+            .default(24 * 60 * 60 * 1000), // 24h
+    })
+)
 
 const DEFAULT_APPROVAL_POLICY = {
-    approvers: ['team_admins' as const],
+    type: 'principal' as const,
     allow_edit: false,
     ttl_ms: 24 * 60 * 60 * 1000,
-    allow_agent_approver: false,
 }
 
 export const ToolRefSchema = z.discriminatedUnion('kind', [
@@ -347,6 +386,9 @@ export const ToolRefSchema = z.discriminatedUnion('kind', [
         id: z.string(),
         requires_approval: z.boolean().default(false),
         approval_policy: ApprovalPolicySchema.default(DEFAULT_APPROVAL_POLICY),
+        // Native tools declare their credential provider intrinsically (the tool
+        // definition's `requires.provider`), so the spec ref carries no identity
+        // field — the runtime reads it from the registry.
     }),
     z.object({
         kind: z.literal('custom'),
@@ -354,6 +396,10 @@ export const ToolRefSchema = z.discriminatedUnion('kind', [
         path: z.string(),
         requires_approval: z.boolean().default(false),
         approval_policy: ApprovalPolicySchema.default(DEFAULT_APPROVAL_POLICY),
+        // The single identity provider (id from spec.identity_providers[]) this
+        // custom tool acts as. Unlinked → the dispatch wrapper relays an
+        // auth_required link. One provider per tool by design.
+        requires_identity: z.string().optional(),
     }),
     // NOTE: the registry-pin shape `{ kind: 'custom_template', from_template,
     // alias, version }` is a *draft-only* authoring shape, validated by the
@@ -458,76 +504,85 @@ export const McpToolEntrySchema = z.union([
  * in favour of a single flat shape — `agent-as-mcp-server.md` will re-add it
  * when a concrete consumer lands.
  */
-export const McpRefSchema = z.object({
-    /**
-     * Stable id within the spec. Tool-name prefix at runtime —
-     * `<id>__<toolName>` is what the model sees so it can tell which MCP
-     * a tool came from. Must be unique across `spec.mcps[]`.
-     */
-    id: z.string().min(1),
-    url: z.string().url(),
-    auth: z
-        .object({
-            integration: z.string().optional(),
-        })
-        .optional(),
-    /**
-     * Per-MCP secret names. Resolved at session start through the same
-     * encrypted-env path as the agent's main `spec.secrets`. The runner
-     * substitutes `${name}` placeholders in the URL + auth headers before
-     * opening the client; the plaintext never leaves the runner process.
-     */
-    secrets: z.array(z.string()).default([]),
-    /**
-     * Author-supplied request headers stamped on every outgoing MCP request.
-     * Values may reference `${NAME}` from `secrets[]`; the runner substitutes
-     * the plaintext value before opening the MCP client, so the secret never
-     * leaves the runner process. Same substitution shape as
-     * `@posthog/http-request`'s `headers` — the parallel is intentional so
-     * authors can use the same mental model for "bring my own bearer token"
-     * against either a typed MCP catalog or a raw HTTP API.
-     *
-     * Use this for the bring-your-own-token case (paste a PAT once, reference
-     * it as `${TOKEN}` in `Authorization: 'Bearer ${TOKEN}'`). For platform-
-     * managed OAuth tokens, use `auth.integration` instead; integration-
-     * stamped headers compose with author-supplied headers — explicit
-     * author entries win on duplicate keys, matching `http-request`'s
-     * "caller-set values are not silently overwritten" rule.
-     */
-    headers: z.record(z.string(), z.string()).optional(),
-    /**
-     * Per-tool selection AND approval gating. Bare string is a passthrough
-     * (gates inclusion, no approval); object form carries
-     * `requires_approval` + `approval_policy`. Omitted / empty = expose
-     * every tool the server lists. Replaces the earlier `allowlist[]`
-     * field (PR 7 hard-break — no production specs used it).
-     *
-     * Names must be unique within the array. A duplicate would be a
-     * silent first-match-wins footgun — e.g. an author who appends a
-     * gated copy of an already-listed bare-string entry would see the
-     * gated version ignored. Better to reject at parse time.
-     */
-    tools: z
-        .array(McpToolEntrySchema)
-        .optional()
-        .refine(
-            (entries) => {
-                if (!entries) {
-                    return true
-                }
-                const seen = new Set<string>()
-                for (const e of entries) {
-                    const name = typeof e === 'string' ? e : e.name
-                    if (seen.has(name)) {
-                        return false
+export const McpRefSchema = z
+    .object({
+        /**
+         * Stable id within the spec. Tool-name prefix at runtime —
+         * `<id>__<toolName>` is what the model sees so it can tell which MCP
+         * a tool came from. Must be unique across `spec.mcps[]`.
+         */
+        id: z.string().min(1),
+        url: z.string().url(),
+        auth: z
+            .object({
+                /** Team-level integration credential (shared across the team). */
+                integration: z.string().optional(),
+                /** Per-principal identity provider: stamps the linked user's bearer,
+                 *  gates into auth_required if unlinked. Vs the team-wide `integration`. */
+                provider: z.string().optional(),
+            })
+            .optional(),
+        /**
+         * Per-MCP secret names. Resolved at session start through the same
+         * encrypted-env path as the agent's main `spec.secrets`. The runner
+         * substitutes `${name}` placeholders in the URL + auth headers before
+         * opening the client; the plaintext never leaves the runner process.
+         */
+        secrets: z.array(z.string()).default([]),
+        /**
+         * Author-supplied request headers stamped on every outgoing MCP request.
+         * Values may reference `${NAME}` from `secrets[]`; the runner substitutes
+         * the plaintext value before opening the MCP client, so the secret never
+         * leaves the runner process. Same substitution shape as
+         * `@posthog/http-request`'s `headers` — the parallel is intentional so
+         * authors can use the same mental model for "bring my own bearer token"
+         * against either a typed MCP catalog or a raw HTTP API.
+         *
+         * Use this for the bring-your-own-token case (paste a PAT once, reference
+         * it as `${TOKEN}` in `Authorization: 'Bearer ${TOKEN}'`). For platform-
+         * managed OAuth tokens, use `auth.integration` instead; integration-
+         * stamped headers compose with author-supplied headers — explicit
+         * author entries win on duplicate keys, matching `http-request`'s
+         * "caller-set values are not silently overwritten" rule.
+         */
+        headers: z.record(z.string(), z.string()).optional(),
+        /**
+         * Per-tool selection AND approval gating. Bare string is a passthrough
+         * (gates inclusion, no approval); object form carries
+         * `requires_approval` + `approval_policy`. Omitted / empty = expose
+         * every tool the server lists. Replaces the earlier `allowlist[]`
+         * field (PR 7 hard-break — no production specs used it).
+         *
+         * Names must be unique within the array. A duplicate would be a
+         * silent first-match-wins footgun — e.g. an author who appends a
+         * gated copy of an already-listed bare-string entry would see the
+         * gated version ignored. Better to reject at parse time.
+         */
+        tools: z
+            .array(McpToolEntrySchema)
+            .optional()
+            .refine(
+                (entries) => {
+                    if (!entries) {
+                        return true
                     }
-                    seen.add(name)
-                }
-                return true
-            },
-            { message: 'mcps[].tools[] entries must have unique names' }
-        ),
-})
+                    const seen = new Set<string>()
+                    for (const e of entries) {
+                        const name = typeof e === 'string' ? e : e.name
+                        if (seen.has(name)) {
+                            return false
+                        }
+                        seen.add(name)
+                    }
+                    return true
+                },
+                { message: 'mcps[].tools[] entries must have unique names' }
+            ),
+    })
+    .refine((m) => !(m.auth?.integration && m.auth?.provider), {
+        message: 'mcps[].auth cannot set both integration (team-wide) and provider (per-asker)',
+        path: ['auth'],
+    })
 
 export const SkillRefSchema = z.object({
     id: z.string(),
@@ -678,6 +733,49 @@ export const ResumeConfigSchema = z.object({
         .default(7 * 24 * 60 * 60 * 1000),
 })
 
+/**
+ * A per-app identity provider users can link against. Two kinds:
+ *   - `posthog` — managed: on promote the backend provisions a normal,
+ *     user-consented OAuthApplication for the agent's org and injects its
+ *     `client_id` here (the author supplies nothing but optional scopes).
+ *     Linking runs PostHog's standard consent flow, so the user explicitly
+ *     authorises the agent to act as them.
+ *   - `oauth2`  — bring-your-own: the author registers an OAuth app at a third
+ *     party (GitHub, Linear, the `dogs` test IdP), points its redirect at our
+ *     callback, and supplies endpoints + client_id + a `client_secret_ref`
+ *     (a key in the agent's encrypted_env). One generic provider serves them all.
+ */
+export const IdentityProviderConfigSchema = z.discriminatedUnion('kind', [
+    z.object({
+        kind: z.literal('posthog'),
+        id: z.string().min(1).default('posthog'),
+        scopes: z.array(z.string()).default([]),
+        /** Who the credential acts as. Only `principal` (per-asker) is accepted:
+         *  the `agent` binding (one credential shared by the whole agent) isn't
+         *  implemented yet, so it's rejected at the schema until the app-scoped
+         *  credential shape lands. The runtime seam still exists (resolve throws
+         *  `agent_binding_not_implemented`) for when it does. */
+        binding: z.enum(['principal']).default('principal'),
+        /** Backend-injected on promote (the provisioned OAuthApplication's
+         *  client_id). Author never sets it; absent until the agent is promoted. */
+        client_id: z.string().optional(),
+    }),
+    z.object({
+        kind: z.literal('oauth2'),
+        id: z.string().min(1),
+        binding: z.enum(['principal']).default('principal'),
+        authorize_url: z.string().url(),
+        token_url: z.string().url(),
+        client_id: z.string().min(1),
+        /** Key in encrypted_env holding the client secret. Omit for public PKCE clients. */
+        client_secret_ref: z.string().optional(),
+        scopes: z.array(z.string()).default([]),
+        /** Userinfo endpoint, used for the email cross-check warn at link time. */
+        userinfo_url: z.string().url().optional(),
+    }),
+])
+export type IdentityProviderConfig = z.infer<typeof IdentityProviderConfigSchema>
+
 export const AgentSpecSchema = z.object({
     model: ModelIdSchema,
     triggers: z.array(TriggerSchema).default([]),
@@ -685,6 +783,8 @@ export const AgentSpecSchema = z.object({
     mcps: z.array(McpRefSchema).default([]),
     skills: z.array(SkillRefSchema).default([]),
     integrations: z.array(z.string()).default([]),
+    /** Identity providers users can link against (the credential axis). */
+    identity_providers: z.array(IdentityProviderConfigSchema).default([]),
     secrets: z.array(SecretRefSchema).default([]),
     limits: SpecLimitsSchema.default({
         max_turns: 50,
@@ -713,7 +813,6 @@ export function triggerAuthConfig(trigger: Trigger): AuthConfig | null {
 }
 export type ToolRef = z.infer<typeof ToolRefSchema>
 export type ApprovalPolicy = z.infer<typeof ApprovalPolicySchema>
-export type ApproverScope = z.infer<typeof ApproverScopeSchema>
 export type McpRef = z.infer<typeof McpRefSchema>
 export type McpToolEntry = z.infer<typeof McpToolEntrySchema>
 export type SecretRef = z.infer<typeof SecretRefSchema>

@@ -4,6 +4,7 @@ const REASON_LABELS: Record<EvaluationStatusReason, string> = {
     trial_limit_reached: 'Trial evaluation limit reached',
     model_not_allowed: 'Model not available on the trial plan',
     provider_key_deleted: 'Provider API key was deleted',
+    no_default_model: 'No default model available for the selected provider',
 }
 
 export function statusReasonLabel(reason: EvaluationStatusReason | null | undefined): string {

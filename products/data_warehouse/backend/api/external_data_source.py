@@ -88,6 +88,7 @@ from products.data_warehouse.backend.data_load.service import (
     ensure_cdc_slot_cleanup_schedule,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
+    is_xmin_enabled_for_team,
     sync_cdc_extraction_schedule,
     sync_discover_schemas_schedule,
     sync_external_data_job_workflow,
@@ -489,7 +490,7 @@ class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         choices=ExternalDataSchema.SyncType.choices,
-        help_text="Requested sync mode for the schema.",
+        help_text="Requested sync mode for the schema (incremental, full_refresh, append, cdc, or xmin).",
     )
     incremental_field = serializers.CharField(
         required=False,
@@ -663,6 +664,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "Ignored on update."
         ),
     )
+    direct_query_enabled = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether this synced source is also live-queryable via direct connection. "
+            "Defaults to true for new sources; ignored for pure direct-query sources."
+        ),
+    )
 
     class Meta:
         model = ExternalDataSource
@@ -679,6 +687,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "prefix",
             "description",
             "access_method",
+            "direct_query_enabled",
             "engine",
             "last_run_at",
             "schemas",
@@ -1077,6 +1086,14 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         default=ExternalDataSource.CreatedVia.API,
         help_text="Where the request came from",
     )
+    direct_query_enabled = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Whether a synced source should also be live-queryable via direct connection. "
+            "Defaults to true; ignored for pure direct-query sources."
+        ),
+    )
 
 
 class SourceSetupSerializer(serializers.Serializer):
@@ -1105,6 +1122,14 @@ class SourceSetupSerializer(serializers.Serializer):
     )
     description = serializers.CharField(
         max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Human-readable description."
+    )
+    direct_query_enabled = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Whether a synced source should also be live-queryable via direct connection. "
+            "Defaults to true; ignored for pure direct-query sources."
+        ),
     )
 
 
@@ -1334,6 +1359,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             description=serializer.validated_data.get("description"),
             access_method=serializer.validated_data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE),
             created_via=serializer.validated_data.get("created_via", ExternalDataSource.CreatedVia.API),
+            direct_query_enabled=serializer.validated_data.get("direct_query_enabled", True),
         )
 
     def _create_external_data_source(
@@ -1346,6 +1372,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         description: str | None,
         access_method: str,
         created_via: str,
+        direct_query_enabled: bool = True,
         skip_credential_validation: bool = False,
     ) -> Response:
         # `skip_credential_validation` is set only by the `setup` action, which has already run the
@@ -1429,6 +1456,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             prefix=prefix,
             description=description,
             access_method=access_method,
+            direct_query_enabled=direct_query_enabled,
         )
 
         # CDC: gate per-source-type adapter availability up front so downstream blocks
@@ -1519,13 +1547,25 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 cdc_schema_name_by_location[(resolved_source_schema, resolved_source_table_name)] = schema_name
 
             if cdc_table_names_by_schema:
-                with cdc_pg_connection(new_source_model) as conn:
-                    for db_schema, cdc_table_names in cdc_table_names_by_schema.items():
-                        queried_pks = get_primary_key_columns(conn, db_schema, list(cdc_table_names))
-                        for table_name, primary_key_columns in queried_pks.items():
-                            schema_name = cdc_schema_name_by_location.get((db_schema, table_name))
-                            if schema_name is not None:
-                                pk_columns_by_table[schema_name] = primary_key_columns
+                try:
+                    with cdc_pg_connection(new_source_model) as conn:
+                        for db_schema, cdc_table_names in cdc_table_names_by_schema.items():
+                            queried_pks = get_primary_key_columns(conn, db_schema, list(cdc_table_names))
+                            for table_name, primary_key_columns in queried_pks.items():
+                                schema_name = cdc_schema_name_by_location.get((db_schema, table_name))
+                                if schema_name is not None:
+                                    pk_columns_by_table[schema_name] = primary_key_columns
+                except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+                    # Connecting to the user's database to detect CDC primary keys is expected to
+                    # fail when the host, port, credentials, or SSH tunnel are wrong, or the server
+                    # requires/refuses SSL. Surface it as a 400, but don't capture it — these are
+                    # user/upstream connection problems, not bugs in our code, and capturing every
+                    # one floods error tracking. Mirrors the CDC-prerequisite handlers below.
+                    new_source_model.delete()
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={"message": f"Could not connect to your database to set up change data capture: {e}"},
+                    )
 
             # CDC needs a PK for UPDATE/DELETE merges. Refuse here so `_setup_cdc_resources` doesn't
             # create replication state on the source for a config we're about to reject.
@@ -2235,6 +2275,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # which makes a network round-trip per call. With large schema lists (e.g. Slack workspaces with
         # thousands of channels) the per-iteration call inflated the response loop past the 120s gateway.
         cdc_enabled = is_cdc_enabled_for_team(self.team)
+        xmin_enabled = is_xmin_enabled_for_team(self.team)
+        # xmin is Postgres-only — gate on the source type so the capability never leaks to another SQL source.
+        is_postgres = source_type_model == ExternalDataSourceType.POSTGRES
         data = [
             {
                 "table": schema.name,
@@ -2244,6 +2287,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "incremental_available": schema.supports_incremental,
                 "append_available": schema.supports_append,
                 "cdc_available": schema.supports_cdc if cdc_enabled else None,
+                "xmin_available": schema.supports_xmin if (is_postgres and xmin_enabled) else None,
                 "incremental_field": schema.incremental_fields[0]["field"]
                 if len(schema.incremental_fields) > 0 and len(schema.incremental_fields[0]["field"]) > 0
                 else None,
@@ -2318,6 +2362,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         try:
             source_schemas = source.get_schemas(source_config, self.team_id)
+        except NotImplementedError:
+            # Source doesn't implement schema discovery (e.g. an unreleased source) so it can't be
+            # set up via this one-shot flow — a caller mistake, not a server error worth capturing.
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Source type '{source_type}' does not support one-shot setup."},
+            )
         except Exception as e:
             capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
@@ -2341,6 +2392,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             description=serializer.validated_data.get("description"),
             access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
             created_via=ExternalDataSource.CreatedVia.MCP,
+            direct_query_enabled=serializer.validated_data.get("direct_query_enabled", True),
             skip_credential_validation=True,
         )
         # Stored credentials are single-use: once the source owns them (in job_inputs), drop the stash.
@@ -2703,6 +2755,16 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 slot_name=request.data.get("cdc_slot_name") or None,
                 publication_name=request.data.get("cdc_publication_name") or None,
             )
+        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+            # Probing the source's database to validate it is expected to fail when the host,
+            # credentials, or SSH tunnel are wrong, the server requires/refuses SSL, or it drops the
+            # connection. Surface it as a 400, but don't capture it — these are user/upstream
+            # connection problems, not bugs in our code, and capturing every one floods error
+            # tracking. Mirrors the detail=False check_cdc_prerequisites handler.
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Could not connect to source to check prerequisites: {e}"},
+            )
         except Exception as e:
             capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
             return Response(
@@ -2767,6 +2829,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 schema=schema_hint,
                 slot_name=request.data.get("cdc_slot_name") or None,
                 publication_name=request.data.get("cdc_publication_name") or None,
+            )
+        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+            # Expected user/upstream connection failure (bad host/credentials/SSH tunnel, server
+            # requires/refuses SSL, dropped connection). Surface as a 400 without capturing — see the
+            # check_cdc_prerequisites_for_source handler above.
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Could not connect to source to check prerequisites: {e}"},
             )
         except Exception as e:
             capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})

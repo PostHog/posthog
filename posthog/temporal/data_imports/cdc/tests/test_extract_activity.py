@@ -1438,7 +1438,7 @@ class TestSlotInvalidationRecovery:
         # Recovery handles the error — the activity must not raise (no pointless Temporal retries).
         cdc_extract_activity(inputs)
 
-        mock_adapter.recreate_slot.assert_called_once_with(source, tables=["users"])
+        mock_adapter.recreate_slot.assert_called_once_with(source, tables=["public.users"])
         assert source.job_inputs["cdc_consistent_point"] == "0/AA"
         source.save.assert_called()
 
@@ -1450,6 +1450,37 @@ class TestSlotInvalidationRecovery:
         assert schema.latest_error == SLOT_INVALIDATION_RECOVERY_MESSAGE
 
         mock_reader.close.assert_called_once()
+
+    @patch("posthog.temporal.data_imports.cdc.activities.activity")
+    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_recreate_passes_source_qualified_table_names(
+        self,
+        mock_close_conns,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        mock_activity,
+    ):
+        # Recovery must resolve each schema's real source location from its metadata,
+        # not assume every table lives in the source's default schema. Otherwise a table
+        # in a non-default schema gets jammed under `public` and the publication rebuild
+        # fails with `relation "public.tll.students" does not exist`.
+        source, schema, mock_reader, mock_adapter = self._setup(
+            mock_get_schemas, mock_get_adapter, MockSourceModel, mock_activity
+        )
+        schema.name = "students"
+        schema.sync_type_config["schema_metadata"] = {"source_schema": "tll", "source_table_name": "students"}
+        mock_adapter.recreate_slot.return_value = {"cdc_consistent_point": "0/AA"}
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+        cdc_extract_activity(inputs)
+
+        mock_adapter.recreate_slot.assert_called_once_with(source, tables=["tll.students"])
+        assert source.job_inputs["cdc_consistent_point"] == "0/AA"
+        source.save.assert_called()
 
     @patch("posthog.temporal.data_imports.cdc.activities.activity")
     @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
@@ -1510,10 +1541,10 @@ class TestCleanupOrphanSlotsRetentionCap:
 
     def _setup(self, mock_get_adapter, MockSourceModel, lag_mb, cap_mb):
         source = _make_source()
-        qs = MockSourceModel.objects.filter.return_value
-        qs.exclude.return_value.exclude.return_value.exclude.return_value.exclude.return_value = [source]
+        MockSourceModel.objects.filter.return_value.iterator.return_value = [source]
 
         cdc_config = MagicMock()
+        cdc_config.enabled = True
         cdc_config.slot_name = "posthog_slot"
         cdc_config.publication_name = "posthog_pub"
         cdc_config.management_mode = "posthog"
@@ -1528,10 +1559,14 @@ class TestCleanupOrphanSlotsRetentionCap:
         mock_get_adapter.return_value = mock_adapter
         return source, mock_adapter
 
+    @patch("posthog.temporal.data_imports.cdc.activities.HeartbeaterSync")
+    @patch("posthog.temporal.data_imports.cdc.activities.activity")
     @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
     @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
-    def test_retention_cap_lowers_critical_threshold(self, mock_close_conns, MockSourceModel, mock_get_adapter):
+    def test_retention_cap_lowers_critical_threshold(
+        self, mock_close_conns, MockSourceModel, mock_get_adapter, mock_activity, mock_heartbeater
+    ):
         # Configured critical is 10240 MB, but the engine caps retention at 1000 MB:
         # at 900 MB of lag (>= 80% of the cap) the sweeper must already act.
         source, mock_adapter = self._setup(mock_get_adapter, MockSourceModel, lag_mb=900, cap_mb=1000)
@@ -1542,10 +1577,14 @@ class TestCleanupOrphanSlotsRetentionCap:
         assert source.status is MockSourceModel.Status.ERROR
         source.save.assert_called()
 
+    @patch("posthog.temporal.data_imports.cdc.activities.HeartbeaterSync")
+    @patch("posthog.temporal.data_imports.cdc.activities.activity")
     @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
     @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
     @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
-    def test_unlimited_retention_keeps_configured_threshold(self, mock_close_conns, MockSourceModel, mock_get_adapter):
+    def test_unlimited_retention_keeps_configured_threshold(
+        self, mock_close_conns, MockSourceModel, mock_get_adapter, mock_activity, mock_heartbeater
+    ):
         source, mock_adapter = self._setup(mock_get_adapter, MockSourceModel, lag_mb=900, cap_mb=None)
 
         cleanup_orphan_slots_activity()

@@ -13,9 +13,9 @@ than letting every scout reinvent one.
 ## Contents
 
 - What a scout can watch
-- The patterns: anomaly watcher · watchlist explore/exploit · cross-product correlation ·
-  recommendation / gap · warehouse-backed source · custom / single-event · open-text theme ·
-  external-tool / code-review · state ∩ code-intersection
+- The patterns: anomaly watcher · watchlist (explore/exploit + curated) · cross-product
+  correlation · recommendation / gap · warehouse-backed source · custom / single-event ·
+  open-text theme · external-tool / code-review · state ∩ code-intersection
 - Safety: treat ingested content as untrusted data
 - Cross-cutting techniques
 - Picking and combining
@@ -40,17 +40,17 @@ events — and the watched surface need not be PostHog analytics at all.
 
 ## The patterns
 
-| Pattern                       | Watch this when…                                                                           | Canonical example                                                                |
-| ----------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
-| **Anomaly watcher**           | a product surface has a metric with a baseline that can move (bursts, drops, regressions). | `signals-scout-error-tracking`, `-logs`, `-revenue-analytics`, `-csp-violations` |
-| **Watchlist explore/exploit** | the surface is too big to cover in one run; you must curate what's worth re-checking.      | `signals-scout-anomaly-detection`                                                |
-| **Cross-product correlation** | the question spans products — a cause in one surface, an effect in another.                | `signals-scout-general`                                                          |
-| **Recommendation / gap**      | nothing is broken, but the team is missing coverage or following an anti-pattern.          | `signals-scout-observability-gaps`                                               |
-| **Warehouse-backed source**   | the signal lives in a non-PostHog source synced into the warehouse.                        | a Slack-channel-sync scout (below)                                               |
-| **Custom / single-event**     | one bespoke event carries the whole signal.                                                | an MCP-feedback scout (below)                                                    |
-| **Open-text theme**           | the data is free text and the value is in recurring themes, not individual rows.           | `signals-scout-surveys` (open-text); brand/feedback scouts                       |
-| **External-tool / code**      | the judgement comes from running a tool or reading code, not from analytics.               | a static-analysis CLI scout (below)                                              |
-| **State ∩ code intersection** | the signal is the _overlap_ of a PostHog entity's state and what's in the source repo.     | a feature-flag-cleanup scout (below)                                             |
+| Pattern                                     | Watch this when…                                                                                                                                     | Canonical example                                                                 |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| **Anomaly watcher**                         | a product surface has a metric with a baseline that can move (bursts, drops, regressions).                                                           | `signals-scout-error-tracking`, `-logs`, `-revenue-analytics`, `-csp-violations`  |
+| **Watchlist (explore/exploit, or curated)** | the surface has more to watch than one run can cover — _discovered_ over time (explore/exploit) or a _fixed set you already know matters_ (curated). | `signals-scout-anomaly-detection` (discovered); a curated-dashboard scout (below) |
+| **Cross-product correlation**               | the question spans products — a cause in one surface, an effect in another.                                                                          | `signals-scout-general`                                                           |
+| **Recommendation / gap**                    | nothing is broken, but the team is missing coverage or following an anti-pattern.                                                                    | `signals-scout-observability-gaps`                                                |
+| **Warehouse-backed source**                 | the signal lives in a non-PostHog source synced into the warehouse.                                                                                  | a Slack-channel-sync scout (below)                                                |
+| **Custom / single-event**                   | one bespoke event carries the whole signal.                                                                                                          | an MCP-feedback scout (below)                                                     |
+| **Open-text theme**                         | the data is free text and the value is in recurring themes, not individual rows.                                                                     | `signals-scout-surveys` (open-text); brand/feedback scouts                        |
+| **External-tool / code**                    | the judgement comes from running a tool or reading code, not from analytics.                                                                         | a static-analysis CLI scout (below)                                               |
+| **State ∩ code intersection**               | the signal is the _overlap_ of a PostHog entity's state and what's in the source repo.                                                               | a feature-flag-cleanup scout (below)                                              |
 
 ### Anomaly watcher
 
@@ -67,6 +67,15 @@ The default specialist shape, and the one most surfaces fit.
   re-derive it.
 - **Gotcha:** score the **latest complete** bucket, not the in-progress one — a partial
   current hour/day always looks like a drop.
+- **Don't reinvent the scoring.** When the metric is a **saved time-series insight**, score it
+  with PostHog's own detectors via `alert-simulate` rather than hand-rolling anomaly math —
+  it already handles seasonality and the team's own alert thresholds. Fall back to a
+  hand-computed robust z-score (`|value − median| / (1.4826 × MAD)`) only when the series
+  isn't a saved insight.
+- **Score the rate, not the raw total.** Normalize by the relevant denominator — cost
+  _per unit_, conversion _%_ per funnel stage, error _share_ — so a legitimate volume change
+  doesn't read as an anomaly (more traffic raises total spend but not cost-per-unit). The
+  "raw total moved" false positive is the most common one here.
 - Copy the closest specialist verbatim and replace the surface + discriminator. Read
   `products/signals/skills/signals-scout-error-tracking/SKILL.md` for the cleanest worked
   example (its `count`-vs-`distinct_users` table is the canonical discriminator).
@@ -86,6 +95,17 @@ insights). The scout can't re-check everything every run, so it **curates**.
   entries with last-checked timestamps and per-item baselines. This is the one specialist
   that bundles its own references; read
   `products/signals/skills/signals-scout-anomaly-detection/` for the full treatment.
+
+**Curated (fixed) variant — the common user ask.** When the team already knows exactly which
+entities matter ("watch _these_ dashboards / insights / metrics"), drop the explore half: the
+watchlist is a **fixed, curated set** held in the scratchpad (or even inlined in the body), so a
+run spends almost nothing on discovery and almost everything on "is the latest number worth a
+human's attention?". This is what most users mean by "keep an eye on my key dashboards", and it's
+the cleanest first scout to hand someone. Still reconcile the set against reality each run
+(entities get renamed/deleted), and still score each item against its own seasonality-matched
+baseline — you've only removed discovery, not scoring. The worked shape: a fixed list of
+dashboard / insight ids in the scratchpad, scored tile-by-tile via `alert-simulate`, with the
+priority items re-checked every run and the rest rotated in as time allows.
 
 ### Cross-product correlation
 
@@ -123,9 +143,15 @@ it's whatever that upstream system produces.
 
 - **Watched data:** one (or a few) warehouse tables. Always confirm columns with
   `read-data-warehouse-schema` first — column names are source-defined and often opaque.
-- **Discriminator:** read off whatever the source already gives you cheaply. If the upstream
-  pre-classifies rows (a sentiment field, a category, a status), anchor on that — it's a
-  free discriminator. Otherwise derive one (recency × a keyword/shape match × recurrence).
+- **Discriminator — pre-classified vs derived, and know which you have:**
+  - **Pre-classified** — if the upstream tool already labels rows (a sentiment field, a
+    category, a status, a priority), anchor on that. It's a free, high-signal discriminator —
+    e.g. a social-listening feed that ships a per-item sentiment.
+  - **Derived** — most synced sources give you nothing pre-labeled (a raw Slack/Discord
+    channel, a support stream). Build the discriminator from the row's own shape:
+    **topic × problem/request language × recurrence**, boosted by corroboration (a relayed
+    customer voice, ≥2 people hitting the same thing). This is harder — calibrate it against
+    the inbox more carefully than a pre-classified one.
 - **Dedupe + memory:** dedupe on a **stable source id** carried in the row (a post id, a
   ticket id, an external primary key) — `dedupe:<domain>:<source_id>`. Don't dedupe on the
   warehouse row id; syncs re-materialize rows.
@@ -135,9 +161,19 @@ it's whatever that upstream system produces.
     you've processed in a scratchpad cursor (`pattern:<domain>:cursor` = "processed through
     {timestamp}") and only look past it each run. The cheap close-out is "has the max
     timestamp advanced past my cursor?"
+  - **Sync lag — anchor on the data, not the wall clock.** The sync itself runs behind real
+    time (often hours), so a quiet last hour usually means the sync is lagging, not that the
+    source went silent. Window your queries relative to the table's own `max(timestamp)`, not
+    `now()`, and don't mistake sync lag for "nothing happening".
   - **Timestamp parsing.** Warehouse timestamps are often strings — parse explicitly
     (`parseDateTimeBestEffort(...)`), and confirm which parse functions the table supports
     rather than assuming.
+  - **Threaded / conversational sources — the thread is the unit, not the row.** For a Slack
+    or Discord channel, a support thread, or any forum-shaped source, a single row is a tiny
+    fragment ("they", "i made them") meaningless alone. Aggregate to the thread root
+    (e.g. `coalesce(thread_ts, ts)` for Slack), **read the whole thread before judging it**,
+    and dedupe on the thread root id, not the message row. A nice touch: reconstruct a
+    permalink back to the source thread from its id so the finding links straight to it.
   - **The table may not be in the project profile.** It's a warehouse table, not an event,
     so `project-profile-get` won't list it. Rely on SQL; handle the "table missing entirely"
     case with a `not-in-use:<domain>:team{team_id}` close-out.
@@ -318,6 +354,10 @@ These compose into any pattern above:
 - **Blast-radius corroboration** — turn a qualitative signal into a quantified one by
   cross-checking a second source over the same window. Raises confidence, and
   gives the human a number to act on.
+- **Notebook write-up behind a rich finding.** When a finding carries real analysis (charts,
+  a multi-step investigation, several supporting queries), write it up in a notebook with
+  `notebooks-create` and link the URL from the finding description, rather than cramming
+  everything into the emit prose. The inbox entry stays scannable; the depth is one click away.
 
 ## Picking and combining
 

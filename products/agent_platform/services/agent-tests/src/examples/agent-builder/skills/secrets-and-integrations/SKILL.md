@@ -130,7 +130,7 @@ wake message with the real outcome.
 
 Loop:
 
-1. **Check current state** with `agent-applications-env-keys-get`
+1. **Check current state** with `posthog__agent-applications-env-keys-get`
    `{ id: "<slug>", key: "ANTHROPIC_KEY" }` — returns `{ key, is_set }`.
    If already set and the failure mode suggests the value is wrong,
    pass `mode: "rotate"`; otherwise omit / `mode: "set"`.

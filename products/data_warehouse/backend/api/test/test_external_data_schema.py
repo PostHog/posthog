@@ -104,6 +104,7 @@ class TestExternalDataSchema(APIBaseTest):
             "incremental_available": False,
             "append_available": True,
             "cdc_available": None,
+            "xmin_available": None,
             "full_refresh_available": True,
             "supports_webhooks": True,
             "webhook_only": False,
@@ -208,11 +209,20 @@ class TestExternalDataSchema(APIBaseTest):
                     "nullable": True,
                     # Table has no index on `id`, so the warning UI will fire for this field.
                     "is_indexed": False,
-                }
+                },
+                # xmin is synthetic: advertised for any ordinary PG13+ table, unindexed by definition.
+                {
+                    "label": "xmin",
+                    "type": "xid",
+                    "field": "xmin",
+                    "field_type": "xid",
+                    "is_indexed": False,
+                },
             ],
             "incremental_available": True,
             "append_available": True,
             "cdc_available": None,
+            "xmin_available": None,
             "full_refresh_available": True,
             "supports_webhooks": False,
             "webhook_only": False,
@@ -286,6 +296,62 @@ class TestExternalDataSchema(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["cdc_available"] is expected_cdc_available
+
+    @parameterized.expand(
+        [
+            # (test name, source_type, supports_xmin, expected_xmin_available)
+            ("postgres_capable", ExternalDataSourceType.POSTGRES, True, True),
+            ("postgres_not_capable", ExternalDataSourceType.POSTGRES, False, False),
+            ("non_postgres_capable", ExternalDataSourceType.MYSQL, True, None),
+        ]
+    )
+    def test_incremental_fields_xmin_available_gating(
+        self, _name: str, source_type, supports_xmin: bool, expected_xmin_available
+    ):
+        # xmin is Postgres-only: the endpoint must report `xmin_available=None` for any other source,
+        # even one that erroneously sets `supports_xmin=True`.
+        from posthog.temporal.data_imports.sources.mysql.source import MySQLSource
+        from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
+
+        source_impl = PostgresSource if source_type == ExternalDataSourceType.POSTGRES else MySQLSource
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=source_type,
+            job_inputs={"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="some_table",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        fake_schema = SourceSchema(
+            name="some_table",
+            supports_incremental=False,
+            supports_append=False,
+            supports_xmin=supports_xmin,
+            incremental_fields=[],
+            columns=[("id", "integer", False)],
+            detected_primary_keys=["id"],
+        )
+
+        with (
+            mock.patch.object(source_impl, "validate_credentials", return_value=(True, None)),
+            mock.patch.object(source_impl, "get_schemas", return_value=[fake_schema]),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.is_xmin_enabled_for_team",
+                return_value=True,
+            ),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/incremental_fields",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["xmin_available"] is expected_xmin_available
 
     def test_incremental_fields_matches_schema_by_name(self):
         source = ExternalDataSource.objects.create(
@@ -430,6 +496,84 @@ class TestExternalDataSchema(APIBaseTest):
             assert response.json()["incremental_field_lookback_seconds"] is None
             schema.refresh_from_db()
             assert schema.sync_type_config["incremental_field_lookback_seconds"] is None
+
+    def test_update_incremental_field_without_sync_type_persists(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+            sync_type_config={
+                "incremental_field": "created_at",
+                "incremental_field_type": "timestamp",
+                "incremental_field_last_value": "2026-06-14T15:33:31.802833",
+            },
+        )
+
+        with (
+            mock.patch("products.data_warehouse.backend.api.external_data_schema.trigger_external_data_workflow"),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+        ):
+            # A bare incremental_field edit — no sync_type re-sent — must actually persist, not just
+            # echo the submitted value back in the response.
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"incremental_field": "updated_at"},
+            )
+
+            assert response.status_code == 200, response.json()
+            assert response.json()["incremental_field"] == "updated_at"
+            schema.refresh_from_db()
+            assert schema.sync_type_config["incremental_field"] == "updated_at"
+
+    def test_update_incremental_field_on_non_incremental_schema_errors(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="BalanceTransaction",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            # Seed leftover config so the post-request assertion catches a regression that writes the
+            # value rather than leaving it untouched (a missing key would pass trivially).
+            sync_type_config={"incremental_field": "old_value", "primary_key_columns": ["id"]},
+        )
+
+        # Setting incremental_field on a full_refresh schema without switching sync_type can't be
+        # applied — it must fail loudly instead of returning 200 and dropping the change.
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"incremental_field": "updated_at"},
+        )
+
+        assert response.status_code == 400, response.json()
+        schema.refresh_from_db()
+        assert schema.sync_type_config.get("incremental_field") == "old_value"
+
+        # primary_key_columns is dropped the same way on a non-incremental schema, so it errors too.
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"primary_key_columns": ["other_id"]},
+        )
+
+        assert response.status_code == 400, response.json()
+        schema.refresh_from_db()
+        assert schema.sync_type_config.get("primary_key_columns") == ["id"]
 
     def test_incremental_field_lookback_seconds_survives_reset(self):
         source = ExternalDataSource.objects.create(
@@ -702,6 +846,290 @@ class TestExternalDataSchema(APIBaseTest):
         schema.refresh_from_db()
         assert schema.sync_type_config["primary_key_columns"] == ["id"]
 
+    def _xmin_postgres_source(self) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={"host": "h", "port": 5432, "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+
+    @staticmethod
+    def _xmin_discovery_patches(supports_xmin: bool = True, flag_enabled: bool = True):
+        from posthog.temporal.data_imports.sources.postgres.source import PostgresSource
+
+        fake_schema = SourceSchema(
+            name="public.orders",
+            supports_incremental=False,
+            supports_append=False,
+            supports_xmin=supports_xmin,
+            incremental_fields=[],
+            columns=[("id", "integer", False)],
+            detected_primary_keys=["id"],
+        )
+        return (
+            mock.patch.object(PostgresSource, "get_schemas", return_value=[fake_schema]),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.is_xmin_enabled_for_team",
+                return_value=flag_enabled,
+            ),
+        )
+
+    def test_update_schema_to_xmin_succeeds_with_primary_key(self):
+        source = self._xmin_postgres_source()
+        schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=source,
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_type_config={},
+        )
+
+        get_schemas_patch, flag_patch = self._xmin_discovery_patches()
+        with get_schemas_patch, flag_patch:
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "xmin", "primary_key_columns": ["id"]},
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.XMIN
+        assert schema.sync_type_config["primary_key_columns"] == ["id"]
+        # xmin never sets CDC state.
+        assert "cdc_mode" not in schema.sync_type_config
+
+    def test_update_schema_to_xmin_rejected_without_primary_key(self):
+        source = self._xmin_postgres_source()
+        schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=source,
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_type_config={},
+        )
+
+        get_schemas_patch, flag_patch = self._xmin_discovery_patches()
+        with get_schemas_patch, flag_patch:
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "xmin"},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "primary key" in str(response.json()).lower()
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+
+    def test_update_schema_to_xmin_rejected_for_non_postgres(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.MYSQL,
+            job_inputs={"host": "h", "port": 3306, "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=source,
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_type_config={"primary_key_columns": ["id"]},
+        )
+
+        with mock.patch(
+            "products.data_warehouse.backend.api.external_data_schema.is_xmin_enabled_for_team",
+            return_value=True,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "xmin", "primary_key_columns": ["id"]},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "postgres" in str(response.json()).lower()
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+
+    def test_update_schema_to_xmin_rejected_when_table_not_capable(self):
+        # A plain view / partitioned parent reports supports_xmin=False — reject even with a PK.
+        source = self._xmin_postgres_source()
+        schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=source,
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_type_config={"primary_key_columns": ["id"]},
+        )
+
+        get_schemas_patch, flag_patch = self._xmin_discovery_patches(supports_xmin=False)
+        with get_schemas_patch, flag_patch:
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "xmin", "primary_key_columns": ["id"]},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not available" in str(response.json()).lower()
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+
+    def test_update_schema_to_xmin_rejected_when_flag_disabled(self):
+        source = self._xmin_postgres_source()
+        schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=source,
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_type_config={"primary_key_columns": ["id"]},
+        )
+
+        get_schemas_patch, flag_patch = self._xmin_discovery_patches(flag_enabled=False)
+        with get_schemas_patch, flag_patch:
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "xmin", "primary_key_columns": ["id"]},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not enabled" in str(response.json()).lower()
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
+
+    def test_update_schema_xmin_accepts_row_filters(self):
+        source = self._xmin_postgres_source()
+        schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=source,
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.XMIN,
+            sync_type_config={
+                "primary_key_columns": ["id"],
+                "schema_metadata": {"columns": [{"name": "id", "data_type": "integer", "is_nullable": False}]},
+            },
+        )
+
+        get_schemas_patch, flag_patch = self._xmin_discovery_patches()
+        with get_schemas_patch, flag_patch:
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"row_filters": [{"column": "id", "operator": ">", "value": "5"}]},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        schema.refresh_from_db()
+        assert schema.row_filters == [{"column": "id", "operator": ">", "value": "5"}]
+
+    @parameterized.expand(
+        [
+            ("one_minute_rejected", "1min", 400),
+            ("five_minute_accepted", "5min", 200),
+        ]
+    )
+    def test_update_schema_xmin_floors_at_five_minutes(self, _name, sync_frequency, expected_status):
+        # xmin does not get CDC's 1-minute cadence — it floors at the normal 5-minute incremental cadence.
+        source = self._xmin_postgres_source()
+        schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.XMIN,
+            sync_type_config={"primary_key_columns": ["id"]},
+        )
+
+        get_schemas_patch, flag_patch = self._xmin_discovery_patches()
+        with (
+            get_schemas_patch,
+            flag_patch,
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch("products.data_warehouse.backend.api.external_data_schema.sync_external_data_job_workflow"),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "xmin", "primary_key_columns": ["id"], "sync_frequency": sync_frequency},
+            )
+
+        assert response.status_code == expected_status, response.content
+        if expected_status == 400:
+            assert "1-minute" in str(response.json()).lower() or "cdc" in str(response.json()).lower()
+
+    def test_update_schema_to_xmin_forces_full_resync(self):
+        # Switching to xmin from another strategy adds the `_ph_xmin` control column to the physical
+        # schema, so the existing Delta table must be rebuilt — force a full resync.
+        source = self._xmin_postgres_source()
+        table = DataWarehouseTable.objects.create(team=self.team)
+        schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_type_config={"primary_key_columns": ["id"]},
+            table=table,
+        )
+
+        get_schemas_patch, flag_patch = self._xmin_discovery_patches()
+        with (
+            get_schemas_patch,
+            flag_patch,
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.trigger_external_data_workflow"
+            ) as mock_trigger,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "xmin", "primary_key_columns": ["id"]},
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.XMIN
+        assert schema.sync_type_config.get("reset_pipeline") is True
+        mock_trigger.assert_called_once()
+
+    def test_update_schema_from_xmin_forces_full_resync(self):
+        # Leaving xmin for another strategy must also rebuild the table — the lingering `_ph_xmin`
+        # column would otherwise break the incremental write.
+        source = self._xmin_postgres_source()
+        table = DataWarehouseTable.objects.create(team=self.team)
+        schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.XMIN,
+            sync_type_config={"primary_key_columns": ["id"], "xmin_last_value": 123},
+            table=table,
+        )
+
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.trigger_external_data_workflow"
+            ) as mock_trigger,
+            mock.patch.object(DataWarehouseTable, "get_max_value_for_column", return_value=1),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "incremental", "incremental_field": "id", "incremental_field_type": "integer"},
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
+        assert schema.sync_type_config.get("reset_pipeline") is True
+        mock_trigger.assert_called_once()
+
     @parameterized.expand(
         [
             ("incremental", ExternalDataSchema.SyncType.INCREMENTAL, 400),
@@ -752,9 +1180,10 @@ class TestExternalDataSchema(APIBaseTest):
             # Rejected before the interval is persisted.
             assert schema.sync_frequency_interval != timedelta(minutes=1)
 
-    def test_update_schema_one_minute_cannot_survive_switch_away_from_cdc(self):
-        # Closing the gap where a CDC schema on a 1-minute schedule is switched to a non-CDC sync
-        # type without re-sending sync_frequency — the existing 1-minute interval must be rejected.
+    def test_update_schema_one_minute_clamps_on_switch_away_from_cdc(self):
+        # A CDC schema on a 1-minute schedule switched to a non-CDC sync type without re-sending
+        # sync_frequency would otherwise dead-end (1-minute is CDC-only). Instead of rejecting the
+        # switch, clamp the inherited cadence to the non-CDC floor so the switch goes through.
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_type=ExternalDataSourceType.POSTGRES,
@@ -771,16 +1200,23 @@ class TestExternalDataSchema(APIBaseTest):
             sync_frequency_interval=timedelta(minutes=1),
         )
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
-            data={"sync_type": "incremental"},
-        )
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch("products.data_warehouse.backend.api.external_data_schema.sync_external_data_job_workflow"),
+            mock.patch("products.data_warehouse.backend.api.external_data_schema.sync_cdc_extraction_schedule"),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "full_refresh"},
+            )
 
-        assert response.status_code == 400, response.content
-        assert "cdc" in str(response.json()).lower()
+        assert response.status_code == 200, response.content
         schema.refresh_from_db()
-        assert schema.sync_frequency_interval == timedelta(minutes=1)
-        assert schema.sync_type == ExternalDataSchema.SyncType.CDC
+        assert schema.sync_frequency_interval == timedelta(minutes=5)
+        assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
     def test_update_schema_frequency_on_disabled_schema_does_not_touch_missing_schedule(self):
         # A disabled / never-activated schema has no Temporal schedule. Changing its sync frequency
