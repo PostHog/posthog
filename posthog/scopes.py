@@ -105,6 +105,7 @@ APIScopeObject = Literal[
     "usage_metric",
     "user",
     "user_interview",  # Alpha product — access gated by feature flag at the MCP/API layer rather than by hiding the scope.
+    "vision_action",
     "visual_review",
     "warehouse_objects",
     "warehouse_table",
