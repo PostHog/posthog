@@ -14,7 +14,6 @@ export interface StickinessResultLike {
     data: number[]
     count: number
     days?: Array<string | number>
-    compare?: boolean
     compare_label?: string | null
     action?: { order?: number } | null
     breakdown_value?: unknown

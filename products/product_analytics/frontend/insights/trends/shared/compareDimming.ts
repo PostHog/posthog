@@ -2,8 +2,9 @@
 export const COMPARE_PREVIOUS_DIM_OPACITY = 0.5
 
 // Inlined hex math (mirrors `lib/utils` `hexToRGBA`) so this module stays free of `lib/`/`~/`/`scenes/`
-// deps and compiles in the MCP Vite bundle, which only resolves `products/*` and `@posthog/*`. Returns
-// the input unchanged if it isn't a 3/6/8-digit hex (callers always pass palette hexes).
+// deps and compiles in the MCP Vite bundle, which only resolves `products/*` and `@posthog/*`. 3/4-digit
+// shorthand is expanded to 6/8-digit first; anything that isn't ultimately a 6- or 8-digit hex is returned
+// unchanged (callers always pass palette hexes). Note an 8-digit input's alpha byte is dropped in favor of `alpha`.
 export function dimHexColor(hex: string, alpha: number): string {
     let h = hex.replace(/^#/, '')
     if (h.length === 3 || h.length === 4) {
