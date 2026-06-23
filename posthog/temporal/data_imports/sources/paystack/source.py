@@ -86,7 +86,7 @@ You can find your secret key (it starts with `sk_live_` or `sk_test_`) under **S
                 supports_append=False,
                 incremental_fields=[],
             )
-            for endpoint in list(ENDPOINTS)
+            for endpoint in ENDPOINTS
         ]
 
         if names is not None:

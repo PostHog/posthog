@@ -143,7 +143,7 @@ def validate_credentials(secret_api_key: str) -> bool:
     """Cheap authenticated probe. A Paystack secret key is account-wide (no per-resource scopes),
     so a 200 on a 1-row transaction list confirms the key is genuine."""
     query = urlencode({"perPage": 1})
-    res = make_tracked_session().get(
+    res = make_tracked_session(redact_values=(secret_api_key,)).get(
         f"{PAYSTACK_BASE_URL}/transaction?{query}",
         headers={"Authorization": f"Bearer {secret_api_key}"},
         timeout=10,

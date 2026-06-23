@@ -3,7 +3,6 @@ from dataclasses import dataclass
 
 @dataclass
 class PaystackEndpointConfig:
-    name: str
     # API path relative to https://api.paystack.co (e.g. "/transaction").
     path: str
     # Paystack list resources expose a globally-unique integer `id`, unique across the account.
@@ -20,19 +19,19 @@ class PaystackEndpointConfig:
 # credentials). Declaring incremental on unverified ordering risks watermark corruption, so
 # incremental sync is intentionally deferred — see the note in `paystack.py`.
 PAYSTACK_ENDPOINTS: dict[str, PaystackEndpointConfig] = {
-    "Transactions": PaystackEndpointConfig(name="Transactions", path="/transaction"),
-    "Customers": PaystackEndpointConfig(name="Customers", path="/customer"),
-    "Subscriptions": PaystackEndpointConfig(name="Subscriptions", path="/subscription"),
-    "Plans": PaystackEndpointConfig(name="Plans", path="/plan"),
-    "Products": PaystackEndpointConfig(name="Products", path="/product"),
-    "PaymentRequests": PaystackEndpointConfig(name="PaymentRequests", path="/paymentrequest"),
-    "Settlements": PaystackEndpointConfig(name="Settlements", path="/settlement"),
-    "Refunds": PaystackEndpointConfig(name="Refunds", path="/refund"),
-    "Transfers": PaystackEndpointConfig(name="Transfers", path="/transfer"),
-    "TransferRecipients": PaystackEndpointConfig(name="TransferRecipients", path="/transferrecipient"),
-    "Disputes": PaystackEndpointConfig(name="Disputes", path="/dispute"),
-    "Subaccounts": PaystackEndpointConfig(name="Subaccounts", path="/subaccount"),
-    "PaymentPages": PaystackEndpointConfig(name="PaymentPages", path="/page"),
+    "Transactions": PaystackEndpointConfig(path="/transaction"),
+    "Customers": PaystackEndpointConfig(path="/customer"),
+    "Subscriptions": PaystackEndpointConfig(path="/subscription"),
+    "Plans": PaystackEndpointConfig(path="/plan"),
+    "Products": PaystackEndpointConfig(path="/product"),
+    "PaymentRequests": PaystackEndpointConfig(path="/paymentrequest"),
+    "Settlements": PaystackEndpointConfig(path="/settlement"),
+    "Refunds": PaystackEndpointConfig(path="/refund"),
+    "Transfers": PaystackEndpointConfig(path="/transfer"),
+    "TransferRecipients": PaystackEndpointConfig(path="/transferrecipient"),
+    "Disputes": PaystackEndpointConfig(path="/dispute"),
+    "Subaccounts": PaystackEndpointConfig(path="/subaccount"),
+    "PaymentPages": PaystackEndpointConfig(path="/page"),
 }
 
 ENDPOINTS = tuple(PAYSTACK_ENDPOINTS.keys())
