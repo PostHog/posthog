@@ -57,6 +57,11 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     source_type = models.CharField(max_length=128, choices=ExternalDataSourceType)
     job_inputs = EncryptedJSONField(null=True, blank=True)
     connection_metadata = models.JSONField(default=dict, blank=True, null=True)
+    # CDC runtime state — lag snapshots, last-extraction heartbeat, broken/paused flags. Plain
+    # (unencrypted, queryable) JSON so the sweeper, health checks, and API can read it without a
+    # live replication probe. Kept separate from `connection_metadata`, which is whole-dict
+    # overwritten on source update and consumed by HogQL database construction.
+    cdc_state = models.JSONField(null=True, blank=True)
     are_tables_created = models.BooleanField(default=False)
     prefix = models.CharField(max_length=100, null=True, blank=True)
     description = models.CharField(max_length=400, null=True, blank=True)

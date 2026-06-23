@@ -32,6 +32,7 @@ from posthog.temporal.data_imports.cdc.batcher import (
     deduplicate_table,
     enrich_delete_rows,
 )
+from posthog.temporal.data_imports.cdc.state import update_cdc_state
 from posthog.temporal.data_imports.cdc.types import ChangeEvent
 from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.common import SyncTypeLiteral
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import PostgresProducer
@@ -1019,6 +1020,9 @@ def cleanup_orphan_slots_activity() -> None:
     sources = ExternalDataSource.objects.filter(source_type__in=cdc_supported_source_types()).iterator(chunk_size=100)
 
     sources_checked = 0
+    sources_errored = 0
+    slots_dropped = 0
+    sweep_started = dt.datetime.now(tz=dt.UTC)
     # A single source's management connection (10s connect_timeout × several ops) can stall the
     # loop, so heartbeat from a background thread rather than once per iteration — otherwise a
     # stalled source would starve heartbeats and Temporal would kill the whole sweep.
@@ -1033,6 +1037,7 @@ def cleanup_orphan_slots_activity() -> None:
                 cdc_config = adapter.parse_cdc_config(source)
             except Exception:
                 log.exception("failed_to_parse_cdc_config", source_id=str(source.id))
+                sources_errored += 1
                 continue
 
             # Restore the original filter semantics on decrypted values: skip sources that
@@ -1041,6 +1046,7 @@ def cleanup_orphan_slots_activity() -> None:
                 continue
 
             sources_checked += 1
+            source_started = dt.datetime.now(tz=dt.UTC)
 
             source_log = log.bind(
                 source_id=str(source.id),
@@ -1064,8 +1070,10 @@ def cleanup_orphan_slots_activity() -> None:
                     try:
                         with adapter.management_connection(source, connect_timeout=10) as conn:
                             adapter.drop_resources(conn, cdc_config.slot_name, cdc_config.publication_name)
+                        slots_dropped += 1
                     except Exception:
                         source_log.exception("failed_to_cleanup_deleted_source_slot")
+                        sources_errored += 1
                 continue
 
             # 2. Active sources — check WAL lag
@@ -1075,6 +1083,7 @@ def cleanup_orphan_slots_activity() -> None:
                     retention_cap_mb = adapter.get_retention_cap_mb(conn)
             except Exception:
                 source_log.exception("failed_to_check_slot_lag")
+                sources_errored += 1
                 continue
 
             if lag_bytes is None:
@@ -1082,6 +1091,14 @@ def cleanup_orphan_slots_activity() -> None:
                 continue
 
             lag_mb = lag_bytes / (1024 * 1024)
+
+            # Persist the lag snapshot on every successful check (ok/warning/critical) so the UI
+            # and health checks can read it without opening a live replication connection.
+            update_cdc_state(
+                source.id,
+                lag_bytes=lag_bytes,
+                lag_checked_at=dt.datetime.now(tz=dt.UTC).isoformat(),
+            )
 
             critical_threshold_mb = cdc_config.lag_critical_threshold_mb
             if retention_cap_mb is not None:
@@ -1101,10 +1118,12 @@ def cleanup_orphan_slots_activity() -> None:
                         with adapter.management_connection(source, connect_timeout=10) as conn:
                             adapter.drop_resources(conn, cdc_config.slot_name, cdc_config.publication_name)
 
+                        slots_dropped += 1
                         source.status = ExternalDataSource.Status.ERROR
                         source.save(update_fields=["status", "updated_at"])
                     except Exception:
                         source_log.exception("failed_to_auto_drop_slot")
+                        sources_errored += 1
                 elif cdc_config.management_mode == "self_managed":
                     source.status = ExternalDataSource.Status.ERROR
                     source.save(update_fields=["status", "updated_at"])
@@ -1116,4 +1135,16 @@ def cleanup_orphan_slots_activity() -> None:
                     threshold_mb=cdc_config.lag_warning_threshold_mb,
                 )
 
-    log.info("cleanup_orphan_slots_completed", sources_checked=sources_checked)
+            source_log.info(
+                "slot_lag_checked",
+                lag_mb=round(lag_mb, 1),
+                duration_ms=round((dt.datetime.now(tz=dt.UTC) - source_started).total_seconds() * 1000),
+            )
+
+    log.info(
+        "cleanup_orphan_slots_completed",
+        sources_checked=sources_checked,
+        sources_errored=sources_errored,
+        slots_dropped=slots_dropped,
+        duration_s=round((dt.datetime.now(tz=dt.UTC) - sweep_started).total_seconds(), 1),
+    )
