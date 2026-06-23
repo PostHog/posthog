@@ -334,6 +334,7 @@ export const FEATURE_FLAGS = {
     LEGAL_DOCUMENTS: 'legal-documents', // owner: @rafaeelaudibert #team-growth
     LINKS: 'links', // owner: @marconlp #team-link (team doesn't exist for now, maybe will come back in the future)
     LIVE_DEBUGGER: 'live-debugger', // owner: @marcecoll
+    LIVE_EVENTS_RICH_FILTERS: 'live-events-rich-filters', // owner: @jordanm-posthog #team-web-analytics
     LIVESTREAM_TUI: 'livestream-tui', // owner: @rafaeelaudibert #team-growth
     LLM_ANALYTICS_CLUSTERING_ADMIN: 'llm-analytics-clustering-admin', // owner: #team-ai-observability
     LLM_ANALYTICS_CUSTOM_PARSERS: 'ai-observability-custom-parsers', // owner: #team-ai-observability
