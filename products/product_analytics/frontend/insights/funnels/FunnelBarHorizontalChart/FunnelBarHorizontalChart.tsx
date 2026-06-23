@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { type ErrorInfo, useMemo } from 'react'
 
-import { type ChartTheme, type TooltipContext } from '@posthog/quill-charts'
+import { type ChartTheme, type PointClickData, type TooltipContext } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -132,6 +132,11 @@ export function FunnelBarHorizontalChart({
                         openPersonsModalForStep({ step, converted: true })
                     }
 
+                    // No drop-off before step 1, so its filler is an invalid target — make it inert
+                    // (no pointer, no click). The filler already suppresses its own tooltip.
+                    const isPointInteractive = (clickData: PointClickData<FunnelBarHorizontalSegmentMeta>): boolean =>
+                        !(stepIndex === 0 && clickData.series.meta?.isDropOff === true)
+
                     const renderTooltip = (ctx: TooltipContext<FunnelBarHorizontalSegmentMeta>): JSX.Element | null => (
                         <FunnelBarHorizontalTooltip
                             context={ctx}
@@ -171,6 +176,7 @@ export function FunnelBarHorizontalChart({
                                             theme={theme}
                                             interactive={interactive}
                                             onSegmentClick={onSegmentClick}
+                                            isPointInteractive={isPointInteractive}
                                             renderTooltip={renderTooltip}
                                             onError={handleChartError}
                                             heightClassName="h-5"
@@ -182,6 +188,7 @@ export function FunnelBarHorizontalChart({
                                         theme={theme}
                                         interactive={interactive}
                                         onSegmentClick={onSegmentClick}
+                                        isPointInteractive={isPointInteractive}
                                         renderTooltip={renderTooltip}
                                         onError={handleChartError}
                                     />

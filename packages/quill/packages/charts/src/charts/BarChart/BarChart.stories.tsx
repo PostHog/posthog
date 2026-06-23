@@ -1,6 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import type { BarChartConfig, BarFillStyle, Series } from '../../core/types'
+import type { BarChartConfig, BarFillStyle, PointClickData, Series } from '../../core/types'
 import { ReferenceLine } from '../../overlays/ReferenceLine'
 import { ValueLabels } from '../../overlays/ValueLabels'
 import { Stage, useReactiveTheme } from '../../story-helpers'
@@ -54,6 +54,36 @@ export const WithBarTrack: Story = {
         return (
             <Stage>
                 <BarChart series={THREE_SERIES} labels={DAYS} config={config} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
+// Funnel-style compare: the first step's shorter bar exposes a track that has no drop-off to open.
+const FUNNEL_COMPARE: Series[] = [
+    { key: 'current', label: 'Current', color: '', data: [70, 45, 30, 18] },
+    { key: 'previous', label: 'Previous', color: '', data: [100, 60, 38, 20] },
+]
+const FUNNEL_STEPS = ['1', '2', '3', '4']
+
+export const InertFirstStepTrack: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const config: BarChartConfig = { barLayout: 'grouped', showGrid: true, bars: { track: true, cornerRadius: 6 } }
+        // The exposed track above step 1's shorter bar is a non-target (no drop-off before step 1), so
+        // mark it inert — no pointer, no tooltip, no click — while every other track stays interactive.
+        const isPointInteractive = (data: PointClickData): boolean =>
+            !(data.dataIndex === 0 && data.inTrackArea === true)
+        return (
+            <Stage>
+                <BarChart
+                    series={FUNNEL_COMPARE}
+                    labels={FUNNEL_STEPS}
+                    config={config}
+                    theme={theme}
+                    onPointClick={() => {}}
+                    isPointInteractive={isPointInteractive}
+                />
             </Stage>
         )
     },

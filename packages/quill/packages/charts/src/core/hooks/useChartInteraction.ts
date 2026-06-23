@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo } from 'react'
+import React, { useCallback, useMemo, useState } from 'react'
 
 import {
     buildLabelPositions,
@@ -44,6 +44,12 @@ interface UseChartInteractionOptions<Meta> {
      *  cursor) before it reaches `onPointClick`, using the committed `scales` from this render.
      *  Chart-type adapters provide this; consumers do not. */
     wrapClickData?: (data: PointClickData<Meta>, scales: ChartScales) => PointClickData<Meta>
+    /** Consumer gate: return `false` for the resolved region under the cursor to suppress its
+     *  pointer cursor, tooltip, and click. See `ChartProps.isPointInteractive`. */
+    isPointInteractive?: (data: PointClickData<Meta>) => boolean
+    /** Chart-type seam mirroring `wrapClickData` for hover — enriches the bare hover payload before
+     *  `isPointInteractive` evaluates it. */
+    resolveHoverData?: (data: PointClickData<Meta>, scales: ChartScales) => PointClickData<Meta>
 }
 
 interface UseChartInteractionResult<Meta> {
@@ -51,6 +57,9 @@ interface UseChartInteractionResult<Meta> {
     hoverPosition: { x: number; y: number } | null
     tooltipCtx: TooltipContext<Meta> | null
     dragRect: DragRect | null
+    /** `false` when `isPointInteractive` rejected the current hover; drives the cursor + tooltip +
+     *  click gates. Always `true` when there's no predicate or no hover. */
+    hoverInteractive: boolean
     handlers: {
         onMouseDown: (e: React.MouseEvent<HTMLDivElement>) => void
         onMouseMove: (e: React.MouseEvent<HTMLDivElement>) => void
@@ -75,6 +84,8 @@ export function useChartInteraction<Meta = unknown>({
     interactionAxis = 'x',
     labelToCoord,
     wrapClickData,
+    isPointInteractive,
+    resolveHoverData,
 }: UseChartInteractionOptions<Meta>): UseChartInteractionResult<Meta> {
     // Falls back to the value resolver when the chart doesn't distinguish position from
     // value (i.e. non-stacked charts, where the two are identical).
@@ -132,6 +143,11 @@ export function useChartInteraction<Meta = unknown>({
             rebuildDeps: [series, labels, scales, dimensions],
         })
 
+    // When `isPointInteractive` rejects the hovered region, the cursor falls back to default and the
+    // tooltip is cleared. Only meaningful while hovering (hoverIndex >= 0), so it isn't reset on
+    // leave — the cursor expression already gates on hoverIndex.
+    const [hoverInteractive, setHoverInteractive] = useState(true)
+
     // Read by onClick to decide pin/unpin/passthrough. Event handlers fire after the most
     // recent commit, so an effect-deferred ref is correct here.
     const hoverIndexRef = useLatest(hoverIndex)
@@ -187,26 +203,43 @@ export function useChartInteraction<Meta = unknown>({
             const index = findNearestIndexFromPositions(probe, labelPositions)
             setHover(index, { x: mouseX, y: mouseY })
 
+            // Evaluate the consumer's interactivity gate for the region under the cursor. The
+            // enriched payload (`resolveHoverData`) carries `inTrackArea` / the real series, so the
+            // gate sees exactly what the click path would and the two stay in lock-step.
+            let interactive = true
+            if (isPointInteractive && index >= 0) {
+                const bare = buildPointClickData(index, series, labels, resolveValue, { x: mouseX, y: mouseY })
+                if (bare) {
+                    interactive = isPointInteractive(resolveHoverData ? resolveHoverData(bare, scales) : bare)
+                }
+            }
+            setHoverInteractive(interactive)
+
             if (index >= 0 && showTooltip) {
-                const canvasBounds = canvasRef.current?.getBoundingClientRect() ?? new DOMRect()
-                // Always propagate the result (including null) so tooltipCtx stays in sync with hoverIndex.
-                setTooltipCtx(
-                    buildTooltipContext(
-                        index,
-                        series,
-                        labels,
-                        labelToCoord ?? scales.x,
-                        scales.y,
-                        canvasBounds,
-                        resolveValue,
-                        scales.yAxes,
-                        interactionAxis,
-                        { x: mouseX, y: mouseY },
-                        effectivePositionResolve,
-                        scales.extent?.(labels[index]),
-                        scales.bandSlotAtCursor?.(labels[index], { x: mouseX, y: mouseY })
+                // Always propagate the result (including null) so tooltipCtx stays in sync with
+                // hoverIndex — a non-interactive region clears the tooltip so it reads as inert.
+                if (!interactive) {
+                    setTooltipCtx(null)
+                } else {
+                    const canvasBounds = canvasRef.current?.getBoundingClientRect() ?? new DOMRect()
+                    setTooltipCtx(
+                        buildTooltipContext(
+                            index,
+                            series,
+                            labels,
+                            labelToCoord ?? scales.x,
+                            scales.y,
+                            canvasBounds,
+                            resolveValue,
+                            scales.yAxes,
+                            interactionAxis,
+                            { x: mouseX, y: mouseY },
+                            effectivePositionResolve,
+                            scales.extent?.(labels[index]),
+                            scales.bandSlotAtCursor?.(labels[index], { x: mouseX, y: mouseY })
+                        )
                     )
-                )
+                }
             }
         },
         [
@@ -226,6 +259,8 @@ export function useChartInteraction<Meta = unknown>({
             interactionAxis,
             setHover,
             setTooltipCtx,
+            isPointInteractive,
+            resolveHoverData,
         ]
     )
 
@@ -263,7 +298,13 @@ export function useChartInteraction<Meta = unknown>({
         if (onPointClick) {
             const clickData = buildPointClickData(currentIndex, series, labels, resolveValue, hoverPositionRef.current)
             if (clickData) {
-                onPointClick(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
+                const resolved = wrapClickData && scales ? wrapClickData(clickData, scales) : clickData
+                // A region the consumer marked non-interactive doesn't fire onPointClick, so the
+                // cursor, tooltip, and click stay consistent.
+                if (isPointInteractive && !isPointInteractive(resolved)) {
+                    return
+                }
+                onPointClick(resolved)
             }
         }
     }, [
@@ -281,6 +322,7 @@ export function useChartInteraction<Meta = unknown>({
         hoverPositionRef,
         wrapClickData,
         scales,
+        isPointInteractive,
     ])
 
     const handlers = useMemo(
@@ -288,5 +330,5 @@ export function useChartInteraction<Meta = unknown>({
         [onMouseDown, onMouseMove, onMouseLeave, onClick]
     )
 
-    return { hoverIndex, hoverPosition, tooltipCtx, dragRect, handlers }
+    return { hoverIndex, hoverPosition, tooltipCtx, dragRect, hoverInteractive, handlers }
 }

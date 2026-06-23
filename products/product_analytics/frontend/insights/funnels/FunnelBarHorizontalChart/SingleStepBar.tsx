@@ -21,6 +21,9 @@ interface SingleStepBarProps {
     theme: ChartTheme
     interactive: boolean
     onSegmentClick: (meta: FunnelBarHorizontalSegmentMeta) => void
+    /** Marks the segment under the cursor inert (no pointer, no click) — e.g. the first step's
+     *  drop-off filler, which has no actors to open. The filler already hides its tooltip. */
+    isPointInteractive?: (data: PointClickData<FunnelBarHorizontalSegmentMeta>) => boolean
     renderTooltip: (ctx: TooltipContext<FunnelBarHorizontalSegmentMeta>) => JSX.Element | null
     onError: (error: Error, info: ErrorInfo) => void
     /** Tailwind height of the bar track. Compare mode stacks two bars per step, so it passes a
@@ -51,6 +54,7 @@ export function SingleStepBar({
     theme,
     interactive,
     onSegmentClick,
+    isPointInteractive,
     renderTooltip,
     onError,
     heightClassName = 'h-8',
@@ -77,6 +81,7 @@ export function SingleStepBar({
                 config={CHART_CONFIG}
                 tooltip={renderTooltip}
                 onPointClick={onPointClick}
+                isPointInteractive={interactive ? isPointInteractive : undefined}
                 onError={onError}
             />
         </div>

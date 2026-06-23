@@ -45,6 +45,10 @@ export interface BarChartProps<Meta = unknown> {
     theme: ChartTheme
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    /** Hover-time interactivity gate — return `false` to make the region under the cursor inert (no
+     *  pointer cursor, no tooltip, no click). Receives the same resolved payload as `onPointClick`
+     *  (including `inTrackArea`), so one guard serves both. See `ChartProps.isPointInteractive`. */
+    isPointInteractive?: (data: PointClickData<Meta>) => boolean
     className?: string
     /** `data-attr` applied to the chart wrapper. See `ChartProps.dataAttr`. */
     dataAttr?: string
@@ -67,6 +71,7 @@ function BarChartInner<Meta = unknown>({
     theme,
     tooltip,
     onPointClick,
+    isPointInteractive,
     className,
     dataAttr,
     children,
@@ -348,9 +353,10 @@ function BarChartInner<Meta = unknown>({
     const seriesRef = useLatest(visibleSeries)
     const labelsRef = useLatest(labels)
 
-    // Bars sharing a band slot — rewrite the click payload to the series actually under the
-    // cursor so drop-off fillers and per-breakdown segments route correctly.
-    const wrapClickData = useCallback(
+    // Bars sharing a band slot — rewrite the payload to the series actually under the cursor so
+    // drop-off fillers and per-breakdown segments route correctly. Reused for hover enrichment
+    // (`resolveHoverData`) so `isPointInteractive` sees the same `inTrackArea` / series as a click.
+    const resolveCursorBarData = useCallback(
         (clickData: PointClickData<Meta>, scales: ChartScales): PointClickData<Meta> => {
             const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
             if (!d3Scales) {
@@ -393,7 +399,9 @@ function BarChartInner<Meta = unknown>({
                 />
             )}
             onPointClick={onPointClick}
-            wrapClickData={onPointClick ? wrapClickData : undefined}
+            wrapClickData={onPointClick ? resolveCursorBarData : undefined}
+            isPointInteractive={isPointInteractive}
+            resolveHoverData={isPointInteractive ? resolveCursorBarData : undefined}
             className={className}
             dataAttr={dataAttr}
             resolveValue={resolveValue}

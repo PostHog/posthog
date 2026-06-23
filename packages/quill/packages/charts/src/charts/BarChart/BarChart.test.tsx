@@ -573,6 +573,54 @@ describe('BarChart', () => {
         })
     })
 
+    describe('isPointInteractive', () => {
+        // Rejects only the first band's track region — the funnel's invalid first-step drop-off.
+        const rejectFirstBandTrack = (data: PointClickData): boolean =>
+            !(data.dataIndex === 0 && data.inTrackArea === true)
+
+        it.each<[string, number, 'track' | 'fill', boolean]>([
+            ['first band track is inert', 0.3, 'track', false],
+            ['first band fill stays interactive', 0.3, 'fill', true],
+            ['a later band track stays interactive', 1.3, 'track', true],
+        ])(
+            'grouped: %s — gates tooltip + pointer cursor + click together',
+            async (_name, stepMultiplier, region, interactive) => {
+                const onPointClick = jest.fn()
+                const { chart } = renderHogChart(
+                    <BarChart
+                        series={SERIES}
+                        labels={LABELS}
+                        theme={THEME}
+                        config={{ barLayout: 'grouped', bars: { track: true } }}
+                        onPointClick={onPointClick}
+                        isPointInteractive={rejectFirstBandTrack}
+                    />
+                )
+                const step = dimensions.plotWidth / LABELS.length
+                // `track` lands near the plot top (above the short bar's fill); `fill` near the baseline.
+                const clientY =
+                    region === 'track' ? dimensions.plotTop + 2 : dimensions.plotTop + dimensions.plotHeight - 2
+                fireEvent.mouseMove(chart.element, {
+                    clientX: dimensions.plotLeft + step * stepMultiplier,
+                    clientY,
+                })
+
+                if (interactive) {
+                    const tooltip = await chart.waitForTooltip()
+                    expect(tooltip.element.textContent).toContain(LABELS[Math.floor(stepMultiplier)])
+                    await waitFor(() => expect(chart.element.className).toContain('cursor-pointer'))
+                } else {
+                    await waitFor(() => expect(getHogChartTooltip()?.textContent ?? '').toBe(''))
+                    expect(chart.element.className).toContain('cursor-default')
+                    expect(chart.element.className).not.toContain('cursor-pointer')
+                }
+
+                fireEvent.click(chart.element)
+                expect(onPointClick).toHaveBeenCalledTimes(interactive ? 1 : 0)
+            }
+        )
+    })
+
     describe('children & error boundary', () => {
         it('renders custom overlay children', () => {
             const { chart } = renderHogChart(

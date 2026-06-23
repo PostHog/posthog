@@ -108,6 +108,20 @@ export function FunnelStepsBarChart({
         [steps, openPersonsModalForSeries]
     )
 
+    // The first step's drop-off track is an invalid target (no drop-off before step 1), so make it
+    // read as inert: no tooltip, no pointer, no click. Mirrors funnelPersonsModalLogic's
+    // `!converted && stepNo === 1` guard, reusing the same click resolution so they can't drift.
+    const isPointInteractive = useCallback(
+        (clickData: PointClickData<FunnelStepsBarSeriesMeta>): boolean => {
+            const target = resolveFunnelStepClick(steps, clickData)
+            if (!target) {
+                return true
+            }
+            return !(!target.converted && target.step.order + 1 === 1)
+        },
+        [steps]
+    )
+
     const renderTooltip = useCallback(
         (ctx: TooltipContext<FunnelStepsBarSeriesMeta>): JSX.Element => (
             <FunnelStepsBarTooltip
@@ -139,6 +153,7 @@ export function FunnelStepsBarChart({
                         config={config}
                         tooltip={renderTooltip}
                         onPointClick={showPersonsModal ? onPointClick : undefined}
+                        isPointInteractive={showPersonsModal ? isPointInteractive : undefined}
                         onError={handleChartError}
                     />
                 </div>

@@ -89,6 +89,17 @@ export interface ChartProps<Meta = unknown> {
      *  cursor) before it reaches `onPointClick`, using the committed `scales` from this render.
      *  Chart-type adapters provide this; consumers do not. */
     wrapClickData?: (data: PointClickData<Meta>, scales: ChartScales) => PointClickData<Meta>
+    /** Hover-time interactivity gate. Called with the resolved hover payload for the region under
+     *  the cursor; return `false` to make that region non-interactive — the chart suppresses the
+     *  pointer cursor, the tooltip, and `onPointClick` there (it reads as inert, like empty plot
+     *  space), while every other region stays interactive. Defaults to always-interactive. The
+     *  payload matches `onPointClick`'s, so one guard can serve both. Evaluated on every mouse move —
+     *  keep it cheap and referentially stable (wrap in `useCallback`). */
+    isPointInteractive?: (data: PointClickData<Meta>) => boolean
+    /** Chart-type seam mirroring `wrapClickData` but for hover: enrich the bare hover payload (e.g.
+     *  resolve the bar under the cursor + `inTrackArea`) before `isPointInteractive` sees it.
+     *  Chart-type adapters provide this; consumers do not. */
+    resolveHoverData?: (data: PointClickData<Meta>, scales: ChartScales) => PointClickData<Meta>
 }
 
 export function Chart<Meta = unknown>({
@@ -110,6 +121,8 @@ export function Chart<Meta = unknown>({
     labelToCoord,
     valueRangeSeries,
     wrapClickData,
+    isPointInteractive,
+    resolveHoverData,
 }: ChartProps<Meta>): React.ReactElement {
     const {
         xTickFormatter,
@@ -190,7 +203,7 @@ export function Chart<Meta = unknown>({
 
     const resolvedYFormatter = useResolvedYFormatter(scales, yTickFormatter)
 
-    const { hoverIndex, hoverPosition, tooltipCtx, dragRect, handlers } = useChartInteraction<Meta>({
+    const { hoverIndex, hoverPosition, tooltipCtx, dragRect, hoverInteractive, handlers } = useChartInteraction<Meta>({
         scales,
         dimensions,
         labels,
@@ -206,6 +219,8 @@ export function Chart<Meta = unknown>({
         interactionAxis,
         labelToCoord,
         wrapClickData,
+        isPointInteractive,
+        resolveHoverData,
     })
 
     // ref keeps composedDrawHover stable across drawHover identity changes
@@ -304,7 +319,7 @@ export function Chart<Meta = unknown>({
                     overlayCanvasRef={overlayCanvasRef}
                     className={className}
                     dataAttr={dataAttr}
-                    pointer={hoverIndex >= 0 && !!onPointClick}
+                    pointer={hoverIndex >= 0 && !!onPointClick && hoverInteractive}
                     crosshair={!!onDateRangeZoom}
                     ariaLabel={ariaLabel}
                     handlers={handlers}
