@@ -189,6 +189,17 @@ async function authenticatePrincipalDecider(
     return null
 }
 
+/**
+ * A real, identifiable caller — not the shared `anonymous` principal a
+ * public-auth agent hands every caller. `principalsMatch` treats all anonymous
+ * principals as equal, so it's no gate on a public agent: the principal-authed
+ * read surfaces (transcript, approval detail) require an identified principal,
+ * else one anonymous caller could read another anonymous session's data.
+ */
+function isIdentifiedPrincipal(p: SessionPrincipal): boolean {
+    return p.kind !== 'anonymous'
+}
+
 /** Stable id of the decider, by principal kind — stored as the approval's `decided_by`. */
 function principalDeciderId(p: SessionPrincipal): string {
     switch (p.kind) {
@@ -457,6 +468,10 @@ export function buildApp(opts: BuildAppOpts): Express {
             res.status(401).json({ error: 'unauthenticated' })
             return
         }
+        if (!isIdentifiedPrincipal(caller)) {
+            res.status(403).json({ error: 'forbidden' })
+            return
+        }
         if (!principalsMatch(session.principal, caller)) {
             res.status(403).json({ error: 'not_session_principal' })
             return
@@ -485,6 +500,10 @@ export function buildApp(opts: BuildAppOpts): Express {
         const caller = await authenticatePrincipalDecider(req, resolved.application, resolved.revision, authProvider)
         if (!caller) {
             res.status(401).json({ error: 'unauthenticated' })
+            return
+        }
+        if (!isIdentifiedPrincipal(caller)) {
+            res.status(403).json({ error: 'forbidden' })
             return
         }
         if (!principalsMatch(session.principal, caller)) {
