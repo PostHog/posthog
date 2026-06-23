@@ -235,8 +235,13 @@ export function buildApp(opts: BuildAppOpts): Express {
         pathPrefix: opts.pathPrefix,
         internalSigningKey: opts.internalSigningKey,
     })
+    // 20 MiB headroom for multimodal chat bodies — an `image/*` block in the
+    // chat schema can carry up to ~7 MiB of base64-encoded data, and a single
+    // /run or /send may bundle several blocks alongside text. Default express
+    // body limit is 100 KiB, which silently 413s any inline-image upload.
     app.use(
         express.json({
+            limit: '20mb',
             verify: (req: Request, _res, buf) => {
                 ;(req as Request & { rawBody?: string }).rawBody = buf.toString('utf-8')
             },

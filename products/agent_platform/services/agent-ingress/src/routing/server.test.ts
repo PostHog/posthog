@@ -318,10 +318,18 @@ describe('ingress HTTP server (path mode)', () => {
                 }>
             ).map((r) => [`${r.method} ${r.path}`, r])
         )
-        expect(routesByPath['POST /run'].bodySchema!.properties!.message).toMatchObject({
-            type: 'string',
-            minLength: 1,
-        })
+        // `message` is the multimodal union (`string | (TextContent | ImageContent)[]`);
+        // z.toJSONSchema publishes the union as `anyOf` with the plain-string variant
+        // first and the content-block array second.
+        const messageSchema = routesByPath['POST /run'].bodySchema!.properties!.message as {
+            anyOf: Array<Record<string, unknown>>
+        }
+        expect(messageSchema.anyOf).toEqual(
+            expect.arrayContaining([expect.objectContaining({ type: 'string', minLength: 1 })])
+        )
+        expect(messageSchema.anyOf).toEqual(
+            expect.arrayContaining([expect.objectContaining({ type: 'array', minItems: 1 })])
+        )
         expect(routesByPath['POST /run'].bodySchema!.required).toContain('message')
         // seedApp deliberately opts into public exposure (these tests
         // exercise the routing surface, not auth) → every chat route

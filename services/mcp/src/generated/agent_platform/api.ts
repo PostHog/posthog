@@ -2186,10 +2186,27 @@ export const AgentApplicationsPreviewProxyQueryParams = /* @__PURE__ */ zod.obje
 export const AgentApplicationsPreviewProxyBody = /* @__PURE__ */ zod
     .object({
         message: zod
-            .string()
+            .union([
+                zod.string().min(1),
+                zod
+                    .array(
+                        zod.union([
+                            zod.object({
+                                type: zod.enum(['text']),
+                                text: zod.string().min(1),
+                            }),
+                            zod.object({
+                                type: zod.enum(['image']),
+                                data: zod.string().min(1).describe('Base64-encoded image bytes.'),
+                                mimeType: zod.enum(['image/png', 'image/jpeg', 'image/gif', 'image/webp']),
+                            }),
+                        ])
+                    )
+                    .min(1),
+            ])
             .optional()
             .describe(
-                'User message to deliver to the agent. Required for `run` (starts the session) and `send` (appends to it); ignored for `cancel` / `listen`.'
+                "User message to deliver to the agent. Either a plain string or a list of content blocks: `{type: 'text', text: str}` for prose/markdown or `{type: 'image', data: <base64>, mimeType: 'image/png'|'image/jpeg'|'image/gif'|'image/webp'}` for inline images. Required for `run` (starts the session) and `send` (appends to it); ignored for `cancel` / `listen`."
             ),
         session_id: zod
             .string()

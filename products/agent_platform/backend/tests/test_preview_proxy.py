@@ -99,3 +99,31 @@ class TestPreviewProxyInvokeBody(APIBaseTest):
         self.assertTrue(
             PreviewProxyInvokeRequestSerializer(data={"session_id": "s-1", "message": "another"}).is_valid()
         )
+
+    @parameterized.expand(
+        [
+            (
+                "text_block",
+                [{"type": "text", "text": "# markdown body"}],
+            ),
+            (
+                "image_block",
+                [{"type": "image", "data": "aGVsbG8=", "mimeType": "image/png"}],
+            ),
+            (
+                "mixed_text_and_image",
+                [
+                    {"type": "text", "text": "look at this:"},
+                    {"type": "image", "data": "aGVsbG8=", "mimeType": "image/jpeg"},
+                ],
+            ),
+        ]
+    )
+    def test_invoke_serializer_round_trips_multimodal_message(self, _name: str, message: list[dict[str, str]]) -> None:
+        # Django forwards the body verbatim to ingress (which runs the strict
+        # zod parse); the serializer just has to keep the union shape intact.
+        # A regression to CharField here would coerce the list to a string and
+        # break the runner's UserMessage.content typing downstream.
+        serializer = PreviewProxyInvokeRequestSerializer(data={"message": message})
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self.assertEqual(serializer.validated_data["message"], message)

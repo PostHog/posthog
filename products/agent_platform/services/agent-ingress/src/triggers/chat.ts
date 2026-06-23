@@ -84,7 +84,9 @@ async function sendHandler(ctx: AuthedRouteCtx<z.infer<typeof ChatSendBodySchema
     const incomingPrincipal = ctx.principal
     const aclCheck = requireAclAccess(existing, incomingPrincipal)
     if (aclCheck.kind === 'denied') {
-        const proposed: string =
+        // Mirror the seed shape — `message` may be a plain string or a list of
+        // content blocks; either flows straight into `UserMessage.content`.
+        const proposed =
             message ??
             (client_tool_result ? `[client_tool_result for ${client_tool_result.call_id}]` : '[unknown payload]')
         const elevation = await recordElevationRequest(deps.queue, existing, {

@@ -452,6 +452,57 @@ class DecideApprovalRequestSerializer(serializers.Serializer):
     )
 
 
+# OpenAPI shape for the multimodal `message` payload. Mirrors the zod schema in
+# `products/agent_platform/services/agent-ingress/src/triggers/chat.schemas.ts`
+# (which is the authoritative parser); the schema here only exists so the
+# generated TS types + MCP tools see the right union shape downstream. Ingress
+# still runs the strict zod check on every request.
+_MESSAGE_CONTENT_SCHEMA: dict[str, Any] = {
+    "oneOf": [
+        {"type": "string", "minLength": 1},
+        {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "required": ["type", "text"],
+                        "properties": {
+                            "type": {"type": "string", "enum": ["text"]},
+                            "text": {"type": "string", "minLength": 1},
+                        },
+                    },
+                    {
+                        "type": "object",
+                        "required": ["type", "data", "mimeType"],
+                        "properties": {
+                            "type": {"type": "string", "enum": ["image"]},
+                            "data": {
+                                "type": "string",
+                                "minLength": 1,
+                                "description": "Base64-encoded image bytes.",
+                            },
+                            "mimeType": {
+                                "type": "string",
+                                "enum": ["image/png", "image/jpeg", "image/gif", "image/webp"],
+                            },
+                        },
+                    },
+                ],
+            },
+        },
+    ],
+}
+
+
+@extend_schema_field(_MESSAGE_CONTENT_SCHEMA)
+class MessageContentField(serializers.JSONField):
+    """User chat payload — either a plain string or a list of content blocks
+    (`text` and/or `image`). Typed via `@extend_schema_field` so the generated
+    TS + MCP schemas surface the union instead of an opaque `unknown`."""
+
+
 class PreviewProxyInvokeRequestSerializer(serializers.Serializer):
     """Body forwarded verbatim to the agent ingress for a *preview* invoke of a
     non-live revision. The meaningful shape depends on the `rest` path segment:
@@ -464,11 +515,15 @@ class PreviewProxyInvokeRequestSerializer(serializers.Serializer):
     any extra keys are still forwarded as-is to ingress.
     """
 
-    message = serializers.CharField(
+    message = MessageContentField(
         required=False,
-        allow_blank=True,
-        trim_whitespace=False,
-        help_text="User message to deliver to the agent. Required for `run` (starts the session) and `send` (appends to it); ignored for `cancel` / `listen`.",
+        help_text=(
+            "User message to deliver to the agent. Either a plain string or a list of "
+            "content blocks: `{type: 'text', text: str}` for prose/markdown or "
+            "`{type: 'image', data: <base64>, mimeType: 'image/png'|'image/jpeg'|"
+            "'image/gif'|'image/webp'}` for inline images. Required for `run` (starts "
+            "the session) and `send` (appends to it); ignored for `cancel` / `listen`."
+        ),
     )
     session_id = serializers.CharField(
         required=False,

@@ -1365,6 +1365,28 @@ export interface AgentApprovalsDecideResponseApi {
 }
 
 /**
+ * User message to deliver to the agent. Either a plain string or a list of content blocks: `{type: 'text', text: str}` for prose/markdown or `{type: 'image', data: <base64>, mimeType: 'image/png'|'image/jpeg'|'image/gif'|'image/webp'}` for inline images. Required for `run` (starts the session) and `send` (appends to it); ignored for `cancel` / `listen`.
+ */
+export type PreviewProxyInvokeRequestApiMessage =
+    | string
+    | (
+          | {
+                type: 'text'
+                /** @minLength 1 */
+                text: string
+            }
+          | {
+                type: 'image'
+                /**
+                 * Base64-encoded image bytes.
+                 * @minLength 1
+                 */
+                data: string
+                mimeType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'
+            }
+      )[]
+
+/**
  * Body forwarded verbatim to the agent ingress for a *preview* invoke of a
  * non-live revision. The meaningful shape depends on the `rest` path segment:
  *
@@ -1376,8 +1398,8 @@ export interface AgentApprovalsDecideResponseApi {
  * any extra keys are still forwarded as-is to ingress.
  */
 export interface PreviewProxyInvokeRequestApi {
-    /** User message to deliver to the agent. Required for `run` (starts the session) and `send` (appends to it); ignored for `cancel` / `listen`. */
-    message?: string
+    /** User message to deliver to the agent. Either a plain string or a list of content blocks: `{type: 'text', text: str}` for prose/markdown or `{type: 'image', data: <base64>, mimeType: 'image/png'|'image/jpeg'|'image/gif'|'image/webp'}` for inline images. Required for `run` (starts the session) and `send` (appends to it); ignored for `cancel` / `listen`. */
+    message?: PreviewProxyInvokeRequestApiMessage
     /** Target session id for `send` — the running session to append the message to. Omit for `run` (a fresh session is created). */
     session_id?: string
 }
