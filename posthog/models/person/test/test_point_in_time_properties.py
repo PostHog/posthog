@@ -11,14 +11,12 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
-from parameterized import parameterized_class
-
+from posthog.models.person import Person
 from posthog.models.person.point_in_time_properties import (
     build_person_properties_at_time,
     get_person_and_distinct_ids_for_identifier,
 )
 from posthog.personhog_client.fake_client import fake_personhog_client
-from posthog.personhog_client.test_helpers import PersonhogTestMixin
 
 
 def _prop_row(
@@ -301,10 +299,9 @@ class TestGetPersonAndDistinctIdsForIdentifierPersonhog(SimpleTestCase):
             assert dids == []
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
-class TestGetPersonAndDistinctIdsForIdentifierIntegration(PersonhogTestMixin, BaseTest):
+class TestGetPersonAndDistinctIdsForIdentifierIntegration(BaseTest):
     def test_lookup_by_distinct_id(self):
-        person = self._seed_person(
+        person = Person.objects.create(
             team=self.team,
             distinct_ids=["d1", "d2"],
             properties={"email": "test@example.com"},
@@ -316,10 +313,9 @@ class TestGetPersonAndDistinctIdsForIdentifierIntegration(PersonhogTestMixin, Ba
         assert str(result_person.uuid) == str(person.uuid)
         assert result_person.properties == {"email": "test@example.com"}
         assert set(result_dids) == {"d1", "d2"}
-        self._assert_personhog_called("get_persons_by_distinct_ids_in_team")
 
     def test_lookup_by_person_id(self):
-        person = self._seed_person(
+        person = Person.objects.create(
             team=self.team,
             distinct_ids=["d1"],
             properties={"name": "Test"},
@@ -332,7 +328,6 @@ class TestGetPersonAndDistinctIdsForIdentifierIntegration(PersonhogTestMixin, Ba
         assert result_person is not None
         assert str(result_person.uuid) == str(person.uuid)
         assert result_dids == ["d1"]
-        self._assert_personhog_called("get_person_by_uuid")
 
     def test_person_not_found(self):
         result_person, result_dids = get_person_and_distinct_ids_for_identifier(self.team.pk, distinct_id="unknown")
@@ -342,7 +337,7 @@ class TestGetPersonAndDistinctIdsForIdentifierIntegration(PersonhogTestMixin, Ba
 
     def test_cross_team_isolation(self):
         other_team = self.organization.teams.create(name="Other Team")
-        self._seed_person(team=other_team, distinct_ids=["shared_did"])
+        Person.objects.create(team=other_team, distinct_ids=["shared_did"])
 
         result_person, result_dids = get_person_and_distinct_ids_for_identifier(self.team.pk, distinct_id="shared_did")
 

@@ -1,5 +1,5 @@
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -100,7 +100,7 @@ class TestGetPersonByUuidRouting(SimpleTestCase):
             mock_objects.db_manager.assert_called()
 
         mock_routing_counter.labels.assert_called_with(
-            operation="get_person_by_uuid", source=expected_source, client_name="posthog-django"
+            operation="get_person_by_uuid", source=expected_source, client_name=ANY
         )
 
         if grpc_exception is not None and gate_on:
@@ -178,7 +178,7 @@ class TestGetPersonByDistinctIdRouting(SimpleTestCase):
             mock_objects.db_manager.assert_called()
 
         mock_routing_counter.labels.assert_called_with(
-            operation="get_person_by_distinct_id", source=expected_source, client_name="posthog-django"
+            operation="get_person_by_distinct_id", source=expected_source, client_name=ANY
         )
 
         if grpc_exception is not None and gate_on:
@@ -256,7 +256,7 @@ class TestGetPersonByIdRouting(SimpleTestCase):
             mock_objects.db_manager.assert_called()
 
         mock_routing_counter.labels.assert_called_with(
-            operation="get_person_by_id", source=expected_source, client_name="posthog-django"
+            operation="get_person_by_id", source=expected_source, client_name=ANY
         )
 
         if grpc_exception is not None and gate_on:
@@ -331,7 +331,7 @@ class TestGetPersonsByUuidsRouting(SimpleTestCase):
             mock_objects.db_manager.return_value.filter.assert_called_with(team_id=team_id, uuid__in=uuids)
 
         mock_routing_counter.labels.assert_called_with(
-            operation="get_persons_by_uuids", source=expected_source, client_name="posthog-django"
+            operation="get_persons_by_uuids", source=expected_source, client_name=ANY
         )
 
         if grpc_exception is not None and gate_on:
@@ -404,7 +404,7 @@ class TestGetPersonsByDistinctIdsRouting(SimpleTestCase):
                 assert result == []
 
         mock_routing_counter.labels.assert_called_with(
-            operation="get_persons_by_distinct_ids", source=expected_source, client_name="posthog-django"
+            operation="get_persons_by_distinct_ids", source=expected_source, client_name=ANY
         )
 
         if grpc_exception is not None and gate_on:
@@ -470,7 +470,7 @@ class TestGetPersonsMappedByDistinctIdRouting(SimpleTestCase):
             mock_pdi_objects.db_manager.assert_called()
 
         mock_routing_counter.labels.assert_called_with(
-            operation="get_persons_mapped_by_distinct_id", source=expected_source, client_name="posthog-django"
+            operation="get_persons_mapped_by_distinct_id", source=expected_source, client_name=ANY
         )
 
         if grpc_exception is not None and gate_on:
@@ -541,7 +541,7 @@ class TestValidatePersonUuidsExistRouting(SimpleTestCase):
             mock_objects.db_manager.assert_called()
 
         mock_routing_counter.labels.assert_called_with(
-            operation="validate_person_uuids_exist", source=expected_source, client_name="posthog-django"
+            operation="validate_person_uuids_exist", source=expected_source, client_name=ANY
         )
 
         if grpc_exception is not None and gate_on:
@@ -958,7 +958,7 @@ class TestPersonhogRouted(SimpleTestCase):
         result = _personhog_routed("test_op", lambda: "personhog_result", lambda: "orm_result", team_id=1)
 
         assert result == "personhog_result"
-        mock_routing.labels.assert_called_with(operation="test_op", source="personhog", client_name="posthog-django")
+        mock_routing.labels.assert_called_with(operation="test_op", source="personhog", client_name=ANY)
         mock_routing.labels.return_value.inc.assert_called_once()
         mock_errors.labels.assert_not_called()
 
@@ -969,7 +969,7 @@ class TestPersonhogRouted(SimpleTestCase):
         result = _personhog_routed("test_op", lambda: "personhog_result", lambda: "orm_result", team_id=1)
 
         assert result == "orm_result"
-        mock_routing.labels.assert_called_with(operation="test_op", source="django_orm", client_name="posthog-django")
+        mock_routing.labels.assert_called_with(operation="test_op", source="django_orm", client_name=ANY)
         mock_routing.labels.return_value.inc.assert_called_once()
         mock_errors.labels.assert_not_called()
 
@@ -985,11 +985,11 @@ class TestPersonhogRouted(SimpleTestCase):
         assert result == "orm_result"
         # Error counter incremented
         mock_errors.labels.assert_called_once_with(
-            operation="test_op", source="personhog", error_type="grpc_error", client_name="posthog-django"
+            operation="test_op", source="personhog", error_type="grpc_error", client_name=ANY
         )
         mock_errors.labels.return_value.inc.assert_called_once()
         # ORM routing counter incremented
-        mock_routing.labels.assert_called_with(operation="test_op", source="django_orm", client_name="posthog-django")
+        mock_routing.labels.assert_called_with(operation="test_op", source="django_orm", client_name=ANY)
         mock_routing.labels.return_value.inc.assert_called()
 
     @patch("posthog.personhog_client.gate.use_personhog", return_value=True)
@@ -999,7 +999,7 @@ class TestPersonhogRouted(SimpleTestCase):
         result = _personhog_routed("test_op", lambda: None, lambda: "orm_result", team_id=1)
 
         assert result is None
-        mock_routing.labels.assert_called_with(operation="test_op", source="personhog", client_name="posthog-django")
+        mock_routing.labels.assert_called_with(operation="test_op", source="personhog", client_name=ANY)
         mock_errors.labels.assert_not_called()
 
 

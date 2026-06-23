@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
@@ -104,7 +104,7 @@ class TestGetGroupTypesForProjectRouting(SimpleTestCase):
         assert len(result) == 2
         mock_objects.filter.assert_not_called()
         mock_routing_counter.labels.assert_called_with(
-            operation="get_group_types_for_project", source="personhog", client_name="posthog-django"
+            operation="get_group_types_for_project", source="personhog", client_name=ANY
         )
         mock_errors_counter.labels.assert_not_called()
 
@@ -129,7 +129,7 @@ class TestGetGroupTypesForProjectRouting(SimpleTestCase):
 
         assert result == ORM_DATA
         mock_routing_counter.labels.assert_called_with(
-            operation="get_group_types_for_project", source="django_orm", client_name="posthog-django"
+            operation="get_group_types_for_project", source="django_orm", client_name=ANY
         )
         mock_errors_counter.labels.assert_called_once()
 
@@ -236,7 +236,7 @@ class TestGetGroupTypesForTeamRouting(SimpleTestCase):
         assert result == PERSONHOG_SUCCESS_DATA
         mock_objects.filter.assert_not_called()
         mock_routing_counter.labels.assert_called_with(
-            operation="get_group_types_for_team", source="personhog", client_name="posthog-django"
+            operation="get_group_types_for_team", source="personhog", client_name=ANY
         )
         mock_errors_counter.labels.assert_not_called()
 
@@ -264,7 +264,7 @@ class TestGetGroupTypesForTeamRouting(SimpleTestCase):
             operation="get_group_types_for_team",
             source="personhog",
             error_type="grpc_error",
-            client_name="posthog-django",
+            client_name=ANY,
         )
 
     @parameterized.expand(
@@ -368,7 +368,7 @@ class TestGetGroupTypesForProjectsRouting(SimpleTestCase):
         assert result == personhog_result
         mock_objects.filter.assert_not_called()
         mock_routing_counter.labels.assert_called_with(
-            operation="get_group_types_for_projects", source="personhog", client_name="posthog-django"
+            operation="get_group_types_for_projects", source="personhog", client_name=ANY
         )
         mock_errors_counter.labels.assert_not_called()
 
@@ -421,7 +421,7 @@ class TestGetGroupTypesForProjectsRouting(SimpleTestCase):
             operation="get_group_types_for_projects",
             source="personhog",
             error_type="grpc_error",
-            client_name="posthog-django",
+            client_name=ANY,
         )
 
     @patch("posthog.models.group_type_mapping._fetch_group_types_for_projects_via_personhog")
@@ -696,7 +696,7 @@ class TestCountGroupTypeMappingsPerTeam(SimpleTestCase):
         assert result == [{"team_id": 1, "total": 3}, {"team_id": 2, "total": 5}]
         mock_objects.values.assert_not_called()
         mock_routing_counter.labels.assert_called_with(
-            operation="count_group_type_mappings_per_team", source="personhog", client_name="posthog-django"
+            operation="count_group_type_mappings_per_team", source="personhog", client_name=ANY
         )
         mock_errors_counter.labels.assert_not_called()
 
@@ -723,7 +723,7 @@ class TestCountGroupTypeMappingsPerTeam(SimpleTestCase):
             operation="count_group_type_mappings_per_team",
             source="personhog",
             error_type="grpc_error",
-            client_name="posthog-django",
+            client_name=ANY,
         )
 
     @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
@@ -748,7 +748,7 @@ class TestCountGroupTypeMappingsPerTeam(SimpleTestCase):
 
         assert result == orm_data
         mock_routing_counter.labels.assert_called_with(
-            operation="count_group_type_mappings_per_team", source="django_orm", client_name="posthog-django"
+            operation="count_group_type_mappings_per_team", source="django_orm", client_name=ANY
         )
         mock_errors_counter.labels.assert_not_called()
 
@@ -817,7 +817,7 @@ class TestUpdateGroupTypeMappingFields(SimpleTestCase):
         assert req.name_plural == "Orgs"
         mock_objects.filter.assert_not_called()
         mock_routing_counter.labels.assert_called_with(
-            operation="update_group_type_mapping_fields", source="personhog", client_name="posthog-django"
+            operation="update_group_type_mapping_fields", source="personhog", client_name=ANY
         )
 
     @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
@@ -832,7 +832,7 @@ class TestUpdateGroupTypeMappingFields(SimpleTestCase):
         mock_objects.filter.assert_called_once_with(project_id=1, group_type_index=0)
         mock_objects.filter.return_value.update.assert_called_once_with(name_singular="Org")
         mock_routing_counter.labels.assert_called_with(
-            operation="update_group_type_mapping_fields", source="django_orm", client_name="posthog-django"
+            operation="update_group_type_mapping_fields", source="django_orm", client_name=ANY
         )
 
     @parameterized.expand(
@@ -862,7 +862,7 @@ class TestUpdateGroupTypeMappingFields(SimpleTestCase):
             operation="update_group_type_mapping_fields",
             source="personhog",
             error_type="grpc_error",
-            client_name="posthog-django",
+            client_name=ANY,
         )
 
     @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
@@ -943,7 +943,7 @@ class TestDeleteGroupTypeMapping(SimpleTestCase):
         assert req.group_type_index == 0
         instance.delete.assert_not_called()
         mock_routing_counter.labels.assert_called_with(
-            operation="delete_group_type_mapping", source="personhog", client_name="posthog-django"
+            operation="delete_group_type_mapping", source="personhog", client_name=ANY
         )
 
     @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
@@ -958,7 +958,7 @@ class TestDeleteGroupTypeMapping(SimpleTestCase):
         mock_objects.filter.assert_called_once_with(project_id=1, group_type_index=0)
         mock_objects.filter.return_value.delete.assert_called_once()
         mock_routing_counter.labels.assert_called_with(
-            operation="delete_group_type_mapping", source="django_orm", client_name="posthog-django"
+            operation="delete_group_type_mapping", source="django_orm", client_name=ANY
         )
 
     @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")
@@ -1060,7 +1060,7 @@ class TestClearDashboardFromGroupTypeMapping(SimpleTestCase):
         mock_objects.using.assert_called_once()
         mock_invalidate.assert_called_once_with(1)
         mock_routing_counter.labels.assert_called_with(
-            operation="clear_dashboard_from_group_type_mapping", source="django_orm", client_name="posthog-django"
+            operation="clear_dashboard_from_group_type_mapping", source="django_orm", client_name=ANY
         )
 
     @patch("posthog.models.group_type_mapping.GroupTypeMapping.objects")

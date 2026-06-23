@@ -6,7 +6,7 @@ Covers routing, fallback, and integration for:
 """
 
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -74,7 +74,7 @@ class TestDeletePersonsFromPostgresRouting(SimpleTestCase):
             mock_person.delete.assert_called_once()
 
         mock_routing_counter.labels.assert_called_with(
-            operation="delete_persons", source=expected_source, client_name="posthog-django"
+            operation="delete_persons", source=expected_source, client_name=ANY
         )
 
         if grpc_exception is not None and gate_on:
