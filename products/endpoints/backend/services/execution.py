@@ -422,8 +422,10 @@ class EndpointExecutionService(PydanticModelMixin):
     ) -> None:
         """Fire-and-forget: re-run this endpoint against DuckLake in a worker and emit a
         ClickHouse-vs-DuckLake timing comparison event. Never affects the user response."""
-        # Only shadow executions ClickHouse actually served; the DuckLake path can't shadow itself.
-        if execution_type not in ("inline", "materialized", "materialized_fallback"):
+        # Only inline executions are a fair comparison: ClickHouse runs the raw query, like the
+        # shadow does. Materialized executions read a precomputed CH table with no DuckLake
+        # equivalent yet, so comparing them would be meaningless.
+        if execution_type != "inline":
             return
         if not self._should_shadow_ducklake(endpoint, version):
             return
