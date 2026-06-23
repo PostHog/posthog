@@ -145,7 +145,7 @@ export function EditCustomProductsModal(): JSX.Element {
                         }
                     />
                     <span className="text-sm text-muted">
-                        When we detect you are using a new tools, we'll automatically add it to your sidebar as a
+                        When we detect you are using a new tool, we'll automatically add it to your sidebar as a
                         suggestion. We might also suggest tools that are related to the ones you are using when we
                         launch a new one.
                         <br />
@@ -168,7 +168,7 @@ export function EditCustomProductsModal(): JSX.Element {
                             fullWidth
                         />
                         <span className="text-sm text-muted">
-                            Choose where starred iteams appear in your sidebar when using custom tools.
+                            Choose where starred items appear in your sidebar when using custom tools.
                         </span>
                     </div>
                 </div>

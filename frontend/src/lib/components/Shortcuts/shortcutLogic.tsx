@@ -115,7 +115,7 @@ export const shortcutLogic = kea<shortcutLogicType>([
             {
                 registerShortcut: (state, { shortcut }) => {
                     // Remove any existing shortcut with the same name, then add the new one
-                    const filtered = state.filter((shortcut) => shortcut.name !== shortcut.name)
+                    const filtered = state.filter((existing) => existing.name !== shortcut.name)
                     return [...filtered, shortcut]
                 },
                 unregisterShortcut: (state, { name }) => state.filter((shortcut) => shortcut.name !== name),
