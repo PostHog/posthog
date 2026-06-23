@@ -98,7 +98,7 @@ the row lists both.
 | eventbrite        | HTTP                        | requests                                                        | ✅                          |
 | front             | HTTP                        | requests                                                        | ✅                          |
 | fullstory         | HTTP                        | requests                                                        | ✅                          |
-| github            | HTTP                        | requests                                                        | ✅                          |
+| github            | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | gitlab            | HTTP                        | requests                                                        | ✅                          |
 | gladly            | HTTP                        | requests                                                        | ✅                          |
 | gocardless        | HTTP                        | requests                                                        | ✅                          |
