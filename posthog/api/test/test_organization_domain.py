@@ -120,7 +120,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(instance.verified_at, None)
         self.assertEqual(instance.last_verification_retry, None)
         self.assertEqual(instance.sso_enforcement, "")
-        self.assertEqual(instance.scim_enabled, False)
+        self.assertEqual(instance._scim_enabled, False)
 
         # Verify the domain creation capture event was called
         mock_capture.assert_any_call(
@@ -554,8 +554,8 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertIn("scim_base_url", response.json())
 
         self.domain.refresh_from_db()
-        self.assertEqual(self.domain.scim_enabled, True)
-        self.assertIsNotNone(self.domain.scim_bearer_token)
+        self.assertEqual(self.domain._scim_enabled, True)
+        self.assertIsNotNone(self.domain._scim_bearer_token)
 
     def test_cannot_enable_scim_without_available_feature(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -616,8 +616,8 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertIsNone(response.json()["scim_bearer_token"])
 
         self.domain.refresh_from_db()
-        self.assertEqual(self.domain.scim_enabled, False)
-        self.assertIsNone(self.domain.scim_bearer_token)
+        self.assertEqual(self.domain._scim_enabled, False)
+        self.assertIsNone(self.domain._scim_bearer_token)
 
     def test_can_regenerate_scim_token(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -653,8 +653,8 @@ class TestOrganizationDomainsAPI(APIBaseTest):
 
         # Manually enable SCIM (bypassing validation)
         plain_token, hashed_token = generate_scim_token()
-        self.domain.scim_enabled = True
-        self.domain.scim_bearer_token = hashed_token
+        self.domain._scim_enabled = True
+        self.domain._scim_bearer_token = hashed_token
         self.domain.save()
 
         # Remove feature
@@ -692,9 +692,9 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertTrue(response_data["has_id_jag"])
 
         self.domain.refresh_from_db()
-        self.assertEqual(self.domain.id_jag_issuer_url, "https://example.com")
-        self.assertEqual(self.domain.id_jag_jwks_url, "https://example.com/keys.json")
-        self.assertEqual(self.domain.id_jag_allowed_clients, ["client-a", "client-b"])
+        self.assertEqual(self.domain._id_jag_issuer_url, "https://example.com")
+        self.assertEqual(self.domain._id_jag_jwks_url, "https://example.com/keys.json")
+        self.assertEqual(self.domain._id_jag_allowed_clients, ["client-a", "client-b"])
 
     def test_cannot_configure_id_jag_without_available_feature(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -723,7 +723,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         self.domain.verified_at = timezone.now()
-        self.domain.id_jag_issuer_url = "https://example.com"
+        self.domain._id_jag_issuer_url = "https://example.com"
         self.domain.save()
 
         response = self.client.patch(
@@ -735,7 +735,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertIsNone(response.json()["id_jag_issuer_url"])
 
         self.domain.refresh_from_db()
-        self.assertIsNone(self.domain.id_jag_issuer_url)
+        self.assertIsNone(self.domain._id_jag_issuer_url)
 
     def test_cannot_configure_id_jag_on_unverified_domain(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -791,7 +791,7 @@ class TestSCIMRequestLogsAPI(APILicensedTest):
             organization=self.organization,
             domain="logs-test.com",
             verified_at=timezone.now(),
-            scim_enabled=True,
+            _scim_enabled=True,
         )
 
     def _create_log(self, **kwargs):

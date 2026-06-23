@@ -47,6 +47,7 @@ from . import (
     object_media_preview,
     organization,
     organization_domain,
+    organization_identity_provider_config,
     organization_integration,
     organization_invite,
     organization_member,
@@ -345,6 +346,12 @@ organizations_router.register(
     r"domains",
     organization_domain.OrganizationDomainViewset,
     "organization_domains",
+    ["organization_id"],
+)
+organizations_router.register(
+    r"identity_provider_configs",
+    organization_identity_provider_config.IdentityProviderConfigViewSet,
+    "organization_identity_provider_configs",
     ["organization_id"],
 )
 organizations_router.register(

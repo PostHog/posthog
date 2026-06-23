@@ -36,8 +36,8 @@ class TestSCIMRequestLogCapture(APILicensedTest):
             verified_at="2024-01-01T00:00:00Z",
         )
         self.plain_token, hashed_token = generate_scim_token()
-        self.domain.scim_enabled = True
-        self.domain.scim_bearer_token = hashed_token
+        self.domain._scim_enabled = True
+        self.domain._scim_bearer_token = hashed_token
         self.domain.save()
 
     def test_get_request_creates_log(self):

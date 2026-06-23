@@ -34,6 +34,8 @@ import type {
     GitHubBranchesResponseApi,
     GitHubReposRefreshResponseApi,
     GitHubReposResponseApi,
+    IdentityProviderConfigApi,
+    IdentityProviderConfigsListParams,
     InvitesListParams,
     OauthApplicationsListParams,
     OnboardingSkipRequestApi,
@@ -47,6 +49,7 @@ import type {
     PaginatedFileSystemListApi,
     PaginatedFileSystemShortcutListApi,
     PaginatedFolderInstructionsVersionListApi,
+    PaginatedIdentityProviderConfigListApi,
     PaginatedOrganizationDomainListApi,
     PaginatedOrganizationInviteListApi,
     PaginatedOrganizationOAuthApplicationListApi,
@@ -60,6 +63,7 @@ import type {
     PatchedFileSystemApi,
     PatchedFileSystemShortcutApi,
     PatchedFolderInstructionsPublishApi,
+    PatchedIdentityProviderConfigApi,
     PatchedOrganizationDomainApi,
     PatchedPersistedFolderApi,
     PatchedProjectBackwardCompatApi,
@@ -72,6 +76,7 @@ import type {
     ProjectSecretApiKeysListParams,
     PromotedProductIntentApi,
     PropertyDefinitionsListParams,
+    SCIMTokenResponseApi,
     SharingConfigurationApi,
     UserApi,
     UserGitHubLinkStartRequestApi,
@@ -377,6 +382,140 @@ export const domainsVerifyCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(organizationDomainApi),
+    })
+}
+
+export const getIdentityProviderConfigsListUrl = (
+    organizationId: string,
+    params?: IdentityProviderConfigsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/identity_provider_configs/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/identity_provider_configs/`
+}
+
+export const identityProviderConfigsList = async (
+    organizationId: string,
+    params?: IdentityProviderConfigsListParams,
+    options?: RequestInit
+): Promise<PaginatedIdentityProviderConfigListApi> => {
+    return apiMutator<PaginatedIdentityProviderConfigListApi>(
+        getIdentityProviderConfigsListUrl(organizationId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getIdentityProviderConfigsCreateUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/identity_provider_configs/`
+}
+
+export const identityProviderConfigsCreate = async (
+    organizationId: string,
+    identityProviderConfigApi?: NonReadonly<IdentityProviderConfigApi>,
+    options?: RequestInit
+): Promise<IdentityProviderConfigApi> => {
+    return apiMutator<IdentityProviderConfigApi>(getIdentityProviderConfigsCreateUrl(organizationId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(identityProviderConfigApi),
+    })
+}
+
+export const getIdentityProviderConfigsRetrieveUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/identity_provider_configs/${id}/`
+}
+
+export const identityProviderConfigsRetrieve = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<IdentityProviderConfigApi> => {
+    return apiMutator<IdentityProviderConfigApi>(getIdentityProviderConfigsRetrieveUrl(organizationId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getIdentityProviderConfigsUpdateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/identity_provider_configs/${id}/`
+}
+
+export const identityProviderConfigsUpdate = async (
+    organizationId: string,
+    id: string,
+    identityProviderConfigApi?: NonReadonly<IdentityProviderConfigApi>,
+    options?: RequestInit
+): Promise<IdentityProviderConfigApi> => {
+    return apiMutator<IdentityProviderConfigApi>(getIdentityProviderConfigsUpdateUrl(organizationId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(identityProviderConfigApi),
+    })
+}
+
+export const getIdentityProviderConfigsPartialUpdateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/identity_provider_configs/${id}/`
+}
+
+export const identityProviderConfigsPartialUpdate = async (
+    organizationId: string,
+    id: string,
+    patchedIdentityProviderConfigApi?: NonReadonly<PatchedIdentityProviderConfigApi>,
+    options?: RequestInit
+): Promise<IdentityProviderConfigApi> => {
+    return apiMutator<IdentityProviderConfigApi>(getIdentityProviderConfigsPartialUpdateUrl(organizationId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedIdentityProviderConfigApi),
+    })
+}
+
+export const getIdentityProviderConfigsDestroyUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/identity_provider_configs/${id}/`
+}
+
+export const identityProviderConfigsDestroy = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getIdentityProviderConfigsDestroyUrl(organizationId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getIdentityProviderConfigsScimTokenCreateUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/identity_provider_configs/${id}/scim/token/`
+}
+
+/**
+ * Regenerate the SCIM bearer token for this IdP config.
+ */
+export const identityProviderConfigsScimTokenCreate = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SCIMTokenResponseApi> => {
+    return apiMutator<SCIMTokenResponseApi>(getIdentityProviderConfigsScimTokenCreateUrl(organizationId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

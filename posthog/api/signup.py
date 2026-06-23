@@ -853,7 +853,7 @@ def process_social_domain_jit_provisioning_signup(
             domain=domain,
             is_verified=domain_instance.is_verified,
             jit_provisioning_enabled=domain_instance.jit_provisioning_enabled,
-            scim_enabled=domain_instance.scim_enabled,
+            scim_enabled=domain_instance.idp_config.scim_enabled,
         )
         if domain_instance.is_verified and domain_instance.jit_provisioning_enabled:
             if not user:
@@ -904,7 +904,7 @@ def process_social_domain_jit_provisioning_signup(
                     domain=domain,
                     user=user.email,
                     organization=domain_instance.organization_id,
-                    scim_enabled=domain_instance.scim_enabled,
+                    scim_enabled=domain_instance.idp_config.scim_enabled,
                 )
 
     return user

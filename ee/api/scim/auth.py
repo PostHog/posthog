@@ -50,7 +50,7 @@ class SCIMBearerTokenAuthentication(BaseAuthentication):
 
         try:
             # nosemgrep: idor-lookup-without-org (SCIM bearer token auth, domain_id is tenant identifier)
-            domain = OrganizationDomain.objects.get(id=domain_id)
+            domain = OrganizationDomain.objects.select_related("identity_provider_config").get(id=domain_id)
         except OrganizationDomain.DoesNotExist:
             raise exceptions.AuthenticationFailed("Invalid organization domain")
 
@@ -60,8 +60,8 @@ class SCIMBearerTokenAuthentication(BaseAuthentication):
         if not domain.organization.is_feature_available(AvailableFeature.SCIM):
             raise exceptions.AuthenticationFailed("Your organization does not have the required license to use SCIM")
 
-        # Verify the bearer token matches the stored hashed token
-        if not check_password(token, domain.scim_bearer_token):
+        # Verify the bearer token matches the stored hashed token (sourced from the IdP config)
+        if not check_password(token, domain.idp_config.scim_bearer_token):
             raise exceptions.AuthenticationFailed("Invalid bearer token")
 
         return (SCIMAuthToken(domain), domain)
