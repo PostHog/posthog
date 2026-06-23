@@ -108,6 +108,12 @@ def experiment_has_min_runtime_for_precomputation(
     completed experiments (end_date in the past), the actual run length is
     used. A future end_date (planned end) is ignored so we don't credit
     runtime that hasn't happened yet.
+
+    Note: this is elapsed *runtime*, a different concept from the analysis
+    window. It deliberately clamps to min(now, end_date) — the opposite of
+    experiment_window_end, which lets a future end_date win for the query
+    window (no events exist beyond now anyway). Keep the two rules separate;
+    do not fold this into the window primitive.
     """
     if start_date is None:
         return False
