@@ -130,8 +130,11 @@ export function DashboardItems(): JSX.Element {
         }
     }, [scrollToBottomSignal])
     const className = clsx({
-        'dashboard-view-mode': !layoutEditMode,
-        'dashboard-edit-mode': layoutEditMode,
+        'dashboard-view-mode mb-8': !layoutEditMode,
+        // Leave room below the last tile in edit mode so the scroll container can scroll past it —
+        // otherwise there's nowhere to drag a tile into to create a new bottom row, since the grid
+        // height is content-driven and dragging is bounded to the grid.
+        'dashboard-edit-mode mb-[40vh]': layoutEditMode,
     })
 
     const { width, containerRef, mounted } = useContainerWidth()
