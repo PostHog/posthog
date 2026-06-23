@@ -89,12 +89,8 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
 
 
 class OpsClickhouseClusterResource(dagster.ConfigurableResource):
-    client_settings: dict[str, str] = {
-        "max_execution_time": "0",
-        "max_memory_usage": "0",
-        "mutations_sync": "0",
-        "receive_timeout": f"{60 * 60}",
-    }
+    max_execution_time: int
+    max_memory_usage: int
 
     host: str = settings.CLICKHOUSE_HOST
     cluster: str | None = None
@@ -105,7 +101,13 @@ class OpsClickhouseClusterResource(dagster.ConfigurableResource):
             host=self.host,
             cluster=self.cluster,
             satellite_clusters=[settings.CLICKHOUSE_OPS_CLUSTER],
-            client_settings=self.client_settings,
+            client_settings={
+                "max_execution_time": str(self.max_execution_time),
+                "max_memory_usage": str(self.max_memory_usage),
+                # Socket read timeout must outlast the query's own time cap.
+                "receive_timeout": str(self.max_execution_time + 300),
+                "mutations_sync": "0",
+            },
             retry_policy=RetryPolicy(
                 max_attempts=2,
                 delay=ExponentialBackoff(20),

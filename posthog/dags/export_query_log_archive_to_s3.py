@@ -99,8 +99,6 @@ ONE_GB = 1024 * 1024 * 1024
 
 
 class QueryLogArchiveExportConfig(dagster.Config):
-    max_execution_time: int = 2 * 60 * 60
-    max_memory_usage: int = 20 * ONE_GB
     s3_prefix: str = "query_log_archive"
     s3_bucket: str = settings.QUERY_LOG_ARCHIVE_EXPORT_S3_BUCKET
 
@@ -135,7 +133,7 @@ SELECT
     normalizeQuery(lc_query__query) AS hogql_shape
 FROM {SOURCE_TABLE}
 WHERE event_date = toDate('{day}') AND is_initial_query
-SETTINGS s3_truncate_on_insert = 1, max_execution_time = {config.max_execution_time}, max_memory_usage = {config.max_memory_usage}
+SETTINGS s3_truncate_on_insert = 1
 """
 
     def run(client: Client) -> str:
@@ -152,7 +150,9 @@ SETTINGS s3_truncate_on_insert = 1, max_execution_time = {config.max_execution_t
 
 @dagster.job(
     partitions_def=daily_partitions,
-    resource_defs={"cluster": OpsClickhouseClusterResource()},
+    resource_defs={
+        "cluster": OpsClickhouseClusterResource(max_execution_time=2 * 60 * 60, max_memory_usage=20 * ONE_GB)
+    },
     tags={"owner": JobOwners.TEAM_QUERY_PERFORMANCE.value},
 )
 def export_query_log_archive_to_s3():
