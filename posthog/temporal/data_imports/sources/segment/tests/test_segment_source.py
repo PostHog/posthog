@@ -1,10 +1,10 @@
-from typing import Any
+from typing import Any, Literal, cast
 
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig, SourceFieldSelectConfig
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import SegmentSourceConfig
@@ -16,7 +16,7 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 def _config(region: str = "api", api_token: str = "tok") -> SegmentSourceConfig:
-    return SegmentSourceConfig(api_token=api_token, region=region)
+    return SegmentSourceConfig(api_token=api_token, region=cast(Literal["api", "eu1"], region))
 
 
 class TestSourceConfig:
@@ -36,11 +36,13 @@ class TestSourceConfig:
         assert field_names == {"region", "api_token"}
 
         token_field = next(f for f in config.fields if f.name == "api_token")
+        assert isinstance(token_field, SourceFieldInputConfig)
         # The token is a secret and must render as a password input.
         assert token_field.type == "password"
         assert token_field.secret is True
 
         region_field = next(f for f in config.fields if f.name == "region")
+        assert isinstance(region_field, SourceFieldSelectConfig)
         assert {o.value for o in region_field.options} == {"api", "eu1"}
         assert region_field.defaultValue == "api"
 
