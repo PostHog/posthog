@@ -272,8 +272,10 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
 
         // Event overflow config
+        // Mirrors capture's OverflowLimiter (rust/common/limiters/src/overflow.rs):
+        // burst = overflow_burst_limit (1000), replenish rate = overflow_per_second_limit (100/sec).
         EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
-        EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
+        EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 100.0,
 
         // Stateful overflow config
         INGESTION_STATEFUL_OVERFLOW_ENABLED: false,
