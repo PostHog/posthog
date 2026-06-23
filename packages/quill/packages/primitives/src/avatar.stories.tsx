@@ -196,9 +196,11 @@ export const GroupWithTooltips: Story = {
 } satisfies Story
 
 // Same, stacked: hovering an avatar both spreads the pile and shows its tooltip.
+// The tooltip delay matches the 200ms spread duration, so it appears once the
+// avatars have finished expanding rather than over a still-moving pile.
 export const GroupStackedWithTooltips: Story = {
     render: () => (
-        <TooltipProvider>
+        <TooltipProvider delay={200}>
             <AvatarGroup stacked>
                 {MEMBERS.map((m) => (
                     <Tooltip key={m.src}>
