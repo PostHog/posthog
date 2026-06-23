@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconChevronDown, IconCompass, IconPlus, IconSparkles } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { percentage } from 'lib/utils/numbers'
@@ -59,11 +59,17 @@ export function ScoutsFleetSection(): JSX.Element {
     }
 
     if (scoutConfigs.length === 0) {
-        return <ScoutsEmptyState />
+        return (
+            <div className="flex flex-col gap-3">
+                <ScoutAlphaBanner />
+                <ScoutsEmptyState />
+            </div>
+        )
     }
 
     return (
         <div className="flex flex-col gap-3">
+            <ScoutAlphaBanner />
             <ScoutsSourceGate />
             <button
                 type="button"
@@ -92,6 +98,23 @@ export function ScoutsFleetSection(): JSX.Element {
             </button>
             {expanded ? <ScoutsFleetList /> : null}
         </div>
+    )
+}
+
+/**
+ * Alpha/announcement banner for the scout troop, sourced from the `signals-scout` flag payload via
+ * the metadata endpoint — so the copy (e.g. a run-limit notice) can change with no deploy. Renders
+ * nothing when no message is set. Dismissal is remembered per-message, so a reworded notice resurfaces.
+ */
+function ScoutAlphaBanner(): JSX.Element | null {
+    const { scoutBannerMessage } = useValues(scoutFleetLogic)
+    if (!scoutBannerMessage) {
+        return null
+    }
+    return (
+        <LemonBanner type="info" dismissKey={`signals-scout-banner-${scoutBannerMessage}`}>
+            {scoutBannerMessage}
+        </LemonBanner>
     )
 }
 

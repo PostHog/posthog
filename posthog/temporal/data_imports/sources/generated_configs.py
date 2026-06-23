@@ -2667,6 +2667,11 @@ class SalesforceSourceConfig(config.Config):
 
 
 @config.config
+class SanitySourceConfig(config.Config):
+    pass
+
+
+@config.config
 class SapConcurSourceConfig(config.Config):
     pass
 
@@ -3956,6 +3961,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.SALESFLARE: SalesflareSourceConfig,
         ExternalDataSourceType.SALESFORCE: SalesforceSourceConfig,
         ExternalDataSourceType.SALESFORCEMARKETINGCLOUD: SalesforceMarketingCloudSourceConfig,
+        ExternalDataSourceType.SANITY: SanitySourceConfig,
         ExternalDataSourceType.SAPCONCUR: SapConcurSourceConfig,
         ExternalDataSourceType.SAPERP: SapErpSourceConfig,
         ExternalDataSourceType.SAPHANA: SapHanaSourceConfig,

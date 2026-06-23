@@ -327,6 +327,11 @@ class AssistantSetPropertyFilterOperator(StrEnum):
     IS_NOT_SET = "is_not_set"
 
 
+class Compare(StrEnum):
+    CURRENT = "current"
+    PREVIOUS = "previous"
+
+
 class AssistantStickinessDisplayType(StrEnum):
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
@@ -415,11 +420,6 @@ class AssistantTool(StrEnum):
     UPSERT_ACCOUNT = "upsert_account"
     UPSERT_ACCOUNT_NOTEBOOK = "upsert_account_notebook"
     OPEN_ACCOUNT = "open_account"
-
-
-class Compare(StrEnum):
-    CURRENT = "current"
-    PREVIOUS = "previous"
 
 
 class Display(StrEnum):
@@ -1796,6 +1796,7 @@ class ExternalDataSourceType(StrEnum):
     CUSTOM = "Custom"
     TILE38 = "Tile38"
     CHATWOOT = "Chatwoot"
+    SANITY = "Sanity"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2528,6 +2529,7 @@ class NodeKind(StrEnum):
     ENDPOINTS_USAGE_OVERVIEW_QUERY = "EndpointsUsageOverviewQuery"
     ENDPOINTS_USAGE_TABLE_QUERY = "EndpointsUsageTableQuery"
     ENDPOINTS_USAGE_TRENDS_QUERY = "EndpointsUsageTrendsQuery"
+    MCP_HARNESS_BREAKDOWN_QUERY = "MCPHarnessBreakdownQuery"
     PROPERTY_VALUES_QUERY = "PropertyValuesQuery"
 
 

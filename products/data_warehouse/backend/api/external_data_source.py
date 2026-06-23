@@ -1547,13 +1547,25 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 cdc_schema_name_by_location[(resolved_source_schema, resolved_source_table_name)] = schema_name
 
             if cdc_table_names_by_schema:
-                with cdc_pg_connection(new_source_model) as conn:
-                    for db_schema, cdc_table_names in cdc_table_names_by_schema.items():
-                        queried_pks = get_primary_key_columns(conn, db_schema, list(cdc_table_names))
-                        for table_name, primary_key_columns in queried_pks.items():
-                            schema_name = cdc_schema_name_by_location.get((db_schema, table_name))
-                            if schema_name is not None:
-                                pk_columns_by_table[schema_name] = primary_key_columns
+                try:
+                    with cdc_pg_connection(new_source_model) as conn:
+                        for db_schema, cdc_table_names in cdc_table_names_by_schema.items():
+                            queried_pks = get_primary_key_columns(conn, db_schema, list(cdc_table_names))
+                            for table_name, primary_key_columns in queried_pks.items():
+                                schema_name = cdc_schema_name_by_location.get((db_schema, table_name))
+                                if schema_name is not None:
+                                    pk_columns_by_table[schema_name] = primary_key_columns
+                except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+                    # Connecting to the user's database to detect CDC primary keys is expected to
+                    # fail when the host, port, credentials, or SSH tunnel are wrong, or the server
+                    # requires/refuses SSL. Surface it as a 400, but don't capture it — these are
+                    # user/upstream connection problems, not bugs in our code, and capturing every
+                    # one floods error tracking. Mirrors the CDC-prerequisite handlers below.
+                    new_source_model.delete()
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={"message": f"Could not connect to your database to set up change data capture: {e}"},
+                    )
 
             # CDC needs a PK for UPDATE/DELETE merges. Refuse here so `_setup_cdc_resources` doesn't
             # create replication state on the source for a config we're about to reject.
@@ -2350,6 +2362,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         try:
             source_schemas = source.get_schemas(source_config, self.team_id)
+        except NotImplementedError:
+            # Source doesn't implement schema discovery (e.g. an unreleased source) so it can't be
+            # set up via this one-shot flow — a caller mistake, not a server error worth capturing.
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Source type '{source_type}' does not support one-shot setup."},
+            )
         except Exception as e:
             capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})

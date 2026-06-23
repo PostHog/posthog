@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 21 enabled ops
+ * PostHog API - MCP 27 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -56,6 +56,10 @@ export const SignalsReportsListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             'Comma-separated list of PostHog user UUIDs. Reports are kept if their suggested reviewers include any of the given users.'
         ),
+    task_id: zod
+        .string()
+        .optional()
+        .describe("Only reports associated with this task (via the report's task associations)."),
 })
 
 export const SignalsReportsRetrieveParams = /* @__PURE__ */ zod.object({
@@ -133,6 +137,116 @@ export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Optional, only honored when state is 'potential'. Number of additional signals the report must accumulate before it is re-promoted into the pipeline — effectively snoozing it until then. Omit to let the report re-enter the pipeline on the next matching signal."
         ),
+})
+
+/**
+ * List every artefact on a report — the full work log: signal findings (the evidence behind the report), status judgments (safety / actionability / priority, repo selection, suggested reviewers — the newest row of each status type is canonical), and log entries (code references, commits, task runs, notes). `suggested_reviewers` content is enriched with PostHog user info at read time.
+ * @summary List a report's artefacts
+ */
+export const SignalsReportArtefactsListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    report_id: zod.string(),
+})
+
+export const SignalsReportArtefactsListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+/**
+ * Append an artefact to a report (see artefact_type for the writable types). Everything is append-only: log entries (code reference, commit, task run, note) accumulate, while status types (safety / actionability / priority judgments, repo selection, suggested reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. Content is validated against the type's schema.
+ * @summary Append an artefact to a report
+ */
+export const SignalsReportArtefactsCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    report_id: zod.string(),
+})
+
+export const SignalsReportArtefactsCreateHeader = /* @__PURE__ */ zod.object({
+    'X-PostHog-Task-Id': zod
+        .string()
+        .optional()
+        .describe(
+            'Task to attribute the artefact to (must belong to this project). Set automatically for sandbox agents; when absent the artefact is attributed to the requesting user.'
+        ),
+})
+
+export const SignalsReportArtefactsCreateBody = /* @__PURE__ */ zod
+    .object({
+        artefact_type: zod
+            .string()
+            .describe(
+                "The artefact type. One of: actionability_judgment, code_reference, commit, dismissal, note, priority_judgment, repo_selection, safety_judgment, signal_finding, suggested_reviewers, task_run. Log types accumulate; status types (safety_judgment, actionability_judgment, priority_judgment, repo_selection, suggested_reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status."
+            ),
+        content: zod
+            .unknown()
+            .describe(
+                'The artefact payload as a JSON object or array; shape depends on artefact_type and is validated against its schema.'
+            ),
+    })
+    .describe(
+        "Body for appending an artefact to a report.\n\nEverything is append-only: log artefacts accumulate, status artefacts supersede the previous\nversion (latest-wins). The `content` shape depends on `artefact_type` and is validated\nagainst the type's schema (see `products/signals/backend/artefact_schemas.py`)."
+    )
+
+/**
+ * Get one artefact by id, content parsed (and reviewers enriched) the same way as the list.
+ * @summary Get a single artefact
+ */
+export const SignalsReportArtefactsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this signal report artefact.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    report_id: zod.string(),
+})
+
+/**
+ * Replace the content of an existing artefact, addressed by id. The new content is validated against the artefact's type schema. Editing the latest row of a status type changes the report's canonical status (latest-wins); to re-assess while keeping history, append a new artefact instead. Attribution is creation-time only — edits don't reassign it.
+ * @summary Replace an artefact's content
+ */
+export const SignalsReportArtefactsPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this signal report artefact.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    report_id: zod.string(),
+})
+
+export const SignalsReportArtefactsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        content: zod
+            .unknown()
+            .optional()
+            .describe("The new artefact payload as a JSON object or array, matching the artefact type's schema."),
+    })
+    .describe(
+        "Body for replacing the content of an existing artefact (addressed by id).\n\nPer-type schema validation happens in the view, which knows the artefact's type."
+    )
+
+/**
+ * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains).
+ * @summary Delete an artefact
+ */
+export const SignalsReportArtefactsDestroyParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this signal report artefact.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    report_id: zod.string(),
 })
 
 /**
@@ -251,7 +365,7 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .min(signalsScoutConfigCreateBodyRunIntervalMinutesMin)
             .max(signalsScoutConfigCreateBodyRunIntervalMinutesMax)
             .optional()
-            .describe('Minutes between runs (10–43200). Defaults to 180 (every 3 hours).'),
+            .describe('Minutes between runs (10–43200). Defaults to 1440 (every 24 hours).'),
     })
     .describe(
         'Request body for registering a scout config without waiting for the coordinator tick.\n\nUpsert keyed on `skill_name`: if the coordinator (or a concurrent caller) already\nregistered the row, the provided tunables are applied to it instead.'

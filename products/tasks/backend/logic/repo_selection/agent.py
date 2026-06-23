@@ -5,8 +5,6 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, Field
-
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.integration_repository_cache import GitHubRepositoryFullCache
@@ -14,6 +12,7 @@ from posthog.models.team.team import Team
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.sync import database_sync_to_async
 
+from products.tasks.backend.logic.repo_selection.types import RepoSelectionResult
 from products.tasks.backend.logic.services.custom_prompt_internals import CustomPromptSandboxContext
 from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner import MultiTurnSession
 from products.tasks.backend.logic.services.sandbox import SandboxResources
@@ -29,20 +28,6 @@ logger = logging.getLogger(__name__)
 REPO_SELECTION_DUMMY_REPOSITORY = "PostHog/.github"
 
 _MAX_GITHUB_REPOS = 1000
-
-
-class RepoSelectionResult(BaseModel):
-    repository: str | None = Field(
-        description="Selected repository in 'owner/repo' format, or null if none of the candidates are relevant."
-    )
-    reason: str = Field(
-        description=(
-            "Why this repository was selected (or why none matched). When cache queries were made, "
-            "cite the specific path matches, README excerpts, or description content that drove the "
-            "decision. When no query was made, justify why the choice was unambiguous from the "
-            "context and repo names alone."
-        )
-    )
 
 
 class RepoSelectionRejectedError(Exception):
@@ -138,7 +123,10 @@ def _build_repo_selection_prompt(context_block: str, candidate_repos: list[str])
     rendered to text, or a Slack thread serialized as `user: text` lines. The caller is
     responsible for rendering domain-specific data structures into a string before calling.
     """
-    schema_json = json.dumps(RepoSelectionResult.model_json_schema(), indent=2)
+    schema = RepoSelectionResult.model_json_schema()
+    # `task_id` is system-set after the run — keep it out of the agent's output contract.
+    schema.get("properties", {}).pop("task_id", None)
+    schema_json = json.dumps(schema, indent=2)
     repo_list = "\n".join(f"{i + 1}. `{repo}`" for i, repo in enumerate(candidate_repos))
 
     return f"""You are a repository selection agent. Decide which GitHub repository in the candidate list
@@ -303,6 +291,8 @@ async def select_repository(
     context: str,
     *,
     origin_product: Task.OriginProduct,
+    github: GitHubIntegrationBase | None = None,
+    candidate_repos: list[str] | None = None,
     step_name: str = "repo_selection",
     signal_report_id: str | None = None,
     sandbox_environment_id: str | None = None,
@@ -315,18 +305,24 @@ async def select_repository(
     `context` is a pre-rendered string describing the request — callers must serialize their
     domain types (SignalData, Slack thread messages, etc.) before invoking.
 
+    Callers that have already resolved the integration and candidate list (e.g. to run their
+    own cheap early-exit first) may pass `github` and `candidate_repos` to skip the redundant
+    fetches; otherwise they're resolved here.
+
     Raises `RepoSelectionRejectedError` when the LLM returns a repository that isn't in the
     candidate list (hallucination). Callers that need to distinguish that failure mode from
     a legitimate "no plausible candidate" decision (`RepoSelectionResult(repository=None, ...)`)
     should catch the exception.
     """
-    github = await database_sync_to_async(resolve_team_github_integration, thread_sensitive=False)(team_id)
+    if github is None:
+        github = await database_sync_to_async(resolve_team_github_integration, thread_sensitive=False)(team_id)
     if github is None:
         return RepoSelectionResult(
             repository=None,
             reason="No GitHub repositories connected to this team.",
         )
-    candidate_repos = await database_sync_to_async(_list_candidate_repos, thread_sensitive=False)(github, team_id)
+    if candidate_repos is None:
+        candidate_repos = await database_sync_to_async(_list_candidate_repos, thread_sensitive=False)(github, team_id)
     if len(candidate_repos) == 0:
         return RepoSelectionResult(
             repository=None,
@@ -384,6 +380,9 @@ async def select_repository(
     # Track repo discovery execution (for example, for Slack)
     if on_research_session is not None:
         on_research_session(str(session.task.id), str(session.task_run.id))
+    # Stamp the producing task onto the result (overwriting anything the LLM may have emitted)
+    # so downstream persistence can attribute the selection to it.
+    result.task_id = str(session.task.id)
     try:
         if result.repository is not None:
             result.repository = result.repository.strip().lower()

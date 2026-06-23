@@ -5,6 +5,8 @@ from pathlib import Path
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.db import OperationalError
+
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from pydantic import BaseModel
@@ -1410,3 +1412,55 @@ class TestMultiTurnSessionStartFallback:
 
         fallback.assert_not_called()
         session.end.assert_awaited_once()  # type: ignore[attr-defined]
+
+
+class TestPollForTurnConnectionDrop:
+    """poll_for_turn runs for many minutes while the activity's pooled DB connection sits idle;
+    pgbouncer can drop it underneath the in-loop `TaskRun.objects.get` refreshes. Those reads must
+    reconnect transparently instead of aborting the whole report run with an OperationalError."""
+
+    @pytest.mark.asyncio
+    async def test_in_loop_refresh_reconnects_after_dropped_connection(self):
+        # First poll has an agent_message but no end_turn -> falls through to the in-loop TaskRun
+        # refresh, whose first ORM read hits a dropped pooled connection. The retry must reconnect
+        # and observe the now-terminal status so the run drains cleanly instead of crashing.
+        log = "\n".join([_agent_message_line("connection-drop summary"), _usage_update_line()])
+        completed = FakeTaskRun(status=TaskRun.Status.COMPLETED)
+        get_mock = MagicMock(side_effect=[OperationalError("server closed the connection unexpectedly"), completed])
+
+        # settings.TEST gates the close_old_connections() call (it health-checks live
+        # connections, which trips the test DB-access guard), so flip it off to exercise
+        # the real reconnect path.
+        with (
+            patch("posthog.storage.object_storage.read", return_value=log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.settings.TEST", False),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.close_old_connections") as close_conns,
+            patch("products.tasks.backend.models.TaskRun.objects.get", new=get_mock),
+        ):
+            last_message, _, _, _ = await poll_for_turn(FakeTaskRun(), skip_lines=0)
+
+        assert last_message == "connection-drop summary"
+        # Read was retried after the drop, and the staleness guard ran before each attempt.
+        assert get_mock.call_count == 2
+        assert close_conns.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_persistent_connection_failure_propagates(self):
+        # A genuinely dead pool (both attempts fail) must still surface — the guard retries once,
+        # it is not an infinite reconnect loop that masks a real outage.
+        log = "\n".join([_agent_message_line("partial"), _usage_update_line()])
+        get_mock = MagicMock(side_effect=OperationalError("server closed the connection unexpectedly"))
+
+        with (
+            patch("posthog.storage.object_storage.read", return_value=log),
+            patch("asyncio.sleep", new=AsyncMock()),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 0),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.close_old_connections"),
+            patch("products.tasks.backend.models.TaskRun.objects.get", new=get_mock),
+        ):
+            with pytest.raises(OperationalError):
+                await poll_for_turn(FakeTaskRun(), skip_lines=0)
+
+        assert get_mock.call_count == 2
