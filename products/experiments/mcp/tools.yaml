@@ -862,12 +862,7 @@ tools:
                     the legacy parameters.* keys during the deprecation window, so prefer this field over writing the
                     calculator keys inside parameters.
             saved_metrics_ids:
-                description: >
-                    Shared (saved) metrics to attach to this experiment — a list of objects, each with `id` (a saved
-                    metric ID from experiment-saved-metrics-list) and optional `metadata.type` ('primary' or
-                    'secondary', defaulting to 'primary'). This is a full replacement — always include all of the
-                    experiment's existing saved metrics (read them from its saved_metrics first) when adding a new one.
-                    Pass an empty list to detach all shared metrics.
+                input_schema: SavedMetricsAttachSchema
         ui_app: experiment
         response:
             include:

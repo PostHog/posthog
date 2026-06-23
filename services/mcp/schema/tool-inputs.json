@@ -688,6 +688,34 @@
             "properties": {},
             "description": "No input required. Returns core data warehouse schemas."
         },
+        "SavedMetricsAttachSchema": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991,
+                        "description": "ID of an existing shared/saved metric. Discover IDs with experiment-saved-metrics-list."
+                    },
+                    "metadata": {
+                        "description": "Optional per-link metadata. Omit to default this metric to primary.",
+                        "type": "object",
+                        "properties": {
+                            "type": {
+                                "type": "string",
+                                "enum": ["primary", "secondary"],
+                                "description": "Whether this metric is a primary or secondary metric on the experiment."
+                            }
+                        },
+                        "required": ["type"]
+                    }
+                },
+                "required": ["id"]
+            },
+            "description": "The complete desired set of shared (saved) metrics for the experiment — this REPLACES all existing saved-metric links, it does not append. To add or remove one, first read the experiment's current saved_metrics via experiment-get and resend the full set. Pass an empty array to detach all shared metrics."
+        },
         "ScoreDefinitionConfigSchema": {
             "anyOf": [
                 {
