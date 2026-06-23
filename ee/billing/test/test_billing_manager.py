@@ -174,6 +174,7 @@ class TestBillingManager(BaseTest):
             "api_queries_read_bytes": {"usage": 1000, "limit": 1000000, "todays_usage": 500},
             "llm_events": {"usage": 50, "limit": 1000, "todays_usage": 2},
             "ai_credits": {"usage": 1200, "limit": 20000, "todays_usage": 150},
+            "signals_credits": {},
             "cdp_trigger_events": {"usage": 10, "limit": 100, "todays_usage": 5},
             "workflow_emails": {"usage": 100, "limit": 10000, "todays_usage": 10},
             "workflow_destinations_dispatched": {"usage": 50, "limit": 10000, "todays_usage": 5},
