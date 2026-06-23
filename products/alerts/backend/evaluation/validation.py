@@ -181,7 +181,7 @@ def validate_alert_config(
     # alert would raise at evaluation time, so reject it here at configuration time. Reading the
     # dispatcher's registry directly keeps the config-time and evaluation-time views from drifting.
     if detector_config is not None and kind not in DETECTOR_EXTRACTORS:
-        raise ValueError("Anomaly detection alerts are only supported for trends insights")
+        raise ValueError(f"Anomaly detection alerts aren't supported for {kind} insights")
 
     validator = _ALERT_CONFIG_VALIDATORS.get(config_type) if isinstance(config_type, str) else None
     if validator is None:
