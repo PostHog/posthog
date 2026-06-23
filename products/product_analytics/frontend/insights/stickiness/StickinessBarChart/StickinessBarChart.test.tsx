@@ -80,7 +80,7 @@ describe('StickinessBarChart', () => {
         const tooltip = await chart.hoverTooltip(2)
         // Days are 1-indexed in the mock, so bucket 2 == day 3.
         expect(tooltip.row('Pageview')).toMatch(/%/)
-        expect(tooltip.title()).toMatch(/stickiness on day 3/i)
+        expect(tooltip.title()).toMatch(/Stickiness on Day 3/)
         // Must NOT default to a Unix-epoch-derived calendar date.
         expect(tooltip.title()).not.toMatch(/1970/i)
     })
@@ -112,7 +112,7 @@ describe('StickinessBarChart', () => {
             },
             { timeout: 5000 }
         )
-        expect(personsModal.title()).toMatch(/stickiness on day 3/i)
+        expect(personsModal.title()).toMatch(/Stickiness on Day 3/)
         expect(personsModal.title()).toMatch(/Pageview/i)
     })
 

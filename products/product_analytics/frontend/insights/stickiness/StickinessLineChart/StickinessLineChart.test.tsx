@@ -65,7 +65,7 @@ describe('StickinessLineChart', () => {
 
             const tooltip = await chart.hoverTooltip(2)
             // Day at index 2 is 3 in the mock's 1-indexed stickiness days.
-            expect(tooltip.title()).toMatch(/stickiness on day 3/i)
+            expect(tooltip.title()).toMatch(/Stickiness on Day 3/)
             // Critically — must NOT default to a Unix-epoch-derived calendar date.
             expect(tooltip.title()).not.toMatch(/1970/i)
         })
@@ -96,7 +96,7 @@ describe('StickinessLineChart', () => {
                 expect(personsModal.get()).toBeInTheDocument()
             })
             // The clicked bucket is index 2, days are 1-indexed in the mock, so day == 3.
-            expect(personsModal.title()).toMatch(/stickiness on day 3/i)
+            expect(personsModal.title()).toMatch(/Stickiness on Day 3/)
             expect(personsModal.title()).toMatch(/Pageview/i)
         })
 

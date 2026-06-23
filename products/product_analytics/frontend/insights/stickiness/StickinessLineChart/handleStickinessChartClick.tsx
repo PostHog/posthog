@@ -1,4 +1,5 @@
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import type { OpenPersonsModalProps } from 'scenes/trends/persons-modal/PersonsModal'
 import type { IndexedTrendResult } from 'scenes/trends/types'
 import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
@@ -54,9 +55,10 @@ export function handleStickinessChartClick(seriesKey: string, dataIndex: number,
     }
 
     const label = dataset.label ?? ''
+    const intervalLabel = capitalizeFirstLetter(deps.interval || 'day')
     const title = (
         <>
-            <PropertyKeyInfo value={label} disablePopover /> stickiness on {deps.interval || 'day'} {day}
+            <PropertyKeyInfo value={label} disablePopover /> Stickiness on {intervalLabel} {day}
         </>
     )
 

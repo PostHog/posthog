@@ -84,7 +84,7 @@ describe('handleStickinessChartClick', () => {
         const { container } = render(<>{openPersonsModal.mock.calls[0][0].title}</>)
         // PropertyKeyInfo wraps the raw label; the label text itself surfaces in textContent.
         expect(container.textContent).toContain('$pageview')
-        expect(container.textContent).toContain('stickiness on day 3')
+        expect(container.textContent).toContain('Stickiness on Day 3')
     })
 
     it('uses "day" as the default interval when interval is null', () => {
@@ -95,7 +95,7 @@ describe('handleStickinessChartClick', () => {
         handleStickinessChartClick(keyFor(trendResult), 0, deps)
 
         const { container } = render(<>{openPersonsModal.mock.calls[0][0].title}</>)
-        expect(container.textContent).toContain('stickiness on day 1')
+        expect(container.textContent).toContain('Stickiness on Day 1')
     })
 
     it.each([

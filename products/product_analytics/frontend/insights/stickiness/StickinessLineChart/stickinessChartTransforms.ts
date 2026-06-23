@@ -1,6 +1,7 @@
 import { DEFAULT_Y_AXIS_ID } from '@posthog/quill-charts'
 import type { Series, TimeSeriesLineChartConfig, TooltipConfig, YAxisConfig } from '@posthog/quill-charts'
 
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 
 import { ChartDisplayType } from '~/types'
@@ -91,14 +92,14 @@ export function stickinessPercentFormatter(value: number): string {
 export const STICKINESS_TOOLTIP_CONFIG: TooltipConfig = { pinnable: true, placement: 'top' }
 
 /** Stickiness `date` is an interval-count integer (1, 2, …), not a date.
- *  Render "stickiness on {interval} {day}" so InsightTooltip doesn't try to
+ *  Render "Stickiness on {Interval} {day}" so InsightTooltip doesn't try to
  *  format it as a calendar date (which would land on 1970-01-01). */
 export function buildStickinessTooltipTitle(
     interval: string | null | undefined
 ): (seriesData: SeriesDatum[]) => string {
     return (seriesData) => {
         const day = seriesData[0]?.date_label ?? ''
-        return `stickiness on ${interval || 'day'} ${day}`
+        return `Stickiness on ${capitalizeFirstLetter(interval || 'day')} ${day}`
     }
 }
 
