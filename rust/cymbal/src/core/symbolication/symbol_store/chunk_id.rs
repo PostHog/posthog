@@ -352,6 +352,7 @@ mod test {
             apple::AppleProvider,
             chunk_id::{ChunkIdFetcher, OrChunkId, SymbolSetCacheKey},
             hermesmap::HermesMapProvider,
+            native::NativeProvider,
             proguard::ProguardProvider,
             saving::SymbolSetRecord,
             sourcemap::{OwnedSourceMapCache, SourcemapProvider},
@@ -519,7 +520,14 @@ mod test {
             config.object_storage_bucket.clone(),
         );
 
-        let catalog = Catalog::new(chunk_id_fetcher, hermes_map_fetcher, pgp, apple);
+        let native = ChunkIdFetcher::new(
+            NativeProvider {},
+            client.clone(),
+            db.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
+        let catalog = Catalog::new(chunk_id_fetcher, hermes_map_fetcher, pgp, apple, native);
 
         let mut frame = get_example_frame();
         frame.chunk_id = Some(chunk_id.clone());
