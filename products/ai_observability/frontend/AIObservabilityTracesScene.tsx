@@ -356,9 +356,9 @@ const InputMessageColumn: QueryContextColumnComponent = ({ record }) => {
     }
     // Three-tier fallback: clean state unwrap → generation fallback → raw state dump.
     const inputMessage =
-        pickLastInputMessage(messages?.firstInput, { strict: true }) ??
-        pickLastInputMessage(messages?.firstInputFallback) ??
-        pickLastInputMessage(messages?.firstInput)
+        pickLastInputMessage(messages?.lastInput, { strict: true }) ??
+        pickLastInputMessage(messages?.lastInputFallback) ??
+        pickLastInputMessage(messages?.lastInput)
     if (!inputMessage) {
         return <>–</>
     }
