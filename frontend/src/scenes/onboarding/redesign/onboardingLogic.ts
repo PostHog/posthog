@@ -9,6 +9,8 @@ export type OnboardingTrack = 'installer' | 'user'
 
 export type OnboardingStepKey = 'create_org' | 'company' | 'install' | 'configure' | 'learn' | 'done'
 
+export type PreviewFocusTarget = 'userName' | 'orgName' | null
+
 const INSTALLER_STEPS: OnboardingStepKey[] = ['create_org', 'company', 'install', 'configure', 'done']
 const USER_STEPS: OnboardingStepKey[] = ['create_org', 'company', 'learn', 'done']
 
@@ -26,6 +28,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         setRole: (roleId: string | null) => ({ roleId }),
         setSelectedProducts: (products: ProductKey[]) => ({ products }),
         toggleProduct: (product: ProductKey) => ({ product }),
+        setPreviewFocus: (focus: PreviewFocusTarget) => ({ focus }),
     }),
     reducers({
         track: ['installer' as OnboardingTrack, { setTrack: (_, { track }) => track }],
@@ -42,6 +45,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
                     state.includes(product) ? state.filter((p) => p !== product) : [...state, product],
             },
         ],
+        previewFocus: [null as PreviewFocusTarget, { setPreviewFocus: (_, { focus }) => focus }],
     }),
     selectors({
         steps: [

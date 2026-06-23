@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import { useValues } from 'kea'
 
 import {
     IconApps,
@@ -18,6 +19,7 @@ import {
     IconStar,
 } from '@posthog/icons'
 
+import { onboardingLogic } from '../onboardingLogic'
 import { PreviewPageView } from './pages'
 import { type PreviewConfig, type SidebarItem, type SidebarSection } from './types'
 
@@ -115,12 +117,20 @@ function SidebarFooter({ items }: { items: { label: string; iconKey?: string }[]
 }
 
 export function PreviewChrome({ config }: { config: PreviewConfig }): JSX.Element {
+    const { previewFocus } = useValues(onboardingLogic)
+
     return (
         <div className="flex h-full w-full overflow-hidden rounded-xl border border-primary bg-primary shadow-lg">
             {/* Sidebar */}
             <div className="flex w-48 shrink-0 flex-col border-r border-primary bg-surface-secondary">
                 <div className="flex flex-col gap-1 p-3 pb-0">
-                    <div className="flex items-center gap-2 py-1 px-1">
+                    <div
+                        className={clsx(
+                            'flex items-center gap-2 py-1 px-1 rounded',
+                            previewFocus === 'orgName' &&
+                                'ring ring-yellow-500 ring-offset-1 ring-offset-transparent shadow-[0_0_0_4px_rgba(251,146,60,0.35),0_0_24px_6px_rgba(249,115,22,0.2)] transition-all duration-150'
+                        )}
+                    >
                         <IconLogomark className="size-4 shrink-0 text-secondary" />
                         <span
                             className={clsx(

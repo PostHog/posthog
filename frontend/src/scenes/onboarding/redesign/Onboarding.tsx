@@ -38,7 +38,7 @@ function StepBody({ stepKey }: { stepKey: OnboardingStepKey }): JSX.Element {
 }
 
 export function Onboarding(): JSX.Element {
-    const { currentStepKey, currentStepIndex, totalSteps, isFirstStep, name } = useValues(onboardingLogic)
+    const { currentStepKey, currentStepIndex, totalSteps, isFirstStep, name, previewFocus } = useValues(onboardingLogic)
     const { user } = useValues(userLogic)
     const { nextStep, previousStep } = useActions(onboardingLogic)
 
@@ -46,6 +46,29 @@ export function Onboarding(): JSX.Element {
     const ctaDisabledReason =
         currentStepKey === 'create_org' && !name.trim() ? 'Enter your name to continue' : undefined
     const showFooter = currentStepKey !== 'done'
+
+    const zoomStyle: React.CSSProperties = (() => {
+        const transition = 'transform 0.12s linear'
+        if (previewFocus === 'orgName') {
+            return {
+                transform: 'scale(1.9)',
+                transformOrigin: 'left top',
+                transition,
+            }
+        }
+        if (previewFocus === 'userName') {
+            return {
+                transform: 'translate(-33%, -4%) scale(1.8)',
+                transformOrigin: 'left top',
+                transition,
+            }
+        }
+        return {
+            transform: 'translate(0%, -4.5%) scale(1.1)',
+            transformOrigin: 'left top',
+            transition,
+        }
+    })()
 
     return (
         <div className="flex h-full w-full flex-col bg-primary">
@@ -65,7 +88,7 @@ export function Onboarding(): JSX.Element {
                 {/* The preview is uniformly scaled up (zoomed) and anchored left, bleeding off the right edge (cropped). */}
                 <div className="hidden shrink-0 items-center overflow-hidden border-l border-primary bg-surface-secondary bg-[image:radial-gradient(var(--border-3000)_1.4px,transparent_1.4px)] bg-[length:16px_16px] py-8 pl-8 lg:flex lg:w-1/2 xl:w-[45%]">
                     {/* h ≈ 1/scale and w sized so that, after scaling, the height fills and the width overflows (cropped). */}
-                    <div className="h-[91%] w-[102%] shrink-0 origin-left scale-[1.1]">
+                    <div className="h-[91%] w-[102%] shrink-0" style={zoomStyle}>
                         <OnboardingPreview />
                     </div>
                 </div>

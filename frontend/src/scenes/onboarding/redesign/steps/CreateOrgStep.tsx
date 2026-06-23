@@ -77,7 +77,7 @@ function DataRegionField(): JSX.Element | null {
 /** Step 0: create the organization — your name, org name, role, and the (fixed) data region. */
 export function CreateOrgStep(): JSX.Element {
     const { name, organizationName, roleId } = useValues(onboardingLogic)
-    const { setName, setOrganizationName, setRole } = useActions(onboardingLogic)
+    const { setName, setOrganizationName, setRole, setPreviewFocus } = useActions(onboardingLogic)
     const [roleModalOpen, setRoleModalOpen] = useState(false)
     const selectedRole = findRole(roleId)
 
@@ -87,10 +87,23 @@ export function CreateOrgStep(): JSX.Element {
             <h1 className="mt-5 text-3xl font-bold text-default">Let's set up your organization.</h1>
             <div className="mt-6 flex flex-col gap-4">
                 <LemonField.Pure label="Your name">
-                    <LemonInput value={name} onChange={setName} placeholder="Jordan Rivera" autoFocus />
+                    <LemonInput
+                        value={name}
+                        onChange={setName}
+                        placeholder="Jordan Rivera"
+                        autoFocus
+                        onFocus={() => setPreviewFocus('userName')}
+                        onBlur={() => setPreviewFocus(null)}
+                    />
                 </LemonField.Pure>
                 <LemonField.Pure label="Organization name">
-                    <LemonInput value={organizationName} onChange={setOrganizationName} placeholder="Acme Inc." />
+                    <LemonInput
+                        value={organizationName}
+                        onChange={setOrganizationName}
+                        placeholder="Acme Inc."
+                        onFocus={() => setPreviewFocus('orgName')}
+                        onBlur={() => setPreviewFocus(null)}
+                    />
                 </LemonField.Pure>
                 <LemonField.Pure
                     label={

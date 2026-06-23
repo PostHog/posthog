@@ -1,9 +1,11 @@
 import clsx from 'clsx'
+import { useValues } from 'kea'
 
 import { IconArrowRight, IconClock, IconInfo, IconPin, IconStar } from '@posthog/icons'
 
 import { PostHogLogo } from 'lib/brand/v2'
 
+import { onboardingLogic } from '../../onboardingLogic'
 import { type HomeListItem } from '../types'
 
 const SKELETON_WIDTHS = ['w-24', 'w-20', 'w-28', 'w-16', 'w-24']
@@ -73,10 +75,18 @@ export function HomePage({
     recents: HomeListItem[]
     starred: HomeListItem[]
 }): JSX.Element {
+    const { previewFocus } = useValues(onboardingLogic)
+
     return (
         <div className="flex h-full flex-col items-start justify-start pl-2 pt-6">
             <PostHogLogo wordmark={false} className="mb-3 h-8 w-auto" />
-            <h1 className="mb-5 text-xl font-bold text-default">
+            <h1
+                className={clsx(
+                    'mb-5 text-xl font-bold text-default rounded',
+                    previewFocus === 'userName' &&
+                        'px-2 py-1 -mx-2 -my-1 ring ring-yellow-500 ring-offset-1 ring-offset-transparent shadow-[0_0_0_4px_rgba(251,146,60,0.35),0_0_24px_6px_rgba(249,115,22,0.2)] transition-all duration-150'
+                )}
+            >
                 Hello, {greetingName.trim() ? greetingName : <span className="text-muted">your name</span>}
             </h1>
             <div className="flex w-full max-w-xl items-center gap-2 rounded-lg border border-primary bg-surface-primary px-3 py-2.5">

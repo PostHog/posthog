@@ -79,14 +79,6 @@ export const Dashboard: Story = {
             },
         },
     },
-    argTypes: {
-        'config.org.name': { control: 'text', name: 'Org name' },
-        'config.page.kind': { control: 'select', options: ['dashboard', 'empty', 'insight'], name: 'Page kind' },
-        'config.page.metrics': { control: 'object', name: 'Metrics' },
-        'config.page.charts': { control: 'object', name: 'Charts' },
-        'config.sidebar.sections': { control: 'object', name: 'Sidebar sections' },
-        'config.sidebar.footerItems': { control: 'object', name: 'Footer items' },
-    },
 }
 
 export const Empty: Story = {
@@ -114,37 +106,12 @@ export const Empty: Story = {
             },
         },
     },
-    argTypes: {
-        'config.org.name': { control: 'text', name: 'Org name' },
-        'config.page.kind': { control: 'select', options: ['dashboard', 'empty', 'insight'], name: 'Page kind' },
-        'config.page.title': { control: 'text', name: 'Empty title' },
-        'config.page.subtitle': { control: 'text', name: 'Empty subtitle' },
-        'config.sidebar.sections': { control: 'object', name: 'Sidebar sections' },
-        'config.sidebar.footerItems': { control: 'object', name: 'Footer items' },
-    },
 }
 
 export const CreateOrgStepPreset: Story = {
     args: { config: buildPreviewConfig('create_org', { orgName: 'Acme Corp', products: [], userName: 'Fernando' }) },
-    argTypes: {
-        'config.org.name': { control: 'text', name: 'Org name' },
-        'config.page.greetingName': { control: 'text', name: 'Greeting name' },
-        'config.page.pinnedDashboards': { control: 'object', name: 'Pinned dashboards' },
-        'config.page.recents': { control: 'object', name: 'Recents' },
-        'config.page.starred': { control: 'object', name: 'Starred' },
-        'config.sidebar.sections': { control: 'object', name: 'Sidebar sections' },
-        'config.sidebar.footerItems': { control: 'object', name: 'Footer items' },
-    },
 }
 
 export const CompanyStepPreset: Story = {
     args: { config: buildPreviewConfig('company', { orgName: 'Acme Corp', products: DEMO_PRODUCTS }) },
-    argTypes: {
-        'config.org.name': { control: 'text', name: 'Org name' },
-        'config.page.kind': { control: 'select', options: ['dashboard', 'empty', 'insight'], name: 'Page kind' },
-        'config.page.metrics': { control: 'object', name: 'Metrics' },
-        'config.page.charts': { control: 'object', name: 'Charts' },
-        'config.sidebar.sections': { control: 'object', name: 'Sidebar sections' },
-        'config.sidebar.footerItems': { control: 'object', name: 'Footer items' },
-    },
 }
