@@ -14,23 +14,53 @@ use crate::{
         send_fingerprint_issue_state, send_issue_created_alert, send_issue_reopened_alert,
         send_new_fingerprint_event, Issue, IssueFingerprintOverride,
     },
-    metric_consts::{ISSUE_CREATED, ISSUE_LINKER_OPERATOR},
+    metric_consts::ISSUE_CREATED,
     modes::processing::rules::assignment::{try_assignment_rules, Assignment},
-    stages::{linking::LinkingStage, pipeline::HandledError},
+    stages::linking::LinkingStage,
     teams::TeamManager,
     types::{
-        exception_properties::ExceptionProperties,
-        operator::{OperatorResult, ValueOperator},
+        exception_event::{ExceptionEvent, Fingerprinted, Linked},
         OutputErrProps,
     },
 };
 
-#[derive(Clone)]
-pub struct IssueLinker;
+/// Link a fingerprinted event to its issue (creating, finding, or reopening as
+/// needed) and advance it to the `Linked` stage. This is the
+/// `Fingerprinted -> Linked` transition performed by [`LinkingStage`].
+pub async fn link_issue(
+    input: ExceptionEvent<Fingerprinted>,
+    ctx: &LinkingStage,
+) -> Result<ExceptionEvent<Linked>, UnhandledError> {
+    let fingerprint = input.stage.fingerprint.clone();
+    let key = (input.team_id, fingerprint);
+
+    // Two-layer cache: per-batch dedup wraps the cross-request `issue_id` cache.
+    // - Per-batch cache (this `try_get_with`): events with the same fingerprint in
+    //   the same batch resolve the Issue exactly once. moka serializes concurrent
+    //   misses for the same key inside the batch.
+    // - Cross-batch `issue_id` cache (inside `resolve_via_id_cache`): keeps the
+    //   `(team_id, fingerprint) -> issue_id` mapping warm across batches and
+    //   skips the expensive fingerprint JOIN on warm fingerprints.
+    // Status is always read fresh from PG inside the loader, so `IssueSuppression`
+    // and `maybe_reopen` never see stale state.
+    let cloned_input = input.clone();
+    let ctx_for_load = ctx.clone();
+    let issue: Issue = ctx
+        .batch_issue_cache
+        .try_get_with(key, async move {
+            resolve_via_id_cache(cloned_input, &ctx_for_load).await
+        })
+        .await
+        .map_err(|e: Arc<UnhandledError>| UnhandledError::Other(e.to_string()))?;
+
+    Ok(input.into_linked(issue))
+}
+
+struct IssueLinker;
 
 impl IssueLinker {
     pub async fn fetch_or_create_issue(
-        input: ExceptionProperties,
+        input: ExceptionEvent<Fingerprinted>,
         ctx: Arc<AppContext>,
     ) -> Result<Issue, UnhandledError> {
         // Extract name and description for the issue
@@ -58,50 +88,6 @@ impl IssueLinker {
     }
 }
 
-impl ValueOperator for IssueLinker {
-    type Item = ExceptionProperties;
-    type Context = LinkingStage;
-    type HandledError = HandledError;
-    type UnhandledError = UnhandledError;
-
-    fn name(&self) -> &'static str {
-        ISSUE_LINKER_OPERATOR
-    }
-
-    async fn execute_value(
-        &self,
-        mut input: Self::Item,
-        ctx: LinkingStage,
-    ) -> OperatorResult<Self> {
-        let fingerprint = input.fingerprint.clone().unwrap();
-        let key = (input.team_id, fingerprint);
-
-        // Two-layer cache: per-batch dedup wraps the cross-request `issue_id` cache.
-        // - Per-batch cache (this `try_get_with`): events with the same fingerprint in
-        //   the same batch resolve the Issue exactly once. moka serializes concurrent
-        //   misses for the same key inside the batch.
-        // - Cross-batch `issue_id` cache (inside `resolve_via_id_cache`): keeps the
-        //   `(team_id, fingerprint) -> issue_id` mapping warm across batches and
-        //   skips the expensive fingerprint JOIN on warm fingerprints.
-        // Status is always read fresh from PG inside the loader, so `IssueSuppression`
-        // and `maybe_reopen` never see stale state.
-        let cloned_input = input.clone();
-        let ctx_for_load = ctx.clone();
-        let issue: Issue = ctx
-            .batch_issue_cache
-            .try_get_with(key, async move {
-                resolve_via_id_cache(cloned_input, &ctx_for_load).await
-            })
-            .await
-            .map_err(|e: Arc<UnhandledError>| UnhandledError::Other(e.to_string()))?;
-
-        input.issue_id = Some(issue.id);
-        input.issue = Some(issue);
-
-        Ok(Ok(input))
-    }
-}
-
 // Resolves an issue by going through the cross-batch `issue_id` cache:
 // - On cache miss we run `fetch_or_create_issue` (the only place that fires
 //   `created` / `reopened` alerts) and return the freshly-loaded Issue directly,
@@ -109,10 +95,10 @@ impl ValueOperator for IssueLinker {
 // - On cache hit we re-read by id (cheap PK lookup) and call `maybe_reopen` so
 //   suppression and reopen always see current PG state.
 async fn resolve_via_id_cache(
-    input: ExceptionProperties,
+    input: ExceptionEvent<Fingerprinted>,
     ctx: &LinkingStage,
 ) -> Result<Issue, UnhandledError> {
-    let fingerprint = input.fingerprint.clone().unwrap();
+    let fingerprint = input.stage.fingerprint.clone();
     let key = (input.team_id, fingerprint.clone());
 
     // `try_get_with` only returns the cached value (`Uuid`), so we stash the freshly
@@ -171,7 +157,7 @@ async fn load_and_maybe_reopen(
     team_id: i32,
     issue_id: Uuid,
     fingerprint: &str,
-    event_properties: &ExceptionProperties,
+    event_properties: &ExceptionEvent<Fingerprinted>,
 ) -> Result<Option<Issue>, UnhandledError> {
     let mut conn = context.posthog_pool.acquire().await?;
     let Some(mut issue) = Issue::load(&mut *conn, team_id, issue_id).await? else {
@@ -204,7 +190,7 @@ async fn load_and_maybe_reopen(
         issue.created_at,
     )
     .await?;
-    let output_props: OutputErrProps = event_properties.to_output(issue.id)?;
+    let output_props: OutputErrProps = event_properties.to_output(issue.id);
     drop(conn);
     context
         .signal_client
@@ -219,13 +205,10 @@ async fn resolve_issue(
     name: String,
     description: String,
     event_timestamp: DateTime<Utc>,
-    event_properties: ExceptionProperties,
+    event_properties: ExceptionEvent<Fingerprinted>,
 ) -> Result<Issue, UnhandledError> {
     let team_id = event_properties.team_id;
-    let fingerprint = event_properties
-        .fingerprint
-        .clone()
-        .ok_or(UnhandledError::Other("Missing fingerprint".into()))?;
+    let fingerprint = event_properties.stage.fingerprint.clone();
 
     let mut conn = context.posthog_pool.acquire().await?;
     // Fast path - just fetch the issue directly, and then reopen it if needed
@@ -245,7 +228,7 @@ async fn resolve_issue(
                 first_seen_for_state,
             )
             .await?;
-            let output_props: OutputErrProps = event_properties.to_output(issue.id)?;
+            let output_props: OutputErrProps = event_properties.to_output(issue.id);
             drop(conn);
             context
                 .signal_client
@@ -314,7 +297,7 @@ async fn resolve_issue(
 
             drop(conn);
 
-            let output_props: OutputErrProps = event_properties.to_output(issue.id)?;
+            let output_props: OutputErrProps = event_properties.to_output(issue.id);
             context
                 .signal_client
                 .emit_issue_reopened(&issue, &output_props);
@@ -326,7 +309,7 @@ async fn resolve_issue(
         let assignment =
             process_assignment(&mut txn, &context.team_manager, &issue, &event_properties).await?;
 
-        let output_props = event_properties.clone().to_output(issue.id)?;
+        let output_props = event_properties.to_output(issue.id);
         send_new_fingerprint_event(context, &issue, &output_props).await?;
         send_fingerprint_issue_state(
             context,
@@ -350,7 +333,7 @@ async fn resolve_issue(
         capture_issue_created(
             team_id,
             issue_override.issue_id,
-            event_properties.props.contains_key("$sentry_event_id"),
+            event_properties.other.contains_key("$sentry_event_id"),
         );
     };
 
@@ -361,9 +344,9 @@ pub async fn process_assignment(
     conn: &mut PgConnection,
     team_manager: &TeamManager,
     issue: &Issue,
-    exception_props: &ExceptionProperties,
+    exception_props: &ExceptionEvent<Fingerprinted>,
 ) -> Result<Option<Assignment>, UnhandledError> {
-    let output_props = exception_props.to_output(issue.id)?;
+    let output_props = exception_props.to_output(issue.id);
     let new_assignment =
         try_assignment_rules(conn, team_manager, issue.clone(), &output_props).await?;
 

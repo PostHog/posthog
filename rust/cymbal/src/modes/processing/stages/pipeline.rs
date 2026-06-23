@@ -16,7 +16,7 @@ use crate::{
     },
     types::{
         batch::Batch,
-        exception_properties::ExceptionProperties,
+        exception_event::{ExceptionEvent, Fingerprinted, Linked, Raw},
         stage::{Stage, StageResult},
     },
 };
@@ -34,11 +34,16 @@ impl ExceptionEventPipeline {
 pub type EventPipelineItem = Result<ClickHouseEvent, EventError>;
 pub type HandledError = EventError;
 
-pub type ExceptionEventPipelineItem = Result<ExceptionProperties, EventError>;
+/// The carried batch item at each pipeline stage. The stage marker advances
+/// Raw -> Fingerprinted -> Linked; a per-item `EventError` rides along as `Err`
+/// (suppressed / failed) without aborting the batch.
+pub type RawItem = Result<ExceptionEvent<Raw>, EventError>;
+pub type FingerprintedItem = Result<ExceptionEvent<Fingerprinted>, EventError>;
+pub type LinkedItem = Result<ExceptionEvent<Linked>, EventError>;
 
 impl Stage for ExceptionEventPipeline {
-    type Input = ExceptionEventPipelineItem;
-    type Output = ExceptionEventPipelineItem;
+    type Input = RawItem;
+    type Output = LinkedItem;
 
     fn name(&self) -> &'static str {
         EXCEPTION_PROCESSING_PIPELINE
@@ -46,23 +51,23 @@ impl Stage for ExceptionEventPipeline {
 
     async fn process(self, batch: Batch<Self::Input>) -> StageResult<Self> {
         batch
-            // Resolve stack traces
+            // Resolve stack traces (Raw -> Raw)
             .apply_stage(ResolutionStage::from(&self.app_context))
             .await?
-            // Group events by fingerprint
+            // Group events by fingerprint (Raw -> Fingerprinted)
             .apply_stage(GroupingStage::from(&self.app_context))
             .await?
-            // Link events to issues and suppress
+            // Link events to issues and suppress (Fingerprinted -> Linked)
             .apply_stage(LinkingStage::from(&self.app_context))
             .await?
-            // Send internal events for alerting
+            // Send internal events for alerting (Linked -> Linked)
             .apply_stage(AlertingStage::from(&self.app_context))
             .await
     }
 }
 
 pub fn create_pre_post_processing<
-    T: TryInto<ExceptionProperties, Error = EventError> + Clone,
+    T: TryInto<ExceptionEvent<Raw>, Error = EventError> + Clone,
     O,
 >(
     capacity: usize,

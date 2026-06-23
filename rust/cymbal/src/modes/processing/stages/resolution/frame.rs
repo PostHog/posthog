@@ -8,7 +8,7 @@ use crate::{
     stages::{pipeline::HandledError, resolution::ResolutionStage},
     types::{
         batch::Batch,
-        exception_properties::ExceptionProperties,
+        exception_event::{ExceptionEvent, Raw},
         operator::{OperatorResult, ValueOperator},
         Exception, ExceptionList, Stacktrace,
     },
@@ -98,7 +98,7 @@ impl FrameResolver {
 
 impl ValueOperator for FrameResolver {
     type Context = ResolutionStage;
-    type Item = ExceptionProperties;
+    type Item = ExceptionEvent<Raw>;
     type HandledError = HandledError;
     type UnhandledError = UnhandledError;
 
@@ -108,7 +108,7 @@ impl ValueOperator for FrameResolver {
 
     async fn execute_value(
         &self,
-        mut evt: ExceptionProperties,
+        mut evt: ExceptionEvent<Raw>,
         ctx: ResolutionStage,
     ) -> OperatorResult<Self> {
         let debug_images = Arc::new(evt.debug_images.clone());

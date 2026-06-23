@@ -5,20 +5,20 @@ use sha2::{Digest, Sha256};
 
 use crate::error::UnhandledError;
 use crate::metric_consts::REMOTE_RESOLUTION_SAMPLING;
-use crate::stages::pipeline::ExceptionEventPipelineItem;
-use crate::types::{batch::Batch, exception_properties::ExceptionProperties};
+use crate::stages::pipeline::RawItem;
+use crate::types::{batch::Batch, exception_event::{ExceptionEvent, Raw}};
 
 use super::RemoteEvent;
 
 pub(super) struct Partition {
-    pub(super) errors: Vec<(usize, ExceptionEventPipelineItem)>,
-    pub(super) empty: Vec<(usize, ExceptionEventPipelineItem)>,
-    pub(super) local: Vec<(usize, ExceptionProperties)>,
+    pub(super) errors: Vec<(usize, RawItem)>,
+    pub(super) empty: Vec<(usize, RawItem)>,
+    pub(super) local: Vec<(usize, ExceptionEvent<Raw>)>,
     pub(super) remote: Vec<RemoteEvent>,
 }
 
 pub(super) fn partition_batch(
-    batch: Batch<ExceptionEventPipelineItem>,
+    batch: Batch<RawItem>,
     sample_rate: f64,
 ) -> Result<Partition, UnhandledError> {
     let mut errors = Vec::new();
@@ -59,7 +59,7 @@ pub(super) fn partition_batch(
 
 fn prepare_remote_event(
     batch_index: usize,
-    evt: ExceptionProperties,
+    evt: ExceptionEvent<Raw>,
 ) -> Result<RemoteEvent, UnhandledError> {
     let exception_jsons: Vec<Vec<u8>> = evt
         .exception_list
@@ -82,7 +82,7 @@ fn prepare_remote_event(
     })
 }
 
-fn should_route_event_to_remote(evt: &ExceptionProperties, sample_rate: f64) -> bool {
+fn should_route_event_to_remote(evt: &ExceptionEvent<Raw>, sample_rate: f64) -> bool {
     if sample_rate <= 0.0 {
         return false;
     }
@@ -107,16 +107,18 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
+    use crate::types::RawErrProps;
 
     #[test]
     fn sampling_decision_is_stable_for_same_team_and_event_uuid() {
-        let mut evt: ExceptionProperties = serde_json::from_value(json!({
+        let raw: RawErrProps = serde_json::from_value(json!({
             "$exception_list": [{
                 "type": "Error",
                 "value": "boom"
             }]
         }))
         .expect("valid exception properties");
+        let mut evt = ExceptionEvent::from_raw_props(raw, Uuid::nil(), 0, String::new());
         evt.team_id = 123;
         evt.uuid = Uuid::from_u128(0x123456789abcdef);
 
@@ -128,13 +130,14 @@ mod tests {
 
     #[test]
     fn sampling_decision_respects_rate_boundaries() {
-        let mut evt: ExceptionProperties = serde_json::from_value(json!({
+        let raw: RawErrProps = serde_json::from_value(json!({
             "$exception_list": [{
                 "type": "Error",
                 "value": "boom"
             }]
         }))
         .expect("valid exception properties");
+        let mut evt = ExceptionEvent::from_raw_props(raw, Uuid::nil(), 0, String::new());
         evt.team_id = 123;
         evt.uuid = Uuid::from_u128(0x123456789abcdef);
 

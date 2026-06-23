@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::types::exception_properties::ExceptionProperties;
+use crate::types::exception_event::{ExceptionEvent, Raw};
 
 use super::RemoteEvent;
 
@@ -20,7 +20,7 @@ pub(super) fn group_events_by_key(events: Vec<RemoteEvent>) -> BTreeMap<String, 
     by_key
 }
 
-fn routing_key_for_event(evt: &ExceptionProperties) -> String {
+fn routing_key_for_event(evt: &ExceptionEvent<Raw>) -> String {
     // Per-team routing: every exception of an event hashes to the same pod
     // via rendezvous selection in `EndpointPool::select_for_key`. One team's
     // bursts land on one preferred pod. Overload spillover is driven by
@@ -34,10 +34,11 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
+    use crate::types::RawErrProps;
 
     #[test]
     fn routing_key_is_per_team_regardless_of_exception_internals() {
-        let mut evt: ExceptionProperties = serde_json::from_value(json!({
+        let raw: RawErrProps = serde_json::from_value(json!({
             "$exception_list": [{
                 "type": "Error",
                 "value": "boom",
@@ -55,6 +56,7 @@ mod tests {
             }]
         }))
         .expect("valid exception properties");
+        let mut evt = ExceptionEvent::from_raw_props(raw, Uuid::nil(), 0, String::new());
         evt.team_id = 7;
         assert_eq!(routing_key_for_event(&evt), "team:7");
     }
@@ -75,7 +77,7 @@ mod tests {
     }
 
     fn fake_remote_event(team_id: i32, batch_index: usize, n_exceptions: usize) -> RemoteEvent {
-        let mut evt: ExceptionProperties = serde_json::from_value(json!({
+        let raw: RawErrProps = serde_json::from_value(json!({
             "$exception_list": (0..n_exceptions)
                 .map(|i| json!({
                     "type": "Error",
@@ -84,6 +86,7 @@ mod tests {
                 .collect::<Vec<_>>()
         }))
         .expect("valid exception properties");
+        let mut evt = ExceptionEvent::from_raw_props(raw, Uuid::nil(), 0, String::new());
         evt.team_id = team_id;
         evt.uuid = Uuid::from_u128(0xABCD_0000_0000_0000 ^ (batch_index as u128));
 

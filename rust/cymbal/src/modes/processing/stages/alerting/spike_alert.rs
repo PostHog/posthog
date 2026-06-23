@@ -9,7 +9,7 @@ use crate::{
     app_context::AppContext,
     issue_resolution::Issue,
     metric_consts::SPIKE_ALERT_STAGE,
-    stages::{alerting::spike_detection::do_spike_detection, pipeline::ExceptionEventPipelineItem},
+    stages::{alerting::spike_detection::do_spike_detection, pipeline::LinkedItem},
     types::{
         batch::Batch,
         stage::{Stage, StageResult},
@@ -17,7 +17,6 @@ use crate::{
     },
 };
 
-use tracing::error;
 
 #[derive(Clone)]
 pub struct SpikeAlertStage {
@@ -31,28 +30,23 @@ impl SpikeAlertStage {
 }
 
 impl Stage for SpikeAlertStage {
-    type Input = ExceptionEventPipelineItem;
-    type Output = ExceptionEventPipelineItem;
+    type Input = LinkedItem;
+    type Output = LinkedItem;
 
     fn name(&self) -> &'static str {
         SPIKE_ALERT_STAGE
     }
 
-    async fn process(self, batch: Batch<ExceptionEventPipelineItem>) -> StageResult<Self> {
+    async fn process(self, batch: Batch<LinkedItem>) -> StageResult<Self> {
         let mut issues: Vec<Issue> = Vec::new();
         let mut issue_props_by_id: HashMap<Uuid, OutputErrProps> = HashMap::new();
 
         for res in batch.inner_ref() {
             let Ok(evt) = res else { continue };
-            let Some(issue) = &evt.issue else {
-                error!("no issue associated with event");
-                continue;
-            };
+            let issue = &evt.stage.issue;
             // Keep one OutputErrProps per issue (they share the same stack shape)
             if let Entry::Vacant(e) = issue_props_by_id.entry(issue.id) {
-                if let Ok(props) = evt.to_output(issue.id) {
-                    e.insert(props);
-                }
+                e.insert(evt.to_output());
             }
             issues.push(issue.clone());
         }

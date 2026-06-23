@@ -6,7 +6,7 @@ use crate::{
     metric_consts::{RULE_SUPPRESSED_EVENTS, RULE_SUPPRESSION_OPERATOR},
     stages::{linking::LinkingStage, pipeline::HandledError},
     types::{
-        exception_properties::ExceptionProperties,
+        exception_event::{ExceptionEvent, Fingerprinted},
         operator::{OperatorResult, ValueOperator},
     },
 };
@@ -15,7 +15,7 @@ use crate::{
 pub struct RuleSuppression;
 
 impl ValueOperator for RuleSuppression {
-    type Item = ExceptionProperties;
+    type Item = ExceptionEvent<Fingerprinted>;
     type Context = LinkingStage;
     type HandledError = HandledError;
     type UnhandledError = UnhandledError;
@@ -25,10 +25,7 @@ impl ValueOperator for RuleSuppression {
     }
 
     async fn execute_value(&self, input: Self::Item, ctx: LinkingStage) -> OperatorResult<Self> {
-        let props_json = match serde_json::to_value(&input) {
-            Ok(v) => v,
-            Err(_) => return Ok(Ok(input)),
-        };
+        let props_json = input.to_properties_value();
 
         let mut rules = ctx
             .app_context

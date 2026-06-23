@@ -5,7 +5,7 @@ use tokio::sync::Mutex;
 use crate::{
     error::UnhandledError,
     metric_consts::POST_PROCESSING_STAGE,
-    stages::{pipeline::ExceptionEventPipelineItem, pre_processing::PreProcessingContext},
+    stages::{pipeline::LinkedItem, pre_processing::PreProcessingContext},
     types::{
         batch::Batch,
         stage::{Stage, StageResult},
@@ -13,7 +13,7 @@ use crate::{
 };
 
 pub type PostProcessingHandler<I, O> =
-    Box<dyn Fn(I, ExceptionEventPipelineItem) -> Result<O, UnhandledError> + Send>;
+    Box<dyn Fn(I, LinkedItem) -> Result<O, UnhandledError> + Send>;
 
 pub struct PostProcessingStage<T, O> {
     ctx: Arc<Mutex<PreProcessingContext<T>>>,
@@ -30,7 +30,7 @@ impl<T: Clone, O> PostProcessingStage<T, O> {
 }
 
 impl<T: Clone, O> Stage for PostProcessingStage<T, O> {
-    type Input = ExceptionEventPipelineItem;
+    type Input = LinkedItem;
     type Output = O;
 
     fn name(&self) -> &'static str {

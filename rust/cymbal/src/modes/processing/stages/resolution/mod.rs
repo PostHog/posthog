@@ -4,18 +4,16 @@ use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 pub mod exception;
 pub mod frame;
-pub mod properties;
 pub mod remote;
 
 use crate::{
     app_context::AppContext,
     error::UnhandledError,
     metric_consts::RESOLUTION_STAGE,
-    stages::pipeline::ExceptionEventPipelineItem,
+    stages::pipeline::RawItem,
     stages::resolution::{
         exception::ExceptionResolver,
         frame::FrameResolver,
-        properties::PropertiesResolver,
         remote::resolver::{resolve_batch, RemoteResolutionContext},
     },
     symbolication::symbol::SymbolResolver,
@@ -60,8 +58,8 @@ impl ResolutionStage {
 }
 
 impl Stage for ResolutionStage {
-    type Input = ExceptionEventPipelineItem;
-    type Output = ExceptionEventPipelineItem;
+    type Input = RawItem;
+    type Output = RawItem;
 
     fn name(&self) -> &'static str {
         RESOLUTION_STAGE
@@ -72,22 +70,16 @@ impl Stage for ResolutionStage {
             // Remote mode: the stage owns orchestration across the incoming
             // batch, including deterministic rollout sampling. Sampled events
             // use grouped exception-level Resolve items, and unsampled events use
-            // the local exception/frame operators. PropertiesResolver still
-            // runs afterwards because it operates on the resolved exception
-            // list shape independently of how exception/frame resolution was
-            // performed.
-            return resolve_batch(batch, remote, self.clone())
-                .await?
-                .apply_operator(PropertiesResolver, self.clone())
-                .await;
+            // the local exception/frame operators. The materialized search
+            // arrays are derived later at projection time, so there is no
+            // PropertiesResolver pass.
+            return resolve_batch(batch, remote, self.clone()).await;
         }
 
         batch
             .apply_operator(ExceptionResolver, self.clone())
             .await?
             .apply_operator(FrameResolver, self.clone())
-            .await?
-            .apply_operator(PropertiesResolver, self.clone())
             .await
     }
 }

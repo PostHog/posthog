@@ -5,10 +5,10 @@ use tokio::sync::Mutex;
 use crate::{
     error::EventError,
     metric_consts::PRE_PROCESSING_STAGE,
-    stages::pipeline::ExceptionEventPipelineItem,
+    stages::pipeline::RawItem,
     types::{
         batch::Batch,
-        exception_properties::ExceptionProperties,
+        exception_event::{ExceptionEvent, Raw},
         stage::{Stage, StageResult},
     },
 };
@@ -31,19 +31,19 @@ impl<T> PreProcessingContext<T> {
     }
 }
 
-pub struct PreProcessingStage<T: TryInto<ExceptionProperties, Error = EventError> + Clone> {
+pub struct PreProcessingStage<T: TryInto<ExceptionEvent<Raw>, Error = EventError> + Clone> {
     ctx: Arc<Mutex<PreProcessingContext<T>>>,
 }
 
-impl<T: TryInto<ExceptionProperties, Error = EventError> + Clone> PreProcessingStage<T> {
+impl<T: TryInto<ExceptionEvent<Raw>, Error = EventError> + Clone> PreProcessingStage<T> {
     pub fn new(ctx: Arc<Mutex<PreProcessingContext<T>>>) -> Self {
         Self { ctx }
     }
 }
 
-impl<T: TryInto<ExceptionProperties, Error = EventError> + Clone> Stage for PreProcessingStage<T> {
+impl<T: TryInto<ExceptionEvent<Raw>, Error = EventError> + Clone> Stage for PreProcessingStage<T> {
     type Input = T;
-    type Output = ExceptionEventPipelineItem;
+    type Output = RawItem;
 
     fn name(&self) -> &'static str {
         PRE_PROCESSING_STAGE

@@ -174,10 +174,49 @@ impl<S> ExceptionEvent<S> {
 }
 
 impl ExceptionEvent<Raw> {
+    /// Build a `Raw` event from already-parsed [`RawErrProps`] plus ingestion
+    /// identity. Unlike [`TryFrom<AnyEvent>`], this does no sanitization,
+    /// truncation, or exception-id assignment — it is the direct constructor
+    /// used when a `RawErrProps`/identity is already in hand (e.g. tests).
+    pub fn from_raw_props(
+        raw: RawErrProps,
+        uuid: Uuid,
+        team_id: i32,
+        timestamp: String,
+    ) -> Self {
+        ExceptionEvent {
+            uuid,
+            team_id,
+            timestamp,
+            exception_list: raw.exception_list,
+            handled: raw.handled,
+            debug_images: raw.debug_images,
+            other: raw.other,
+            proposed_issue_name: raw.issue_name,
+            proposed_issue_description: raw.issue_description,
+            stage: Raw {
+                client_fingerprint: raw.fingerprint,
+            },
+        }
+    }
+
     /// Properties object used to evaluate grouping rules — the resolved event
     /// properties as a rule would see them (derived arrays included). Mirrors
     /// what the legacy pipeline fed grouping after `PropertiesResolver` ran.
     pub fn to_grouping_value(&self) -> Value {
+        let mut map = self.base_properties_map();
+        if let Some(fp) = &self.stage.client_fingerprint {
+            map.insert("$exception_fingerprint".into(), json!(fp));
+        }
+        Value::Object(map)
+    }
+}
+
+impl<S> ExceptionEvent<S> {
+    /// The resolved event properties shared by every rule-matching projection:
+    /// the passthrough `other`, the exception list, the derived search arrays,
+    /// handled, releases, issue-name/description proposals, and debug images.
+    fn base_properties_map(&self) -> Map<String, Value> {
         let mut map = Map::new();
         for (k, v) in &self.other {
             map.insert(k.clone(), v.clone());
@@ -215,9 +254,6 @@ impl ExceptionEvent<Raw> {
                 serde_json::to_value(releases).unwrap_or(Value::Null),
             );
         }
-        if let Some(fp) = &self.stage.client_fingerprint {
-            map.insert("$exception_fingerprint".into(), json!(fp));
-        }
         if let Some(n) = &self.proposed_issue_name {
             map.insert("$issue_name".into(), json!(n));
         }
@@ -230,11 +266,22 @@ impl ExceptionEvent<Raw> {
                 serde_json::to_value(&self.debug_images).unwrap_or(Value::Null),
             );
         }
-        Value::Object(map)
+        map
     }
 }
 
 impl ExceptionEvent<Fingerprinted> {
+    /// Properties object used to evaluate suppression rules — resolved event
+    /// properties plus the now-known fingerprint.
+    pub fn to_properties_value(&self) -> Value {
+        let mut map = self.base_properties_map();
+        map.insert(
+            "$exception_fingerprint".into(),
+            json!(self.stage.fingerprint),
+        );
+        Value::Object(map)
+    }
+
     /// Project to the internal-events wire shape, given the issue this event is
     /// being linked to. Used during linking before the `Linked` transition.
     pub fn to_output(&self, issue_id: Uuid) -> OutputErrProps {

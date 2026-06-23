@@ -8,13 +8,13 @@ use tokio::sync::Semaphore;
 use crate::{
     error::UnhandledError,
     stages::{
-        pipeline::ExceptionEventPipelineItem,
+        pipeline::RawItem,
         resolution::{
             exception::ExceptionResolver, frame::FrameResolver, remote::pool::EndpointPool,
             ResolutionStage,
         },
     },
-    types::{batch::Batch, exception_properties::ExceptionProperties, Exception, ExceptionList},
+    types::{batch::Batch, exception_event::{ExceptionEvent, Raw}, Exception, ExceptionList},
 };
 
 use super::config::RemoteResolutionConfig;
@@ -63,10 +63,10 @@ impl RemoteResolutionContext {
 /// Each event passes through exactly one bucket and writes itself into the
 /// output exactly once. There is no shared mutation across RPC boundaries.
 pub async fn resolve_batch(
-    batch: Batch<ExceptionEventPipelineItem>,
+    batch: Batch<RawItem>,
     ctx: RemoteResolutionContext,
     local_stage: ResolutionStage,
-) -> Result<Batch<ExceptionEventPipelineItem>, UnhandledError> {
+) -> Result<Batch<RawItem>, UnhandledError> {
     let batch_len = batch.len();
     let partition = partition_batch(batch, ctx.config.sample_rate)?;
 
@@ -84,17 +84,17 @@ pub async fn resolve_batch(
 
 fn assemble_output(
     batch_len: usize,
-    errors: Vec<(usize, ExceptionEventPipelineItem)>,
-    empty: Vec<(usize, ExceptionEventPipelineItem)>,
-    local: Vec<(usize, ExceptionEventPipelineItem)>,
-    remote: Vec<(usize, ExceptionEventPipelineItem)>,
-) -> Result<Batch<ExceptionEventPipelineItem>, UnhandledError> {
-    let mut output: Vec<Option<ExceptionEventPipelineItem>> =
+    errors: Vec<(usize, RawItem)>,
+    empty: Vec<(usize, RawItem)>,
+    local: Vec<(usize, RawItem)>,
+    remote: Vec<(usize, RawItem)>,
+) -> Result<Batch<RawItem>, UnhandledError> {
+    let mut output: Vec<Option<RawItem>> =
         (0..batch_len).map(|_| None).collect();
     for (idx, item) in errors.into_iter().chain(empty).chain(local).chain(remote) {
         output[idx] = Some(item);
     }
-    let resolved: Vec<ExceptionEventPipelineItem> = output
+    let resolved: Vec<RawItem> = output
         .into_iter()
         .enumerate()
         .map(|(idx, slot)| {
@@ -118,7 +118,7 @@ fn assemble_output(
 /// batch bookkeeping.
 struct RemoteEvent {
     batch_index: usize,
-    evt: ExceptionProperties,
+    evt: ExceptionEvent<Raw>,
     /// One serialized exception per `evt.exception_list` entry, in order.
     exception_jsons: Vec<Vec<u8>>,
     /// Shared across this event's exceptions on the wire. The proto carries
@@ -134,7 +134,7 @@ impl RemoteEvent {
 
 struct RemoteEventSlot {
     batch_index: usize,
-    evt: ExceptionProperties,
+    evt: ExceptionEvent<Raw>,
     resolved: Vec<Option<Exception>>,
 }
 
@@ -168,13 +168,13 @@ struct ResolvedRemoteItem {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async fn resolve_local_events(
-    local_events: Vec<(usize, ExceptionProperties)>,
+    local_events: Vec<(usize, ExceptionEvent<Raw>)>,
     local_stage: ResolutionStage,
-) -> Result<Vec<(usize, ExceptionEventPipelineItem)>, UnhandledError> {
+) -> Result<Vec<(usize, RawItem)>, UnhandledError> {
     if local_events.is_empty() {
         return Ok(Vec::new());
     }
-    let (indexes, events): (Vec<usize>, Vec<ExceptionProperties>) =
+    let (indexes, events): (Vec<usize>, Vec<ExceptionEvent<Raw>>) =
         local_events.into_iter().unzip();
     let batch = Batch::from(events.into_iter().map(Ok).collect::<Vec<_>>())
         .apply_operator(ExceptionResolver, local_stage.clone())
@@ -191,7 +191,7 @@ async fn resolve_local_events(
 async fn resolve_remote_events(
     ctx: &RemoteResolutionContext,
     events: Vec<RemoteEvent>,
-) -> Result<Vec<(usize, ExceptionEventPipelineItem)>, UnhandledError> {
+) -> Result<Vec<(usize, RawItem)>, UnhandledError> {
     if events.is_empty() {
         return Ok(Vec::new());
     }
@@ -306,6 +306,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
+    use crate::types::RawErrProps;
 
     #[test]
     fn build_work_items_assigns_client_tokens_and_slots_without_batch_ids() {
@@ -329,7 +330,7 @@ mod tests {
     }
 
     fn fake_remote_event(team_id: i32, batch_index: usize, n_exceptions: usize) -> RemoteEvent {
-        let mut evt: ExceptionProperties = serde_json::from_value(json!({
+        let raw: RawErrProps = serde_json::from_value(json!({
             "$exception_list": (0..n_exceptions)
                 .map(|i| json!({
                     "type": "Error",
@@ -338,6 +339,7 @@ mod tests {
                 .collect::<Vec<_>>()
         }))
         .expect("valid exception properties");
+        let mut evt = ExceptionEvent::from_raw_props(raw, Uuid::nil(), 0, String::new());
         evt.team_id = team_id;
         evt.uuid = Uuid::from_u128(0xABCD_0000_0000_0000 ^ (batch_index as u128));
 

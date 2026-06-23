@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::{
     error::{EventError, UnhandledError},
-    types::exception_properties::ExceptionProperties,
+    types::exception_event::{ExceptionEvent, Linked},
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -24,13 +24,13 @@ pub struct AnyEvent {
 }
 
 pub trait PropertiesContainer: Send + Clone + 'static {
-    fn set_properties(&mut self, new_props: ExceptionProperties) -> Result<(), UnhandledError>;
+    fn set_properties(&mut self, new_props: &ExceptionEvent<Linked>) -> Result<(), UnhandledError>;
     fn attach_error(&mut self, error: String) -> Result<(), UnhandledError>;
 }
 
 impl PropertiesContainer for AnyEvent {
-    fn set_properties(&mut self, new_props: ExceptionProperties) -> Result<(), UnhandledError> {
-        self.properties = serde_json::to_value(&new_props)?;
+    fn set_properties(&mut self, new_props: &ExceptionEvent<Linked>) -> Result<(), UnhandledError> {
+        self.properties = new_props.to_clickhouse_value();
         Ok(())
     }
 

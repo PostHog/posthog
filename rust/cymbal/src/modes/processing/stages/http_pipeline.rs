@@ -8,7 +8,7 @@ use crate::{
     types::{
         batch::Batch,
         event::{AnyEvent, PropertiesContainer},
-        exception_properties::ExceptionProperties,
+        exception_event::{ExceptionEvent, Linked},
         stage::{Stage, StageResult},
     },
 };
@@ -46,11 +46,11 @@ impl Stage for HttpEventPipeline {
 
 fn handle_result(
     mut original: AnyEvent,
-    processed: Result<ExceptionProperties, HandledError>,
+    processed: Result<ExceptionEvent<Linked>, HandledError>,
 ) -> Result<Option<AnyEvent>, UnhandledError> {
     let item: Option<AnyEvent> = match processed {
         Ok(props) => {
-            original.set_properties(props)?;
+            original.set_properties(&props)?;
             Some(original)
         }
         Err(err) => match err {

@@ -9,13 +9,12 @@ use uuid::Uuid;
 
 use crate::{
     app_context::AppContext,
+    error::UnhandledError,
     issue_resolution::Issue,
     metric_consts::LINKING_STAGE,
     stages::{
-        linking::{
-            issue::IssueLinker, rule_suppression::RuleSuppression, suppression::IssueSuppression,
-        },
-        pipeline::ExceptionEventPipelineItem,
+        linking::{issue::link_issue, rule_suppression::RuleSuppression, suppression::IssueSuppression},
+        pipeline::{FingerprintedItem, LinkedItem},
     },
     types::{
         batch::Batch,
@@ -37,21 +36,31 @@ pub struct LinkingStage {
 }
 
 impl Stage for LinkingStage {
-    type Input = ExceptionEventPipelineItem;
-    type Output = ExceptionEventPipelineItem;
+    type Input = FingerprintedItem;
+    type Output = LinkedItem;
 
     fn name(&self) -> &'static str {
         LINKING_STAGE
     }
 
     async fn process(self, batch: Batch<Self::Input>) -> StageResult<Self> {
-        batch
+        // Suppression rules run pre-link; issue linking is the Fingerprinted -> Linked
+        // transition; issue-status suppression runs on the linked event.
+        let linked = batch
             .apply_operator(RuleSuppression, self.clone())
             .await?
-            .apply_operator(IssueLinker, self.clone())
-            .await?
-            .apply_operator(IssueSuppression, self.clone())
-            .await
+            .apply_func(
+                move |item, ctx: LinkingStage| async move {
+                    match item {
+                        Ok(ev) => Ok::<LinkedItem, UnhandledError>(Ok(link_issue(ev, &ctx).await?)),
+                        Err(e) => Ok(Err(e)),
+                    }
+                },
+                self.clone(),
+            )
+            .await?;
+
+        linked.apply_operator(IssueSuppression, self.clone()).await
     }
 }
 

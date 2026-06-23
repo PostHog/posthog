@@ -5,7 +5,7 @@ mod spike_detection;
 use crate::{
     app_context::AppContext,
     metric_consts::ALERTING_STAGE,
-    stages::{alerting::spike_alert::SpikeAlertStage, pipeline::ExceptionEventPipelineItem},
+    stages::{alerting::spike_alert::SpikeAlertStage, pipeline::LinkedItem},
     types::{
         batch::Batch,
         stage::{Stage, StageResult},
@@ -26,8 +26,8 @@ impl From<&Arc<AppContext>> for AlertingStage {
 }
 
 impl Stage for AlertingStage {
-    type Input = ExceptionEventPipelineItem;
-    type Output = ExceptionEventPipelineItem;
+    type Input = LinkedItem;
+    type Output = LinkedItem;
 
     fn name(&self) -> &'static str {
         ALERTING_STAGE
