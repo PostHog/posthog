@@ -43,16 +43,4 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "primary": "Name of the primary index, set on replica indices.",
         },
     },
-    "api_keys": {
-        "description": "API keys defined on the Algolia application, with their permissions and restrictions.",
-        "docs_url": "https://www.algolia.com/doc/rest-api/search/#tag/Api-Keys/operation/listApiKeys",
-        "columns": {
-            "value": "The API key string.",
-            "acl": "Access control list granted to the key (e.g. search, browse, addObject).",
-            "description": "Human-readable description of the key.",
-            "indexes": "Indices the key is restricted to.",
-            "createdAt": "Unix timestamp (seconds) when the key was created.",
-            "validity": "Seconds the key remains valid, 0 meaning it never expires.",
-        },
-    },
 }

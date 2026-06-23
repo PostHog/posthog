@@ -178,22 +178,6 @@ def _iter_pages(
         manager.save_state(AlgoliaResumeConfig(page=page))
 
 
-def _iter_single(
-    session: requests.Session,
-    url: str,
-    headers: dict[str, str],
-    config: AlgoliaEndpointConfig,
-    logger: FilteringBoundLogger,
-    batcher: Batcher,
-) -> Iterator[Any]:
-    """Fetch an un-paginated endpoint (`GET /1/keys`) in a single request."""
-    data = _fetch(session, "GET", url, headers, logger)
-    for item in data.get(config.data_selector, []):
-        batcher.batch(item)
-        if batcher.should_yield():
-            yield batcher.get_table()
-
-
 def get_rows(
     endpoint: str,
     application_id: str,
@@ -212,10 +196,8 @@ def get_rows(
 
     if config.pagination == PaginationStyle.CURSOR:
         yield from _iter_cursor(session, url, headers, config, logger, batcher, manager, resume)
-    elif config.pagination == PaginationStyle.PAGE:
-        yield from _iter_pages(session, url, headers, config, logger, batcher, manager, resume)
     else:
-        yield from _iter_single(session, url, headers, config, logger, batcher)
+        yield from _iter_pages(session, url, headers, config, logger, batcher, manager, resume)
 
     if batcher.should_yield(include_incomplete_chunk=True):
         yield batcher.get_table()

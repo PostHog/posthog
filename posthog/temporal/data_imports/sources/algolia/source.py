@@ -30,7 +30,6 @@ _ENDPOINT_DESCRIPTIONS: dict[str, str] = {
     "synonyms": "Synonyms configured on the index. Full refresh only.",
     "rules": "Query rules configured on the index. Full refresh only.",
     "indices": "Every index on the application. Full refresh only.",
-    "api_keys": "API keys on the application (the key value plus its ACLs). Full refresh only.",
 }
 
 
@@ -56,7 +55,6 @@ The API key needs the ACLs for the data you want to sync:
 - `browse` — index records
 - `settings` — synonyms and query rules
 - `listIndexes` — the list of indices
-- `admin` — API keys
 """,
             iconPath="/static/services/algolia.png",
             docsUrl="https://posthog.com/docs/cdp/sources/algolia",

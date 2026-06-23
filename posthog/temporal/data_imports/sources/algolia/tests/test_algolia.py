@@ -62,7 +62,7 @@ class TestEndpointUrl:
             _endpoint_url("APP", ALGOLIA_ENDPOINTS["records"], None)
 
     def test_app_level_endpoint_ignores_index(self) -> None:
-        assert _endpoint_url("APP", ALGOLIA_ENDPOINTS["api_keys"], None) == "https://APP.algolia.net/1/keys"
+        assert _endpoint_url("APP", ALGOLIA_ENDPOINTS["indices"], None) == "https://APP.algolia.net/1/indexes"
 
 
 class _Driver:
@@ -207,19 +207,6 @@ class TestPagePagination:
         driver.run("indices", manager)
 
         assert driver.calls[0]["params"]["page"] == 3
-
-
-class TestSingleRequest:
-    def test_api_keys_single_request(self) -> None:
-        manager = _fresh_manager()
-        driver = _Driver([_response({"keys": [{"value": "k1"}, {"value": "k2"}]})])
-
-        rows = driver.run("api_keys", manager)
-
-        assert [r["value"] for r in rows] == ["k1", "k2"]
-        assert len(driver.calls) == 1
-        assert driver.calls[0]["method"] == "GET"
-        manager.save_state.assert_not_called()
 
 
 class TestAlgoliaSourceResponse:

@@ -9,8 +9,6 @@ class PaginationStyle(Enum):
     CURSOR = "cursor"
     # Search endpoints (synonyms/rules) and `GET /1/indexes` use 0-based `page` numbers.
     PAGE = "page"
-    # Single response, no pagination (`GET /1/keys`).
-    NONE = "none"
 
 
 @dataclass
@@ -20,7 +18,7 @@ class AlgoliaEndpointConfig:
     path: str
     method: str
     pagination: PaginationStyle
-    # Key in the JSON response that holds the list of rows (`hits`, `items`, `keys`).
+    # Key in the JSON response that holds the list of rows (`hits`, `items`).
     data_selector: str
     primary_keys: list[str] = field(default_factory=lambda: ["objectID"])
     # Whether the endpoint targets a specific index (so it needs the `index_name` field).
@@ -70,16 +68,6 @@ ALGOLIA_ENDPOINTS: dict[str, AlgoliaEndpointConfig] = {
         pagination=PaginationStyle.PAGE,
         data_selector="items",
         primary_keys=["name"],
-        requires_index=False,
-        should_sync_default=False,
-    ),
-    "api_keys": AlgoliaEndpointConfig(
-        name="api_keys",
-        path="/1/keys",
-        method="GET",
-        pagination=PaginationStyle.NONE,
-        data_selector="keys",
-        primary_keys=["value"],
         requires_index=False,
         should_sync_default=False,
     ),
