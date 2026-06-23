@@ -8620,12 +8620,18 @@ class TestEnableCDC(APIBaseTest):
     @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.publication_exists", return_value=False)
     @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.slot_exists", return_value=False)
     @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.drop_slot_and_publication")
-    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.create_slot_and_publication")
+    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.drop_slot")
+    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.drop_publication")
+    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.create_slot")
+    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.create_publication")
     @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.cdc_pg_connection")
     def test_enable_cdc_posthog_rolls_back_partial_slot_on_failure(
         self,
         mock_cdc_pg_connection,
-        mock_create_slot_and_publication,
+        mock_create_publication,
+        mock_create_slot,
+        mock_drop_publication,
+        mock_drop_slot,
         mock_drop_slot_and_publication,
         _mock_slot_exists,
         _mock_publication_exists,
@@ -8638,7 +8644,8 @@ class TestEnableCDC(APIBaseTest):
         mock_cdc_pg_connection.return_value.__enter__.return_value = object()
         mock_cdc_pg_connection.return_value.__exit__.return_value = None
 
-        mock_create_slot_and_publication.side_effect = RuntimeError("max_replication_slots reached")
+        # Publication is created first; the slot creation then fails (e.g. max_replication_slots reached).
+        mock_create_slot.side_effect = RuntimeError("max_replication_slots reached")
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
@@ -8653,11 +8660,12 @@ class TestEnableCDC(APIBaseTest):
         assert response.status_code == 400
         assert "max_replication_slots reached" in response.json()["message"]
 
-        # Best-effort cleanup must run with the exact slot + publication we tried to create.
-        mock_drop_slot_and_publication.assert_called_once()
-        call = mock_drop_slot_and_publication.call_args
-        assert call.args[1] == "leaky_slot"
-        assert call.args[2] == "leaky_pub"
+        # Only the publication was created before the slot failed, so rollback drops just the publication.
+        mock_create_publication.assert_called_once()
+        mock_drop_publication.assert_called_once()
+        assert mock_drop_publication.call_args.args[1] == "leaky_pub"
+        mock_drop_slot.assert_not_called()
+        mock_drop_slot_and_publication.assert_not_called()
 
         # Source's job_inputs must NOT have been persisted with cdc_enabled — we never reached save().
         source.refresh_from_db()
