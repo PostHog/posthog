@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -38,6 +39,8 @@ class LaunchDarklySource(ResumableSource[LaunchDarklySourceConfig, LaunchDarklyR
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.LAUNCH_DARKLY,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
+            keywords=["feature flags"],
             label="LaunchDarkly",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your LaunchDarkly access token to pull your projects, environments, feature flags, metrics, members, and audit log into the PostHog Data warehouse.

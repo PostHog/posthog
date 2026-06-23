@@ -1,7 +1,7 @@
 import { router } from 'kea-router'
 import { testUtilsPlugin } from 'kea-test-utils'
 
-import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { handleLoginRedirect, loginLogic } from 'scenes/authentication/login/loginLogic'
 
 import { initKea } from '~/initKea'

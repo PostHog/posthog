@@ -349,6 +349,11 @@ _WRAP_FILE_PLACEHOLDER = "{file}"
 # `hogli run`). Manifest commands opt in via `needs_secrets: true`.
 _BUILTIN_COMMANDS_NEEDING_SECRETS = frozenset({"run"})
 
+# False until `main()` flips it (the only path the `hogli` script and
+# `python -m hogli` both take). The secret-wrap re-exec is gated on it; see
+# `_maybe_reexec_via_wrap` for why embedded callers must not execvp.
+_is_process_entrypoint = False
+
 
 def _load_env_file(
     path: os.PathLike[str],
@@ -446,7 +451,14 @@ def _maybe_reexec_via_wrap(secrets: dict[str, Any], env_files: list[Path]) -> No
 
     Returns normally if no re-exec is needed (caller falls through to direct
     file loading). Otherwise replaces the current process via ``os.execvp``.
+
+    Only ever re-execs when hogli owns the process (``_is_process_entrypoint``).
+    Embedded in-process callers (CliRunner tests, library use) fall through to
+    direct file loading so execvp can't replace and kill the host process.
     """
+    if not _is_process_entrypoint:
+        return
+
     secrets_file: Path = secrets["file"]
     marker: str = secrets["marker"]
     wrap: list[str] | None = secrets["wrap"]
@@ -691,7 +703,9 @@ def _fire_post_command_hooks(command: str | None, exit_code: int) -> None:
 
 
 def main() -> None:
-    """Main entry point."""
+    """Main entry point — the only path allowed to re-exec via the secret wrap."""
+    global _is_process_entrypoint
+    _is_process_entrypoint = True
     cli()
 
 

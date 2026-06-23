@@ -2,6 +2,7 @@ import re
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -56,6 +57,7 @@ class FreshdeskSource(ResumableSource[FreshdeskSourceConfig, FreshdeskResumeConf
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.FRESHDESK,
+            category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Freshdesk",
             caption="""Enter your Freshdesk domain and API key to pull your Freshdesk support data into the PostHog Data warehouse.
 

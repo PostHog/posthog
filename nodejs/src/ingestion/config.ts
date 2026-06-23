@@ -1,4 +1,5 @@
-import type { CommonConfig } from '../common/config'
+import type { CommonConfig } from '~/common/config'
+import { INGESTION_DOWNSTREAM_PRODUCER, INGESTION_UPSTREAM_PRODUCER, type ProducerName } from '~/common/outputs'
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
@@ -14,10 +15,12 @@ import {
     KAFKA_LOG_ENTRIES,
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
-} from '../config/kafka-topics'
-import type { PostgresRouterConfig } from '../utils/db/postgres'
-import { isDevEnv, isProdEnv } from '../utils/env-utils'
-import { INGESTION_DOWNSTREAM_PRODUCER, INGESTION_UPSTREAM_PRODUCER, type ProducerName } from './common/outputs'
+} from '~/config/kafka-topics'
+import type { PostgresRouterConfig } from '~/utils/db/postgres'
+import { isDevEnv, isProdEnv } from '~/utils/env-utils'
+
+/** Default for FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '' disables the personless default so it is opt-in per team via config. */
+export const DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS = ''
 
 // =============================================================================
 // Infrastructure sub-config types
@@ -160,6 +163,21 @@ export type IngestionConsumerConfig = {
     SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: boolean
     EVENT_SCHEMA_ENFORCEMENT_ENABLED: boolean
     KAFKA_BATCH_START_LOGGING_ENABLED: boolean
+    /** Teams whose $feature_flag_called events default to personless: '*' for all, '' to disable, or comma-separated team IDs */
+    FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: string
+
+    // $feature_flag_called keep-first dedup config
+    /** 'disabled' | 'shadow' (claim + count, never drop) | 'drop' */
+    INGESTION_FEATURE_FLAG_CALLED_DEDUP_MODE: string
+    /** '*' for all teams, or comma-separated team IDs */
+    INGESTION_FEATURE_FLAG_CALLED_DEDUP_TEAMS: string
+    /** Comma-separated team IDs never deduped, even when TEAMS is '*' */
+    INGESTION_FEATURE_FLAG_CALLED_DEDUP_EXCLUDED_TEAMS: string
+    /** Claim TTL: the keep-first dedup window */
+    INGESTION_FEATURE_FLAG_CALLED_DEDUP_TTL_SECONDS: number
+    /** Dedicated Redis host for dedup claims; empty reuses the ingestion Redis */
+    INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_HOST: string
+    INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_PORT: number
 
     // AI event splitting config
     INGESTION_AI_EVENT_SPLITTING_ENABLED: boolean
@@ -271,6 +289,17 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
         EVENT_SCHEMA_ENFORCEMENT_ENABLED: true,
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
+        FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
+
+        // $feature_flag_called keep-first dedup config
+        INGESTION_FEATURE_FLAG_CALLED_DEDUP_MODE: 'disabled',
+
+        INGESTION_FEATURE_FLAG_CALLED_DEDUP_TEAMS: '',
+
+        INGESTION_FEATURE_FLAG_CALLED_DEDUP_EXCLUDED_TEAMS: '',
+        INGESTION_FEATURE_FLAG_CALLED_DEDUP_TTL_SECONDS: 60 * 60,
+        INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_HOST: '',
+        INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_PORT: 6379,
 
         // AI event splitting config
         INGESTION_AI_EVENT_SPLITTING_ENABLED: false,

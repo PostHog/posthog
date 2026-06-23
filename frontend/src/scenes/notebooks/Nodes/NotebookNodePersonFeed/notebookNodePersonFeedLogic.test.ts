@@ -147,10 +147,10 @@ describe('notebookNodePersonFeedLogic', () => {
                 [`/api/environments/${MOCK_TEAM_ID}/query/:kind/`]: {
                     results: mockSessionsWithRecording,
                 },
-                [`/api/environments/${MOCK_TEAM_ID}/session_summaries/create_session_summaries_individually`]: async (
-                    req: any
-                ) => {
-                    const { session_ids } = await req.json()
+                [`/api/environments/${MOCK_TEAM_ID}/session_summaries/create_session_summaries_individually`]: async ({
+                    request,
+                }) => {
+                    const { session_ids } = (await request.json()) as Record<string, any>
                     const sessionId = session_ids[0]
                     if (failingSessionIds.includes(sessionId)) {
                         return [500, { detail: 'Server error' }]

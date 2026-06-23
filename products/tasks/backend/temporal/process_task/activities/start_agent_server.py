@@ -8,10 +8,10 @@ from posthog.temporal.common.utils import asyncify
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.exceptions import OAuthTokenError, SandboxExecutionError
+from products.tasks.backend.logic.services.agentsh import ENV_FILE, ENV_WRAPPER_SCRIPT, build_exec_prefix
+from products.tasks.backend.logic.services.connection_token import create_sandbox_event_ingest_token
+from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxBase
 from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.services.agentsh import ENV_FILE, ENV_WRAPPER_SCRIPT, build_exec_prefix
-from products.tasks.backend.services.connection_token import create_sandbox_event_ingest_token
-from products.tasks.backend.services.sandbox import Sandbox, SandboxBase
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
@@ -158,6 +158,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
             project_id=ctx.team_id,
             scopes=scopes,
             interaction_origin=ctx.interaction_origin,
+            task_id=str(ctx.task_id),
         )
         if task.created_by_id:
             user_mcp_configs = get_user_mcp_server_configs(

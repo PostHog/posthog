@@ -259,14 +259,8 @@ async def update_incremental_field_values(
     earliest_incremental_field_value: Any,
     logger: FilteringBoundLogger,
     log_prefix: str = "",
+    staging_run_uuid: str | None = None,
 ) -> tuple[Any, Any]:
-    # Update the incremental_field_last_value.
-    # If the resource returns data sorted in ascending timestamp order, we can update the
-    # `incremental_field_last_value` in the schema.
-    # However, if the data is returned in descending order, we only want to update the
-    # `incremental_field_last_value` once we have processed all of the data, otherwise if we fail halfway through,
-    # we'd not process older data the next time we retry. But we do store the earliest available value so that we
-    # can resume syncs if they stop mid way through without having to start from the beginning
     last_value = get_incremental_field_value(schema, pa_table)
 
     if last_value is not None:
@@ -277,7 +271,12 @@ async def update_incremental_field_values(
             await logger.adebug(
                 f"{log_prefix}Updating incremental_field_last_value with {last_incremental_field_value}"
             )
-            await database_sync_to_async_pool(schema.update_incremental_field_value)(last_incremental_field_value)
+            if staging_run_uuid is not None:
+                await database_sync_to_async_pool(schema.stage_incremental_field_value)(
+                    staging_run_uuid, last_incremental_field_value
+                )
+            else:
+                await database_sync_to_async_pool(schema.update_incremental_field_value)(last_incremental_field_value)
 
         if resource.sort_mode == "desc":
             earliest_value = get_incremental_field_value(schema, pa_table, aggregate="min")
@@ -285,9 +284,14 @@ async def update_incremental_field_values(
             if earliest_incremental_field_value is None or earliest_value < earliest_incremental_field_value:
                 earliest_incremental_field_value = earliest_value
                 await logger.adebug(f"{log_prefix}Updating incremental_field_earliest_value with {earliest_value}")
-                await database_sync_to_async_pool(schema.update_incremental_field_value)(
-                    earliest_value, type="earliest"
-                )
+                if staging_run_uuid is not None:
+                    await database_sync_to_async_pool(schema.stage_incremental_field_value)(
+                        staging_run_uuid, None, earliest_value
+                    )
+                else:
+                    await database_sync_to_async_pool(schema.update_incremental_field_value)(
+                        earliest_value, type="earliest"
+                    )
 
     return last_incremental_field_value, earliest_incremental_field_value
 
@@ -328,16 +332,50 @@ async def finalize_desc_sort_incremental_value(
     last_incremental_field_value: Any,
     logger: FilteringBoundLogger,
     log_prefix: str = "",
+    staging_run_uuid: str | None = None,
 ) -> None:
-    # As mentioned above, for sort mode 'desc' we only want to update the `incremental_field_last_value` once we
-    # have processed all of the data (we could also update it here for 'asc' but it's not needed)
     if resource.sort_mode == "desc" and last_incremental_field_value is not None:
         await logger.adebug(
             f"{log_prefix}Sort mode is 'desc' -> updating incremental_field_last_value "
             f"with {last_incremental_field_value}"
         )
         await database_sync_to_async_pool(schema.refresh_from_db)()
-        await database_sync_to_async_pool(schema.update_incremental_field_value)(last_incremental_field_value)
+        if staging_run_uuid is not None:
+            await database_sync_to_async_pool(schema.stage_incremental_field_value)(
+                staging_run_uuid, last_incremental_field_value
+            )
+        else:
+            await database_sync_to_async_pool(schema.update_incremental_field_value)(last_incremental_field_value)
+
+
+async def advance_xmin_state(
+    resource: SourceResponse,
+    schema: "ExternalDataSchema",
+    logger: FilteringBoundLogger,
+    log_prefix: str = "",
+) -> None:
+    """Persist the xmin ceiling captured at sync start, once the run's data is durable.
+
+    Persist-then-advance: the ceiling was captured before streaming and is stored only here, at
+    completion, so a mid-run crash re-reads the window next time (the upsert on PK is idempotent).
+    Deliberately not the per-batch MAX-of-observed advance, which would store the wrong value and is
+    wraparound-unsafe for xmin.
+    """
+    if (
+        not schema.is_xmin
+        or resource.xmin_ceiling_xid is None
+        or resource.xmin_ceiling_xid8 is None
+        or resource.xmin_num_wraparound is None
+    ):
+        return
+
+    await logger.adebug(f"{log_prefix}Advancing xmin cursor to ceiling {resource.xmin_ceiling_xid8}")
+    await database_sync_to_async_pool(schema.refresh_from_db)()
+    await database_sync_to_async_pool(schema.update_xmin_state)(
+        ceiling_xid=resource.xmin_ceiling_xid,
+        ceiling_xid8=resource.xmin_ceiling_xid8,
+        num_wraparound=resource.xmin_num_wraparound,
+    )
 
 
 async def cdp_producer_clear_chunks(cdp_producer: CDPProducer):

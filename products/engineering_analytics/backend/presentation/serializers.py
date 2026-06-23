@@ -13,6 +13,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     Author,
     CICardSummary,
     CIStatusRollup,
+    GitHubSource,
     PRLifecycle,
     PRLifecycleEvent,
     PullRequest,
@@ -26,6 +27,16 @@ from products.engineering_analytics.backend.facade.contracts import (
     WorkflowHealthDay,
     WorkflowHealthItem,
 )
+
+
+class GitHubSourceSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = GitHubSource
+        extra_kwargs = {
+            "id": {"help_text": "Source id — pass as `source_id` to the other endpoints to read this source."},
+            "repo": {"help_text": "Connected repository as 'owner/name', or '' if unknown."},
+            "prefix": {"help_text": "User-chosen warehouse table-name prefix for this source, or '' when none."},
+        }
 
 
 class RepoRefSerializer(DataclassSerializer):
@@ -128,6 +139,18 @@ class PullRequestListItemSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "labels": {"help_text": "GitHub label names on the pull request."},
+            "pushes": {
+                "help_text": "CI triggers attributed to this PR: distinct head SHAs across its workflow runs. "
+                "Fork-PR runs are unattributed.",
+            },
+            "rerun_cycles": {
+                "help_text": "Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run).",
+            },
+            "estimated_cost_usd": {
+                "help_text": "Estimated Depot CI cost in USD. Null until the job-level warehouse source "
+                "(github_workflow_jobs) lands; run-level data carries no runner tier, so no honest figure exists yet.",
+                "allow_null": True,
+            },
         }
 
 

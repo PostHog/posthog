@@ -12,7 +12,6 @@ import {
     RequestInfo,
     RequestInit,
     Response,
-    errors,
     request,
     fetch as undiciFetch,
 } from 'undici'
@@ -58,21 +57,23 @@ export type FetchResponse = {
     dump: () => Promise<void>
 }
 
-export class SecureRequestError extends errors.UndiciError {
+// These extend Error, not undici's UndiciError: UndiciError defines a code-based Symbol.hasInstance, so every
+// UndiciError subclass matches `instanceof` against every other one, which would defeat isFetchResponseRetriable.
+export class SecureRequestError extends Error {
     constructor(message: string) {
         super(message)
         this.name = 'SecureRequestError'
     }
 }
 
-export class InvalidRequestError extends errors.UndiciError {
+export class InvalidRequestError extends Error {
     constructor(message: string) {
         super(message)
         this.name = 'InvalidRequestError'
     }
 }
 
-export class ResolutionError extends errors.UndiciError {
+export class ResolutionError extends Error {
     constructor(message: string) {
         super(message)
         this.name = 'ResolutionError'
@@ -316,7 +317,7 @@ export async function _fetch(url: string, options: FetchOptions = {}, dispatcher
         headers: options.headers,
         body: options.body,
         dispatcher,
-        maxRedirections: 0, // No redirects allowed by default
+        // request() does not follow redirects, so a response can never bounce to an unvalidated host
         signal: options.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined,
     })
 

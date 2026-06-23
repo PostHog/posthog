@@ -29,12 +29,20 @@ _MESSAGE_INFO_FIELDS: list[tuple[str, str]] = [
 
 
 def _datetime_to_plain_iso8601(value: datetime) -> str:
-    """Serialize a datetime to the ISO-8601 format Plain returns and accepts (e.g. 2024-01-15T10:30:00.000Z)."""
+    """Serialize a datetime to an ISO-8601 format Plain accepts.
+
+    Plain's ``DatetimeFilter`` only accepts ``yyyy-MM-dd'T'HH:mm:ss.SSS'Z'`` (millisecond precision)
+    or ``yyyy-MM-dd'T'HH:mm:ss'Z'`` (whole seconds). ``datetime.isoformat()`` emits microseconds
+    (six fractional digits) whenever the value has sub-second precision, which Plain rejects with a
+    generic ``There was a validation error.``. Incremental watermarks routinely carry microseconds,
+    so cap the precision at milliseconds (and drop the fractional part entirely for whole seconds).
+    """
     if value.tzinfo is None:
         value = value.replace(tzinfo=UTC)
     else:
         value = value.astimezone(UTC)
-    return value.isoformat().replace("+00:00", "Z")
+    timespec = "seconds" if value.microsecond == 0 else "milliseconds"
+    return value.isoformat(timespec=timespec).replace("+00:00", "Z")
 
 
 def _updated_at_filter(updated_at_gte: datetime) -> dict[str, Any]:

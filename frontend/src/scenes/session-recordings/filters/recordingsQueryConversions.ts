@@ -8,8 +8,9 @@ import {
     isEventFilter,
     isLogEntryPropertyFilter,
     isRecordingPropertyFilter,
+    isUniversalGroupFilterLike,
 } from 'lib/components/UniversalFilters/utils'
-import { isString } from 'lib/utils'
+import { isString } from 'lib/utils/guards'
 
 import { NodeKind, RecordingOrder, RecordingsQuery, VALID_RECORDING_ORDERS } from '~/queries/schema/schema-general'
 import {
@@ -19,6 +20,7 @@ import {
     PropertyOperator,
     RecordingDurationFilter,
     RecordingUniversalFilters,
+    UniversalFiltersGroup,
     UniversalFiltersGroupValue,
 } from '~/types'
 
@@ -27,6 +29,25 @@ import { filtersFromUniversalFilterGroups } from '../utils'
 export const DEFAULT_RECORDING_FILTERS_ORDER_BY = 'start_time'
 
 const DURATION_KEYS = new Set(['duration', 'active_seconds', 'inactive_seconds'])
+
+/**
+ * `RecordingsQuery` carries a single `operand`, but the universal filter is a tree of AND/OR groups
+ * whose leaves we flatten. The "match any" toggle normally syncs the outer and inner group types, but
+ * the nested-group editor can set OR on the inner group while the outer stays AND. Reading only the
+ * outer group would then silently drop the user's "match any" intent. Treat the query as OR when any
+ * group in the tree is OR so that intent survives the flattening.
+ *
+ * Mirror: keep in sync with `_derive_operand` in posthog/session_recordings/playlist_filters.py.
+ */
+export function deriveOperand(group: UniversalFiltersGroup): FilterLogicalOperator {
+    if (group.type === FilterLogicalOperator.Or) {
+        return FilterLogicalOperator.Or
+    }
+    const hasOrDescendant = (group.values ?? []).some(
+        (value) => isUniversalGroupFilterLike(value) && deriveOperand(value) === FilterLogicalOperator.Or
+    )
+    return hasOrDescendant ? FilterLogicalOperator.Or : FilterLogicalOperator.And
+}
 
 export function isValidRecordingOrder(order: unknown): boolean {
     return !!order && isString(order) && VALID_RECORDING_ORDERS.includes(order as RecordingOrder)
@@ -135,7 +156,7 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
         having_predicates,
         comment_text,
         filter_test_accounts: universalFilters.filter_test_accounts,
-        operand: universalFilters.filter_group.type,
+        operand: deriveOperand(universalFilters.filter_group),
         limit: universalFilters.limit,
         session_ids: universalFilters.session_ids,
     }
