@@ -8,20 +8,23 @@ from products.tasks.backend.facade import api as tasks_facade
 def fetch_implementation_pr_urls_for_reports(report_ids: list[str]) -> dict[str, str]:
     """PR URL from the latest implementation task run for each report, when available.
 
-    The task↔report association comes from `SignalReport.associated_task_runs` (the unified view of
-    the `task_run` artefact log + legacy gate rows); the facade then resolves the latest PR-bearing
-    run for each task, so multiple runs of a task collapse to the newest PR.
+    The task↔report association comes from `SignalReport.associated_task_runs_for_reports` (the
+    unified view of the `task_run` artefact log + legacy gate rows, batched over the whole page);
+    the facade then resolves the latest PR-bearing run for each task, so multiple runs of a task
+    collapse to the newest PR.
     """
     if not report_ids:
         return {}
 
     # (report_id, task_id) for each report's implementation task(s); signals owns this mapping.
+    # Batched across the whole page so association costs two queries, not two per report (N+1).
+    runs_by_report = SignalReport.associated_task_runs_for_reports(
+        report_ids=[str(report_id) for report_id in report_ids],
+        product=SIGNALS_PRODUCT,
+        type=TASK_RUN_TYPE_IMPLEMENTATION,
+    )
     pairs: list[tuple[str, str]] = [
-        (str(report_id), run.task_id)
-        for report_id in report_ids
-        for run in SignalReport.associated_task_runs(
-            report_id=str(report_id), product=SIGNALS_PRODUCT, type=TASK_RUN_TYPE_IMPLEMENTATION
-        )
+        (report_id, run.task_id) for report_id, runs in runs_by_report.items() for run in runs
     ]
     if not pairs:
         return {}
