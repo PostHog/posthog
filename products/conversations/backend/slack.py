@@ -32,6 +32,7 @@ from .cache import (
     set_cached_bot_user_id,
     set_cached_slack_avatar,
     set_cached_slack_user,
+    slack_ticket_create_lock,
 )
 from .formatting import extract_slack_user_ids, slack_to_content_and_rich_content
 from .models import Ticket
@@ -469,22 +470,44 @@ def create_or_update_slack_ticket(
 
     content, rich_content = _build_content_with_images(cleaned_text, rich_content, images)
 
-    ticket = Ticket.objects.create_with_number(
-        team=team,
-        channel_source=Channel.SLACK,
-        channel_detail=channel_detail,
-        widget_session_id="",  # Not used for Slack tickets
-        distinct_id=user_info.get("email") or "",
-        status=Status.NEW,
-        anonymous_traits={
-            "name": user_info["name"],
-            **({"email": user_info["email"]} if user_info["email"] else {}),
-        },
-        slack_channel_id=slack_channel_id,
-        slack_thread_ts=thread_ts,
-        slack_team_id=slack_team_id,
-        unread_team_count=0 if is_team_member else 1,
-    )
+    # Serialize concurrent ticket creation for the same Slack thread via Redis lock.
+    # Without this, two reaction_added events from different users race through the
+    # .exists() checks above and both create a ticket.
+    with slack_ticket_create_lock(team_id, slack_channel_id, thread_ts) as acquired:
+        # Return None (not the existing ticket) on every dedup path: the winning worker
+        # owns the create-side effects (first comment, confirmation message, and the
+        # caller's _backfill_thread_replies). Handing a non-None ticket back to a losing
+        # reaction/mention would re-trigger backfill and duplicate every thread comment.
+        if not acquired:
+            logger.info(
+                "slack_ticket_create_lock_not_acquired",
+                team_id=team_id,
+                slack_channel_id=slack_channel_id,
+                thread_ts=thread_ts,
+            )
+            return None
+
+        # Re-check after acquiring — the winner may have committed between our earlier
+        # .exists() call and now.
+        if Ticket.objects.filter(team=team, slack_channel_id=slack_channel_id, slack_thread_ts=thread_ts).exists():
+            return None
+
+        ticket = Ticket.objects.create_with_number(
+            team=team,
+            channel_source=Channel.SLACK,
+            channel_detail=channel_detail,
+            widget_session_id="",  # Not used for Slack tickets
+            distinct_id=user_info.get("email") or "",
+            status=Status.NEW,
+            anonymous_traits={
+                "name": user_info["name"],
+                **({"email": user_info["email"]} if user_info["email"] else {}),
+            },
+            slack_channel_id=slack_channel_id,
+            slack_thread_ts=thread_ts,
+            slack_team_id=slack_team_id,
+            unread_team_count=0 if is_team_member else 1,
+        )
 
     Comment.objects.create(
         team=team,
