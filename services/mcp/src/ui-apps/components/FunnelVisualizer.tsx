@@ -6,7 +6,7 @@ import { BarChart, TooltipSurface, type TooltipContext } from '@posthog/quill-ch
 
 import {
     buildFunnelStepsBarConfig,
-    buildFunnelStepsBars,
+    buildSingleSeriesFunnelStepsBars,
     type FunnelStepsBarRow,
 } from 'products/product_analytics/frontend/insights/funnels/shared/funnelStepsBarShared'
 
@@ -46,13 +46,10 @@ function renderTooltip(rows: FunnelStepsBarRow[]) {
 export function FunnelVisualizer({ results }: FunnelVisualizerProps): ReactElement {
     const theme = useMcpChartTheme()
     const steps = normalizeFunnelSteps(results)
-    const { series, rows, overall } = buildFunnelStepsBars(steps, { color: FUNNEL_COLOR })
+    const { series, labels, rows, overall } = buildSingleSeriesFunnelStepsBars(steps, { color: FUNNEL_COLOR })
 
-    // The band scale (d3 scalePoint) dedupes its domain, so identical step names — e.g. two `$pageview`
-    // steps — would collapse onto one slot and overlap into a single bar. Key the band by step index
-    // (always unique) and map each tick back to its step name for display, matching the web funnel which
-    // positions by index and labels each bar with the bare step name.
-    const bandLabels = rows.map((row) => String(row.stepIndex))
+    // Labels are 1-based step indices (the shared builder keys the band by index so duplicate step names
+    // don't collapse onto one slot); map each tick back to its step name for the compact axis.
     const config: typeof CHART_CONFIG = {
         ...CHART_CONFIG,
         xTickFormatter: (_value, index) => rows[index]?.name ?? '',
@@ -78,7 +75,7 @@ export function FunnelVisualizer({ results }: FunnelVisualizerProps): ReactEleme
             <div className="flex flex-col h-72 w-full">
                 <BarChart
                     series={series}
-                    labels={bandLabels}
+                    labels={labels}
                     theme={theme}
                     config={config}
                     tooltip={renderTooltip(rows)}
