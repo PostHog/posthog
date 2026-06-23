@@ -24,7 +24,7 @@ from rest_framework import status
 
 from posthog.schema import PersonsOnEventsMode, PropertyOperator
 
-from posthog.api.cohort import COHORT_USED_IN_PAGE_SIZE, CohortViewSet
+from posthog.api.cohort import COHORT_USED_IN_PAGE_SIZE
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import Person, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -42,6 +42,7 @@ from posthog.tasks.calculate_cohort import (
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort, CohortType
+from products.cohorts.backend.models.dependencies import find_behavioral_cohorts
 from products.exports.backend.api.test.test_exports import TestExportMixin
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.models.insight import Insight
@@ -1805,13 +1806,11 @@ email@example.org,
                 make(7, refs=(1, 5)),
             ]
         }
-        viewset = CohortViewSet()
-
         # Without the realtime exemption, every behavioral cohort and its referrers are excluded.
-        self.assertEqual(viewset._find_behavioral_cohorts(cohorts), {1, 2, 3, 5, 6, 7})
+        self.assertEqual(find_behavioral_cohorts(cohorts), {1, 2, 3, 5, 6, 7})
         # With it, 5 is flag-compatible (not a seed) and 6 only referenced 5, so both stay.
         # 7 still reaches real seed 1, so it remains excluded.
-        self.assertEqual(viewset._find_behavioral_cohorts(cohorts, allow_realtime_backfilled=True), {1, 2, 3, 7})
+        self.assertEqual(find_behavioral_cohorts(cohorts, allow_realtime_backfilled=True), {1, 2, 3, 7})
 
     @patch("posthog.api.cohort.report_user_action")
     def test_basic_list_omits_heavy_fields(self, patch_capture):
