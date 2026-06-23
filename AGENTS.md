@@ -75,6 +75,13 @@ Don't open GitHub issues or pull requests without human instruction.
 Once a branch already has an open PR, push incremental changes and fixes to it without waiting for human guidance — keeping the PR current is part of the work.
 Pushes still trigger CI, which burns runner credits, so batch related commits and push once the increment is ready rather than after every change.
 
+#### Definition of done — run preflight before pushing
+
+Before you push (or tell the human a task is done), run `hogli ci:preflight --fix` and resolve everything it reports.
+It scopes a curated set of checks to the files your branch touched — formatting, lint, lockfile integrity, OpenAPI drift, migration conflicts — each mapped to a failure class that has taken master down, so they never burn a full CI matrix.
+It is advisory (it never blocks); the point is to fix locally what CI would otherwise reject.
+Checks that need the dev stack or `node_modules` skip with a note when those are absent, so it is always safe to run.
+
 ### Public open source repo guidance
 
 This repository is public and all commit messages, pull request titles, and pull request descriptions must be safe for public readers.
