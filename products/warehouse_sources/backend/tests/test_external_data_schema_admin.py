@@ -76,3 +76,45 @@ class TestExternalDataSchemaAdmin(BaseTest):
         mock_start.assert_called_once()
         inputs = mock_start.call_args.args[2]
         assert inputs.billable is False
+
+    def test_repartition_md5_writes_count_override_not_partition_count(self) -> None:
+        # The operator's count must land on the *_override key so it survives the bundled
+        # reset; writing partition_count directly would be wiped and the source would
+        # re-derive its own value.
+        schema = self._schema(
+            sync_type_config={"partition_mode": "md5", "partition_count": 72, "partitioning_enabled": True}
+        )
+
+        with (
+            patch(f"{_ADMIN_MODULE}.sync_connect"),
+            patch(f"{_ADMIN_MODULE}._is_schedule_paused", return_value=True),
+            patch(f"{_ADMIN_MODULE}._start_external_data_workflow") as mock_start,
+        ):
+            response = self.admin.repartition_view(self._request("post", {"partition_count": "10"}), schema.id)
+
+        assert response.status_code == 302
+        schema.refresh_from_db()
+        assert schema.sync_type_config["partition_count_override"] == 10
+        assert schema.sync_type_config["reset_pipeline"] is True
+        # The auto-detected value is untouched here; the pipeline wipes it on the reset, then
+        # the override wins when partitioning is set up.
+        assert schema.sync_type_config["partition_count"] == 72
+        mock_start.assert_called_once()
+
+    def test_repartition_numerical_writes_size_override(self) -> None:
+        schema = self._schema(
+            sync_type_config={"partition_mode": "numerical", "partition_size": 1_000_000, "partitioning_enabled": True}
+        )
+
+        with (
+            patch(f"{_ADMIN_MODULE}.sync_connect"),
+            patch(f"{_ADMIN_MODULE}._is_schedule_paused", return_value=True),
+            patch(f"{_ADMIN_MODULE}._start_external_data_workflow") as mock_start,
+        ):
+            response = self.admin.repartition_view(self._request("post", {"partition_size": "5000000"}), schema.id)
+
+        assert response.status_code == 302
+        schema.refresh_from_db()
+        assert schema.sync_type_config["partition_size_override"] == 5_000_000
+        assert schema.sync_type_config["reset_pipeline"] is True
+        mock_start.assert_called_once()
