@@ -972,7 +972,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             apply_sql_warehouse_schema_clear_migration(instance, old_schema)
 
         source_config: Config = source.parse_config(new_job_inputs)
-        validated_data["job_inputs"] = source_config.to_dict()
+        validated_job_inputs = source_config.to_dict()
+        for key in _CDC_EXPOSED_JOB_INPUT_KEYS:
+            if key in new_job_inputs:
+                validated_job_inputs[key] = new_job_inputs[key]
+        validated_data["job_inputs"] = validated_job_inputs
 
         if job_inputs_were_submitted:
             if isinstance(source, (PostgresSource, MySQLSource)):

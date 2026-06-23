@@ -425,6 +425,62 @@ class TestExternalDataSource(APIBaseTest):
         assert source.direct_query_enabled is False
 
     @patch(
+        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials_for_access_method",
+        return_value=(True, None),
+    )
+    def test_patch_external_data_source_preserves_cdc_config_when_schema_cleared(self, _mock_validate):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "testdb",
+                "user": "test",
+                "password": "test",
+                "schema": "public",
+                "cdc_enabled": True,
+                "cdc_management_mode": "posthog",
+                "cdc_slot_name": "posthog_slot",
+                "cdc_publication_name": "posthog_pub",
+                "cdc_auto_drop_slot": False,
+                "cdc_lag_warning_threshold_mb": 512,
+                "cdc_lag_critical_threshold_mb": 1024,
+                "cdc_consistent_point": "0/AA",
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "testdb",
+                    "user": "test",
+                    "schema": "",
+                }
+            },
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["schema"] == ""
+        assert str(source.job_inputs["cdc_enabled"]) == "True"
+        assert source.job_inputs["cdc_management_mode"] == "posthog"
+        assert source.job_inputs["cdc_slot_name"] == "posthog_slot"
+        assert source.job_inputs["cdc_publication_name"] == "posthog_pub"
+        assert str(source.job_inputs["cdc_auto_drop_slot"]) == "False"
+        assert str(source.job_inputs["cdc_lag_warning_threshold_mb"]) == "512"
+        assert str(source.job_inputs["cdc_lag_critical_threshold_mb"]) == "1024"
+        assert source.job_inputs["cdc_consistent_point"] == "0/AA"
+
+    @patch(
         "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
         return_value=False,
     )

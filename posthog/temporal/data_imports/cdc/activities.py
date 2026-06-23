@@ -365,8 +365,7 @@ class CDCExtractActivity:
             entry = {
                 "job_id": str(tracker.job.id),
                 "run_uuid": tracker.run_uuid,
-                # Storage resource name (canonical folder name for consolidated, `<name>_cdc` for the
-                # companion) so the deferred flush writes to the same Delta table this batch went to.
+                # Replayed by the deferred flush so it targets the same Delta table this batch went to.
                 "resource_name": tracker.write_resource_name,
                 "data_folder": tracker.s3_writer.get_data_folder(),
                 "schema_path": None,  # written on finalization
@@ -408,25 +407,17 @@ class CDCExtractActivity:
     def _consolidated_resource_name(self, schema: ExternalDataSchema) -> str:
         """Storage name for the consolidated table — must match the snapshot pipeline's.
 
-        The initial snapshot (regular pipeline) writes Delta and anchors the queryable
-        `DataWarehouseTable` at `folder_path/normalize(resolved_s3_folder_name or name)`
-        (the canonical *folder* name — see `postgres/source.py` and `resolve_table_and_folder_names`).
-        The CDC stream must target that same folder, otherwise streamed changes land in a
-        parallel Delta table that no query reads — the table stays frozen at its snapshot.
-        `name` and the folder diverge exactly for rows renamed bare→qualified during the
-        multi-schema migration (`name="public.users"`, folder pinned to `users`).
+        The CDC stream must target the same folder, otherwise streamed changes
+        land in a parallel Delta table no query reads. `name` and folder diverge
+        for rows renamed bare→qualified (`name="public.users"`, folder `users`).
         """
         _table_storage_name, folder_name = resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name)
         return folder_name
 
     def _partition_kwargs(self, schema: ExternalDataSchema) -> dict[str, typing.Any]:
-        """Replay the snapshot's persisted partitioning config so the loader partitions CDC rows identically.
+        """Replay snapshot partitioning so CDC rows match the target Delta.
 
-        Without it the loader's `_apply_partitioning` finds no keys and skips, leaving the CDC source
-        unpartitioned against a partitioned target Delta. The `incremental_merge` then prunes every
-        target file and silently drops all changes (`num_source_rows=0`), freezing the table at its
-        snapshot. Re-sending the stored config reproduces matching `_ph_partition_key` values so the
-        merge lands. No-op when unpartitioned (and the loader won't partition an unpartitioned target).
+        Without this, partitioned targets silently drop CDC rows. No-op when unpartitioned.
         """
         if not schema.partitioning_enabled:
             return {}
@@ -467,9 +458,8 @@ class CDCExtractActivity:
 
             enriched_table = enrich_delete_rows(raw_table, key_columns)
 
-            # The consolidated table is shared with the initial snapshot, so it must use the
-            # canonical folder storage name. The `_cdc` companion is CDC-only and self-consistent
-            # with its snapshot seed (`_seed_cdc_companion_from_snapshot`), which keys off `name`.
+            # Consolidated shares the snapshot's canonical folder; the `_cdc` companion is
+            # CDC-only and stays self-consistent with its `name`-keyed snapshot seed.
             batch_writes: list[tuple[pa.Table, str, str]] = []
             if cdc_table_mode == "consolidated":
                 consolidated_name = self._consolidated_resource_name(schema)

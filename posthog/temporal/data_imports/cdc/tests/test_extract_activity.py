@@ -82,10 +82,8 @@ def _make_schema(
     schema.cdc_table_mode = cdc_table_mode
     schema.should_sync = True
     schema.deleted = False
-    # Real value (not a MagicMock) so storage-name resolution can normalize it. `None` means the
-    # folder name falls back to the normalized schema `name`, matching a non-migrated schema.
+    # Real values (not MagicMocks) so storage-name and partition helpers evaluate deterministically.
     schema.resolved_s3_folder_name = s3_folder_name
-    # Real partition values (not MagicMocks) so `_partition_kwargs` evaluates deterministically.
     schema.partitioning_enabled = partitioning_enabled
     schema.partitioning_keys = partitioning_keys
     schema.partition_mode = partition_mode
@@ -335,10 +333,7 @@ class TestFlushDeferredRuns:
 
     @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
     def test_deferred_flush_uses_stored_resource_name_and_replays_partition_config(self, MockProducer):
-        """The deferred flush must target the same Delta the batch went to (its stored `resource_name`)
-        and replay the snapshot's partition config — same correctness requirements as the streaming
-        path. Otherwise snapshot→streaming changes land unpartitioned in the wrong table and drop.
-        """
+        """Deferred flush targets the stored Delta resource and replays partition config."""
         mock_producer = MagicMock()
         MockProducer.return_value = mock_producer
 
@@ -1200,12 +1195,7 @@ class TestCDCExtractActivity:
         MockProducer,
         mock_activity,
     ):
-        """A schema renamed bare→qualified during multi-schema migration keeps its Delta data at
-        the original (pinned) folder. The consolidated CDC write must target that folder — i.e.
-        the producer's `resource_name` must be the pinned `s3_folder_name`, not the qualified
-        `name`. Otherwise streamed changes land in a parallel table no query reads and the table
-        stays frozen at its snapshot. Regression test for the bare↔qualified storage-path bug.
-        """
+        """Consolidated CDC writes use the pinned folder for bare→qualified schemas."""
         source = _make_source()
         # `name` is qualified, but the folder was pinned to the original bare path during migration.
         schema = _make_schema("public.users", cdc_mode="streaming", source=source, s3_folder_name="users")
@@ -1252,11 +1242,7 @@ class TestCDCExtractActivity:
         MockProducer,
         mock_activity,
     ):
-        """When the snapshot partitioned the Delta on `_ph_partition_key`, the CDC batch notification
-        must re-send the stored partition config. Otherwise the loader skips partitioning the CDC
-        source and the incremental_merge prunes every target file (num_source_rows=0), dropping all
-        changes. Regression test for the partition-mismatch bug that froze the table at its snapshot.
-        """
+        """Partitioned snapshots replay their partition config to CDC batch notifications."""
         source = _make_source()
         schema = _make_schema(
             "users",
@@ -1311,10 +1297,7 @@ class TestCDCExtractActivity:
         MockProducer,
         mock_activity,
     ):
-        """A small, unpartitioned table must not start sending partition keys — that would make the
-        loader try to partition an unpartitioned Delta. With `partitioning_enabled` false the CDC
-        notification sends no partition config.
-        """
+        """Unpartitioned snapshots do not send partition config to CDC batch notifications."""
         source = _make_source()
         schema = _make_schema("users", cdc_mode="streaming", source=source, partitioning_enabled=False)
         events = [_make_event(op="I", table="users", position="0/100", columns={"id": 1, "name": "Alice"})]
