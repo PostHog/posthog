@@ -84,7 +84,7 @@ import { TEMPLATE_NAMES } from 'products/feature_flags/frontend/featureFlagTempl
 import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
 import { defaultEvaluationContextsLogic } from './defaultEvaluationContextsLogic'
-import { defaultReleaseConditionsLogic } from './defaultReleaseConditionsLogic'
+import { DefaultReleaseConditionsResponse, defaultReleaseConditionsLogic } from './defaultReleaseConditionsLogic'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
@@ -1288,7 +1288,23 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     }
 
                     if (flagType !== 'remote_config') {
-                        const conditionsConfig = values.defaultReleaseConditions
+                        // Use cached value if already loaded; fetch directly if not yet available
+                        // to avoid a race where defaultReleaseConditionsLogic's async load hasn't
+                        // completed before loadFeatureFlag reads values.defaultReleaseConditions.
+                        let conditionsConfig: DefaultReleaseConditionsResponse | null = values.defaultReleaseConditions
+                        if (!conditionsConfig) {
+                            const teamId = values.currentTeam?.id
+                            if (teamId) {
+                                try {
+                                    conditionsConfig = await api.get<DefaultReleaseConditionsResponse>(
+                                        `/api/environments/${teamId}/default_release_conditions/`
+                                    )
+                                } catch (e) {
+                                    // Don't block new flag creation if the fetch fails
+                                    console.warn('Failed to fetch default release conditions:', e)
+                                }
+                            }
+                        }
                         if (conditionsConfig?.enabled && conditionsConfig.default_groups?.length > 0) {
                             baseFlagConfig = {
                                 ...baseFlagConfig,
