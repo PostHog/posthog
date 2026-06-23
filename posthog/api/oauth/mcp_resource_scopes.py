@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 from typing import TypedDict
 from urllib.parse import urlparse
+
+from django.core.cache import cache
 
 import requests
 import structlog
@@ -11,7 +14,10 @@ from posthog.scopes import get_oauth_scopes_supported
 
 logger = structlog.get_logger(__name__)
 
-METADATA_TIMEOUT_SECONDS = 5
+METADATA_TIMEOUT_SECONDS = 2
+MCP_SCOPES_CACHE_SUCCESS_TTL = 900  # 15 minutes — scopes rarely change
+MCP_SCOPES_CACHE_FAILURE_TTL = 60  # brief negative cache to avoid hammering MCP
+_CACHE_FAILURE_SENTINEL = "__mcp_scopes_fetch_failed__"
 WELL_KNOWN_PREFIX = "/.well-known/oauth-protected-resource"
 
 # Keep in sync with services/mcp/src/lib/routing.ts regional MCP hostnames.
@@ -58,12 +64,33 @@ def _protected_resource_metadata_url(resource_url: str) -> str:
     return f"{origin}{WELL_KNOWN_PREFIX}{resource_path}"
 
 
+def _scopes_cache_key(resource_url: str) -> str:
+    url_hash = hashlib.sha256(resource_url.encode()).hexdigest()
+    return f"mcp_resource_scopes:{url_hash}"
+
+
 def fetch_mcp_protected_resource_scopes(resource_url: str) -> list[str] | None:
     """Fetch scopes_supported for a trusted PostHog MCP resource URL.
 
     Returns None when metadata cannot be loaded. Caller should treat that as a
     fetch failure and fall back to the frontend's reduced scope list.
     """
+    cache_key = _scopes_cache_key(resource_url)
+    cached = cache.get(cache_key)
+    if cached is not None:
+        if cached == _CACHE_FAILURE_SENTINEL:
+            return None
+        return cached
+
+    scopes = _fetch_mcp_protected_resource_scopes_uncached(resource_url)
+    if scopes is None:
+        cache.set(cache_key, _CACHE_FAILURE_SENTINEL, timeout=MCP_SCOPES_CACHE_FAILURE_TTL)
+    else:
+        cache.set(cache_key, scopes, timeout=MCP_SCOPES_CACHE_SUCCESS_TTL)
+    return scopes
+
+
+def _fetch_mcp_protected_resource_scopes_uncached(resource_url: str) -> list[str] | None:
     metadata_url = _protected_resource_metadata_url(resource_url)
     parsed = urlparse(resource_url)
     resource_path = parsed.path if parsed.path not in {"", "/"} else ""
