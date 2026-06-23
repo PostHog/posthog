@@ -34,9 +34,11 @@ jobs:
             # including backend files. Instead we use two positive filters and
             # compare counts to exclude generated-only PRs.
             #
-            # Additionally skip when a bot commits only frontend/snapshots.yml on
-            # a PR — that file is updated automatically after human review and CI
-            # approval, so re-running the full storybook suite is pure waste.
+            # Additionally skip when a bot's push adds only snapshot baselines —
+            # Visual Review auto-commits frontend/snapshots.yml after human review
+            # and CI approval, so re-running the suite is pure waste. The detect
+            # step keys off the push delta (this push's commits), not the whole-PR
+            # diff dorny reports, so it fires even when the PR also has code changes.
             frontend: >-
                 ${{
                     github.event_name == 'push'
@@ -44,10 +46,7 @@ jobs:
                         && steps.exclude.outputs.outside_non_frontend_ts == 'true'
                         && fromJSON(steps.filter.outputs.frontend_count || '0')
                            > fromJSON(steps.filter.outputs.frontend_generated_count || '0')
-                        && !(github.event_name == 'pull_request'
-                             && (contains(github.actor, '[bot]') || github.actor == 'posthog-bot')
-                             && fromJSON(steps.filter.outputs.snapshots_count || '0')
-                                == fromJSON(steps.filter.outputs.frontend_count || '0')))
+                        && steps.baseline_push.outputs.result != 'true')
                 }}
             matrix: ${{ steps.matrix.outputs.matrix }}
         steps:
@@ -80,8 +79,35 @@ jobs:
                       frontend_generated:
                         - 'frontend/src/generated/**'
                         - 'products/**/frontend/generated/**'
-                      snapshots:
-                        - 'frontend/snapshots.yml'
+
+            - name: Detect Visual Review baseline-only push
+              id: baseline_push
+              if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+                  ACTOR: ${{ github.actor }}
+                  BEFORE: ${{ github.event.before }}
+                  AFTER: ${{ github.event.after }}
+              run: |
+                  set -euo pipefail
+                  result=false
+                  # Visual Review commits the approved baseline as a bot (a [bot] app or posthog-bot).
+                  case "$ACTOR" in
+                      *'[bot]' | posthog-bot) is_bot=true ;;
+                      *) is_bot=false ;;
+                  esac
+                  zero=0000000000000000000000000000000000000000
+                  if [ "$is_bot" = true ] && [ -n "$BEFORE" ] && [ "$BEFORE" != "$zero" ] && [ -n "$AFTER" ]; then
+                      # compare uses merge-base(before, after), which for an appended commit is
+                      # exactly the push delta; a force-push/rebase widens it and won't match.
+                      files=$(gh api "repos/${REPO}/compare/${BEFORE}...${AFTER}" --jq '.files[].filename' || true)
+                      if [ -n "$files" ] && ! grep -qvE '^(frontend|playwright)/snapshots\.yml$' <<<"$files"; then
+                          result=true
+                      fi
+                  fi
+                  echo "result=$result" >>"$GITHUB_OUTPUT"
+                  echo "Visual Review baseline-only push: $result"
 
             # The `frontend` filter's `products/**/*.{ts,tsx}` rule matches dirs that
             # aren't frontend code — Node-only TS (agent-platform services/packages)

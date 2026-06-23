@@ -9,13 +9,24 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
-import { EvaluationPattern, EvaluationRun, EvaluationSummary, EvaluationSummaryFilter } from '../types'
+import {
+    EvaluationPattern,
+    EvaluationRun,
+    EvaluationSummary,
+    EvaluationSummaryFilter,
+    SentimentEvaluationRunsFilter,
+} from '../types'
 import { PatternCard } from './PatternCard'
+
+type ReportPatternFilter = Exclude<EvaluationSummaryFilter, 'all' | SentimentEvaluationRunsFilter>
 
 const FILTER_LABELS: Record<Exclude<EvaluationSummaryFilter, 'all'>, string> = {
     pass: 'passing ',
     fail: 'failing ',
     na: 'N/A ',
+    negative: 'negative ',
+    positive: 'positive ',
+    neutral: 'neutral ',
 }
 
 function getFilterLabel(filter: EvaluationSummaryFilter): string {
@@ -293,7 +304,7 @@ function PatternList({
 }
 
 const FILTER_CONFIG: Record<
-    Exclude<EvaluationSummaryFilter, 'all'>,
+    ReportPatternFilter,
     {
         patternsKey: 'pass_patterns' | 'fail_patterns' | 'na_patterns'
         icon: JSX.Element
@@ -325,6 +336,10 @@ const FILTER_CONFIG: Record<
     },
 }
 
+function isReportPatternFilter(filter: EvaluationSummaryFilter): filter is ReportPatternFilter {
+    return filter === 'pass' || filter === 'fail' || filter === 'na'
+}
+
 function FilteredPatternSection({
     filter,
     evaluationSummary,
@@ -334,7 +349,7 @@ function FilteredPatternSection({
     evaluationSummary: EvaluationSummary
     runsLookup: Record<string, EvaluationRun>
 }): JSX.Element | null {
-    if (filter === 'all') {
+    if (filter === 'all' || !isReportPatternFilter(filter)) {
         return null
     }
 

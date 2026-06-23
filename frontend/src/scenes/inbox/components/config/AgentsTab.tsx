@@ -4,6 +4,9 @@ import { useEffect } from 'react'
 import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { ExternalDataSourceType, SourceConfig } from '~/queries/schema/schema-general'
 
 import { availableSourcesLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/availableSourcesLogic'
@@ -66,6 +69,7 @@ function BackLink({ onClick }: { onClick: () => void }): JSX.Element {
  */
 export function AgentsTab(): JSX.Element {
     const { sessionAnalysisSetupOpen, dataSourceSetupProduct } = useValues(signalSourcesLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const {
         loadSources,
         loadSourceConfigs,
@@ -127,12 +131,14 @@ export function AgentsTab(): JSX.Element {
                     {agentsBody}
                 </Subsection>
 
-                <Subsection
-                    title="Slack"
-                    description="Post reports to channels and ping suggested reviewers. Invite PostHog with /invite @PostHog in each channel you use."
-                >
-                    <SlackNotificationsSection />
-                </Subsection>
+                {featureFlags[FEATURE_FLAGS.INBOX_SLACK_NOTIFICATIONS] && (
+                    <Subsection
+                        title="Slack"
+                        description="Post reports to channels and ping suggested reviewers. Invite PostHog with /invite @PostHog in each channel you use."
+                    >
+                        <SlackNotificationsSection />
+                    </Subsection>
+                )}
 
                 <Subsection
                     title="Auto-start"

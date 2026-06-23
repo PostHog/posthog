@@ -91,32 +91,54 @@ ORDER BY total_calls DESC
 LIMIT 50
 `
 
-// Newer Anthropic clients stopped sending clientInfo.name ($mcp_client_name) and
-// now report identity only via the x-anthropic-client header (mcp_vendor_client)
-// or the User-Agent, so reading $mcp_client_name alone buckets nearly everything
-// as "Other". Resolve an effective client per call: prefer the self-reported
-// name, then the vendor header (matched case-insensitively, as the MCP service's
-// own client detection does), then the User-Agent's leading product token plus
-// the first parenthetical token as a surface suffix — e.g. "claude-code cli",
-// "claude-code claude-desktop", "openai-mcp chatgpt". The version segment between
-// them is dropped so claude-code/2.1.x folds to one token; categorizeHarness then
-// buckets surface-specific tokens (Claude Desktop, ChatGPT, …) and folds the rest.
+// Resolve an effective client per tool call from the strongest identity signal
+// available. The order matters and each step exists for a measured reason:
+//
+//   1. x-anthropic-client header (mcp_vendor_client). Anthropic pools every UI
+//      surface behind one transport that self-reports the generic clientInfo.name
+//      "Anthropic/ClaudeAI", so this header is the only thing that separates
+//      Cowork / Claude.ai / Claude Design. It is absent for every non-Anthropic
+//      client and for Claude Code's CLI/SDK/IDE builds (whose surface rides in the
+//      User-Agent instead), so resolving it first never masks a finer signal.
+//   2. Claude Code's User-Agent surface. Every Claude Code build reports the same
+//      clientInfo.name ("claude-code"); the build (cli / sdk-ts / claude-vscode /
+//      claude-desktop) lives only in the User-Agent parenthetical. Lift it out so
+//      the SDK/IDE/Desktop split survives. Gated on the claude-code product token
+//      because other clients' User-Agents are often bare HTTP libraries (node,
+//      undici) that must not win over a real clientInfo.name.
+//   3. The session-pinned clientInfo.name (mcp_session_client_name). The per-request
+//      $mcp_client_name is stamped only on $mcp_initialize, never on $mcp_tool_call,
+//      so reading it here bucketed every self-identifying client — Codex, Cursor,
+//      opencode, … — as "Other". The generic "mcp" SDK default is dropped so those
+//      rows fall through to the User-Agent.
+//   4. The User-Agent product token + first parenthetical, for hosted clients that
+//      send a product User-Agent but no clientInfo.name (e.g. "openai-mcp/1.0.0").
+//   5. The OAuth client_name from token introspection, the only identity an
+//      OAuth-registered client (vibe-coding platforms, ChatGPT) carries per request.
+//
+// The version segment is dropped so claude-code/2.1.x folds to one token;
+// categorizeHarness then buckets surface-specific tokens and folds the rest.
+//
+// The User-Agent token is the leading product name plus the first parenthetical
+// (the surface, e.g. "cli"); steps 2 and 4 both need it, so it lives here once.
+// HogQL has no scalar WITH alias, but this is a JS template literal — interpolating
+// a const keeps the source DRY while the generated SQL stays identical.
+const UA_PRODUCT = `extract(toString(properties.$mcp_client_user_agent), '^([^/]+)')`
+const UA_TOKEN = `trim(concat(${UA_PRODUCT}, ' ', extract(toString(properties.$mcp_client_user_agent), '[(]([^,)]+)')))`
 const HARNESS_ROWS_QUERY = `
 SELECT
     coalesce(
-        nullIf(toString(properties.$mcp_client_name), ''),
         multiIf(
             lower(toString(properties.mcp_vendor_client)) = 'claudecode', 'claude-code',
             lower(toString(properties.mcp_vendor_client)) = 'claudeai', 'claude-ai',
             lower(toString(properties.mcp_vendor_client)) = 'cowork', 'cowork',
             lower(toString(properties.mcp_vendor_client)) = 'claudedesign', 'claude-design',
-            nullIf(toString(properties.mcp_vendor_client), '')
+            NULL
         ),
-        nullIf(trim(concat(
-            extract(toString(properties.$mcp_client_user_agent), '^([^/]+)'),
-            ' ',
-            extract(toString(properties.$mcp_client_user_agent), '[(]([^,)]+)')
-        )), ''),
+        if(lower(${UA_PRODUCT}) = 'claude-code', ${UA_TOKEN}, NULL),
+        nullIf(nullIf(toString(properties.mcp_session_client_name), ''), 'mcp'),
+        nullIf(${UA_TOKEN}, ''),
+        nullIf(toString(properties.$mcp_oauth_client_name), ''),
         ''
     ) AS client,
     count() AS total_calls,
