@@ -1479,8 +1479,24 @@ class SignalReportArtefactViewSet(
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
-        page = self.paginate_queryset(queryset)
-        artefacts = list(page if page is not None else queryset)
+        # Surface legacy `SignalReportTask` associations as synthetic `task_run` artefacts so a
+        # report's research / implementation runs appear in the log even before the backfill has
+        # converted its gate rows. Merged into the materialized log (de-duplicated against the real
+        # task_run artefacts) and re-sorted newest-first so each legacy row lands at its original
+        # timestamp, then paginated as one list so `count` and ordering both account for them.
+        real_artefacts = list(queryset)
+        synthetic = SignalReport.synthetic_legacy_task_run_artefacts(
+            report_id=self.parents_query_dict["report_id"],
+            team_id=self.team.id,
+            existing_artefacts=real_artefacts,
+        )
+        log = (
+            sorted([*real_artefacts, *synthetic], key=lambda a: a.created_at, reverse=True)
+            if synthetic
+            else real_artefacts
+        )
+        page = self.paginate_queryset(log)
+        artefacts = list(page if page is not None else log)
         logins_union = normalized_github_logins_from_suggested_reviewer_artefacts(artefacts)
         login_map = resolve_org_github_login_to_users(self.team.id, logins_union) if logins_union else {}
         serializer = SignalReportArtefactSerializer(
