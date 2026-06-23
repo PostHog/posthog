@@ -21332,7 +21332,8 @@
                 "NewRelic",
                 "Custom",
                 "Tile38",
-                "Chatwoot"
+                "Chatwoot",
+                "Sanity"
             ],
             "type": "string"
         },

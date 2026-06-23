@@ -590,6 +590,7 @@ doesn't conflict with concurrent PRs.
 - sailthru
 - salesflare
 - salesforce_marketing_cloud
+- sanity
 - sap_concur
 - sap_erp
 - sap_fieldglass
