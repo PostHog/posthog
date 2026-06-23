@@ -543,7 +543,7 @@ class TestSafetyFilterActivity:
         ]
     )
     @pytest.mark.asyncio
-    async def test_fails_open_on_parse_error(self, _name, llm_response):
+    async def test_fails_closed_on_parse_error(self, _name, llm_response):
         from products.conversations.backend.temporal.pipeline import _safety_filter
 
         with patch(
@@ -551,7 +551,8 @@ class TestSafetyFilterActivity:
         ):
             result = await _safety_filter(team_id=1, ticket_context="some ticket")
 
-        assert result.safe is True
+        assert result.safe is False
+        assert result.threat_type == "parse_failure"
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
@@ -633,7 +634,7 @@ class TestReviewReplyActivity:
         assert result.safe is expected_safe
 
     @pytest.mark.asyncio
-    async def test_fails_open_on_parse_error(self):
+    async def test_fails_closed_on_parse_error(self):
         from products.conversations.backend.temporal.pipeline import _review_reply
 
         with patch(
@@ -641,7 +642,8 @@ class TestReviewReplyActivity:
         ):
             result = await _review_reply(team_id=1, ticket_context="q", reply="answer")
 
-        assert result.safe is True
+        assert result.safe is False
+        assert "could not be parsed" in result.reason
 
     @pytest.mark.django_db
     @pytest.mark.asyncio

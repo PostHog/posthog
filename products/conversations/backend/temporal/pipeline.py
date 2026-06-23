@@ -514,7 +514,11 @@ async def _safety_filter(team_id: int, ticket_context: str) -> SafetyFilterOutpu
         return SafetyFilterOutput(safe=result.safe, threat_type=result.threat_type, explanation=result.explanation)
     except (json_module.JSONDecodeError, ValueError, TypeError, AttributeError):
         logger.warning("support_reply_safety_parse_failed", raw=str(content)[:200])
-        return SafetyFilterOutput(safe=True)
+        return SafetyFilterOutput(
+            safe=False,
+            threat_type="parse_failure",
+            explanation="safety classifier output could not be parsed — blocking ticket as a precaution",
+        )
 
 
 @activity.defn
@@ -562,7 +566,9 @@ TICKET TYPE: {ticket_type}"""
         return ReviewReplyOutput(safe=result.safe, reason=result.reason)
     except (json_module.JSONDecodeError, ValueError, TypeError, AttributeError):
         logger.warning("support_reply_review_parse_failed", raw=str(content)[:200])
-        return ReviewReplyOutput(safe=True)
+        return ReviewReplyOutput(
+            safe=False, reason="reviewer output could not be parsed — blocking reply as a precaution"
+        )
 
 
 @activity.defn
