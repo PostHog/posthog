@@ -24,7 +24,6 @@ from posthog.tasks.alerts.utils import (
     next_check_time,
     record_alert_delivery,
     skip_because_of_weekend,
-    validate_alert_config,
 )
 from posthog.temporal.alerts.investigation import claim_investigation_slot, should_trigger_investigation
 from posthog.temporal.alerts.types import (
@@ -40,6 +39,7 @@ from posthog.temporal.alerts.types import (
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.alerts.backend.evaluation import check_alert_for_insight
+from products.alerts.backend.evaluation.validation import validate_alert_config
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.notifications.backend.facade.api import (
     NotificationData,

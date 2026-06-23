@@ -143,7 +143,10 @@ class RevenueAnalyticsManagedViewsetsTestMixin(RevenueAnalyticsTestBase):
             if not query_text:
                 continue
 
-            response = execute_hogql_query(parse_select(query_text), team=self.team, modifiers=self.MODIFIERS)
+            # Materialization mirrors the data-modeling job (no user); bypass warehouse access control.
+            response = execute_hogql_query(
+                parse_select(query_text), team=self.team, modifiers=self.MODIFIERS, bypass_warehouse_access_control=True
+            )
 
             with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as csv_file:
                 writer = csv.writer(csv_file)

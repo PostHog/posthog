@@ -217,36 +217,6 @@ def find_direct_orm_queries(path: Path) -> list[str]:
     return locations
 
 
-def get_cross_product_internal_imports(product_dir: Path, product_name: str) -> list[str]:
-    """
-    Find imports from other products' internals (non-facade) within this product's own files.
-    Handles both `from X import Y` and `import X` styles.
-    Returns list of 'relpath: module' strings.
-    """
-
-    def _is_cross_product_violation(module: str) -> bool:
-        if module.startswith(f"products.{product_name}"):
-            return False
-        if module.startswith("products.") and ".backend." in module:
-            return "facade" not in module.split(".")
-        return False
-
-    violations: list[str] = []
-    for py_file in product_dir.rglob("*.py"):
-        tree = ast_parse_safe(py_file)
-        if not tree:
-            continue
-        rel = str(py_file.relative_to(product_dir))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.module and _is_cross_product_violation(node.module):
-                violations.append(f"{rel}: {node.module}")
-            elif isinstance(node, ast.Import):
-                for alias in node.names:
-                    if _is_cross_product_violation(alias.name):
-                        violations.append(f"{rel}: {alias.name}")
-    return violations
-
-
 def view_facade_usage(views_path: Path) -> tuple[bool, bool]:
     """
     Returns (imports_facade, imports_models_directly).

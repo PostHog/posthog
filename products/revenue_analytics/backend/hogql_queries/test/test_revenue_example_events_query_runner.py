@@ -115,7 +115,7 @@ class TestRevenueExampleEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def _run_revenue_example_events_query(self):
         with freeze_time(self.QUERY_TIMESTAMP):
-            runner = RevenueExampleEventsQueryRunner(team=self.team, query=RevenueExampleEventsQuery())
+            runner = RevenueExampleEventsQueryRunner(team=self.team, query=RevenueExampleEventsQuery(), user=self.user)
 
             response = runner.calculate()
             RevenueExampleEventsQueryResponse.model_validate(response)

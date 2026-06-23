@@ -45,9 +45,13 @@ import { ChartDisplayType, GraphType } from '~/types'
 import { AxisSeries, AxisSeriesSettings, formatDataWithSettings } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
 import { lineGraphLogic } from './lineGraphLogic'
+import { SqlBarGraph } from './SqlBarGraph'
+import { SqlComboGraph } from './SqlComboGraph'
 import { SqlLineGraph } from './SqlLineGraph'
 import {
     AREA_FILL_OPACITY,
+    canRenderSqlBarGraph,
+    canRenderSqlComboGraph,
     canRenderSqlLineGraph,
     capYSeriesData,
     exceedsMaxSeries,
@@ -728,13 +732,26 @@ const LegacyLineGraph = ({
     )
 }
 
+export function sqlChartComponentFor(
+    props: LineGraphProps,
+    newChartsEnabled: boolean
+): (props: LineGraphProps) => JSX.Element {
+    if (newChartsEnabled && canRenderSqlLineGraph(props)) {
+        return SqlLineGraph
+    }
+    if (newChartsEnabled && canRenderSqlBarGraph(props)) {
+        return SqlBarGraph
+    }
+    if (newChartsEnabled && canRenderSqlComboGraph(props)) {
+        return SqlComboGraph
+    }
+    return LegacyLineGraph
+}
+
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     const newChartsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_SQL_CHARTS]
 
-    if (newChartsEnabled && canRenderSqlLineGraph(props)) {
-        return <SqlLineGraph {...props} />
-    }
-
-    return <LegacyLineGraph {...props} />
+    const Component = sqlChartComponentFor(props, newChartsEnabled)
+    return <Component {...props} />
 }

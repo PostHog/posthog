@@ -32,6 +32,7 @@ import {
     SessionQueue,
 } from '@posthog/agent-shared'
 
+import { enqueueTotal } from '../metrics'
 import { ElevationTrigger, principalDisplay, recordElevationRequest, requireAclAccess } from './acl'
 
 export interface EnqueueDeps {
@@ -100,6 +101,22 @@ export type EnqueueOutcome =
       }
 
 export async function enqueueOrResume(deps: EnqueueDeps, input: EnqueueInput): Promise<EnqueueOutcome> {
+    // Single intake choke point — count every enqueue by trigger + outcome.
+    // A throw (DB down, unexpected error) is counted as `error` so the demand
+    // total stays complete. The shared HTTP histogram covers latency/status;
+    // this is the only place the created-vs-resumed-vs-deduped split exists.
+    const trigger = input.trigger ?? 'chat'
+    try {
+        const outcome = await enqueueOrResumeInner(deps, input)
+        enqueueTotal.labels({ trigger, outcome: outcome.kind }).inc()
+        return outcome
+    } catch (err) {
+        enqueueTotal.labels({ trigger, outcome: 'error' }).inc()
+        throw err
+    }
+}
+
+async function enqueueOrResumeInner(deps: EnqueueDeps, input: EnqueueInput): Promise<EnqueueOutcome> {
     // Idempotency check first — independent of externalKey. A duplicate
     // request returns the original session id unchanged; the principal +
     // seed of the duplicate are deliberately discarded. Stripe-shaped

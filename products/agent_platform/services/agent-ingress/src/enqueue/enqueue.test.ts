@@ -45,6 +45,7 @@ function makePair(): { app: AgentApplication; rev: AgentRevision } {
         bundle_uri: 's3://x/',
         bundle_sha256: null,
         spec: AgentSpecSchema.parse({ model: 'x' }),
+        encrypted_env: null,
     }
     return { app, rev }
 }

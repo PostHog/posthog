@@ -24,6 +24,7 @@ from posthog.helpers.trigram_search import search_match_type_from_instance
 from .. import logic
 from ..diff_metadata import DiffMetadata
 from . import contracts
+from .enums import RunPurpose
 
 User = get_user_model()
 
@@ -155,7 +156,15 @@ def _to_snapshot(
 
 
 def _compute_unresolved(run) -> int:
-    """Compute unresolved count from prefetched snapshots, or fall back to DB."""
+    """Count snapshots still awaiting human resolution.
+
+    Observe (tracking-only) runs are never approvable, so nothing is ever
+    "unresolved" — return 0. This keeps the CLI (which exits non-zero when
+    unresolved > 0) and the UI from treating a default-branch run as gating,
+    matching the green commit status such runs post.
+    """
+    if run.purpose == RunPurpose.OBSERVE:
+        return 0
     # Use prefetched snapshots if available (detail view), skip for list views
     if "snapshots" in getattr(run, "_prefetched_objects_cache", {}):
         return sum(1 for s in run.snapshots.all() if logic._is_unresolved(s))

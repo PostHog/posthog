@@ -1,3 +1,4 @@
+import random
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -342,13 +343,13 @@ class TestComputeShardOffsetSeconds(TestCase):
         assert 0 <= offset < cadence * 60
 
     def test_distribution_across_many_alerts_is_roughly_uniform(self) -> None:
-        # 1000 random UUIDs at 5-min cadence (5 shards). Each shard should
-        # see ~200 alerts. Allow ±20% drift before flagging non-uniformity.
-        from uuid import uuid4
-
+        # 1000 UUIDs at 5-min cadence (5 shards). Each shard should see ~200
+        # alerts. Seeded so an unlucky random draw can't flake the ±20% bound
+        # while still exercising the same uniform-spread property.
+        rng = random.Random(0)
         counts: dict[int, int] = {0: 0, 60: 0, 120: 0, 180: 0, 240: 0}
         for _ in range(1000):
-            offset = compute_shard_offset_seconds(uuid4(), 5)
+            offset = compute_shard_offset_seconds(UUID(int=rng.getrandbits(128)), 5)
             counts[offset] += 1
 
         for offset, count in counts.items():

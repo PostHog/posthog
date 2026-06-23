@@ -4,7 +4,7 @@ from collections import defaultdict
 from typing import Any, Literal, Optional, cast, overload
 from urllib.parse import urlencode
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError
 from django.utils import timezone
 
 import structlog
@@ -18,7 +18,7 @@ from rest_framework.exceptions import NotFound, ValidationError
 
 from posthog.schema import ProductKey
 
-from posthog.api.capture_dispatch import CaptureRoutedError, capture_internal_routed
+from posthog.api.capture import CaptureInternalError, capture_internal
 from posthog.api.documentation import extend_schema
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -48,8 +48,8 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils import str_to_bool
 
 from products.event_definitions.backend.models.property_definition import PropertyType
-from products.notebooks.backend.models import Notebook, ResourceNotebook
-from products.notebooks.backend.util import (
+from products.notebooks.backend.facade import api as notebooks
+from products.notebooks.backend.facade.content import (
     create_bullet_list,
     create_empty_paragraph,
     create_heading_with_text,
@@ -258,8 +258,7 @@ class FindGroupSerializer(GroupSerializer):
         fields = [*GroupSerializer.Meta.fields, "notebook"]
 
     def get_notebook(self, obj: Group) -> str | None:
-        notebooks = ResourceNotebook.objects.filter(group=obj.id).first()
-        return notebooks.notebook.short_id if notebooks else None
+        return notebooks.get_group_notebook_short_id(obj.id)
 
 
 class CreateGroupSerializer(serializers.ModelSerializer):
@@ -325,7 +324,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             "$group_set": group_properties or group.group_properties,
         }
         try:
-            result = capture_internal_routed(
+            result = capture_internal(
                 token=self.team.api_token,
                 event_name="$groupidentify",
                 event_source="ee_ch_views_groups",
@@ -335,7 +334,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 process_person_profile=False,
             )
             result.raise_for_status()
-        except CaptureRoutedError as error:
+        except CaptureInternalError as error:
             raise TriggerGroupIdentifyException(
                 exception_data={
                     "code": f"Failed to submit {operation} event.",
@@ -532,7 +531,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         if (
             not skip_create_notebook
             and self._is_crm_enabled(cast(User, request.user))
-            and not ResourceNotebook.objects.filter(group=group.id).exists()
+            and not notebooks.group_has_notebook(group.id)
         ):
             try:
                 self._create_notebook_for_group(group=group)
@@ -683,7 +682,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             }
 
             try:
-                routed_result = capture_internal_routed(
+                routed_result = capture_internal(
                     token=self.team.api_token,
                     event_name=event_name,
                     event_source="ee_ch_views_groups",
@@ -694,7 +693,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 )
                 routed_result.raise_for_status()
 
-            except CaptureRoutedError as e:
+            except CaptureInternalError as e:
                 return response.Response(
                     {
                         "attr": "$unset",
@@ -872,7 +871,6 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             send_feature_flag_events=False,
         )
 
-    @transaction.atomic
     def _create_notebook_for_group(self, group: Group):
         group_name = group.group_properties.get("name", "")
         notebook_title = f"{group_name} Notes" if group_name else "Notes"
@@ -890,13 +888,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             create_heading_with_text(text="Last interaction", level=2),
             create_bullet_list(items=["Date: ", "Context: ", "Next steps: "]),
         ]
-        notebook = Notebook.objects.create(
-            team=self.team,
-            title=notebook_title,
-            content=notebook_content,
-            visibility=Notebook.Visibility.INTERNAL,
-        )
-        ResourceNotebook.objects.create(notebook=notebook, group=group.id)
+        notebooks.create_group_notebook(self.team.id, group.id, title=notebook_title, content=notebook_content)
 
 
 _DW_FILTER_REQUIRED_FIELDS = ("table_name", "timestamp_field", "key_field")

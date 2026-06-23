@@ -105,6 +105,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'isBreakdownSeries',
                 'hasLegend',
                 'showLegend',
+                'legendPosition',
                 'showAnnotations',
                 'vizSpecificOptions',
                 'yAxisScaleType',

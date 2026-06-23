@@ -15,6 +15,7 @@ from posthog.utils import (
     get_instance_region,
     get_machine_id,
     initialize_self_capture_api_token,
+    str_to_bool,
 )
 
 logger = structlog.get_logger(__name__)
@@ -40,6 +41,7 @@ class PostHogConfig(AppConfig):
         # shell) would lose them. They live in dedicated import-light modules — never wire
         # ready() through an API module, even one that looks light today.
         import posthog.storage.checks  # noqa: F401, PLC0415
+        import posthog.internal_api_secret  # noqa: F401, PLC0415
         import posthog.caching.organization_serializer_cache  # noqa: F401, PLC0415
         import posthog.models.activity_logging.signal_handlers  # noqa: F401, PLC0415
 
@@ -66,7 +68,10 @@ class PostHogConfig(AppConfig):
             "environment": os.getenv("OTEL_SERVICE_ENVIRONMENT"),
         }
 
-        posthoganalytics.capture_exception_code_variables = True  # ty: ignore[invalid-assignment]
+        if str_to_bool(os.environ.get("TEMPORAL_DISABLE_EXCEPTION_VARIABLE_CAPTURE", "false")):
+            posthoganalytics.capture_exception_code_variables = False
+        else:
+            posthoganalytics.capture_exception_code_variables = True  # ty: ignore[invalid-assignment]
 
         if settings.E2E_TESTING:
             posthoganalytics.api_key = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"  # ty: ignore[invalid-assignment]

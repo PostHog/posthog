@@ -71,7 +71,9 @@ Pass the description straight to the `body` argument of the PR-creation tool (th
 
 ### Pushing to remote
 
-Pushes trigger CI, which burns runner credits. Refrain from pushing unless explicitly instructed or until the task is complete — batch local commits and push once at the end rather than after every change. If you're mid-task or iterating, keep work local.
+Don't open GitHub issues or pull requests without human instruction.
+Once a branch already has an open PR, push incremental changes and fixes to it without waiting for human guidance — keeping the PR current is part of the work.
+Pushes still trigger CI, which burns runner credits, so batch related commits and push once the increment is ready rather than after every change.
 
 ### Public open source repo guidance
 

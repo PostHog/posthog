@@ -59,6 +59,12 @@ class SourceResponse:
     rows_to_sync: Optional[int] = None
     has_duplicate_primary_keys: Optional[bool] = None
     """Whether incremental tables have non-unique primary keys"""
+    xmin_ceiling_xid: Optional[int] = None
+    """xmin syncs: bare 32-bit ceiling captured this run, persisted as the next run's lower bound."""
+    xmin_ceiling_xid8: Optional[int] = None
+    """xmin syncs: full 64-bit `xid8` ceiling, the durable wraparound-safe cursor."""
+    xmin_num_wraparound: Optional[int] = None
+    """xmin syncs: epoch (high 32 bits of `xmin_ceiling_xid8`) at this run's ceiling."""
 
 
 @dataclasses.dataclass

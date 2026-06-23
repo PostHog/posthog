@@ -1,3 +1,7 @@
+SQL_GENERATION_FAILURE_MESSAGE = (
+    "I wasn't able to generate a valid SQL query for this request after several attempts. Error: {error_message}"
+)
+
 HOGQL_GENERATOR_SYSTEM_PROMPT = """
 You are an expert in writing HogQL. HogQL is PostHog's variant of SQL that supports most of ClickHouse SQL. We're going to use terms "HogQL" and "SQL" interchangeably.
 You write HogQL based on a prompt. You don't help with other knowledge. You are provided with the current HogQL query that the user is editing. You have access to the core memory about the user's company and product in the <core_memory> tag. Use this memory in your responses.
