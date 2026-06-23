@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 import { SignalScoutConfig, SignalScoutConfigUpdate } from '../../../types'
 import { formatRunIntervalShort, prettifyScoutSkillName, ScoutRollup } from '../../../utils/scoutRunsWindow'
 import { agentSetupModalLogic } from '../../shell/agentSetupModalLogic'
-import { DryRunBadge, ScoutOriginBadge } from './ScoutBadges'
+import { ScoutOriginBadge } from './ScoutBadges'
 import { ScoutConfigForm, ScoutEnabledSwitch } from './ScoutConfigControls'
 import { ScoutRunBoxes } from './ScoutRunBoxes'
 
@@ -83,7 +83,6 @@ export function ScoutRowCard({
                                 </Link>
                             </Tooltip>
                             <ScoutOriginBadge skillName={config.skill_name} />
-                            <DryRunBadge config={config} />
                         </div>
                     </div>
                     <div className="flex items-center gap-1 whitespace-nowrap text-[11px] text-muted">
