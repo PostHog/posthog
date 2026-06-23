@@ -79,18 +79,18 @@ def get_v2_saved_query_ids(candidate_ids: Collection[uuid.UUID] | None = None) -
             return set()
         # Resolve the candidate saved queries to their DAGs first so the Temporal lookup is scoped
         # to just those DAGs rather than listing every schedule in the namespace.
-        pairs = list(
-            Node.objects.filter(saved_query_id__in=candidate_ids, saved_query_id__isnull=False).values_list(
-                "saved_query_id", "dag_id"
-            )
-        )
-        candidate_dag_ids = {str(dag_id) for _, dag_id in pairs if dag_id is not None}
-        if not candidate_dag_ids:
+        dag_id_by_saved_query = {
+            saved_query_id: str(dag_id)
+            for saved_query_id, dag_id in Node.objects.filter(
+                saved_query_id__in=candidate_ids, saved_query_id__isnull=False
+            ).values_list("saved_query_id", "dag_id")
+            if dag_id is not None
+        }
+        if not dag_id_by_saved_query:
             return set()
-        v2_dag_ids = get_v2_scheduled_dag_ids(candidate_dag_ids)
-        if not v2_dag_ids:
-            return set()
-        return {sq_id for sq_id, dag_id in pairs if dag_id is not None and str(dag_id) in v2_dag_ids}
+
+        v2_dag_ids = get_v2_scheduled_dag_ids(set(dag_id_by_saved_query.values()))
+        return {saved_query_id for saved_query_id, dag_id in dag_id_by_saved_query.items() if dag_id in v2_dag_ids}
 
     v2_dag_ids = get_v2_scheduled_dag_ids()
     if not v2_dag_ids:
