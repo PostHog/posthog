@@ -482,9 +482,20 @@ def finish_team_setup(http_request) -> FinishResult:
         )
 
     # `resolve_github_setup_callback_context` already filtered team_id by `user.teams`.
-    # Permission changes between authorize-click and callback-return (admin demoted, removed
-    # from team, team deleted) are rare enough to not warrant a typed error; let them 500.
+    # Permission changes between authorize-click and callback-return (removed from team,
+    # team deleted) are rare enough to not warrant a typed error; let them 500.
     team = Team.objects.select_related("organization").get(id=team_id)
+
+    # Membership alone isn't enough — creating a team integration requires admin access, matching
+    # the strict permission that gates setup initiation. The callback's team_id can come from a
+    # user-controlled `next`/`state` param, so a plain member must not complete the install here.
+    if not github_callback_state.has_team_management_access(user, team):
+        return FinishResult(
+            redirect_kind="team_setup",
+            next_url=next_url,
+            team_id=team_id,
+            error="insufficient_permissions",
+        )
 
     code = http_request.GET.get("code") or None
     request = authenticated_drf_request(http_request)

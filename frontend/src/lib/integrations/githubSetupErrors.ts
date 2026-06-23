@@ -15,6 +15,9 @@ export const GITHUB_SETUP_ERROR_MESSAGES: Record<string, string> = {
     installation_token_failed: 'Could not get an access token from GitHub. Please try again.',
     integration_create_failed: 'Could not save the GitHub connection. Please try again.',
     github_install_failed: 'Could not connect GitHub. Please try again.',
+    github_install_pending: GITHUB_INSTALL_PENDING_MESSAGE,
+    insufficient_permissions:
+        'You need admin access to this project to connect a GitHub integration. Ask a project admin to set it up.',
 }
 
 export function normalizeGithubOAuthCallbackError(githubError: string): string {
@@ -22,9 +25,15 @@ export function normalizeGithubOAuthCallbackError(githubError: string): string {
 }
 
 export function getGithubSetupErrorCode(searchParams: Record<string, unknown>): string {
+    const pending = searchParams.github_install_pending
+    // An install awaiting org-owner approval isn't a hard error, but surfacing it as an error code routes
+    // it through the existing `failed` path — so the desktop deep-link contract stays `status=success|error`
+    // and doesn't falsely read as a completed connection.
+    const isPending = pending === '1' || pending === 1 || pending === true || pending === 'true'
     return (
         (typeof searchParams.error === 'string' && searchParams.error) ||
         (typeof searchParams.github_setup_error === 'string' && searchParams.github_setup_error) ||
+        (isPending ? 'github_install_pending' : '') ||
         ''
     )
 }

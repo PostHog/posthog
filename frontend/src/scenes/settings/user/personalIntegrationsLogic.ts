@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, listeners, path } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -63,7 +63,20 @@ export const personalIntegrationsLogic = kea<personalIntegrationsLogicType>([
 
     actions({
         connectGitHub: true,
+        connectGitHubFailure: true,
         disconnectGitHub: (installationId: string) => ({ installationId }),
+    }),
+
+    reducers({
+        // Guards against double-submission: the install request redirects to github.com on success
+        // (so it never needs resetting then), and resets on failure so the user can retry.
+        githubConnecting: [
+            false,
+            {
+                connectGitHub: () => true,
+                connectGitHubFailure: () => false,
+            },
+        ],
     }),
 
     loaders(() => ({
@@ -99,6 +112,7 @@ export const personalIntegrationsLogic = kea<personalIntegrationsLogicType>([
                 const response = await api.create<GithubStartResponse>('api/users/@me/integrations/github/start/', body)
                 window.location.href = response.install_url
             } catch (error: unknown) {
+                actions.connectGitHubFailure()
                 const message = error instanceof Error && 'detail' in error ? (error as any).detail : undefined
                 lemonToast.error(message || 'Could not start GitHub installation.')
             }

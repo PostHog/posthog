@@ -1943,6 +1943,29 @@ class TestGitHubTeamIntegrationComplete:
         assert cache.get(f"github_authorize:{state_token}") is None
         assert cache.get(f"github_authorize_pending:{self.user.id}") is None
 
+    def test_non_admin_member_cannot_complete_team_install(self, client: HttpClient):
+        member = User.objects.create_and_join(
+            self.organization, "member@posthog.com", "test", level=OrganizationMembership.Level.MEMBER
+        )
+        client.force_login(member)
+
+        # No valid authorize state — the member supplies the team via the user-controlled `state` `next`,
+        # which resolves team_id purely from the path. Membership alone must not let them complete it.
+        next_path = f"/project/{self.team.pk}/settings/project-integrations"
+        response = client.get(
+            "/integrations/github/callback/",
+            {
+                "installation_id": "12345",
+                "code": "oauth-code-abc",
+                "setup_action": "install",
+                "state": urlencode({"next": next_path, "token": "no-such-token"}),
+            },
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "github_setup_error=insufficient_permissions" in response["Location"]
+        assert not Integration.objects.filter(team=self.team, kind="github").exists()
+
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
     @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
     @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")

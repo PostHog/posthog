@@ -14,7 +14,9 @@ from posthog.api.github_callback.types import (
     GitHubAuthorizeState,
     team_id_from_next_url,
 )
-from posthog.models import User
+from posthog.models import Team, User
+from posthog.models.organization import OrganizationMembership
+from posthog.user_permissions import UserPermissions
 
 
 def parse_github_authorize_state_param(state_raw: str | None) -> tuple[str | None, str | None]:
@@ -44,6 +46,19 @@ def store_unified_authorize_state(state: GitHubAuthorizeState, *, ttl: int | Non
     timeout = ttl or GITHUB_AUTHORIZE_STATE_CACHE_TTL_SECONDS
     cache.set(unified_authorize_cache_key(state.token), state.cache_payload(), timeout=timeout)
     cache.set(unified_authorize_pending_cache_key(state.user_id), state.token, timeout=timeout)
+
+
+def has_team_management_access(user: User, team: Team) -> bool:
+    """Whether ``user`` may create or modify a team-level integration for ``team``.
+
+    Mirrors ``TeamMemberStrictManagementPermission`` (which gates integration setup on the
+    DRF side) for these plain Django callback views: writing a team integration requires
+    admin-level effective access, not mere membership. The callback's ``team_id`` can be
+    derived from a user-controlled ``next``/``state`` param, so a bare membership check would
+    let any project member attach an integration that initiation reserves for admins.
+    """
+    level = UserPermissions(user).team(team).effective_membership_level
+    return level is not None and level >= OrganizationMembership.Level.ADMIN
 
 
 def resolve_github_setup_callback_context(
