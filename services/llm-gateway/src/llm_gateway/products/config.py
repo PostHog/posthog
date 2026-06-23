@@ -23,7 +23,7 @@ class ProductConfig:
     # QuotaResource the gateway gates this product on when billable. Different
     # billable products can draw from different pools — PostHog AI credits vs. the
     # separate Signals credits bucket. Must match a `QuotaResource` value exposed by
-    # Django's /api/projects/{id}/quota_limits/ endpoint.
+    # Django's /api/projects/{team_id}/quota_limits/ endpoint.
     quota_resource: str = "ai_credits"
     # Message returned to the caller when this product is gated for quota exhaustion.
     quota_exhausted_message: str = (

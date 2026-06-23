@@ -91,9 +91,6 @@ class QuotaResolver:
         self._cache_ttl = get_settings().quota_cache_ttl
 
     async def get_resource_status(self, resource_key: str, team_id: int, auth_header: str) -> QuotaResourceStatus:
-        return await self._get_resource_status(resource_key, team_id, auth_header)
-
-    async def _get_resource_status(self, resource_key: str, team_id: int, auth_header: str) -> QuotaResourceStatus:
         cached = await self._get_cached(resource_key, team_id)
         if cached is not None:
             return cached

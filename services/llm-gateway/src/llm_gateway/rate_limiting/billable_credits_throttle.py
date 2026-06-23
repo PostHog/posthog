@@ -12,10 +12,13 @@ _RETRY_AFTER_SECONDS = 60
 
 
 class BillableCreditThrottle(Throttle):
-    """Gate billable-product LLM calls on the team's AI credits balance.
+    """Gate billable-product LLM calls on the team's credit balance.
 
-    Reads ``ai_credits_exhausted`` from :class:`ThrottleContext`, pre-resolved
-    by the dependency layer (see ``resolve_quota_status``).
+    The credit pool is per-product — ``ProductConfig.quota_resource`` selects it
+    (PostHog AI credits vs. the separate Signals credits bucket). Reads
+    ``ai_credits_exhausted`` from :class:`ThrottleContext`, pre-resolved by the
+    dependency layer (see ``resolve_quota_status``), and denies with the
+    product's ``quota_exhausted_message``.
     """
 
     scope = "billable_credits"

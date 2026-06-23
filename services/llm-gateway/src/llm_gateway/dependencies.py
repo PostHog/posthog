@@ -163,10 +163,12 @@ async def resolve_plan_and_quota(
     team_id: int | None,
     product: str,
 ) -> tuple[PlanInfo, QuotaResourceStatus]:
-    """Fetch plan info and (for billable products) AI credits quota in parallel.
+    """Fetch plan info and (for billable products) the product's credit quota in parallel.
 
-    Both calls are independent Django roundtrips on cache miss, so for billable
-    products we overlap them. For non-billable products the throttle stack
+    The quota resource is per-product (``ProductConfig.quota_resource`` —
+    e.g. ``ai_credits`` or ``signals_credits``). Both calls are independent
+    Django roundtrips on cache miss, so for billable products we overlap them.
+    For non-billable products the throttle stack
     short-circuits regardless of quota state, so we skip the resolver entirely
     rather than paying for the Redis GET (and the HTTP fallback on cache miss).
     """
