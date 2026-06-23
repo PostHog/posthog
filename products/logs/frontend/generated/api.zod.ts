@@ -640,6 +640,12 @@ export const LogsFacetValuesCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe('Filter by service names (ignored when faceting on service_name).'),
             searchTerm: zod.string().optional().describe('Full-text search term to filter log bodies.'),
+            facetSearch: zod
+                .string()
+                .optional()
+                .describe(
+                    "Type-ahead filter over the faceted field's own values (case-insensitive substring match). Distinct from searchTerm, which searches log bodies."
+                ),
             filterGroup: zod
                 .array(
                     zod.object({
