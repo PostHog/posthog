@@ -3,8 +3,8 @@
 Sourced from the official HubSpot CRM API reference (https://developers.hubspot.com/docs/api/crm).
 Keyed by the lowercase endpoint names in `settings.py` `ENDPOINTS`, which match the
 `ExternalDataSchema.name` of a synced Hubspot table. Columns map to HubSpot's default CRM
-properties. Endpoints/columns absent here fall back to LLM enrichment. Extend as coverage grows —
-see the `implementing-warehouse-sources` skill.
+properties (`DEFAULT_*_PROPS` in `settings.py`). Covers every endpoint Hubspot exposes for sync; a
+coverage test keeps this in lockstep with `ENDPOINTS`. Columns absent here fall back to LLM enrichment.
 """
 
 from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
@@ -65,6 +65,54 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "hs_ticket_category": "The category the ticket was filed under.",
             "createdate": "Date the ticket was created in HubSpot.",
             "hs_lastmodifieddate": "Date any property on the ticket was last modified.",
+        },
+    },
+    "quotes": {
+        "description": "A sales quote (proposal of products and prices) sent to a customer in HubSpot.",
+        "docs_url": "https://developers.hubspot.com/docs/api/crm/quotes",
+        "columns": {
+            "hs_object_id": "HubSpot's unique internal identifier for the quote.",
+            "hs_title": "Title of the quote.",
+            "hs_status": "The quote's current status (e.g. draft, pending approval, approved, published).",
+            "hs_expiration_date": "Date the quote expires.",
+            "hs_public_url_key": "Key used to build the quote's public, shareable URL.",
+            "hs_createdate": "Date the quote was created in HubSpot.",
+            "hs_lastmodifieddate": "Date any property on the quote was last modified.",
+        },
+    },
+    "emails": {
+        "description": "A logged email engagement (sent or received) associated with CRM records in HubSpot.",
+        "docs_url": "https://developers.hubspot.com/docs/api/crm/email",
+        "columns": {
+            "hs_object_id": "HubSpot's unique internal identifier for the email engagement.",
+            "hs_timestamp": "Time the email was sent or received.",
+            "hs_email_direction": "Direction of the email (e.g. EMAIL for outbound, INCOMING_EMAIL for inbound).",
+            "hs_email_status": "Delivery status of the email (e.g. SENT, BOUNCED, FAILED).",
+            "hs_email_subject": "Subject line of the email.",
+            "hs_email_text": "Plain-text body of the email.",
+            "hs_email_html": "HTML body of the email.",
+            "hs_email_headers": "Raw email headers (from, to, cc) as a serialized string.",
+            "hs_attachment_ids": "IDs of files attached to the email.",
+            "hs_lastmodifieddate": "Date any property on the email was last modified.",
+        },
+    },
+    "meetings": {
+        "description": "A logged meeting engagement associated with CRM records in HubSpot.",
+        "docs_url": "https://developers.hubspot.com/docs/api/crm/meetings",
+        "columns": {
+            "hs_object_id": "HubSpot's unique internal identifier for the meeting engagement.",
+            "hs_timestamp": "Time the meeting is scheduled to occur.",
+            "hs_meeting_title": "Title of the meeting.",
+            "hs_meeting_body": "Description or agenda of the meeting.",
+            "hs_internal_meeting_notes": "Internal notes about the meeting, not shared with the contact.",
+            "hs_meeting_external_URL": "External calendar or video-conference URL for the meeting.",
+            "hs_meeting_location": "Where the meeting takes place.",
+            "hs_meeting_start_time": "Scheduled start time of the meeting.",
+            "hs_meeting_end_time": "Scheduled end time of the meeting.",
+            "hs_meeting_outcome": "Outcome of the meeting (e.g. scheduled, completed, canceled, no show).",
+            "hs_activity_type": "The configured meeting/activity type.",
+            "hs_attachment_ids": "IDs of files attached to the meeting.",
+            "hs_lastmodifieddate": "Date any property on the meeting was last modified.",
         },
     },
 }
