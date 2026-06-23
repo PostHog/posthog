@@ -1,3 +1,5 @@
+from typing import Literal
+
 import pytest
 from unittest import mock
 
@@ -11,7 +13,7 @@ from posthog.temporal.data_imports.sources.metabase.source import MetabaseSource
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
-def _config(selection: str = API_KEY_AUTH, **auth_kwargs) -> MetabaseSourceConfig:
+def _config(selection: Literal["api_key", "session"] = "api_key", **auth_kwargs) -> MetabaseSourceConfig:
     return MetabaseSourceConfig(
         host="https://company.metabaseapp.com",
         auth_method=MetabaseAuthMethodConfig(selection=selection, **auth_kwargs),
@@ -47,6 +49,7 @@ class TestMetabaseSource:
 
     def test_credential_fields_are_secret(self):
         auth_field = self.source.get_source_config.fields[1]
+        assert isinstance(auth_field, SourceFieldSelectConfig)
         secret_field_names = {
             f.name
             for option in auth_field.options

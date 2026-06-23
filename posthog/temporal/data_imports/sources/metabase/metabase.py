@@ -99,8 +99,10 @@ def _resolve_auth_headers(
     if response.status_code == 429 or response.status_code >= 500:
         raise MetabaseRetryableError(f"Metabase session error (retryable): status={response.status_code}")
     if not response.ok:
+        # Unexpected non-auth status (e.g. 404 wrong path, 422). Surface as a typed retryable error
+        # rather than letting raise_for_status() leak an HTTPError past callers' except clauses.
         logger.error(f"Metabase session error: status={response.status_code}, body={response.text}")
-        response.raise_for_status()
+        raise MetabaseRetryableError(f"Metabase session error (retryable): status={response.status_code}")
 
     token = response.json().get("id")
     if not token:

@@ -110,6 +110,15 @@ class TestResolveAuthHeaders:
         with pytest.raises(MetabaseAuthError):
             _resolve_auth_headers(session, "https://x.metabaseapp.com", _session_auth(), mock.MagicMock())
 
+    @pytest.mark.parametrize("status_code", [404, 422, 500])
+    def test_session_unexpected_status_raises_retryable_not_httperror(self, status_code):
+        # Unexpected non-auth statuses must surface as a typed retryable error so callers'
+        # except clauses catch them, not a raw requests HTTPError.
+        session = mock.MagicMock()
+        session.post.return_value = _response(status_code=status_code)
+        with pytest.raises(metabase_module.MetabaseRetryableError):
+            _resolve_auth_headers(session, "https://x.metabaseapp.com", _session_auth(), mock.MagicMock())
+
 
 class TestValidateCredentials:
     def _patch_session(self, get_response=None, raises=None):
@@ -178,6 +187,17 @@ class TestValidateCredentials:
             valid, msg = validate_credentials("https://x.metabaseapp.com", _session_auth())
             assert valid is False
             assert msg == "Invalid Metabase username or password"
+            session.get.assert_not_called()
+
+    def test_unexpected_session_status_returns_failure_not_raises(self):
+        # A 404 (e.g. wrong API path) during session minting must come back as (False, msg), not an
+        # uncaught HTTPError bubbling out of source creation.
+        session = mock.MagicMock()
+        session.post.return_value = _response(status_code=404)
+        with mock.patch.object(metabase_module, "make_tracked_session", return_value=session):
+            valid, msg = validate_credentials("https://x.metabaseapp.com", _session_auth())
+            assert valid is False
+            assert msg is not None
             session.get.assert_not_called()
 
 
