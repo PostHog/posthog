@@ -76,7 +76,8 @@ jobs:
         name: Determine need to run backend and migration checks
         # Set job outputs to values from filter step
         outputs:
-            backend: ${{ steps.filter.outputs.backend || 'true' }}
+            # Run unless a PR touches only ee/frontend/ (frontend code) — see backend_ee_frontend.
+            backend: ${{ github.event_name == 'push' || (steps.filter.outputs.backend == 'true' && fromJSON(steps.filter.outputs.backend_count || '0') > fromJSON(steps.filter.outputs.backend_ee_frontend_count || '0')) }}
             backend_files: ${{ steps.filter.outputs.backend_files }}
             migrations: ${{ steps.filter.outputs.migrations || 'true' }}
             migrations_files: ${{ steps.filter.outputs.migrations_files }}
@@ -122,10 +123,8 @@ jobs:
                         # NOTE: we are at risk of missing a dependency here. We could make
                         # the dependencies more clear if we separated the backend/frontend
                         # code completely
-                        # really we should ignore ee/frontend/** but dorny doesn't support that
-                        # - '!ee/frontend/**'
-                        # including the negated rule appears to work
-                        # but makes it always match because the checked file always isn't `ee/frontend/**` 🙈
+                        # Also matches ee/frontend/ (frontend code); netted out via
+                        # backend_ee_frontend below since dorny can't '!'-exclude here.
                         - 'ee/**/*'
                         - 'common/__init__.py'
                         - 'common/hogql_parser/**'
@@ -193,6 +192,10 @@ jobs:
                         - bin/ci-wait-for-docker
                         - frontend/public/email/*
                         - 'docker/clickhouse/**'
+                      # Subset of 'ee/**/*' above; backend output subtracts its count
+                      # so ee/frontend-only PRs skip backend (cf. ci-storybook.yml).
+                      backend_ee_frontend:
+                        - 'ee/frontend/**'
                       legacy:
                         # Non-product backend code — when only products/ change,
                         # turbo-discover uses Turbo query affectedness to detect changed
