@@ -69,24 +69,23 @@ def query_workflow_health(
         placeholders["branch"] = ast.Constant(value=branch)
 
     runs_source = curated.run_source()
-    sql = (
-        _SELECT.replace("__RUNS_SOURCE__", runs_source)
-        .replace("__DATE_TO__", date_to_clause)
-        .replace("__BRANCH__", branch_clause)
-    )
+
+    def fill(template: str) -> str:
+        return (
+            template.replace("__RUNS_SOURCE__", runs_source)
+            .replace("__DATE_TO__", date_to_clause)
+            .replace("__BRANCH__", branch_clause)
+        )
+
     response = curated.run(
-        sql,
+        fill(_SELECT),
         query_type="engineering_analytics.workflow_health",
         placeholders=placeholders,
     )
     if not response.results:
         return []
 
-    daily_sql = (
-        _DAILY_SELECT.replace("__RUNS_SOURCE__", runs_source)
-        .replace("__DATE_TO__", date_to_clause)
-        .replace("__BRANCH__", branch_clause)
-    )
+    daily_sql = fill(_DAILY_SELECT)
     daily_response = curated.run(
         daily_sql,
         query_type="engineering_analytics.workflow_health_daily",
