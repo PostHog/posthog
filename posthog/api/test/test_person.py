@@ -1,6 +1,6 @@
 import json
 from typing import Optional, cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from freezegun.api import freeze_time
@@ -1676,6 +1676,31 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         with self.assertNumQueries(22):
             response_include_total = self.client.get("/api/person/?limit=10&include_total").json()
         self.assertEqual(response_include_total["count"], 20)  #  With `include_total`, the total count is returned too
+
+    @freeze_time("2021-08-25T22:09:14.252Z")
+    def test_pagination_no_gaps_or_duplicates_when_created_at_is_tied(self):
+        # Bulk-created persons can share an identical created_at, so the `created_at DESC` ordering
+        # falls to the `id DESC` tiebreaker. Page boundaries must stay disjoint and complete: every
+        # person returned exactly once, with no gaps or duplicates across pages — the failure mode
+        # that actually matters on this high-traffic paginated endpoint.
+        uuids = [UUID(f"00000000-0000-0000-0000-0000000000{i:02d}") for i in range(1, 8)]
+        for person_uuid in uuids:
+            Person.objects.create(team=self.team, distinct_ids=[str(person_uuid)], uuid=person_uuid)
+
+        expected = {str(person_uuid) for person_uuid in uuids}
+        full = [row["id"] for row in self.client.get("/api/person/?limit=100").json()["results"]]
+        self.assertEqual(set(full), expected)
+        self.assertEqual(len(full), len(uuids))  # complete in a single page
+
+        # Paging with a small limit must cover exactly the same set, once each.
+        paged: list[str] = []
+        url: Optional[str] = "/api/person/?limit=2"
+        while url:
+            page = self.client.get(url).json()
+            paged += [row["id"] for row in page["results"]]
+            url = page["next"]
+        self.assertEqual(len(paged), len(uuids))  # no person lost or repeated at a page boundary
+        self.assertEqual(set(paged), expected)  # union of pages == full set, gapless and dup-free
 
     def test_retrieve_person(self):
         person = Person.objects.create(  # creating without _create_person to guarentee created_at ordering
