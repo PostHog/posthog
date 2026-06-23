@@ -150,7 +150,9 @@ def validate_credentials(
     params: dict[str, Any] = {"limit": 1, "offset": 0, **(extra_params or {})}
     url = _build_url(path, params)
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
+        # redact_values masks the API key in logged URLs and captured HTTP samples; the X-ElasticEmail-ApiKey
+        # header name isn't in the transport's generic auth denylist, so we redact the value explicitly.
+        response = make_tracked_session(redact_values=(api_key,)).get(url, headers=_get_headers(api_key), timeout=10)
     except requests.RequestException:
         # A transport failure (DNS, connection, timeout) isn't a credential verdict, but at source-create
         # time we can only report valid/invalid — treat an unreachable API as "can't validate" → invalid.
@@ -172,7 +174,9 @@ def get_rows(
     headers = _get_headers(api_key)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
     # One session reused across every page so urllib3 keeps the connection alive between requests.
-    session = make_tracked_session()
+    # redact_values masks the API key in logged URLs and captured HTTP samples; the X-ElasticEmail-ApiKey
+    # header name isn't in the transport's generic auth denylist, so we redact the value explicitly.
+    session = make_tracked_session(redact_values=(api_key,))
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     offset = resume.offset if resume is not None else 0

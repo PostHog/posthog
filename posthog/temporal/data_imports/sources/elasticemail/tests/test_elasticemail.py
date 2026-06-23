@@ -193,7 +193,11 @@ class TestValidateCredentials:
     )
     def test_status_mapping(self, _name: str, status: int, body: str, expected: bool) -> None:
         with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(elasticemail, "make_tracked_session", lambda: _FakeSession(_make_response(status, text=body)))
+            mp.setattr(
+                elasticemail,
+                "make_tracked_session",
+                lambda **_: _FakeSession(_make_response(status, text=body)),
+            )
             assert validate_credentials("key") is expected
 
     def test_transport_exception_is_invalid(self, monkeypatch: Any) -> None:
@@ -201,7 +205,7 @@ class TestValidateCredentials:
             def get(self, *a: Any, **k: Any) -> Any:
                 raise requests.ConnectionError("down")
 
-        monkeypatch.setattr(elasticemail, "make_tracked_session", lambda: _Boom())
+        monkeypatch.setattr(elasticemail, "make_tracked_session", lambda **_: _Boom())
         assert validate_credentials("key") is False
 
 
