@@ -219,14 +219,13 @@ def _generate_descriptions(
         columns_needing_description=columns_needing_description,
         business_context=business_context,
     )
-    client = get_llm_client(product="django", team_id=team_id)
+    client = get_llm_client(product="warehouse_semantic_enrichment", team_id=team_id)
     response = client.chat.completions.create(
         model=ENRICHMENT_MODEL,
         messages=[{"role": "user", "content": prompt}],
         temperature=0.2,
         response_format={"type": "json_object"},
         user=f"team-{team_id}",
-        extra_headers={"x-posthog-property-source_product": "warehouse_semantic_enrichment"},
     )
     usage_obj = getattr(response, "usage", None)
     usage: dict[str, Any] = {
