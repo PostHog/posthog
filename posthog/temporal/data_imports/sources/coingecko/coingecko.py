@@ -88,7 +88,8 @@ def validate_credentials(plan: str, api_key: str) -> bool:
     an invalid one returns 401."""
     url = f"{_base_url(plan)}/ping"
     try:
-        response = make_tracked_session().get(url, headers=_headers(plan, api_key), timeout=10)
+        session = make_tracked_session(redact_values=(api_key,) if api_key else ())
+        response = session.get(url, headers=_headers(plan, api_key), timeout=10)
         return response.status_code == 200
     except Exception:
         return False
@@ -102,7 +103,7 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[CoinGeckoResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     config = COINGECKO_ENDPOINTS[endpoint]
-    session = make_tracked_session()
+    session = make_tracked_session(redact_values=(api_key,) if api_key else ())
     headers = _headers(plan, api_key)
     base_url = _base_url(plan)
 

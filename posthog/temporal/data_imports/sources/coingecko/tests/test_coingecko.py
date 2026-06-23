@@ -156,6 +156,8 @@ class TestValidateCredentials:
         url = get.call_args.args[0]
         assert url == f"{PRO_BASE_URL}/ping"
         assert get.call_args.kwargs["headers"]["x-cg-pro-api-key"] == "secret"
+        # The key rides in a custom header the sampler can't predict, so it must be redacted by value.
+        assert mock_session.call_args.kwargs["redact_values"] == ("secret",)
 
 
 class TestGetRows:
@@ -214,6 +216,16 @@ class TestGetRows:
         ):
             list(get_rows(PLAN_DEMO, "key", "coins_markets", mock.MagicMock(), manager))
         assert "vs_currency=usd" in session.requested_urls[0]
+
+    def test_redacts_api_key_in_samples(self) -> None:
+        manager = _manager()
+        session = _FakeSession([_FakeResponse(json_data=[{"id": "btc"}])])
+        with mock.patch(
+            "posthog.temporal.data_imports.sources.coingecko.coingecko.make_tracked_session", return_value=session
+        ) as mock_session:
+            list(get_rows(PLAN_DEMO, "secret", "coins_markets", mock.MagicMock(), manager))
+        # The key rides in a custom header the sampler can't predict, so it must be redacted by value.
+        assert mock_session.call_args.kwargs["redact_values"] == ("secret",)
 
 
 class TestCoinGeckoSource:
