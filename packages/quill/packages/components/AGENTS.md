@@ -27,6 +27,7 @@ const columns: ColumnDef<Person>[] = [
   pageSizeOptions={[10, 25, 50]} // renders the per-page selector
   stickyHeader                   // or "page" to stick to document scroll
   fullWidth
+  size="sm"                      // tighten cell padding; pair with Card size="sm"
 />
 ```
 

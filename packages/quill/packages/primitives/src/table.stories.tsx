@@ -4,7 +4,7 @@ import * as React from 'react'
 
 import { Badge } from './badge'
 import { Button } from './button'
-import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from './empty'
+import { Card, CardContent, CardHeader, CardTitle } from './card'
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -12,6 +12,7 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from './dropdown-menu'
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from './empty'
 import { ItemContent, ItemDescription, ItemTitle } from './item'
 import {
     Table,
@@ -24,7 +25,6 @@ import {
     TableHeader,
     TableRow,
 } from './table'
-import { Card, CardContent, CardHeader, CardTitle } from './card'
 
 const meta = {
     title: 'Primitives/Table',
@@ -595,40 +595,79 @@ export const EmptyState: Story = {
     ),
 } satisfies Story
 
-// Table flush inside a Card: `gap-0 pb-0` on the Card + `p-0` on CardContent let
-// the transparent cells reach the card's rounded edges with no double padding.
+// Table flush inside a Card: the `flush` prop drops the card's section gap +
+// bottom padding and the CardContent inline padding, so the transparent cells
+// reach the card's rounded edges with no double padding.
 export const InCard: Story = {
     render: () => (
-        <Card className="gap-0 pb-0">
+        <Card flush>
             <CardHeader>
                 <CardTitle>Table in Card</CardTitle>
             </CardHeader>
-            <CardContent className="p-0">
-
-            <Table fullWidth>
-                <TableHeader>
-                    <TableRow>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Email</TableHead>
-                        <TableHead>Role</TableHead>
-                        <TableHead className="w-0">
-                            <span className="sr-only">Actions</span>
-                        </TableHead>
-                    </TableRow>
-                </TableHeader>
-                <TableBody>
-                    {manyRows.slice(0, 6).map((row) => (
-                        <TableRow key={row.id} className="group/row">
-                            <TableCell className="font-medium">{row.name}</TableCell>
-                            <TableCell>{row.email}</TableCell>
-                            <TableCell>{row.role}</TableCell>
-                            <TableCell className="w-0 text-right">
-                                <ActionsMenu label={`Actions for ${row.name}`} />
-                            </TableCell>
+            <CardContent>
+                <Table fullWidth>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>Name</TableHead>
+                            <TableHead>Email</TableHead>
+                            <TableHead>Role</TableHead>
+                            <TableHead className="w-0">
+                                <span className="sr-only">Actions</span>
+                            </TableHead>
                         </TableRow>
-                    ))}
-                </TableBody>
-            </Table>
+                    </TableHeader>
+                    <TableBody>
+                        {manyRows.slice(0, 6).map((row) => (
+                            <TableRow key={row.id} className="group/row">
+                                <TableCell className="font-medium">{row.name}</TableCell>
+                                <TableCell>{row.email}</TableCell>
+                                <TableCell>{row.role}</TableCell>
+                                <TableCell className="w-0 text-right">
+                                    <ActionsMenu label={`Actions for ${row.name}`} />
+                                </TableCell>
+                            </TableRow>
+                        ))}
+                    </TableBody>
+                </Table>
+            </CardContent>
+        </Card>
+    ),
+} satisfies Story
+
+// Dense table flush inside a `Card size="sm"`: `size="sm"` on the Table tightens
+// its head/cell inline padding to 0.75rem so the edge columns line up with the
+// card header title (also 0.75rem at `size="sm"`).
+export const InCardSmall: Story = {
+    render: () => (
+        <Card size="sm" flush>
+            <CardHeader>
+                <CardTitle>Table in small Card</CardTitle>
+            </CardHeader>
+            <CardContent>
+                <Table size="sm" fullWidth>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>Name</TableHead>
+                            <TableHead>Email</TableHead>
+                            <TableHead>Role</TableHead>
+                            <TableHead className="w-0">
+                                <span className="sr-only">Actions</span>
+                            </TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {manyRows.slice(0, 6).map((row) => (
+                            <TableRow key={row.id} className="group/row">
+                                <TableCell className="font-medium">{row.name}</TableCell>
+                                <TableCell>{row.email}</TableCell>
+                                <TableCell>{row.role}</TableCell>
+                                <TableCell className="w-0 text-right">
+                                    <ActionsMenu label={`Actions for ${row.name}`} />
+                                </TableCell>
+                            </TableRow>
+                        ))}
+                    </TableBody>
+                </Table>
             </CardContent>
         </Card>
     ),
@@ -638,41 +677,39 @@ export const InCard: Story = {
 // short table still fills a taller card body.
 export const InCardMinHeight: Story = {
     render: () => (
-        <Card className="gap-0 pb-0 min-h-120">
+        <Card flush className="min-h-120">
             <CardHeader>
                 <CardTitle>Table in Card</CardTitle>
             </CardHeader>
-            <CardContent className="p-0">
-
-            <Table fullWidth>
-                <TableHeader>
-                    <TableRow>
-                        <TableHead>Name</TableHead>
-                        <TableHead>Email</TableHead>
-                        <TableHead>Role</TableHead>
-                        <TableHead className="w-0">
-                            <span className="sr-only">Actions</span>
-                        </TableHead>
-                    </TableRow>
-                </TableHeader>
-                <TableBody>
-                    {manyRows.slice(0, 6).map((row) => (
-                        <TableRow key={row.id} className="group/row">
-                            <TableCell className="font-medium">{row.name}</TableCell>
-                            <TableCell>{row.email}</TableCell>
-                            <TableCell>{row.role}</TableCell>
-                            <TableCell className="w-0 text-right">
-                                <ActionsMenu label={`Actions for ${row.name}`} />
-                            </TableCell>
+            <CardContent>
+                <Table fullWidth>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>Name</TableHead>
+                            <TableHead>Email</TableHead>
+                            <TableHead>Role</TableHead>
+                            <TableHead className="w-0">
+                                <span className="sr-only">Actions</span>
+                            </TableHead>
                         </TableRow>
-                    ))}
-                </TableBody>
-            </Table>
+                    </TableHeader>
+                    <TableBody>
+                        {manyRows.slice(0, 6).map((row) => (
+                            <TableRow key={row.id} className="group/row">
+                                <TableCell className="font-medium">{row.name}</TableCell>
+                                <TableCell>{row.email}</TableCell>
+                                <TableCell>{row.role}</TableCell>
+                                <TableCell className="w-0 text-right">
+                                    <ActionsMenu label={`Actions for ${row.name}`} />
+                                </TableCell>
+                            </TableRow>
+                        ))}
+                    </TableBody>
+                </Table>
             </CardContent>
         </Card>
     ),
 } satisfies Story
-
 
 // Sticky header inside a Card: a definite height (`h-96`, not `max-h-*` — the
 // scroll viewport needs a resolved height) makes the body scroll, and
@@ -681,11 +718,11 @@ export const InCardMinHeight: Story = {
 // so the frozen header matches — here via a Tailwind arbitrary property.
 export const InCardStickyHeader: Story = {
     render: () => (
-        <Card className="gap-0 pb-0">
+        <Card flush>
             <CardHeader>
                 <CardTitle>Table in Card</CardTitle>
             </CardHeader>
-            <CardContent className="p-0">
+            <CardContent>
                 <Table fullWidth stickyHeader className="h-96 [--quill-table-sticky-bg:var(--card)]">
                     <TableHeader>
                         <TableRow>
@@ -713,11 +750,11 @@ export const InCardStickyHeader: Story = {
 // min-h → CardContent flex-1 → Table h-full. Simplest form is just muted text.
 export const InCardEmptyText: Story = {
     render: () => (
-        <Card className="min-h-120 gap-0 pb-0">
+        <Card flush className="min-h-120">
             <CardHeader>
                 <CardTitle>Table in Card Empty Text</CardTitle>
             </CardHeader>
-            <CardContent className="flex-1 p-0">
+            <CardContent className="flex-1">
                 <Table fullWidth className="h-full">
                     <TableHeader>
                         <TableRow>
@@ -743,11 +780,11 @@ export const InCardEmptyText: Story = {
 // TableEmpty — same primitive, richer content, still centered and stretched.
 export const InCardEmptyBlock: Story = {
     render: () => (
-        <Card className="min-h-120 gap-0 pb-0">
+        <Card flush className="min-h-120">
             <CardHeader>
                 <CardTitle>Members</CardTitle>
             </CardHeader>
-            <CardContent className="flex-1 p-0">
+            <CardContent className="flex-1">
                 <Table fullWidth className="h-full">
                     <TableHeader>
                         <TableRow>
