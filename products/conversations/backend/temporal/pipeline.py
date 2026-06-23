@@ -509,7 +509,7 @@ def _build_context_sync(team_id: int, ticket_id: str) -> BuildContextOutput:
     )
 
 
-@activity.defn
+@activity.defn(name="conversations_safety_filter_activity")
 async def safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput:
     """Screen ticket for prompt injection / data exfiltration before the draft loop."""
     async with Heartbeater():
