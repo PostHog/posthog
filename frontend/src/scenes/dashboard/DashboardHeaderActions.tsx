@@ -4,8 +4,8 @@ import { router } from 'kea-router'
 import { IconGridMasonry, IconPlusSmall, IconShare } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
@@ -151,7 +151,7 @@ export function DashboardEditSaveCancelButtons({
 
     return (
         <>
-            <AppShortcut
+            <Shortcut
                 name="CancelDashboardEdit"
                 keybind={[keyBinds.escape]}
                 intent="Cancel edit mode"
@@ -159,9 +159,9 @@ export function DashboardEditSaveCancelButtons({
                 scope={Scene.Dashboard}
             >
                 {cancelButton}
-            </AppShortcut>
+            </Shortcut>
             {applyFiltersButton}
-            <AppShortcut
+            <Shortcut
                 name="SaveDashboard"
                 keybind={[keyBinds.edit, keyBinds.save]}
                 intent="Save dashboard"
@@ -170,7 +170,7 @@ export function DashboardEditSaveCancelButtons({
                 disabled={!canEditDashboard}
             >
                 {saveButton}
-            </AppShortcut>
+            </Shortcut>
         </>
     )
 }
@@ -224,7 +224,7 @@ export function ViewModeActions(): JSX.Element {
                 Share
             </LemonButton>
             {canEditDashboard && (
-                <AppShortcut
+                <Shortcut
                     name="EnterEditMode"
                     scope={Scene.Dashboard}
                     keybind={[keyBinds.edit]}
@@ -244,7 +244,7 @@ export function ViewModeActions(): JSX.Element {
                     >
                         Edit layout
                     </LemonButton>
-                </AppShortcut>
+                </Shortcut>
             )}
             <DashboardAddTileButton />
         </>

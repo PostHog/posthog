@@ -8,12 +8,12 @@ import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customPro
 import { getItemId } from '~/layout/panel-layout/ProjectTree/utils'
 import { UserProductListItem, UserProductListReason } from '~/queries/schema/schema-general'
 
-import type { inlineEditAppsLogicType } from './inlineEditAppsLogicType'
+import type { inlineEditToolsLogicType } from './inlineEditToolsLogicType'
 
 const PRODUCTS_ROOT = 'products://'
 
-export const inlineEditAppsLogic = kea<inlineEditAppsLogicType>([
-    path(['layout', 'panel-layout', 'ai-first', 'tabs', 'inlineEditAppsLogic']),
+export const inlineEditToolsLogic = kea<inlineEditToolsLogicType>([
+    path(['layout', 'panel-layout', 'ai-first', 'tabs', 'inlineEditToolsLogic']),
     connect(() => ({
         values: [customProductsLogic, ['customProducts']],
         actions: [customProductsLogic, ['loadCustomProducts', 'loadCustomProductsSuccess']],
@@ -21,7 +21,7 @@ export const inlineEditAppsLogic = kea<inlineEditAppsLogicType>([
     actions({
         enterEditMode: true,
         saveAndExitEditMode: true,
-        toggleProduct: (productPath: string) => ({ productPath }),
+        toggleTool: (toolPath: string) => ({ toolPath }),
         setLocalToggles: (toggles: Record<string, boolean>) => ({ toggles }),
     }),
     reducers({
@@ -46,7 +46,7 @@ export const inlineEditAppsLogic = kea<inlineEditAppsLogicType>([
             (customProducts): Set<string> =>
                 new Set(customProducts.map((item: { product_path: string }) => item.product_path)),
         ],
-        checkedItems: [
+        checkedTools: [
             (s) => [s.customProducts, s.localToggles],
             (customProducts, localToggles): Record<string, boolean> => {
                 const result: Record<string, boolean> = {}
@@ -54,25 +54,27 @@ export const inlineEditAppsLogic = kea<inlineEditAppsLogicType>([
                     const id = getItemId({ path: item.product_path, type: '' }, PRODUCTS_ROOT)
                     result[id] = true
                 }
-                for (const [productPath, enabled] of Object.entries(localToggles)) {
-                    const id = getItemId({ path: productPath, type: '' }, PRODUCTS_ROOT)
+
+                for (const [toolPath, enabled] of Object.entries(localToggles)) {
+                    const id = getItemId({ path: toolPath, type: '' }, PRODUCTS_ROOT)
                     result[id] = enabled
                 }
+
                 return result
             },
         ],
     }),
     listeners(({ actions, values }) => ({
-        toggleProduct: ({ productPath }) => {
-            const serverState = values.selectedPaths.has(productPath)
-            const currentState = productPath in values.localToggles ? values.localToggles[productPath] : serverState
+        toggleTool: ({ toolPath }) => {
+            const serverState = values.selectedPaths.has(toolPath)
+            const currentState = toolPath in values.localToggles ? values.localToggles[toolPath] : serverState
             const newState = !currentState
 
             const localToggles = { ...values.localToggles }
             if (newState === serverState) {
-                delete localToggles[productPath]
+                delete localToggles[toolPath]
             } else {
-                localToggles[productPath] = newState
+                localToggles[toolPath] = newState
             }
             actions.setLocalToggles(localToggles)
         },
@@ -86,11 +88,11 @@ export const inlineEditAppsLogic = kea<inlineEditAppsLogicType>([
                 const updated: UserProductListItem[] = values.customProducts.filter(
                     (item) => !(item.product_path in toggles) || toggles[item.product_path]
                 )
-                for (const [productPath, enabled] of entries) {
-                    if (enabled && !existingPaths.has(productPath)) {
+                for (const [toolPath, enabled] of entries) {
+                    if (enabled && !existingPaths.has(toolPath)) {
                         updated.push({
                             id: '',
-                            product_path: productPath,
+                            product_path: toolPath,
                             enabled: true,
                             reason: UserProductListReason.PRODUCT_INTENT,
                             reason_text: null,
@@ -103,10 +105,10 @@ export const inlineEditAppsLogic = kea<inlineEditAppsLogicType>([
 
                 try {
                     await api.userProductList.bulkUpdate(
-                        entries.map(([productPath, enabled]) => ({ product_path: productPath, enabled }))
+                        entries.map(([toolPath, enabled]) => ({ product_path: toolPath, enabled }))
                     )
                 } catch (error) {
-                    console.error('Failed to save product changes:', error)
+                    console.error('Failed to save tool changes:', error)
                     lemonToast.error('Failed to save some changes. Try again?')
                 }
                 // Refresh with real server data to replace optimistic placeholders

@@ -4,7 +4,7 @@ import posthog from 'lib/posthog-typed'
 import { isMac } from 'lib/utils/dom'
 import { Scene } from 'scenes/sceneTypes'
 
-import type { appShortcutLogicType } from './appShortcutLogicType'
+import type { shortcutLogicType } from './shortcutLogicType'
 
 const IS_MAC = isMac()
 const COMMAND_OR_CTRL = IS_MAC ? 'command' : 'ctrl'
@@ -24,7 +24,7 @@ function saveDisabledShortcuts(names: string[]): void {
     localStorage.setItem(DISABLED_SHORTCUTS_KEY, JSON.stringify(names))
 }
 
-interface AppShortcutBase {
+interface ShortcutBase {
     name: string
     keybind: string[][]
     intent: string
@@ -33,19 +33,19 @@ interface AppShortcutBase {
     priority?: number
 }
 
-interface AppShortcutWithRef extends AppShortcutBase {
+interface ShortcutWithRef extends ShortcutBase {
     ref: React.RefObject<HTMLElement>
     interaction: 'click' | 'focus'
     callback?: never
 }
 
-interface AppShortcutWithCallback extends AppShortcutBase {
+interface ShortcutWithCallback extends ShortcutBase {
     callback: () => void
     interaction: 'function'
     ref?: never
 }
 
-export type AppShortcutType = AppShortcutWithRef | AppShortcutWithCallback
+export type ShortcutType = ShortcutWithRef | ShortcutWithCallback
 
 function isSequenceKeybind(keybind: string[]): boolean {
     return keybind.includes('then')
@@ -63,7 +63,7 @@ function formatKeybind(keybind: string[]): string {
     return isSequenceKeybind(keybind) ? getSequenceKeys(keybind).join(' then ') : keybind.join('+')
 }
 
-function triggerShortcut(shortcut: AppShortcutType, triggeredKeybind: string[]): void {
+function triggerShortcut(shortcut: ShortcutType, triggeredKeybind: string[]): void {
     posthog.capture('keybind triggered', {
         name: shortcut.name,
         intent: shortcut.intent,
@@ -101,30 +101,30 @@ function isEditableElement(event: KeyboardEvent): boolean {
     )
 }
 
-export const appShortcutLogic = kea<appShortcutLogicType>([
-    path(['lib', 'components', 'AppShortcuts', 'appShortcutLogic']),
+export const shortcutLogic = kea<shortcutLogicType>([
+    path(['lib', 'components', 'Shortcuts', 'shortcutLogic']),
     actions({
-        registerAppShortcut: (appShortcut: AppShortcutType) => ({ appShortcut }),
-        unregisterAppShortcut: (name: string) => ({ name }),
-        setAppShortcutMenuOpen: (open: boolean) => ({ open }),
+        registerShortcut: (shortcut: ShortcutType) => ({ shortcut }),
+        unregisterShortcut: (name: string) => ({ name }),
+        setShortcutMenuOpen: (open: boolean) => ({ open }),
         toggleShortcutDisabled: (name: string) => ({ name }),
     }),
     reducers({
-        registeredAppShortcuts: [
-            [] as AppShortcutType[],
+        registeredShortcuts: [
+            [] as ShortcutType[],
             {
-                registerAppShortcut: (state, { appShortcut }) => {
+                registerShortcut: (state, { shortcut }) => {
                     // Remove any existing shortcut with the same name, then add the new one
-                    const filtered = state.filter((shortcut) => shortcut.name !== appShortcut.name)
-                    return [...filtered, appShortcut]
+                    const filtered = state.filter((shortcut) => shortcut.name !== shortcut.name)
+                    return [...filtered, shortcut]
                 },
-                unregisterAppShortcut: (state, { name }) => state.filter((shortcut) => shortcut.name !== name),
+                unregisterShortcut: (state, { name }) => state.filter((shortcut) => shortcut.name !== name),
             },
         ],
-        appShortcutMenuOpen: [
+        shortcutMenuOpen: [
             false,
             {
-                setAppShortcutMenuOpen: (_, { open }) => open,
+                setShortcutMenuOpen: (_, { open }) => open,
             },
         ],
         disabledShortcutNames: [
@@ -141,7 +141,7 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
     afterMount(({ values, cache }) => {
         // Sequence shortcut state
         cache.sequenceKeys = [] as string[]
-        cache.sequenceShortcut = null as AppShortcutType | null
+        cache.sequenceShortcut = null as ShortcutType | null
         cache.sequenceLastKeyTime = 0
 
         cache.onKeyDown = (event: KeyboardEvent) => {
@@ -175,7 +175,7 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
                 pressedKeys.push(keyToAdd)
                 const pressedKeyString = pressedKeys.join('+')
 
-                const matchingShortcut = values.registeredAppShortcuts.find((shortcut) =>
+                const matchingShortcut = values.registeredShortcuts.find((shortcut) =>
                     shortcut.keybind.some(
                         (keybind) =>
                             !isSequenceKeybind(keybind) &&
@@ -204,7 +204,7 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
             // check for collisions before being implemented. We could also make this
             // "lazy" but that would result in a noticeable lag in app for single key
             // shortcuts. My preference is the eager way
-            const singleKeyMatch = values.registeredAppShortcuts.find((shortcut) =>
+            const singleKeyMatch = values.registeredShortcuts.find((shortcut) =>
                 shortcut.keybind.some((keybind) => isSingleKeyKeybind(keybind) && keybind[0] === key)
             )
 
@@ -228,7 +228,7 @@ export const appShortcutLogic = kea<appShortcutLogicType>([
             cache.sequenceKeys.push(key)
 
             // Look for a matching sequence shortcut
-            const matchingShortcut = values.registeredAppShortcuts.find((shortcut) =>
+            const matchingShortcut = values.registeredShortcuts.find((shortcut) =>
                 shortcut.keybind.some((keybind) => {
                     if (!isSequenceKeybind(keybind)) {
                         return false

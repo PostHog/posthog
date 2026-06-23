@@ -34,7 +34,7 @@ export function EditCustomProductsModal(): JSX.Element {
         <LemonModal
             isOpen={isOpen}
             onClose={closeModal}
-            title="Edit my sidebar apps"
+            title="Edit sidebar tools"
             footer={
                 <LemonButton type="secondary" onClick={closeModal}>
                     Close
@@ -45,7 +45,7 @@ export function EditCustomProductsModal(): JSX.Element {
             <div className="flex flex-col gap-2">
                 <div>
                     <p className="text-sm text-muted">
-                        Select which products you want to see in your sidebar. You can change this anytime.
+                        Select which tools you want to see in your sidebar. You can change this anytime.
                         {customProductsLoading && <Spinner />}
                     </p>
                 </div>
@@ -67,7 +67,7 @@ export function EditCustomProductsModal(): JSX.Element {
                                         onChange={() => toggleCategory(category)}
                                         disabledReason={
                                             category === 'Unreleased'
-                                                ? 'These products are in Alpha, enable them one by one'
+                                                ? 'These tools are in Alpha, enable them one by one'
                                                 : categoryLoading
                                                   ? 'Saving...'
                                                   : customProductsLoading && customProducts.length === 0
@@ -140,14 +140,14 @@ export function EditCustomProductsModal(): JSX.Element {
                         disabledReason={sidebarSuggestionsLoading ? 'Saving...' : undefined}
                         label={
                             <span className="flex items-center gap-2">
-                                <span>Automatically suggest new products</span>
+                                <span>Automatically suggest new tools</span>
                             </span>
                         }
                     />
                     <span className="text-sm text-muted">
-                        When we detect you are using a new product, we'll automatically add it to your sidebar as a
-                        suggestion. We might also suggest products that are related to the ones you are using when we
-                        launch a new product.
+                        When we detect you are using a new tools, we'll automatically add it to your sidebar as a
+                        suggestion. We might also suggest tools that are related to the ones you are using when we
+                        launch a new one.
                         <br />
                         You can always remove these suggestions later.
                     </span>
@@ -155,20 +155,20 @@ export function EditCustomProductsModal(): JSX.Element {
 
                 <div className="flex flex-col items-start gap-2 border-t pt-4">
                     <div className="flex flex-col gap-2 w-full">
-                        <label className="text-sm font-semibold text-tertiary">Shortcut position</label>
+                        <label className="text-sm font-semibold text-tertiary">Starred items position</label>
                         <LemonSelect<UserShortcutPosition>
                             value={shortcutPosition}
                             onChange={(value) => setShortcutPosition(value)}
                             options={[
-                                { label: 'Above products', value: 'above' },
-                                { label: 'Below products', value: 'below' },
+                                { label: 'Above tools', value: 'above' },
+                                { label: 'Below tools', value: 'below' },
                                 { label: 'Hidden', value: 'hidden' },
                             ]}
                             disabledReason={shortcutPositionLoading ? 'Saving...' : undefined}
                             fullWidth
                         />
                         <span className="text-sm text-muted">
-                            Choose where shortcuts appear in your sidebar when using custom products.
+                            Choose where starred iteams appear in your sidebar when using custom tools.
                         </span>
                     </div>
                 </div>
