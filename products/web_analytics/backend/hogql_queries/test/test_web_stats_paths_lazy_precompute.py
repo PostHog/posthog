@@ -384,6 +384,41 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             f"doPathCleaning on/off must produce distinct cache keys, got overlap: {raw_hashes & cleaned_hashes}"
         )
 
+    def test_top_k_ranking_expr_matches_sort(self):
+        from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import _top_k_ranking_expr
+
+        def expr_for(order_by):
+            runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query(order_by=order_by))
+            return _top_k_ranking_expr(runner)
+
+        # Descending sorts cap by the matching merge metric; the default is visitors DESC.
+        assert "uniqMerge" in repr(expr_for(None))
+        assert "sumMerge" in repr(expr_for([WebAnalyticsOrderByFields.VIEWS, WebAnalyticsOrderByDirection.DESC]))
+        assert "avgMerge" in repr(expr_for([WebAnalyticsOrderByFields.BOUNCE_RATE, WebAnalyticsOrderByDirection.DESC]))
+        # Ascending sorts are not capped (the "top" is a tied long tail) → store full set.
+        assert expr_for([WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByDirection.ASC]) is None
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_sort_key_gets_distinct_cache_entry(self):
+        # The cap metric is in the insert AST, so different sort keys map to distinct
+        # capped jobs. This also exercises that the capped insert template parses/builds.
+        self._seed_two_sessions()
+        with self._enable_lazy():
+            self._run(
+                self._build_query(order_by=[WebAnalyticsOrderByFields.VISITORS, WebAnalyticsOrderByDirection.DESC])
+            )
+            visitors_hashes = {str(j.query_hash) for j in PreaggregationJob.objects.filter(team_id=self.team.pk)}
+            PreaggregationJob.objects.filter(team_id=self.team.pk).delete()
+
+            self._run(self._build_query(order_by=[WebAnalyticsOrderByFields.VIEWS, WebAnalyticsOrderByDirection.DESC]))
+            views_hashes = {str(j.query_hash) for j in PreaggregationJob.objects.filter(team_id=self.team.pk)}
+
+        assert visitors_hashes, "expected visitors-sorted run to create at least one job"
+        assert views_hashes, "expected views-sorted run to create at least one job"
+        assert visitors_hashes.isdisjoint(views_hashes), (
+            f"different sort keys must produce distinct capped jobs, got overlap: {visitors_hashes & views_hashes}"
+        )
+
     @freeze_time("2024-01-15T12:00:00Z")
     def test_uuid_session_mode_falls_through(self):
         query = self._build_query()
