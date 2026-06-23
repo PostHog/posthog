@@ -69,7 +69,7 @@ async fn consume_loop(consumer: SingleTopicConsumer, mut shutdown_rx: watch::Rec
             result = consumer.json_recv::<IngestionNotification>() => {
                 match result {
                     Ok((notification, offset)) => {
-                        info!(?notification, "received error-tracking ingestion notification");
+                        log_notification_summary(&notification);
                         metrics::counter!(NOTIFICATIONS_RECEIVED_TOTAL).increment(1);
                         if let Err(e) = offset.store() {
                             warn!(error = %e, "failed to store notification offset");
@@ -89,6 +89,20 @@ async fn consume_loop(consumer: SingleTopicConsumer, mut shutdown_rx: watch::Rec
                     }
                 }
             }
+        }
+    }
+}
+
+fn log_notification_summary(notification: &IngestionNotification) {
+    match notification {
+        IngestionNotification::IssueCreated(issue_created) => {
+            info!(
+                notification_type = "issue_created",
+                team_id = issue_created.team_id,
+                issue_id = %issue_created.issue_id,
+                event_uuid = %issue_created.event.uuid,
+                "received error-tracking ingestion notification"
+            );
         }
     }
 }
