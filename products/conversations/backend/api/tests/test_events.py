@@ -118,6 +118,29 @@ class TestConversationEvents(BaseTest):
         assert call_kwargs["properties"]["actor_type"] == "user"
         assert call_kwargs["properties"]["actor_id"] == self.user.id
         assert call_kwargs["properties"]["actor_email"] == self.user.email
+        assert call_kwargs["properties"]["customer_name"] == "Test Customer"
+        assert call_kwargs["properties"]["customer_email"] == "test@example.com"
+        assert call_kwargs["properties"]["customer_distinct_id"] == self.ticket.distinct_id
+
+    @parameterized.expand(
+        [
+            ("capture_ticket_created", capture_ticket_created, []),
+            ("capture_message_received", capture_message_received, ["msg-id", "content"]),
+            ("capture_message_sent", capture_message_sent, ["msg-id", "content"]),
+        ]
+    )
+    @patch("products.conversations.backend.events.capture_internal_routed")
+    def test_customer_email_falls_back_to_email_from(self, _name, capture_fn, extra_args, mock_capture):
+        self.ticket.anonymous_traits = {}
+        self.ticket.email_from = "customer@example.com"
+
+        if capture_fn is capture_message_sent:
+            capture_message_sent(self.ticket, "msg-id", "content", author=self.user)
+        else:
+            capture_fn(self.ticket, *extra_args)
+
+        call_kwargs = mock_capture.call_args.kwargs
+        assert call_kwargs["properties"]["customer_email"] == "customer@example.com"
 
     @patch("products.conversations.backend.events.capture_internal_routed")
     def test_capture_message_received_uses_team_token(self, mock_capture):

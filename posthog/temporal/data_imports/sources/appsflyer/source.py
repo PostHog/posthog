@@ -109,8 +109,10 @@ You can find your API token (V2) in AppsFlyer under your account menu > Security
         self, config: AppsFlyerSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
         try:
-            if validate_appsflyer_credentials(config.api_token, config.app_id):
-                return True, None
+            # validate_credentials returns True or raises — it never returns False — so an
+            # unexpected status surfaces its real cause instead of a conflated credential error.
+            validate_appsflyer_credentials(config.api_token, config.app_id)
+            return True, None
         except AppsFlyerCredentialsError as e:
             # The token or app id was rejected — surface which one rather than a conflated message.
             return False, str(e)
@@ -120,8 +122,6 @@ You can find your API token (V2) in AppsFlyer under your account menu > Security
                 False,
                 "Could not reach AppsFlyer to validate credentials. This may be a temporary rate-limit or network issue — please try again.",
             )
-
-        return False, "Invalid AppsFlyer API token or app id"
 
     def source_for_pipeline(self, config: AppsFlyerSourceConfig, inputs: SourceInputs) -> SourceResponse:
         return appsflyer_source(

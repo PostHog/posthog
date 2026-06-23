@@ -955,6 +955,10 @@ tools:
         bin_script: find-affected-stories
         description: Compute the set of stories affected by changed files during storybook builds
         hidden: true
+    ci:frontend_exclude_filter:
+        bin_script: frontend-exclude-filter
+        description: Emit the dorny paths-filter excluding Node-only product workspaces (from pnpm-workspace.yaml) for frontend/storybook CI gating
+        hidden: true
     ci:insights:
         click: hogli_commands.ci_insights:ci_insights
         description: Show CI insights for the current repo + branch (search/view/plan subcommands)
@@ -1071,7 +1075,19 @@ environment:
         bin_script: inject_mcp_intents.py
         description: 'Used when developing MCP Analytics locally and trying to load some intents'
         hidden: true
+    dev:sandbox:shims:selftest:
+        bin_script: dev-sandbox-shims-selftest
+        description: 'Verify the uv/pnpm dev-sandbox shims route install subcommands correctly'
+        hidden: true
     setup:gateway:e2e:
         bin_script: setup-gateway-e2e
         description: 'Provision the local ai-gateway e2e: enable the team, mint a phs_, publish the credential blob, fund the ledger'
+        hidden: true
+    dev:open:when:ready:
+        bin_script: dev-open-when-ready
+        description: 'Open a URL in the browser once its server is listening (internal; runs unsandboxed so sandboxed procs can auto-open)'
+        hidden: true
+    migrate:agent:test:db:
+        bin_script: migrate-agent-test-db
+        description: Create + migrate the agent_platform test database from the Django migrations (single source of truth)
         hidden: true

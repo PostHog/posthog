@@ -365,15 +365,13 @@ export type AgentRevisionApiSpecToolsItem =
           id: string
           requires_approval?: boolean
           approval_policy?: {
-              /** @minItems 1 */
-              approvers?: ('team_admins' | 'session_principal')[]
+              type?: 'principal' | 'agent'
               allow_edit?: boolean
               /**
                * @minimum 60000
                * @maximum 604800000
                */
               ttl_ms?: number
-              allow_agent_approver?: boolean
           }
       }
     | {
@@ -382,16 +380,15 @@ export type AgentRevisionApiSpecToolsItem =
           path: string
           requires_approval?: boolean
           approval_policy?: {
-              /** @minItems 1 */
-              approvers?: ('team_admins' | 'session_principal')[]
+              type?: 'principal' | 'agent'
               allow_edit?: boolean
               /**
                * @minimum 60000
                * @maximum 604800000
                */
               ttl_ms?: number
-              allow_agent_approver?: boolean
           }
+          requires_identity?: string
       }
     | {
           kind: 'custom_template'
@@ -418,6 +415,7 @@ export type AgentRevisionApiSpecToolsItem =
 
 export type AgentRevisionApiSpecMcpsItemAuth = {
     integration?: string
+    provider?: string
 }
 
 export type AgentRevisionApiSpecMcpsItemHeaders = { [key: string]: string }
@@ -429,15 +427,13 @@ export type AgentRevisionApiSpecMcpsItemToolsItem =
           name: string
           requires_approval?: boolean
           approval_policy?: {
-              /** @minItems 1 */
-              approvers?: ('team_admins' | 'session_principal')[]
+              type?: 'principal' | 'agent'
               allow_edit?: boolean
               /**
                * @minimum 60000
                * @maximum 604800000
                */
               ttl_ms?: number
-              allow_agent_approver?: boolean
           }
       }
 
@@ -460,6 +456,29 @@ export type AgentRevisionApiSpecSkillsItem = {
     /** @minimum 0 */
     version?: number
 }
+
+export type AgentRevisionApiSpecIdentityProvidersItem =
+    | {
+          kind: 'posthog'
+          /** @minLength 1 */
+          id?: string
+          binding?: 'principal'
+          scopes?: string[]
+          client_id?: string
+      }
+    | {
+          kind: 'oauth2'
+          /** @minLength 1 */
+          id: string
+          binding?: 'principal'
+          authorize_url: string
+          token_url: string
+          /** @minLength 1 */
+          client_id: string
+          client_secret_ref?: string
+          scopes?: string[]
+          userinfo_url?: string
+      }
 
 export type AgentRevisionApiSpecSecretsItem =
     | string
@@ -532,6 +551,7 @@ export type AgentRevisionApiSpec = {
     mcps: AgentRevisionApiSpecMcpsItem[]
     skills: AgentRevisionApiSpecSkillsItem[]
     integrations: string[]
+    identity_providers?: AgentRevisionApiSpecIdentityProvidersItem[]
     secrets: AgentRevisionApiSpecSecretsItem[]
     limits: AgentRevisionApiSpecLimits
     entrypoint: string
@@ -725,15 +745,13 @@ export type PatchedAgentRevisionApiSpecToolsItem =
           id: string
           requires_approval?: boolean
           approval_policy?: {
-              /** @minItems 1 */
-              approvers?: ('team_admins' | 'session_principal')[]
+              type?: 'principal' | 'agent'
               allow_edit?: boolean
               /**
                * @minimum 60000
                * @maximum 604800000
                */
               ttl_ms?: number
-              allow_agent_approver?: boolean
           }
       }
     | {
@@ -742,16 +760,15 @@ export type PatchedAgentRevisionApiSpecToolsItem =
           path: string
           requires_approval?: boolean
           approval_policy?: {
-              /** @minItems 1 */
-              approvers?: ('team_admins' | 'session_principal')[]
+              type?: 'principal' | 'agent'
               allow_edit?: boolean
               /**
                * @minimum 60000
                * @maximum 604800000
                */
               ttl_ms?: number
-              allow_agent_approver?: boolean
           }
+          requires_identity?: string
       }
     | {
           kind: 'custom_template'
@@ -778,6 +795,7 @@ export type PatchedAgentRevisionApiSpecToolsItem =
 
 export type PatchedAgentRevisionApiSpecMcpsItemAuth = {
     integration?: string
+    provider?: string
 }
 
 export type PatchedAgentRevisionApiSpecMcpsItemHeaders = { [key: string]: string }
@@ -789,15 +807,13 @@ export type PatchedAgentRevisionApiSpecMcpsItemToolsItem =
           name: string
           requires_approval?: boolean
           approval_policy?: {
-              /** @minItems 1 */
-              approvers?: ('team_admins' | 'session_principal')[]
+              type?: 'principal' | 'agent'
               allow_edit?: boolean
               /**
                * @minimum 60000
                * @maximum 604800000
                */
               ttl_ms?: number
-              allow_agent_approver?: boolean
           }
       }
 
@@ -820,6 +836,29 @@ export type PatchedAgentRevisionApiSpecSkillsItem = {
     /** @minimum 0 */
     version?: number
 }
+
+export type PatchedAgentRevisionApiSpecIdentityProvidersItem =
+    | {
+          kind: 'posthog'
+          /** @minLength 1 */
+          id?: string
+          binding?: 'principal'
+          scopes?: string[]
+          client_id?: string
+      }
+    | {
+          kind: 'oauth2'
+          /** @minLength 1 */
+          id: string
+          binding?: 'principal'
+          authorize_url: string
+          token_url: string
+          /** @minLength 1 */
+          client_id: string
+          client_secret_ref?: string
+          scopes?: string[]
+          userinfo_url?: string
+      }
 
 export type PatchedAgentRevisionApiSpecSecretsItem =
     | string
@@ -914,6 +953,7 @@ export type PatchedAgentRevisionApiSpec = {
     mcps: PatchedAgentRevisionApiSpecMcpsItem[]
     skills: PatchedAgentRevisionApiSpecSkillsItem[]
     integrations: string[]
+    identity_providers?: PatchedAgentRevisionApiSpecIdentityProvidersItem[]
     secrets: PatchedAgentRevisionApiSpecSecretsItem[]
     limits: PatchedAgentRevisionApiSpecLimits
     entrypoint: string
@@ -1024,6 +1064,40 @@ export interface AgentRevisionCronFireResponseApi {
     idempotency_key: string
     /** The request id the firing used (echoed back, or freshly minted). */
     request_id: string
+}
+
+export interface AgentRevisionEnvKeysResponseApi {
+    /** Names of env variables currently set on the revision. Values are never returned. */
+    keys: string[]
+}
+
+export interface AgentRevisionEnvKeyStatusApi {
+    key: string
+    /** True if the key is present in the env block. The value itself is never returned. */
+    is_set: boolean
+}
+
+/**
+ * Body shape for AgentApplicationViewSet.env_keys_set — single secret upsert.
+ *
+ * The view merges `{KEY: value}` into the existing encrypted env block
+ * without touching other keys, so callers can set or rotate one secret
+ * without needing to read the whole block back.
+ */
+export interface SetEnvKeyRequestApi {
+    value: string
+}
+
+export type SetEnvRequestApiEnv = { [key: string]: string }
+
+/**
+ * Body shape for AgentApplicationViewSet.set_env.
+ *
+ * `env` is a JSON object of string→string. The view encrypts it via the
+ * same Fernet schedule the worker uses to decrypt.
+ */
+export interface SetEnvRequestApi {
+    env: SetEnvRequestApiEnv
 }
 
 export interface AgentRevisionSlackManifestResponseApi {
@@ -1178,7 +1252,7 @@ export type AgentApprovalRequestApiDecidedArgs = { [key: string]: unknown } | nu
 export type AgentApprovalRequestApiAssistantMessage = { [key: string]: unknown }
 
 /**
- * Resolved approver policy (approvers, allow_edit, allow_agent_approver) at request time.
+ * Resolved approval policy (type: principal|agent, allow_edit) at request time.
  */
 export type AgentApprovalRequestApiApproverScope = { [key: string]: unknown }
 
@@ -1214,7 +1288,7 @@ export interface AgentApprovalRequestApi {
     decided_args: AgentApprovalRequestApiDecidedArgs
     /** Snapshot of the assistant message that emitted the call (text + thinking blocks) — what the approver sees as the model's reasoning. */
     assistant_message: AgentApprovalRequestApiAssistantMessage
-    /** Resolved approver policy (approvers, allow_edit, allow_agent_approver) at request time. */
+    /** Resolved approval policy (type: principal|agent, allow_edit) at request time. */
     approver_scope: AgentApprovalRequestApiApproverScope
     /** Lifecycle state. `queued` = awaiting an approver; `approving` = decision landed and tool dispatch is in flight; `dispatched`/`dispatched_failed` = approved + tool ran; `rejected` = approver said no; `expired` = TTL elapsed.
      *
@@ -1292,28 +1366,6 @@ export interface AgentApprovalsDecideResponseApi {
     ok: boolean
     /** The approval row's new state — `approving` for approve, `rejected` for reject. */
     state: string
-}
-
-export interface AgentApplicationEnvKeysResponseApi {
-    /** Names of env variables currently set on the application. Values are never returned. */
-    keys: string[]
-}
-
-export interface AgentApplicationEnvKeyStatusApi {
-    key: string
-    /** True if the key is present in the env block. The value itself is never returned. */
-    is_set: boolean
-}
-
-/**
- * Body shape for AgentApplicationViewSet.env_keys_set — single secret upsert.
- *
- * The view merges `{KEY: value}` into the existing encrypted env block
- * without touching other keys, so callers can set or rotate one secret
- * without needing to read the whole block back.
- */
-export interface SetEnvKeyRequestApi {
-    value: string
 }
 
 /**
@@ -1576,18 +1628,6 @@ export interface AgentApplicationSessionLogsResponseApi {
     results: LogEntryApi[]
 }
 
-export type SetEnvRequestApiEnv = { [key: string]: string }
-
-/**
- * Body shape for AgentApplicationViewSet.set_env.
- *
- * `env` is a JSON object of string→string. The view encrypts it via the
- * same Fernet schedule the worker uses to decrypt.
- */
-export interface SetEnvRequestApi {
-    env: SetEnvRequestApiEnv
-}
-
 export interface AgentAggregateStatsApi {
     /** Sessions currently in a live state (queued / running). */
     liveCount: number
@@ -1604,6 +1644,37 @@ export interface AgentAggregateStatsApi {
     failedInWindowCount: number
     /** Approval-gated tool requests across the team currently awaiting a decision. 0 on the per-application aggregate (which doesn't roll up approvals). */
     pendingApprovalsCount: number
+}
+
+export interface AgentUserConnectionApi {
+    id: string
+    provider: string
+    scopes: string[]
+    /** active | revoked */
+    state: string
+    /** @nullable */
+    subject?: string | null
+    /** @nullable */
+    access_expires_at?: string | null
+    created_at: string
+    updated_at: string
+    /** @nullable */
+    revoked_at?: string | null
+}
+
+export interface AgentUserWithConnectionsApi {
+    id: string
+    /** Edge-identity kind: slack | jwt | posthog | service | … */
+    principal_kind: string
+    principal_id: string
+    metadata?: unknown
+    created_at: string
+    connections: AgentUserConnectionApi[]
+}
+
+export interface AgentUsersListApi {
+    count: number
+    results: AgentUserWithConnectionsApi[]
 }
 
 /**

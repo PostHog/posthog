@@ -301,6 +301,11 @@ class LLMSkillViewSet(
         if created_by_id:
             queryset = queryset.filter(created_by_id=created_by_id)
 
+        # Presence of the param — even as an empty string — is a filter: `?category=` returns only
+        # uncategorized skills, `?category=scout` only scouts. Omitting it returns every category.
+        if "category" in request.query_params:
+            queryset = queryset.filter(category=params.get("category") or "")
+
         order_by = request.query_params.get("order_by", "-created_at")
         queryset = queryset.order_by(order_by if order_by in ALLOWED_LIST_ORDERINGS else "-created_at", "-id")
         return queryset

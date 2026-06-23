@@ -111,6 +111,13 @@ export const IdentityMatchingLinksResponseApi = zod.object({
 export type IdentityMatchingLinksResponseApi = zod.input<typeof IdentityMatchingLinksResponseApi>
 export type IdentityMatchingLinksResponseApiOutput = zod.output<typeof IdentityMatchingLinksResponseApi>
 
+export const IdentityMatchingErrorApi = zod.object({
+    detail: zod.string().describe('Human-readable explanation of why the request could not be served.'),
+})
+
+export type IdentityMatchingErrorApi = zod.input<typeof IdentityMatchingErrorApi>
+export type IdentityMatchingErrorApiOutput = zod.output<typeof IdentityMatchingErrorApi>
+
 export const IdentityMatchingRunModelCountApi = zod.object({
     model_version: zod.string().describe("Scoring model, e.g. 'rules_v1' or 'logreg_v1'."),
     link_count: zod.number().describe('Number of links this model produced in the run.'),

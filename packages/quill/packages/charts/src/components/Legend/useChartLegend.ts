@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState, type ReactNode } from 'react'
 
 import type { ChartLegendConfig, ChartTheme, Series } from '../../core/types'
 import type { LegendItem } from './Legend'
@@ -23,6 +23,7 @@ export interface ChartLegendRenderProps {
     gap: ChartLegendConfig['gap']
     onItemClick?: (key: string) => void
     hiddenKeys: string[]
+    renderItem?: (defaultNode: ReactNode, item: LegendItem) => ReactNode
 }
 
 export interface ChartLegendState<Meta> {
@@ -74,6 +75,7 @@ export function useChartLegend<Meta>(
             gap: config?.gap,
             onItemClick: interactive ? toggle : undefined,
             hiddenKeys,
+            renderItem: config?.renderItem,
         },
     }
 }

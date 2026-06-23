@@ -31,8 +31,8 @@ import {
 
 import { taskDetailSceneLogic } from '../logics/taskDetailSceneLogic'
 import { CollapsibleContent } from './CollapsibleContent'
+import { TaskRunChat } from './TaskRunChat'
 import { TaskRunItem } from './TaskRunItem'
-import { TaskSessionView } from './TaskSessionView'
 
 export interface TaskDetailPageProps {
     taskId: string
@@ -40,19 +40,7 @@ export interface TaskDetailPageProps {
 
 export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
     const sceneLogic = taskDetailSceneLogic({ taskId })
-    const {
-        task,
-        taskLoading,
-        runs,
-        selectedRunId,
-        selectedRun,
-        runsLoading,
-        logs,
-        logsLoading,
-        shouldPoll,
-        streamEntries,
-        isStreaming,
-    } = useValues(sceneLogic)
+    const { task, taskLoading, runs, selectedRunId, selectedRun, runsLoading } = useValues(sceneLogic)
     const { setSelectedRunId, runTask, deleteTask } = useActions(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
@@ -225,15 +213,7 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                 </div>
             ) : selectedRun ? (
                 <div className="flex-1 overflow-hidden">
-                    <TaskSessionView
-                        logs={logs}
-                        logsLoading={logsLoading}
-                        streamEntries={streamEntries}
-                        isPolling={shouldPoll}
-                        isStreaming={isStreaming}
-                        initialPrompt={task.description}
-                        run={selectedRun}
-                    />
+                    <TaskRunChat taskId={task.id} runId={selectedRun.id} />
                 </div>
             ) : null}
         </SceneContent>

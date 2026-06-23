@@ -1141,6 +1141,23 @@ def _approved_baseline_updates(snapshots: Iterable[RunSnapshot]) -> list[dict]:
     ]
 
 
+def _format_change_counts(changed: int, new: int, removed: int) -> str:
+    """'N changed, M new, K removed', omitting zero counts; '' when all are zero."""
+    parts = []
+    if changed:
+        parts.append(f"{changed} changed")
+    if new:
+        parts.append(f"{new} new")
+    if removed:
+        parts.append(f"{removed} removed")
+    return ", ".join(parts)
+
+
+def _changes_summary(run: Run) -> str:
+    """Change summary from the run's denormalized (quarantine-excluded) counts."""
+    return _format_change_counts(run.changed_count, run.new_count, run.removed_count)
+
+
 def _update_counts_and_post_status(run: Run) -> int:
     """Re-stamp quarantine, recount snapshots, compute unresolved, and post commit status.
 
@@ -1182,15 +1199,15 @@ def _update_counts_and_post_status(run: Run) -> int:
     repo = run.repo
     if run.error_message:
         _post_commit_status(run, repo, "error", f"Visual review failed: {run.error_message[:100]}")
+    elif run.purpose == RunPurpose.OBSERVE:
+        # Default-branch (tracking-only) runs never gate — there's no PR to approve.
+        # Report any changes as a green, informational status instead of a blocking
+        # failure; the per-snapshot detail lives in the VR UI (linked via target_url).
+        summary = _changes_summary(run)
+        description = f"Tracking only: {summary} recorded" if summary else "Tracking only: no visual changes"
+        _post_commit_status(run, repo, "success", description)
     elif unresolved > 0:
-        parts = []
-        if run.changed_count:
-            parts.append(f"{run.changed_count} changed")
-        if run.new_count:
-            parts.append(f"{run.new_count} new")
-        if run.removed_count:
-            parts.append(f"{run.removed_count} removed")
-        _post_commit_status(run, repo, "failure", f"Visual changes detected: {', '.join(parts)}")
+        _post_commit_status(run, repo, "failure", f"Visual changes detected: {_changes_summary(run)}")
         _post_review_prompt_comment(run, repo)
     elif pending_commit > 0:
         _post_commit_status(
@@ -1565,7 +1582,13 @@ def _post_commit_status(
     from .github import github_request
 
     context = f"PostHog Visual Review / {run.run_type}"
-    if run.is_partial:
+    # Tracking-only (observe) and partial runs must never satisfy the gating context that
+    # branch protection evaluates. Both purpose and is_partial are client-supplied, so an
+    # observe run posted to the gating context could green a PR head SHA's required check
+    # without review. Route them to a distinct, non-gating context instead.
+    if run.purpose == RunPurpose.OBSERVE:
+        context = f"{context} (tracking)"
+    elif run.is_partial:
         context = f"{context} (partial)"
         description = f"{description} (partial run)"
 
@@ -1973,14 +1996,8 @@ def _build_approval_comment_body(run: Run, repo: Repo, approver: _Approver | Non
     baseline_sha = run.metadata.get("baseline_commit_sha")
     sha_text = f" — baseline updated in `{baseline_sha[:7]}`" if isinstance(baseline_sha, str) and baseline_sha else ""
 
-    summary = ", ".join(
-        f"{counts[result]} {label}"
-        for result, label in (
-            (SnapshotResult.CHANGED, "changed"),
-            (SnapshotResult.NEW, "new"),
-            (SnapshotResult.REMOVED, "removed"),
-        )
-        if counts.get(result)
+    summary = _format_change_counts(
+        counts[SnapshotResult.CHANGED], counts[SnapshotResult.NEW], counts[SnapshotResult.REMOVED]
     )
 
     sections = [

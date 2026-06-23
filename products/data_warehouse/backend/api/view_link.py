@@ -30,7 +30,10 @@ class ViewLinkValidationMixin:
     def _database(self, team_id: int) -> Database:
         database = self.context.get("database", None)  # type: ignore[attr-defined]
         if not database:
-            database = Database.create_for(team_id=team_id)
+            database = Database.create_for(
+                team_id=team_id,
+                user=cast(User, self.context["request"].user),  # type: ignore[attr-defined]
+            )
         return database
 
     def get_table_name(self, table_name: str) -> str:

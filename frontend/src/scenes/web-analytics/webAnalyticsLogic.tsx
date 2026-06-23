@@ -1423,8 +1423,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: 'tabs',
                         tileId: TileId.GRAPHS,
                         layout: {
-                            colSpanClassName: useTileHeaderV2 ? 'md:col-span-1 2xl:col-span-2' : 'md:col-span-2',
+                            colSpanClassName: useTileHeaderV2 ? 'md:col-span-full' : 'md:col-span-2',
                             orderWhenLargeClassName: '2xl:order-1',
+                            className: useTileHeaderV2 ? 'WebTile--short-chart' : undefined,
                         },
                         activeTabId: graphsTab,
                         setTabId: actions.setGraphsTab,
@@ -1497,7 +1498,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         kind: 'tabs',
                         tileId: TileId.PATHS,
                         layout: {
-                            colSpanClassName: useTileHeaderV2 ? 'md:col-span-1' : 'md:col-span-2',
+                            colSpanClassName: useTileHeaderV2 ? 'md:col-span-full' : 'md:col-span-2',
                             orderWhenLargeClassName: useTileHeaderV2 ? '2xl:order-2' : '2xl:order-4',
                         },
                         activeTabId: pathTab,

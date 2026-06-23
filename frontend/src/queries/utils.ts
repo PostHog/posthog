@@ -574,6 +574,15 @@ export const getShowLegend = (query: InsightQueryNode): boolean | undefined => {
     return undefined
 }
 
+// Widened to `string` (not the literal union) to match getYAxisScaleType — kea-typegen can't
+// serialize an inline string-literal union and emits a broken type; consumers narrow as needed.
+export const getLegendPosition = (query: InsightQueryNode): string | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.legendPosition
+    }
+    return undefined
+}
+
 export const getShowAlertThresholdLines = (query: InsightQueryNode): boolean | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.showAlertThresholdLines

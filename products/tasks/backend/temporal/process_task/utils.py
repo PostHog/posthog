@@ -185,6 +185,7 @@ class RunState(BaseModel, extra="allow"):
     pr_authorship_mode: PrAuthorshipMode | None = None
     github_credential_source: GitHubCredentialSource | None = None
     pr_base_branch: str | None = None
+    home_quick_action: str | None = None
     run_source: RunSource | None = None
     signal_report_id: str | None = None
     runtime_adapter: RuntimeAdapter | None = None
@@ -327,8 +328,13 @@ def get_sandbox_ph_mcp_configs(
     *,
     scopes: PosthogMcpScopes = "read_only",
     interaction_origin: str | None = None,
+    task_id: str | None = None,
 ) -> list[McpServerConfig]:
     """Return PostHog MCP server configurations for sandbox agents.
+
+    `task_id` is baked into an `X-PostHog-Task-Id` header so the MCP server (and through it the
+    PostHog API) can deterministically attribute the agent's writes to its task — the LLM never
+    handles its own task id.
 
     Uses SANDBOX_MCP_URL if explicitly set, otherwise derives it from SITE_URL:
     - app.posthog.com / us.posthog.com → https://mcp.posthog.com/mcp
@@ -347,6 +353,8 @@ def get_sandbox_ph_mcp_configs(
         {"name": "x-posthog-read-only", "value": str(read_only).lower()},
         {"name": "x-posthog-mcp-consumer", "value": _resolve_mcp_consumer(interaction_origin)},
     ]
+    if task_id:
+        headers.append({"name": "X-PostHog-Task-Id", "value": str(task_id)})
     return [McpServerConfig(type="http", name="posthog", url=url, headers=headers)]
 
 
@@ -676,7 +684,7 @@ def build_sandbox_environment_variables(
     User-provided env vars are applied first so system vars always take precedence,
     preventing a malicious SandboxEnvironment from overriding security-critical values.
     """
-    from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
+    from products.tasks.backend.logic.services.connection_token import get_sandbox_jwt_public_key
 
     env_vars: dict[str, str] = {}
 

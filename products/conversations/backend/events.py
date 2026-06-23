@@ -223,11 +223,21 @@ def _get_ticket_base_properties(ticket: Ticket) -> dict:
     }
 
 
+def _get_customer_properties(ticket: Ticket, *, include_distinct_id: bool = False) -> dict:
+    """Customer identity on the ticket, for workflow filters and analytics."""
+    traits = ticket.anonymous_traits or {}
+    properties = {
+        "customer_name": traits.get("name", ""),
+        "customer_email": traits.get("email") or ticket.email_from or "",
+    }
+    if include_distinct_id:
+        properties["customer_distinct_id"] = ticket.distinct_id or ""
+    return properties
+
+
 def capture_ticket_created(ticket: Ticket) -> None:
     properties = _get_ticket_base_properties(ticket)
-    traits = ticket.anonymous_traits or {}
-    properties["customer_name"] = traits.get("name", "")
-    properties["customer_email"] = traits.get("email", "")
+    properties.update(_get_customer_properties(ticket))
 
     team = ticket.team
     team_id = team.id
@@ -328,6 +338,7 @@ def capture_message_sent(
     properties["message_content"] = (message_content or "")[:1000]
     properties["author_type"] = "team"
     properties.update(_get_actor_properties(author, "user"))
+    properties.update(_get_customer_properties(ticket, include_distinct_id=True))
 
     capture_internal_routed(
         token=ticket.team.api_token,
@@ -345,9 +356,7 @@ def capture_message_received(ticket: Ticket, message_id: str, message_content: s
     properties["message_id"] = message_id
     properties["message_content"] = (message_content or "")[:1000]
     properties["author_type"] = "customer"
-    traits = ticket.anonymous_traits or {}
-    properties["customer_name"] = traits.get("name", "")
-    properties["customer_email"] = traits.get("email", "")
+    properties.update(_get_customer_properties(ticket))
 
     team = ticket.team
     process_person = False

@@ -554,7 +554,13 @@ export function ensureEditableNotebookDocument(document: NotebookDocument): Note
         didChange = true
     }
 
-    const firstNode = nodes[0]
+    let firstNode = nodes[0]
+
+    if (firstNode && isStandaloneHeadingMarkerParagraph(firstNode)) {
+        nodes.unshift(makeEmptyNotebookTitle('notebook-title'))
+        firstNode = nodes[0]
+        didChange = true
+    }
 
     if (isTextBlockNode(firstNode)) {
         if (firstNode.type !== 'heading' || firstNode.level !== 1) {
@@ -576,6 +582,10 @@ export function ensureEditableNotebookDocument(document: NotebookDocument): Note
     }
 
     return didChange ? { ...document, nodes: uniqueNodes } : document
+}
+
+function isStandaloneHeadingMarkerParagraph(node: NotebookBlockNode): boolean {
+    return node.type === 'paragraph' && /^#{1,6}$/.test(getInlineText(node.children).trim())
 }
 
 export function makeEmptyNotebookTitle(idSeed: string): NotebookTextBlockNode {

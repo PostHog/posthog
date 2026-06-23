@@ -36,19 +36,24 @@ export function DefaultTooltip<Meta = unknown>({
 
     return (
         <TooltipSurface>
-            <div className="font-semibold mb-1">{label}</div>
+            <div data-attr="hog-chart-tooltip-label" className="font-semibold mb-1">
+                {label}
+            </div>
             {seriesData.map((s) => (
-                <div key={s.series.key} className="flex items-center gap-2">
+                <div key={s.series.key} data-attr="hog-chart-tooltip-row" className="flex items-center gap-2">
                     <TooltipSwatch color={s.color} />
-                    <span>{s.series.label}:</span>
-                    <strong>{format(s.value, s)}</strong>
+                    <span data-attr="hog-chart-tooltip-series">{s.series.label}:</span>
+                    <strong data-attr="hog-chart-tooltip-value">{format(s.value, s)}</strong>
                 </div>
             ))}
             {renderTotal && (
-                <div className="flex items-center gap-2 mt-1 pt-1 border-t border-current/25 font-semibold">
+                <div
+                    data-attr="hog-chart-tooltip-total"
+                    className="flex items-center gap-2 mt-1 pt-1 border-t border-current/25 font-semibold"
+                >
                     <span className="w-2" />
                     <span>{totalLabel}:</span>
-                    <strong>{formatTotal(total)}</strong>
+                    <strong data-attr="hog-chart-tooltip-value">{formatTotal(total)}</strong>
                 </div>
             )}
         </TooltipSurface>

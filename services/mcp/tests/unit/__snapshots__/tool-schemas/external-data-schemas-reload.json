@@ -43,6 +43,19 @@
             ],
             "description": "Column name used to track sync progress."
         },
+        "incremental_field_lookback_seconds": {
+            "anyOf": [
+                {
+                    "maximum": 5184000,
+                    "minimum": 0,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Seconds to subtract from the stored incremental watermark at sync time, so each incremental run re-reads a rolling overlap window and catches late or backdated rows. Applies to timestamp/date incremental fields only. The stored watermark is unchanged. Maximum 5184000 (60 days)."
+        },
         "incremental_field_type": {
             "anyOf": [
                 {
@@ -148,7 +161,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Sync strategy: incremental, full_refresh, append, or cdc.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc\n* `xmin` - xmin"
+            "description": "Sync strategy: incremental, full_refresh, append, cdc, or xmin.\n\n* `full_refresh` - full_refresh\n* `incremental` - incremental\n* `append` - append\n* `webhook` - webhook\n* `cdc` - cdc\n* `xmin` - xmin"
         }
     },
     "required": ["id"],

@@ -1,3 +1,4 @@
+import re
 import hmac
 import json
 import time
@@ -83,6 +84,37 @@ oauth_refresh_counter = Counter(
 )
 
 GITHUB_API_VERSION = "2022-11-28"
+
+# `owner/repo`, single slash, no traversal. Used to keep repo/ref/sha values out of GitHub API URL
+# paths where a crafted value (e.g. `../../other-repo/contents/x?ref=y`) could redirect the
+# authenticated request to a different endpoint.
+_GITHUB_REPO_PATH_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
+_GITHUB_REF_RE = re.compile(r"^[A-Za-z0-9._\-/]+$")
+_GITHUB_COMMIT_SHA_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
+
+# Upper bound on the diff text we return, to keep a pathological diff (generated/vendored
+# files) from bloating the JSON response and worker memory. ~1 MB of text.
+_MAX_DIFF_CHARS = 1_000_000
+
+
+def _is_safe_github_repo_path(repo_path: str) -> bool:
+    return ".." not in repo_path and bool(_GITHUB_REPO_PATH_RE.fullmatch(repo_path))
+
+
+def _is_safe_github_ref(ref: str) -> bool:
+    """A git ref safe to interpolate into a GitHub API URL path (no traversal / URL-control chars)."""
+    return (
+        bool(ref)
+        and ".." not in ref
+        and not ref.startswith("/")
+        and not ref.endswith("/")
+        and bool(_GITHUB_REF_RE.fullmatch(ref))
+    )
+
+
+def _is_safe_github_sha(sha: str) -> bool:
+    return bool(_GITHUB_COMMIT_SHA_RE.fullmatch(sha))
+
 
 PRIVATE_CHANNEL_WITHOUT_ACCESS = "PRIVATE_CHANNEL_WITHOUT_ACCESS"
 
@@ -960,6 +992,27 @@ class OauthIntegration:
         if integration.errors:
             integration.errors = ""
             integration.save()
+
+        if kind == "slack":
+            # The cached auth verdict in slack_app is per-integration. A
+            # reconnect mints a new bot token, so any stale ``ok=false`` row
+            # from the previous token would silently demote this install for
+            # the remaining cache TTL. Inline-imported to keep the slack_app
+            # module off the core django.setup() path; wrapped so a broken
+            # slack_app build can't take down OAuth completion for every
+            # integration kind.
+            try:
+                from products.slack_app.backend.facade.api import (  # noqa: PLC0415
+                    invalidate_slack_integration_auth_state,
+                )
+
+                invalidate_slack_integration_auth_state(integration.id)
+            except Exception:
+                logger.warning(
+                    "slack_app_auth_state_invalidation_on_oauth_failed",
+                    integration_id=integration.id,
+                    exc_info=True,
+                )
 
         return integration
 
@@ -2450,7 +2503,15 @@ class GitHubIntegration(GitHubIntegrationBase):
 
     @classmethod
     def first_for_team_repository(cls, team_id: int, repository: str) -> "GitHubIntegration | None":
-        """First GitHub integration for the team whose installation can access ``repository`` (``owner/name``)."""
+        """First GitHub integration for the team whose installation can access ``repository`` (``owner/name``).
+
+        ``repository`` reaches us from team-writable content (e.g. artefact payloads), and the access
+        check below interpolates it into an authenticated ``GET /repos/{repository}``. Reject anything
+        that isn't a plain ``owner/repo`` first, so a crafted value (``owner/repo/contents/x?ref=y``)
+        can't steer that authenticated request to a different GitHub endpoint as a probe.
+        """
+        if not _is_safe_github_repo_path(repository):
+            return None
         for integration in Integration.objects.filter(team_id=team_id, kind="github").order_by("id"):
             github = cls(integration)
             if github.installation_can_access_repository(repository):
@@ -2560,6 +2621,70 @@ class GitHubIntegration(GitHubIntegrationBase):
                 "error": f"Failed to create branch: {response.text}",
                 "status_code": response.status_code,
             }
+
+    def get_diff(
+        self,
+        repository: str,
+        target_branch: str,
+        base_branch: str,
+        target_sha: str | None = None,
+        base_sha: str | None = None,
+    ) -> dict[str, Any]:
+        """Return the unified diff of one branch/commit against another for ``repository``.
+
+        ``repository`` may be ``owner/name`` or a bare name (resolved against the installation's
+        org). The diff is ``base...target``: ``target_branch`` compared against ``base_branch``.
+        A SHA, when supplied, pins that side to an exact commit; otherwise the side tracks the
+        branch tip (``None`` means "use latest"). The branch is what's used when no SHA pins the
+        point — diffing branch tips keeps the result useful as a branch keeps moving (e.g. after PR
+        babysitting or customer tweaks), which a single pinned commit would not.
+
+        Uses the GitHub compare API with the ``diff`` media type, so the response body is raw
+        unified-diff text. Repository / ref / SHA values come from team-writable artefact content,
+        so they're validated before interpolation — a crafted value could otherwise redirect the
+        authenticated request to a different GitHub endpoint.
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        if not _is_safe_github_repo_path(repo_path):
+            return {"success": False, "error": f"Invalid repository '{repository}'.", "status_code": 400}
+        for ref in (target_branch, base_branch):
+            if not _is_safe_github_ref(ref):
+                return {"success": False, "error": f"Invalid branch '{ref}'.", "status_code": 400}
+        for sha in (target_sha, base_sha):
+            if sha is not None and not _is_safe_github_sha(sha):
+                return {"success": False, "error": f"Invalid commit SHA '{sha}'.", "status_code": 400}
+
+        # Pin to the SHA when we have one, else compare branch tips. Both sides are now built from
+        # validated values, so the compare path can't be steered off-endpoint.
+        base_ref = base_sha or base_branch
+        target_ref = target_sha or target_branch
+        access_token = self.integration.sensitive_config["access_token"]
+
+        try:
+            response = self._github_api_get(
+                f"https://api.github.com/repos/{repo_path}/compare/{base_ref}...{target_ref}",
+                endpoint="/repos/{owner}/{repo}/compare/{basehead}",
+                headers={
+                    "Accept": "application/vnd.github.diff",
+                    "Authorization": f"Bearer {access_token}",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
+                },
+                timeout=10,
+            )
+        except requests.RequestException:
+            # Don't let a slow/unreachable GitHub hang a worker or 500 the caller.
+            return {"success": False, "error": "Could not reach GitHub.", "status_code": 502}
+        if response.status_code != 200:
+            return {"success": False, "error": response.text, "status_code": response.status_code}
+        # Cap the diff we return: a branch touching generated/vendored files can produce a diff of
+        # many MB, which would bloat the JSON response and worker memory. Truncate with a marker so
+        # the consumer can tell the diff was cut rather than silently showing a partial diff.
+        diff_text = response.text
+        truncated = len(diff_text) > _MAX_DIFF_CHARS
+        if truncated:
+            diff_text = diff_text[:_MAX_DIFF_CHARS] + "\n\n… diff truncated (too large to display in full) …\n"
+        return {"success": True, "diff": diff_text, "truncated": truncated}
 
     def update_file(
         self, repository: str, file_path: str, content: str, commit_message: str, branch: str, sha: str | None = None

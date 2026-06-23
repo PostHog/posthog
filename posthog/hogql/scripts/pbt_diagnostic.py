@@ -95,9 +95,15 @@ from posthog.hogql.scripts._diagnostic_common import (
     _node_type,
     _probe_backend,
     _safe_parse,
+    asts_agree,
     shrink_to_shape,
 )
-from posthog.hogql.test._generated_grammar_strategies import expr_strategy, program_strategy, select_strategy
+from posthog.hogql.test._generated_grammar_strategies import (
+    expr_strategy,
+    fullTemplateString_strategy,
+    program_strategy,
+    select_strategy,
+)
 from posthog.hogql.test.test_parser_grammar_pbt import (
     _PBT_SETTINGS,
     _apply_grammar_mutation,
@@ -152,7 +158,7 @@ def _print_failure_sample(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--n", type=int, default=int(os.environ.get("N", "500")))
-    parser.add_argument("--rule", choices=("expr", "select", "program"), default="expr")
+    parser.add_argument("--rule", choices=("expr", "select", "program", "full_template_string"), default="expr")
     parser.add_argument("--jiggle", action="store_true")
     parser.add_argument(
         "--mutate",
@@ -251,6 +257,7 @@ def main() -> int:
         "expr": expr_strategy,
         "select": select_strategy,
         "program": program_strategy,
+        "full_template_string": fullTemplateString_strategy,
     }[args.rule]()
     strategy = base_strategy
     # Grammar-aware mutation runs first, on the clean space-separated query —
@@ -384,7 +391,7 @@ def main() -> int:
             )
             return
 
-        if o_ast == c_ast:
+        if asts_agree(o_ast, c_ast):
             counts["match"] += 1
             return
 

@@ -30,6 +30,7 @@ class TestLLMSkillAPI(APIBaseTest):
         compatibility: str = "",
         allowed_tools: list | None = None,
         metadata: dict | None = None,
+        category: str = "",
         created_by: User | None = None,
     ) -> LLMSkill:
         return LLMSkill.objects.create(
@@ -44,6 +45,7 @@ class TestLLMSkillAPI(APIBaseTest):
             compatibility=compatibility,
             allowed_tools=allowed_tools or [],
             metadata=metadata or {},
+            category=category,
             created_by=created_by or self.user,
         )
 
@@ -289,6 +291,25 @@ class TestLLMSkillAPI(APIBaseTest):
         response = self.client.get(self._url() + f"?created_by_id={value}")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand(
+        [
+            # (label, query_suffix, expected names) — scouts only, uncategorized only, all categories.
+            ("scout_only", "?category=scout", ["signals-scout-errors", "signals-scout-web"]),
+            ("uncategorized_only", "?category=", ["ordinary-skill"]),
+            ("no_param_returns_all", "", ["ordinary-skill", "signals-scout-errors", "signals-scout-web"]),
+        ]
+    )
+    def test_list_skills_filter_by_category(self, mock_feature_enabled, _label, query_suffix, expected_names):
+        self.create_skill(name="ordinary-skill", description="Plain.")
+        self.create_skill(name="signals-scout-errors", description="A scout.", category="scout")
+        self.create_skill(name="signals-scout-web", description="Another scout.", category="scout")
+
+        response = self.client.get(self._url() + query_suffix)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == len(expected_names)
+        assert sorted(r["name"] for r in response.json()["results"]) == sorted(expected_names)
 
     # --- Get by name ---
 

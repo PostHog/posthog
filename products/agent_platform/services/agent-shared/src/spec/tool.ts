@@ -30,10 +30,12 @@ export interface NativeToolSchema {
     args: TSchema
     /** TypeBox schema for the return value (informational; not enforced at runtime today). */
     returns: TSchema
-    /** Required integrations / scopes the team must have to use this tool. */
+    /** The single credential provider this tool acts through + the scopes it needs
+     *  from it; `undefined` when it needs no external credential. An identity
+     *  provider id (or `posthog`) is per-asker and identity-gated; `slack` is the
+     *  shared team bot (scopes feed the Slack manifest). */
     requires: {
-        integrations: string[]
-        scopes: string[]
+        provider?: { id: string; scopes: string[] }
     }
     /** Hint for runner timeout selection + authoring UI cost annotations. */
     cost_hint: 'cheap' | 'medium' | 'expensive'
@@ -111,6 +113,29 @@ export interface ToolContext {
         resolve(target: string): Promise<Credential | null>
     }
     /**
+     * Resolve the current asker's linked credential for an identity provider,
+     * or a one-time authorize link if they haven't linked it. The asker is the
+     * live last-user-turn sender (per-run — honours the per-author rule).
+     * Wired from spec.identity_providers; absent when none are configured.
+     */
+    identity?: {
+        resolve(provider: string, scopes?: string[]): Promise<IdentityResolution>
+        /** Force a fresh authorize link for an already-linked provider (reconnect)
+         *  — used when a resolved credential is rejected downstream (revoked, or
+         *  missing a scope the resource server now requires). Null when no link is
+         *  possible. */
+        relink?(provider: string): Promise<string | null>
+    }
+    /**
+     * Credentials the dispatch wrapper pre-resolved for this tool's
+     * `requires.identities`, keyed by provider id. The wrapper short-circuits to
+     * an `auth_required` result before `run()` if any required provider isn't
+     * `ok`, so a tool body may read `ctx.resolvedIdentities[p]` for a declared
+     * identity without re-resolving. Tools called directly (unit tests) won't
+     * have this set — fall back to `ctx.identity.resolve(p)`.
+     */
+    resolvedIdentities?: Record<string, { credential: Credential; allowedHosts: string[] }>
+    /**
      * Outbound HTTP client. In prod this routes through smokescreen via
      * an undici ProxyAgent; in dev/test it's a direct fetch. **All tool
      * outbound HTTP must go through this** — Node's `fetch` does not
@@ -134,6 +159,13 @@ export interface IntegrationCredentials {
     metadata?: Record<string, unknown>
 }
 
+/** Outcome of `ctx.identity.resolve`: a usable credential, a link to send, or no-go.
+ *  `allowedHosts` bounds where the bearer may be sent (SSRF guard). */
+export type IdentityResolution =
+    | { kind: 'ok'; credential: Credential; allowedHosts: string[] }
+    | { kind: 'link_required'; provider: string; authorizeUrl: string }
+    | { kind: 'unavailable'; provider: string; reason: string }
+
 export interface NativeTool<TArgs = unknown, TReturn = unknown> {
     id: string
     schema: NativeToolSchema
@@ -146,7 +178,7 @@ export function defineNativeTool<TArgsSchema extends TSchema, TReturnSchema exte
     description: string
     args: TArgsSchema
     returns: TReturnSchema
-    requires?: Partial<NativeToolSchema['requires']>
+    requires?: NativeToolSchema['requires']
     cost_hint?: NativeToolSchema['cost_hint']
     run: (args: Static<TArgsSchema>, ctx: ToolContext) => Promise<Static<TReturnSchema>>
 }): NativeTool<Static<TArgsSchema>, Static<TReturnSchema>> {
@@ -156,10 +188,7 @@ export function defineNativeTool<TArgsSchema extends TSchema, TReturnSchema exte
             description: def.description,
             args: def.args,
             returns: def.returns,
-            requires: {
-                integrations: def.requires?.integrations ?? [],
-                scopes: def.requires?.scopes ?? [],
-            },
+            requires: { provider: def.requires?.provider },
             cost_hint: def.cost_hint ?? 'medium',
         },
         run: def.run,

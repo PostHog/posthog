@@ -128,6 +128,38 @@ class TestDuckLakeEndpointExecution(APIBaseTest):
     @mock.patch(
         "products.endpoints.backend.services.execution.EndpointExecutionService._should_use_ducklake", return_value=True
     )
+    def test_run_passes_overridden_variables_to_ducklake(self, _mock_should, mock_execute):
+        from posthog.ducklake.client import DuckLakeQueryResult
+
+        mock_execute.return_value = DuckLakeQueryResult(columns=[], types=[], results=[], sql="", hogql=None)
+
+        create_endpoint_with_version(
+            name="dl-vars-test",
+            team=self.team,
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT event FROM events WHERE event = {variables.event_name}",
+                "variables": {
+                    "var-1": {"variableId": "var-1", "code_name": "event_name", "value": "$pageview"},
+                },
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/dl-vars-test/run/",
+            data={"variables": {"event_name": "purchase"}},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        passed_query = mock_execute.call_args.kwargs["query"]
+        assert passed_query.variables["var-1"].value == "purchase"
+
+    @mock.patch("posthog.ducklake.client.execute_ducklake_query")
+    @mock.patch(
+        "products.endpoints.backend.services.execution.EndpointExecutionService._should_use_ducklake", return_value=True
+    )
     def test_run_ducklake_error_falls_back_to_inline(self, _mock_should, mock_execute):
         mock_execute.side_effect = Exception("Duckgres connection refused")
 

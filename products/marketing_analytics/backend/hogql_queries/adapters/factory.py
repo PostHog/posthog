@@ -148,8 +148,11 @@ class MarketingSourceFactory:
         self.context = context
         self.logger = logger.bind(team_id=self.context.team.pk if self.context.team else None)
 
-        # Cache warehouse data to avoid repeated queries
-        database = Database.create_for(team=self.context.team)
+        # Cache warehouse data to avoid repeated queries.
+        # This only enumerates table names to build adapters;
+        # the marketing query runner re-resolves the schema with the requesting user, so
+        # actual data access stays gated there. QueryContext has no user that could be passed for access controls.
+        database = Database.create_for(team=self.context.team, bypass_warehouse_access_control=True)
         self._warehouse_tables = DataWarehouseTable.objects.filter(
             team_id=self.context.team.pk, deleted=False, name__in=database.get_warehouse_table_names()
         ).prefetch_related("externaldataschema_set")

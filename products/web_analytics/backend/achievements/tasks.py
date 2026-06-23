@@ -23,7 +23,7 @@ from products.notifications.backend.facade.api import (
     create_notification,
 )
 from products.web_analytics.backend.achievements.definitions import (
-    STREAK_ARM_HOLDOUT,
+    STREAK_ARM_CONTROL,
     TRACKS,
     AchievementScope,
     TrackDefinition,
@@ -87,7 +87,7 @@ def recompute_web_analytics_achievements(team_id: int, user_id: int | None = Non
     if user_id is not None:
         user = User.objects.get(id=user_id)
         arm = streak_arm_for_user(user)
-        if arm == STREAK_ARM_HOLDOUT:
+        if arm == STREAK_ARM_CONTROL:
             return
     ctx = EvalContext(team=team, user=user, today=today, arm=arm)
     for track in TRACKS.values():
@@ -219,9 +219,6 @@ def _send_unlock_notification(ctx: EvalContext, track: TrackDefinition, stage: i
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
 def sweep_web_analytics_achievement_team_tracks() -> None:
-    """Periodically recompute team-scoped tracks (Goal Hog, Mighty Hog) for teams with a recent
-    visit. Visits are only recorded while the achievements flag is on, so this naturally limits the
-    sweep to engaged, flag-on teams without evaluating the flag per team."""
     window_start = date.today() - timedelta(days=SWEEP_ACTIVE_WINDOW_DAYS)
     team_ids = (
         WebAnalyticsVisit.objects.unscoped()

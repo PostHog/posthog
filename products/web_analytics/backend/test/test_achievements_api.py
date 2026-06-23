@@ -39,34 +39,34 @@ class TestAchievementsAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         body = response.json()
         self.assertEqual(len(body["definitions"]), 6)
-        self.assertIn("hog_streak", {track["key"] for track in body["definitions"]})
+        self.assertIn("streak", {track["key"] for track in body["definitions"]})
 
     def test_acknowledge_celebration_is_idempotent(self) -> None:
         WebAnalyticsAchievementProgress(
             team=self.team,
             user=self.user,
-            track_key="loyal_hog",
+            track_key="loyalty",
             current_stage=2,
             progress_value=15,
             state={"pending_celebrations": [2], "unlocked_stages": {}},
         ).save()
 
-        first = self.client.post(self._url("acknowledge_celebration"), {"track_key": "loyal_hog", "stage": 2})
+        first = self.client.post(self._url("acknowledge_celebration"), {"track_key": "loyalty", "stage": 2})
         self.assertEqual(first.status_code, status.HTTP_200_OK)
         self.assertTrue(first.json()["acknowledged"])
         progress = WebAnalyticsAchievementProgress.objects.for_team(self.team.id).get(
-            user=self.user, track_key="loyal_hog"
+            user=self.user, track_key="loyalty"
         )
         self.assertEqual(progress.state["pending_celebrations"], [])
 
-        second = self.client.post(self._url("acknowledge_celebration"), {"track_key": "loyal_hog", "stage": 2})
+        second = self.client.post(self._url("acknowledge_celebration"), {"track_key": "loyalty", "stage": 2})
         self.assertEqual(second.status_code, status.HTTP_200_OK)
         self.assertFalse(second.json()["acknowledged"])
 
     def test_overview_is_team_scoped(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other project")
         WebAnalyticsAchievementProgress(
-            team=other_team, user=self.user, track_key="loyal_hog", current_stage=3, progress_value=30, state={}
+            team=other_team, user=self.user, track_key="loyalty", current_stage=3, progress_value=30, state={}
         ).save()
         with patch(f"{_VIEWSET}.streak_arm_for_user", return_value=None):
             response = self.client.get(self._url("overview"))
@@ -78,18 +78,18 @@ class TestAchievementsAPI(APIBaseTest):
         WebAnalyticsAchievementProgress(
             team=other_team,
             user=self.user,
-            track_key="loyal_hog",
+            track_key="loyalty",
             current_stage=2,
             progress_value=15,
             state={"pending_celebrations": [2], "unlocked_stages": {}},
         ).save()
 
-        response = self.client.post(self._url("acknowledge_celebration"), {"track_key": "loyal_hog", "stage": 2})
+        response = self.client.post(self._url("acknowledge_celebration"), {"track_key": "loyalty", "stage": 2})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertFalse(response.json()["acknowledged"])
 
         other_row = WebAnalyticsAchievementProgress.objects.for_team(other_team.id).get(
-            user=self.user, track_key="loyal_hog"
+            user=self.user, track_key="loyalty"
         )
         self.assertEqual(other_row.state["pending_celebrations"], [2])
 
@@ -97,7 +97,7 @@ class TestAchievementsAPI(APIBaseTest):
         WebAnalyticsAchievementProgress(
             team=self.team,
             user=None,
-            track_key="goal_hog",
+            track_key="conversions",
             current_stage=1,
             progress_value=1,
             state={"pending_celebrations": [1], "unlocked_stages": {"1": "2026-06-15T00:00:00+00:00"}},
@@ -108,22 +108,22 @@ class TestAchievementsAPI(APIBaseTest):
                 return self.client.get(self._url("overview")).json()
 
         # The first member sees the team celebration and acknowledges it.
-        self.assertIn(("goal_hog", 1), _pending_keys(overview()))
-        ack = self.client.post(self._url("acknowledge_celebration"), {"track_key": "goal_hog", "stage": 1})
+        self.assertIn(("conversions", 1), _pending_keys(overview()))
+        ack = self.client.post(self._url("acknowledge_celebration"), {"track_key": "conversions", "stage": 1})
         self.assertTrue(ack.json()["acknowledged"])
 
         # The shared row keeps the stage pending (not cleared for everyone), recording the per-user ack.
         row = WebAnalyticsAchievementProgress.objects.for_team(self.team.id).get(
-            user__isnull=True, track_key="goal_hog"
+            user__isnull=True, track_key="conversions"
         )
         self.assertEqual(row.state["pending_celebrations"], [1])
         self.assertEqual(row.state["celebration_acks"]["1"], [self.user.id])
 
         # The acking member no longer sees it; a second member still does.
-        self.assertNotIn(("goal_hog", 1), _pending_keys(overview()))
+        self.assertNotIn(("conversions", 1), _pending_keys(overview()))
         other = User.objects.create_and_join(self.organization, "second@example.com", None)
         self.client.force_login(other)
-        self.assertIn(("goal_hog", 1), _pending_keys(overview()))
+        self.assertIn(("conversions", 1), _pending_keys(overview()))
 
     def test_record_interaction_increments_counter(self) -> None:
         first = self.client.post(self._url("record_interaction"), {"interaction_kind": "data"})

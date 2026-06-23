@@ -18,7 +18,7 @@ use tokio::task::JoinHandle;
 use tonic::transport::Server;
 use tracing::{info, warn};
 
-use crate::config::Config as CymbalConfig;
+use crate::core::config::ResolverConfig;
 
 pub mod app_context;
 pub mod auth;
@@ -26,7 +26,7 @@ pub mod config;
 pub mod load_monitor;
 pub mod service;
 
-pub use config::Config;
+pub use config::{Config, ResolutionConfig};
 
 use app_context::ResolutionAppContext;
 use auth::InternalApiSecretInterceptor;
@@ -35,15 +35,19 @@ use service::{CymbalResolutionService, ServiceConfig};
 
 /// Boot the gRPC resolution service plus its metrics/health server and run
 /// until shutdown. The `internal_api_secret` and symbol-resolution concurrency
-/// are read from shared cymbal config; everything else from `config.resolution`.
-pub async fn serve(config: &CymbalConfig) -> Result<(), Box<dyn std::error::Error>> {
-    let res = &config.resolution;
+/// come from the shared resolver config; everything else from the resolution
+/// service config.
+pub async fn serve(
+    resolver: &ResolverConfig,
+    service: &Config,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let res = service;
     info!("Starting cymbal-resolution service");
     info!("gRPC address: {}", res.grpc_address);
     info!("Metrics port: {}", res.metrics_port);
     info!("Max concurrent requests: {}", res.max_concurrent_requests);
 
-    let app_context = ResolutionAppContext::from_config(config).await?;
+    let app_context = ResolutionAppContext::from_config(resolver, service).await?;
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let draining = Arc::new(AtomicBool::new(false));
@@ -66,7 +70,7 @@ pub async fn serve(config: &CymbalConfig) -> Result<(), Box<dyn std::error::Erro
         service_config,
         draining,
     );
-    let auth_interceptor = InternalApiSecretInterceptor::new(config.internal_api_secret.clone());
+    let auth_interceptor = InternalApiSecretInterceptor::new(resolver.internal_api_secret.clone());
 
     let listener = tokio::net::TcpListener::bind(res.grpc_address).await?;
     let incoming = tracked_tcp_incoming(listener);

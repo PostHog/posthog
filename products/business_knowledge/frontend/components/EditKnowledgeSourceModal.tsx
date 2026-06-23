@@ -10,6 +10,7 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 
 import type { RefreshIntervalOption } from '../api'
 import { businessKnowledgeLogic } from '../scenes/businessKnowledgeLogic'
+import { AlwaysIncludeField } from './AlwaysIncludeField'
 import { CrawlConfigFields } from './CrawlConfigFields'
 
 export function EditKnowledgeSourceModal({
@@ -73,6 +74,7 @@ export function EditKnowledgeSourceModal({
                     >
                         <LemonSelect options={refreshIntervalOptions} />
                     </LemonField>
+                    <AlwaysIncludeField />
                     <p className="text-xs text-muted">Changing the URL or crawl settings will trigger a re-crawl.</p>
                 </Form>
             ) : editingSource?.source_type === 'text' && editingSourceTextLoading ? (
@@ -102,6 +104,7 @@ export function EditKnowledgeSourceModal({
                             until they refresh their prompt.
                         </p>
                     )}
+                    <AlwaysIncludeField />
                 </Form>
             )}
         </LemonModal>

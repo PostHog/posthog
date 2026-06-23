@@ -277,6 +277,9 @@ tools:
             meaning changes to one experiment's flag (e.g. shipping a variant, pausing) will affect both experiments.
             Always confirm the new flag key with the user before duplicating. Optionally provide a custom name (defaults
             to "Original Name (Copy)").
+        include_params:
+            - name
+            - feature_flag_key
         param_overrides:
             id:
                 cast: string-int
