@@ -136,7 +136,7 @@ class RelatedActorsQuery:
         if self.is_aggregating_by_groups:
             actor_filter: ast.Expr = ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
-                left=self._group_key_field(self.group_type_index),
+                left=self._group_key_field(cast(int, self.group_type_index)),
                 right=ast.Constant(value=self.id),
             )
         else:
