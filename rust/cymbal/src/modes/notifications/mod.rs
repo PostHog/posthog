@@ -100,7 +100,7 @@ fn log_notification_summary(notification: &IngestionNotification) {
                 notification_type = "issue_created",
                 team_id = issue_created.team_id,
                 issue_id = %issue_created.issue_id,
-                event_uuid = %issue_created.event.uuid,
+                event_uuid = %issue_created.event_uuid,
                 "received error-tracking ingestion notification"
             );
         }
