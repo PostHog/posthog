@@ -19,8 +19,8 @@ export function Workflow(props: WorkflowLogicProps): JSX.Element {
                 <LemonBanner type="warning" className="m-2">
                     <div className="flex items-center justify-between gap-2">
                         <span>
-                            This workflow was updated elsewhere (for example via the API or an AI assistant) while
-                            you have unsaved changes. Reload to get the latest version, or keep editing — saving will
+                            This workflow was updated elsewhere (for example via the API or an AI assistant) while you
+                            have unsaved changes. Reload to get the latest version, or keep editing — saving will
                             overwrite the other changes.
                         </span>
                         <div className="flex items-center gap-2 shrink-0">

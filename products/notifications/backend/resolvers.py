@@ -20,7 +20,7 @@ class RecipientsResolver:
 
             return list(
                 OrganizationMembership.objects.filter(
-                    organization__teams__id=int(target_id),
+                    organization__team__id=int(target_id),
                 ).values_list("user_id", flat=True)
             )
         elif target_type == TargetType.ORGANIZATION:
