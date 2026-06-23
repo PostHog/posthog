@@ -21,8 +21,8 @@ from posthog.temporal.data_imports.sources.generated_configs import JotformSourc
 from posthog.temporal.data_imports.sources.jotform.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from posthog.temporal.data_imports.sources.jotform.jotform import (
     JotformResumeConfig,
-    _normalize_enterprise_host,
     jotform_source,
+    normalize_enterprise_host,
     validate_credentials as validate_jotform_credentials,
 )
 from posthog.temporal.data_imports.sources.jotform.settings import ENDPOINTS, INCREMENTAL_FIELDS
@@ -137,7 +137,7 @@ Supported tables:
     ) -> tuple[bool, str | None]:
         enterprise_domain = config.enterprise_domain
 
-        host = _normalize_enterprise_host(enterprise_domain)
+        host = normalize_enterprise_host(enterprise_domain)
         if host is not None:
             is_safe, host_error = _is_host_safe(host, team_id)
             if not is_safe:

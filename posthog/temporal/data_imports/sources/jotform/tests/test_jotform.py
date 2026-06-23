@@ -11,11 +11,11 @@ from posthog.temporal.data_imports.sources.jotform.jotform import (
     JotformRetryableError,
     _build_list_params,
     _format_filter_value,
-    _normalize_enterprise_host,
     _question_row,
     get_form_ids,
     get_rows,
     jotform_source,
+    normalize_enterprise_host,
     resolve_base_url,
     validate_credentials,
 )
@@ -81,7 +81,7 @@ class TestResolveBaseUrl:
         [("forms.acme.com", "forms.acme.com"), ("https://forms.acme.com/", "forms.acme.com"), ("", None), (None, None)],
     )
     def test_normalize_enterprise_host(self, domain, expected):
-        assert _normalize_enterprise_host(domain) == expected
+        assert normalize_enterprise_host(domain) == expected
 
 
 class TestFormatFilterValue:
@@ -194,7 +194,7 @@ class TestGetFormIds:
         partial = [{"id": "last"}]
         mock_session.return_value.get.side_effect = [_response(full), _response(partial)]
 
-        ids = get_form_ids("key", US_BASE, {"APIKEY": "key"}, mock.MagicMock())
+        ids = get_form_ids(US_BASE, {"APIKEY": "key"}, mock.MagicMock())
 
         assert len(ids) == page_size + 1
         assert ids[-1] == "last"
@@ -203,7 +203,7 @@ class TestGetFormIds:
     @mock.patch("posthog.temporal.data_imports.sources.jotform.jotform.make_tracked_session")
     def test_skips_items_without_id_and_stringifies(self, mock_session):
         mock_session.return_value.get.return_value = _response([{"id": 42}, {"title": "no id"}])
-        assert get_form_ids("key", US_BASE, {}, mock.MagicMock()) == ["42"]
+        assert get_form_ids(US_BASE, {}, mock.MagicMock()) == ["42"]
 
 
 class TestGetRowsListEndpoints:

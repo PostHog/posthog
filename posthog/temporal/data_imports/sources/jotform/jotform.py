@@ -42,7 +42,7 @@ class JotformResumeConfig:
     form_id: Optional[str] = None
 
 
-def _normalize_enterprise_host(enterprise_domain: Optional[str]) -> Optional[str]:
+def normalize_enterprise_host(enterprise_domain: Optional[str]) -> Optional[str]:
     host = (enterprise_domain or "").strip()
     if not host:
         return None
@@ -51,7 +51,7 @@ def _normalize_enterprise_host(enterprise_domain: Optional[str]) -> Optional[str
 
 
 def resolve_base_url(region: Optional[str], enterprise_domain: Optional[str] = None) -> str:
-    host = _normalize_enterprise_host(enterprise_domain)
+    host = normalize_enterprise_host(enterprise_domain)
     if host is not None:
         # Jotform Enterprise serves its API under `/API` on the organisation's own domain. Couldn't
         # be curl-verified without an Enterprise account, so this path is best-effort.
@@ -156,7 +156,7 @@ def validate_credentials(api_key: str, region: Optional[str], enterprise_domain:
         return False
 
 
-def get_form_ids(api_key: str, base_url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> list[str]:
+def get_form_ids(base_url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> list[str]:
     config = JOTFORM_ENDPOINTS["forms"]
     ids: list[str] = []
     offset = 0
@@ -214,7 +214,6 @@ def _iter_list_pages(
 
 
 def _iter_questions(
-    api_key: str,
     base_url: str,
     config: JotformEndpointConfig,
     headers: dict[str, str],
@@ -222,7 +221,7 @@ def _iter_questions(
     resume: Optional[JotformResumeConfig],
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
-    form_ids = get_form_ids(api_key, base_url, headers, logger)
+    form_ids = get_form_ids(base_url, headers, logger)
 
     remaining = form_ids
     if resume is not None and resume.form_id is not None and resume.form_id in form_ids:
@@ -264,7 +263,7 @@ def get_rows(
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
     if config.fan_out_over_forms:
-        yield from _iter_questions(api_key, base_url, config, headers, resumable_source_manager, resume, logger)
+        yield from _iter_questions(base_url, config, headers, resumable_source_manager, resume, logger)
         return
 
     base_params = _build_list_params(
