@@ -114,6 +114,16 @@ import type { insightVizDataLogicType } from './insightVizDataLogicType'
 
 const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
 
+// Trends/stickiness displays whose chart renders the in-chart quill legend (line/area/cumulative
+// and bar layouts). Lifecycle always renders it regardless of display.
+const DISPLAYS_WITH_IN_CHART_LEGEND = [
+    ChartDisplayType.ActionsLineGraph,
+    ChartDisplayType.ActionsLineGraphCumulative,
+    ChartDisplayType.ActionsAreaGraph,
+    ChartDisplayType.ActionsBar,
+    ChartDisplayType.ActionsUnstackedBar,
+]
+
 export type QuerySourceUpdate = Omit<Partial<InsightQueryNode>, 'kind'>
 
 export const insightVizDataLogic = kea<insightVizDataLogicType>([
@@ -467,6 +477,22 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             (isTrends, isStickiness, isLifecycle, display) =>
                 (isTrends || isStickiness || isLifecycle) &&
                 !(display && DISPLAY_TYPES_WITHOUT_LEGEND.includes(display)),
+        ],
+
+        // Whether the active chart renders the unified in-chart quill legend (replacing the legacy
+        // side legend) instead of the legacy show/hide checkbox. Single source of truth shared by
+        // InsightDisplayConfig (which control to show) and InsightVizDisplay (suppress side legend).
+        usesInChartLegend: [
+            (s) => [s.featureFlags, s.isTrends, s.isStickiness, s.isLifecycle, s.display],
+            (featureFlags, isTrends, isStickiness, isLifecycle, display): boolean => {
+                if (!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]) {
+                    return false
+                }
+                if (isLifecycle) {
+                    return true
+                }
+                return (isTrends || isStickiness) && (!display || DISPLAYS_WITH_IN_CHART_LEGEND.includes(display))
+            },
         ],
 
         hasDetailedResultsTable: [

@@ -18,10 +18,9 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { SANDBOX_BIND_TASK_PARAM } from 'scenes/max/maxLogic'
-import { SandboxRunViewer } from 'scenes/max/sandbox/components/SandboxRunViewer'
-import { isTerminalRunStatus } from 'scenes/max/sandboxStreamLogic'
 import { urls } from 'scenes/urls'
 
+import { isTerminalRunStatus, SandboxRunViewer } from 'products/posthog_ai/frontend/sandbox'
 import { Task, TaskRunStatus } from 'products/tasks/frontend/types'
 
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'

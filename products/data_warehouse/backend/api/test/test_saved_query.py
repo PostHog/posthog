@@ -6,6 +6,8 @@ from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.models import ActivityLog
 
 from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
@@ -626,6 +628,61 @@ class TestSavedQuery(APIBaseTest):
             saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
             mock_workflow_exists.assert_called_once_with(saved_query)
             mock_pause_saved_query_schedule.assert_called_once_with(saved_query)
+
+    def test_sync_frequency_is_a_writable_field(self):
+        # Regression: sync_frequency used to be a read-only SerializerMethodField, so it was
+        # marked readOnly in the generated OpenAPI/MCP schemas and silently dropped from writes.
+        from products.data_warehouse.backend.api.saved_query import DataWarehouseSavedQuerySerializer
+
+        field = DataWarehouseSavedQuerySerializer().fields["sync_frequency"]
+        self.assertFalse(field.read_only)
+
+    def _create_saved_query(self) -> dict:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        return response.json()
+
+    @parameterized.expand(
+        [
+            ("15min", "15min", timedelta(minutes=15)),
+            ("6hour", "6hour", timedelta(hours=6)),
+            ("1hour", "1hour", timedelta(hours=1)),
+            ("30day", "30day", timedelta(days=30)),
+            # Sub-15min cadences are deprecated for saved queries and clamped up to the "15min" floor.
+            ("5min", "15min", timedelta(minutes=15)),
+            ("1min", "15min", timedelta(minutes=15)),
+        ]
+    )
+    def test_update_sync_frequency_round_trip(self, sent: str, expected_value: str, expected_interval: timedelta):
+        saved_query = self._create_saved_query()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+            {"sync_frequency": sent},
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["sync_frequency"], expected_value)
+
+        updated_query = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
+        self.assertEqual(updated_query.sync_frequency_interval, expected_interval)
+
+    def test_update_sync_frequency_rejects_invalid_value(self):
+        saved_query = self._create_saved_query()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+            {"sync_frequency": "every_fortnight"},
+        )
+        self.assertEqual(response.status_code, 400, response.content)
 
     def test_update_with_types(self):
         response = self.client.post(

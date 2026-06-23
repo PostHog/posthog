@@ -180,4 +180,13 @@ def validate_credentials(api_url: str, api_key: str) -> tuple[bool, str | None]:
         return True, None
     if response.status_code in (401, 403):
         return False, "Invalid ActiveCampaign API URL or key"
+    # A redirect from a valid account+key is never expected (the API answers directly).
+    # It almost always means the account name in the URL is wrong, so the host doesn't
+    # resolve to an API tenant and ActiveCampaign bounces the request to a login page.
+    if response.is_redirect:
+        return (
+            False,
+            "ActiveCampaign redirected the request, which usually means the account name in the API URL is "
+            "incorrect. Check that your API URL looks like https://<youraccountname>.api-us1.com",
+        )
     return False, f"ActiveCampaign returned an unexpected status code: {response.status_code}"
