@@ -10,7 +10,16 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { HogQLQueryResponse, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 
 import type { issueRateLimitConfigLogicType } from './issueRateLimitConfigLogicType'
-import { DEFAULT_BUCKET_MINUTES, ExceptionVolumeBucket, getBucketOption } from './rateLimitConfigLogic'
+import {
+    DEFAULT_BUCKET_MINUTES,
+    DROPPED_METRIC_NAME,
+    EXCEPTIONS_APP_SOURCE,
+    ExceptionVolumeBucket,
+    getBucketOption,
+    RateLimitChartMode,
+    RateLimitHistoryBucket,
+    RECORDED_METRIC_NAME,
+} from './rateLimitConfigLogic'
 
 export interface IssueRateLimitConfigForm {
     per_issue_rate_limit_value: number | null
@@ -41,6 +50,10 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
 
     actions({
         selectIssue: (issueId: string | null) => ({ issueId }),
+        setChartMode: (mode: RateLimitChartMode) => ({ mode }),
+        // Loads whichever chart (simulation volume or history) matches the current mode for an issue.
+        loadSelectedIssueChart: (issueId: string, force?: boolean) => ({ issueId, force }),
+        refreshChart: true,
     }),
 
     reducers({
@@ -54,6 +67,12 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
             null as string | null,
             {
                 selectIssue: (_, { issueId }) => issueId,
+            },
+        ],
+        chartMode: [
+            'simulation' as RateLimitChartMode,
+            {
+                setChartMode: (_, { mode }) => mode,
             },
         ],
     }),
@@ -109,18 +128,21 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
                     {
                         issueId,
                         bucketMinutes,
+                        force,
                     }: {
                         issueId: string
                         bucketMinutes: number
+                        force?: boolean
                     },
                     breakpoint
                 ) => {
                     const option = getBucketOption(bucketMinutes)
                     const totalMinutes = option.minutes * option.bucketCount
                     await breakpoint(300)
-                    const response = (await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: `
+                    const response = (await api.query(
+                        {
+                            kind: NodeKind.HogQLQuery,
+                            query: `
                             SELECT
                                 toStartOfInterval(timestamp, INTERVAL ${option.minutes} MINUTE) AS bucket,
                                 count() AS count
@@ -132,13 +154,71 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
                             ORDER BY bucket
                             LIMIT ${option.bucketCount + 1}
                         `,
-                        tags: { productKey: ProductKey.ERROR_TRACKING },
-                    })) as HogQLQueryResponse
+                            tags: { productKey: ProductKey.ERROR_TRACKING },
+                        },
+                        force ? { refresh: 'force_blocking' } : undefined
+                    )) as HogQLQueryResponse
                     breakpoint()
                     return (response.results ?? []).map(([bucket, count]) => ({
                         bucket: String(bucket),
                         count: Number(count),
                     }))
+                },
+            },
+        ],
+        selectedIssueHistory: [
+            [] as RateLimitHistoryBucket[],
+            {
+                loadSelectedIssueHistory: async (
+                    {
+                        issueId,
+                        bucketMinutes,
+                        force,
+                    }: {
+                        issueId: string
+                        bucketMinutes: number
+                        force?: boolean
+                    },
+                    breakpoint
+                ) => {
+                    const option = getBucketOption(bucketMinutes)
+                    const totalMinutes = option.minutes * option.bucketCount
+                    await breakpoint(300)
+                    // The per-issue rate limiter emits app_metrics2 rows keyed by the issue id directly.
+                    const response = (await api.query(
+                        {
+                            kind: NodeKind.HogQLQuery,
+                            query: `
+                            SELECT
+                                toStartOfInterval(timestamp, INTERVAL ${option.minutes} MINUTE) AS bucket,
+                                metric_name,
+                                sum(count) AS count
+                            FROM app_metrics
+                            WHERE app_source = '${EXCEPTIONS_APP_SOURCE}'
+                              AND app_source_id = '${issueId}'
+                              AND metric_name IN ('${RECORDED_METRIC_NAME}', '${DROPPED_METRIC_NAME}')
+                              AND timestamp >= now() - INTERVAL ${totalMinutes} MINUTE
+                            GROUP BY bucket, metric_name
+                            ORDER BY bucket
+                            LIMIT ${(option.bucketCount + 1) * 2}
+                        `,
+                            tags: { productKey: ProductKey.ERROR_TRACKING },
+                        },
+                        force ? { refresh: 'force_blocking' } : undefined
+                    )) as HogQLQueryResponse
+                    breakpoint()
+                    const byBucket = new Map<string, RateLimitHistoryBucket>()
+                    for (const [bucket, metricName, count] of response.results ?? []) {
+                        const key = String(bucket)
+                        const entry = byBucket.get(key) ?? { bucket: key, recorded: 0, dropped: 0 }
+                        if (metricName === RECORDED_METRIC_NAME) {
+                            entry.recorded = Number(count)
+                        } else if (metricName === DROPPED_METRIC_NAME) {
+                            entry.dropped = Number(count)
+                        }
+                        byBucket.set(key, entry)
+                    }
+                    return [...byBucket.values()]
                 },
             },
         ],
@@ -197,10 +277,12 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
         },
         selectIssue: ({ issueId }) => {
             if (issueId) {
-                actions.loadSelectedIssueVolume({
-                    issueId,
-                    bucketMinutes: values.configForm.per_issue_rate_limit_bucket_size_minutes,
-                })
+                actions.loadSelectedIssueChart(issueId)
+            }
+        },
+        setChartMode: () => {
+            if (values.selectedIssueId) {
+                actions.loadSelectedIssueChart(values.selectedIssueId)
             }
         },
         loadTopIssuesSuccess: ({ topIssues }) => {
@@ -209,6 +291,19 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
             const nextId = keep ? current : (topIssues[0]?.issue_id ?? null)
             if (nextId) {
                 actions.selectIssue(nextId)
+            }
+        },
+        loadSelectedIssueChart: ({ issueId, force }) => {
+            const bucketMinutes = values.configForm.per_issue_rate_limit_bucket_size_minutes
+            if (values.chartMode === 'history') {
+                actions.loadSelectedIssueHistory({ issueId, bucketMinutes, force })
+            } else {
+                actions.loadSelectedIssueVolume({ issueId, bucketMinutes, force })
+            }
+        },
+        refreshChart: () => {
+            if (values.selectedIssueId) {
+                actions.loadSelectedIssueChart(values.selectedIssueId, true)
             }
         },
     })),
