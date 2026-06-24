@@ -89,11 +89,15 @@ def record_request(
     started_at_monotonic: float,
     exception: BaseException | None = None,
     redact_values: tuple[str, ...] = (),
+    capture: bool = True,
 ) -> None:
     """Log + meter a single outbound request. Never raises.
 
     `redact_values` are credential strings masked from the logged URL and the
-    captured sample, on top of the name-based scrubbers.
+    captured sample, on top of the name-based scrubbers. `capture=False` keeps the
+    request metered and logged but excludes it from HTTP sample capture — for auth
+    exchanges whose request/response bodies inherently carry secrets the name-based
+    scrubbers can't recognise (e.g. a freshly minted session token).
     """
     elapsed_ms = max(0, int((time.monotonic() - started_at_monotonic) * 1000))
     method = (request.method or "GET").upper()
@@ -121,7 +125,10 @@ def record_request(
     ctx = current_job_context()
     _emit_log(record, host=host, url_template=template, ctx=ctx)
     _emit_metrics(record, host=host, ctx=ctx)
-    _maybe_capture_sample(request, response, record=record, ctx=ctx, exception=exception, redact_values=redact_values)
+    if capture:
+        _maybe_capture_sample(
+            request, response, record=record, ctx=ctx, exception=exception, redact_values=redact_values
+        )
 
 
 def _emit_log(

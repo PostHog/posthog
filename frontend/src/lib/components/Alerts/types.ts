@@ -38,9 +38,10 @@ export const supportsOngoingInterval = (config: AlertConfig | null | undefined):
  * own window inside the query, so there's no interval to echo in the UI. */
 export const supportsTimeWindow = (config: AlertConfig | null | undefined): boolean => !isHogQLAlertConfig(config)
 
-/** Anomaly detection currently only has a trends detector extractor. */
-export const supportsAnomalyDetection = (config: AlertConfig | null | undefined): config is TrendsAlertConfig =>
-    isTrendsAlertConfig(config)
+/** Anomaly detection needs a time series to score: trends, or SQL in last/first-row mode (an
+ * any-row SQL alert's rows are unrelated entities, not a time axis, so there's nothing to score). */
+export const supportsAnomalyDetection = (config: AlertConfig | null | undefined): boolean =>
+    isTrendsAlertConfig(config) || (isHogQLAlertConfig(config) && !isAnyRowHogQLConfig(config))
 
 export type BlockedWindow = AlertScheduleRestrictionWindow
 
