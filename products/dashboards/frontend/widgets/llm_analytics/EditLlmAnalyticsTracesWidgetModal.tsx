@@ -104,6 +104,8 @@ function EditLlmAnalyticsTracesWidgetModalContents(): JSX.Element {
                             saving={saving}
                             setFilterTestAccounts={setFilterTestAccounts}
                         >
+                            {/* Unlike sibling widgets (date range lives only on the tile bar), we surface it
+                                here too so the saved-filter pre-fill has a visible target to write into. */}
                             <LemonField.Pure label="Date range">
                                 <LemonSelect
                                     value={dateFrom}
