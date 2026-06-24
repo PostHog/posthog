@@ -142,7 +142,11 @@ export const Thread: Story = {
                     askMax(humanMessage.content)
                 }, 0)
             }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+            // Auto-send once when consent lands. The askMax/setConversationId action refs are
+            // unstable across re-renders, so depending on them re-runs this effect and re-issues
+            // the ask, duplicating the human message in the thread.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [dataProcessingAccepted])
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -179,7 +183,11 @@ export const EmptyThreadLoading: Story = {
                     askMax(humanMessage.content)
                 }, 0)
             }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+            // Auto-send once when consent lands. The askMax/setConversationId action refs are
+            // unstable across re-renders, so depending on them re-runs this effect and re-issues
+            // the ask, duplicating the human message in the thread.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [dataProcessingAccepted])
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -219,7 +227,11 @@ export const GenerationFailureThread: Story = {
                     askMax(humanMessage.content)
                 }, 0)
             }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+            // Auto-send once when consent lands. The askMax/setConversationId action refs are
+            // unstable across re-renders, so depending on them re-runs this effect and re-issues
+            // the ask, duplicating the human message in the thread.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [dataProcessingAccepted])
 
         useEffect(() => {
             if (threadRaw.length === 2 && !threadLoading) {
@@ -258,7 +270,11 @@ export const ThreadWithFailedGeneration: Story = {
                     askMax(humanMessage.content)
                 }, 0)
             }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+            // Auto-send once when consent lands. The askMax/setConversationId action refs are
+            // unstable across re-renders, so depending on them re-runs this effect and re-issues
+            // the ask, duplicating the human message in the thread.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [dataProcessingAccepted])
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -294,7 +310,11 @@ export const ThreadWithRateLimit: Story = {
                     askMax(humanMessage.content)
                 }, 0)
             }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+            // Auto-send once when consent lands. The askMax/setConversationId action refs are
+            // unstable across re-renders, so depending on them re-runs this effect and re-issues
+            // the ask, duplicating the human message in the thread.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [dataProcessingAccepted])
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -329,7 +349,11 @@ export const ThreadWithRateLimitNoRetryAfter: Story = {
                     askMax(humanMessage.content)
                 }, 0)
             }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+            // Auto-send once when consent lands. The askMax/setConversationId action refs are
+            // unstable across re-renders, so depending on them re-runs this effect and re-issues
+            // the ask, duplicating the human message in the thread.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [dataProcessingAccepted])
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -369,7 +393,11 @@ export const ThreadWithBillingLimitExceeded: Story = {
                     askMax(humanMessage.content)
                 }, 0)
             }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+            // Auto-send once when consent lands. The askMax/setConversationId action refs are
+            // unstable across re-renders, so depending on them re-runs this effect and re-issues
+            // the ask, duplicating the human message in the thread.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [dataProcessingAccepted])
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -403,7 +431,11 @@ export const ThreadWithQuickReplies: Story = {
                     askMax(humanMessage.content)
                 }, 0)
             }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+            // Auto-send once when consent lands. The askMax/setConversationId action refs are
+            // unstable across re-renders, so depending on them re-runs this effect and re-issues
+            // the ask, duplicating the human message in the thread.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [dataProcessingAccepted])
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -917,7 +949,11 @@ export const PlanningComponent: Story = {
                     askMax('Create a comprehensive analysis plan')
                 }, 0)
             }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+            // Auto-send once when consent lands. The askMax/setConversationId action refs are
+            // unstable across re-renders, so depending on them re-runs this effect and re-issues
+            // the ask, duplicating the human message in the thread.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [dataProcessingAccepted])
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -976,7 +1012,11 @@ export const ReasoningComponent: Story = {
                     askMax('Analyze user engagement')
                 }, 0)
             }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+            // Auto-send once when consent lands. The askMax/setConversationId action refs are
+            // unstable across re-renders, so depending on them re-runs this effect and re-issues
+            // the ask, duplicating the human message in the thread.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [dataProcessingAccepted])
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -1128,7 +1168,11 @@ export const TaskExecutionComponent: Story = {
                     setConversationId('in_progress')
                 }, 0)
             }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+            // Auto-send once when consent lands. The askMax/setConversationId action refs are
+            // unstable across re-renders, so depending on them re-runs this effect and re-issues
+            // the ask, duplicating the human message in the thread.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [dataProcessingAccepted])
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -1251,7 +1295,11 @@ export const TaskExecutionWithFailure: Story = {
                     askMax('Execute analysis with some failures')
                 }, 0)
             }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+            // Auto-send once when consent lands. The askMax/setConversationId action refs are
+            // unstable across re-renders, so depending on them re-runs this effect and re-issues
+            // the ask, duplicating the human message in the thread.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [dataProcessingAccepted])
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -1362,7 +1410,11 @@ export const MultiVisualizationInThread: Story = {
                     askMax('Analyze our product metrics comprehensively')
                 }, 0)
             }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+            // Auto-send once when consent lands. The askMax/setConversationId action refs are
+            // unstable across re-renders, so depending on them re-runs this effect and re-issues
+            // the ask, duplicating the human message in the thread.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [dataProcessingAccepted])
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -1396,7 +1448,11 @@ export const ThreadWithSQLQueryOverflow: Story = {
                     askMax('Show me a complex SQL query')
                 }, 0)
             }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+            // Auto-send once when consent lands. The askMax/setConversationId action refs are
+            // unstable across re-renders, so depending on them re-runs this effect and re-issues
+            // the ask, duplicating the human message in the thread.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [dataProcessingAccepted])
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -1516,7 +1572,11 @@ export const SearchSessionRecordingsEmpty: Story = {
                     askMax('Show me recordings where users are on Chrome with Mac OR Firefox with Windows')
                 }, 0)
             }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+            // Auto-send once when consent lands. The askMax/setConversationId action refs are
+            // unstable across re-renders, so depending on them re-runs this effect and re-issues
+            // the ask, duplicating the human message in the thread.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [dataProcessingAccepted])
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -1621,7 +1681,11 @@ export const SearchSessionRecordingsWithResults: Story = {
                     askMax('Show me recordings where users are on Microsoft Edge with Linux')
                 }, 0)
             }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+            // Auto-send once when consent lands. The askMax/setConversationId action refs are
+            // unstable across re-renders, so depending on them re-runs this effect and re-issues
+            // the ask, duplicating the human message in the thread.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [dataProcessingAccepted])
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -1725,7 +1789,11 @@ export const SearchErrorTrackingIssuesEmpty: Story = {
                     askMax('Show me active payment errors from the last week')
                 }, 0)
             }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+            // Auto-send once when consent lands. The askMax/setConversationId action refs are
+            // unstable across re-renders, so depending on them re-runs this effect and re-issues
+            // the ask, duplicating the human message in the thread.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [dataProcessingAccepted])
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -1853,7 +1921,11 @@ export const SearchErrorTrackingIssuesWithResults: Story = {
                     askMax('Show me all payment-related errors from the last month, sorted by occurrences')
                 }, 0)
             }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+            // Auto-send once when consent lands. The askMax/setConversationId action refs are
+            // unstable across re-renders, so depending on them re-runs this effect and re-issues
+            // the ask, duplicating the human message in the thread.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [dataProcessingAccepted])
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -1970,7 +2042,11 @@ export const DangerousOperationPendingApproval: Story = {
                     askMax('Update my Sales Analytics dashboard with new metrics')
                 }, 0)
             }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+            // Auto-send once when consent lands. The askMax/setConversationId action refs are
+            // unstable across re-renders, so depending on them re-runs this effect and re-issues
+            // the ask, duplicating the human message in the thread.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [dataProcessingAccepted])
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -2162,7 +2238,11 @@ The following services will need to be notified:
                     askMax('Run the database migration')
                 }, 0)
             }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+            // Auto-send once when consent lands. The askMax/setConversationId action refs are
+            // unstable across re-renders, so depending on them re-runs this effect and re-issues
+            // the ask, duplicating the human message in the thread.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [dataProcessingAccepted])
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -2273,7 +2353,11 @@ export const ThreadWithMultiQuestionForm: Story = {
                     askMax('Help me get started with PostHog')
                 }, 0)
             }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+            // Auto-send once when consent lands. The askMax/setConversationId action refs are
+            // unstable across re-renders, so depending on them re-runs this effect and re-issues
+            // the ask, duplicating the human message in the thread.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [dataProcessingAccepted])
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -2369,7 +2453,11 @@ export const ThreadWithMultiFieldQuestion: Story = {
                     askMax('Help me set up an A/B test')
                 }, 0)
             }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+            // Auto-send once when consent lands. The askMax/setConversationId action refs are
+            // unstable across re-renders, so depending on them re-runs this effect and re-issues
+            // the ask, duplicating the human message in the thread.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [dataProcessingAccepted])
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -2451,7 +2539,11 @@ export const ThreadWithSingleQuestionForm: Story = {
                     askMax('What pricing plan should I choose?')
                 }, 0)
             }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+            // Auto-send once when consent lands. The askMax/setConversationId action refs are
+            // unstable across re-renders, so depending on them re-runs this effect and re-issues
+            // the ask, duplicating the human message in the thread.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [dataProcessingAccepted])
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -2606,7 +2698,11 @@ export const ThreadWithMultiQuestionFormLongContent: Story = {
                     )
                 }, 0)
             }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+            // Auto-send once when consent lands. The askMax/setConversationId action refs are
+            // unstable across re-renders, so depending on them re-runs this effect and re-issues
+            // the ask, duplicating the human message in the thread.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [dataProcessingAccepted])
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -2703,7 +2799,11 @@ export const ThreadWithMultiQuestionFormNoCustomAnswer: Story = {
                     askMax('Help me prioritize my analytics work')
                 }, 0)
             }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+            // Auto-send once when consent lands. The askMax/setConversationId action refs are
+            // unstable across re-renders, so depending on them re-runs this effect and re-issues
+            // the ask, duplicating the human message in the thread.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [dataProcessingAccepted])
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -2791,7 +2891,11 @@ export const NotebookArtifactMarkdownOnly: Story = {
                     askMax('Create a retention analysis notebook')
                 }, 0)
             }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+            // Auto-send once when consent lands. The askMax/setConversationId action refs are
+            // unstable across re-renders, so depending on them re-runs this effect and re-issues
+            // the ask, duplicating the human message in the thread.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [dataProcessingAccepted])
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -2882,7 +2986,11 @@ export const NotebookArtifactWithVisualizations: Story = {
                     askMax('Create a dashboard analysis notebook with charts')
                 }, 0)
             }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+            // Auto-send once when consent lands. The askMax/setConversationId action refs are
+            // unstable across re-renders, so depending on them re-runs this effect and re-issues
+            // the ask, duplicating the human message in the thread.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [dataProcessingAccepted])
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -2994,7 +3102,11 @@ export const NotebookArtifactMixedContent: Story = {
                     askMax('Create a comprehensive product analysis notebook')
                 }, 0)
             }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+            // Auto-send once when consent lands. The askMax/setConversationId action refs are
+            // unstable across re-renders, so depending on them re-runs this effect and re-issues
+            // the ask, duplicating the human message in the thread.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [dataProcessingAccepted])
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -3090,7 +3202,11 @@ export const NotebookArtifactWithLoadingAndErrors: Story = {
                     askMax('Show me an analysis with loading and error states')
                 }, 0)
             }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+            // Auto-send once when consent lands. The askMax/setConversationId action refs are
+            // unstable across re-renders, so depending on them re-runs this effect and re-issues
+            // the ask, duplicating the human message in the thread.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [dataProcessingAccepted])
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -3240,7 +3356,11 @@ export const ThreadWithMixedFieldTypeForm: Story = {
                     askMax('Help me set up analytics for my team')
                 }, 0)
             }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+            // Auto-send once when consent lands. The askMax/setConversationId action refs are
+            // unstable across re-renders, so depending on them re-runs this effect and re-issues
+            // the ask, duplicating the human message in the thread.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [dataProcessingAccepted])
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -3338,7 +3458,11 @@ export const ThreadWithTextAndNumberForm: Story = {
                     askMax('I want to set up event tracking for my project')
                 }, 0)
             }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+            // Auto-send once when consent lands. The askMax/setConversationId action refs are
+            // unstable across re-renders, so depending on them re-runs this effect and re-issues
+            // the ask, duplicating the human message in the thread.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [dataProcessingAccepted])
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -3418,7 +3542,11 @@ export const ThreadWithSliderForm: Story = {
                     askMax('Help me set up an A/B test experiment')
                 }, 0)
             }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+            // Auto-send once when consent lands. The askMax/setConversationId action refs are
+            // unstable across re-renders, so depending on them re-runs this effect and re-issues
+            // the ask, duplicating the human message in the thread.
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [dataProcessingAccepted])
 
         if (!dataProcessingAccepted) {
             return <></>
