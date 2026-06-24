@@ -3,6 +3,11 @@ from __future__ import annotations
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from rest_framework.test import APIClient
+
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
+
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 
 from ..models import AgentApplication, AgentRevision
@@ -180,3 +185,41 @@ class TestFreezeResolvesSkillRefs(APIBaseTest):
             format="json",
         )
         self.assertEqual(res.status_code, 400, res.content)
+
+    def _bearer_client(self, scopes: list[str]) -> APIClient:
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="agent-key", user=self.user, secure_value=hash_key_value(raw), scopes=scopes
+        )
+        client = APIClient()  # no session — only the Bearer token authenticates
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
+        return client
+
+    def test_freeze_denied_for_token_without_llm_skill_read(self) -> None:
+        # A token with agents:write but no llm_skill:read must not be able to
+        # materialize (and thus read) store-skill content via the bundle.
+        client = self._bearer_client(["agents:read", "agents:write"])
+        res = client.post(self.url)
+        self.assertEqual(res.status_code, 403, res.content)
+        self.revision.refresh_from_db()
+        self.assertEqual(self.revision.state, "draft")
+
+    def test_set_skill_refs_denied_for_token_without_llm_skill_read(self) -> None:
+        client = self._bearer_client(["agents:read", "agents:write"])
+        res = client.put(
+            self._skill_refs_url,
+            {"skill_refs": [{"from_template": "triage-helper", "alias": "a"}]},
+            format="json",
+        )
+        self.assertEqual(res.status_code, 403, res.content)
+
+    def test_set_skill_refs_allowed_for_token_with_llm_skill_read(self) -> None:
+        client = self._bearer_client(["agents:read", "agents:write", "llm_skill:read"])
+        res = client.put(
+            self._skill_refs_url,
+            {"skill_refs": [{"from_template": "triage-helper", "alias": "a"}]},
+            format="json",
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        self.revision.refresh_from_db()
+        self.assertEqual([r["alias"] for r in self.revision.skill_refs], ["a"])

@@ -14,9 +14,10 @@ resolved files are pushed into the bundle through the existing janitor proxy.
 
 from dataclasses import dataclass
 
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from posthog.models import Team
+from posthog.rbac.user_access_control import UserAccessControl
 
 from products.skills.backend.api.skill_services import get_skill_by_name_from_db
 from products.skills.backend.marketplace.adapters import load_skill_export
@@ -44,6 +45,45 @@ class ResolvedSkill:
     def put_skill_payload(self) -> dict:
         """The body for the janitor `PUT /revisions/:id/skills/:alias` call."""
         return {"description": self.description, "body": self.body, "files": self.files}
+
+
+def assert_skill_refs_readable(
+    team: Team,
+    refs: list[dict],
+    *,
+    scopes: list[str] | None,
+    user_access_control: UserAccessControl,
+) -> None:
+    """Authorize the caller to read every referenced store skill before it can be
+    materialized into a bundle.
+
+    Freeze and ``set_skill_refs`` pull ``llm_skill`` content into the agent
+    bundle, which is then readable through the ``agents:read`` bundle APIs. So
+    they must honour the same boundary ``LLMSkillViewSet`` enforces: the
+    ``llm_skill:read`` API scope for token callers, plus object-level access
+    control for everyone. Without this an ``agents:write`` token (or an
+    RBAC-restricted user) could exfiltrate a private skill by freezing it into a
+    bundle and reading it back. ``scopes`` is ``None`` for session auth, which
+    carries no API scopes and is governed solely by object-level access control.
+    """
+    names: list[str] = []
+    for ref in refs:
+        name = ref.get("from_template")
+        if isinstance(name, str) and name and name not in names:
+            names.append(name)
+    if not names:
+        return
+    # Cross-resource API-scope check for token callers (personal API key / OAuth).
+    if scopes is not None and not ({"*", "llm_skill:read", "llm_skill:write"} & set(scopes)):
+        raise PermissionDenied(
+            "Referencing store skills requires the `llm_skill:read` scope in addition to `agents:write`."
+        )
+    # Object-level access control, mirroring LLMSkillViewSet's AccessControlPermission.
+    # A missing skill is left to resolve_skill_ref to reject loudly at freeze.
+    for name in names:
+        skill = get_skill_by_name_from_db(team, name)
+        if skill is not None and not user_access_control.check_access_level_for_object(skill, "viewer"):
+            raise PermissionDenied(f"You do not have read access to the store skill '{name}'.")
 
 
 def resolve_skill_ref(team: Team, ref: dict) -> ResolvedSkill:

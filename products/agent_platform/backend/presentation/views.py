@@ -67,13 +67,14 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
+from posthog.permissions import get_authenticator_scopes
 from posthog.security.outbound_proxy import internal_requests
 
 from ..db import WRITER_DB
 from ..logic.internal_jwt import AgentInternalAudience, encode_agent_internal_jwt
 from ..logic.janitor_client import JanitorClient, JanitorClientError, default_client
 from ..logic.posthog_identity_app import provision_posthog_identity_apps
-from ..logic.skill_resolution import resolve_skill_ref, stamp_skill_provenance
+from ..logic.skill_resolution import assert_skill_refs_readable, resolve_skill_ref, stamp_skill_provenance
 from ..logic.spec_schema import missing_required_secrets
 from ..models import AgentApplication, AgentIdentityCredential, AgentRevision
 from .serializers import (
@@ -1994,6 +1995,14 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         aliases = [r["alias"] for r in refs]
         if len(set(aliases)) != len(aliases):
             raise ValidationError("Each skill reference must have a unique 'alias' within the revision.")
+        # Same skill-read authorization the freeze enforces — surfaced early here
+        # so an author setting refs gets the 403 at write time, not at freeze.
+        assert_skill_refs_readable(
+            self.team,
+            [dict(r) for r in refs],
+            scopes=get_authenticator_scopes(getattr(request, "successful_authenticator", None)),
+            user_access_control=self.user_access_control,
+        )
         revision.skill_refs = [dict(r) for r in refs]
         revision.save(update_fields=["skill_refs"])
         revision.refresh_from_db()
@@ -2207,6 +2216,16 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # promote path doesn't expect. Mirrors the `update()` non-draft guard.
         if revision.state != "draft":
             raise ValidationError(f"Cannot freeze a {revision.state} revision; only 'draft' can be frozen.")
+        # Authorize skill reads before materializing any store content into the
+        # bundle — refs can reach the column via fork or raw write, so the
+        # `set_skill_refs` check alone isn't enough. (Confused-deputy guard:
+        # `agents:write` must not become a backdoor read of private skills.)
+        assert_skill_refs_readable(
+            self.team,
+            revision.skill_refs or [],
+            scopes=get_authenticator_scopes(getattr(request, "successful_authenticator", None)),
+            user_access_control=self.user_access_control,
+        )
         janitor_client = _janitor()
         # Resolve every draft skill reference against the llma-skill store at its
         # pinned version, then materialize each into the bundle (SKILL.md +
