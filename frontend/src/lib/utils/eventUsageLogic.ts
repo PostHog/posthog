@@ -526,6 +526,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             source,
         }),
         reportDashboardMovedToFolder: (fromPath: string, toPath: string) => ({ fromPath, toPath }),
+        reportDashboardListSearched: (searchLength: number, resultsCount: number) => ({ searchLength, resultsCount }),
         reportDashboardFrontEndUpdate: (
             dashboardId: number | undefined,
             attribute: 'name' | 'description' | 'tags',
@@ -1483,6 +1484,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             posthog.capture('dashboard moved to folder', {
                 from_path: fromPath,
                 to_path: toPath,
+            })
+        },
+        reportDashboardListSearched: async ({ searchLength, resultsCount }) => {
+            // Findability signal for the dashboards-list-view experiment — does the tree reduce reliance on
+            // search? Length + count only, never the query text (it can contain sensitive names).
+            posthog.capture('dashboard list searched', {
+                search_length: searchLength,
+                results_count: resultsCount,
             })
         },
         reportDashboardFrontEndUpdate: async ({ dashboardId, attribute, originalLength, newLength }) => {
