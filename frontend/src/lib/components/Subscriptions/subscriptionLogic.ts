@@ -14,6 +14,7 @@ import { getInsightId } from 'scenes/insights/utils'
 import { ExportedAssetType, ExporterFormat, SubscriptionResourceTypes, SubscriptionType } from '~/types'
 
 import type { subscriptionLogicType } from './subscriptionLogicType'
+import { subscriptionNotificationLogic } from './subscriptionNotificationLogic'
 import { subscriptionsLogic } from './subscriptionsLogic'
 import { AI_PROMPT_MAX_LENGTH, SubscriptionBaseProps, urlForSubscription } from './utils'
 
@@ -199,6 +200,14 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 mountedSubscriptionsLogic?.actions.loadAiSubscriptions()
                 actions.loadSubscriptionSuccess(updatedSub)
                 actions.loadSummaryQuota()
+
+                // Second sequential call: now that the subscription has an id, create any destinations
+                // queued inline in the Connected automations section, scoped to this subscription. No-ops
+                // when nothing was queued (e.g. the section is flag-off or untouched).
+                await subscriptionNotificationLogic({
+                    subscriptionId: props.id === 'new' ? undefined : props.id,
+                }).asyncActions.createPendingHogFunctions(updatedSub.id, updatedSub.title ?? undefined)
+
                 lemonToast.success(`Subscription saved.`)
 
                 return updatedSub
