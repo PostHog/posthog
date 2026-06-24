@@ -22,8 +22,8 @@ DEFAULT_LLM_ANALYTICS_TRACES_DATE_FROM = "-7d"
 
 # Compact subset of LLMTrace shown in the tile. The full trace carries heavy `events`,
 # `inputState`, and `outputState` payloads — those are dropped so each tile refresh stays small.
+# `id` is handled separately (required) so the optional fields can be omitted when absent.
 LLM_ANALYTICS_TRACE_FIELDS = [
-    "id",
     "traceName",
     "createdAt",
     "totalLatency",
@@ -74,7 +74,9 @@ def _run_traces_query(
 
 
 def _pick_trace_fields(trace: dict[str, Any]) -> dict[str, Any]:
-    return {field: trace[field] for field in LLM_ANALYTICS_TRACE_FIELDS if field in trace}
+    # `id` is required — fail fast if the runner omits it rather than emit a row that would
+    # silently break the frontend trace link and React row key.
+    return {"id": trace["id"], **{field: trace[field] for field in LLM_ANALYTICS_TRACE_FIELDS if field in trace}}
 
 
 def run_llm_analytics_traces_widget(
