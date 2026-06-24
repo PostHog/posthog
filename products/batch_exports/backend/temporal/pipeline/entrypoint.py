@@ -184,8 +184,12 @@ async def execute_batch_export_using_internal_stage(
             batch_export_inputs.stage_folder = stage_result.stage_folder
             batch_export_inputs.records_total = stage_result.records_total
         else:
+            # Pass the activity by name (not the typed callable): `execute_activity` overrides
+            # `result_type` with the callable's annotation, which would force the old recorded
+            # `str` result to deserialize as `InternalStageResult` and fail. The string form
+            # honors `result_type=str`.
             batch_export_inputs.stage_folder = await workflow.execute_activity(
-                insert_into_internal_stage_activity, stage_inputs, result_type=str, **stage_activity_kwargs
+                "insert_into_internal_stage_activity", stage_inputs, result_type=str, **stage_activity_kwargs
             )
         result = await workflow.execute_activity(
             activity,
