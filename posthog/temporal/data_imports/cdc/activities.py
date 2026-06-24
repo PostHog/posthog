@@ -20,6 +20,7 @@ from django.db import close_old_connections
 
 import pyarrow as pa
 import structlog
+import posthoganalytics
 from temporalio import activity
 
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
@@ -32,12 +33,15 @@ from posthog.temporal.data_imports.cdc.batcher import (
     deduplicate_table,
     enrich_delete_rows,
 )
+from posthog.temporal.data_imports.cdc.errors import MAX_FRIENDLY_MESSAGE_LENGTH, CDCErrorInfo, classify_cdc_error
 from posthog.temporal.data_imports.cdc.types import ChangeEvent
 from posthog.temporal.data_imports.pipelines.helpers import resolve_table_and_folder_names
 from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.common import SyncTypeLiteral
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import PostgresProducer
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3.writer import S3BatchWriter
+from posthog.temporal.data_imports.util import NonRetryableException
 from posthog.temporal.data_imports.workflow_activities.create_job_model import _build_schema_snapshot
+from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -563,10 +567,8 @@ class CDCExtractActivity:
                     return
                 except Exception as recovery_exc:
                     self.log.exception("cdc_slot_recovery_failed")
-                    self._handle_failure(recovery_exc)
-                    raise
-            self._handle_failure(exc)
-            raise
+                    self._fail(recovery_exc)
+            self._fail(exc)
         finally:
             if self.reader is not None:
                 self.reader.close()
@@ -946,7 +948,6 @@ class CDCExtractActivity:
         for job in self.created_jobs:
             if job.status == ExternalDataJob.Status.RUNNING:
                 job.status = ExternalDataJob.Status.FAILED
-                # NOTE: may need to truncate if stack traces grow unwieldy
                 job.latest_error = error
                 job.finished_at = dt.datetime.now(tz=dt.UTC)
                 job.save(update_fields=["status", "latest_error", "finished_at", "updated_at"])
@@ -991,16 +992,50 @@ class CDCExtractActivity:
 
         self.log.info("cdc_slot_recovery_complete", schemas_reset=len(self.cdc_schemas))
 
-    def _handle_failure(self, exc: Exception) -> None:
+    def _fail(self, exc: Exception) -> typing.NoReturn:
+        """Persist a friendly failure, emit analytics, and re-raise.
+
+        Non-retryable classifications raise ``NonRetryableException`` so the workflow's retry
+        policy stops re-running a deterministic failure; retryable ones re-raise as-is to let
+        Temporal retry.
+        """
+        info = self._handle_failure(exc)
+        if not info.retryable:
+            self._capture_non_retryable(info)
+            raise NonRetryableException(info.friendly_message) from exc
+        raise exc
+
+    def _handle_failure(self, exc: Exception) -> CDCErrorInfo:
+        """Classify the failure, store the friendly message on the jobs/schemas, return the info."""
         self.log.exception("cdc_extract_failed")
-        self._fail_created_jobs(str(exc))
+        info = classify_cdc_error(exc, self.adapter)
+        friendly = info.friendly_message[:MAX_FRIENDLY_MESSAGE_LENGTH]
+        self._fail_created_jobs(friendly)
         for schema in self.cdc_schemas:
             schema.status = ExternalDataSchema.Status.FAILED
-            # NOTE: may need to truncate if stack traces grow unwieldy
-            schema.latest_error = str(exc)
+            schema.latest_error = friendly
             schema.save(update_fields=["status", "latest_error", "updated_at"])
-            # Mirror the failure as a per-schema log line so it shows up in the Syncs panel.
-            self._schema_log(schema).error("cdc_extract_schema_failed", error=str(exc))
+            # User-facing column gets the friendly copy; the raw error still routes to structured
+            # logs / the Syncs log viewer for debugging.
+            self._schema_log(schema).error(
+                "cdc_extract_schema_failed", error=str(exc), category=info.category, retryable=info.retryable
+            )
+        return info
+
+    def _capture_non_retryable(self, info: CDCErrorInfo) -> None:
+        # Best-effort: analytics must never mask the NonRetryableException the caller is about to raise.
+        try:
+            posthoganalytics.capture(
+                distinct_id=get_machine_id(),
+                event="cdc extraction non-retryable error",
+                properties={
+                    "team_id": self.inputs.team_id,
+                    "source_id": str(self.inputs.source_id),
+                    "category": str(info.category),
+                },
+            )
+        except Exception:
+            self.log.warning("cdc_non_retryable_capture_failed", exc_info=True)
 
     def _finalize_success(self) -> None:
         now = dt.datetime.now(tz=dt.UTC)
