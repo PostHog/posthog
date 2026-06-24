@@ -1321,6 +1321,25 @@ class TestMySQLSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw pymysql str(error) form the import/sync path classifies (`_handle_import_error`
+            # matches `str(error)`, which has no class-name prefix).
+            str(
+                pymysql.err.OperationalError(
+                    1142, "SELECT command denied to user 'reader'@'10.0.1.5' for table 'orders'"
+                )
+            ),
+            # Temporal-wrapped str(e.cause) form — different user/host/table, same stable code.
+            "OperationalError: (1142, \"SELECT command denied to user 'ro'@'10.0.1.5' for table 'events'\")",
+        ],
+    )
+    def test_table_access_denied_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Table-access-denied error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # A genuine transient connection drop (no SSL signature) must stay retryable.
             "OperationalError: (2013, 'Lost connection to MySQL server during query')",
             "Lost connection to MySQL server during query",
