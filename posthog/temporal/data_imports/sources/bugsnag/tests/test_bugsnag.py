@@ -1,4 +1,5 @@
 import json
+from collections.abc import Mapping
 from typing import Any
 
 import pytest
@@ -60,7 +61,7 @@ class _FakeSession:
 
 def _collect(
     endpoint: str,
-    pages: dict[str, tuple[list[dict], str | None]],
+    pages: Mapping[str, tuple[list[dict], str | None]],
     manager: _FakeResumableManager,
     monkeypatch: Any,
 ) -> list[dict]:
@@ -124,21 +125,23 @@ class TestFetchPage:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
     def test_retryable_statuses_raise_retryable_error(self, _name: str, status_code: int) -> None:
         session = _FakeSession([_make_response(status_code) for _ in range(5)])
-        fast_fetch = bugsnag._fetch_page.retry_with(wait=wait_none(), stop=stop_after_attempt(3))
+        # tenacity exposes retry_with on the decorated callable to rebuild it with different
+        # retry settings; here we drop the backoff so the test doesn't actually sleep.
+        fast_fetch = bugsnag._fetch_page.retry_with(wait=wait_none(), stop=stop_after_attempt(3))  # type: ignore[attr-defined]
         with pytest.raises(BugsnagRetryableError):
             fast_fetch(session, "https://api.bugsnag.com/x", {}, MagicMock())
 
     def test_client_error_raises_http_error_without_retry(self) -> None:
         session = _FakeSession([_make_response(404, body={"errors": ["Not Found"]})])
         with pytest.raises(requests.HTTPError):
-            bugsnag._fetch_page(session, "https://api.bugsnag.com/x", {}, MagicMock())
+            bugsnag._fetch_page(session, "https://api.bugsnag.com/x", {}, MagicMock())  # type: ignore[arg-type]
         # 404 is not retryable, so only one request is made.
         assert len(session.requested_urls) == 1
 
     def test_ok_response_returned(self) -> None:
         ok = _make_response(200, body=[{"id": "o1"}])
         session = _FakeSession([ok])
-        assert bugsnag._fetch_page(session, "https://api.bugsnag.com/x", {}, MagicMock()) is ok
+        assert bugsnag._fetch_page(session, "https://api.bugsnag.com/x", {}, MagicMock()) is ok  # type: ignore[arg-type]
 
 
 class TestTopLevelOrganizations:

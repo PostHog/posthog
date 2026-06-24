@@ -5,6 +5,8 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
+from posthog.schema import SourceFieldInputConfig
+
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.bugsnag.bugsnag import BugsnagResumeConfig
 from posthog.temporal.data_imports.sources.bugsnag.settings import BUGSNAG_ENDPOINTS, ENDPOINTS
@@ -47,8 +49,10 @@ class TestBugsnagSource:
         assert config.unreleasedSource is True
         field_names = [f.name for f in config.fields]
         assert field_names == ["auth_token"]
-        assert config.fields[0].required is True
-        assert config.fields[0].secret is True
+        auth_field = config.fields[0]
+        assert isinstance(auth_field, SourceFieldInputConfig)
+        assert auth_field.required is True
+        assert auth_field.secret is True
 
     def test_generated_config_parses_auth_token(self) -> None:
         # Guards the hand-checked generated_configs.py edit: the form field must map to `auth_token`.
