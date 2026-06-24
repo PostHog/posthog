@@ -2364,6 +2364,20 @@ class TestHotTableAlterPolicy:
         risk = self._analyze_product([op])
         assert not any("SHARE ROW EXCLUSIVE" in v for v in risk.policy_violations)
 
+    def test_create_model_unmanaged_with_fk_to_hot_table_not_flagged(self):
+        """managed=False maps an external table - Django emits no DDL or FK, so no parent lock."""
+        op = create_mock_operation(
+            migrations.CreateModel,
+            name="WarehouseColumnAnnotation",
+            fields=[
+                ("id", models.UUIDField(primary_key=True)),
+                ("team", models.ForeignKey("posthog.team", on_delete=models.CASCADE)),
+            ],
+            options={"managed": False},
+        )
+        risk = self._analyze_product([op])
+        assert not any("SHARE ROW EXCLUSIVE" in v for v in risk.policy_violations)
+
     def test_add_field_m2m_to_hot_table_blocked(self):
         """A M2M to a hot table auto-creates a through table with FK constraints to the parent."""
         op = create_mock_operation(

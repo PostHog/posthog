@@ -11,6 +11,8 @@ from pathlib import Path
 from django.conf import settings
 from django.db import models
 
+from posthog.management.migration_analysis.operations import is_unmanaged_model
+
 # Apps owned by PostHog where policies are enforced
 POSTHOG_OWNED_APPS = ["posthog", "ee"]
 
@@ -491,6 +493,10 @@ class HotTableAlterPolicy(MigrationPolicy):
 
         violations = []
         for op in self._descend(migration.operations):
+            # Unmanaged models (managed=False) map external tables - Django emits no DDL and
+            # no FK constraint, so they can't take the hot-table lock this policy gates.
+            if is_unmanaged_model(op, migration):
+                continue
             fk_table = self._fk_target_hot_table(op)
             if fk_table:
                 violations.append(self._fk_violation(op, fk_table, label))

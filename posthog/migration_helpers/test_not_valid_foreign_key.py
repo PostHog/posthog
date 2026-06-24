@@ -1,10 +1,3 @@
-"""Functional tests for AddForeignKeyNotValid / ValidateForeignKey.
-
-Each test creates and drops a real child + parent table inside the standard test
-database so we can poke pg_constraint.convalidated directly and exercise the
-two-phase NOT VALID -> VALIDATE flow for a FOREIGN KEY against live Postgres.
-"""
-
 import uuid
 
 import pytest
@@ -20,7 +13,7 @@ MODEL_NAME = "TmpFkModel"
 
 @pytest.fixture
 def temp_tables():
-    """A one-off child + parent table plus a ProjectState model pointing at the child."""
+    # A one-off child + parent table plus a ProjectState model pointing at the child.
     suffix = uuid.uuid4().hex[:8]
     parent = f"test_fk_parent_{suffix}"
     child = f"test_fk_child_{suffix}"
@@ -76,7 +69,7 @@ def _apply_backwards(op, state):
 
 
 def _convalidated(constraint_name):
-    """None if the constraint is absent, else its convalidated flag."""
+    # None if the constraint is absent, else its convalidated flag.
     with connection.cursor() as cursor:
         cursor.execute("SELECT convalidated FROM pg_constraint WHERE conname = %s", [constraint_name])
         row = cursor.fetchone()
@@ -106,7 +99,7 @@ def test_add_foreign_key_not_valid_creates_unvalidated_constraint(temp_tables):
 
 @pytest.mark.django_db(transaction=True)
 def test_add_foreign_key_not_valid_skips_existing_rows_but_enforces_new_rows(temp_tables):
-    """The point of NOT VALID: a pre-existing orphan child row is tolerated, new ones aren't."""
+    # The point of NOT VALID: a pre-existing orphan child row is tolerated, new ones aren't.
     child, parent, state = temp_tables
     name = f"{child}_parent_fk"
     _insert_child(child, 999)  # pre-existing orphan (no matching parent)
@@ -119,9 +112,9 @@ def test_add_foreign_key_not_valid_skips_existing_rows_but_enforces_new_rows(tem
 
 @pytest.mark.django_db(transaction=True)
 def test_add_foreign_key_not_valid_is_deferrable(temp_tables):
-    """DEFERRABLE INITIALLY DEFERRED: a child can be inserted before its parent within one
-    transaction, with the FK checked at commit - matching Django's FK semantics. Without
-    deferrability the child insert would raise immediately."""
+    # DEFERRABLE INITIALLY DEFERRED: a child can be inserted before its parent within one
+    # transaction, with the FK checked at commit - matching Django's FK semantics. Without
+    # deferrability the child insert would raise immediately.
     child, parent, state = temp_tables
     name = f"{child}_parent_fk"
     _apply_forwards(_add_op(name, parent), state)
@@ -202,11 +195,8 @@ def test_validate_foreign_key_fails_on_existing_violation(temp_tables):
 
 
 def _collected_forward_sql(op, child):
-    """Run op.database_forwards in collect_sql mode and return the emitted SQL.
-
-    collect_sql records statements instead of running them; the constraint is
-    absent, so the validity probe returns None and the op proceeds to emit DDL.
-    """
+    # collect_sql records statements instead of running them; the constraint is
+    # absent, so the validity probe returns None and the op proceeds to emit DDL.
     state = ProjectState()
     state.add_model(
         ModelState(
@@ -227,9 +217,9 @@ def _collected_forward_sql(op, child):
 
 @pytest.mark.django_db
 def test_add_foreign_key_not_valid_keeps_lock_timeout():
-    """ADD CONSTRAINT ... NOT VALID takes a brief SHARE ROW EXCLUSIVE lock on the parent,
-    so it must keep the default lock_timeout and fail fast on contention rather than queue
-    the lock behind in-flight writes on the parent."""
+    # ADD CONSTRAINT ... NOT VALID takes a brief SHARE ROW EXCLUSIVE lock on the parent, so it
+    # must keep the default lock_timeout and fail fast on contention rather than queue the lock
+    # behind in-flight writes on the parent.
     op = AddForeignKeyNotValid(model_name=MODEL_NAME, name="tfk", column="parent_id", to_table="some_parent")
     collected = _collected_forward_sql(op, "test_fk_child_collect")
 
@@ -252,7 +242,7 @@ def test_deconstruct_round_trips():
 
 
 def test_validate_foreign_key_deconstructs_under_own_name():
-    """A subclass, not an alias - so a squash round-trips it as ValidateForeignKey."""
+    # A subclass, not an alias - so a squash round-trips it as ValidateForeignKey.
     op = ValidateForeignKey(model_name=MODEL_NAME, name="tfk")
     name, args, kwargs = op.deconstruct()
 
