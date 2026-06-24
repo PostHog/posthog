@@ -422,6 +422,7 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 preview: lastAssistantTextPreview(s.conversation),
                 usage_total: s.usage_total,
                 retry_count: s.retry_count,
+                is_preview: s.is_preview,
                 created_at: s.created_at,
                 updated_at: s.updated_at,
             }))
@@ -479,6 +480,7 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 turns: s.conversation.length,
                 preview: lastAssistantTextPreview(s.conversation),
                 usage_total: s.usage_total,
+                is_preview: s.is_preview,
                 created_at: s.created_at,
                 updated_at: s.updated_at,
             }))
@@ -500,12 +502,9 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
             // recent turns. usage_total comes off the row regardless so cost
             // reporting stays accurate.
             if (q.last_n !== undefined && q.last_n < s.conversation.length) {
-                const trimmed: AgentSession = {
+                res.json({
                     ...s,
                     conversation: s.conversation.slice(-q.last_n),
-                }
-                res.json({
-                    ...trimmed,
                     conversation_total_turns: s.conversation.length,
                     conversation_trimmed: true,
                 })
@@ -609,6 +608,11 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
         decision_at: r.decision_at,
         decision_reason: r.decision_reason,
         dispatch_outcome: r.dispatch_outcome,
+        // Preview-mode marker copied from `agent_session.is_preview` at insert
+        // time (see PgApprovalStore.upsertQueued). Surfaced to the inbox UI so
+        // the approvals queue can render a "preview" badge and (optionally)
+        // hide preview approvals from a default operator view.
+        is_preview: r.is_preview,
         created_at: r.created_at,
         expires_at: r.expires_at,
     })

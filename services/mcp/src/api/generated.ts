@@ -7554,6 +7554,8 @@ export namespace Schemas {
       team_id: number;
       /** Revision the gated call was proposed against. */
       revision_id: string;
+      /** Mirrors the owning session's `is_preview`. True when the request originated from a draft revision running in preview mode — render a preview badge in the approvals queue so reviewers can tell author-iteration approvals apart from production traffic. */
+      is_preview: boolean;
       /** Turn number within the session that emitted the call. */
       turn: number;
       /** pi-ai ToolCall.id from the original assistant message; matched into the synthetic tool_result. */
@@ -7731,6 +7733,8 @@ export namespace Schemas {
          */
       preview: string | null;
       retry_count: number;
+      /** True when the session ran against a draft revision in preview mode. Output adapters (Slack writes, failure notifier) no-op; `$ai_*` analytics events are tagged with `$agent_is_preview: true`. Surface a preview badge on the row so authors can distinguish iteration from live traffic. */
+      is_preview: boolean;
       created_at: string;
       updated_at: string;
     }
@@ -7844,6 +7848,8 @@ export namespace Schemas {
       pending_inputs: AgentConversationMessage[];
       /** Times the janitor has re-queued this session after a stuck-running detection. */
       retry_count: number;
+      /** True when the session ran against a draft revision in preview mode. Output adapters (Slack writes, failure notifier) no-op; `$ai_*` analytics events are tagged with `$agent_is_preview: true`. Surface a preview badge on session detail so authors can distinguish iteration from live traffic. */
+      is_preview: boolean;
       created_at: string;
       updated_at: string;
       /** True when `?last_n=` was supplied AND the full conversation exceeded it. */
@@ -7917,6 +7923,8 @@ export namespace Schemas {
          * @nullable
          */
       preview: string | null;
+      /** True when the session ran against a draft revision in preview mode. Output adapters (Slack writes, failure notifier) no-op; `$ai_*` analytics events are tagged with `$agent_is_preview: true`. Render a preview badge on the row so author iteration is distinguishable from live traffic. */
+      is_preview: boolean;
       created_at: string;
       updated_at: string;
     }
@@ -15765,6 +15773,7 @@ export namespace Schemas {
      * * `Knock` - Knock
      * * `Leexi` - Leexi
      * * `RB2B` - RB2B
+     * * `Superwall` - Superwall
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -16409,6 +16418,7 @@ export namespace Schemas {
       Knock: 'Knock',
       Leexi: 'Leexi',
       Rb2b: 'RB2B',
+      Superwall: 'Superwall',
     } as const;
 
     /**
@@ -17059,7 +17069,8 @@ export namespace Schemas {
        * * `Jobber` - Jobber
        * * `Knock` - Knock
        * * `Leexi` - Leexi
-       * * `RB2B` - RB2B */
+       * * `RB2B` - RB2B
+       * * `Superwall` - Superwall */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -22190,7 +22201,8 @@ export namespace Schemas {
        * * `Jobber` - Jobber
        * * `Knock` - Knock
        * * `Leexi` - Leexi
-       * * `RB2B` - RB2B */
+       * * `RB2B` - RB2B
+       * * `Superwall` - Superwall */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -45392,6 +45404,11 @@ export namespace Schemas {
       stale: number;
     }
 
+    export interface RevokeOtherSessionsResponse {
+      /** Number of other login sessions that were revoked. */
+      revoked_count: number;
+    }
+
     export interface RoleLookupResponse {
       /** Matching reference, or null if none exists. */
       reference: RoleExternalReference | null;
@@ -47481,7 +47498,8 @@ export namespace Schemas {
        * * `Jobber` - Jobber
        * * `Knock` - Knock
        * * `Leexi` - Leexi
-       * * `RB2B` - RB2B */
+       * * `RB2B` - RB2B
+       * * `Superwall` - Superwall */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -48158,7 +48176,8 @@ export namespace Schemas {
        * * `Jobber` - Jobber
        * * `Knock` - Knock
        * * `Leexi` - Leexi
-       * * `RB2B` - RB2B */
+       * * `RB2B` - RB2B
+       * * `Superwall` - Superwall */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -50120,6 +50139,24 @@ export namespace Schemas {
          * @nullable
          */
       error?: UpsertWizardSessionRequestError;
+    }
+
+    /**
+     * A cookie-auth login session shown on the user's 'Web sessions' screen.
+     */
+    export interface UserAuthSession {
+      /** Identifier used to revoke this login session. */
+      readonly id: string;
+      /** When this login session last made a request (refreshed periodically). */
+      readonly last_activity: string;
+      /** Approximate city and country derived from the IP address, if known. */
+      readonly location: string;
+      /** Browser and operating system parsed from the user agent, e.g. 'Chrome 135 on macOS'. */
+      readonly device: string;
+      /** How this session signed in (e.g. password, Google, SAML). */
+      readonly login_method: string;
+      /** Whether this is the login session making the current request. */
+      readonly is_current: boolean;
     }
 
     /**
@@ -57156,6 +57193,13 @@ export namespace Schemas {
     revision_id: string;
     };
 
+    export type AgentApplicationsPreviewTokenMintParams = {
+    /**
+     * Target draft revision. Must belong to this application and not be live.
+     */
+    revision_id: string;
+    };
+
     export type AgentApplicationsSessionsListParams = {
     /**
      * ISO datetime — return sessions with created_at >= this.
@@ -63580,6 +63624,11 @@ export namespace Schemas {
      * Optional case-insensitive repository name search query.
      */
     search?: string;
+    };
+
+    export type UsersLoginSessionsListParams = {
+    email?: string;
+    is_staff?: boolean;
     };
 
 
