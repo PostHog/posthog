@@ -262,12 +262,19 @@ class PipelineNonDLT(Generic[ResumableData]):
 
             return {"should_trigger_cdp_producer": await self._cdp_producer.should_produce_table()}
         finally:
-            # Help reduce the memory footprint of each job
+            # Help reduce the memory footprint of each job. This is best-effort cleanup:
+            # `get_delta_table` does object-storage I/O, so a transient storage blip here
+            # must not mask the real import error from the try body — which drives
+            # retry classification and the user-facing message — nor fail an otherwise
+            # successful sync.
             await self._logger.adebug("Cleaning up delta table helper")
-            delta_table = await self._delta_table_helper.get_delta_table()
-            self._delta_table_helper.get_delta_table.cache_clear()
-            if delta_table:
-                del delta_table
+            try:
+                delta_table = await self._delta_table_helper.get_delta_table()
+                self._delta_table_helper.get_delta_table.cache_clear()
+                if delta_table:
+                    del delta_table
+            except Exception:
+                await self._logger.aexception("Failed to clean up delta table helper")
 
             del self._resource
             del self._delta_table_helper
