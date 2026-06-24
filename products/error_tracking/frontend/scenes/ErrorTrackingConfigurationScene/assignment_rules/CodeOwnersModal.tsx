@@ -35,7 +35,6 @@ export function CodeOwnersModal(): JSX.Element {
     const { closeModal, setRawText, goToConfigure, goToImpact, backToMapping, backToPaste, saveAll, setDateRange } =
         useActions(codeOwnersModalLogic)
 
-    const shouldMapOwners = unmatchedCount > 0
     const hasParseErrors = parseErrors.length > 0
 
     const closeCurrentStep = (): void => {
@@ -102,8 +101,7 @@ export function CodeOwnersModal(): JSX.Element {
                                 </Button>
                                 <Button
                                     variant="primary"
-                                    onClick={shouldMapOwners ? goToConfigure : saveAll}
-                                    loading={saving && !shouldMapOwners}
+                                    onClick={goToConfigure}
                                     disabled={!hasParsedOwners || hasParseErrors}
                                     title={
                                         hasParseErrors
@@ -113,9 +111,9 @@ export function CodeOwnersModal(): JSX.Element {
                                               : 'Paste at least one code owner line'
                                     }
                                 >
-                                    {shouldMapOwners
+                                    {unmatchedCount > 0
                                         ? `Map ${unmatchedCount} unresolved owner${unmatchedCount === 1 ? '' : 's'}`
-                                        : `Save ${savableRows.length} ${savableRows.length === 1 ? 'rule' : 'rules'}`}
+                                        : 'Review mappings'}
                                 </Button>
                             </div>
                         </footer>

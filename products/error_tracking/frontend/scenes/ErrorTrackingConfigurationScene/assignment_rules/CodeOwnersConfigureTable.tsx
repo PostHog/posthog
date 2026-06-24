@@ -2,8 +2,10 @@ import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 import { useMemo } from 'react'
 
-import { LemonSelect, Tooltip } from '@posthog/lemon-ui'
+import { Tooltip } from '@posthog/lemon-ui'
 
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { Button, Spinner, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from 'lib/ui/quill'
 import { urls } from 'scenes/urls'
 
@@ -11,7 +13,8 @@ import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { ErrorTrackingIssueAssignee, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { ActivityTab } from '~/types'
 
-import { AssigneeDisplay } from '../../../components/Assignee/AssigneeDisplay'
+import { AssigneeIconDisplay, AssigneeLabelDisplay } from '../../../components/Assignee/AssigneeDisplay'
+import { AssigneeSelect } from '../../../components/Assignee/AssigneeSelect'
 import { Assignee, assigneeSelectLogic } from '../../../components/Assignee/assigneeSelectLogic'
 import { buildOwnerFilters, CodeOwnerRow, codeOwnersModalLogic } from './codeOwnersModalLogic'
 
@@ -22,42 +25,8 @@ function assigneeLabel(assignee: Assignee): string {
     return assignee.type === 'role' ? assignee.role.name : assignee.user.first_name || assignee.user.email
 }
 
-function assigneeValue(assignee: ErrorTrackingIssueAssignee | null): string | null {
-    return assignee ? `${assignee.type}:${assignee.id}` : null
-}
-
-function parseAssigneeValue(value: string | null): ErrorTrackingIssueAssignee | null {
-    if (!value) {
-        return null
-    }
-    const [type, id] = value.split(':')
-    if (type !== 'role' && type !== 'user') {
-        return null
-    }
-    return { type, id: type === 'user' ? Number(id) : id }
-}
-
-interface AssigneeOption {
-    value: string
-    assignee: NonNullable<Assignee>
-}
-
 function pathsTooltip(patterns: string[]): JSX.Element {
     return <span className="block whitespace-pre-line text-left">{patterns.join('\n')}</span>
-}
-
-function assigneeSelectOption(option: AssigneeOption): {
-    value: string
-    label: JSX.Element
-    labelInMenu: JSX.Element
-} {
-    const label = <AssigneeDisplay assignee={option.assignee} size="small" />
-
-    return {
-        value: option.value,
-        label,
-        labelInMenu: label,
-    }
 }
 
 function exceptionsUrl(patterns: string[], dateRange: string): string {
@@ -88,20 +57,6 @@ function exceptionsUrl(patterns: string[], dateRange: string): string {
 export function CodeOwnersConfigureTable(): JSX.Element {
     const { mappingRows } = useValues(codeOwnersModalLogic)
     const { setOwnerAssignee } = useActions(codeOwnersModalLogic)
-    const { roles, meFirstMembers } = useValues(assigneeSelectLogic)
-
-    const roleOptions: AssigneeOption[] = roles.map((role) => ({
-        value: `role:${role.id}`,
-        assignee: { id: role.id, type: 'role', role },
-    }))
-    const userOptions: AssigneeOption[] = meFirstMembers.map((member) => ({
-        value: `user:${member.user.id}`,
-        assignee: { id: member.user.id, type: 'user', user: member.user },
-    }))
-    const lemonSelectOptions = [
-        { title: 'Roles', options: roleOptions.map(assigneeSelectOption) },
-        { title: 'Users', options: userOptions.map(assigneeSelectOption) },
-    ]
 
     const setAssignee = (owner: string, assignee: ErrorTrackingIssueAssignee | null): void =>
         setOwnerAssignee(owner, assignee)
@@ -140,15 +95,28 @@ export function CodeOwnersConfigureTable(): JSX.Element {
                                 </TableCell>
                                 <TableCell className="px-0">
                                     <div className="flex justify-end">
-                                        <LemonSelect
-                                            className="w-64"
-                                            value={assigneeValue(row.assignee)}
-                                            onChange={(value) => setAssignee(row.owner, parseAssigneeValue(value))}
-                                            options={lemonSelectOptions}
-                                            placeholder="Assign…"
-                                            allowClear
-                                            dropdownMatchSelectWidth
-                                        />
+                                        <AssigneeSelect
+                                            assignee={row.assignee}
+                                            onChange={(assignee) => setAssignee(row.owner, assignee)}
+                                        >
+                                            {(assignee, isOpen) => (
+                                                <ButtonPrimitive
+                                                    className="w-64"
+                                                    data-state={isOpen ? 'open' : 'closed'}
+                                                >
+                                                    <div className="flex min-w-0 items-center">
+                                                        <AssigneeIconDisplay assignee={assignee} size="small" />
+                                                        <AssigneeLabelDisplay
+                                                            assignee={assignee}
+                                                            className="ml-1 min-w-0 truncate"
+                                                            size="small"
+                                                            placeholder="Assign…"
+                                                        />
+                                                    </div>
+                                                    <MenuOpenIndicator className="ml-auto" />
+                                                </ButtonPrimitive>
+                                            )}
+                                        </AssigneeSelect>
                                     </div>
                                     {row.source === 'saved' && (
                                         <span className="text-xs text-secondary">saved mapping</span>

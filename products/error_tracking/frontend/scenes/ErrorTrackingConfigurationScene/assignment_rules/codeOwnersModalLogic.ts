@@ -228,7 +228,7 @@ export const codeOwnersModalLogic = kea<codeOwnersModalLogicType>([
             actions.setParsedOwners(groupByOwner(parseCodeowners(values.rawText)))
         },
         goToConfigure: () => {
-            actions.setMappingOwners(values.ownerRows.filter((row) => row.assignee === null).map((row) => row.owner))
+            actions.setMappingOwners(values.ownerRows.map((row) => row.owner))
             actions.testMatches()
         },
         setDateRange: () => {
