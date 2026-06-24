@@ -873,7 +873,8 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
             copyNodeToHighlightedDropzone: () => {
                 const dropzoneNode = values.dropzoneNodes.find((x) => x.id === values.highlightedDropzoneNodeId)
-                if (!dropzoneNode) {
+                // Mirror onDrop's guard (both dropzone and node required) so the toast is reliable
+                if (!dropzoneNode || !values.nodeToBeAdded) {
                     lemonToast.error("Couldn't copy this step there. Try dropping it on a highlighted spot.")
                     actions.stopCopyingNode()
                     return
