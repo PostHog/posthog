@@ -403,12 +403,13 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                     inner_query.order_by = order_by
                     inner_query.limit = ast.Constant(value=self.paginator.limit + self.paginator.offset + 1)
 
-                    prefilter_sorted = parse_expr("uuid in ({inner_query})", {"inner_query": inner_query})
-
-                    if where is not None:
-                        stmt.where = ast.And(exprs=[prefilter_sorted, where])
-                    else:
-                        stmt.where = prefilter_sorted
+                    # Push the narrow uuid prefilter into PREWHERE so ClickHouse evaluates it
+                    # against just the `uuid` column before materializing wide columns
+                    # (`properties`, `elements_chain`, `person_properties`, group property
+                    # tuples). The original `where` stays on `stmt.where` from the construction
+                    # above — PREWHERE filters granules first, then WHERE applies on the
+                    # surviving rows with full columns read.
+                    stmt.prewhere = parse_expr("uuid in ({inner_query})", {"inner_query": inner_query})
 
                 return stmt
 

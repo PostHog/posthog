@@ -1,6 +1,6 @@
 # isort: skip_file
 # Needs to be first to set up django environment
-from .helpers import benchmark_clickhouse, no_materialized_columns, now
+from .helpers import benchmark_clickhouse, no_materialized_columns, now, run_query
 from datetime import timedelta
 from ee.clickhouse.materialized_columns.analyze import (
     backfill_materialized_columns,
@@ -531,6 +531,51 @@ class QuerySuite:
     @benchmark_clickhouse
     def track_person_property_values_materialized(self):
         get_person_property_values_for_key("$browser", self.team)
+
+    # ---- EventsQueryRunner presorted optimization ----
+    # Exercises the shape that hits `EventsQueryRunner._can_use_presorted_optimization` —
+    # wide select (`*` + `person`) sorted by `timestamp DESC`, no aggregation. Compares
+    # the cost of materializing wide columns before vs. after the uuid prefilter is
+    # pushed into PREWHERE. Two flavors: a dense filter that short-circuits early, and
+    # a sparse one that has to scan deeper.
+
+    def _run_presorted_events_query(self, query):
+        from posthog.hogql_queries.events_query_runner import EventsQueryRunner
+
+        EventsQueryRunner(query=query, team=self.team).calculate()
+
+    def _presorted_events_query(self, event="$pageview", limit=1):
+        from posthog.schema import EventsQuery
+
+        return EventsQuery(
+            kind="EventsQuery",
+            select=["*", "person"],
+            orderBy=["timestamp DESC"],
+            event=event,
+            after="-7d",
+            limit=limit,
+        )
+
+    @benchmark_clickhouse
+    def track_events_query_presorted_dense_filter(self):
+        # `$pageview` is dense — limit:1 typically resolves in the first granule scanned.
+        self._run_presorted_events_query(self._presorted_events_query(event="$pageview", limit=1))
+
+    @benchmark_clickhouse
+    def track_events_query_presorted_sparse_filter(self):
+        # Rarer event — limit:1 has to scan further before a match, exposing the
+        # wide-column-decompression cost the PREWHERE rewrite is meant to remove.
+        self._run_presorted_events_query(self._presorted_events_query(event="$identify", limit=1))
+
+    def track_events_query_presorted_memory_usage(self):
+        # ASV `track_*` tracks a single value per commit. Use the same dense filter
+        # but return the ClickHouse-reported peak memory_usage in bytes rather than
+        # wall time, so the regression signal for the PREWHERE optimization is
+        # directly visible in memory_usage delta on the comparison plot.
+        stats = run_query(self._run_presorted_events_query, self._presorted_events_query(event="$pageview", limit=1))
+        return stats["memory_usage"]
+
+    track_events_query_presorted_memory_usage.unit = "bytes"
 
     def setup(self):
         for table, properties in MATERIALIZED_PROPERTIES.items():
