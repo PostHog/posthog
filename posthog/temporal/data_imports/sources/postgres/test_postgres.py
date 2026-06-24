@@ -5572,7 +5572,7 @@ class TestPartitionIterationConnectRetry:
         "partition_strategy",
         [
             pytest.param(None, id="windowed"),
-            pytest.param(PartitionStrategy(strategy="r", key_columns=["id"]), id="per_partition"),
+            pytest.param(PartitionStrategy(strategy="r", key_columns=("id",)), id="per_partition"),
         ],
     )
     def test_partition_connect_retries_transient_drop_in_process(self, partition_strategy):
