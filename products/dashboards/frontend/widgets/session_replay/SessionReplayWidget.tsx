@@ -173,22 +173,31 @@ export function SessionReplayWidget({ result, loading, config }: DashboardWidget
     )
 }
 
-// A saved filter overrides the widget's date range, so the header shows the filter's name in its place.
+// A saved filter or collection overrides the widget's date range, so the header shows its name in place.
 export function SessionReplayWidgetTopHeading({
     config,
     widgetTypeLabel,
     showWidgetType,
     dateText,
 }: DashboardWidgetTopHeadingProps): JSX.Element {
-    const rawSavedFilterId = config.savedFilterId
-    const savedFilterId = typeof rawSavedFilterId === 'string' && rawSavedFilterId.length > 0 ? rawSavedFilterId : null
-    const { savedFilterLabelById } = useValues(sessionReplayWidgetSavedFiltersLogic)
+    const asShortId = (value: unknown): string | null =>
+        typeof value === 'string' && value.length > 0 ? value : null
+    const savedFilterId = asShortId(config.savedFilterId)
+    const collectionId = asShortId(config.collectionId)
+    const { savedFilterLabelById, collectionLabelById } = useValues(sessionReplayWidgetSavedFiltersLogic)
+
+    let sourceText: string | null = null
+    if (savedFilterId) {
+        sourceText = savedFilterLabelById[savedFilterId] ?? 'Saved filter'
+    } else if (collectionId) {
+        sourceText = collectionLabelById[collectionId] ?? 'Collection'
+    }
 
     return (
         <CardTopHeadingRow
             typeLabel={widgetTypeLabel}
             showTypeLabel={showWidgetType}
-            dateText={savedFilterId ? (savedFilterLabelById[savedFilterId] ?? 'Saved filter') : dateText}
+            dateText={sourceText ?? dateText}
         />
     )
 }

@@ -629,8 +629,10 @@ export interface SessionReplayListWidgetConfigApi {
     orderBy?: SessionReplayListWidgetConfigApiOrderBy
     /** Sort direction for orderBy. */
     orderDirection?: SessionReplayListWidgetConfigApiOrderDirection
-    /** short_id of a saved session replay filter to use as the recordings source. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. */
+    /** short_id of a saved session replay filter to use as the recordings source. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. Mutually exclusive with collectionId. */
     savedFilterId?: string | null
+    /** short_id of a session replay collection to use as the recordings source. When set, the widget shows the recordings pinned to that collection; date range and property filters no longer apply, and only orderBy, orderDirection, and limit still take effect. Mutually exclusive with savedFilterId. */
+    collectionId?: string | null
 }
 
 /**

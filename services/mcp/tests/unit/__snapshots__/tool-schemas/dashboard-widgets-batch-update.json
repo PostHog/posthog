@@ -411,6 +411,17 @@
                             "config": {
                                 "description": "New configuration for the recent recordings widget. Omit to leave unchanged.",
                                 "properties": {
+                                    "collectionId": {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "description": "short_id of a session replay collection to use as the recordings source. When set, the widget shows the recordings pinned to that collection; date range and property filters no longer apply, and only orderBy, orderDirection, and limit still take effect. Mutually exclusive with savedFilterId."
+                                    },
                                     "dateRange": {
                                         "anyOf": [
                                             {
@@ -489,7 +500,7 @@
                                                 "type": "null"
                                             }
                                         ],
-                                        "description": "short_id of a saved session replay filter to use as the recordings source. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply."
+                                        "description": "short_id of a saved session replay filter to use as the recordings source. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. Mutually exclusive with collectionId."
                                     },
                                     "widgetFilters": {
                                         "anyOf": [

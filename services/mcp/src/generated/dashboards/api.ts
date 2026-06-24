@@ -528,7 +528,13 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
                                             .describe(
-                                                'short_id of a saved session replay filter to use as the recordings source. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply.'
+                                                'short_id of a saved session replay filter to use as the recordings source. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. Mutually exclusive with collectionId.'
+                                            ),
+                                        collectionId: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'short_id of a session replay collection to use as the recordings source. When set, the widget shows the recordings pinned to that collection; date range and property filters no longer apply, and only orderBy, orderDirection, and limit still take effect. Mutually exclusive with savedFilterId.'
                                             ),
                                     }),
                                     zod.object({
@@ -1422,7 +1428,13 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                     .union([zod.string(), zod.null()])
                                     .optional()
                                     .describe(
-                                        'short_id of a saved session replay filter to use as the recordings source. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply.'
+                                        'short_id of a saved session replay filter to use as the recordings source. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. Mutually exclusive with collectionId.'
+                                    ),
+                                collectionId: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'short_id of a session replay collection to use as the recordings source. When set, the widget shows the recordings pinned to that collection; date range and property filters no longer apply, and only orderBy, orderDirection, and limit still take effect. Mutually exclusive with savedFilterId.'
                                     ),
                             })
                             .describe('Configuration for the recent recordings widget.'),
@@ -2005,7 +2017,13 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                                     .union([zod.string(), zod.null()])
                                     .optional()
                                     .describe(
-                                        'short_id of a saved session replay filter to use as the recordings source. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply.'
+                                        'short_id of a saved session replay filter to use as the recordings source. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. Mutually exclusive with collectionId.'
+                                    ),
+                                collectionId: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'short_id of a session replay collection to use as the recordings source. When set, the widget shows the recordings pinned to that collection; date range and property filters no longer apply, and only orderBy, orderDirection, and limit still take effect. Mutually exclusive with savedFilterId.'
                                     ),
                             })
                             .optional()

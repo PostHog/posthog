@@ -54,17 +54,26 @@ class SessionReplayListWidgetConfig(WidgetListConfigBase):
         default=None,
         description=(
             "short_id of a saved session replay filter to use as the recordings source. When set, the saved filter "
-            "owns the date range and property filters; only orderBy, orderDirection, and limit still apply."
+            "owns the date range and property filters; only orderBy, orderDirection, and limit still apply. "
+            "Mutually exclusive with collectionId."
+        ),
+    )
+    collectionId: str | None = Field(
+        default=None,
+        description=(
+            "short_id of a session replay collection to use as the recordings source. When set, the widget shows the "
+            "recordings pinned to that collection; date range and property filters no longer apply, and only "
+            "orderBy, orderDirection, and limit still take effect. Mutually exclusive with savedFilterId."
         ),
     )
 
-    @field_validator("savedFilterId", mode="before")
+    @field_validator("savedFilterId", "collectionId", mode="before")
     @classmethod
-    def validate_saved_filter_id(cls, value: object) -> str | None:
+    def validate_short_id(cls, value: object) -> str | None:
         if value is None or value == "":
             return None
         if not isinstance(value, str):
-            raise ValueError("savedFilterId must be a string.")
+            raise ValueError("must be a string.")
         return value
 
 

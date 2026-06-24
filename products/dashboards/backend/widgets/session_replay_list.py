@@ -9,6 +9,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
+from posthog.session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
 from posthog.session_recordings.playlist_filters import convert_playlist_to_recordings_query
 from posthog.session_recordings.session_recording_api import run_recordings_list_query
 from posthog.session_recordings.utils import filter_from_params_to_query, recordings_query_has_event_filters
@@ -57,12 +58,49 @@ def _build_saved_filter_recordings_query(
     return query
 
 
+def _build_collection_recordings_query(
+    team: Team,
+    config: ValidatedSessionReplayListWidgetConfig,
+    collection_id: str,
+) -> RecordingsQuery | None:
+    # A collection (SessionRecordingPlaylist of type "collection") is a curated set of pinned recordings,
+    # so the widget shows exactly those session ids; the widget only layers its own sort and limit on top.
+    playlist = SessionRecordingPlaylist.objects.filter(
+        team=team, short_id=collection_id, deleted=False, type="collection"
+    ).first()
+    if playlist is None:
+        logger.warning("session_replay_widget_collection_not_found", extra={"short_id": collection_id})
+        return None
+
+    session_ids = list(
+        SessionRecordingPlaylistItem.objects.filter(playlist=playlist)
+        .exclude(deleted=True)
+        .order_by("-created_at")
+        .values_list("recording_id", flat=True)
+    )
+    return RecordingsQuery(
+        session_ids=session_ids,
+        date_from="-1y",
+        date_to=None,
+        limit=config["limit"],
+        offset=0,
+        order=ORDER_BY_TO_RECORDING_ORDER[config["orderBy"]],
+        order_direction=RecordingOrderDirection(config["orderDirection"]),
+    )
+
+
 def _build_recordings_query(team: Team, config: ValidatedSessionReplayListWidgetConfig) -> RecordingsQuery:
     saved_filter_id = config.get("savedFilterId")
     if saved_filter_id:
         saved_filter_query = _build_saved_filter_recordings_query(team, config, saved_filter_id)
         if saved_filter_query is not None:
             return saved_filter_query
+
+    collection_id = config.get("collectionId")
+    if collection_id:
+        collection_query = _build_collection_recordings_query(team, config, collection_id)
+        if collection_query is not None:
+            return collection_query
 
     date_range_raw = config.get("dateRange")
     date_from = "-7d"

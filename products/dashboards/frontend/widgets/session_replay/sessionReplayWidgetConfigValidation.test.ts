@@ -113,6 +113,23 @@ describe('patchSessionReplayWidgetFilterFields', () => {
         expect(cleared.savedFilterId).toBeNull()
         expect(cleared.dateRange).toEqual({ date_from: '-30d' })
     })
+
+    it('treats saved filter and collection as mutually exclusive sources', () => {
+        const config = sessionReplayWidgetConfigSchema.parse({})
+
+        const withCollection = patchSessionReplayWidgetFilterFields(config, { collectionId: 'col123' })
+        expect(withCollection.collectionId).toBe('col123')
+        expect(withCollection.savedFilterId).toBeNull()
+
+        // Setting a saved filter clears the collection, and vice versa.
+        const withSavedFilter = patchSessionReplayWidgetFilterFields(withCollection, { savedFilterId: 'abc123' })
+        expect(withSavedFilter.savedFilterId).toBe('abc123')
+        expect(withSavedFilter.collectionId).toBeNull()
+
+        const backToCollection = patchSessionReplayWidgetFilterFields(withSavedFilter, { collectionId: 'col456' })
+        expect(backToCollection.collectionId).toBe('col456')
+        expect(backToCollection.savedFilterId).toBeNull()
+    })
 })
 
 describe('parseSessionReplayWidgetConfigApiError', () => {
