@@ -567,6 +567,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object_read_actions = [
         "list",
         "retrieve",
+        "models",
         "sessions_list",
         "sessions_retrieve",
         "session_logs",
@@ -946,6 +947,25 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 str(application.id),
                 since=request.query_params.get("since") or None,
             )
+        except JanitorClientError as e:
+            raise JanitorUpstreamError(e) from e
+        return Response(payload)
+
+    @extend_schema(
+        operation_id="agent_applications_models",
+        description=(
+            "Served-model catalog — each model's id, provider, context window, and "
+            "USD-per-million-token pricing — plus the curated auto-level → model map. "
+            "Project-agnostic; sourced from the AI gateway catalog. Powers the config "
+            "UI model browser and the agent builder's model-choosing skill."
+        ),
+    )
+    @action(detail=False, methods=["get"], url_path="models")
+    def models(self, request: Request, **kwargs) -> Response:
+        """The model catalog. Proxies the janitor, which owns the gateway-catalog
+        client and the level map (single source for runtime + UI + agents)."""
+        try:
+            payload = _janitor().get_models()
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e
         return Response(payload)

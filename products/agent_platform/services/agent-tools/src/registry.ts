@@ -54,7 +54,6 @@ import {
     posthogAgentApplicationsSessionsRetrieveV1,
     posthogAgentApplicationsSetEnvV1,
 } from './tools/posthog-agent-management.v1'
-import { posthogListModelsV1 } from './tools/posthog-models.v1'
 import { posthogListProjectsV1 } from './tools/posthog-projects.v1'
 import { posthogQueryV1 } from './tools/posthog-query.v1'
 import { posthogAgentApplicationsSpecSchemaV1 } from './tools/posthog-spec-schema.v1'
@@ -118,7 +117,6 @@ export const nativeToolsCatalogV1 = defineNativeTool({
 export const ALL_TOOLS: NativeTool[] = [
     posthogQueryV1,
     posthogListProjectsV1,
-    posthogListModelsV1,
     posthogAgentApplicationsListV1,
     posthogAgentApplicationsRetrieveV1,
     posthogAgentApplicationsRevisionsListV1,

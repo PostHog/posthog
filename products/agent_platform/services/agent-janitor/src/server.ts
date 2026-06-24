@@ -45,6 +45,7 @@ import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 
 import {
+    acceptedModelIds,
     accumulateUsage,
     AgentRevision,
     AgentRevisionRaw,
@@ -52,6 +53,7 @@ import {
     AgentSpec,
     AgentSpecSchema,
     ApprovalRequest,
+    CatalogModel,
     GatewayCatalog,
     ApprovalStore,
     applyApprovalDecision,
@@ -69,6 +71,7 @@ import {
     isDev,
     lastAssistantTextPreview,
     MemoryStore,
+    MODEL_POLICY_LEVELS,
     PgIdentityAdminStore,
     readTypedBundle,
     RevisionStore,
@@ -346,6 +349,52 @@ const DecideApprovalBodySchema = z.object({
     reason: z.string().optional(),
 })
 
+interface CatalogModelRow {
+    model: string
+    provider: string
+    context_window: number
+    input: number
+    output: number
+    cache_read?: number
+    cache_write?: number
+}
+
+/** Per-token USD → per-Mtok, rounded so the UI sees `3` not `0.0000030004`. */
+function perMtok(perToken: number | undefined): number | undefined {
+    return perToken === undefined ? undefined : Math.round(perToken * 1e6 * 1000) / 1000
+}
+
+function catalogToModels(catalog: CatalogModel[]): CatalogModelRow[] {
+    return catalog
+        .map((m) => {
+            const row: CatalogModelRow = {
+                model: m.canonical,
+                provider: m.owned_by,
+                context_window: m.context_window,
+                input: perMtok(m.pricing.prompt) ?? 0,
+                output: perMtok(m.pricing.completion) ?? 0,
+            }
+            const cacheRead = perMtok(m.pricing.cache_read)
+            const cacheWrite = perMtok(m.pricing.cache_write)
+            if (cacheRead !== undefined) {
+                row.cache_read = cacheRead
+            }
+            if (cacheWrite !== undefined) {
+                row.cache_write = cacheWrite
+            }
+            return row
+        })
+        .sort((a, b) => a.model.localeCompare(b.model))
+}
+
+/** Resolve each curated level's members to their catalog canonical id (the
+ *  level list uses alias forms); fall back to the raw id when the catalog is
+ *  empty or the model isn't served. */
+function resolveLevels(catalog: CatalogModel[]): Record<string, string[]> {
+    const canonicalFor = (id: string): string => catalog.find((m) => acceptedModelIds([m]).has(id))?.canonical ?? id
+    return Object.fromEntries(Object.entries(MODEL_POLICY_LEVELS).map(([level, ids]) => [level, ids.map(canonicalFor)]))
+}
+
 export function buildJanitorApp(opts: JanitorServerOpts): Express {
     const app = express()
     // Dev only: serve /metrics on the request port (no dedicated scrape server —
@@ -393,6 +442,20 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
     app.get('/healthz', (_req, res) => {
         res.json({ ok: true })
     })
+
+    /* ───────────────────────────── models ─────────────────────────────── */
+    // The served-model catalog (id, provider, context, pricing per Mtok) plus
+    // the curated auto-level → model map, both from the single source the
+    // runner/validation already use. Powers the config-UI model browser (via
+    // Django REST) and, through the PostHog MCP, the agent builder's
+    // model-choosing skill. Pricing-free on an unreachable gateway (empty list).
+    app.get(
+        '/models',
+        asyncHandler(async (_req, res) => {
+            const catalog = opts.gatewayCatalog ? await opts.gatewayCatalog.list() : []
+            res.json({ models: catalogToModels(catalog), levels: resolveLevels(catalog) })
+        })
+    )
 
     /* ───────────────────────────── sessions ───────────────────────────── */
 

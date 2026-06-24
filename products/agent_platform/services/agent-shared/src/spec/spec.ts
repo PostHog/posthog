@@ -699,7 +699,7 @@ export const ModelPolicySchema = z.discriminatedUnion('mode', [
 export const MODEL_POLICY_LEVELS: Record<z.infer<typeof ModelLevelSchema>, readonly string[]> = {
     low: ['anthropic/claude-haiku-4-5', 'openai/gpt-5-mini'],
     medium: ['anthropic/claude-sonnet-4-6', 'openai/gpt-5'],
-    high: ['anthropic/claude-opus-4-7', 'openai/gpt-5-pro', 'anthropic/claude-sonnet-4-6'],
+    high: ['anthropic/claude-opus-4-7', 'openai/gpt-5-pro'],
 }
 
 /**
