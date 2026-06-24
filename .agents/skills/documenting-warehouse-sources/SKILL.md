@@ -36,8 +36,8 @@ title: Linking <Source> as a source
 sidebar: Docs
 showTitle: true
 availability: { free: full, selfServe: full, enterprise: full }
-sourceId: <EnumValue>   # MUST equal the ExternalDataSourceType value, e.g. ActiveCampaign, Stripe
-beta: true              # optional — only for beta sources
+sourceId: <EnumValue> # MUST equal the ExternalDataSourceType value, e.g. ActiveCampaign, Stripe
+beta: true # optional — only for beta sources
 ---
 ```
 
@@ -47,7 +47,7 @@ renders with no `<SourceParameters />` / `<SourceTables />` data. It must be a r
 
 ## Canonical template
 
-```markdown
+```text
 ---
 title: Linking <Source> as a source
 sidebar: Docs
@@ -156,4 +156,3 @@ Renaming a published doc also needs a 301 in `posthog.com/vercel.json` for both
       `/implementing-warehouse-sources`
 - [ ] Filename, `docsUrl`, and slug all agree (kebab-case)
 - [ ] `audit_source_docs` passes
-```

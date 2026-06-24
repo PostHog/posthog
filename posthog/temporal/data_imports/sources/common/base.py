@@ -1,5 +1,6 @@
 import dataclasses
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Generic, Optional, TypeVar, Union
 
 from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
@@ -40,7 +41,7 @@ def _incremental_field_labels(fields: list[IncrementalField]) -> list[str]:
     return labels
 
 
-def _documented_table_from_schema(schema: SourceSchema, canonical: dict[str, Any]) -> dict[str, Any]:
+def _documented_table_from_schema(schema: SourceSchema, canonical: Mapping[str, Any]) -> dict[str, Any]:
     """Shape a `SourceSchema` (+ curated canonical entry) into a public-docs table entry."""
     if schema.webhook_only:
         sync_methods = ["Webhook only"]
