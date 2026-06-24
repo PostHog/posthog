@@ -16,6 +16,19 @@ from posthog.temporal.session_replay.export_recording.activities import (
 )
 from posthog.temporal.session_replay.export_recording.types import ExportRecordingInput, MarkExportFailedInput
 
+# A mid-stream ClickHouse socket failure (e.g. a broken pipe while reading the response) is
+# transient: a brief connectivity blip resolves on its own. With only two attempts a minute
+# apart, both retries can land inside the same blip and exhaust the policy, failing the export.
+# Give the ClickHouse reads more attempts with exponential backoff so the retry window comfortably
+# outlasts a momentary hiccup. Everything stays retryable (Temporal's default) so a broken pipe is
+# retried rather than surfaced as a failure.
+CLICKHOUSE_READ_RETRY_POLICY = common.RetryPolicy(
+    maximum_attempts=6,
+    initial_interval=timedelta(seconds=15),
+    backoff_coefficient=2.0,
+    maximum_interval=timedelta(minutes=2),
+)
+
 
 @workflow.defn(name="export-recording")
 class ExportRecordingWorkflow(PostHogWorkflow):
@@ -64,10 +77,7 @@ class ExportRecordingWorkflow(PostHogWorkflow):
                     export_context,
                     start_to_close_timeout=timedelta(minutes=30),
                     schedule_to_close_timeout=timedelta(hours=3),
-                    retry_policy=common.RetryPolicy(
-                        maximum_attempts=2,
-                        initial_interval=timedelta(minutes=1),
-                    ),
+                    retry_policy=CLICKHOUSE_READ_RETRY_POLICY,
                 )
             )
             export_tasks.create_task(
@@ -76,10 +86,7 @@ class ExportRecordingWorkflow(PostHogWorkflow):
                     export_context,
                     start_to_close_timeout=timedelta(minutes=30),
                     schedule_to_close_timeout=timedelta(hours=3),
-                    retry_policy=common.RetryPolicy(
-                        maximum_attempts=2,
-                        initial_interval=timedelta(minutes=1),
-                    ),
+                    retry_policy=CLICKHOUSE_READ_RETRY_POLICY,
                 )
             )
             export_tasks.create_task(

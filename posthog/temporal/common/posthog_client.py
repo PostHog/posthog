@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import is_dataclass
 from typing import Any, Optional
 
@@ -18,6 +19,23 @@ from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
 
 logger = get_write_only_logger()
+
+
+def _is_already_captured_or_cancellation(exc: BaseException) -> bool:
+    """True when ``exc`` carries no failure worth reporting at the workflow level.
+
+    A workflow that fans activities out through an ``asyncio.TaskGroup`` raises an
+    ``ExceptionGroup`` when one activity fails: the real failure (an ``ActivityError``, already
+    captured at the activity level) bundled with the ``CancelledError`` of every sibling the
+    TaskGroup cancelled in response. Re-capturing that group at the workflow level only adds
+    duplicate "CancelledError" noise to error tracking, so skip it when every leaf is either an
+    already-captured ``ActivityError`` or a cancellation. Any other leaf (a genuine workflow-code
+    bug) makes this return False so the group is still reported."""
+    if isinstance(exc, BaseExceptionGroup):
+        return all(_is_already_captured_or_cancellation(sub) for sub in exc.exceptions)
+    return isinstance(exc, temporalio.exceptions.ActivityError | temporalio.exceptions.CancelledError) or isinstance(
+        exc, asyncio.CancelledError
+    )
 
 
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
@@ -97,6 +115,8 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
         except Exception as e:
             if isinstance(e, temporalio.exceptions.ActivityError):
                 raise  # Already captured at the activity level
+            if _is_already_captured_or_cancellation(e):
+                raise  # TaskGroup-bundled activity failures + sibling cancellations; see helper
             try:
                 workflow_info = workflow.info()
                 capture_kwargs = {
