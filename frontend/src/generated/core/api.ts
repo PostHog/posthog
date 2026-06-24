@@ -76,11 +76,8 @@ import type {
     ProjectSecretApiKeysListParams,
     PromotedProductIntentApi,
     PropertyDefinitionsListParams,
-<<<<<<< HEAD
-    SCIMTokenResponseApi,
-=======
     RevokeOtherSessionsResponseApi,
->>>>>>> 50b5dd161e0ac675c80afd238c1f78d25d64c35a
+    SCIMTokenResponseApi,
     SharingConfigurationApi,
     UserApi,
     UserAuthSessionApi,
