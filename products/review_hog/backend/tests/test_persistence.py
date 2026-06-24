@@ -1,6 +1,3 @@
-import tempfile
-from pathlib import Path
-
 from posthog.test.base import BaseTest
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
@@ -9,14 +6,22 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ValidationVerdict,
     parse_artefact_content,
 )
+from products.review_hog.backend.reviewer.models.chunk_analysis import ChunkAnalysis, ChunkMeta
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRMetadata
-from products.review_hog.backend.reviewer.models.issue_combination import IssueCombination
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
-from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
+from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview, LineRange
+from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
 from products.review_hog.backend.reviewer.persistence import (
     finalize_review_report,
+    load_chunk_analyses,
+    load_chunk_set,
+    load_lens_results,
+    load_valid_findings,
+    persist_chunk_analyses,
+    persist_chunk_set,
     persist_commit_snapshot,
     persist_findings,
+    persist_lens_results,
     persist_verdicts,
     upsert_review_report,
 )
@@ -42,17 +47,18 @@ def _pr_metadata(pr_number: int = 123, head_sha: str | None = None) -> PRMetadat
     )
 
 
-def _write_issues(review_dir: Path, issues: list[Issue]) -> None:
-    (review_dir / "issues_found.json").write_text(IssueCombination(issues=issues).model_dump_json())
-
-
-def _write_validation(review_dir: Path, issue_id: str, validation: IssueValidation) -> None:
-    pass_id, chunk_id, issue_number = issue_id.split("-")
-    summaries = review_dir / f"pass{pass_id}_results" / "validation" / "summaries"
-    summaries.mkdir(parents=True, exist_ok=True)
-    (summaries / f"chunk-{chunk_id}-issue-{issue_number}-validation-summary.json").write_text(
-        validation.model_dump_json()
-    )
+def _issue(issue_id: str, *, file: str = "a.py", start: int = 10, **kwargs: object) -> Issue:
+    defaults: dict = {
+        "title": "t",
+        "file": file,
+        "lines": [LineRange(start=start)],
+        "issue": "problem",
+        "suggestion": "fix",
+        "priority": IssuePriority.MUST_FIX,
+        "source_lens": "Logic & Correctness",
+    }
+    defaults.update(kwargs)
+    return Issue(id=issue_id, **defaults)
 
 
 class TestUpsertReviewReport(BaseTest):
@@ -60,18 +66,14 @@ class TestUpsertReviewReport(BaseTest):
         # The living-report premise: re-running a PR must reuse one report (not spawn a second) and
         # count each finalized turn. A broken idempotency key or a finalize that forgets to bump
         # would break the loop-y design.
-        with tempfile.TemporaryDirectory() as d:
-            review_dir = Path(d)
-            (review_dir / "review_report.md").write_text("# report")
-
-            report_id_1 = upsert_review_report(
-                team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata()
-            )
-            finalize_review_report(team_id=self.team.id, report_id=report_id_1, review_dir=review_dir)
-            report_id_2 = upsert_review_report(
-                team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata()
-            )
-            finalize_review_report(team_id=self.team.id, report_id=report_id_2, review_dir=review_dir)
+        report_id_1 = upsert_review_report(
+            team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata()
+        )
+        finalize_review_report(team_id=self.team.id, report_id=report_id_1, body_markdown="# report")
+        report_id_2 = upsert_review_report(
+            team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata()
+        )
+        finalize_review_report(team_id=self.team.id, report_id=report_id_2, body_markdown="# report")
 
         assert report_id_1 == report_id_2
         reports = ReviewReport.objects.for_team(self.team.id).filter(repository="o/r", pr_number=123)
@@ -87,29 +89,25 @@ class TestPersistResults(BaseTest):
         # The mapping + join is the whole point of this layer: Issue.issue → finding.body (not
         # suggestion), the typo'd is_directy_* → is_directly_*, and the verdict reaching the finding
         # by a shared issue_key (so latest-wins can pair them). Catches a field swap or a key drift.
-        with tempfile.TemporaryDirectory() as d:
-            review_dir = Path(d)
-            issue = Issue(
-                id="1-2-3",
-                title="Off-by-one",
-                file="a.py",
-                lines=[LineRange(start=10)],
-                issue="loop runs one short",
-                suggestion="use <=",
-                priority=IssuePriority.MUST_FIX,
-                source_lens="Logic & Correctness",
-                is_directy_related_to_changes=True,
+        issue = _issue(
+            "1-2-3",
+            title="Off-by-one",
+            file="a.py",
+            issue="loop runs one short",
+            suggestion="use <=",
+            is_directy_related_to_changes=True,
+        )
+        report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
+        assert persist_findings(team_id=self.team.id, report_id=report_id, issues=[issue]) == 1
+        assert (
+            persist_verdicts(
+                team_id=self.team.id,
+                report_id=report_id,
+                issues=[issue],
+                validations={"1-2-3": IssueValidation(is_valid=True, argumentation="real bug", category="bug")},
             )
-            _write_issues(review_dir, [issue])
-            _write_validation(
-                review_dir, "1-2-3", IssueValidation(is_valid=True, argumentation="real bug", category="bug")
-            )
-
-            report_id = upsert_review_report(
-                team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata()
-            )
-            assert persist_findings(team_id=self.team.id, report_id=report_id, review_dir=review_dir) == 1
-            assert persist_verdicts(team_id=self.team.id, report_id=report_id, review_dir=review_dir) == 1
+            == 1
+        )
 
         finding_row = ReviewReportArtefact.objects.for_team(self.team.id).get(
             report_id=report_id, type=ReviewReportArtefact.ArtefactType.ISSUE_FINDING
@@ -136,37 +134,30 @@ class TestPersistResults(BaseTest):
         # Two genuinely distinct issues from the same lens on the same start line survive dedup with
         # different ids. They must NOT collapse to one issue_key (which would shadow a finding) and
         # each must pair to its OWN verdict (not the other's ruling).
-        with tempfile.TemporaryDirectory() as d:
-            review_dir = Path(d)
-            a = Issue(
-                id="1-2-1",
-                title="A",
-                file="x.py",
-                lines=[LineRange(start=5)],
-                issue="problem A",
-                suggestion="fix A",
-                priority=IssuePriority.MUST_FIX,
-                source_lens="Logic & Correctness",
+        a = _issue("1-2-1", file="x.py", start=5, title="A", issue="problem A", suggestion="fix A")
+        b = _issue(
+            "1-2-2",
+            file="x.py",
+            start=5,
+            title="B",
+            issue="problem B",
+            suggestion="fix B",
+            priority=IssuePriority.SHOULD_FIX,
+        )
+        report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
+        assert persist_findings(team_id=self.team.id, report_id=report_id, issues=[a, b]) == 2
+        assert (
+            persist_verdicts(
+                team_id=self.team.id,
+                report_id=report_id,
+                issues=[a, b],
+                validations={
+                    "1-2-1": IssueValidation(is_valid=True, argumentation="A is real"),
+                    "1-2-2": IssueValidation(is_valid=False, argumentation="B dismissed"),
+                },
             )
-            b = Issue(
-                id="1-2-2",
-                title="B",
-                file="x.py",
-                lines=[LineRange(start=5)],
-                issue="problem B",
-                suggestion="fix B",
-                priority=IssuePriority.SHOULD_FIX,
-                source_lens="Logic & Correctness",
-            )
-            _write_issues(review_dir, [a, b])
-            _write_validation(review_dir, "1-2-1", IssueValidation(is_valid=True, argumentation="A is real"))
-            _write_validation(review_dir, "1-2-2", IssueValidation(is_valid=False, argumentation="B dismissed"))
-
-            report_id = upsert_review_report(
-                team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata()
-            )
-            assert persist_findings(team_id=self.team.id, report_id=report_id, review_dir=review_dir) == 2
-            assert persist_verdicts(team_id=self.team.id, report_id=report_id, review_dir=review_dir) == 2
+            == 2
+        )
 
         finding_keys = {
             parse_artefact_content(r.type, r.content).issue_key
@@ -185,7 +176,6 @@ class TestPersistResults(BaseTest):
             )
         }
         assert set(verdicts) == finding_keys
-        # A's verdict (valid) and B's verdict (invalid) attach to A's and B's finding respectively.
         a_key = next(k for k in verdicts if k.endswith(":1-2-1"))
         b_key = next(k for k in verdicts if k.endswith(":1-2-2"))
         assert verdicts[a_key].is_valid is True
@@ -193,38 +183,25 @@ class TestPersistResults(BaseTest):
 
     def test_verdict_not_written_for_issue_whose_finding_was_skipped(self) -> None:
         # An issue that fails durable finding validation must not leave behind an orphan verdict, even
-        # when it has a validation summary on disk (the finding schema is stricter than the verdict's).
-        with tempfile.TemporaryDirectory() as d:
-            review_dir = Path(d)
-            good = Issue(
-                id="1-1-1",
-                title="ok",
-                file="a.py",
-                lines=[LineRange(start=1)],
-                issue="real description",
-                suggestion="s",
-                priority=IssuePriority.CONSIDER,
-                source_lens="Logic & Correctness",
+        # when it has a validation result (the finding schema is stricter than the verdict's).
+        good = _issue(
+            "1-1-1", file="a.py", start=1, title="ok", issue="real description", priority=IssuePriority.CONSIDER
+        )
+        bad = _issue("1-1-2", file="b.py", start=1, title="bad", issue="   ", priority=IssuePriority.CONSIDER)
+        report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
+        assert persist_findings(team_id=self.team.id, report_id=report_id, issues=[good, bad]) == 1
+        assert (
+            persist_verdicts(
+                team_id=self.team.id,
+                report_id=report_id,
+                issues=[good, bad],
+                validations={
+                    "1-1-1": IssueValidation(is_valid=True, argumentation="ok"),
+                    "1-1-2": IssueValidation(is_valid=True, argumentation="orphan ruling"),
+                },
             )
-            bad = Issue(
-                id="1-1-2",
-                title="bad",
-                file="b.py",
-                lines=[LineRange(start=1)],
-                issue="   ",
-                suggestion="s",
-                priority=IssuePriority.CONSIDER,
-                source_lens="Logic & Correctness",
-            )
-            _write_issues(review_dir, [good, bad])
-            _write_validation(review_dir, "1-1-1", IssueValidation(is_valid=True, argumentation="ok"))
-            _write_validation(review_dir, "1-1-2", IssueValidation(is_valid=True, argumentation="orphan ruling"))
-
-            report_id = upsert_review_report(
-                team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata()
-            )
-            assert persist_findings(team_id=self.team.id, report_id=report_id, review_dir=review_dir) == 1
-            assert persist_verdicts(team_id=self.team.id, report_id=report_id, review_dir=review_dir) == 1
+            == 1
+        )
 
         verdicts = [
             parse_artefact_content(r.type, r.content)
@@ -237,37 +214,118 @@ class TestPersistResults(BaseTest):
 
     def test_persist_findings_skips_unpersistable_and_keeps_the_rest(self) -> None:
         # A single malformed LLM finding (empty body) must not abort the whole batch.
-        with tempfile.TemporaryDirectory() as d:
-            review_dir = Path(d)
-            good = Issue(
-                id="1-1-1",
-                title="ok",
-                file="a.py",
-                lines=[LineRange(start=1)],
-                issue="real description",
-                suggestion="s",
-                priority=IssuePriority.CONSIDER,
-            )
-            bad = Issue(
-                id="1-1-2",
-                title="bad",
-                file="b.py",
-                lines=[],
-                issue="   ",
-                suggestion="s",
-                priority=IssuePriority.CONSIDER,
-            )
-            _write_issues(review_dir, [good, bad])
-
-            report_id = upsert_review_report(
-                team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata()
-            )
-            assert persist_findings(team_id=self.team.id, report_id=report_id, review_dir=review_dir) == 1
+        good = _issue(
+            "1-1-1", file="a.py", start=1, title="ok", issue="real description", priority=IssuePriority.CONSIDER
+        )
+        bad = _issue("1-1-2", file="b.py", title="bad", lines=[], issue="   ", priority=IssuePriority.CONSIDER)
+        report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
+        assert persist_findings(team_id=self.team.id, report_id=report_id, issues=[good, bad]) == 1
 
         rows = ReviewReportArtefact.objects.for_team(self.team.id).filter(
             report_id=report_id, type=ReviewReportArtefact.ArtefactType.ISSUE_FINDING
         )
         assert rows.count() == 1
+
+
+class TestLoadValidFindings(BaseTest):
+    def test_returns_only_valid_pairs_latest_wins(self) -> None:
+        # Publish reads its inline comments from here: each issue_key's LATEST finding joined to its
+        # LATEST verdict, keeping only the valid ones. A stale-row read or a kept-invalid would post
+        # the wrong comments.
+        valid = _issue("1-1-1", file="a.py", title="keep me", issue="real")
+        invalid = _issue("1-1-2", file="b.py", title="drop me", issue="not real")
+        report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
+        persist_findings(team_id=self.team.id, report_id=report_id, issues=[valid, invalid])
+        persist_verdicts(
+            team_id=self.team.id,
+            report_id=report_id,
+            issues=[valid, invalid],
+            validations={
+                "1-1-1": IssueValidation(is_valid=True, argumentation="real"),
+                "1-1-2": IssueValidation(is_valid=False, argumentation="not real"),
+            },
+        )
+
+        pairs = load_valid_findings(team_id=self.team.id, report_id=report_id)
+        assert len(pairs) == 1
+        finding, verdict = pairs[0]
+        assert finding.title == "keep me"
+        assert verdict.is_valid is True
+        assert verdict.issue_key == finding.issue_key
+
+    def test_latest_verdict_overrides_an_earlier_one(self) -> None:
+        # A later turn can flip a verdict; the latest row wins, so a finding first dismissed then
+        # confirmed must publish (and vice versa). Guards the loop-y re-review contract.
+        issue = _issue("1-1-1", file="a.py", title="flip", issue="real")
+        report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
+        persist_findings(team_id=self.team.id, report_id=report_id, issues=[issue])
+        persist_verdicts(
+            team_id=self.team.id,
+            report_id=report_id,
+            issues=[issue],
+            validations={"1-1-1": IssueValidation(is_valid=False, argumentation="dismissed")},
+        )
+        assert load_valid_findings(team_id=self.team.id, report_id=report_id) == []
+
+        persist_verdicts(
+            team_id=self.team.id,
+            report_id=report_id,
+            issues=[issue],
+            validations={"1-1-1": IssueValidation(is_valid=True, argumentation="actually real")},
+        )
+        pairs = load_valid_findings(team_id=self.team.id, report_id=report_id)
+        assert len(pairs) == 1
+        assert pairs[0][1].argumentation == "actually real"
+
+
+class TestWorkingState(BaseTest):
+    """The per-turn working-state rows that back the DB-driven resume."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.report_id = upsert_review_report(
+            team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(head_sha="sha-aaa")
+        )
+
+    def _chunks(self) -> ChunksList:
+        return ChunksList(chunks=[Chunk(chunk_id=1, files=[FileInfo(filename="a.py")], chunk_type="feature")])
+
+    def test_chunk_set_round_trips_and_is_scoped_to_its_head_sha(self) -> None:
+        # Resume reuses the chunking only for the current head; a new head must re-chunk, not reuse a
+        # prior turn's chunks (line numbers would be wrong).
+        persist_chunk_set(team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa", chunks=self._chunks())
+        loaded = load_chunk_set(team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa")
+        assert loaded is not None
+        assert [c.chunk_id for c in loaded.chunks] == [1]
+        assert load_chunk_set(team_id=self.team.id, report_id=self.report_id, head_sha="sha-bbb") is None
+
+    def test_chunk_analyses_round_trip_latest_wins_per_chunk(self) -> None:
+        persist_chunk_analyses(
+            team_id=self.team.id,
+            report_id=self.report_id,
+            head_sha="sha-aaa",
+            analyses={1: ChunkAnalysis(goal="old", chunk_meta=ChunkMeta(chunk_id=1, files_in_this_chunk=["a.py"]))},
+        )
+        persist_chunk_analyses(
+            team_id=self.team.id,
+            report_id=self.report_id,
+            head_sha="sha-aaa",
+            analyses={1: ChunkAnalysis(goal="new", chunk_meta=ChunkMeta(chunk_id=1, files_in_this_chunk=["a.py"]))},
+        )
+        loaded = load_chunk_analyses(team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa")
+        assert loaded[1].goal == "new"
+        assert load_chunk_analyses(team_id=self.team.id, report_id=self.report_id, head_sha="sha-bbb") == {}
+
+    def test_lens_results_round_trip_keyed_by_pass_and_chunk(self) -> None:
+        results = {
+            (1, 1): IssuesReview(issues=[_issue("1-1-1")]),
+            (2, 1): IssuesReview(issues=[_issue("2-1-1")]),
+        }
+        persist_lens_results(team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa", results=results)
+        loaded = load_lens_results(team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa")
+        assert set(loaded.keys()) == {(1, 1), (2, 1)}
+        assert loaded[(1, 1)].issues[0].id == "1-1-1"
+        assert load_lens_results(team_id=self.team.id, report_id=self.report_id, head_sha="sha-bbb") == {}
 
 
 class TestPersistCommitSnapshot(BaseTest):
@@ -280,22 +338,18 @@ class TestPersistCommitSnapshot(BaseTest):
         # The point-in-time guarantee: the reviewed diff is captured against the exact head_sha and
         # the watermark advances so a later turn knows what was reviewed. A dropped diff, a wrong
         # sha, or a forgotten watermark bump would all surface here.
-        with tempfile.TemporaryDirectory() as d:
-            review_dir = Path(d)
-            (review_dir / "pr_diff.patch").write_text("=== a.py [modified] ===\n@@ -1 +1 @@\n-old\n+new")
-            comments = [PRComment(id=11, path="a.py", body="hi", diff_hunk="", user="u", created_at="t")]
-
-            report_id = upsert_review_report(
-                team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(head_sha="sha-aaa")
-            )
-            appended = persist_commit_snapshot(
-                team_id=self.team.id,
-                report_id=report_id,
-                repository="o/r",
-                pr_metadata=_pr_metadata(head_sha="sha-aaa"),
-                pr_comments=comments,
-                review_dir=review_dir,
-            )
+        comments = [PRComment(id=11, path="a.py", body="hi", diff_hunk="", user="u", created_at="t")]
+        report_id = upsert_review_report(
+            team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(head_sha="sha-aaa")
+        )
+        appended = persist_commit_snapshot(
+            team_id=self.team.id,
+            report_id=report_id,
+            repository="o/r",
+            pr_metadata=_pr_metadata(head_sha="sha-aaa"),
+            pr_comments=comments,
+            diff="=== a.py [modified] ===\n@@ -1 +1 @@\n-old\n+new",
+        )
 
         assert appended is True
         row = self._commits(report_id).get()
@@ -303,7 +357,6 @@ class TestPersistCommitSnapshot(BaseTest):
         assert isinstance(commit, Commit)
         assert commit.commit_sha == "sha-aaa"
         assert commit.diff == "=== a.py [modified] ===\n@@ -1 +1 @@\n-old\n+new"
-        # System attribution: the orchestrator's fetch produced it, not a sandbox task.
         assert row.created_by_id is None
         assert row.task_id is None
         report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
@@ -313,61 +366,51 @@ class TestPersistCommitSnapshot(BaseTest):
     def test_snapshot_is_idempotent_when_head_sha_is_unchanged(self) -> None:
         # A re-run with no new commits must not duplicate the snapshot — this is exactly the loop's
         # no-op turn. Without the watermark guard the report would accrete identical snapshots forever.
-        with tempfile.TemporaryDirectory() as d:
-            review_dir = Path(d)
-            (review_dir / "pr_diff.patch").write_text("@@ -1 +1 @@")
-            report_id = upsert_review_report(
-                team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(head_sha="sha-aaa")
-            )
-            first = persist_commit_snapshot(
-                team_id=self.team.id,
-                report_id=report_id,
-                repository="o/r",
-                pr_metadata=_pr_metadata(head_sha="sha-aaa"),
-                pr_comments=[],
-                review_dir=review_dir,
-            )
-            second = persist_commit_snapshot(
-                team_id=self.team.id,
-                report_id=report_id,
-                repository="o/r",
-                pr_metadata=_pr_metadata(head_sha="sha-aaa"),
-                pr_comments=[],
-                review_dir=review_dir,
-            )
-
+        report_id = upsert_review_report(
+            team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(head_sha="sha-aaa")
+        )
+        first = persist_commit_snapshot(
+            team_id=self.team.id,
+            report_id=report_id,
+            repository="o/r",
+            pr_metadata=_pr_metadata(head_sha="sha-aaa"),
+            pr_comments=[],
+            diff="@@ -1 +1 @@",
+        )
+        second = persist_commit_snapshot(
+            team_id=self.team.id,
+            report_id=report_id,
+            repository="o/r",
+            pr_metadata=_pr_metadata(head_sha="sha-aaa"),
+            pr_comments=[],
+            diff="@@ -1 +1 @@",
+        )
         assert first is True
         assert second is False
         assert self._commits(report_id).count() == 1
 
     def test_new_head_sha_appends_a_second_snapshot(self) -> None:
         # When the PR head actually moves, the new turn must append its own snapshot (never mutate
-        # the prior one) so the per-turn history survives later force-pushes. Too-aggressive guarding
-        # would silently lose the later turn's diff.
-        with tempfile.TemporaryDirectory() as d:
-            review_dir = Path(d)
-            (review_dir / "pr_diff.patch").write_text("turn-1 diff")
-            report_id = upsert_review_report(
-                team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(head_sha="sha-aaa")
-            )
-            persist_commit_snapshot(
-                team_id=self.team.id,
-                report_id=report_id,
-                repository="o/r",
-                pr_metadata=_pr_metadata(head_sha="sha-aaa"),
-                pr_comments=[],
-                review_dir=review_dir,
-            )
-            (review_dir / "pr_diff.patch").write_text("turn-2 diff")
-            appended = persist_commit_snapshot(
-                team_id=self.team.id,
-                report_id=report_id,
-                repository="o/r",
-                pr_metadata=_pr_metadata(head_sha="sha-bbb"),
-                pr_comments=[],
-                review_dir=review_dir,
-            )
-
+        # the prior one) so the per-turn history survives later force-pushes.
+        report_id = upsert_review_report(
+            team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(head_sha="sha-aaa")
+        )
+        persist_commit_snapshot(
+            team_id=self.team.id,
+            report_id=report_id,
+            repository="o/r",
+            pr_metadata=_pr_metadata(head_sha="sha-aaa"),
+            pr_comments=[],
+            diff="turn-1 diff",
+        )
+        appended = persist_commit_snapshot(
+            team_id=self.team.id,
+            report_id=report_id,
+            repository="o/r",
+            pr_metadata=_pr_metadata(head_sha="sha-bbb"),
+            pr_comments=[],
+            diff="turn-2 diff",
+        )
         assert appended is True
         diffs = {parse_artefact_content(r.type, r.content).diff for r in self._commits(report_id)}
         assert diffs == {"turn-1 diff", "turn-2 diff"}
@@ -375,67 +418,37 @@ class TestPersistCommitSnapshot(BaseTest):
         assert report.head_sha == "sha-bbb"
 
     def test_snapshot_skipped_when_head_sha_missing(self) -> None:
-        # A stale pre-snapshot cache leaves head_sha unset; the snapshot must skip cleanly rather
-        # than build a Commit with a blank sha (which the schema rejects).
-        with tempfile.TemporaryDirectory() as d:
-            review_dir = Path(d)
-            report_id = upsert_review_report(
-                team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(head_sha=None)
-            )
-            appended = persist_commit_snapshot(
-                team_id=self.team.id,
-                report_id=report_id,
-                repository="o/r",
-                pr_metadata=_pr_metadata(head_sha=None),
-                pr_comments=[],
-                review_dir=review_dir,
-            )
-
+        # No head_sha (a degraded fetch) must skip cleanly rather than build a Commit with a blank
+        # sha (which the schema rejects) or advance the watermark.
+        report_id = upsert_review_report(
+            team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(head_sha=None)
+        )
+        appended = persist_commit_snapshot(
+            team_id=self.team.id,
+            report_id=report_id,
+            repository="o/r",
+            pr_metadata=_pr_metadata(head_sha=None),
+            pr_comments=[],
+            diff="some diff",
+        )
         assert appended is False
         assert self._commits(report_id).count() == 0
-        assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).head_sha is None
-
-    def test_snapshot_deferred_and_recoverable_when_patch_file_missing(self) -> None:
-        # If the raw patch wasn't captured (partial fetch / pre-snapshot scratch dir), the snapshot
-        # must DEFER — append nothing and NOT advance head_sha — so the un-captured diff stays
-        # recoverable on a later fresh run. Advancing past it would lock the diff out forever.
-        with tempfile.TemporaryDirectory() as d:
-            review_dir = Path(d)
-            report_id = upsert_review_report(
-                team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(head_sha="sha-aaa")
-            )
-            appended = persist_commit_snapshot(
-                team_id=self.team.id,
-                report_id=report_id,
-                repository="o/r",
-                pr_metadata=_pr_metadata(head_sha="sha-aaa"),
-                pr_comments=[],
-                review_dir=review_dir,
-            )
-
-        assert appended is False
-        assert self._commits(report_id).count() == 0
-        # head_sha not advanced: a later run (with the diff captured) can still snapshot this commit.
         assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).head_sha is None
 
     def test_snapshot_records_empty_diff_when_no_reviewable_files(self) -> None:
-        # An empty pr_diff.patch is a legitimate "everything filtered out" turn (not a missing file):
-        # record the commit with diff=None and advance the watermark, rather than defer forever.
-        with tempfile.TemporaryDirectory() as d:
-            review_dir = Path(d)
-            (review_dir / "pr_diff.patch").write_text("")
-            report_id = upsert_review_report(
-                team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(head_sha="sha-aaa")
-            )
-            appended = persist_commit_snapshot(
-                team_id=self.team.id,
-                report_id=report_id,
-                repository="o/r",
-                pr_metadata=_pr_metadata(head_sha="sha-aaa"),
-                pr_comments=[],
-                review_dir=review_dir,
-            )
-
+        # An empty diff is a legitimate "everything filtered out" turn: record the commit with
+        # diff=None and advance the watermark, rather than skip.
+        report_id = upsert_review_report(
+            team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(head_sha="sha-aaa")
+        )
+        appended = persist_commit_snapshot(
+            team_id=self.team.id,
+            report_id=report_id,
+            repository="o/r",
+            pr_metadata=_pr_metadata(head_sha="sha-aaa"),
+            pr_comments=[],
+            diff="",
+        )
         assert appended is True
         commit = parse_artefact_content(*self._commits(report_id).values_list("type", "content").get())
         assert commit.diff is None

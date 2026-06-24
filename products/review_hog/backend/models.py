@@ -8,6 +8,7 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ReviewArtefactContent,
     ReviewIssueFinding,
     ReviewLogArtefactContent,
+    ReviewWorkingStateContent,
     TaskRunArtefact,
     ValidationVerdict,
     artefact_type_for,
@@ -68,12 +69,20 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
         COMMIT = "commit"
         CODE_REFERENCE = "code_reference"
         NOTE = "note"
+        # Per-turn pipeline working state, read back by the DB-driven resume (head_sha-scoped).
+        CHUNK_SET = "chunk_set"
+        CHUNK_ANALYSIS = "chunk_analysis"
+        LENS_RESULT = "lens_result"
 
     # Log types accumulate (each call is a new row). Findings and verdicts also append, but their
     # identity is `issue_key` — latest row per key wins at read time — so they get dedicated
     # appenders rather than going through `add_log`.
     LOG_ARTEFACT_TYPES: frozenset[str] = frozenset(
         {ArtefactType.TASK_RUN, ArtefactType.COMMIT, ArtefactType.CODE_REFERENCE, ArtefactType.NOTE}
+    )
+    # Working-state types accumulate per turn; the resume reads the latest per (head_sha, key).
+    WORKING_STATE_ARTEFACT_TYPES: frozenset[str] = frozenset(
+        {ArtefactType.CHUNK_SET, ArtefactType.CHUNK_ANALYSIS, ArtefactType.LENS_RESULT}
     )
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
@@ -145,4 +154,17 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
         """Append a work-log entry (`task_run` / `commit` / `code_reference` / `note`); these accumulate."""
         if artefact_type_for(content) not in cls.LOG_ARTEFACT_TYPES:
             raise ValueError(f"{type(content).__name__} is not a log artefact content model")
+        return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
+
+    @classmethod
+    def add_working_state(
+        cls, *, team_id: int, report_id: str, content: ReviewWorkingStateContent, attribution: ArtefactAttribution
+    ) -> "ReviewReportArtefact":
+        """Append per-turn pipeline working state (`chunk_set` / `chunk_analysis` / `lens_result`).
+
+        These accumulate; the DB-driven resume reads the latest row per (head_sha, key), so a
+        resumed turn reuses completed sandbox work instead of re-running it.
+        """
+        if artefact_type_for(content) not in cls.WORKING_STATE_ARTEFACT_TYPES:
+            raise ValueError(f"{type(content).__name__} is not a working-state artefact content model")
         return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)

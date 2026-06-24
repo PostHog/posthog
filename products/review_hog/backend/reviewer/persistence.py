@@ -1,22 +1,26 @@
-"""Persist a review run's durable results into Postgres (`ReviewReport` + `ReviewReportArtefact`).
+"""Persist a review run's state into Postgres (`ReviewReport` + `ReviewReportArtefact`).
 
-The file-based pipeline (`reviews/<pr>/…`) stays as sandbox scratch; this layer mirrors its
-canonical outputs into rows after each stage succeeds, the same shape as Signals'
-`run_agentic_report_activity`:
+Postgres is the single source of truth for a review. Each stage passes its outputs in-process
+within one run and persists them as rows; the DB-driven resume reads those rows back so a re-run
+(or a future Temporal activity on another worker) skips completed sandbox work. There is no
+on-disk store.
 
-- the post-dedup findings (`issues_found.json`) → `issue_finding` artefacts,
-- their validation verdicts → `validation_verdict` artefacts (paired to a finding by `issue_key`),
+Durable rows this layer writes:
+
+- per-turn pipeline working state — `chunk_set` / `chunk_analysis` / `lens_result` artefacts, each
+  tagged with the turn's `head_sha` so resume reuses only the current head's work,
+- the post-dedup findings → `issue_finding` artefacts and their validation verdicts →
+  `validation_verdict` artefacts (paired by `issue_key`, latest-wins),
 - this turn's point-in-time reviewed diff → a per-turn `commit` artefact (+ the report watermark),
-- the rendered report markdown → `ReviewReport.report_markdown`.
+- the rendered review body → `ReviewReport.report_markdown`.
 
-Findings and verdicts are attributed to the **system**: a combined/deduped finding is aggregated
-across many sandbox tasks (chunking, the parallel lenses, dedup), so no single task produced it.
-The remaining work-log artefacts (`task_run` / `note`) are deferred to the loop-y turn tracking —
-the data they need (per-call task ids, comment-driven notes) isn't surfaced by the current pipeline.
+Findings, verdicts, and working state are attributed to the **system**: they are aggregated across
+many sandbox tasks (chunking, the parallel lenses, dedup), so no single task produced them. The
+remaining work-log artefacts (`task_run` / `note`) are deferred to the loop-y turn tracking — the
+data they need (per-call task ids, comment-driven notes) isn't surfaced by the current pipeline.
 """
 
 import logging
-from pathlib import Path
 
 from django.db import transaction
 from django.db.models import F
@@ -25,11 +29,20 @@ from django.utils import timezone
 from pydantic import ValidationError
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
-from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
+from products.review_hog.backend.reviewer.artefact_content import (
+    ArtefactContentValidationError,
+    ChunkAnalysisArtefact,
+    ChunkSetArtefact,
+    LensResultArtefact,
+    ReviewIssueFinding,
+    ValidationVerdict,
+    parse_artefact_content,
+)
+from products.review_hog.backend.reviewer.models.chunk_analysis import ChunkAnalysis
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRMetadata
-from products.review_hog.backend.reviewer.models.issue_combination import IssueCombination
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
-from products.review_hog.backend.reviewer.models.issues_review import Issue
+from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuesReview
+from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import Commit
 
@@ -72,16 +85,16 @@ def persist_commit_snapshot(
     repository: str,
     pr_metadata: PRMetadata,
     pr_comments: list[PRComment],
-    review_dir: Path,
+    diff: str,
 ) -> bool:
     """Append this turn's point-in-time reviewed diff as a `commit` artefact; return whether it did.
 
-    A review judges the code at one specific commit, so the reviewed diff is captured here at review
-    time (in the fetch boundary, never re-fetched) and stored on the `commit` artefact's `diff`
-    field. The append is idempotent on the report's `head_sha` watermark: a re-run with no new
-    commits records nothing, and under looping a new turn appends only when the PR head actually
-    moved — the same "new commits → new turn" trigger the loop will use. The watermark (`head_sha`
-    + `last_seen_comment_id`) is advanced in the same transaction. System-attributed: the orchestrator
+    A review judges the code at one specific commit, so the reviewed diff is captured at fetch time
+    (passed in-process, never re-fetched) and stored on the `commit` artefact's `diff` field. The
+    append is idempotent on the report's `head_sha` watermark: a re-run with no new commits records
+    nothing, and under looping a new turn appends only when the PR head actually moved — the same
+    "new commits → new turn" trigger the loop will use. The watermark (`head_sha` +
+    `last_seen_comment_id`) is advanced in the same transaction. System-attributed: the orchestrator
     captures the diff from GitHub, not a sandbox task.
     """
     head_sha = pr_metadata.head_sha
@@ -94,24 +107,14 @@ def persist_commit_snapshot(
         # This exact commit was already snapshotted — the loop's no-op turn.
         return False
 
-    diff_path = review_dir / "pr_diff.patch"
-    if not diff_path.exists():
-        # The diff wasn't captured (a partial prior fetch / pre-snapshot scratch dir). Defer rather
-        # than record a diff-less snapshot AND advance the watermark past it — advancing would make
-        # the un-captured diff permanently unrecoverable. A later fresh run will capture it.
-        logger.warning(
-            "No diff snapshot at %s for PR #%s; deferring the commit snapshot", diff_path, pr_metadata.number
-        )
-        return False
-
-    # An empty file is a legitimate "no reviewable diff" (all files filtered out), recorded as None.
+    # An empty diff is a legitimate "no reviewable changes" (all files filtered out), recorded as None.
     commit = Commit(
         repository=repository,
         branch=pr_metadata.head_branch,
         commit_sha=head_sha,
         message=pr_metadata.title or f"PR #{pr_metadata.number}",
         note=f"Reviewed PR diff snapshot at {head_sha[:12]}",
-        diff=diff_path.read_text() or None,
+        diff=diff or None,
     )
     last_seen_comment_id = max((c.id for c in pr_comments if c.id is not None), default=None)
     with transaction.atomic():
@@ -125,9 +128,112 @@ def persist_commit_snapshot(
     return True
 
 
-def persist_findings(*, team_id: int, report_id: str, review_dir: Path) -> int:
+# --- Per-turn working state (chunks / analyses / lens results) -------------------------------------
+#
+# These back the DB-driven resume. Each row carries the turn's `head_sha`; the load helpers return
+# only the rows for the requested head, latest-wins per key, so a resumed run reuses completed
+# sandbox work and a new head re-derives everything.
+
+
+def persist_chunk_set(*, team_id: int, report_id: str, head_sha: str, chunks: ChunksList) -> None:
+    """Append the PR's chunking for this turn as a `chunk_set` artefact."""
+    ReviewReportArtefact.add_working_state(
+        team_id=team_id,
+        report_id=report_id,
+        content=ChunkSetArtefact(head_sha=head_sha, chunks=chunks.chunks),
+        attribution=ArtefactAttribution.system(),
+    )
+
+
+def load_chunk_set(*, team_id: int, report_id: str, head_sha: str) -> ChunksList | None:
+    """The chunking already computed for this turn, or None if the chunk stage hasn't run yet."""
+    latest: ChunkSetArtefact | None = None
+    for content in _load_working_state(team_id, report_id, ReviewReportArtefact.ArtefactType.CHUNK_SET, head_sha):
+        assert isinstance(content, ChunkSetArtefact)
+        latest = content
+    return ChunksList(chunks=latest.chunks) if latest is not None else None
+
+
+def persist_chunk_analyses(*, team_id: int, report_id: str, head_sha: str, analyses: dict[int, ChunkAnalysis]) -> None:
+    """Append one `chunk_analysis` artefact per chunk analysed this turn."""
+    if not analyses:
+        return
+    with transaction.atomic():
+        for chunk_id, analysis in analyses.items():
+            ReviewReportArtefact.add_working_state(
+                team_id=team_id,
+                report_id=report_id,
+                content=ChunkAnalysisArtefact(head_sha=head_sha, chunk_id=chunk_id, analysis=analysis),
+                attribution=ArtefactAttribution.system(),
+            )
+
+
+def load_chunk_analyses(*, team_id: int, report_id: str, head_sha: str) -> dict[int, ChunkAnalysis]:
+    """The chunk analyses already computed for this turn, keyed by chunk id (latest wins)."""
+    out: dict[int, ChunkAnalysis] = {}
+    for content in _load_working_state(team_id, report_id, ReviewReportArtefact.ArtefactType.CHUNK_ANALYSIS, head_sha):
+        assert isinstance(content, ChunkAnalysisArtefact)
+        out[content.chunk_id] = content.analysis
+    return out
+
+
+def persist_lens_results(
+    *, team_id: int, report_id: str, head_sha: str, results: dict[tuple[int, int], IssuesReview]
+) -> None:
+    """Append one `lens_result` artefact per (pass, chunk) reviewed this turn."""
+    if not results:
+        return
+    with transaction.atomic():
+        for (pass_number, chunk_id), review in results.items():
+            ReviewReportArtefact.add_working_state(
+                team_id=team_id,
+                report_id=report_id,
+                content=LensResultArtefact(
+                    head_sha=head_sha, pass_number=pass_number, chunk_id=chunk_id, review=review
+                ),
+                attribution=ArtefactAttribution.system(),
+            )
+
+
+def load_lens_results(*, team_id: int, report_id: str, head_sha: str) -> dict[tuple[int, int], IssuesReview]:
+    """The (pass, chunk) lens reviews already computed for this turn (latest wins per key)."""
+    out: dict[tuple[int, int], IssuesReview] = {}
+    for content in _load_working_state(team_id, report_id, ReviewReportArtefact.ArtefactType.LENS_RESULT, head_sha):
+        assert isinstance(content, LensResultArtefact)
+        out[(content.pass_number, content.chunk_id)] = content.review
+    return out
+
+
+def _load_working_state(team_id: int, report_id: str, artefact_type: str, head_sha: str) -> list:
+    """Parsed working-state contents for this turn, oldest-first so callers can latest-wins them.
+
+    Rows whose content fails to parse (e.g. a stale schema from an interrupted earlier turn) or
+    whose `head_sha` differs from the requested turn are skipped — a non-matching row is simply not
+    this turn's work, and an unparseable one is treated as absent so the stage re-runs.
+    """
+    contents: list = []
+    rows = (
+        ReviewReportArtefact.objects.for_team(team_id)
+        .filter(report_id=report_id, type=artefact_type)
+        .order_by("created_at", "id")
+    )
+    for row in rows:
+        try:
+            content = parse_artefact_content(artefact_type, row.content)
+        except ArtefactContentValidationError as e:
+            logger.warning("Skipping unparseable %s artefact %s: %s", artefact_type, row.id, e)
+            continue
+        if getattr(content, "head_sha", None) == head_sha:
+            contents.append(content)
+    return contents
+
+
+# --- Findings & verdicts ---------------------------------------------------------------------------
+
+
+def persist_findings(*, team_id: int, report_id: str, issues: list[Issue]) -> int:
     """Append the canonical post-dedup findings as `issue_finding` artefacts. Returns the count."""
-    pairs = _persistable_findings(review_dir)
+    pairs = _persistable_findings(issues)
     if not pairs:
         return 0
     with transaction.atomic():
@@ -138,16 +244,19 @@ def persist_findings(*, team_id: int, report_id: str, review_dir: Path) -> int:
     return len(pairs)
 
 
-def persist_verdicts(*, team_id: int, report_id: str, review_dir: Path) -> int:
+def persist_verdicts(
+    *, team_id: int, report_id: str, issues: list[Issue], validations: dict[str, IssueValidation]
+) -> int:
     """Append each persisted finding's validation verdict as a `validation_verdict` artefact.
 
     A verdict reuses its finding's `issue_key` (so latest-wins pairs them 1:1) and is only written
-    for an issue that produced a finding and has a validation summary on disk — the finding schema
-    is stricter than the verdict schema, so a verdict with no finding would dangle. Returns the count.
+    for an issue that produced a finding and has a validation result — the finding schema is
+    stricter than the verdict schema, so a verdict with no finding would dangle. `validations` is
+    keyed by the live issue id (`{pass}-{chunk}-{issue}`). Returns the count.
     """
     drafts: list[ValidationVerdict] = []
-    for issue, finding in _persistable_findings(review_dir):
-        validation = _load_validation(review_dir, issue)
+    for issue, finding in _persistable_findings(issues):
+        validation = validations.get(issue.id)
         if validation is None:
             continue
         try:
@@ -171,12 +280,48 @@ def persist_verdicts(*, team_id: int, report_id: str, review_dir: Path) -> int:
     return len(drafts)
 
 
-def finalize_review_report(*, team_id: int, report_id: str, review_dir: Path) -> None:
-    """Mark the turn complete: store the rendered markdown, bump `run_count`, stamp `last_run_at`."""
-    report_path = review_dir / "review_report.md"
-    markdown = report_path.read_text() if report_path.exists() else ""
+def load_valid_findings(*, team_id: int, report_id: str) -> list[tuple[ReviewIssueFinding, ValidationVerdict]]:
+    """The current valid findings paired with their verdicts, latest-wins per `issue_key`.
+
+    The DB-driven source for publishing: the latest finding and latest verdict for each `issue_key`
+    are joined, and only pairs the validator ruled valid are returned. This is the canonical
+    latest-wins read the artefact log was designed for.
+    """
+    findings: dict[str, ReviewIssueFinding] = {}
+    verdicts: dict[str, ValidationVerdict] = {}
+    rows = (
+        ReviewReportArtefact.objects.for_team(team_id)
+        .filter(
+            report_id=report_id,
+            type__in=[
+                ReviewReportArtefact.ArtefactType.ISSUE_FINDING,
+                ReviewReportArtefact.ArtefactType.VALIDATION_VERDICT,
+            ],
+        )
+        .order_by("created_at", "id")
+    )
+    for row in rows:
+        try:
+            content = parse_artefact_content(row.type, row.content)
+        except ArtefactContentValidationError as e:
+            logger.warning("Skipping unparseable %s artefact %s: %s", row.type, row.id, e)
+            continue
+        if isinstance(content, ReviewIssueFinding):
+            findings[content.issue_key] = content
+        elif isinstance(content, ValidationVerdict):
+            verdicts[content.issue_key] = content
+    pairs: list[tuple[ReviewIssueFinding, ValidationVerdict]] = []
+    for issue_key, finding in findings.items():
+        verdict = verdicts.get(issue_key)
+        if verdict is not None and verdict.is_valid:
+            pairs.append((finding, verdict))
+    return pairs
+
+
+def finalize_review_report(*, team_id: int, report_id: str, body_markdown: str) -> None:
+    """Mark the turn complete: store the rendered review body, bump `run_count`, stamp `last_run_at`."""
     ReviewReport.objects.for_team(team_id).filter(id=report_id).update(
-        report_markdown=markdown,
+        report_markdown=body_markdown,
         run_count=F("run_count") + 1,
         last_run_at=timezone.now(),
         status=ReviewReport.Status.IDLE,
@@ -190,21 +335,21 @@ def _issue_key(issue: Issue) -> str:
     file/line/lens prefix — the id makes the key unique within a turn, so two distinct findings on
     the same line from the same lens don't collapse and shadow each other. Robust cross-turn
     identity (the id is reassigned each turn and line numbers shift as the PR evolves) needs
-    semantic matching and is a loop-phase concern, not step 5.
+    semantic matching and is a loop-phase concern.
     """
     start = issue.lines[0].start if issue.lines else 0
     lens = issue.source_lens or "unknown"
     return f"{issue.file}:{start}:{lens}:{issue.id}"
 
 
-def _persistable_findings(review_dir: Path) -> list[tuple[Issue, ReviewIssueFinding]]:
+def _persistable_findings(issues: list[Issue]) -> list[tuple[Issue, ReviewIssueFinding]]:
     """Pair each canonical issue with its durable finding, dropping any that fail durable validation.
 
     Shared by both persist passes so a verdict is only ever written for an issue that produced a
     finding (the finding schema is stricter than the verdict schema).
     """
     pairs: list[tuple[Issue, ReviewIssueFinding]] = []
-    for issue in _load_issues(review_dir):
+    for issue in issues:
         try:
             pairs.append((issue, _to_finding(issue)))
         except ValidationError as e:
@@ -225,37 +370,3 @@ def _to_finding(issue: Issue) -> ReviewIssueFinding:
         source_lens=issue.source_lens,
         is_directly_related_to_changes=issue.is_directy_related_to_changes,
     )
-
-
-def _load_issues(review_dir: Path) -> list[Issue]:
-    """Load the canonical post-dedup issue set (`issues_found.json`)."""
-    path = review_dir / "issues_found.json"
-    if not path.exists():
-        logger.warning("No canonical issues file at %s; nothing to persist", path)
-        return []
-    return IssueCombination.model_validate_json(path.read_text()).issues
-
-
-def _load_validation(review_dir: Path, issue: Issue) -> IssueValidation | None:
-    """Load the validation verdict for `issue`, joined by its id (`{pass}-{chunk}-{issue}`)."""
-    parts = issue.id.split("-")
-    if len(parts) != 3:
-        return None
-    try:
-        pass_id, chunk_id, issue_number = (int(parts[0]), int(parts[1]), int(parts[2]))
-    except ValueError:
-        return None
-    path = (
-        review_dir
-        / f"pass{pass_id}_results"
-        / "validation"
-        / "summaries"
-        / f"chunk-{chunk_id}-issue-{issue_number}-validation-summary.json"
-    )
-    if not path.exists():
-        return None
-    try:
-        return IssueValidation.model_validate_json(path.read_text())
-    except ValidationError as e:
-        logger.warning("Skipping unparseable validation for issue %s: %s", issue.id, e)
-        return None

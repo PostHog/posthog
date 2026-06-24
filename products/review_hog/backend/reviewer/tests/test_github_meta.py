@@ -1,13 +1,10 @@
 import os
-import json
-from pathlib import Path
 
 import pytest
 from unittest.mock import MagicMock, Mock, patch
 
 from github import GithubException
 
-from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.tools.github_meta import PRFetcher, PRFilter, PRParser
 
 
@@ -375,469 +372,207 @@ class TestParsePatch:
         assert any(r.code == "valid new" for r in result if r.type == "addition")
 
 
+def _build_mock_pr(
+    *,
+    number: int = 123,
+    head_sha: str = "abc123",
+    comments: list[Mock] | None = None,
+    files: list[Mock] | None = None,
+    review_requests: tuple[list[Mock], list[Mock]] = ([], []),
+    assignee: Mock | None = None,
+    labels: list[Mock] | None = None,
+) -> MagicMock:
+    """A PyGithub PullRequest mock wired with the attributes fetch_pr_data reads."""
+    mock_pr = MagicMock()
+    mock_pr.number = number
+    mock_pr.title = "Test PR"
+    mock_pr.body = "Test description"
+    mock_pr.state = "open"
+    mock_pr.draft = False
+    mock_pr.created_at.isoformat.return_value = "2024-01-01T00:00:00"
+    mock_pr.updated_at.isoformat.return_value = "2024-01-02T00:00:00"
+    mock_pr.user.login = "test-user"
+    mock_pr.raw_data = {"author_association": "CONTRIBUTOR"}
+    mock_pr.base.ref = "main"
+    mock_pr.head.ref = "feature-branch"
+    mock_pr.head.sha = head_sha
+    mock_pr.mergeable_state = "clean"
+    mock_pr.get_review_requests.return_value = review_requests
+    mock_pr.assignee = assignee
+    mock_pr.labels = labels or []
+    mock_pr.commits = 5
+    mock_pr.additions = 100
+    mock_pr.deletions = 50
+    mock_pr.changed_files = 10
+    mock_pr.get_review_comments.return_value = comments or []
+    mock_pr.get_files.return_value = files or []
+    return mock_pr
+
+
+def _build_mock_comment(*, comment_id: int, path: str = "src/module.py") -> MagicMock:
+    """A review-comment mock with the fields fetch_pr_comments reads."""
+    mock_comment = MagicMock()
+    mock_comment.id = comment_id
+    mock_comment.path = path
+    mock_comment.line = 10
+    mock_comment.start_line = None
+    mock_comment.body = "Review comment"
+    mock_comment.diff_hunk = "@@ -1,3 +1,3 @@"
+    mock_comment.user.login = "reviewer"
+    mock_comment.created_at.isoformat.return_value = "2024-01-01T12:00:00"
+    return mock_comment
+
+
+def _build_mock_file(*, filename: str, status: str = "modified", patch: str | None = None) -> MagicMock:
+    """A changed-file mock with the fields fetch_pr_files reads."""
+    mock_file = MagicMock()
+    mock_file.filename = filename
+    mock_file.status = status
+    mock_file.additions = 10
+    mock_file.deletions = 5
+    mock_file.patch = patch
+    return mock_file
+
+
 class TestFetchPrData:
-    """Test fetch_pr_data function."""
+    """Test PRFetcher.fetch_pr_data — returns everything in-process, writes no files."""
 
     @patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"})
     @patch("products.review_hog.backend.reviewer.tools.github_meta.Github")
-    def test_fetch_pr_data_success(self, mock_github_class: Mock, temp_review_dir: Path) -> None:
-        """Test successful PR data fetching."""
-        # Setup mocks
-        mock_github = MagicMock()
-        mock_github_class.return_value = mock_github
-
+    def test_returns_four_tuple_with_metadata_comments_files_diff(self, mock_github_class: Mock) -> None:
+        # The reviewable file's patch must surface in the diff snapshot under its header; the
+        # comment must carry its GitHub id (feeds the report's last_seen_comment_id watermark).
+        patch = "@@ -1,3 +1,4 @@\n line1\n line2\n+new line\n line3"
+        mock_pr = _build_mock_pr(
+            number=456,
+            head_sha="abc123",
+            comments=[_build_mock_comment(comment_id=9001)],
+            files=[_build_mock_file(filename="src/module.py", status="modified", patch=patch)],
+        )
         mock_repo = MagicMock()
-        mock_github.get_repo.return_value = mock_repo
-
-        mock_pr = MagicMock()
-        mock_pr.number = 123
-        mock_pr.title = "Test PR"
-        mock_pr.body = "Test description"
-        mock_pr.state = "open"
-        mock_pr.draft = False
-        mock_pr.created_at.isoformat.return_value = "2024-01-01T00:00:00"
-        mock_pr.updated_at.isoformat.return_value = "2024-01-02T00:00:00"
-        mock_pr.user.login = "test-user"
-        mock_pr.raw_data = {"author_association": "CONTRIBUTOR"}
-        mock_pr.base.ref = "main"
-        mock_pr.head.ref = "feature-branch"
-        mock_pr.head.sha = "abc123def456"
-        mock_pr.mergeable_state = "clean"
-        mock_pr.get_review_requests.return_value = ([], [])  # users, teams
-        mock_pr.assignee = None
-        mock_pr.labels = []
-        mock_pr.commits = 5
-        mock_pr.additions = 100
-        mock_pr.deletions = 50
-        mock_pr.changed_files = 10
-        mock_pr.get_review_comments.return_value = []
-        mock_pr.get_files.return_value = []
-
         mock_repo.get_pull.return_value = mock_pr
+        mock_github_class.return_value.get_repo.return_value = mock_repo
 
-        # Execute
-        fetcher = PRFetcher("owner", "repo", 123, str(temp_review_dir))
-        metadata, comments, files = fetcher.fetch_pr_data()
+        fetcher = PRFetcher("owner", "repo", 456)
+        result = fetcher.fetch_pr_data()
 
-        # Verify
-        assert metadata.number == 123
-        assert metadata.title == "Test PR"
-        assert metadata.author == "test-user"
-        assert metadata.head_sha == "abc123def456"
-        assert len(comments) == 0
-        assert len(files) == 0
+        # 4-tuple contract: metadata, comments, files, diff
+        assert len(result) == 4
+        metadata, comments, files, diff = result
 
-        # Check files were created, including the point-in-time diff snapshot
-        assert (temp_review_dir / "pr_meta.json").exists()
-        assert (temp_review_dir / "pr_comments.jsonl").exists()
-        assert (temp_review_dir / "pr_files.jsonl").exists()
-        assert (temp_review_dir / "pr_files_scope.jsonl").exists()
-        assert (temp_review_dir / "pr_diff.patch").exists()
-
-    @patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"})
-    @patch("products.review_hog.backend.reviewer.tools.github_meta.Github")
-    def test_fetch_pr_data_with_comments_and_files(self, mock_github_class: Mock, temp_review_dir: Path) -> None:
-        """Test fetching PR data with comments and files."""
-        # Setup mocks
-        mock_github = MagicMock()
-        mock_github_class.return_value = mock_github
-
-        mock_repo = MagicMock()
-        mock_github.get_repo.return_value = mock_repo
-
-        mock_pr = MagicMock()
-        mock_pr.number = 456
-        mock_pr.title = "PR with content"
-        mock_pr.body = "Description"
-        mock_pr.state = "open"
-        mock_pr.draft = False
-        mock_pr.created_at.isoformat.return_value = "2024-01-01T00:00:00"
-        mock_pr.updated_at.isoformat.return_value = "2024-01-02T00:00:00"
-        mock_pr.user.login = "author"
-        mock_pr.raw_data = {"author_association": "MEMBER"}
-        mock_pr.base.ref = "main"
-        mock_pr.head.ref = "feature"
-        mock_pr.head.sha = "feat0sha123"
-        mock_pr.mergeable_state = "clean"
-        mock_pr.get_review_requests.return_value = ([], [])
-        mock_pr.assignee = None
-        mock_pr.labels = []
-        mock_pr.commits = 2
-        mock_pr.additions = 50
-        mock_pr.deletions = 20
-        mock_pr.changed_files = 3
-
-        # Mock comment
-        mock_comment = MagicMock()
-        mock_comment.id = 9001
-        mock_comment.path = "file.py"
-        mock_comment.line = 10
-        mock_comment.start_line = None
-        mock_comment.body = "Review comment"
-        mock_comment.diff_hunk = "@@ -1,3 +1,3 @@"
-        mock_comment.user.login = "reviewer"
-        mock_comment.created_at.isoformat.return_value = "2024-01-01T12:00:00"
-        mock_pr.get_review_comments.return_value = [mock_comment]
-
-        # Mock file
-        mock_file = MagicMock()
-        mock_file.filename = "src/module.py"
-        mock_file.status = "modified"
-        mock_file.additions = 10
-        mock_file.deletions = 5
-        mock_file.patch = "@@ -1,3 +1,4 @@\n line1\n line2\n+new line\n line3"
-        mock_pr.get_files.return_value = [mock_file]
-
-        mock_repo.get_pull.return_value = mock_pr
-
-        # Execute
-        fetcher = PRFetcher("owner", "repo", 456, str(temp_review_dir))
-        metadata, comments, files = fetcher.fetch_pr_data()
-
-        # Verify
         assert metadata.number == 456
+        assert metadata.head_sha == "abc123"
+
         assert len(comments) == 1
         assert comments[0].id == 9001
-        assert comments[0].body == "Review comment"
+
         assert len(files) == 1
         assert files[0].filename == "src/module.py"
         assert len(files[0].changes) > 0
 
-        # Verify pr_files_scope.jsonl was created without code fields
-        assert (temp_review_dir / "pr_files_scope.jsonl").exists()
-        with (temp_review_dir / "pr_files_scope.jsonl").open() as f:
-            scope_files = [json.loads(line) for line in f.readlines()]
+        # The diff snapshot anchors findings to the exact reviewed code via the header + raw patch.
+        assert "=== src/module.py [modified] ===" in diff
+        assert "+new line" in diff
 
-        assert len(scope_files) == len(files)
-        assert scope_files[0]["filename"] == files[0].filename
-        assert scope_files[0]["status"] == files[0].status
-        assert len(scope_files[0]["changes"]) == len(files[0].changes)
-        # Verify code field is completely absent
-        for change in scope_files[0]["changes"]:
-            assert "code" not in change
-        # Verify line numbers are preserved
-        assert scope_files[0]["changes"][0]["new_start_line"] == files[0].changes[0].new_start_line
+    @patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"})
+    @patch("products.review_hog.backend.reviewer.tools.github_meta.Github")
+    def test_writes_no_files(self, mock_github_class: Mock, tmp_path) -> None:
+        # The fetcher has no review-dir / output path — nothing should land on disk.
+        mock_pr = _build_mock_pr(files=[_build_mock_file(filename="src/module.py", patch="@@ -1,1 +1,1 @@\n+x")])
+        mock_repo = MagicMock()
+        mock_repo.get_pull.return_value = mock_pr
+        mock_github_class.return_value.get_repo.return_value = mock_repo
 
-    def test_fetch_pr_data_no_github_token(self, temp_review_dir: Path) -> None:
-        """Test that fetching fails without GitHub token."""
+        before = set(tmp_path.iterdir())
+        fetcher = PRFetcher("owner", "repo", 123)
+        fetcher.fetch_pr_data()
+
+        assert set(tmp_path.iterdir()) == before
+
+    @patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"})
+    @patch("products.review_hog.backend.reviewer.tools.github_meta.Github")
+    def test_filtered_and_test_files_are_excluded(self, mock_github_class: Mock) -> None:
+        # Test files and a lock file must be dropped from both pr_files and the diff snapshot.
+        mock_pr = _build_mock_pr(
+            files=[
+                _build_mock_file(filename="tests/test_module.py", status="added", patch="@@ -0,0 +1,1 @@\n+x"),
+                _build_mock_file(filename="yarn.lock", status="modified", patch="@@ -1,1 +1,1 @@\n+y"),
+                _build_mock_file(filename="src/module.py", status="modified", patch="@@ -1,1 +1,1 @@\n+z"),
+            ],
+        )
+        mock_repo = MagicMock()
+        mock_repo.get_pull.return_value = mock_pr
+        mock_github_class.return_value.get_repo.return_value = mock_repo
+
+        fetcher = PRFetcher("owner", "repo", 789)
+        _, _, files, diff = fetcher.fetch_pr_data()
+
+        assert [f.filename for f in files] == ["src/module.py"]
+        assert "tests/test_module.py" not in diff
+        assert "yarn.lock" not in diff
+        assert "=== src/module.py [modified] ===" in diff
+
+    @patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"})
+    @patch("products.review_hog.backend.reviewer.tools.github_meta.Github")
+    def test_missing_patch_recorded_explicitly_in_diff(self, mock_github_class: Mock) -> None:
+        # GitHub omits the patch for binary/large files — the snapshot keeps the header with a marker
+        # rather than silently dropping the file.
+        mock_pr = _build_mock_pr(
+            files=[_build_mock_file(filename="old_module.py", status="removed", patch=None)],
+        )
+        mock_repo = MagicMock()
+        mock_repo.get_pull.return_value = mock_pr
+        mock_github_class.return_value.get_repo.return_value = mock_repo
+
+        fetcher = PRFetcher("owner", "repo", 999)
+        _, _, files, diff = fetcher.fetch_pr_data()
+
+        assert files[0].filename == "old_module.py"
+        assert files[0].changes == []
+        assert "=== old_module.py [removed] ===" in diff
+        assert "(no patch available" in diff
+
+    @patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"})
+    @patch("products.review_hog.backend.reviewer.tools.github_meta.Github")
+    def test_metadata_carries_assignee_labels_and_reviewers(self, mock_github_class: Mock) -> None:
+        mock_assignee = MagicMock()
+        mock_assignee.login = "assignee-user"
+        mock_label = MagicMock()
+        mock_label.name = "bug"
+        mock_reviewer = MagicMock()
+        mock_reviewer.login = "reviewer1"
+        mock_pr = _build_mock_pr(
+            assignee=mock_assignee,
+            labels=[mock_label],
+            review_requests=([mock_reviewer], []),
+        )
+        mock_repo = MagicMock()
+        mock_repo.get_pull.return_value = mock_pr
+        mock_github_class.return_value.get_repo.return_value = mock_repo
+
+        fetcher = PRFetcher("owner", "repo", 123)
+        metadata, _, _, _ = fetcher.fetch_pr_data()
+
+        assert metadata.assignee == "assignee-user"
+        assert metadata.labels == ["bug"]
+        assert metadata.requested_reviewers == ["reviewer1"]
+
+    def test_no_github_token_raises(self) -> None:
+        # Token check happens in the constructor (client init), before any API call.
         with (
             patch.dict(os.environ, {}, clear=True),
             pytest.raises(ValueError, match="GITHUB_TOKEN environment variable not set"),
         ):
-            fetcher = PRFetcher("owner", "repo", 123, str(temp_review_dir))
-            fetcher.fetch_pr_data()
-
-    @patch.dict(os.environ, {"GITHUB_TOKEN": "invalid-token"})
-    @patch("products.review_hog.backend.reviewer.tools.github_meta.Github")
-    def test_fetch_pr_data_invalid_token(self, mock_github_class: Mock, temp_review_dir: Path) -> None:
-        """Test handling of invalid GitHub token."""
-        mock_github = MagicMock()
-        mock_github_class.return_value = mock_github
-
-        # Simulate 401 error on get_repo call
-        mock_github.get_repo.side_effect = GithubException(401, {"message": "Bad credentials"})
-
-        # PRFetcher initialization succeeds (token validation happens later)
-        fetcher = PRFetcher("owner", "repo", 123, str(temp_review_dir))
-
-        # The error should be raised when fetch_pr_data is called
-        with pytest.raises(GithubException):
-            fetcher.fetch_pr_data()
+            PRFetcher("owner", "repo", 123)
 
     @patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"})
     @patch("products.review_hog.backend.reviewer.tools.github_meta.Github")
-    def test_fetch_pr_data_pr_not_found(self, mock_github_class: Mock, temp_review_dir: Path) -> None:
-        """Test handling when PR is not found."""
-        mock_github = MagicMock()
-        mock_github_class.return_value = mock_github
-
+    def test_github_api_errors_propagate(self, mock_github_class: Mock) -> None:
+        # A 404 (or 401) from the API surfaces as GithubException, not a swallowed empty result.
         mock_repo = MagicMock()
-        mock_github.get_repo.return_value = mock_repo
-
-        # Simulate 404 error
         mock_repo.get_pull.side_effect = GithubException(404, {"message": "Not found"})
+        mock_github_class.return_value.get_repo.return_value = mock_repo
 
-        fetcher = PRFetcher("owner", "repo", 123, str(temp_review_dir))
-
+        fetcher = PRFetcher("owner", "repo", 123)
         with pytest.raises(GithubException):
             fetcher.fetch_pr_data()
-
-    @patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"})
-    @patch("products.review_hog.backend.reviewer.tools.github_meta.Github")
-    def test_fetch_pr_data_skip_existing_files(
-        self, mock_github_class: Mock, temp_review_dir: Path, pr_metadata: PRMetadata
-    ) -> None:
-        """Test that existing files are not overwritten."""
-        # Create existing files
-        pr_meta_path = temp_review_dir / "pr_meta.json"
-        pr_comments_path = temp_review_dir / "pr_comments.jsonl"
-        pr_files_path = temp_review_dir / "pr_files.jsonl"
-        pr_files_scope_path = temp_review_dir / "pr_files_scope.jsonl"
-
-        with pr_meta_path.open("w") as f:
-            json.dump(pr_metadata.model_dump(), f)
-
-        with pr_comments_path.open("w") as f:
-            f.write(
-                '{"path":"existing.py","line":null,"start_line":null,"body":"existing comment",'
-                '"diff_hunk":"@@ -1,3 +1,3 @@","user":"test-user","created_at":"2024-01-01T00:00:00"}\n'
-            )
-
-        with pr_files_path.open("w") as f:
-            f.write('{"filename":"existing.py","status":"modified","additions":10,"deletions":5,"changes":[]}\n')
-
-        with pr_files_scope_path.open("w") as f:
-            f.write('{"filename":"existing.py","status":"modified","additions":10,"deletions":5,"changes":[]}\n')
-
-        # Mock should not be called
-        mock_github = MagicMock()
-        mock_github_class.return_value = mock_github
-
-        # Execute
-        fetcher = PRFetcher("owner", "repo", 123, str(temp_review_dir))
-        metadata, comments, files = fetcher.fetch_pr_data()
-
-        # Verify existing data is loaded
-        assert metadata.number == pr_metadata.number
-        assert metadata.title == pr_metadata.title
-
-        # GitHub API should not be called for PR data
-        mock_github.get_repo.assert_called_once()
-
-    @patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"})
-    @patch("products.review_hog.backend.reviewer.tools.github_meta.Github")
-    def test_fetch_pr_data_handles_test_files(self, mock_github_class: Mock, temp_review_dir: Path) -> None:
-        """Test that test files are properly identified."""
-        # Setup mocks
-        mock_github = MagicMock()
-        mock_github_class.return_value = mock_github
-
-        mock_repo = MagicMock()
-        mock_github.get_repo.return_value = mock_repo
-
-        mock_pr = MagicMock()
-        # Set required PR attributes
-        mock_pr.number = 789
-        mock_pr.title = "Test PR"
-        mock_pr.body = "Description"
-        mock_pr.state = "open"
-        mock_pr.draft = False
-        mock_pr.created_at.isoformat.return_value = "2024-01-01T00:00:00"
-        mock_pr.updated_at.isoformat.return_value = "2024-01-02T00:00:00"
-        mock_pr.user.login = "author"
-        mock_pr.raw_data = {"author_association": "MEMBER"}
-        mock_pr.base.ref = "main"
-        mock_pr.head.ref = "feature"
-        mock_pr.head.sha = "test0sha789"
-        mock_pr.mergeable_state = "clean"
-        mock_pr.get_review_requests.return_value = ([], [])
-        mock_pr.assignee = None
-        mock_pr.labels = []
-        mock_pr.commits = 1
-        mock_pr.additions = 100
-        mock_pr.deletions = 0
-        mock_pr.changed_files = 2
-        mock_pr.get_review_comments.return_value = []
-
-        # Mock files - one test, one non-test
-        mock_test_file = MagicMock()
-        mock_test_file.filename = "tests/test_module.py"
-        mock_test_file.status = "added"
-        mock_test_file.additions = 50
-        mock_test_file.deletions = 0
-        mock_test_file.patch = None
-
-        mock_regular_file = MagicMock()
-        mock_regular_file.filename = "src/module.py"
-        mock_regular_file.status = "added"
-        mock_regular_file.additions = 50
-        mock_regular_file.deletions = 0
-        mock_regular_file.patch = None
-
-        mock_pr.get_files.return_value = [mock_test_file, mock_regular_file]
-        mock_repo.get_pull.return_value = mock_pr
-
-        # Execute
-        fetcher = PRFetcher("owner", "repo", 789, str(temp_review_dir))
-        metadata, comments, files = fetcher.fetch_pr_data()
-
-        # Verify that test file was skipped
-        assert len(files) == 1
-
-
-class TestEndToEnd:
-    """End-to-end tests for github_meta module."""
-
-    @patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"})
-    @patch("products.review_hog.backend.reviewer.tools.github_meta.Github")
-    def test_complete_pr_workflow(
-        self,
-        mock_github_class: Mock,
-        temp_review_dir: Path,
-    ) -> None:
-        """Test complete workflow: parse URL, fetch data."""
-        # Parse URL
-        url = "https://github.com/test-owner/test-repo/pull/999"
-        parser = PRParser()
-        parsed = parser.parse_github_pr_url(url)
-
-        assert parsed["owner"] == "test-owner"
-        assert parsed["repo"] == "test-repo"
-        assert parsed["pr_number"] == 999
-
-        # Setup GitHub mocks
-        mock_github = MagicMock()
-        mock_github_class.return_value = mock_github
-
-        mock_repo = MagicMock()
-        mock_github.get_repo.return_value = mock_repo
-
-        mock_pr = MagicMock()
-        mock_pr.number = parsed["pr_number"]
-        mock_pr.title = "E2E Test PR"
-        mock_pr.body = "This is an end-to-end test"
-        mock_pr.state = "open"
-        mock_pr.draft = False
-        mock_pr.created_at.isoformat.return_value = "2024-01-01T00:00:00"
-        mock_pr.updated_at.isoformat.return_value = "2024-01-02T00:00:00"
-        mock_pr.user.login = "e2e-author"
-        mock_pr.raw_data = {"author_association": "OWNER"}
-        mock_pr.base.ref = "main"
-        mock_pr.head.ref = "e2e-feature-branch"
-        mock_pr.head.sha = "e2e0headsha0"
-        mock_pr.mergeable_state = "clean"
-
-        # Add assignee and labels for more complete test
-        mock_assignee = MagicMock()
-        mock_assignee.login = "assignee-user"
-        mock_pr.assignee = mock_assignee
-
-        mock_label1 = MagicMock()
-        mock_label1.name = "bug"
-        mock_label2 = MagicMock()
-        mock_label2.name = "priority-high"
-        mock_pr.labels = [mock_label1, mock_label2]
-
-        # Add requested reviewers
-        mock_reviewer = MagicMock()
-        mock_reviewer.login = "reviewer1"
-        mock_pr.get_review_requests.return_value = ([mock_reviewer], [])  # users, teams
-
-        mock_pr.commits = 3
-        mock_pr.additions = 150
-        mock_pr.deletions = 75
-        mock_pr.changed_files = 5
-
-        # Add multiple comments
-        mock_comment1 = MagicMock()
-        mock_comment1.id = 5001
-        mock_comment1.path = "src/main.py"
-        mock_comment1.line = 25
-        mock_comment1.start_line = 20
-        mock_comment1.body = "This needs refactoring"
-        mock_comment1.diff_hunk = "@@ -20,10 +20,10 @@"
-        mock_comment1.user.login = "reviewer1"
-        mock_comment1.created_at.isoformat.return_value = "2024-01-01T10:00:00"
-
-        mock_comment2 = MagicMock()
-        mock_comment2.id = 5002
-        mock_comment2.path = "src/utils.py"
-        mock_comment2.line = 50
-        mock_comment2.start_line = None
-        mock_comment2.body = "Add error handling"
-        mock_comment2.diff_hunk = "@@ -45,10 +45,15 @@"
-        mock_comment2.user.login = "reviewer2"
-        mock_comment2.created_at.isoformat.return_value = "2024-01-01T11:00:00"
-
-        mock_pr.get_review_comments.return_value = [mock_comment1, mock_comment2]
-
-        # Add multiple files with different statuses
-        mock_file1 = MagicMock()
-        mock_file1.filename = "src/main.py"
-        mock_file1.status = "modified"
-        mock_file1.additions = 50
-        mock_file1.deletions = 25
-        mock_file1.patch = """@@ -10,5 +10,6 @@ def main():
-     print("Hello")
--    old_code = True
-+    new_code = False
-+    extra_line = "test"
-     return result"""
-
-        mock_file2 = MagicMock()
-        mock_file2.filename = "tests/test_main.py"
-        mock_file2.status = "added"
-        mock_file2.additions = 100
-        mock_file2.deletions = 0
-        mock_file2.patch = """@@ -0,0 +1,10 @@
-+def test_main():
-+    assert main() == expected"""
-
-        mock_file3 = MagicMock()
-        mock_file3.filename = "old_module.py"
-        mock_file3.status = "removed"
-        mock_file3.additions = 0
-        mock_file3.deletions = 50
-        mock_file3.patch = None
-
-        mock_pr.get_files.return_value = [mock_file1, mock_file2, mock_file3]
-
-        mock_repo.get_pull.return_value = mock_pr
-
-        # Fetch PR data
-        fetcher = PRFetcher(
-            str(parsed["owner"]),
-            str(parsed["repo"]),
-            int(parsed["pr_number"]),
-            str(temp_review_dir),
-        )
-        metadata, comments, files = fetcher.fetch_pr_data()
-
-        # Verify fetched data
-        assert metadata.number == 999
-        assert metadata.title == "E2E Test PR"
-        assert metadata.author == "e2e-author"
-        assert metadata.assignee == "assignee-user"
-        assert "bug" in metadata.labels
-        assert "priority-high" in metadata.labels
-        assert metadata.requested_reviewers == ["reviewer1"]
-
-        assert len(comments) == 2
-        assert comments[0].id == 5001
-        assert comments[0].body == "This needs refactoring"
-        assert comments[1].body == "Add error handling"
-
-        assert len(files) == 2
-        modified_file = next(f for f in files if f.status == "modified")
-        removed_file = next(f for f in files if f.status == "removed")
-
-        assert modified_file.filename == "src/main.py"
-        assert len(modified_file.changes) > 0
-
-        assert removed_file.filename == "old_module.py"
-        assert removed_file.deletions == 50
-
-        # Verify files were saved
-        assert (temp_review_dir / "pr_meta.json").exists()
-        assert (temp_review_dir / "pr_comments.jsonl").exists()
-        assert (temp_review_dir / "pr_files.jsonl").exists()
-        assert (temp_review_dir / "pr_files_scope.jsonl").exists()
-
-        # Verify pr_files_scope.jsonl content
-        with (temp_review_dir / "pr_files_scope.jsonl").open() as f:
-            scope_files = [json.loads(line) for line in f.readlines()]
-
-        assert len(scope_files) == 2
-        for scope_file in scope_files:
-            # All changes should have no code field
-            for change in scope_file.get("changes", []):
-                assert "code" not in change
-
-        # The point-in-time diff snapshot holds the reviewed files' raw patches (test file excluded,
-        # a removed file with no patch recorded explicitly).
-        diff_snapshot = (temp_review_dir / "pr_diff.patch").read_text()
-        assert "=== src/main.py [modified] ===" in diff_snapshot
-        assert "new_code = False" in diff_snapshot
-        assert "tests/test_main.py" not in diff_snapshot
-        assert "=== old_module.py [removed] ===" in diff_snapshot
-        assert "(no patch available" in diff_snapshot

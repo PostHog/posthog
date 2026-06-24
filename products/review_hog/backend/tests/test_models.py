@@ -1,14 +1,21 @@
 import pytest
 from posthog.test.base import BaseTest
 
+from parameterized import parameterized
+
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import (
     ARTEFACT_CONTENT_SCHEMAS,
+    ChunkAnalysisArtefact,
+    ChunkSetArtefact,
+    LensResultArtefact,
     ReviewIssueFinding,
     ValidationVerdict,
     parse_artefact_content,
 )
-from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, LineRange
+from products.review_hog.backend.reviewer.models.chunk_analysis import ChunkAnalysis, ChunkMeta
+from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, IssuesReview, LineRange
+from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, FileInfo
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import ArtefactContentValidationError, TaskRunArtefact
 
@@ -25,20 +32,54 @@ def _finding(issue_key: str = "f.py:10:logic") -> ReviewIssueFinding:
     )
 
 
+def _chunk_set(head_sha: str = "abc123") -> ChunkSetArtefact:
+    return ChunkSetArtefact(
+        head_sha=head_sha,
+        chunks=[Chunk(chunk_id=1, files=[FileInfo(filename="f.py")], chunk_type="business_logic")],
+    )
+
+
+def _chunk_analysis(head_sha: str = "abc123") -> ChunkAnalysisArtefact:
+    return ChunkAnalysisArtefact(
+        head_sha=head_sha,
+        chunk_id=1,
+        analysis=ChunkAnalysis(goal="adds the thing", chunk_meta=ChunkMeta(chunk_id=1, files_in_this_chunk=["f.py"])),
+    )
+
+
+def _lens_result(head_sha: str = "abc123") -> LensResultArtefact:
+    return LensResultArtefact(head_sha=head_sha, pass_number=1, chunk_id=1, review=IssuesReview(issues=[]))
+
+
 class TestReviewArtefactContent:
     def test_registry_keys_match_artefact_type_enum(self):
         # Adding an ArtefactType choice without registering its content schema (or vice versa)
         # silently breaks parse_artefact_content / artefact_type_for for that type.
         assert set(ARTEFACT_CONTENT_SCHEMAS.keys()) == set(ReviewReportArtefact.ArtefactType.values)
+        # The working-state types the DB-driven resume reads back must be registered.
+        assert {"chunk_set", "chunk_analysis", "lens_result"} <= set(ARTEFACT_CONTENT_SCHEMAS.keys())
 
-    def test_add_log_rejects_non_log_content(self):
-        # add_log must refuse a finding — only task_run/commit/code_reference/note accumulate via it.
+    @parameterized.expand([("finding", _finding), ("chunk_set", _chunk_set)])
+    def test_add_log_rejects_non_log_content(self, _name, make_content):
+        # add_log must refuse findings and working-state content — only
+        # task_run/commit/code_reference/note accumulate via it. Raises before any DB write.
         with pytest.raises(ValueError):
             ReviewReportArtefact.add_log(
                 team_id=1,
                 report_id="r",
-                content=_finding(),
+                content=make_content(),
                 attribution=ArtefactAttribution.from_user(1),
+            )
+
+    def test_add_working_state_rejects_non_working_state_content(self):
+        # add_working_state must refuse a finding — only chunk_set/chunk_analysis/lens_result
+        # accumulate via it. Raises before any DB write.
+        with pytest.raises(ValueError):
+            ReviewReportArtefact.add_working_state(
+                team_id=1,
+                report_id="r",
+                content=_finding(),
+                attribution=ArtefactAttribution.system(),
             )
 
     def test_create_rejects_task_run_with_mismatched_task(self):
@@ -84,6 +125,32 @@ class TestReviewArtefactFunnel(BaseTest):
         assert isinstance(parsed, ReviewIssueFinding)
         assert parsed.issue_key == "f.py:10:logic"
         assert parsed.priority == IssuePriority.MUST_FIX
+
+    @parameterized.expand(
+        [
+            (_chunk_set, ReviewReportArtefact.ArtefactType.CHUNK_SET, ChunkSetArtefact),
+            (_chunk_analysis, ReviewReportArtefact.ArtefactType.CHUNK_ANALYSIS, ChunkAnalysisArtefact),
+            (_lens_result, ReviewReportArtefact.ArtefactType.LENS_RESULT, LensResultArtefact),
+        ]
+    )
+    def test_working_state_funnel_derives_type_and_round_trips_content(self, make_content, expected_type, model_cls):
+        report = self._report()
+        content = make_content()
+        artefact = ReviewReportArtefact.add_working_state(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=content,
+            attribution=ArtefactAttribution.system(),
+        )
+        # type is derived from the content model's class, not passed in.
+        assert artefact.type == expected_type
+        # system attribution leaves both columns null.
+        assert artefact.created_by_id is None
+        assert artefact.task_id is None
+        # head_sha-scoped content survives the JSON round-trip with its typed shape.
+        parsed = parse_artefact_content(artefact.type, artefact.content)
+        assert isinstance(parsed, model_cls)
+        assert parsed == content
 
     def test_verdict_funnel_derives_type_and_system_attribution_is_null(self):
         report = self._report()

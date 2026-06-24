@@ -2,9 +2,7 @@
 
 import os
 import re
-import json
 import logging
-from pathlib import Path
 
 from github import Github, GithubException, PullRequest
 
@@ -223,12 +221,11 @@ class PRParser:
 
 
 class PRFetcher:
-    def __init__(self, owner: str, repo: str, pr_number: int, review_dir: str) -> None:
+    def __init__(self, owner: str, repo: str, pr_number: int) -> None:
         self.owner = owner
         self.repo = repo
         self.pr_number = pr_number
         self.github_client = self.initialize_github_client()
-        self.review_path = Path(review_dir)
 
     def initialize_github_client(self) -> Github:
         # Check for GitHub token
@@ -249,14 +246,7 @@ class PRFetcher:
                 raise ValueError(f"GitHub API error: {e.data.get('message', str(e))}") from e
 
     def fetch_pr_metadata(self, pr: PullRequest) -> PRMetadata:
-        # Fetch PR metadata
-        pr_meta_path = self.review_path / "pr_meta.json"
-        if pr_meta_path.exists():
-            logger.info("pr_meta.json already exists, skipping")
-            with pr_meta_path.open() as f:
-                pr_metadata = PRMetadata.model_validate_json(f.read())
-            return pr_metadata
-        pr_metadata = PRMetadata(
+        return PRMetadata(
             number=pr.number,
             title=pr.title,
             body=pr.body or "",
@@ -279,27 +269,17 @@ class PRFetcher:
             changed_files=pr.changed_files,
         )
 
-        with pr_meta_path.open("w") as f:
-            json.dump(pr_metadata.model_dump(), f, indent=2)
-        return pr_metadata
-
     def fetch_pr_comments(self, pr: PullRequest, pr_filter: PRFilter) -> list[PRComment]:
-        """Fetch PR comments from GitHub API and save to files."""
-        pr_comments_path = self.review_path / "pr_comments.jsonl"
-        if pr_comments_path.exists():
-            logger.info("pr_comments.jsonl already exists, skipping")
-            with pr_comments_path.open() as f:
-                pr_comments = [PRComment.model_validate_json(x) for x in f.readlines()]
-        else:
-            pr_comments = []
-            try:
-                for comment in pr.get_review_comments():
-                    # Skip comments on filtered files
-                    if pr_filter.is_filtered_file(comment.path):
-                        continue
-                    if pr_filter.is_test_file(comment.path):
-                        continue
-                    comment_obj = PRComment(
+        """Fetch the PR's review comments (filtered files / test files dropped)."""
+        pr_comments: list[PRComment] = []
+        try:
+            for comment in pr.get_review_comments():
+                if pr_filter.is_filtered_file(comment.path):
+                    continue
+                if pr_filter.is_test_file(comment.path):
+                    continue
+                pr_comments.append(
+                    PRComment(
                         id=comment.id,
                         path=comment.path,
                         line=comment.line,
@@ -309,84 +289,53 @@ class PRFetcher:
                         user=comment.user.login,
                         created_at=comment.created_at.isoformat(),
                     )
-                    pr_comments.append(comment_obj)
-            except GithubException as e:
-                logger.warning(f"Could not fetch review comments: {e}")
-            with pr_comments_path.open("w") as f:
-                f.write("\n".join([x.model_dump_json() for x in pr_comments]))
+                )
+        except GithubException as e:
+            logger.warning(f"Could not fetch review comments: {e}")
         return pr_comments
 
-    def fetch_pr_files(self, pr: PullRequest, pr_filter: PRFilter, pr_parser: PRParser) -> list[PRFile]:
-        """Fetch PR files from GitHub API and save to files."""
-        pr_files_path = self.review_path / "pr_files.jsonl"
-        if pr_files_path.exists():
-            logger.info("pr_files.jsonl already exists, skipping")
-            with pr_files_path.open() as f:
-                pr_files = [PRFile.model_validate_json(x) for x in f.readlines()]
-        else:
-            pr_files = []
-            # Raw per-file patch for the point-in-time diff snapshot (step 7). Captured here because
-            # this is the only place with `file.patch`; kept out of `PRFile` so it doesn't bloat the
-            # prompts that dump pr_files. Written to its own `pr_diff.patch` alongside pr_files.jsonl.
-            diff_sections: list[str] = []
-            try:
-                for file in pr.get_files():
-                    # Skip filtered files
-                    if pr_filter.is_filtered_file(file.filename):
-                        continue
-                    # Skip test files
-                    if pr_filter.is_test_file(file.filename):
-                        continue
-                    file_obj = PRFile(
+    def fetch_pr_files(self, pr: PullRequest, pr_filter: PRFilter, pr_parser: PRParser) -> tuple[list[PRFile], str]:
+        """Fetch the PR's reviewable files and the point-in-time unified diff snapshot.
+
+        Returns ``(pr_files, diff)``. The raw per-file patch is captured here — the only place with
+        ``file.patch`` — into the ``diff`` snapshot, kept out of ``PRFile`` so it doesn't bloat the
+        prompts that dump ``pr_files``. The snapshot is the source for the durable per-turn `commit`
+        artefact (it anchors a finding to the exact reviewed code even after later force-pushes).
+        """
+        pr_files: list[PRFile] = []
+        diff_sections: list[str] = []
+        try:
+            for file in pr.get_files():
+                if pr_filter.is_filtered_file(file.filename):
+                    continue
+                if pr_filter.is_test_file(file.filename):
+                    continue
+                pr_files.append(
+                    PRFile(
                         filename=file.filename,
                         status=file.status,
                         additions=file.additions,
                         deletions=file.deletions,
                         changes=pr_parser.parse_patch(file.patch) if file.patch else [],
                     )
-                    pr_files.append(file_obj)
-                    diff_sections.append(_format_diff_section(file.filename, file.status, file.patch or ""))
-            except GithubException as e:
-                raise ValueError(f"Failed to fetch PR files: {e.data.get('message', str(e))}") from e
-            # Write the diff snapshot before pr_files.jsonl so the cache key (pr_files.jsonl) is the
-            # last write: an interrupted fetch re-runs fully next time instead of leaving a cached
-            # state whose diff snapshot is missing (which would otherwise never regenerate).
-            (self.review_path / "pr_diff.patch").write_text("\n\n".join(diff_sections))
-            with pr_files_path.open("w") as f:
-                f.write("\n".join([x.model_dump_json() for x in pr_files]))
-        return pr_files
+                )
+                diff_sections.append(_format_diff_section(file.filename, file.status, file.patch or ""))
+        except GithubException as e:
+            raise ValueError(f"Failed to fetch PR files: {e.data.get('message', str(e))}") from e
+        return pr_files, "\n\n".join(diff_sections)
 
-    def generate_pr_files_scope(self, pr_files: list[PRFile]) -> None:
-        """Generate pr_files_scope.jsonl (same as pr_files but without code)"""
-        pr_files_scope_path = self.review_path / "pr_files_scope.jsonl"
-        if pr_files_scope_path.exists():
-            logger.info("pr_files_scope.jsonl already exists, skipping")
-        else:
-            # Create scope version by dumping to dict and removing code fields
-            pr_files_scope = []
-            for pr_file in pr_files:
-                pr_file_dict = pr_file.model_dump()
-                # Remove the code field from each change
-                for change in pr_file_dict.get("changes", []):
-                    if "code" in change:
-                        del change["code"]
-                pr_files_scope.append(pr_file_dict)
+    def fetch_pr_data(self) -> tuple[PRMetadata, list[PRComment], list[PRFile], str]:
+        """Fetch PR data from the GitHub API, returning everything in-process (no files).
 
-            with pr_files_scope_path.open("w") as f:
-                f.write("\n".join([json.dumps(x) for x in pr_files_scope]))
-        return None
-
-    def fetch_pr_data(self) -> tuple[PRMetadata, list[PRComment], list[PRFile]]:
-        """Fetch PR data from GitHub API and save to files."""
+        Returns ``(pr_metadata, pr_comments, pr_files, diff)`` where ``diff`` is the reviewed files'
+        point-in-time unified patch.
+        """
         repo_obj = self.github_client.get_repo(f"{self.owner}/{self.repo}")
         pr = repo_obj.get_pull(self.pr_number)
         pr_filter = PRFilter()
         pr_parser = PRParser()
-        # Fetch PR data
         pr_metadata = self.fetch_pr_metadata(pr)
         pr_comments = self.fetch_pr_comments(pr, pr_filter)
-        pr_files = self.fetch_pr_files(pr, pr_filter, pr_parser)
-        # Generate scope of the changed files
-        self.generate_pr_files_scope(pr_files)
+        pr_files, diff = self.fetch_pr_files(pr, pr_filter, pr_parser)
         logger.info("PR data fetched successfully")
-        return pr_metadata, pr_comments, pr_files
+        return pr_metadata, pr_comments, pr_files, diff

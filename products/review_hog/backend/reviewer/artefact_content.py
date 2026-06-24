@@ -17,7 +17,9 @@ from typing import Literal, cast
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
-from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, LineRange
+from products.review_hog.backend.reviewer.models.chunk_analysis import ChunkAnalysis
+from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, IssuesReview, LineRange
+from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk
 from products.signals.backend.artefact_schemas import (
     ArtefactContentValidationError,
     CodeReference,
@@ -88,9 +90,42 @@ class ValidationVerdict(BaseModel):
         return v
 
 
-# Reused leaf models back the work-log entry types; ReviewHog adds findings + verdicts.
+class ChunkSetArtefact(BaseModel):
+    """Content for a `chunk_set` artefact: the PR's chunking computed for ONE review turn.
+
+    Per-turn working state, not a cross-turn-stable finding — so it embeds the live `Chunk`
+    pipeline model directly (re-derived whenever the head moves) rather than redefining a frozen
+    shape. `head_sha` scopes it to its turn, so a resumed run reuses only the current head's
+    chunking and a new head re-chunks.
+    """
+
+    head_sha: str = Field(description="PR head commit this chunking was computed for (the turn key).")
+    chunks: list[Chunk] = Field(description="The reviewable chunks for this turn.")
+
+
+class ChunkAnalysisArtefact(BaseModel):
+    """Content for a `chunk_analysis` artefact: one chunk's analysis narrative for one turn."""
+
+    head_sha: str = Field(description="PR head commit this analysis was computed for.")
+    chunk_id: int = Field(description="The chunk this analysis describes.")
+    analysis: ChunkAnalysis = Field(description="The chunk analysis narrative.")
+
+
+class LensResultArtefact(BaseModel):
+    """Content for a `lens_result` artefact: one (lens, chunk) review for one turn."""
+
+    head_sha: str = Field(description="PR head commit this review was computed for.")
+    pass_number: int = Field(description="The review lens (1=Logic, 2=Contracts, 3=Performance).")
+    chunk_id: int = Field(description="The chunk this lens reviewed.")
+    review: IssuesReview = Field(description="The issues this lens found in this chunk.")
+
+
+# Reused leaf models back the work-log entry types; ReviewHog adds findings + verdicts. The
+# working-state types (chunk_set / chunk_analysis / lens_result) are per-turn pipeline scaffolding
+# the DB-driven resume reads back — head_sha-scoped, latest-wins within a turn.
 ReviewLogArtefactContent = TaskRunArtefact | Commit | CodeReference | NoteArtefact
-ReviewArtefactContent = ReviewIssueFinding | ValidationVerdict | ReviewLogArtefactContent
+ReviewWorkingStateContent = ChunkSetArtefact | ChunkAnalysisArtefact | LensResultArtefact
+ReviewArtefactContent = ReviewIssueFinding | ValidationVerdict | ReviewLogArtefactContent | ReviewWorkingStateContent
 
 # Keys must match `ReviewReportArtefact.ArtefactType` values exactly (asserted by a test).
 ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
@@ -100,6 +135,9 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "commit": Commit,
     "code_reference": CodeReference,
     "note": NoteArtefact,
+    "chunk_set": ChunkSetArtefact,
+    "chunk_analysis": ChunkAnalysisArtefact,
+    "lens_result": LensResultArtefact,
 }
 _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model in ARTEFACT_CONTENT_SCHEMAS.items()}
 

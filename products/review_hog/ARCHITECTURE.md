@@ -185,8 +185,8 @@ state + cloud persistence is its own effort — now **Stage 3** below.
 > watermarks (`head_sha` + `last_seen_comment_id`) advanced per turn. No object storage. Lint + tach + the
 > ReviewHog backend suite (incl. the new snapshot tests) pass, and the snapshot is verified end-to-end against
 > a real public PR (the `commit` artefact stores the 52 KB diff with the watermark advanced). What remains:
-> **step 8** — collapse the on-disk `reviews/<pr>/` tree into ephemeral scratch and make Postgres the single
-> source of truth for inter-stage state (today the DB mirrors only the _outputs_) — plus the **loop itself**
+> **step 8** — make Postgres the single source of truth for inter-stage state and remove the on-disk store
+> (no scratch layer; today the DB mirrors only the _outputs_) — plus the **loop itself**
 > (Temporal + the re-check) and the deferred `task_run` / `note` work-log artefacts. See the step list and
 > _Deferred / future_ below.
 
@@ -325,7 +325,8 @@ Signals-neutral — see step 7) to carry the point-in-time diff alongside the he
 re-fetch is reserved for the **next** turn's _current_ diff — never for reconstructing a past turn. The data is moderate (tens–hundreds of KB per turn) and Postgres handles
 it comfortably (the team-scoped worktree cache stores far larger blobs in Postgres successfully); object storage
 is reserved for a blob that is both large _and_ irreproducible, of which ReviewHog has none. Per-stage
-prompt/JSON scratch stays on sandbox disk.
+prompt/JSON scratch still lives on the **orchestrator host** working tree (`reviews/<pr>/`) today — that is the
+one remaining file dependency, and **step 8** removes it (DB becomes authoritative for inter-stage state too).
 
 ##### Implementation steps (ordered)
 
@@ -394,8 +395,8 @@ prompt/JSON scratch stays on sandbox disk.
    TOAST); **no object storage**. The remaining per-turn `task_run` / `note` work-log artefacts are deferred to
    the loop — they need per-call task ids / comment-driven notes the pipeline doesn't surface yet.
 
-8. ⏭️ **(next — not built) Collapse the on-disk tree into ephemeral scratch; make Postgres the single source of
-   truth.** _Why does `reviews/<pr>/` still exist if we persist to the DB now?_ Because today there are **two**
+8. ⏭️ **(next — not built) Make Postgres the single source of truth; remove the on-disk store (no scratch
+   layer).** _Why does `reviews/<pr>/` still exist if we persist to the DB now?_ Because today there are **two**
    stores with different jobs, and the DB doesn't yet hold everything:
    - The on-disk `reviews/<pr_number>/` tree is the pipeline's **working memory** — every stage reads its inputs
      from disk and writes its outputs there, and idempotent resume is literally "skip the stage if its output
@@ -435,6 +436,31 @@ prompt/JSON scratch stays on sandbox disk.
    **row ids by reference**) — see _Cloud host, Temporal_ below and _Everything on Temporal_ under Deferred.
    Steps 5–7 deliberately left the disk tree as scratch while standing up the durable DB outputs first; this
    step finishes the job by making the DB authoritative for _inter-stage_ state too.
+
+   **End state: the pipeline writes no durable files.** `reviews/<pr>/` goes away entirely; every piece of state
+   becomes a DB row, an in-process value within a stage, or (for prompts/logs) the S3 agent log that already
+   exists. The only thing that may ever touch disk is an _incidental_ per-activity temp if some library demands a
+   path — never a shared or durable store, and never read by another stage.
+
+   The table below is the **elimination work-list** to get there — every file the pipeline writes **today** and
+   what it becomes **instead** (none survive). The "produced by → consumed by" column is only so you know which
+   _reader_ to rewire to the new source when you delete each writer:
+
+   | File written today (`reviews/<pr>/`)                                                                                                          | produced by → consumed by                                 | becomes (file removed)                                                                                                                 |
+   | --------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+   | `pr_meta.json`, `pr_comments.jsonl`, `pr_files.jsonl`, `pr_files_scope.jsonl`                                                                 | fetch → every stage's prompts, publish                    | **in-process value** from the fetch activity (re-fetchable from GitHub); the reviewed `pr_diff.patch` is already the `commit` artefact |
+   | **`chunks.json`** (`ChunksList`)                                                                                                              | chunk → analyze, review, validate, report build           | **new DB row** (artefact / working-state) — the one genuinely-missing intermediate                                                     |
+   | **`chunk-{id}-analysis.json`** (`ChunkAnalysis`)                                                                                              | analyze → review (`CHUNK_ANALYSIS_CONTEXT`), report build | **new DB row** — the other genuinely-missing intermediate                                                                              |
+   | `pass{N}_results/chunk-{id}-issues-review.json` (`IssuesReview`), `issues_found_raw.json`, `issues_cleaned.json`, `issues_outside_scope.json` | review/combine/clean → dedup                              | **in-process values** passed down the combine→clean→dedup chain (they collapse into the canonical issue set)                           |
+   | `issues_found.json` (`IssueCombination`)                                                                                                      | dedup → validate, report, publish                         | already the `issue_finding` rows — read those                                                                                          |
+   | `…/validation/summaries/*.json` (`IssueValidation`)                                                                                           | validate → report, persist                                | already the `validation_verdict` rows — read those                                                                                     |
+   | `review_report.md`                                                                                                                            | report build → publish, finalize                          | already `ReviewReport.report_markdown`                                                                                                 |
+   | `*_prompt.md`, `pass{N}_prompts/*`, `*_error.txt`                                                                                             | each stage                                                | dropped — the full prompt + conversation is already in the S3 agent log (`task_run.log_url`)                                           |
+
+   So the **only new persistence** step 8 needs is `chunks` + per-chunk `analyses` (two new rows); everything else
+   is already a row, becomes an in-process value, or is dropped. After it, the report builder
+   (`prepare_validation_markdown`) and the lens/validation stages read from rows / passed values, and `reviews/<pr>/`
+   is gone.
 
 ##### Cloud host, Temporal & GitHub (assumed / later)
 

@@ -1,10 +1,12 @@
 import logging
 from pathlib import Path
 
+from asgiref.sync import sync_to_async
 from dotenv import load_dotenv
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
+from products.review_hog.backend.reviewer.persistence import load_chunk_set, persist_chunk_set
 from products.review_hog.backend.reviewer.sandbox.executor import run_sandbox_review
 from products.review_hog.backend.reviewer.tools.github_meta import PRComment, PRFile, PRMetadata
 
@@ -19,9 +21,8 @@ def generate_chunking_prompt(
     pr_metadata: PRMetadata,
     pr_comments: list[PRComment],
     pr_files: list[PRFile],
-    review_dir: Path,
 ) -> str:
-    """Generate the chunking prompt for Claude Code SDK."""
+    """Render the chunking prompt for the sandbox agent."""
     # Load example output format
     prompts_dir = Path(__file__).parent.parent / "prompts" / "chunking"
     schema_path = prompts_dir / "schema.json"
@@ -36,42 +37,34 @@ def generate_chunking_prompt(
         prompt_template = env.get_template("prompt.jinja")
     except Exception as e:
         raise RuntimeError(f"Error loading prompt template: {e}") from e
-    prompt = prompt_template.render(
+    return prompt_template.render(
         PR_METADATA=pr_metadata.model_dump_json(),
         PR_COMMENTS=[x.model_dump_json() for x in pr_comments],
         PR_FILES=[x.model_dump_json() for x in pr_files],
         OUTPUT_SCHEMA=output_schema,
     )
-    with (review_dir / "chunking_prompt.md").open("w") as f:
-        f.write(prompt)
-    return prompt
 
 
 async def split_pr_into_chunks(
+    *,
+    team_id: int,
+    report_id: str,
+    head_sha: str,
     pr_metadata: PRMetadata,
     pr_comments: list[PRComment],
     pr_files: list[PRFile],
-    review_dir: Path,
     branch: str,
     repository: str,
-) -> None:
-    """Split a GitHub PR into logical chunks for review."""
-    # Define output path for chunks.json
-    output_path = review_dir / "chunks.json"
+) -> ChunksList:
+    """Split a GitHub PR into logical chunks for review, persisting the result for resume."""
+    # Resume: reuse this turn's chunking if it was already computed.
+    existing = await sync_to_async(load_chunk_set)(team_id=team_id, report_id=report_id, head_sha=head_sha)
+    if existing is not None:
+        logger.info("Reusing persisted chunk set for this turn")
+        return existing
 
-    # Check if it exists and is not empty
-    if output_path.exists() and output_path.stat().st_size > 0:
-        logger.info(f"Skipping chunking as {output_path} already exists")
-        return
-
-    # Generate the chunking prompt
     try:
-        prompt = generate_chunking_prompt(
-            pr_metadata=pr_metadata,
-            pr_comments=pr_comments,
-            pr_files=pr_files,
-            review_dir=review_dir,
-        )
+        prompt = generate_chunking_prompt(pr_metadata=pr_metadata, pr_comments=pr_comments, pr_files=pr_files)
     except (FileNotFoundError, RuntimeError) as e:
         logger.exception(f"Error generating prompt: {e}")
         raise
@@ -85,17 +78,18 @@ Focus on:
 
 IMPORTANT: Return ONLY valid JSON output without any markdown formatting or explanatory text."""
 
-    success = await run_sandbox_review(
+    chunks = await run_sandbox_review(
         prompt=prompt,
         system_prompt=system_prompt,
         branch=branch,
         repository=repository,
-        output_path=str(output_path),
         model_to_validate=ChunksList,
         step_name="chunking",
     )
-    if not success:
+    if chunks is None:
         logger.error("Failed to generate chunks using sandbox")
         raise RuntimeError("Failed to generate chunks using sandbox")
-    # Final success message
+
+    await sync_to_async(persist_chunk_set)(team_id=team_id, report_id=report_id, head_sha=head_sha, chunks=chunks)
     logger.info("Chunking completed successfully!")
+    return chunks

@@ -1,10 +1,8 @@
-import json
 from pathlib import Path
-from typing import Any
 
 import pytest
 from pytest import MonkeyPatch
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from jinja2 import Environment
 
@@ -16,36 +14,28 @@ from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     split_pr_into_chunks,
 )
 
+TEAM_ID = 1
+REPORT_ID = "report-1"
+HEAD_SHA = "abc123"
+
 
 class TestGenerateChunkingPrompt:
-    """Test generate_chunking_prompt function."""
-
-    def test_generate_chunking_prompt_success(
+    def test_generate_chunking_prompt_renders_schema_and_metadata(
         self,
         pr_metadata: PRMetadata,
         pr_comments: list[PRComment],
         pr_files: list[PRFile],
-        temp_review_dir: Path,
     ) -> None:
-        """Test successful prompt generation using actual template files."""
-        prompt: str = generate_chunking_prompt(
+        # The rendered prompt must carry the PR metadata and the output schema the sandbox parses against.
+        prompt = generate_chunking_prompt(
             pr_metadata=pr_metadata,
             pr_comments=pr_comments,
             pr_files=pr_files,
-            review_dir=temp_review_dir,
         )
 
         assert isinstance(prompt, str)
-        assert len(prompt) > 0
-
-        prompt_file: Path = temp_review_dir / "chunking_prompt.md"
-        assert prompt_file.exists()
-
-        assert "## PR metadata" in prompt
-        assert "## PR comments" in prompt
-        assert "## PR files" in prompt
-        assert "<output_schema>" in prompt
         assert pr_metadata.model_dump_json() in prompt
+        assert "<output_schema>" in prompt
         assert '"ChunksList"' in prompt
         assert '"Chunk"' in prompt
 
@@ -54,11 +44,8 @@ class TestGenerateChunkingPrompt:
         pr_metadata: PRMetadata,
         pr_comments: list[PRComment],
         pr_files: list[PRFile],
-        temp_review_dir: Path,
         monkeypatch: MonkeyPatch,
     ) -> None:
-        """Test prompt generation fails when schema file is missing."""
-
         def mock_exists(self: Path) -> bool:
             if "schema.json" in str(self):
                 return False
@@ -73,7 +60,6 @@ class TestGenerateChunkingPrompt:
                     pr_metadata=pr_metadata,
                     pr_comments=pr_comments,
                     pr_files=pr_files,
-                    review_dir=temp_review_dir,
                 )
 
     def test_generate_chunking_prompt_missing_template(
@@ -81,11 +67,8 @@ class TestGenerateChunkingPrompt:
         pr_metadata: PRMetadata,
         pr_comments: list[PRComment],
         pr_files: list[PRFile],
-        temp_review_dir: Path,
         monkeypatch: MonkeyPatch,
     ) -> None:
-        """Test prompt generation fails when template is missing."""
-
         def mock_get_template(self: Environment, name: str) -> None:  # noqa: ARG001
             raise Exception("Template not found")
 
@@ -97,247 +80,131 @@ class TestGenerateChunkingPrompt:
                     pr_metadata=pr_metadata,
                     pr_comments=pr_comments,
                     pr_files=pr_files,
-                    review_dir=temp_review_dir,
                 )
 
 
 class TestSplitPrIntoChunks:
-    """Test split_pr_into_chunks function."""
-
     @pytest.mark.asyncio
     async def test_split_pr_into_chunks_success(
         self,
         pr_metadata: PRMetadata,
         pr_comments: list[PRComment],
         pr_files: list[PRFile],
-        temp_review_dir: Path,
         expected_chunks: ChunksList,
     ) -> None:
-        """Test successful PR chunking."""
-        with patch(
-            "products.review_hog.backend.reviewer.tools.split_pr_into_chunks.generate_chunking_prompt"
-        ) as mock_prompt:
-            mock_prompt.return_value = "Test prompt"
-
-            with patch(
-                "products.review_hog.backend.reviewer.tools.split_pr_into_chunks.run_sandbox_review",
-                create_mock_run_sandbox_review(expected_chunks),
-            ):
-                await split_pr_into_chunks(
-                    pr_metadata=pr_metadata,
-                    pr_comments=pr_comments,
-                    pr_files=pr_files,
-                    review_dir=temp_review_dir,
-                    branch="test-branch",
-                    repository="test/repo",
-                )
-
-                chunks_file: Path = temp_review_dir / "chunks.json"
-                assert chunks_file.exists()
-
-                with chunks_file.open() as f:
-                    saved_chunks: ChunksList = ChunksList.model_validate_json(f.read())
-                assert len(saved_chunks.chunks) == len(expected_chunks.chunks)
-                assert saved_chunks.chunks[0].chunk_id == expected_chunks.chunks[0].chunk_id
-
-    @pytest.mark.asyncio
-    async def test_split_pr_into_chunks_existing_file(
-        self,
-        pr_metadata: PRMetadata,
-        pr_comments: list[PRComment],
-        pr_files: list[PRFile],
-        temp_review_dir: Path,
-    ) -> None:
-        """Test that chunking is skipped when chunks.json already exists."""
-        chunks_file: Path = temp_review_dir / "chunks.json"
-        existing_content: dict[str, Any] = {"chunks": [{"chunk_id": 999, "description": "Existing"}]}
-        with chunks_file.open("w") as f:
-            json.dump(existing_content, f)
+        # No persisted chunk set => run the sandbox, return its chunks, and persist exactly once.
+        mock_load = MagicMock(return_value=None)
+        mock_persist = MagicMock()
 
         with (
             patch(
-                "products.review_hog.backend.reviewer.tools.split_pr_into_chunks.generate_chunking_prompt"
-            ) as mock_prompt,
+                "products.review_hog.backend.reviewer.tools.split_pr_into_chunks.load_chunk_set",
+                mock_load,
+            ),
+            patch(
+                "products.review_hog.backend.reviewer.tools.split_pr_into_chunks.persist_chunk_set",
+                mock_persist,
+            ),
             patch(
                 "products.review_hog.backend.reviewer.tools.split_pr_into_chunks.run_sandbox_review",
-            ) as mock_run_sandbox,
-        ):
-            await split_pr_into_chunks(
-                pr_metadata=pr_metadata,
-                pr_comments=pr_comments,
-                pr_files=pr_files,
-                review_dir=temp_review_dir,
-                branch="test-branch",
-                repository="test/repo",
-            )
-
-            mock_prompt.assert_not_called()
-            mock_run_sandbox.assert_not_called()
-
-            with chunks_file.open() as f:
-                content: dict[str, Any] = json.load(f)
-            assert content["chunks"][0]["chunk_id"] == 999
-
-    @pytest.mark.asyncio
-    async def test_split_pr_into_chunks_empty_existing_file(
-        self,
-        pr_metadata: PRMetadata,
-        pr_comments: list[PRComment],
-        pr_files: list[PRFile],
-        temp_review_dir: Path,
-        expected_chunks: ChunksList,
-    ) -> None:
-        """Test that chunking proceeds when chunks.json exists but is empty."""
-        chunks_file: Path = temp_review_dir / "chunks.json"
-        chunks_file.touch()
-
-        with patch(
-            "products.review_hog.backend.reviewer.tools.split_pr_into_chunks.generate_chunking_prompt"
-        ) as mock_prompt:
-            mock_prompt.return_value = "Test prompt"
-
-            with patch(
-                "products.review_hog.backend.reviewer.tools.split_pr_into_chunks.run_sandbox_review",
                 create_mock_run_sandbox_review(expected_chunks),
-            ):
-                await split_pr_into_chunks(
-                    pr_metadata=pr_metadata,
-                    pr_comments=pr_comments,
-                    pr_files=pr_files,
-                    review_dir=temp_review_dir,
-                    branch="test-branch",
-                    repository="test/repo",
-                )
-
-                mock_prompt.assert_called_once()
-
-                with chunks_file.open() as f:
-                    saved_chunks: ChunksList = ChunksList.model_validate_json(f.read())
-                assert len(saved_chunks.chunks) > 0
-
-    @pytest.mark.asyncio
-    async def test_split_pr_into_chunks_llm_failure(
-        self,
-        pr_metadata: PRMetadata,
-        pr_comments: list[PRComment],
-        pr_files: list[PRFile],
-        temp_review_dir: Path,
-    ) -> None:
-        """Test handling of LLM failure."""
-
-        async def mock_failure(**kwargs: Any) -> bool:
-            return False
-
-        with patch(
-            "products.review_hog.backend.reviewer.tools.split_pr_into_chunks.generate_chunking_prompt"
-        ) as mock_prompt:
-            mock_prompt.return_value = "Test prompt"
-
-            with (
-                patch(
-                    "products.review_hog.backend.reviewer.tools.split_pr_into_chunks.run_sandbox_review",
-                    mock_failure,
-                ),
-                pytest.raises(RuntimeError, match="Failed to generate chunks using sandbox"),
-            ):
-                await split_pr_into_chunks(
-                    pr_metadata=pr_metadata,
-                    pr_comments=pr_comments,
-                    pr_files=pr_files,
-                    review_dir=temp_review_dir,
-                    branch="test-branch",
-                    repository="test/repo",
-                )
-
-    @pytest.mark.asyncio
-    async def test_split_pr_into_chunks_prompt_generation_error(
-        self,
-        pr_metadata: PRMetadata,
-        pr_comments: list[PRComment],
-        pr_files: list[PRFile],
-        temp_review_dir: Path,
-    ) -> None:
-        """Test handling of prompt generation error."""
-        with patch(
-            "products.review_hog.backend.reviewer.tools.split_pr_into_chunks.generate_chunking_prompt"
-        ) as mock_prompt:
-            mock_prompt.side_effect = FileNotFoundError("Schema file not found")
-
-            with pytest.raises(FileNotFoundError, match="Schema file not found"):
-                await split_pr_into_chunks(
-                    pr_metadata=pr_metadata,
-                    pr_comments=pr_comments,
-                    pr_files=pr_files,
-                    review_dir=temp_review_dir,
-                    branch="test-branch",
-                    repository="test/repo",
-                )
-
-
-class TestSplitPrIntoChunksEndToEnd:
-    """End-to-end test for the complete chunking flow."""
-
-    @pytest.mark.asyncio
-    async def test_split_pr_into_chunks_e2e(
-        self,
-        pr_metadata: PRMetadata,
-        pr_comments: list[PRComment],
-        pr_files: list[PRFile],
-        temp_review_dir: Path,
-        expected_chunks: ChunksList,
-    ) -> None:
-        """Test the complete flow from PR data to validated chunks output."""
-
-        async def mock_e2e_run_sandbox(**kwargs: Any) -> bool:
-            """Mock that creates the output file."""
-            output_path = kwargs["output_path"]
-            chunks_json = json.dumps(expected_chunks.model_dump(mode="json"), indent=2)
-
-            with Path(output_path).open("w") as f:
-                f.write(chunks_json)
-
-            return True
-
-        with patch(
-            "products.review_hog.backend.reviewer.tools.split_pr_into_chunks.run_sandbox_review",
-            mock_e2e_run_sandbox,
+            ),
         ):
-            await split_pr_into_chunks(
+            result = await split_pr_into_chunks(
+                team_id=TEAM_ID,
+                report_id=REPORT_ID,
+                head_sha=HEAD_SHA,
                 pr_metadata=pr_metadata,
                 pr_comments=pr_comments,
                 pr_files=pr_files,
-                review_dir=temp_review_dir,
                 branch="test-branch",
                 repository="test/repo",
             )
 
-            chunks_file: Path = temp_review_dir / "chunks.json"
-            prompt_file: Path = temp_review_dir / "chunking_prompt.md"
+        assert result is expected_chunks
+        mock_persist.assert_called_once_with(
+            team_id=TEAM_ID, report_id=REPORT_ID, head_sha=HEAD_SHA, chunks=expected_chunks
+        )
 
-            assert chunks_file.exists()
-            assert prompt_file.exists()
+    @pytest.mark.asyncio
+    async def test_split_pr_into_chunks_resumes_from_persisted_set(
+        self,
+        pr_metadata: PRMetadata,
+        pr_comments: list[PRComment],
+        pr_files: list[PRFile],
+        expected_chunks: ChunksList,
+    ) -> None:
+        # An existing chunk set for this turn short-circuits the sandbox and reuses the stored result.
+        mock_load = MagicMock(return_value=expected_chunks)
+        mock_persist = MagicMock()
+        mock_run_sandbox = MagicMock()
 
-            with chunks_file.open() as f:
-                saved_chunks: ChunksList = ChunksList.model_validate_json(f.read())
+        with (
+            patch(
+                "products.review_hog.backend.reviewer.tools.split_pr_into_chunks.load_chunk_set",
+                mock_load,
+            ),
+            patch(
+                "products.review_hog.backend.reviewer.tools.split_pr_into_chunks.persist_chunk_set",
+                mock_persist,
+            ),
+            patch(
+                "products.review_hog.backend.reviewer.tools.split_pr_into_chunks.run_sandbox_review",
+                mock_run_sandbox,
+            ),
+        ):
+            result = await split_pr_into_chunks(
+                team_id=TEAM_ID,
+                report_id=REPORT_ID,
+                head_sha=HEAD_SHA,
+                pr_metadata=pr_metadata,
+                pr_comments=pr_comments,
+                pr_files=pr_files,
+                branch="test-branch",
+                repository="test/repo",
+            )
 
-            assert len(saved_chunks.chunks) == len(expected_chunks.chunks)
+        assert result is expected_chunks
+        mock_run_sandbox.assert_not_called()
+        mock_persist.assert_not_called()
 
-            first_chunk = saved_chunks.chunks[0]
-            expected_first = expected_chunks.chunks[0]
+    @pytest.mark.asyncio
+    async def test_split_pr_into_chunks_sandbox_failure_raises(
+        self,
+        pr_metadata: PRMetadata,
+        pr_comments: list[PRComment],
+        pr_files: list[PRFile],
+    ) -> None:
+        # Sandbox returning None means no chunks were produced — surface a hard failure, persist nothing.
+        mock_persist = MagicMock()
 
-            assert first_chunk.chunk_id == expected_first.chunk_id
-            assert first_chunk.chunk_type == expected_first.chunk_type
-            assert len(first_chunk.files) == len(expected_first.files)
+        async def sandbox_returns_none(**kwargs: object) -> None:
+            return None
 
-            with prompt_file.open() as f:
-                prompt_content: str = f.read()
+        with (
+            patch(
+                "products.review_hog.backend.reviewer.tools.split_pr_into_chunks.load_chunk_set",
+                MagicMock(return_value=None),
+            ),
+            patch(
+                "products.review_hog.backend.reviewer.tools.split_pr_into_chunks.persist_chunk_set",
+                mock_persist,
+            ),
+            patch(
+                "products.review_hog.backend.reviewer.tools.split_pr_into_chunks.run_sandbox_review",
+                sandbox_returns_none,
+            ),
+            pytest.raises(RuntimeError, match="Failed to generate chunks"),
+        ):
+            await split_pr_into_chunks(
+                team_id=TEAM_ID,
+                report_id=REPORT_ID,
+                head_sha=HEAD_SHA,
+                pr_metadata=pr_metadata,
+                pr_comments=pr_comments,
+                pr_files=pr_files,
+                branch="test-branch",
+                repository="test/repo",
+            )
 
-            assert "## PR metadata" in prompt_content
-            assert "## PR comments" in prompt_content
-            assert "## PR files" in prompt_content
-            assert "<output_schema>" in prompt_content
-            assert '"$defs"' in prompt_content
-            assert '"ChunksList"' in prompt_content
-            assert '"Chunk"' in prompt_content
-            assert str(pr_metadata.number) in prompt_content
-            assert pr_metadata.title in prompt_content
+        mock_persist.assert_not_called()
