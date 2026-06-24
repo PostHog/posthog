@@ -1136,6 +1136,15 @@ def get_teams_with_ai_event_count_in_period(
             SELECT team_id, COUNT() as count
             FROM events
             WHERE event IN %(ai_events)s AND timestamp >= %(begin)s AND timestamp < %(end)s
+                -- Gateway-originated events are billed via the gateway wallet, so
+                -- they are excluded here to avoid double-billing. The marker is
+                -- ingestion-verified ($ai_gateway_verified), not the client-settable
+                -- $ai_gateway property, so it cannot be forged to dodge AIO billing.
+                -- Deploy-ordering invariant: this filter is unconditionally active and
+                -- trusts $ai_gateway_verified, which is only non-forgeable once the
+                -- capture strip+stamp (#64806) and signing secret are live. It must not
+                -- run before those, or a client-forged marker would dodge AIO billing.
+                AND NOT JSONExtractBool(properties, '$ai_gateway_verified')
             GROUP BY team_id
         """,
             {"begin": begin, "end": end, "ai_events": AI_EVENTS},
