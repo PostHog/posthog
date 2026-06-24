@@ -32,7 +32,14 @@ def async_to_sync(async_handler: Callable[[], AsyncGenerator[Any]]) -> Generator
 
     # Use non-daemon thread with explicit cleanup
     thread = threading.Thread(target=run_event_loop, daemon=False)
+
+    threads_before = threading.active_count()
     thread.start()
+    logger.info(
+        "hogai_stream_thread_started",
+        active_threads=threading.active_count(),
+        threads_before=threads_before,
+    )
 
     try:
         # Yield items progressively as they arrive
@@ -50,7 +57,16 @@ def async_to_sync(async_handler: Callable[[], AsyncGenerator[Any]]) -> Generator
             # Signal thread to stop if possible, or wait briefly
             thread.join(timeout=1)
             if thread.is_alive():
-                logger.warning("Thread did not terminate cleanly")
+                logger.warning(
+                    "hogai_stream_thread_leaked",
+                    active_threads=threading.active_count(),
+                )
+
+        logger.info(
+            "hogai_stream_thread_finished",
+            active_threads=threading.active_count(),
+            thread_alive=thread.is_alive(),
+        )
 
         if thread_exception:
             logger.error("Exception in async thread", exc_info=thread_exception)
