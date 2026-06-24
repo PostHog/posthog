@@ -1,4 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { delay, HttpResponse } from 'msw'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -135,6 +136,22 @@ export const TaskSelected: Story = {
     parameters: {
         pageUrl: urls.taskDetail('task-3'),
     },
+}
+
+// The tasks request never resolves, so the list column shows its loading skeletons.
+export const Loading: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/tasks/': async () => {
+                    await delay('infinite')
+                    return HttpResponse.json(listResponse([]))
+                },
+                '/api/projects/:team_id/tasks/repositories/': { repositories: [] },
+                '/api/environments/:team_id/integrations/': { results: [] },
+            },
+        }),
+    ],
 }
 
 // No tasks yet — the list shows its empty state alongside the composer.
