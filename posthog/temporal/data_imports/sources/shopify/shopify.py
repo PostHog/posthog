@@ -174,7 +174,13 @@ def _make_paginated_shopify_request(
     endpoint_config = ENDPOINT_CONFIGS.get(graphql_object.name)
 
     @retry(
-        retry=retry_if_exception_type(ShopifyRetryableError),
+        # Transient network failures (proxy/egress hiccups, connect/read timeouts) surface from
+        # `sess.post` as requests ConnectionError/Timeout — e.g. a 504 from the egress proxy tunnel.
+        # They're retryable like a 5xx, so reissue the request with backoff instead of failing the
+        # whole import. ConnectionError covers ProxyError; Timeout covers connect/read timeouts.
+        retry=retry_if_exception_type(
+            (ShopifyRetryableError, requests.exceptions.ConnectionError, requests.exceptions.Timeout)
+        ),
         stop=stop_after_attempt(5),
         wait=_shopify_retry_wait,
         reraise=True,
@@ -274,6 +280,18 @@ def normalize_store_id(raw: str) -> str:
     return store_id
 
 
+@retry(
+    # A transient TLS/connection drop on the token endpoint (e.g. SSL EOF, proxy/egress hiccup,
+    # connect/read timeout) surfaces from `post` as requests ConnectionError/Timeout — SSLError
+    # is a ConnectionError. The adapter's own urllib3 retries back off for only ~1.5s, too short
+    # to ride out a multi-second blip. Minting a token is idempotent, so reissue with backoff
+    # rather than failing the whole import. 4xx/5xx are raised as plain Exceptions below and so
+    # are untouched here — auth failures still fail fast.
+    retry=retry_if_exception_type((requests.exceptions.ConnectionError, requests.exceptions.Timeout)),
+    stop=stop_after_attempt(5),
+    wait=_shopify_backoff,
+    reraise=True,
+)
 def _get_shopify_access_token(shopify_store_id: str, shopify_client_id: str, shopify_client_secret: str) -> str:
     # Callers pass an already-normalized store id (see normalize_store_id).
     access_token_url = SHOPIFY_ACCESS_TOKEN_URL.format(shopify_store_id)
