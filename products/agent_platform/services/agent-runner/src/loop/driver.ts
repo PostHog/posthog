@@ -949,9 +949,9 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 onAttempt: (index) => {
                     modelAttempt = index
                 },
-                onFallback: (fromIndex, fromModel) => {
+                onFallback: (fromIndex, fromModel, reason) => {
                     fellBackFrom = fromModel.id
-                    runLog.warn({ from: fromModel.id, attempt: fromIndex }, 'model.fallback')
+                    runLog.warn({ from: fromModel.id, attempt: fromIndex, reason }, 'model.fallback')
                 },
             })
         }

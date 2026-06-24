@@ -235,7 +235,7 @@ export function buildAnalyticsProperties(event: AnalyticsEvent): Record<string, 
         if (event.stop_reason) {
             base.$ai_stop_reason = event.stop_reason
         }
-        if (event.model_attempt) {
+        if (event.model_attempt !== undefined) {
             base.$agent_model_attempt = event.model_attempt
         }
         if (event.fallback_from) {
