@@ -188,6 +188,7 @@ the row lists both.
 | snowflake         | DB protocol                 | snowflake-connector-python                                      | ➖                          |
 | sparkpost         | HTTP                        | requests                                                        | ✅                          |
 | square            | HTTP                        | requests                                                        | ✅                          |
+| squarespace       | HTTP                        | requests                                                        | ✅                          |
 | statuspage        | HTTP                        | requests                                                        | ✅                          |
 | stripe            | HTTP (vendor SDK) + Webhook | stripe (StripeClient + RequestsClient) + `WebhookSourceManager` | ✅ (pull) / ➖ (webhook)    |
 | supabase          | DB protocol                 | psycopg (delegates to PostgresSource)                           | ➖                          |
@@ -637,7 +638,6 @@ doesn't conflict with concurrent PRs.
 - split_io
 - spotify_ads
 - spotlercrm
-- squarespace
 - statsig
 - stigg
 - stockdata
