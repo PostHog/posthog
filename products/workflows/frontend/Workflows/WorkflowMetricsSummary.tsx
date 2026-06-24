@@ -33,6 +33,7 @@ export function WorkflowMetricsSummary({ onSelectAction, ...props }: WorkflowMet
         emailMetricsRows,
         emailTotalsByActionIdLoading,
         conversionRate,
+        conversionStats,
         conversionStatsLoading,
     } = useValues(workflowMetricsSummaryLogic(props))
 
@@ -138,9 +139,11 @@ export function WorkflowMetricsSummary({ onSelectAction, ...props }: WorkflowMet
                         <div className="flex flex-1 items-center justify-center">
                             {conversionStatsLoading ? (
                                 <SpinnerOverlay />
+                            ) : conversionStats.started === 0 ? (
+                                <LemonLabel className="text-muted text-md mb-2">No workflows started</LemonLabel>
                             ) : (
                                 <div className="text-6xl text-muted-foreground mb-2">
-                                    {`${(conversionRate * 100).toFixed(1)}%`}
+                                    {`${(Math.min(conversionRate, 1) * 100).toFixed(1)}%`}
                                 </div>
                             )}
                         </div>

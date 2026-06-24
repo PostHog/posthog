@@ -138,6 +138,16 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
             getHogFlowsForTeams: jest.fn().mockResolvedValue({}),
             getHogFlowsForTeam: jest.fn().mockResolvedValue([]),
         }
+        // CdpConsumerBase is mocked out in these tests, so the monitoring service it normally
+        // provides is absent. Stub it so the matcher can queue/flush the `conversion` app metric.
+        ;(this as any).hogFunctionMonitoringService = {
+            queueAppMetric: jest.fn(),
+            flush: jest.fn().mockResolvedValue(undefined),
+        }
+    }
+
+    public get queueAppMetricMock(): jest.Mock {
+        return (this as any).hogFunctionMonitoringService.queueAppMetric
     }
 
     public setHogFlows(map: Record<string, HogFlow>): void {
@@ -527,6 +537,12 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
             const newState = parseJSON(update!.params[1][0].toString('utf-8')) as any
             expect(newState.state.conversionMatched).toBe(true)
+            // The conversion is also counted as a metric
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
+                expect.objectContaining({ app_source_id: 'flow-1', metric_name: 'conversion', count: 1 }),
+                'hog_flow'
+            )
         })
 
         it('does not wake on a conversion match when the workflow does not exit on conversion', async () => {
@@ -567,6 +583,52 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
 
             const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
             expect(update).toBeUndefined()
+            // ...but the conversion is still counted (measurement-only)
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
+                expect.objectContaining({ app_source_id: 'flow-1', metric_name: 'conversion', count: 1 }),
+                'hog_flow'
+            )
+        })
+
+        it('counts a conversion (without waking) for a conversion-only flow that has no wait step', async () => {
+            // Broadened gating: a flow whose only actionable feature is an event-based conversion goal
+            // (no wait_until_condition) is now evaluated regardless of exit condition, so the metric is
+            // tracked. exit_only_at_end means it must not be woken.
+            const flow = makeHogFlow({
+                id: 'flow-1',
+                waitUntil: false,
+                exit_condition: 'exit_only_at_end',
+                conversion: {
+                    events: [
+                        {
+                            filters: {
+                                bytecode: eventBytecode('wuc_cancelled'),
+                                events: [{ id: 'wuc_cancelled', name: 'wuc_cancelled', type: 'events', order: 0 }],
+                            },
+                        },
+                    ],
+                } as any,
+            } as any)
+            matcher.findRows = [
+                {
+                    id: 'job-c',
+                    team_id: 1,
+                    function_id: 'flow-1',
+                    action_id: null,
+                    distinct_id: 'user-1',
+                    person_id: null,
+                },
+            ]
+            matcher.setHogFlows({ 'flow-1': flow })
+
+            await matcher.runWake([makeGlobals({ event: { ...makeGlobals({}).event, event: 'wuc_cancelled' } })])
+
+            const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
+            expect(update).toBeUndefined()
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
+                expect.objectContaining({ app_source_id: 'flow-1', metric_name: 'conversion', count: 1 }),
+                'hog_flow'
+            )
         })
 
         it('does not wake on an empty conversion "events" entry (always-true bytecode)', async () => {
