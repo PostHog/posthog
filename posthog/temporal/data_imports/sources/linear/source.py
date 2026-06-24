@@ -3,6 +3,7 @@ from typing import Optional, cast
 from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldOauthConfig,
 )
@@ -28,6 +29,8 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LinearSource(ResumableSource[LinearSourceConfig, LinearResumeConfig], OAuthMixin):
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.LINEAR
@@ -38,7 +41,7 @@ class LinearSource(ResumableSource[LinearSourceConfig, LinearResumeConfig], OAut
             name=SchemaExternalDataSourceType.LINEAR,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Linear",
-            releaseStatus="beta",
+            releaseStatus=ReleaseStatus.GA,
             caption="Connect your Linear workspace to sync issues, projects, teams, and more.",
             iconPath="/static/services/linear.png",
             fields=cast(

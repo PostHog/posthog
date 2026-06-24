@@ -28,6 +28,8 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ShipStationSource(ResumableSource[ShipStationSourceConfig, ShipStationResumeConfig]):
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SHIPSTATION

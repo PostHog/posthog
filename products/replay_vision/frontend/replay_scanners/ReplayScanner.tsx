@@ -3,8 +3,10 @@ import { useActions, useValues } from 'kea'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -23,6 +25,7 @@ import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerOverview } from './components/ScannerOverview'
 import { ScannerRunTab } from './components/ScannerRunTab'
 import { SummarizerMaxChat } from './components/SummarizerMaxChat'
+import { VisionActionsTab } from './components/VisionActionsTab'
 import { replayScannerLogic } from './replayScannerLogic'
 import { replayScannerSceneLogic } from './replayScannerSceneLogic'
 
@@ -35,6 +38,8 @@ export const scene: SceneExport = {
 export function ReplayScannerSceneComponent(): JSX.Element {
     const { scannerId, activeTab } = useValues(replayScannerSceneLogic)
     const { setActiveTab } = useActions(replayScannerSceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const actionsTabEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_ACTIONS]
 
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, replayScannerSceneLogic)
@@ -106,6 +111,11 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         key: 'configuration',
                         label: 'Configuration',
                         content: <ScannerConfigReadonly scanner={scanner} />,
+                    },
+                    actionsTabEnabled && {
+                        key: 'actions',
+                        label: 'Actions',
+                        content: <VisionActionsTab scannerId={scannerId} />,
                     },
                 ]}
             />

@@ -49,7 +49,14 @@ import { EventSchemaEnforcementManager } from '~/utils/event-schema-enforcement-
 import { PromiseScheduler } from '~/utils/promise-scheduler'
 import { TeamManager } from '~/utils/team-manager'
 
-import { AiEventOutput, AsyncOutput, EventOutput, PersonDistinctIdsOutput, PersonsOutput } from './outputs'
+import {
+    AiEventOutput,
+    AsyncOutput,
+    EventOutput,
+    PersonDistinctIdsOutput,
+    PersonMergeEventsOutput,
+    PersonsOutput,
+} from './outputs'
 import {
     PerDistinctIdPipelineConfig,
     PerDistinctIdPipelineInput,
@@ -76,6 +83,7 @@ export interface JoinedIngestionPipelineConfig {
         | GroupsOutput
         | PersonsOutput
         | PersonDistinctIdsOutput
+        | PersonMergeEventsOutput
         | AppMetricsOutput
     >
     splitAiEventsConfig: SplitAiEventsStepConfig

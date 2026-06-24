@@ -1,12 +1,16 @@
+import uuid
 from typing import Any, NoReturn, cast
 
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 
 import structlog
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
+from rest_framework.serializers import BaseSerializer
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
@@ -14,6 +18,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import Integration
 from posthog.models.user import User
 
+from products.replay_vision.backend.api.delivery import archive_delivery, provision_delivery
 from products.replay_vision.backend.feature_flag import (
     ReplayVisionActionsEnabledPermission,
     ReplayVisionEnabledPermission,
@@ -277,6 +282,18 @@ class VisionActionSerializer(serializers.ModelSerializer):
         raise error
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="scanner",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                description="Filter to the actions belonging to one scanner.",
+            )
+        ]
+    )
+)
 class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations."""
 
@@ -305,4 +322,42 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise PermissionDenied("Configuring a Replay Vision action requires session_recording read access.")
 
     def safely_get_queryset(self, queryset: QuerySet[VisionAction]) -> QuerySet[VisionAction]:
-        return queryset.filter(team_id=self.team_id).select_related("scanner", "created_by").order_by("name", "id")
+        queryset = queryset.filter(team_id=self.team_id).select_related("scanner", "created_by")
+        # The per-scanner "Actions" tab scopes the list to one scanner.
+        scanner_id = self.request.query_params.get("scanner")
+        if scanner_id:
+            try:
+                uuid.UUID(scanner_id)
+            except ValueError:
+                # A malformed ?scanner= would otherwise raise ValueError when the UUID column builds the
+                # query — uncaught by DRF, so a 500. Treat unparseable input as "matches nothing".
+                return queryset.none()
+            queryset = queryset.filter(scanner_id=scanner_id)
+        return queryset.order_by("name", "id")
+
+    def perform_create(self, serializer: BaseSerializer) -> None:
+        # Atomic so a destination-provisioning failure rolls back the action row rather than leaving an
+        # action that looks created but never delivers.
+        with transaction.atomic():
+            action = serializer.save()
+            provision_delivery(action, request=self.request, team=self.team)
+
+    def perform_update(self, serializer: BaseSerializer) -> None:
+        instance = cast(VisionAction, serializer.instance)
+        # Snapshot the destination-affecting fields BEFORE save() — DRF mutates `instance` in place, so
+        # these must be read pre-save for the change comparison to be meaningful.
+        old_delivery = instance.delivery_config
+        old_enabled = instance.enabled
+        old_name = instance.name
+        # Atomic so a re-provision failure rolls the action edit back too (parity with perform_create).
+        with transaction.atomic():
+            action = serializer.save()
+            # Re-provision only when something the destinations reflect changed: delivery targets, the
+            # enabled flag, or the name (each destination is named after the action). Cadence/selection
+            # edits don't touch the destinations, so they must not churn them.
+            if action.delivery_config != old_delivery or action.enabled != old_enabled or action.name != old_name:
+                provision_delivery(action, request=self.request, team=self.team)
+
+    def perform_destroy(self, instance: VisionAction) -> None:
+        archive_delivery(instance, team=self.team)
+        super().perform_destroy(instance)

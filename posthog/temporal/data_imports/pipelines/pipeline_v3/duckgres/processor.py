@@ -347,8 +347,11 @@ def _mark_duckgres_batch_applied(conn: psycopg.Connection[Any], duckgres_schema:
     cursor = conn.execute(
         sql.SQL(
             """
-            INSERT INTO {}.{} (schema_id, run_uuid, batch_index, batch_id)
-            VALUES (%s, %s, %s, %s)
+            -- applied_at is set explicitly: DuckLake does not apply the column's
+            -- DEFAULT now() on insert (unlike Postgres), so omitting it writes NULL
+            -- and trips the NOT NULL constraint.
+            INSERT INTO {}.{} (schema_id, run_uuid, batch_index, batch_id, applied_at)
+            VALUES (%s, %s, %s, %s, now())
             ON CONFLICT (schema_id, run_uuid, batch_index) DO NOTHING
             """
         ).format(

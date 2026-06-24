@@ -930,6 +930,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.health()]: [Scene.Health, 'health'],
     [urls.inbox()]: [Scene.Inbox, 'inbox'],
     [urls.inbox(':tab')]: [Scene.Inbox, 'inbox'],
+    // Static memory route, registered before `:skillName` so it isn't read as a scout name.
+    [urls.inboxScratchpad()]: [Scene.Inbox, 'inbox'],
     // Registered before the generic report route: both are two-segment `/inbox/x/y` shapes.
     [urls.inboxScout(':skillName')]: [Scene.Inbox, 'inbox'],
     // Deep-link to a single scout finding: the bare scout route plus a trailing `/<finding>` segment.
