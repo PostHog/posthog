@@ -37,6 +37,46 @@ def _validate_url(url: str) -> None:
         raise SSRFBlockedError(f"URL blocked by SSRF protection: {reason} ({url})")
 
 
+def _canonical_origin(url: str) -> str | None:
+    try:
+        parsed = urlparse(url)
+        port = parsed.port
+    except ValueError:
+        return None
+
+    if not parsed.scheme or not parsed.hostname or parsed.username or parsed.password:
+        return None
+
+    scheme = parsed.scheme.lower()
+    hostname = parsed.hostname.lower()
+    default_port = (scheme == "https" and port == 443) or (scheme == "http" and port == 80)
+    netloc = hostname if port is None or default_port else f"{hostname}:{port}"
+    return f"{scheme}://{netloc}"
+
+
+def _validate_resource_bound_to_server(resource: object, server_url: str) -> str:
+    if not isinstance(resource, str) or not resource:
+        raise ValueError("OAuth protected resource metadata resource must be a non-empty string")
+
+    parsed_resource = urlparse(resource)
+    if not parsed_resource.scheme or not parsed_resource.netloc:
+        raise ValueError("OAuth protected resource metadata resource is not an absolute URL")
+    if parsed_resource.fragment:
+        raise ValueError("OAuth protected resource metadata resource must not include a fragment")
+
+    resource_origin = _canonical_origin(resource)
+    server_origin = _canonical_origin(server_url)
+    if not resource_origin or not server_origin or resource_origin != server_origin:
+        logger.warning(
+            "OAuth protected resource metadata resource is not bound to MCP server",
+            server_url=server_url,
+            resource=resource,
+        )
+        raise ValueError("OAuth protected resource metadata resource is not bound to MCP server")
+
+    return resource
+
+
 def _as_string_list(value: object) -> list[str]:
     if isinstance(value, str):
         return [value]
@@ -231,12 +271,15 @@ def discover_oauth_metadata(server_url: str) -> dict:
 
     if resource_resp.ok:
         resource_data = resource_resp.json()
+        bound_resource = None
+        if "resource" in resource_data:
+            bound_resource = _validate_resource_bound_to_server(resource_data["resource"], server_url)
         auth_servers = resource_data.get("authorization_servers", [])
         if auth_servers:
             auth_server_url = auth_servers[0]
             metadata = _resolve_issuer(_fetch_auth_server_metadata(auth_server_url), auth_server_url)
-            if resource := resource_data.get("resource"):
-                metadata["resource"] = resource
+            if bound_resource:
+                metadata["resource"] = bound_resource
             if "scopes_supported" in resource_data:
                 metadata["resource_scopes_supported"] = resource_data["scopes_supported"]
             # Carry scopes from the protected resource metadata when the auth

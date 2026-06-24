@@ -222,7 +222,7 @@ class TestRefreshOauthToken(TestCase):
         self.assertIn("SSRF protection", str(ctx.exception))
 
 
-class TestIssuerValidation(TestCase):
+class TestIssuerValidation(SimpleTestCase):
     def _make_response(self, *, ok=True, status_code=200, json_data=None):
         resp = MagicMock()
         resp.ok = ok
@@ -496,6 +496,46 @@ class TestIssuerValidation(TestCase):
         for index, expected_url in enumerate(expected_urls):
             assert mock_get.call_args_list[index].args[0] == expected_url
             assert mock_get.call_args_list[index].kwargs["timeout"] == TIMEOUT
+
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.get")
+    def test_step1_preserves_same_origin_resource(self, mock_get, _allow):
+        auth_server_url = "https://auth.example.com"
+        resource_resp = self._make_response(
+            json_data={
+                "resource": "https://mcp.example.com/mcp",
+                "authorization_servers": [auth_server_url],
+            }
+        )
+        auth_resp = self._make_response(
+            json_data={
+                "issuer": auth_server_url,
+                "authorization_endpoint": f"{auth_server_url}/authorize",
+                "token_endpoint": f"{auth_server_url}/token",
+            }
+        )
+        mock_get.side_effect = [resource_resp, auth_resp]
+
+        metadata = discover_oauth_metadata("https://mcp.example.com/mcp")
+
+        assert metadata["resource"] == "https://mcp.example.com/mcp"
+        assert mock_get.call_count == 2
+
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.get")
+    def test_step1_rejects_resource_on_unrelated_origin(self, mock_get, _allow):
+        resource_resp = self._make_response(
+            json_data={
+                "resource": "https://api.legit.com",
+                "authorization_servers": ["https://auth.legit.com"],
+            }
+        )
+        mock_get.return_value = resource_resp
+
+        with self.assertRaisesMessage(ValueError, "not bound to MCP server"):
+            discover_oauth_metadata("https://mcp.attacker.com/mcp")
+
+        assert mock_get.call_count == 1
 
     @parameterized.expand(
         [
