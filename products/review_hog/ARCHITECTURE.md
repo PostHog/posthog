@@ -181,8 +181,9 @@ state + cloud persistence is its own effort — now **Stage 3** below.
 > The two tables, the artefact funnel/registry, the Signals leaf move, the tach block, the `0001`
 > migration, the persistence layer (`reviewer/persistence.py`), and now explicit `team_id`/`user_id`
 > threading (`run_review` CLI → `main` → a run-scoped sandbox identity) are in place and green
-> (lint + tach + 134 ReviewHog backend tests pass). What remains is routing large blobs to object
-> storage (step 7) — see the checklist below.
+> (lint + tach + 134 ReviewHog backend tests pass). What remains is persisting each turn's point-in-time
+> diff snapshot in Postgres (step 7) — as a per-turn `commit` artefact, coupled with the turn-tracking
+> watermark plumbing. No object storage. See the checklist below.
 
 **Why.** Today every run writes Pydantic-serialized JSON/MD to a gitignored `reviews/<pr_number>/` tree — no
 DB, no `team_id`, no run identity (a "run" is just the PR-number directory). That blocks two things: running
@@ -217,22 +218,30 @@ the "not a SignalReport", and the "reuse the leaf, own the model" calls are made
     argument, so they can't see ReviewHog's types. ReviewHog therefore defines its **own ~6-line copies** over
     its own registry (`reviewer/artefact_content.py`). Only the content _models_ + `ArtefactContentValidationError`
     are imported from the leaf. (Cleaner anyway — zero shared mutable state.)
-- **Signals stays untouched at the table & behavior level.** The only Signals change is a **pure code move**:
-  `ArtefactAttribution` was relocated from `products/signals/backend/models.py` into a new **zero-dependency**
-  leaf `products/signals/backend/artefact_attribution.py` (stdlib only — leaner than `artefact_schemas.py`,
-  which drags the tasks facade) and re-exported from `models.py` for the 9 existing importers — no migration,
-  no table change. ReviewHog imports attribution from that module with no transitive weight.
+- **Signals stays untouched at the table & behavior level.** So far the only Signals change is a **pure code
+  move**: `ArtefactAttribution` was relocated from `products/signals/backend/models.py` into a new
+  **zero-dependency** leaf `products/signals/backend/artefact_attribution.py` (stdlib only — leaner than
+  `artefact_schemas.py`, which drags the tasks facade) and re-exported from `models.py` for the 9 existing
+  importers — no migration, no table change. ReviewHog imports attribution from that module with no transitive
+  weight. **Allowed exception (step 7):** a Signals-schema edit is permitted _only_ when it is a **minor,
+  additive, optional** field that Signals never populates and that cannot change Signals behavior — e.g. the
+  optional `diff: str | None = None` on `Commit` (default `None`; old rows still parse). Anything beyond that
+  shape stays off-limits.
 
 ##### What ReviewHog reuses vs owns
 
 - **Reuse directly (shared infra, already legal):** `MultiTurnSession` via the Tasks facade
-  (`products.tasks.backend.facade.agents`, already imported by `executor.py`);
-  `posthog/storage/object_storage.py`; `GitHubIntegration.get_diff` / `first_for_team_repository`.
-- **Reuse from Signals' leaf** (`products.signals.backend.artefact_schemas`): `Commit`, `CodeReference`,
-  `TaskRunArtefact`, `NoteArtefact`, the registry helpers `artefact_type_for` / `parse_artefact_content`,
-  `ArtefactContentValidationError`, and `ArtefactAttribution` (after the move above).
+  (`products.tasks.backend.facade.agents`, already imported by `executor.py`); `GitHubIntegration.get_diff` /
+  `first_for_team_repository` (the latter for cloud auth; `get_diff` only for the _next_ turn's current diff).
+- **Reuse from Signals' leaf** (`products.signals.backend.artefact_schemas`): the content models `Commit`,
+  `CodeReference`, `TaskRunArtefact`, `NoteArtefact`, plus `ArtefactContentValidationError` (and
+  `ArtefactAttribution` from the new `artefact_attribution` leaf, after the move above). **Not** the registry
+  helpers `artefact_type_for` / `parse_artefact_content` — they close over Signals' module-global registry, so
+  ReviewHog defines its own (see the correction above).
 - **ReviewHog owns:** `ReviewReport` + `ReviewReportArtefact` (own tables + funnel mirroring
   `SignalReportArtefact`) and its product-specific content schemas (`ReviewIssueFinding`, `ValidationVerdict`).
+  The per-turn diff snapshot (step 7) reuses the `commit` artefact via a minor optional `diff` field on Signals'
+  `Commit` — not a new owned type.
 
 ##### Data model (`products/review_hog/backend/models.py`)
 
@@ -248,7 +257,8 @@ gives the fail-closed `TeamScopedManager` + canonical-team `save()`; the subclas
   - `run_count` (default 0); `last_run_at` (null); `created_at` / `updated_at`.
   - **Watermark:** `head_sha` + `last_seen_comment_id` — what a turn has already reviewed, so the loop knows
     what's new.
-  - Rendered report markdown: inline `TextField` for now (small); object-storage key if it grows.
+  - Rendered report markdown: inline `TextField` (TOAST transparently compresses / out-of-lines large values;
+    `.defer()` keeps it off hot reads — no object storage).
   - **Unique** on `(team, repository, pr_number)` — one living report per PR; this is the idempotency key, so
     re-runs append turns rather than create a new report.
 - **`ReviewReportArtefact(UUIDModel, TeamScopedRootMixin)`** — the append-only work log, mirroring
@@ -288,14 +298,28 @@ Content schemas (`products/review_hog/backend/reviewer/artefact_content.py`, pyd
 
 **Loop-y mapping:** issue → `issue_finding` (latest-wins per `issue_key`); validation → `validation_verdict`
 (latest-wins); a review **turn** → `task_run` (the sandbox `Task`, already created by `MultiTurnSession`);
-triggering commits / comments → `commit` / `note` work-log entries.
+triggering commits + the reviewed **diff snapshot** → a per-turn `commit` artefact (head-commit metadata
+tagged with `head_sha`, plus the point-in-time diff in `Commit`'s new optional `diff` field); triggering
+comments → `note` entries.
 
-##### Storage split
+##### Storage split — Postgres-first, point-in-time
 
-Structured results (issues, verdicts, the report) → Postgres rows. Large / diff-bearing blobs → re-fetch on
-demand via `get_diff`, or `object_storage.write` under a team-scoped key (`review_hog/<team_id>/<pr>/…`) with
-only the key stored on the row — never a multi-hundred-KB diff in a `TextField`. Per-stage prompt/JSON scratch
-stays on sandbox disk.
+Everything lives in Postgres; there is no object storage. Structured results (findings, verdicts, the rendered
+report) are JSON/text in `TextField`s — Postgres TOAST transparently compresses and out-of-lines large values,
+and `.defer()` / `.only()` keep those columns off hot reads. **The reviewed diff snapshot is persisted, not
+re-fetched on demand.** A review is a point-in-time judgment: a finding's line numbers only make sense against
+the code as of the reviewed commit. Re-fetching later returns the _current_ code (wrong once new commits land),
+and even re-fetching pinned at `head_sha` isn't durable — a force-push can orphan and GC that commit. So each
+turn stores its own snapshot (the parsed diff at that turn's `head_sha` — today's ephemeral `pr_files.jsonl`)
+as an **append-only per-turn `commit` artefact**. This is identical for a single review (turn 1) and the loop
+(turn N appends its own snapshot), so the full per-turn history is reconstructable regardless of later
+force-pushes. The snapshot rides on a per-turn `commit` artefact: the reused Signals `Commit` schema gains one
+minor optional `diff` field (default `None`, Signals-neutral — see step 7) to carry the point-in-time diff
+alongside the head-commit metadata. `get_diff` re-fetch is reserved for the **next** turn's _current_ diff —
+never for reconstructing a past turn. The data is moderate (tens–hundreds of KB per turn) and Postgres handles
+it comfortably (the team-scoped worktree cache stores far larger blobs in Postgres successfully); object storage
+is reserved for a blob that is both large _and_ irreproducible, of which ReviewHog has none. Per-stage
+prompt/JSON scratch stays on sandbox disk.
 
 ##### Implementation steps (ordered)
 
@@ -335,14 +359,29 @@ stays on sandbox disk.
    fan-out inherits it); every sandbox call builds its context via `_sandbox_context_for(repository)`, which
    reads the identity. The 5 review tools are unchanged — they still thread only `repository`. (The Temporal
    trigger will later supply the PR's author + their team; for now the CLI does.)
-7. **Large blobs:** route diffs / large prompts to `object_storage` by key (or re-fetch via `get_diff`).
+7. **Point-in-time review snapshot (Postgres, per-turn).** Persist each turn's reviewed diff snapshot (the
+   parsed PR diff at its `head_sha`, today's ephemeral `pr_files.jsonl`) so a finding stays anchored to the
+   exact code reviewed even after later force-pushes — which holds **only** because the snapshot is captured
+   _at review time, in the same fetch boundary_ that produced the findings (today the synchronous fetch→persist
+   in `run.py`; under Temporal, inside the single fetching activity, returning only the row id), never
+   re-fetched afterward. Record it as a per-turn **`commit` artefact**: the reused
+   Signals `Commit` schema already holds the head commit's `commit_sha` / `branch` / `message`, and it gains
+   **one minor, optional, Signals-neutral field** — `diff: str | None = None` (default `None`; Signals never
+   sets it, so no behavior change and old rows still parse) — to carry the point-in-time PR diff. (Editing
+   Signals is allowed only for exactly this kind of additive optional field; the fallback, if that ever became
+   undesirable, is a ReviewHog-owned `diff_snapshot` schema/type — but reuse is preferred.) It must work both
+   **now** (a single review is turn 1) and **under looping** (turn N appends its own `commit` artefact, never
+   mutating earlier ones) — so the per-turn append model is the design from the start, not a retrofit. Stays in
+   Postgres (`TextField` + TOAST); **no object storage**. Build it with the turn-tracking plumbing (per-turn
+   `head_sha` / `task_run` / `commit` / `note` + the `head_sha` / `last_seen_comment_id` watermark).
 
 ##### Cloud host, Temporal & GitHub (assumed / later)
 
 - **Cloud host assumed.** The orchestrator (`run.py main()`, a management-command coroutine — `run.py` carries
   `TODO: Make it a parent workflow`) is to be reworked into a **Temporal parent workflow** in a later pass; for
-  now assume a cloud host runs it. On Temporal, persist large artifacts **inside** the activity and pass S3
-  keys / row ids **by reference** (~2 MiB payload cap).
+  now assume a cloud host runs it. On Temporal, persist large artifacts (e.g. the per-turn diff snapshot)
+  **inside** the activity and pass **Postgres row ids by reference** (~2 MiB payload cap) — the payload cap is
+  a Temporal serialization limit, orthogonal to the store, so Postgres-first stands.
 - **GitHub auth stays basic.** Keep the `GITHUB_TOKEN` path; move PR-fetch/publish onto the team-scoped
   `GitHubIntegration` (`get_diff` / `first_for_team_repository`) only when genuine per-team cloud auth is needed.
 
@@ -359,8 +398,9 @@ stays on sandbox disk.
   modeled as a **long-running workflow** — timer-driven, `continue-as-new` per turn to bound history — keyed by
   the `ReviewReport` and advanced via its `head_sha` / `last_seen_comment_id` watermark. The **trigger** (a
   Temporal schedule or a signal from a GitHub webhook) supplies `team_id` / `user_id` = the PR's author and
-  their team, replacing the CLI args. Large artifacts are persisted **inside** the activity and passed **by
-  reference** (row id / S3 key) to respect the ~2 MiB payload cap. (See _Cloud host, Temporal & GitHub_ above.)
+  their team, replacing the CLI args. Large artifacts (e.g. the per-turn diff snapshot) are persisted **inside**
+  the activity and passed **by reference** (Postgres row id) to respect the ~2 MiB payload cap. (See _Cloud
+  host, Temporal & GitHub_ above.)
 - **Lenses as LLMA skills, not jinja.** Today the three review lenses are static jinja focus templates
   (`prompts/issues_review/pass_contexts/pass{1,2,3}_focus.jinja`). The direction is to author each lens as an
   **LLMA skill** — the same mechanism **Signals Scouts** use (the `signals-scout-*` skills) — so a lens becomes
@@ -372,8 +412,8 @@ stays on sandbox disk.
 - **Emit into the Signals inbox.** Like `replay_vision`, ReviewHog could emit notable findings into Signals via
   the facade `emit_signal` so they surface in the inbox — a product feature, separate from this storage work.
 
-**Reuse ledger:** _reuse directly_ — `MultiTurnSession` (Tasks facade), `object_storage`,
-`GitHubIntegration.get_diff`; _reuse from the Signals leaf_ — `Commit` / `CodeReference` / `TaskRunArtefact` /
+**Reuse ledger:** _reuse directly_ — `MultiTurnSession` (Tasks facade), `GitHubIntegration.get_diff` (next
+turn's current diff only); _reuse from the Signals leaf_ — `Commit` / `CodeReference` / `TaskRunArtefact` /
 `NoteArtefact` content models + `ArtefactContentValidationError` (from `artefact_schemas`), and
 `ArtefactAttribution` (from the new `artefact_attribution` leaf); _ReviewHog-owned_ — `ReviewReport` +
 `ReviewReportArtefact`, the funnel, **its own registry + `artefact_type_for` / `parse_artefact_content` helpers**
