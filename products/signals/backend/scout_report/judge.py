@@ -25,16 +25,10 @@ from dataclasses import dataclass
 
 from django.utils import timezone
 
-from posthog.sync import database_sync_to_async
-
 from products.signals.backend.artefact_schemas import ActionabilityAssessment, ActionabilityChoice, SafetyJudgment
-from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalScoutRun
+from products.signals.backend.models import SignalReport
 from products.signals.backend.scout_harness.tools.emit import SOURCE_PRODUCT, SOURCE_TYPE
-from products.signals.backend.scout_report.persistence import (
-    PersistedScoutReport,
-    ScoutReportSignal,
-    create_scout_report,
-)
+from products.signals.backend.scout_report.persistence import ScoutReportSignal
 from products.signals.backend.temporal.report_safety_judge import judge_report_safety
 from products.signals.backend.temporal.types import SignalData
 
@@ -97,33 +91,3 @@ async def judge_scout_report(
     )
     status = resolve_authored_report_status(safe=safety_response.choice, actionability=actionability.actionability)
     return ScoutReportJudgement(status=status, safety=safety, actionability=actionability)
-
-
-async def author_scout_report(
-    *,
-    team_id: int,
-    title: str,
-    summary: str,
-    signals: list[ScoutReportSignal],
-    actionability: ActionabilityAssessment,
-    attribution: ArtefactAttribution,
-    run: SignalScoutRun | None = None,
-) -> tuple[PersistedScoutReport, ScoutReportJudgement]:
-    """The integration point the harness `emit_report` tool (Phase 3) calls: judge, then persist at the
-    judged status with the safety + actionability verdicts recorded as artefacts.
-
-    Returns the persisted report and the judgement, so the tool can tell the agent why a report was
-    suppressed/held rather than surfaced (the safety explanation, the actionability choice)."""
-    judgement = await judge_scout_report(team_id=team_id, signals=signals, actionability=actionability)
-    persisted = await database_sync_to_async(create_scout_report, thread_sensitive=False)(
-        team_id=team_id,
-        title=title,
-        summary=summary,
-        signals=signals,
-        attribution=attribution,
-        status=judgement.status,
-        safety=judgement.safety,
-        actionability=judgement.actionability,
-        run=run,
-    )
-    return persisted, judgement

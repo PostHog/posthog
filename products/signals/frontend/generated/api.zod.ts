@@ -240,6 +240,92 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Rewrite a report's title/summary and/or append a note. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Title/summary edits are best-effort: the pipeline may later re-research and overwrite them.
+ * @summary Edit an existing report for a run
+ */
+export const signalsScoutEditReportBodyTitleMax = 300
+
+export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
+    .object({
+        report_id: zod.string().describe('Id of the report to edit (must belong to this project).'),
+        title: zod
+            .string()
+            .max(signalsScoutEditReportBodyTitleMax)
+            .nullish()
+            .describe('Optional new title. The pipeline may later re-research and overwrite it.'),
+        summary: zod
+            .string()
+            .nullish()
+            .describe('Optional new summary (markdown allowed). The pipeline may later re-research and overwrite it.'),
+        append_note: zod
+            .string()
+            .nullish()
+            .describe("Optional free-form note to append to the report's work log (attributed to this scout)."),
+    })
+    .describe(
+        "Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones."
+    )
+
+/**
+ * The second emit channel: author a complete `SignalReport` directly instead of emitting a weak signal. The report passes the safety judge, then surfaces at the status the scout's `actionability` call implies (or is suppressed). Backing `evidence` is written as bound signals so the report behaves like a pipeline report. NOT idempotent — a retry authors a second report; use `reports` to find a prior report and `edit-report` to update it instead.
+ * @summary Author a full report for a run
+ */
+export const signalsScoutEmitReportBodyTitleMax = 300
+
+export const signalsScoutEmitReportBodyEvidenceItemWeightMin = 0
+
+export const signalsScoutEmitReportBodyAlreadyAddressedDefault = false
+
+export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
+    .object({
+        title: zod
+            .string()
+            .max(signalsScoutEmitReportBodyTitleMax)
+            .describe('One-line PR-style report title the inbox shows.'),
+        summary: zod.string().describe('The report body the inbox shows (markdown allowed). Authored by the scout.'),
+        evidence: zod
+            .array(
+                zod
+                    .object({
+                        description: zod
+                            .string()
+                            .describe(
+                                'Prose for this observation. Embedded and rendered to the safety\/research surfaces.'
+                            ),
+                        source_id: zod
+                            .string()
+                            .describe(
+                                'Stable id for this observation within the report (lets a later edit address it).'
+                            ),
+                        weight: zod
+                            .number()
+                            .min(signalsScoutEmitReportBodyEvidenceItemWeightMin)
+                            .optional()
+                            .describe('Optional per-signal weight (defaults to 1.0). Scouts rarely need to set this.'),
+                    })
+                    .describe('One observation backing an authored report — becomes a bound signal row on the report.')
+            )
+            .min(1)
+            .describe('The observations backing the report — each becomes a bound signal. At least one.'),
+        actionability_explanation: zod
+            .string()
+            .describe('2-3 sentence evidence-grounded justification for the actionability call below.'),
+        actionability: zod
+            .enum(['immediately_actionable', 'requires_human_input', 'not_actionable'])
+            .describe(
+                '\* `immediately_actionable` - immediately_actionable\n\* `requires_human_input` - requires_human_input\n\* `not_actionable` - not_actionable'
+            )
+            .describe(
+                "The scout's actionability call: `immediately_actionable` -> the report surfaces READY; `requires_human_input` -> PENDING_INPUT; `not_actionable` -> suppressed. A safety-judge failure suppresses the report regardless.\n\n\* `immediately_actionable` - immediately_actionable\n\* `requires_human_input` - requires_human_input\n\* `not_actionable` - not_actionable"
+            ),
+        already_addressed: zod
+            .boolean()
+            .default(signalsScoutEmitReportBodyAlreadyAddressedDefault)
+            .describe('Whether the issue already appears fixed in recent changes (tracked separately).'),
+    })
+    .describe('Request body for `emit-report`. Run attribution is taken from the URL path.')
+
+/**
  * Fire `emit_signal` with `source_product = signals_scout`. The `finding_id` is baked into the deterministic `Signal.source_id = run:<id>:finding:<id>` for traceability, but this is NOT idempotent — a second call with the same `finding_id` emits a second signal, so do not retry an emit that may have already succeeded.
  * @summary Emit a finding for a run
  */

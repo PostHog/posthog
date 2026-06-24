@@ -137,7 +137,7 @@ class TestScoutReportPersistence(BaseTest):
                 signals=signals,
                 attribution=ArtefactAttribution.system(),
             )
-        assert SignalReport.objects.count() == 0
+        assert SignalReport.objects.filter(team_id=self.team.id).count() == 0
         self.emit_mock.assert_not_called()
 
     def test_update_rewrites_title_and_summary(self) -> None:

@@ -14,12 +14,18 @@ from rest_framework import serializers
 
 from posthog.schema import Severity
 
-from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission
+from products.signals.backend.artefact_schemas import ActionabilityChoice
+from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutEmission
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.signals.backend.scout_harness.tools.emit import (
     MAX_FINDING_ID_LENGTH,
     MAX_TAG_LENGTH,
     MAX_TAGS_PER_FINDING,
+)
+from products.signals.backend.scout_harness.tools.report import (
+    DEFAULT_REPORT_SEARCH_LIMIT,
+    MAX_REPORT_SEARCH_LIMIT,
+    MAX_REPORT_TITLE_LENGTH,
 )
 from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_CONTENT_LENGTH
 
@@ -453,6 +459,145 @@ class EmitFindingResponseSerializer(serializers.Serializer):
         allow_null=True,
         help_text="`ai_processing_not_approved` | `source_disabled` | null when emitted normally.",
     )
+
+
+# --- Report authoring (emit_report / edit_report) --------------------------
+
+
+class ReportEvidenceSerializer(serializers.Serializer):
+    """One observation backing an authored report — becomes a bound signal row on the report."""
+
+    description = serializers.CharField(
+        help_text="Prose for this observation. Embedded and rendered to the safety/research surfaces.",
+    )
+    source_id = serializers.CharField(
+        help_text="Stable id for this observation within the report (lets a later edit address it).",
+    )
+    weight = serializers.FloatField(
+        required=False,
+        min_value=0.0,
+        help_text="Optional per-signal weight (defaults to 1.0). Scouts rarely need to set this.",
+    )
+
+
+class EmitReportRequestSerializer(serializers.Serializer):
+    """Request body for `emit-report`. Run attribution is taken from the URL path."""
+
+    title = serializers.CharField(
+        max_length=MAX_REPORT_TITLE_LENGTH,
+        help_text="One-line PR-style report title the inbox shows.",
+    )
+    summary = serializers.CharField(
+        help_text="The report body the inbox shows (markdown allowed). Authored by the scout.",
+    )
+    evidence = serializers.ListField(
+        child=ReportEvidenceSerializer(),
+        min_length=1,
+        help_text="The observations backing the report — each becomes a bound signal. At least one.",
+    )
+    actionability_explanation = serializers.CharField(
+        help_text="2-3 sentence evidence-grounded justification for the actionability call below.",
+    )
+    actionability = serializers.ChoiceField(
+        choices=[(c.value, c.value) for c in ActionabilityChoice],
+        help_text=(
+            "The scout's actionability call: `immediately_actionable` -> the report surfaces READY; "
+            "`requires_human_input` -> PENDING_INPUT; `not_actionable` -> suppressed. A safety-judge "
+            "failure suppresses the report regardless."
+        ),
+    )
+    already_addressed = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether the issue already appears fixed in recent changes (tracked separately).",
+    )
+
+
+class EmitReportResponseSerializer(serializers.Serializer):
+    report_id = serializers.CharField(
+        allow_null=True,
+        help_text="The authored report's id (null only when a preflight gate skipped the call). Returned even when suppressed, so you can edit/dedup against it.",
+    )
+    report_status = serializers.CharField(
+        allow_null=True,
+        help_text="Birth status: `ready` | `pending_input` | `suppressed`, or null when gate-skipped.",
+    )
+    emitted = serializers.BooleanField(
+        help_text="True when the report actually surfaced in the inbox (READY or PENDING_INPUT).",
+    )
+    skipped_reason = serializers.CharField(
+        allow_null=True,
+        help_text="`scout_config_missing` | `scout_emit_disabled` | `ai_processing_not_approved` | `source_disabled` | null when not gate-skipped.",
+    )
+    safety_explanation = serializers.CharField(
+        allow_null=True,
+        help_text="When the safety judge suppressed the report, why; null when safe.",
+    )
+
+
+class EditReportRequestSerializer(serializers.Serializer):
+    """Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones."""
+
+    report_id = serializers.CharField(help_text="Id of the report to edit (must belong to this project).")
+    title = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=MAX_REPORT_TITLE_LENGTH,
+        help_text="Optional new title. The pipeline may later re-research and overwrite it.",
+    )
+    summary = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Optional new summary (markdown allowed). The pipeline may later re-research and overwrite it.",
+    )
+    append_note = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Optional free-form note to append to the report's work log (attributed to this scout).",
+    )
+
+
+class EditReportResponseSerializer(serializers.Serializer):
+    report_id = serializers.CharField(help_text="Id of the edited report.")
+    updated_fields = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Which presentation fields changed (e.g. `title`, `summary`); empty if only a note was appended.",
+    )
+    note_appended = serializers.BooleanField(help_text="Whether a note artefact was appended.")
+
+
+class SearchReportsQuerySerializer(serializers.Serializer):
+    """Query params for `reports` — the dedup read tool over the team's existing reports."""
+
+    query = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Optional case-insensitive title substring filter.",
+    )
+    statuses = serializers.ListField(
+        child=serializers.ChoiceField(choices=[(s.value, s.value) for s in SignalReport.Status]),
+        required=False,
+        help_text="Optional lifecycle-status filter (e.g. `ready`, `suppressed`).",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=DEFAULT_REPORT_SEARCH_LIMIT,
+        min_value=1,
+        max_value=MAX_REPORT_SEARCH_LIMIT,
+        help_text=f"Max reports to return (1-{MAX_REPORT_SEARCH_LIMIT}, default {DEFAULT_REPORT_SEARCH_LIMIT}).",
+    )
+
+
+class ReportSummarySerializer(serializers.Serializer):
+    """A report row from `reports` — enough to recognize and dedup against."""
+
+    report_id = serializers.CharField(help_text="The report's id.")
+    title = serializers.CharField(allow_null=True, help_text="The report's title (null if not yet set).")
+    report_status = serializers.CharField(help_text="Current lifecycle status.")
+    signal_count = serializers.IntegerField(help_text="Number of backing signals on the report.")
+    created_at = serializers.CharField(help_text="ISO-8601 creation timestamp.")
+    updated_at = serializers.CharField(help_text="ISO-8601 last-updated timestamp.")
 
 
 # --- Project profile ------------------------------------------------------

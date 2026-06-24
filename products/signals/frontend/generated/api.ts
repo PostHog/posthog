@@ -10,8 +10,12 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     CommitDiffResponseApi,
+    EditReportRequestApi,
+    EditReportResponseApi,
     EmitFindingRequestApi,
     EmitFindingResponseApi,
+    EmitReportRequestApi,
+    EmitReportResponseApi,
     ForgetRequestApi,
     ForgetResponseApi,
     PaginatedPauseStateResponseListApi,
@@ -25,6 +29,7 @@ import type {
     PauseUntilRequestApi,
     ProjectProfileApi,
     RememberRequestApi,
+    ReportSummaryApi,
     ScoutEmissionReportLinkApi,
     ScoutMetadataApi,
     ScratchpadEntryApi,
@@ -48,6 +53,7 @@ import type {
     SignalsScoutProjectProfileGetParams,
     SignalsScoutRunsListParams,
     SignalsScoutScratchpadSearchParams,
+    SignalsScoutSearchReportsParams,
     SignalsSourceConfigsListParams,
 } from './api.schemas'
 
@@ -563,6 +569,28 @@ export const signalsScoutRunsRetrieve = async (
     })
 }
 
+export const getSignalsScoutEditReportUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/edit-report/`
+}
+
+/**
+ * Rewrite a report's title/summary and/or append a note. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Title/summary edits are best-effort: the pipeline may later re-research and overwrite them.
+ * @summary Edit an existing report for a run
+ */
+export const signalsScoutEditReport = async (
+    projectId: string,
+    runId: string,
+    editReportRequestApi: EditReportRequestApi,
+    options?: RequestInit
+): Promise<EditReportResponseApi> => {
+    return apiMutator<EditReportResponseApi>(getSignalsScoutEditReportUrl(projectId, runId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(editReportRequestApi),
+    })
+}
+
 export const getSignalsScoutRunsEmissionsUrl = (projectId: string, runId: string) => {
     return `/api/projects/${projectId}/signals/scout/runs/${runId}/emissions/`
 }
@@ -601,6 +629,28 @@ export const signalsScoutRunsEmissionReports = async (
     })
 }
 
+export const getSignalsScoutEmitReportUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/emit-report/`
+}
+
+/**
+ * The second emit channel: author a complete `SignalReport` directly instead of emitting a weak signal. The report passes the safety judge, then surfaces at the status the scout's `actionability` call implies (or is suppressed). Backing `evidence` is written as bound signals so the report behaves like a pipeline report. NOT idempotent — a retry authors a second report; use `reports` to find a prior report and `edit-report` to update it instead.
+ * @summary Author a full report for a run
+ */
+export const signalsScoutEmitReport = async (
+    projectId: string,
+    runId: string,
+    emitReportRequestApi: EmitReportRequestApi,
+    options?: RequestInit
+): Promise<EmitReportResponseApi> => {
+    return apiMutator<EmitReportResponseApi>(getSignalsScoutEmitReportUrl(projectId, runId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(emitReportRequestApi),
+    })
+}
+
 export const getSignalsScoutEmitSignalUrl = (projectId: string, runId: string) => {
     return `/api/projects/${projectId}/signals/scout/runs/${runId}/emit-signal/`
 }
@@ -620,6 +670,37 @@ export const signalsScoutEmitSignal = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(emitFindingRequestApi),
+    })
+}
+
+export const getSignalsScoutSearchReportsUrl = (projectId: string, params?: SignalsScoutSearchReportsParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/runs/reports/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/runs/reports/`
+}
+
+/**
+ * The dedup read tool: list the project's reports so a scout can find one it already authored (or a matching pipeline report) and `edit-report` it instead of authoring a duplicate. Filter by title substring (`query`) and/or `statuses`. Read-only and team-scoped.
+ * @summary Search the project's existing reports
+ */
+export const signalsScoutSearchReports = async (
+    projectId: string,
+    params?: SignalsScoutSearchReportsParams,
+    options?: RequestInit
+): Promise<ReportSummaryApi[]> => {
+    return apiMutator<ReportSummaryApi[]>(getSignalsScoutSearchReportsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

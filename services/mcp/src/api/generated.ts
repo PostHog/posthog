@@ -1174,6 +1174,20 @@ export namespace Schemas {
       created_by: UserBasic | null;
     }
 
+    /**
+     * * `immediately_actionable` - immediately_actionable
+     * * `requires_human_input` - requires_human_input
+     * * `not_actionable` - not_actionable
+     */
+    export type ActionabilityEnum = typeof ActionabilityEnum[keyof typeof ActionabilityEnum];
+
+
+    export const ActionabilityEnum = {
+      ImmediatelyActionable: 'immediately_actionable',
+      RequiresHumanInput: 'requires_human_input',
+      NotActionable: 'not_actionable',
+    } as const;
+
     export type ActionsNodeResponse = { [key: string]: unknown } | null;
 
     export type PropertyOperator = typeof PropertyOperator[keyof typeof PropertyOperator];
@@ -17938,6 +17952,39 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    /**
+     * Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones.
+     */
+    export interface EditReportRequest {
+      /** Id of the report to edit (must belong to this project). */
+      report_id: string;
+      /**
+         * Optional new title. The pipeline may later re-research and overwrite it.
+         * @maxLength 300
+         * @nullable
+         */
+      title?: string | null;
+      /**
+         * Optional new summary (markdown allowed). The pipeline may later re-research and overwrite it.
+         * @nullable
+         */
+      summary?: string | null;
+      /**
+         * Optional free-form note to append to the report's work log (attributed to this scout).
+         * @nullable
+         */
+      append_note?: string | null;
+    }
+
+    export interface EditReportResponse {
+      /** Id of the edited report. */
+      report_id: string;
+      /** Which presentation fields changed (e.g. `title`, `summary`); empty if only a note was appended. */
+      updated_fields: string[];
+      /** Whether a note artefact was appended. */
+      note_appended: boolean;
+    }
+
     export type EffectiveMembershipLevelEnum = typeof EffectiveMembershipLevelEnum[keyof typeof EffectiveMembershipLevelEnum];
 
 
@@ -18154,6 +18201,74 @@ export namespace Schemas {
          * @nullable
          */
       skipped_reason: string | null;
+    }
+
+    /**
+     * One observation backing an authored report — becomes a bound signal row on the report.
+     */
+    export interface ReportEvidence {
+      /** Prose for this observation. Embedded and rendered to the safety/research surfaces. */
+      description: string;
+      /** Stable id for this observation within the report (lets a later edit address it). */
+      source_id: string;
+      /**
+         * Optional per-signal weight (defaults to 1.0). Scouts rarely need to set this.
+         * @minimum 0
+         */
+      weight?: number;
+    }
+
+    /**
+     * Request body for `emit-report`. Run attribution is taken from the URL path.
+     */
+    export interface EmitReportRequest {
+      /**
+         * One-line PR-style report title the inbox shows.
+         * @maxLength 300
+         */
+      title: string;
+      /** The report body the inbox shows (markdown allowed). Authored by the scout. */
+      summary: string;
+      /**
+         * The observations backing the report — each becomes a bound signal. At least one.
+         * @minItems 1
+         */
+      evidence: ReportEvidence[];
+      /** 2-3 sentence evidence-grounded justification for the actionability call below. */
+      actionability_explanation: string;
+      /** The scout's actionability call: `immediately_actionable` -> the report surfaces READY; `requires_human_input` -> PENDING_INPUT; `not_actionable` -> suppressed. A safety-judge failure suppresses the report regardless.
+       *
+       * * `immediately_actionable` - immediately_actionable
+       * * `requires_human_input` - requires_human_input
+       * * `not_actionable` - not_actionable */
+      actionability: ActionabilityEnum;
+      /** Whether the issue already appears fixed in recent changes (tracked separately). */
+      already_addressed?: boolean;
+    }
+
+    export interface EmitReportResponse {
+      /**
+         * The authored report's id (null only when a preflight gate skipped the call). Returned even when suppressed, so you can edit/dedup against it.
+         * @nullable
+         */
+      report_id: string | null;
+      /**
+         * Birth status: `ready` | `pending_input` | `suppressed`, or null when gate-skipped.
+         * @nullable
+         */
+      report_status: string | null;
+      /** True when the report actually surfaced in the inbox (READY or PENDING_INPUT). */
+      emitted: boolean;
+      /**
+         * `scout_config_missing` | `scout_emit_disabled` | `ai_processing_not_approved` | `source_disabled` | null when not gate-skipped.
+         * @nullable
+         */
+      skipped_reason: string | null;
+      /**
+         * When the safety judge suppressed the report, why; null when safe.
+         * @nullable
+         */
+      safety_explanation: string | null;
     }
 
     export interface EnableWarehouseBackfillRequest {
@@ -45682,6 +45797,27 @@ export namespace Schemas {
       layout?: LayoutEnum;
     }
 
+    /**
+     * A report row from `reports` — enough to recognize and dedup against.
+     */
+    export interface ReportSummary {
+      /** The report's id. */
+      report_id: string;
+      /**
+         * The report's title (null if not yet set).
+         * @nullable
+         */
+      title: string | null;
+      /** Current lifecycle status. */
+      report_status: string;
+      /** Number of backing signals on the report. */
+      signal_count: number;
+      /** ISO-8601 creation timestamp. */
+      created_at: string;
+      /** ISO-8601 last-updated timestamp. */
+      updated_at: string;
+    }
+
     export interface ScanEvidence {
       /** Number of files scanned */
       filesScanned: number;
@@ -63067,6 +63203,50 @@ export namespace Schemas {
      */
     text?: string;
     };
+
+    export type SignalsScoutSearchReportsParams = {
+    /**
+     * Max reports to return (1-100, default 20).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Optional case-insensitive title substring filter.
+     * @nullable
+     */
+    query?: string | null;
+    /**
+     * Optional lifecycle-status filter (e.g. `ready`, `suppressed`).
+     */
+    statuses?: SignalsScoutSearchReportsStatusesItem[];
+    };
+
+    /**
+     * * `potential` - potential
+     * * `candidate` - candidate
+     * * `in_progress` - in_progress
+     * * `pending_input` - pending_input
+     * * `ready` - ready
+     * * `resolved` - resolved
+     * * `failed` - failed
+     * * `deleted` - deleted
+     * * `suppressed` - suppressed
+     */
+    export type SignalsScoutSearchReportsStatusesItem = typeof SignalsScoutSearchReportsStatusesItem[keyof typeof SignalsScoutSearchReportsStatusesItem];
+
+
+    export const SignalsScoutSearchReportsStatusesItem = {
+      Potential: 'potential',
+      Candidate: 'candidate',
+      InProgress: 'in_progress',
+      PendingInput: 'pending_input',
+      Ready: 'ready',
+      Resolved: 'resolved',
+      Failed: 'failed',
+      Deleted: 'deleted',
+      Suppressed: 'suppressed',
+    } as const;
 
     export type SignalsScoutScratchpadSearchParams = {
     /**

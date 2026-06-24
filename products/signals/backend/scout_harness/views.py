@@ -62,19 +62,25 @@ from products.signals.backend.scout_harness.lazy_seed import (
 )
 from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
 from products.signals.backend.scout_harness.serializers import (
+    EditReportRequestSerializer,
+    EditReportResponseSerializer,
     EmitFindingRequestSerializer,
     EmitFindingResponseSerializer,
+    EmitReportRequestSerializer,
+    EmitReportResponseSerializer,
     EvidenceEntrySerializer,
     ForgetRequestSerializer,
     ForgetResponseSerializer,
     ProjectProfileQuerySerializer,
     ProjectProfileSerializer,
     RememberRequestSerializer,
+    ReportSummarySerializer,
     ScoutEmissionReportLinkSerializer,
     ScoutMetadataSerializer,
     ScratchpadEntrySerializer,
     SearchMemoryQuerySerializer,
     SearchRecentRunsQuerySerializer,
+    SearchReportsQuerySerializer,
     SignalScoutConfigCreateSerializer,
     SignalScoutConfigSerializer,
     SignalScoutEmissionSerializer,
@@ -88,6 +94,13 @@ from products.signals.backend.scout_harness.team_limits import (
 )
 from products.signals.backend.scout_harness.tools.emit import EvidenceEntry, InvalidEmitError, emit_finding_sync
 from products.signals.backend.scout_harness.tools.profile import get_project_profile
+from products.signals.backend.scout_harness.tools.report import (
+    DEFAULT_REPORT_SEARCH_LIMIT,
+    ReportEvidence,
+    edit_report_sync,
+    emit_report_sync,
+    search_scout_reports,
+)
 from products.signals.backend.scout_harness.tools.runs import get_run, search_recent_runs
 from products.signals.backend.scout_harness.tools.scratchpad import (
     InvalidScratchpadError,
@@ -95,6 +108,7 @@ from products.signals.backend.scout_harness.tools.scratchpad import (
     remember,
     search_scratchpad,
 )
+from products.signals.backend.scout_report import InvalidScoutReportError
 from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
 from products.skills.backend.models.skills import LLMSkill
 
@@ -465,6 +479,191 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 }
             ).data,
             status=status.HTTP_200_OK,
+        )
+
+    def _resolve_in_progress_run(self, kwargs: dict) -> SignalScoutRun:
+        """Resolve the run for an authoring action: team-scoped lookup + the same in-progress guard
+        `emit_signal` uses. A report is authored *during* a run, so a finished run can't author one."""
+        run_id = _parse_run_id_or_404(kwargs)
+        from products.tasks.backend.facade import api as tasks_facade
+
+        run = (
+            SignalScoutRun.objects.select_related("scout_config", "task_run")
+            .filter(team_id=_canonical_team_id(self), id=run_id)
+            .first()
+        )
+        if run is None:
+            raise exceptions.NotFound()
+        if run.task_run.status != tasks_facade.TaskRunStatus.IN_PROGRESS:
+            raise exceptions.ValidationError(
+                {"status": f"Reports can only be authored on in-progress runs (current: {run.task_run.status})."}
+            )
+        return run
+
+    @validated_request(
+        request_serializer=EmitReportRequestSerializer,
+        parameters=[_RUN_ID_PATH_PARAMETER],
+        responses={
+            200: OpenApiResponse(
+                response=EmitReportResponseSerializer,
+                description="Report authored (READY/PENDING_INPUT/suppressed), or skipped by a preflight gate.",
+            ),
+            400: OpenApiResponse(description="Invalid report shape (empty title/summary/evidence, bad actionability)."),
+            404: OpenApiResponse(description="Run not found for this project."),
+        },
+        summary="Author a full report for a run",
+        description=(
+            "The second emit channel: author a complete `SignalReport` directly instead of emitting a weak "
+            "signal. The report passes the safety judge, then surfaces at the status the scout's `actionability` "
+            "call implies (or is suppressed). Backing `evidence` is written as bound signals so the report "
+            "behaves like a pipeline report. NOT idempotent — a retry authors a second report; use `reports` to "
+            "find a prior report and `edit-report` to update it instead."
+        ),
+        operation_id="signals_scout_emit_report",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="emit-report",
+        required_scopes=["signal_scout_internal:write"],
+        pagination_class=None,
+    )
+    def emit_report(self, request: Request, **kwargs) -> Response:
+        run = self._resolve_in_progress_run(kwargs)
+        data = request.validated_data
+        evidence = [
+            ReportEvidence(
+                description=entry["description"],
+                source_id=entry["source_id"],
+                **({"weight": entry["weight"]} if entry.get("weight") is not None else {}),
+            )
+            for entry in data["evidence"]
+        ]
+        try:
+            result = emit_report_sync(
+                team=self.team,
+                run=run,
+                title=data["title"],
+                summary=data["summary"],
+                evidence=evidence,
+                actionability_explanation=data["actionability_explanation"],
+                actionability=data["actionability"],
+                already_addressed=data.get("already_addressed", False),
+            )
+        except InvalidScoutReportError as exc:
+            raise exceptions.ValidationError({"detail": str(exc)})
+        return Response(
+            EmitReportResponseSerializer(
+                {
+                    "report_id": result.report_id,
+                    "report_status": result.status,
+                    "emitted": result.emitted,
+                    "skipped_reason": result.skipped_reason,
+                    "safety_explanation": result.safety_explanation,
+                }
+            ).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @validated_request(
+        request_serializer=EditReportRequestSerializer,
+        parameters=[_RUN_ID_PATH_PARAMETER],
+        responses={
+            200: OpenApiResponse(response=EditReportResponseSerializer, description="Report edited."),
+            400: OpenApiResponse(description="Nothing to edit, empty note, or report not found for this project."),
+            404: OpenApiResponse(description="Run not found for this project."),
+        },
+        summary="Edit an existing report for a run",
+        description=(
+            "Rewrite a report's title/summary and/or append a note. Can target ANY of the project's inbox "
+            "reports, not just scout-authored ones — so the edit is attributed to this scout. Title/summary "
+            "edits are best-effort: the pipeline may later re-research and overwrite them."
+        ),
+        operation_id="signals_scout_edit_report",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="edit-report",
+        required_scopes=["signal_scout_internal:write"],
+        pagination_class=None,
+    )
+    def edit_report(self, request: Request, **kwargs) -> Response:
+        run = self._resolve_in_progress_run(kwargs)
+        data = request.validated_data
+        try:
+            result = edit_report_sync(
+                team=self.team,
+                run=run,
+                report_id=data["report_id"],
+                title=data.get("title"),
+                summary=data.get("summary"),
+                append_note=data.get("append_note"),
+            )
+        except InvalidScoutReportError as exc:
+            raise exceptions.ValidationError({"detail": str(exc)})
+        return Response(
+            EditReportResponseSerializer(
+                {
+                    "report_id": result.report_id,
+                    "updated_fields": result.updated_fields,
+                    "note_appended": result.note_appended,
+                }
+            ).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @extend_schema(
+        parameters=[SearchReportsQuerySerializer],
+        responses={
+            200: OpenApiResponse(
+                response=ReportSummarySerializer(many=True),
+                description="The project's existing reports, newest-updated first.",
+            )
+        },
+        summary="Search the project's existing reports",
+        description=(
+            "The dedup read tool: list the project's reports so a scout can find one it already authored "
+            "(or a matching pipeline report) and `edit-report` it instead of authoring a duplicate. Filter by "
+            "title substring (`query`) and/or `statuses`. Read-only and team-scoped."
+        ),
+        operation_id="signals_scout_search_reports",
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="reports",
+        required_scopes=["signal_scout:read", "task:read"],
+        pagination_class=None,
+    )
+    def reports(self, request: Request, **kwargs) -> Response:
+        query_serializer = SearchReportsQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+        params = query_serializer.validated_data
+        # `self.team` here may be a child environment; `search_scout_reports` filters by `team.id`, so
+        # pass the canonical parent so child-environment requests see the rows (which persist there).
+        canonical_team = self.team.parent_team or self.team
+        summaries = search_scout_reports(
+            team=canonical_team,
+            query=params.get("query") or None,
+            statuses=params.get("statuses") or None,
+            limit=params.get("limit", DEFAULT_REPORT_SEARCH_LIMIT),
+        )
+        return Response(
+            ReportSummarySerializer(
+                [
+                    {
+                        "report_id": s.report_id,
+                        "title": s.title,
+                        "report_status": s.status,
+                        "signal_count": s.signal_count,
+                        "created_at": s.created_at,
+                        "updated_at": s.updated_at,
+                    }
+                    for s in summaries
+                ],
+                many=True,
+            ).data
         )
 
     # `EvidenceEntrySerializer` is referenced for OpenAPI nested-schema discovery; keep
