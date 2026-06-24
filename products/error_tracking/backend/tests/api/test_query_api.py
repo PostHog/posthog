@@ -230,9 +230,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             observed_tags.append((tags.product, tags.feature))
             return FakeQueryResponse({"results": [], "hasMore": False, "limit": 25, "offset": 0})
 
-        with patch(
-            "products.error_tracking.backend.presentation.views.query.ErrorTrackingQueryRunner.calculate", calculate
-        ):
+        with patch("products.error_tracking.backend.facade.queries.ErrorTrackingQueryRunner.calculate", calculate):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/error_tracking/query/issues",
                 data={"limit": 1},
@@ -249,9 +247,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             observed_volume_resolutions.append(runner.query.volumeResolution)
             return FakeQueryResponse({"results": [], "hasMore": False, "limit": 25, "offset": 0})
 
-        with patch(
-            "products.error_tracking.backend.presentation.views.query.ErrorTrackingQueryRunner.calculate", calculate
-        ):
+        with patch("products.error_tracking.backend.facade.queries.ErrorTrackingQueryRunner.calculate", calculate):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/error_tracking/query/issues",
                 data={"volumeResolution": 0},
@@ -283,7 +279,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         with (
             patch(
-                "products.error_tracking.backend.presentation.views.query.ErrorTrackingQueryRunner.calculate",
+                "products.error_tracking.backend.facade.queries.ErrorTrackingQueryRunner.calculate",
                 calculate_issue,
             ),
             patch(
@@ -322,7 +318,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         with (
             patch(
-                "products.error_tracking.backend.presentation.views.query.ErrorTrackingQueryRunner.calculate",
+                "products.error_tracking.backend.facade.queries.ErrorTrackingQueryRunner.calculate",
                 calculate_issue,
             ),
             patch(
@@ -362,7 +358,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         with (
             patch(
-                "products.error_tracking.backend.presentation.views.query.ErrorTrackingQueryRunner.calculate",
+                "products.error_tracking.backend.facade.queries.ErrorTrackingQueryRunner.calculate",
                 calculate_issue,
             ),
             patch(

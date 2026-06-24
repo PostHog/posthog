@@ -29,7 +29,7 @@ from posthog.models.scoping import team_scope
 
 from products.customer_analytics.backend.models.account import Account, AccountAssignment, AccountProperties
 from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
-from products.notebooks.backend.models import Notebook, ResourceNotebook
+from products.notebooks.backend.facade import api as notebooks
 
 ACCOUNT_GROUP_TYPE_INDEX = 0
 
@@ -205,16 +205,15 @@ class Command(BaseCommand):
                 continue
             for note_index in range(notes_per_account):
                 title, body = NOTE_TEMPLATES[note_index % len(NOTE_TEMPLATES)]
-                notebook = Notebook.objects.create(
-                    team=team,
+                notebooks.create_account_notebook(
+                    team.id,
+                    account.id,
                     title=f"{account.name} — {title}",
                     content=_paragraph_doc(body),
                     text_content=body,
-                    created_by=author,
-                    last_modified_by=author,
-                    visibility=Notebook.Visibility.INTERNAL,
+                    created_by_id=author.id if author else None,
+                    last_modified_by_id=author.id if author else None,
                 )
-                ResourceNotebook.objects.create(notebook=notebook, account=account)
                 created += 1
         self.stdout.write(f"Created {created} note(s) across up to {len(selected)} account(s).")
 

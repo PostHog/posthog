@@ -24,7 +24,14 @@ import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, Team } from '~/types'
 import { TeamManager } from '~/utils/team-manager'
 
-import { AsyncOutput, EVENTS_OUTPUT, EventOutput, PersonDistinctIdsOutput, PersonsOutput } from './outputs'
+import {
+    AsyncOutput,
+    EVENTS_OUTPUT,
+    EventOutput,
+    PersonDistinctIdsOutput,
+    PersonMergeEventsOutput,
+    PersonsOutput,
+} from './outputs'
 
 export interface EventSubpipelineInput {
     message: Message
@@ -37,7 +44,9 @@ export interface EventSubpipelineInput {
 
 export interface EventSubpipelineConfig {
     options: EventPipelineRunnerOptions
-    outputs: IngestionOutputs<EventOutput | IngestionWarningsOutput | PersonsOutput | PersonDistinctIdsOutput>
+    outputs: IngestionOutputs<
+        EventOutput | IngestionWarningsOutput | PersonsOutput | PersonDistinctIdsOutput | PersonMergeEventsOutput
+    >
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformer

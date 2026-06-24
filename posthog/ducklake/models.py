@@ -93,7 +93,9 @@ class DuckgresServer(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     # authoritative bucket name instead of re-deriving it. Nullable for rows provisioned
     # before this field existed.
     bucket = models.CharField(max_length=255, null=True, blank=True)
-    bucket_region = models.CharField(max_length=50, default="us-east-1")
+    # Region travels with the bucket: set alongside it, left NULL when no bucket is
+    # recorded yet (status_for()'s self-heal fills both in once the control plane reports them).
+    bucket_region = models.CharField(max_length=50, null=True, blank=True, default=None)
 
     class Meta:
         db_table = "posthog_duckgresserver"
@@ -149,6 +151,13 @@ class DuckLakeBackfill(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         blank=True,
         help_text="Suffix for this team's warehouse tables in the duckling (events_<suffix>, persons_<suffix>). "
         "User-supplied; falls back to the shared tables when unset.",
+    )
+    earliest_event_date = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Cached earliest event date (clamped to the backfill floor) used to size the historical "
+        "backfill range. Populated lazily by the full-backfill sensor so it never re-queries ClickHouse; "
+        "leave unset to have the sensor resolve and store it on its next tick.",
     )
 
     class Meta:

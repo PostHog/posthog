@@ -47,15 +47,11 @@ const taxonomicGroupTypes = [
 ]
 
 export const LogsFilterBar = ({ showSavedViewsButton = false }: { showSavedViewsButton?: boolean }): JSX.Element => {
-    const newLogsDateRangePicker = useFeatureFlag('NEW_LOGS_DATE_RANGE_PICKER')
     // When the facet rail is on, Level + Service live in the rail instead of this bar.
     const showFacetRail = useFeatureFlag('LOGS_FACET_RAIL')
-    const { logsLoading, liveTailRunning, liveTailDisabledReason } = useValues(logsViewerDataLogic)
-    const { runQuery, setLiveTailRunning } = useActions(logsViewerDataLogic)
-    const { zoomDateRange, setSeverityLevels, setServiceNames } = useActions(logsViewerFiltersLogic)
+    const { setSeverityLevels, setServiceNames } = useActions(logsViewerFiltersLogic)
     const { filters, utcDateRange, id } = useValues(logsViewerFiltersLogic)
-    const { setDateRange } = useActions(logsViewerFiltersLogic)
-    const { dateRange, severityLevels, serviceNames } = filters
+    const { severityLevels, serviceNames } = filters
 
     return (
         <LogsFilterGroup>
@@ -78,56 +74,7 @@ export const LogsFilterBar = ({ showSavedViewsButton = false }: { showSavedViews
                         <FilterHistoryDropdown />
                         {showSavedViewsButton && <SavedViewsButton id={id} iconOnly />}
                     </div>
-                    <div className="flex shrink-0 gap-1.5">
-                        <div className="LogsDateButtonGroup">
-                            <LemonButton
-                                size="small"
-                                icon={<IconMinusSquare />}
-                                type="secondary"
-                                tooltip="Zoom out"
-                                onClick={() => zoomDateRange(2)}
-                            />
-
-                            {!newLogsDateRangePicker && <DateRangeFilter />}
-                            {newLogsDateRangePicker && (
-                                <LogsDateRangePicker dateRange={dateRange} setDateRange={setDateRange} />
-                            )}
-
-                            <LemonButton
-                                size="small"
-                                icon={<IconPlusSquare />}
-                                type="secondary"
-                                tooltip="Zoom in"
-                                onClick={() => zoomDateRange(0.5)}
-                            />
-                        </div>
-
-                        <LemonButton
-                            size="small"
-                            icon={<IconRefresh />}
-                            type="secondary"
-                            onClick={() => runQuery()}
-                            loading={logsLoading || liveTailRunning}
-                            disabledReason={liveTailRunning ? 'Disable live tail to manually refresh' : undefined}
-                        />
-                        <AppShortcut
-                            name="LogsLiveTail"
-                            keybind={[keyBinds.edit]}
-                            intent={liveTailRunning ? 'Stop live tail' : 'Start live tail'}
-                            interaction="click"
-                            scope={Scene.Logs}
-                        >
-                            <LemonButton
-                                size="small"
-                                type={liveTailRunning ? 'primary' : 'secondary'}
-                                icon={liveTailRunning ? <IconPauseCircle /> : <IconPlayCircle />}
-                                onClick={() => setLiveTailRunning(!liveTailRunning)}
-                                disabledReason={liveTailRunning ? undefined : liveTailDisabledReason}
-                            >
-                                Live tail
-                            </LemonButton>
-                        </AppShortcut>
-                    </div>
+                    <LogsQueryControls />
                 </div>
                 <LogsAppliedFilters />
             </div>
@@ -135,7 +82,68 @@ export const LogsFilterBar = ({ showSavedViewsButton = false }: { showSavedViews
     )
 }
 
-const LogsFilterGroup = ({ children }: { children: React.ReactNode }): JSX.Element => {
+/** Time range, zoom, refresh and live tail — the "execute the query" controls shared by both bars. */
+export const LogsQueryControls = (): JSX.Element => {
+    const newLogsDateRangePicker = useFeatureFlag('NEW_LOGS_DATE_RANGE_PICKER')
+    const { logsLoading, liveTailRunning, liveTailDisabledReason } = useValues(logsViewerDataLogic)
+    const { runQuery, setLiveTailRunning } = useActions(logsViewerDataLogic)
+    const { zoomDateRange, setDateRange } = useActions(logsViewerFiltersLogic)
+    const { filters } = useValues(logsViewerFiltersLogic)
+    const { dateRange } = filters
+
+    return (
+        <div className="flex shrink-0 gap-1.5">
+            <div className="LogsDateButtonGroup">
+                <LemonButton
+                    size="small"
+                    icon={<IconMinusSquare />}
+                    type="secondary"
+                    tooltip="Zoom out"
+                    onClick={() => zoomDateRange(2)}
+                />
+
+                {!newLogsDateRangePicker && <DateRangeFilter />}
+                {newLogsDateRangePicker && <LogsDateRangePicker dateRange={dateRange} setDateRange={setDateRange} />}
+
+                <LemonButton
+                    size="small"
+                    icon={<IconPlusSquare />}
+                    type="secondary"
+                    tooltip="Zoom in"
+                    onClick={() => zoomDateRange(0.5)}
+                />
+            </div>
+
+            <LemonButton
+                size="small"
+                icon={<IconRefresh />}
+                type="secondary"
+                onClick={() => runQuery()}
+                loading={logsLoading || liveTailRunning}
+                disabledReason={liveTailRunning ? 'Disable live tail to manually refresh' : undefined}
+            />
+            <AppShortcut
+                name="LogsLiveTail"
+                keybind={[keyBinds.edit]}
+                intent={liveTailRunning ? 'Stop live tail' : 'Start live tail'}
+                interaction="click"
+                scope={Scene.Logs}
+            >
+                <LemonButton
+                    size="small"
+                    type={liveTailRunning ? 'primary' : 'secondary'}
+                    icon={liveTailRunning ? <IconPauseCircle /> : <IconPlayCircle />}
+                    onClick={() => setLiveTailRunning(!liveTailRunning)}
+                    disabledReason={liveTailRunning ? undefined : liveTailDisabledReason}
+                >
+                    Live tail
+                </LemonButton>
+            </AppShortcut>
+        </div>
+    )
+}
+
+export const LogsFilterGroup = ({ children }: { children: React.ReactNode }): JSX.Element => {
     const { filters, id, utcDateRange, queryFilterGroup } = useValues(logsViewerFiltersLogic)
     const { filterGroup, serviceNames } = filters
     const { setFilterGroup } = useActions(logsViewerFiltersLogic)
@@ -165,7 +173,7 @@ const LogsFilterGroup = ({ children }: { children: React.ReactNode }): JSX.Eleme
     )
 }
 
-const LogsFilterSearch = (): JSX.Element => {
+export const LogsFilterSearch = (): JSX.Element => {
     const [visible, setVisible] = useState<boolean>(false)
     const { utcDateRange, filters: logsFilters, queryFilterGroup } = useValues(logsViewerFiltersLogic)
     const { addGroupFilter, setGroupValues } = useActions(universalFiltersLogic)
@@ -267,7 +275,7 @@ const FilterGroupValues = ({ allowInitiallyOpen }: { allowInitiallyOpen: boolean
     )
 }
 
-const LogsAppliedFilters = (): JSX.Element | null => {
+export const LogsAppliedFilters = (): JSX.Element | null => {
     const { filterGroup } = useValues(universalFiltersLogic)
     const [allowInitiallyOpen, setAllowInitiallyOpen] = useState<boolean>(false)
 

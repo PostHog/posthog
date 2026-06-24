@@ -45,10 +45,15 @@ class TrackedHTTPAdapter(HTTPAdapter):
     logged URL or captured sample — value-based masking that complements the
     name-based denylists for auth injected under an unpredictable param/header
     name (e.g. an API key in a query param).
+
+    `capture=False` keeps requests metered and logged but excludes them from HTTP
+    sample capture — for auth exchanges whose bodies carry secrets the name-based
+    scrubbers can't recognise (e.g. a minted session token in a generic `id` field).
     """
 
-    def __init__(self, *args: Any, redact_values: tuple[str, ...] = (), **kwargs: Any) -> None:
+    def __init__(self, *args: Any, redact_values: tuple[str, ...] = (), capture: bool = True, **kwargs: Any) -> None:
         self._redact_values = redact_values
+        self._capture = capture
         super().__init__(*args, **kwargs)
 
     def send(
@@ -84,6 +89,7 @@ class TrackedHTTPAdapter(HTTPAdapter):
                     started_at_monotonic=started,
                     exception=exception,
                     redact_values=self._redact_values,
+                    capture=self._capture,
                 )
             except Exception:
                 # Belt-and-braces: record_request should never raise, but if
@@ -92,7 +98,7 @@ class TrackedHTTPAdapter(HTTPAdapter):
 
 
 def make_tracked_adapter(
-    retry: Retry | None = None, redact_values: tuple[str, ...] = (), **kwargs: Any
+    retry: Retry | None = None, redact_values: tuple[str, ...] = (), capture: bool = True, **kwargs: Any
 ) -> TrackedHTTPAdapter:
     """Construct a `TrackedHTTPAdapter`.
 
@@ -100,11 +106,12 @@ def make_tracked_adapter(
     truly opt out of retries, pass `retry=Retry(total=0)`. To override with
     different retry settings, pass a custom `Retry` instance. Any extra
     kwargs are forwarded to `HTTPAdapter.__init__`. `redact_values` are
-    credential strings to mask in logged URLs and captured samples.
+    credential strings to mask in logged URLs and captured samples. `capture=False`
+    excludes requests from HTTP sample capture (still metered and logged).
     """
     if retry is None:
         retry = DEFAULT_RETRY
-    return TrackedHTTPAdapter(max_retries=retry, redact_values=redact_values, **kwargs)
+    return TrackedHTTPAdapter(max_retries=retry, redact_values=redact_values, capture=capture, **kwargs)
 
 
 class _NoRedirectSession(requests.Session):
@@ -131,6 +138,7 @@ def make_tracked_session(
     headers: dict[str, str] | None = None,
     redact_values: tuple[str, ...] = (),
     allow_redirects: bool = True,
+    capture: bool = True,
 ) -> requests.Session:
     """Return a fresh `requests.Session` with tracked HTTP/HTTPS adapters.
 
@@ -141,9 +149,12 @@ def make_tracked_session(
     predict (e.g. an API key in a query param).
     `allow_redirects=False` returns a session that never follows redirects — an
     SSRF boundary for sources that fetch user-supplied hosts (see `_NoRedirectSession`).
+    `capture=False` excludes the session's requests from HTTP sample capture (still
+    metered and logged) — for auth exchanges whose bodies carry secrets the name-based
+    scrubbers can't recognise (e.g. a minted session token in a generic `id` field).
     """
     session: requests.Session = requests.Session() if allow_redirects else _NoRedirectSession()
-    adapter = make_tracked_adapter(retry=retry, redact_values=redact_values)
+    adapter = make_tracked_adapter(retry=retry, redact_values=redact_values, capture=capture)
     session.mount("https://", adapter)
     session.mount("http://", adapter)
     if headers:

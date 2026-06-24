@@ -51,6 +51,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.error_tracking.backend.facade import api as error_tracking_api
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.signals.backend.billing import get_signals_billing_credits_by_team
 from products.surveys.backend.models import Survey
 from products.surveys.backend.util import (
     SurveyEventProperties,
@@ -213,8 +214,11 @@ class UsageReportCounters:
     # AI Billing Credits (PostHog AI feature usage)
     ai_credits_used_in_period: int
 
-    # Signals Billing Credits (Signals product usage — same cost math as ai_credits, scoped to ai_product='signals')
+    # Signals Billing Credits (flat credits per report whose implementation shipped a PR)
     signals_credits_used_in_period: int
+
+    # PostHog Code Billing Credits (PostHog Code product usage — same cost math as ai_credits, scoped to ai_product='posthog_code')
+    posthog_code_credits_used_in_period: int
 
     # CDP Delivery
     hog_function_calls_in_period: int
@@ -553,6 +557,10 @@ def _combine_team_count_results(results_list: list) -> list[tuple[int, int]]:
     return list(team_counts.items())
 
 
+def _flatten_split_query_results(results_list: list[list[Any]]) -> list[Any]:
+    return [row for rows in results_list for row in rows]
+
+
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_billable_event_count_in_period(
@@ -654,6 +662,64 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
         )
 
 
+def _get_ai_sub_sdk_event_metric_counts(
+    begin: datetime,
+    end: datetime,
+    sdk_metrics: Sequence[tuple[str, str | None, str]],
+    lib_expression: str,
+    ai_lib_expression: str,
+) -> tuple[dict[str, list[tuple[int, int]]], dict[int, int]]:
+    ai_lib_to_metric: dict[str, str] = {}
+    ai_parent_libs: list[str] = []
+    for lib, ai_lib, sdk_metric in sdk_metrics:
+        if ai_lib is None:
+            continue
+        ai_lib_to_metric[ai_lib] = sdk_metric
+        if lib not in ai_parent_libs:
+            ai_parent_libs.append(lib)
+
+    if not ai_lib_to_metric:
+        return {}, {}
+
+    quoted_ai_parent_libs = ", ".join(f"'{lib}'" for lib in ai_parent_libs)
+    quoted_ai_libs = ", ".join(f"'{ai_lib}'" for ai_lib in ai_lib_to_metric)
+    query_template = f"""
+        SELECT
+            team_id,
+            {ai_lib_expression} AS ai_lib,
+            count(1) as count
+        FROM events
+        PREWHERE timestamp >= %(begin)s AND timestamp < %(end)s
+            AND {lib_expression} IN ({quoted_ai_parent_libs})
+            AND startsWith(event, '$ai_')
+        WHERE {ai_lib_expression} IN ({quoted_ai_libs})
+        GROUP BY team_id, ai_lib
+    """
+
+    ai_rows = _execute_split_query(
+        begin=begin,
+        end=end,
+        query_template=query_template,
+        params={},
+        num_splits=12,
+        combine_results_func=_flatten_split_query_results,
+    )
+
+    ai_counts_by_metric: dict[str, dict[int, int]] = {metric_name: {} for metric_name in ai_lib_to_metric.values()}
+    node_subtractions: dict[int, int] = {}
+    for team_id, ai_lib, count in ai_rows:
+        metric_name = ai_lib_to_metric.get(ai_lib)
+        if metric_name is None:
+            continue
+        team_counts = ai_counts_by_metric[metric_name]
+        team_counts[team_id] = team_counts.get(team_id, 0) + count
+        node_subtractions[team_id] = node_subtractions.get(team_id, 0) + count
+
+    return {
+        metric_name: list(team_counts.items()) for metric_name, team_counts in ai_counts_by_metric.items()
+    }, node_subtractions
+
+
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str, list[tuple[int, int]]]:
@@ -695,12 +761,14 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
     metric_filter_conditions = [f"event LIKE '{event_prefix}'" for event_prefix, _metric in event_prefix_metrics]
     metric_filter_conditions.append(f"{lib_expression} IN ({quoted_tracked_libs})")
     metric_filter = "\n            OR ".join(metric_filter_conditions)
+    # The main scan classifies SDKs by $lib only, so it never reads the `properties` blob. The AI
+    # sub-SDK split (openclaw / posthog_pi / posthog_ai, keyed by $ai_lib) is computed separately
+    # below over only the $ai_* events, where $ai_lib actually lives, and folded back in instead
+    # of reading `properties` for every posthog-node event just to check $ai_lib.
     metric_conditions = [f"event LIKE '{event_prefix}', '{metric}'" for event_prefix, metric in event_prefix_metrics]
     for lib, ai_lib, metric in sdk_metrics:
         if ai_lib is None:
             metric_conditions.append(f"{lib_expression} = '{lib}', '{metric}'")
-        else:
-            metric_conditions.append(f"{lib_expression} = '{lib}' AND {ai_lib_expression} = '{ai_lib}', '{metric}'")
     metric_conditions.append("'other'")
     metric_expression = ",\n                ".join(metric_conditions)
 
@@ -767,9 +835,8 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
 
         return result
 
-    # Execute the split query with 12 splits
     with tags_context(product=Product.PRODUCT_ANALYTICS, feature=Feature.USAGE_REPORT):
-        return _execute_split_query(
+        metrics = _execute_split_query(
             begin=begin,
             end=end,
             query_template=query_template,
@@ -777,6 +844,22 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             num_splits=12,
             combine_results_func=combine_event_metrics_results,
         )
+        ai_counts_by_metric, node_subtractions = _get_ai_sub_sdk_event_metric_counts(
+            begin=begin,
+            end=end,
+            sdk_metrics=sdk_metrics,
+            lib_expression=lib_expression,
+            ai_lib_expression=ai_lib_expression,
+        )
+
+    # Fold the AI sub-counts in and remove them from node_events (the main scan counts every
+    # posthog-node event as node_events). max(0, count) guards against tiny cross-query ingestion jitter.
+    metrics["node_events"] = [
+        (team_id, max(0, count - node_subtractions.get(team_id, 0))) for team_id, count in metrics["node_events"]
+    ]
+    metrics.update(ai_counts_by_metric)
+
+    return metrics
 
 
 @timed_log()
@@ -1167,8 +1250,8 @@ POSTHOG_AI_PRODUCTS = [
     "surveys",
 ]
 
-# ai_product values billed as signals credits.
-SIGNALS_AI_PRODUCTS = ["signals"]
+# ai_product values billed as PostHog Code credits.
+POSTHOG_CODE_AI_PRODUCTS = ["posthog_code"]
 
 
 def get_ai_billing_instance_group_type_index(team_id: int) -> int | None:
@@ -1383,18 +1466,30 @@ def get_teams_with_ai_credits_used_in_period(
 
 
 @timed_log()
-@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_signals_credits_used_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
-    """Signals billing credits — only events tagged with ai_product='signals'."""
+    """Signals billing — a flat credit charge per report whose implementation shipped a PR.
+
+    Outcome-based, not LLM spend: see `products/signals/backend/billing.py`.
+    """
+    return get_signals_billing_credits_by_team(begin, end)
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_posthog_code_credits_used_in_period(
+    begin: datetime,
+    end: datetime,
+) -> list[tuple[int, int]]:
+    """PostHog Code billing credits — only events tagged with ai_product='posthog_code'."""
     return _get_teams_with_ai_credits_for_products(
         begin,
         end,
-        ai_products=SIGNALS_AI_PRODUCTS,
-        usage_report_tag="signals_credits",
-        product_tag=Product.SIGNALS,
+        ai_products=POSTHOG_CODE_AI_PRODUCTS,
+        usage_report_tag="posthog_code_credits",
+        product_tag=Product.POSTHOG_CODE,
     )
 
 
@@ -2110,6 +2205,7 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.ai_event_count_in_period > 0
         or report.ai_credits_used_in_period > 0
         or report.signals_credits_used_in_period > 0
+        or report.posthog_code_credits_used_in_period > 0
         or report.logs_bytes_in_period > 0
         or report.workflow_emails_sent_in_period > 0
         or report.workflow_push_sent_in_period > 0
@@ -2371,6 +2467,9 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_signals_credits_used_in_period": get_teams_with_signals_credits_used_in_period(
             period_start, period_end
         ),
+        "teams_with_posthog_code_credits_used_in_period": get_teams_with_posthog_code_credits_used_in_period(
+            period_start, period_end
+        ),
         "teams_with_active_hog_destinations_in_period": get_teams_with_active_hog_destinations_in_period(),
         "teams_with_active_hog_transformations_in_period": get_teams_with_active_hog_transformations_in_period(),
         "teams_with_workflow_emails_sent_in_period": get_teams_with_workflow_emails_sent_in_period(
@@ -2544,6 +2643,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         ai_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
         ai_credits_used_in_period=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
         signals_credits_used_in_period=all_data["teams_with_signals_credits_used_in_period"].get(team.id, 0),
+        posthog_code_credits_used_in_period=all_data["teams_with_posthog_code_credits_used_in_period"].get(team.id, 0),
         active_hog_destinations_in_period=all_data["teams_with_active_hog_destinations_in_period"].get(team.id, 0),
         active_hog_transformations_in_period=all_data["teams_with_active_hog_transformations_in_period"].get(
             team.id, 0

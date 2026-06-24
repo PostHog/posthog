@@ -134,6 +134,7 @@ describe('Worker', () => {
             retry_count: 0,
             acl: [],
             pending_elevation_requests: [],
+            is_preview: false,
             usage_total: { ...EMPTY_USAGE_TOTAL },
             created_at: '2026-05-27',
             updated_at: '2026-05-27',
@@ -151,7 +152,6 @@ describe('Worker', () => {
             bus: workerTestBus,
             logs: workerTestLogs,
             approvals: new PgApprovalStore(pool),
-            resolveIntegrations: async () => ({}),
             resolveSecrets: async () => ({}),
             resolveModel: () => fauxModel([endTurn('hi back')]),
         })
@@ -203,6 +203,7 @@ describe('Worker', () => {
             retry_count: 0,
             acl: [],
             pending_elevation_requests: [],
+            is_preview: false,
             usage_total: { ...EMPTY_USAGE_TOTAL },
             created_at: '2026-05-27',
             updated_at: '2026-05-27',
@@ -221,7 +222,6 @@ describe('Worker', () => {
             bus: workerTestBus,
             logs: workerTestLogs,
             approvals: new PgApprovalStore(pool),
-            resolveIntegrations: async () => ({}),
             resolveSecrets: async () => ({ ACME_KEY: 'topsecret' }),
             resolveModel: () => fauxModel([toolUseTurn([toolCall('noop', {})]), endTurn('done')]),
         })
@@ -269,6 +269,7 @@ describe('Worker', () => {
             retry_count: 0,
             acl: [],
             pending_elevation_requests: [],
+            is_preview: false,
             usage_total: { ...EMPTY_USAGE_TOTAL },
             created_at: '2026-05-27',
             updated_at: '2026-05-27',
@@ -315,7 +316,6 @@ describe('Worker', () => {
             bus: workerTestBus,
             logs: workerTestLogs,
             approvals: new PgApprovalStore(pool),
-            resolveIntegrations: async () => ({}),
             resolveSecrets: async () => ({}),
             resolveModel: () =>
                 fauxModel([toolUseTurn([toolCall('echo__echo', { msg: 'hi there' })]), endTurn('done')]),
@@ -367,6 +367,7 @@ describe('Worker', () => {
             retry_count: 0,
             acl: [],
             pending_elevation_requests: [],
+            is_preview: false,
             usage_total: { ...EMPTY_USAGE_TOTAL },
             created_at: '2026-05-27',
             updated_at: '2026-05-27',
@@ -384,7 +385,6 @@ describe('Worker', () => {
             bus: workerTestBus,
             logs: workerTestLogs,
             approvals: new PgApprovalStore(pool),
-            resolveIntegrations: async () => ({}),
             resolveSecrets: async () => ({}),
             resolveModel: () =>
                 fauxModel([
@@ -430,6 +430,7 @@ describe('Worker', () => {
             retry_count: 0,
             acl: [],
             pending_elevation_requests: [],
+            is_preview: false,
             usage_total: { ...EMPTY_USAGE_TOTAL },
             created_at: '2026-05-27',
             updated_at: '2026-05-27',
@@ -456,7 +457,6 @@ describe('Worker', () => {
             bus: workerTestBus,
             logs: workerTestLogs,
             approvals: new PgApprovalStore(pool),
-            resolveIntegrations: async () => ({}),
             resolveSecrets: async () => ({}),
             resolveModel: () => fauxModel([endTurn('would never run')]),
         })
@@ -467,8 +467,8 @@ describe('Worker', () => {
         expect(after!.state).toBe('failed')
     })
 
-    // The pre-flight inside `runOne` (revision load, secrets, integrations,
-    // sandbox acquire, custom-tool bundle reads) sits under one try/catch.
+    // The pre-flight inside `runOne` (revision load, secrets, sandbox
+    // acquire, custom-tool bundle reads) sits under one try/catch.
     // Each failure mode below would crash the worker loop pre-fix; the
     // boundary now fails just the one session.
     type FailureCase = {
@@ -476,7 +476,6 @@ describe('Worker', () => {
         withCustomTool: boolean
         overrides: (failingPool: InProcessSandboxPool) => Partial<{
             resolveSecrets: () => Promise<Record<string, string>>
-            resolveIntegrations: () => Promise<Record<string, never>>
             sandboxes: InProcessSandboxPool
             resolveModel: (specModel: string) => never
         }>
@@ -488,15 +487,6 @@ describe('Worker', () => {
             overrides: () => ({
                 resolveSecrets: async () => {
                     throw new Error('decryption failed')
-                },
-            }),
-        },
-        {
-            name: 'resolveIntegrations throws',
-            withCustomTool: false,
-            overrides: () => ({
-                resolveIntegrations: async () => {
-                    throw new Error('integrations service unavailable')
                 },
             }),
         },
@@ -563,6 +553,7 @@ describe('Worker', () => {
                 retry_count: 0,
                 acl: [],
                 pending_elevation_requests: [],
+                is_preview: false,
                 usage_total: { ...EMPTY_USAGE_TOTAL },
                 created_at: '2026-05-27',
                 updated_at: '2026-05-27',
@@ -587,7 +578,6 @@ describe('Worker', () => {
                 bus: workerTestBus,
                 logs: workerTestLogs,
                 approvals: new PgApprovalStore(pool),
-                resolveIntegrations: async () => ({}),
                 resolveSecrets: async () => ({}),
                 resolveModel: () => fauxModel([endTurn('would never run')]),
                 ...overrides(failingPool),
@@ -661,6 +651,7 @@ describe('Worker', () => {
             retry_count: 0,
             acl: [],
             pending_elevation_requests: [],
+            is_preview: false,
             usage_total: { ...EMPTY_USAGE_TOTAL },
             created_at: '2026-05-27',
             updated_at: '2026-05-27',
@@ -696,7 +687,6 @@ describe('Worker', () => {
             bus: stubBus as unknown as RedisSessionEventBus,
             logs: stubLogs as unknown as KafkaLogSink,
             approvals: new PgApprovalStore(pool),
-            resolveIntegrations: async () => ({}),
             // Pick a deterministic pre-runSession failure — `resolveSecrets`
             // throws before the driver runs.
             resolveSecrets: async () => {
@@ -743,7 +733,6 @@ describe('Worker', () => {
             bus: workerTestBus,
             logs: workerTestLogs,
             approvals: new PgApprovalStore(pool),
-            resolveIntegrations: async () => ({}),
             resolveSecrets: async () => ({}),
             resolveModel: () => fauxModel([]),
         })
@@ -779,7 +768,6 @@ describe('Worker', () => {
             bus: workerTestBus,
             logs: workerTestLogs,
             approvals: new PgApprovalStore(pool),
-            resolveIntegrations: async () => ({}),
             resolveSecrets: async () => ({}),
             resolveModel: () => fauxModel([]),
         })
