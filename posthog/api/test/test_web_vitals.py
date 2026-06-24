@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
@@ -172,3 +174,13 @@ class TestWebVitalsAPI(ClickhouseTestMixin, APIBaseTest):
         # Empty, return all zeros
         expected_values = {"INP": 0, "LCP": 0, "CLS": 0, "FCP": 0}
         self.assert_values(data["results"], expected_values)
+
+    def test_web_vitals_query_failure_returns_empty_result_not_500(self):
+        # A calculation failure must not 500 — the toolbar background fetch degrades to "no data".
+        with patch("posthog.api.web_vitals.get_query_runner") as mock_get_query_runner:
+            mock_get_query_runner.return_value.run.side_effect = Exception("boom")
+
+            response = self.client.get(f"/api/environments/{self.team.pk}/web_vitals/?pathname=/test-path")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"results": []})

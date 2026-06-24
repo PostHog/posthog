@@ -72,7 +72,9 @@ export const webVitalsToolbarLogic = kea<webVitalsToolbarLogicType>([
 
                     const result = await toolbarApi.webVitals.get<WebVitalsMetricsResponse>(
                         { pathname: window.location.pathname },
-                        { context: 'load_web_vitals' }
+                        // Non-critical background fetch — the UI degrades to "no data" on failure, so a
+                        // transient backend error shouldn't surface as an error-tracking issue.
+                        { context: 'load_web_vitals', captureOnError: false }
                     )
                     breakpoint()
 

@@ -7,6 +7,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import get_request_analytics_properties
+from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
 from posthog.rbac.user_access_control import UserAccessControlError
 
@@ -86,8 +87,14 @@ class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         except UserAccessControlError as e:
             raise ValidationError(str(e))
+        except Exception as e:
+            # This powers a non-critical background fetch in the toolbar that degrades gracefully to
+            # "no data". A transient query-runner failure shouldn't surface as a 500 — capture it for
+            # visibility and return an empty result so the toolbar simply shows no metrics.
+            capture_exception(e)
+            return Response({"results": []}, status=status.HTTP_200_OK)
 
         if result is None:
-            return Response({"error": "Failed to calculate web vitals"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({"results": []}, status=status.HTTP_200_OK)
 
         return Response(result.model_dump(mode="json"), status=status.HTTP_200_OK)
