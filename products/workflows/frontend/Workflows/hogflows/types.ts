@@ -54,6 +54,16 @@ export const HogFlowSchema = z.object({
         'exit_only_at_end',
     ]),
     actions: z.array(HogFlowActionSchema),
+    // Lightweight per-action overview returned by the list endpoint (which omits the full graph).
+    // Present on list rows; absent on a fully-fetched workflow, which carries `actions` instead.
+    action_summary: z
+        .array(
+            z.object({
+                type: z.string(),
+                template_id: z.string().nullable().optional(),
+            })
+        )
+        .optional(),
     abort_action: z.string().optional(),
     edges: z.array(HogFlowEdgeSchema),
     variables: z.array(CyclotronJobInputSchemaTypeSchema).optional().nullable(),

@@ -18,7 +18,7 @@ import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
-import { HogFlow } from './hogflows/types'
+import { HogFlow, HogFlowAction } from './hogflows/types'
 import { newWorkflowLogic } from './newWorkflowLogic'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowStatusFilter, workflowsLogic } from './workflowsLogic'
@@ -29,12 +29,24 @@ const STATUS_CONFIG: Record<string, { label: string; type: 'success' | 'default'
     archived: { label: 'Archived', type: 'muted' },
 }
 
+// The list endpoint returns a lightweight `action_summary` instead of the full action graph.
+// Fall back to deriving it from `actions` when a fully-fetched workflow is passed in.
+function getActionSummary(workflow: HogFlow): { type: string; template_id?: string | null }[] {
+    if (workflow.action_summary) {
+        return workflow.action_summary
+    }
+    return (workflow.actions ?? []).map((action) => ({
+        type: action.type,
+        template_id: 'template_id' in action.config ? (action.config.template_id as string) : undefined,
+    }))
+}
+
 function WorkflowTypeTag({ workflow }: { workflow: HogFlow }): JSX.Element {
     const hasMessagingAction = useMemo(() => {
-        return workflow.actions.some((action) => {
+        return getActionSummary(workflow).some((action) => {
             return ['function_email', 'function_sms', 'function_slack'].includes(action.type)
         })
-    }, [workflow.actions])
+    }, [workflow])
 
     if (hasMessagingAction) {
         return <LemonTag type="completion">Messaging</LemonTag>
@@ -44,13 +56,15 @@ function WorkflowTypeTag({ workflow }: { workflow: HogFlow }): JSX.Element {
 
 function WorkflowActionsSummary({ workflow }: { workflow: HogFlow }): JSX.Element {
     const actionsByType = useMemo(() => {
-        return workflow.actions.reduce(
-            (acc, action) => {
+        return getActionSummary(workflow).reduce(
+            (acc, summary) => {
+                // Reconstruct the minimal action shape getHogFlowStep needs to resolve icon/color.
+                const action = { type: summary.type, config: { template_id: summary.template_id } } as HogFlowAction
                 const step = getHogFlowStep(action, {})
                 if (!step || !step.type.startsWith('function')) {
                     return acc
                 }
-                const key = 'template_id' in action.config ? action.config.template_id : action.type
+                const key = summary.template_id ?? summary.type
                 acc[key] = {
                     count: (acc[key]?.count || 0) + 1,
                     icon: step.icon,
@@ -67,7 +81,7 @@ function WorkflowActionsSummary({ workflow }: { workflow: HogFlow }): JSX.Elemen
                 }
             >
         )
-    }, [workflow.actions])
+    }, [workflow])
 
     return (
         <Link to={urls.workflow(workflow.id, 'workflow')}>

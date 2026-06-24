@@ -24132,6 +24132,16 @@ export namespace Schemas {
      */
     export type HogFlowVariablesItem = {[key: string]: string};
 
+    export type HogFlowActionSummaryItem = {
+      /** Action type, e.g. function_email, delay, conditional_branch, exit. */
+      type: string;
+      /**
+         * Function template id for dispatch (function*) actions; null for other action types.
+         * @nullable
+         */
+      template_id?: string | null;
+    };
+
     /**
      * * `draft` - Draft
      * * `active` - Active
@@ -24354,6 +24364,11 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    /**
+     * Full workflow spec: the complete action/edge graph plus trigger, conversion, masking, and variables.
+     *
+     * Returned by retrieve/create/update. The list view uses HogFlowMinimalSerializer instead.
+     */
     export interface HogFlow {
       readonly id: string;
       /**
@@ -24395,6 +24410,8 @@ export namespace Schemas {
       /** Workflow vars (key, type, default). Total <5KB. */
       variables?: HogFlowVariablesItem[];
       readonly billable_action_types: unknown;
+      /** Lightweight per-action overview ({type, template_id}) for rendering list columns without the full graph. template_id is set only for function/dispatch actions; null otherwise. */
+      readonly action_summary: readonly HogFlowActionSummaryItem[];
       /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
       readonly schedules: readonly HogFlowSchedule[];
     }
@@ -24499,6 +24516,23 @@ export namespace Schemas {
       current_action_id?: string;
     }
 
+    export type HogFlowMinimalActionSummaryItem = {
+      /** Action type, e.g. function_email, delay, conditional_branch, exit. */
+      type: string;
+      /**
+         * Function template id for dispatch (function*) actions; null for other action types.
+         * @nullable
+         */
+      template_id?: string | null;
+    };
+
+    /**
+     * Overview of a workflow for list views.
+     *
+     * Deliberately omits the heavy parts of a workflow — the full action/edge graph, email template
+     * HTML/design, conversion config, masking, and variables — so listing many workflows stays small.
+     * Retrieve a single workflow (HogFlowSerializer) for the complete spec.
+     */
     export interface HogFlowMinimal {
       readonly id: string;
       /** @nullable */
@@ -24510,15 +24544,10 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly updated_at: string;
       readonly trigger: unknown;
-      readonly trigger_masking: unknown;
-      readonly conversion: unknown;
       readonly exit_condition: ExitConditionEnum;
-      readonly edges: unknown;
-      readonly actions: unknown;
-      /** @nullable */
-      readonly abort_action: string | null;
-      readonly variables: unknown;
       readonly billable_action_types: unknown;
+      /** Lightweight per-action overview ({type, template_id}) for rendering list columns without the full graph. template_id is set only for function/dispatch actions; null otherwise. */
+      readonly action_summary: readonly HogFlowMinimalActionSummaryItem[];
     }
 
     /**
@@ -36646,6 +36675,21 @@ export namespace Schemas {
      */
     export type PatchedHogFlowVariablesItem = {[key: string]: string};
 
+    export type PatchedHogFlowActionSummaryItem = {
+      /** Action type, e.g. function_email, delay, conditional_branch, exit. */
+      type: string;
+      /**
+         * Function template id for dispatch (function*) actions; null for other action types.
+         * @nullable
+         */
+      template_id?: string | null;
+    };
+
+    /**
+     * Full workflow spec: the complete action/edge graph plus trigger, conversion, masking, and variables.
+     *
+     * Returned by retrieve/create/update. The list view uses HogFlowMinimalSerializer instead.
+     */
     export interface PatchedHogFlow {
       readonly id?: string;
       /**
@@ -36687,6 +36731,8 @@ export namespace Schemas {
       /** Workflow vars (key, type, default). Total <5KB. */
       variables?: PatchedHogFlowVariablesItem[];
       readonly billable_action_types?: unknown;
+      /** Lightweight per-action overview ({type, template_id}) for rendering list columns without the full graph. template_id is set only for function/dispatch actions; null otherwise. */
+      readonly action_summary?: readonly PatchedHogFlowActionSummaryItem[];
       /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
       readonly schedules?: readonly HogFlowSchedule[];
     }

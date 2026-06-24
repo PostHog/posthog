@@ -91,10 +91,12 @@ export const workflowsLogic = kea<workflowsLogicType>([
                     return values.workflows.map((c) => (c.id === updatedWorkflow.id ? updatedWorkflow : c))
                 },
                 duplicateWorkflow: async ({ workflow }) => {
+                    // List rows are an overview (no actions/edges), so fetch the full spec before copying.
+                    const fullWorkflow = await api.hogFlows.getHogFlow(workflow.id)
                     const duplicatedWorkflow = await api.hogFlows.createHogFlow({
-                        ...workflow,
+                        ...fullWorkflow,
                         status: 'draft',
-                        name: `${workflow.name} (copy)`,
+                        name: `${fullWorkflow.name} (copy)`,
                     })
                     return [duplicatedWorkflow, ...values.workflows]
                 },

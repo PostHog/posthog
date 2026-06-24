@@ -8530,7 +8530,7 @@
         }
     },
     "workflows-list": {
-        "description": "List all workflows in the project. Returns workflows with their name, description, status (draft/active/archived), version, trigger configuration, and timestamps.",
+        "description": "List all workflows in the project as an overview — each row carries name, description, status (draft/active/archived), version, trigger configuration, exit condition, billable action types, a lightweight per-action summary (type + template_id), and timestamps. The full action/edge graph and email templates are NOT included here; fetch a single workflow with workflows-get for the complete spec.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "List workflows",
