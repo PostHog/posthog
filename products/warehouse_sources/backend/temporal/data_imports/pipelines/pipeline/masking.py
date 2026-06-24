@@ -1,35 +1,30 @@
 """Deterministic one-way masking of sensitive warehouse-source columns.
 
-Masked values are replaced with an HMAC-SHA256 digest keyed by the server secret
-(`ENCRYPTION_SALT_KEYS`), so low-entropy PII (cards, SSNs, emails) can't be brute-forced
-from the digest. The team id is mixed into the message so equal values mask identically
-within a team (joinable downstream) but diverge across teams. Same input → same digest on
-every sync, so primary-key merges and incremental cursors stay stable as long as those
-columns themselves are never masked (enforced by `resolve_masked_columns`).
+Masked values are replaced with a SHA-256 digest salted by `team_id`, so equal values mask
+identically within a team (joinable downstream) but diverge across teams. The digest depends
+only on `team_id` and the value — nothing that rotates — so it is stable forever: the same
+value yields the same digest across resyncs, different sources, and secret-key rotation.
+Primary-key merges and incremental cursors stay stable as long as those columns themselves are
+never masked (enforced by `resolve_masked_columns`).
+
+Tradeoff: `team_id` is not secret, so low-entropy values (passwords, card numbers) remain
+brute-forceable by anyone who can query the masked column. Stability was chosen over
+brute-force resistance — a keyed digest would resist brute force but break the moment the key
+rotated.
 """
 
-import hmac
 import hashlib
-
-from django.conf import settings
 
 import pyarrow as pa
 
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 
 
-def _masking_key() -> bytes:
-    keys = settings.ENCRYPTION_SALT_KEYS
-    if not keys:
-        raise ValueError("ENCRYPTION_SALT_KEYS must be set to mask warehouse columns")
-    return keys[0].encode()
-
-
 def mask_value(team_id: int, value: object) -> str | None:
-    """Deterministic, one-way digest of a single column value. Null stays null."""
+    """Deterministic, one-way digest of a single column value, salted by team_id. Null stays null."""
     if value is None:
         return None
-    return hmac.new(_masking_key(), f"{team_id}:{value}".encode(), hashlib.sha256).hexdigest()
+    return hashlib.sha256(f"{team_id}:{value}".encode()).hexdigest()
 
 
 def _fold(name: str) -> str:
