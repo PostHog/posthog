@@ -1058,9 +1058,11 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             const parked = jobs.find((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())
             expect(parked).toBeDefined()
             const minutesOut = (new Date(parked.scheduled).getTime() - Date.now()) / 60000
-            // Comfortably past the old 10-minute cap; well short of the 30-minute deadline only if
-            // it re-parked. A single deep park lands near 30 minutes.
+            // Past the old 10-minute cap but not beyond the 30-minute deadline: a single deep park
+            // lands near 30 minutes. The upper bound also rules out a regression that parked to the
+            // 60-minute MAX_VALUE_FOR_DURATION_UNIT['m'] cap instead of the configured max_wait.
             expect(minutesOut).toBeGreaterThan(11)
+            expect(minutesOut).toBeLessThan(31)
         })
     })
 

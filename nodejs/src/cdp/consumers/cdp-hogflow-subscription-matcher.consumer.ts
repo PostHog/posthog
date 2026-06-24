@@ -600,7 +600,10 @@ function convertClickhousePersonToWakeGlobals(
         event: {
             uuid: new UUIDT().toString(),
             event: '$person_updated',
-            distinct_id: data.id,
+            // Empty so indexBatch only keys this on person_id. A person mutation has no triggering
+            // distinct_id, and using the person UUID here would add a spurious (team_id, distinct_id)
+            // lookup that matches a job only if its distinct_id happened to equal the UUID.
+            distinct_id: '',
             properties: {},
             timestamp: data.timestamp,
             url: person.url,

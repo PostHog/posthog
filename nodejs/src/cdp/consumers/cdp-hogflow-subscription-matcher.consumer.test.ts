@@ -977,6 +977,69 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
         })
     })
 
+    describe('_parsePersonBatch', () => {
+        const rawPerson = (overrides: Record<string, any>): any => ({
+            value: Buffer.from(
+                JSON.stringify({
+                    id: 'person-uuid-1',
+                    team_id: 1,
+                    properties: JSON.stringify({ plan: 'enterprise' }),
+                    is_deleted: 0,
+                    timestamp: '2024-01-01 00:00:00.000',
+                    ...overrides,
+                })
+            ),
+        })
+
+        beforeEach(() => {
+            ;(matcher as any).deps = {
+                teamManager: {
+                    getTeam: jest.fn().mockResolvedValue({ id: 1, name: 'Test', person_display_name_properties: null }),
+                },
+            }
+            ;(matcher as any).config = { SITE_URL: 'http://localhost:8000' }
+            matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1', team_id: 1 }) })
+        })
+
+        it('maps a person mutation to $person_updated globals keyed on person_id only', async () => {
+            const result = await (matcher as any)._parsePersonBatch([rawPerson({})])
+
+            expect(result).toHaveLength(1)
+            const globals = result[0] as HogFunctionInvocationGlobals
+            expect(globals.event.event).toBe('$person_updated')
+            // distinct_id is empty so indexBatch keys this only on person_id, never adding a spurious
+            // (team_id, distinct_id) lookup.
+            expect(globals.event.distinct_id).toBe('')
+            expect(globals.person?.id).toBe('person-uuid-1')
+            expect(globals.person?.properties).toEqual({ plan: 'enterprise' })
+        })
+
+        it('skips deleted persons, persons with no id, and persons whose team has no actionable flow', async () => {
+            const getTeam = (matcher as any).deps.teamManager.getTeam
+
+            const result = await (matcher as any)._parsePersonBatch([
+                rawPerson({ is_deleted: 1 }),
+                rawPerson({ id: '' }),
+                rawPerson({ team_id: 2 }), // team 2 has no wait_until_condition flow
+                rawPerson({}),
+            ])
+
+            // Only the valid person for the actionable team survives.
+            expect(result.map((g: HogFunctionInvocationGlobals) => g.person?.id)).toEqual(['person-uuid-1'])
+            // The firehose early-out means getTeam is only paid for the surviving person.
+            expect(getTeam).toHaveBeenCalledTimes(1)
+            expect(getTeam).toHaveBeenCalledWith(1)
+        })
+
+        it('skips a person whose team cannot be loaded', async () => {
+            ;(matcher as any).deps.teamManager.getTeam = jest.fn().mockResolvedValue(null)
+
+            const result = await (matcher as any)._parsePersonBatch([rawPerson({})])
+
+            expect(result).toEqual([])
+        })
+    })
+
     // The full combination matrix lives here (mocked pg, ~ms each) rather than in the E2E suite:
     // it exercises the same wake decision the matcher makes for every events/property/action shape.
     describe('wake matrix: events / property / action combinations', () => {
