@@ -51,17 +51,20 @@ class TestOpenWeatherSource:
     def test_get_source_config_fields(self):
         fields = self.source.get_source_config.fields
 
-        assert all(isinstance(field, SourceFieldInputConfig) for field in fields)
-        by_name = {field.name: field for field in fields}
+        for field in fields:
+            assert isinstance(field, SourceFieldInputConfig)
+        by_name = {field.name: field for field in fields if isinstance(field, SourceFieldInputConfig)}
         assert set(by_name) == {"api_key", "locations"}
 
-        assert by_name["api_key"].type == SourceFieldInputConfigType.PASSWORD
-        assert by_name["api_key"].required is True
-        assert by_name["api_key"].secret is True
+        api_key_field = by_name["api_key"]
+        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
+        assert api_key_field.required is True
+        assert api_key_field.secret is True
 
-        assert by_name["locations"].type == SourceFieldInputConfigType.TEXTAREA
-        assert by_name["locations"].required is True
-        assert by_name["locations"].secret is False
+        locations_field = by_name["locations"]
+        assert locations_field.type == SourceFieldInputConfigType.TEXTAREA
+        assert locations_field.required is True
+        assert locations_field.secret is False
 
     def test_get_schemas_lists_all_endpoints(self):
         schemas = self.source.get_schemas(self.config, self.team_id)

@@ -32,7 +32,9 @@ def _response(status: int = 200, body: Optional[dict[str, Any]] = None) -> mock.
     resp.json.return_value = body or {}
     resp.text = json.dumps(body or {})
     if not resp.ok:
-        resp.raise_for_status.side_effect = requests.HTTPError(f"{status} Client Error for url: {OPENWEATHER_BASE_URL}")
+        resp.raise_for_status.side_effect = requests.HTTPError(
+            f"{status} Client Error for url: {OPENWEATHER_BASE_URL}", response=requests.Response()
+        )
     return resp
 
 
@@ -127,12 +129,17 @@ class TestNormalizeRows:
         assert rows[0]["dt_iso"] == "2024-06-23T16:00:00+00:00"
 
 
+# The undecorated `_fetch` (tenacity exposes the original via `__wrapped__`) so the status
+# classification can be asserted without waiting through retry backoff.
+_fetch_once = _fetch.__wrapped__  # type: ignore[attr-defined]
+
+
 class TestFetch:
     def test_ok_returns_body(self):
         session = mock.MagicMock()
         session.get.return_value = _response(200, {"dt": 1})
 
-        assert _fetch.__wrapped__(session, "https://example.com", structlog.get_logger()) == {"dt": 1}
+        assert _fetch_once(session, "https://example.com", structlog.get_logger()) == {"dt": 1}
 
     @pytest.mark.parametrize("status", [429, 500, 503])
     def test_retryable_statuses_raise_retryable(self, status):
@@ -140,14 +147,14 @@ class TestFetch:
         session.get.return_value = _response(status)
 
         with pytest.raises(OpenWeatherRetryableError):
-            _fetch.__wrapped__(session, "https://example.com", structlog.get_logger())
+            _fetch_once(session, "https://example.com", structlog.get_logger())
 
     def test_client_error_raises_for_status(self):
         session = mock.MagicMock()
         session.get.return_value = _response(404)
 
         with pytest.raises(requests.HTTPError):
-            _fetch.__wrapped__(session, "https://example.com", structlog.get_logger())
+            _fetch_once(session, "https://example.com", structlog.get_logger())
 
 
 class TestValidateCredentials:
