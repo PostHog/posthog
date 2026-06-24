@@ -205,6 +205,37 @@ def update_scout_report(
     return updated_fields
 
 
+def append_report_note(
+    *,
+    team_id: int,
+    report_id: str,
+    note: str,
+    attribution: ArtefactAttribution,
+    author: str | None = None,
+) -> str:
+    """Append a free-form `note` artefact to an existing report (the `edit_report` annotate path).
+
+    Team-scoped fail-closed: a `report_id` the team doesn't own raises. `edit_report` can target ANY
+    inbox report (decision #2), pipeline-authored ones included, so the note is attributed (to the
+    scout's task) to keep the edit auditable and distinguishable from pipeline output. Returns the
+    report_id on success.
+    """
+    if not note or not note.strip():
+        raise InvalidScoutReportError("note must not be empty")
+    with transaction.atomic():
+        # Existence is the team-scoped gate; the artefact append itself is keyed by report_id.
+        if not SignalReport.objects.filter(team_id=team_id, id=report_id).exists():
+            raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        SignalReportArtefact.add_log(
+            team_id=team_id,
+            report_id=report_id,
+            content=NoteArtefact(note=note, author=author),
+            attribution=attribution,
+        )
+    logger.info("signals_scout.edit_report: note appended", extra={"team_id": team_id, "report_id": report_id})
+    return report_id
+
+
 def soft_delete_scout_signal(
     *,
     team_id: int,
