@@ -1,19 +1,16 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconCheck, IconChevronDown, IconFlag, IconRefresh, IconSearch, IconSort, IconTarget } from '@posthog/icons'
+import { IconCheck, IconChevronDown, IconRefresh, IconSearch, IconSort, IconTarget } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
 
 import {
-    INBOX_PRIORITY_OPTIONS,
     INBOX_SORT_OPTIONS,
     INBOX_SOURCE_OPTIONS,
-    inboxPriorityFilterLabel,
     inboxSortOptionKey,
     inboxSourceFilterLabel,
 } from '../../filterOptions'
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
-import { SignalReportPriority } from '../../types'
 
 /** A single filter trigger + dropdown overlay, matching desktop's `InboxFilterPopover`. */
 function FilterPopover({
@@ -89,7 +86,7 @@ interface InboxSearchFilterBarProps {
 }
 
 /**
- * Search input + Source / Sort / Priority filter popovers + refresh. One-to-one
+ * Search input + Source / Sort filter popovers + refresh. One-to-one
  * port of desktop `InboxSearchFilterBar`. There is no status filter (desktop
  * dropped it; status is a fixed request constant). Filter state is persisted via
  * `inboxFiltersLogic`; the central scene reloads on change.
@@ -99,8 +96,8 @@ export function InboxSearchFilterBar({
     onRefresh,
     refreshing,
 }: InboxSearchFilterBarProps): JSX.Element {
-    const { searchQuery, sortField, sortDirection, sourceProductFilter, priorityFilter } = useValues(inboxFiltersLogic)
-    const { setSearchQuery, setSort, toggleSourceProduct, togglePriority } = useActions(inboxFiltersLogic)
+    const { searchQuery, sortField, sortDirection, sourceProductFilter } = useValues(inboxFiltersLogic)
+    const { setSearchQuery, setSort, toggleSourceProduct } = useActions(inboxFiltersLogic)
 
     const activeSort = INBOX_SORT_OPTIONS.find((o) => o.field === sortField && o.direction === sortDirection)
     const activeSortKey = inboxSortOptionKey(sortField, sortDirection)
@@ -147,29 +144,6 @@ export function InboxSearchFilterBar({
                         label={option.label}
                         active={sortField === option.field && sortDirection === option.direction}
                         onClick={() => setSort(option.field, option.direction)}
-                    />
-                ))}
-            </FilterPopover>
-
-            <FilterPopover
-                label="Priority"
-                value={inboxPriorityFilterLabel(priorityFilter)}
-                icon={<IconFlag />}
-                active={priorityFilter.length > 0}
-            >
-                {INBOX_PRIORITY_OPTIONS.map((option) => (
-                    <FilterItem
-                        key={option.value}
-                        icon={
-                            <span
-                                className="inline-block size-2 shrink-0 rounded-full"
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{ backgroundColor: option.accent }}
-                            />
-                        }
-                        label={option.value}
-                        active={priorityFilter.includes(option.value)}
-                        onClick={() => togglePriority(option.value as SignalReportPriority)}
                     />
                 ))}
             </FilterPopover>

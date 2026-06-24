@@ -248,7 +248,10 @@ impl SinkConfig {
                 let options = posthog_rs::ClientOptionsBuilder::default()
                     .api_key(token)
                     .host(&context.config.capture_url)
-                    .request_timeout_seconds(30)
+                    .request_timeout_seconds(30u64)
+                    .max_capture_attempts(6u32)
+                    .retry_initial_backoff_ms(1000u64)
+                    .retry_max_backoff_ms(30000u64)
                     .build()
                     .map_err(|e| {
                         Error::msg(format!("Failed to build capture client options: {e}"))

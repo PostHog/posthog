@@ -82,6 +82,7 @@ export function DashboardAddTileButton(): JSX.Element | null {
                             : {
                                   label: 'Widget',
                                   tag: 'beta' as const,
+                                  tooltip: 'Opens settings to enable the Dashboard widgets beta',
                                   onClick: () => push(urls.featurePreview(FEATURE_FLAGS.DASHBOARD_WIDGETS)),
                                   'data-attr': 'dashboard-add-widget-preview',
                               },
