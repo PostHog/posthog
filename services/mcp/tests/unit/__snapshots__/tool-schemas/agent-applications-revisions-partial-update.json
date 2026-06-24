@@ -271,9 +271,60 @@
                     },
                     "type": "array"
                 },
-                "model": {
-                    "minLength": 1,
-                    "type": "string"
+                "model_policy": {
+                    "anyOf": [
+                        {
+                            "properties": {
+                                "level": {
+                                    "default": "medium",
+                                    "enum": ["low", "medium", "high"],
+                                    "type": "string"
+                                },
+                                "mode": {
+                                    "const": "auto",
+                                    "type": "string"
+                                },
+                                "reasoning": {
+                                    "enum": ["minimal", "low", "medium", "high", "xhigh"],
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["mode"],
+                            "type": "object"
+                        },
+                        {
+                            "properties": {
+                                "mode": {
+                                    "const": "manual",
+                                    "type": "string"
+                                },
+                                "models": {
+                                    "items": {
+                                        "properties": {
+                                            "model": {
+                                                "minLength": 1,
+                                                "type": "string"
+                                            },
+                                            "reasoning": {
+                                                "enum": ["minimal", "low", "medium", "high", "xhigh"],
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": ["model"],
+                                        "type": "object"
+                                    },
+                                    "minItems": 1,
+                                    "type": "array"
+                                }
+                            },
+                            "required": ["mode", "models"],
+                            "type": "object"
+                        }
+                    ],
+                    "default": {
+                        "level": "medium",
+                        "mode": "auto"
+                    }
                 },
                 "reasoning": {
                     "enum": ["minimal", "low", "medium", "high", "xhigh"],
@@ -938,7 +989,6 @@
                     "type": "array"
                 }
             },
-            "required": ["model"],
             "type": "object"
         }
     },
