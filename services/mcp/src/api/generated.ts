@@ -14188,6 +14188,34 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    /**
+     * An account's current value for a custom property (read shape).
+     */
+    export interface CustomPropertyValue {
+      /** Unique id of this value record. */
+      readonly id: string;
+      /** Account the value belongs to. */
+      readonly account_id: string;
+      /** Custom property definition the value is for. */
+      readonly definition_id: string;
+      /** The stored value, typed per the property's data type. */
+      readonly value: string | number | boolean;
+      /** When this value was set. */
+      readonly created_at: string;
+      /**
+         * Id of the user who set this value, if known.
+         * @nullable
+         */
+      readonly created_by_id: number | null;
+    }
+
+    export interface CustomPropertyValueWrite {
+      /** UUID of the custom property definition whose value to set for this account. */
+      definition: string;
+      /** Value to store, matching the definition's type: a number for number/currency/percent, a boolean for boolean, an ISO-8601 string for date/datetime, or text for text properties. */
+      value: string | number | boolean;
+    }
+
     export interface CustomerJourney {
       readonly id: string;
       insight: number;
