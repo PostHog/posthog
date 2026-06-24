@@ -310,8 +310,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                 team=self.org_1_team_1,
             )
 
-            # Conversations widget events are excluded from product analytics billing. The loaded
-            # event is counted in AI usage.
+            # Conversations widget events are excluded from billing.
             _create_event(
                 distinct_id=distinct_id,
                 event="$conversations_loaded",
@@ -689,7 +688,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "event_explorer_api_duration_ms": 0,
                     "rows_synced_in_period": 0,
                     "exceptions_captured_in_period": 0,
-                    "ai_event_count_in_period": 5,
+                    "ai_event_count_in_period": 4,
                     "hog_function_calls_in_period": 0,
                     "hog_function_fetch_calls_in_period": 0,
                     "cdp_billable_invocations_in_period": 0,
@@ -768,7 +767,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "hog_function_fetch_calls_in_period": 0,
                             "cdp_billable_invocations_in_period": 0,
                             "rows_exported_in_period": 0,
-                            "ai_event_count_in_period": 5,
+                            "ai_event_count_in_period": 4,
                         },
                         str(self.org_1_team_2.id): {
                             "event_count_in_period": 11,
@@ -1422,7 +1421,7 @@ class TestQueryUsageReportSQL:
         assert result["node_events"] == [(1, 5)]
 
     @patch("posthog.tasks.usage_report.sync_execute", return_value=[])
-    def test_get_teams_with_ai_event_count_includes_conversations_loaded(self, mock_sync_execute: MagicMock) -> None:
+    def test_get_teams_with_ai_event_count_excludes_conversations_loaded(self, mock_sync_execute: MagicMock) -> None:
         from posthog.tasks.usage_report import get_teams_with_ai_event_count_in_period
 
         begin = datetime(2026, 6, 15, tzinfo=tzutc())
@@ -1431,7 +1430,7 @@ class TestQueryUsageReportSQL:
         get_teams_with_ai_event_count_in_period(begin, end)
 
         params = mock_sync_execute.call_args.args[1]
-        assert "$conversations_loaded" in params["ai_events"]
+        assert "$conversations_loaded" not in params["ai_events"]
         assert "$conversations_widget_loaded" not in params["ai_events"]
 
 
@@ -5490,7 +5489,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         ai_result_with_conversations = get_teams_with_ai_event_count_in_period(self.begin, self.end)
 
         self.assertEqual(billable_result_with_conversations[0][1], baseline_count)
-        self.assertEqual(ai_result_with_conversations[0][1], 16)
+        self.assertEqual(ai_result_with_conversations[0][1], 15)
 
         # Now add a regular event and verify it DOES increase billable count
         _create_event(
