@@ -353,20 +353,22 @@ export const GitHubSourceApi = zod.object({
 export type GitHubSourceApi = zod.input<typeof GitHubSourceApi>
 export type GitHubSourceApiOutput = zod.output<typeof GitHubSourceApi>
 
-export const WorkflowHealthDayApi = zod.object({
-    day: zod.iso.date().describe('UTC calendar day.'),
-    run_count: zod.number().describe('Runs started that day.'),
-    completed: zod.number().describe('Runs that completed that day.'),
-    successes: zod.number().describe("Completed runs with conclusion 'success' that day."),
+export const WorkflowHealthBucketApi = zod.object({
+    bucket_start: zod.iso
+        .datetime({ offset: true })
+        .describe("Bucket start, aligned to the item's granularity (top of hour, midnight, or Monday)."),
+    run_count: zod.number().describe('Runs started in this bucket.'),
+    completed: zod.number().describe('Runs that completed in this bucket.'),
+    successes: zod.number().describe("Completed runs with conclusion 'success' in this bucket."),
     failures: zod
         .number()
         .describe(
-            "Completed runs that failed that day (conclusion 'failure' or 'timed_out'); excludes skipped, cancelled, and action_required runs."
+            "Completed runs that failed in this bucket (conclusion 'failure' or 'timed_out'); excludes skipped, cancelled, and action_required runs."
         ),
 })
 
-export type WorkflowHealthDayApi = zod.input<typeof WorkflowHealthDayApi>
-export type WorkflowHealthDayApiOutput = zod.output<typeof WorkflowHealthDayApi>
+export type WorkflowHealthBucketApi = zod.input<typeof WorkflowHealthBucketApi>
+export type WorkflowHealthBucketApiOutput = zod.output<typeof WorkflowHealthBucketApi>
 
 export const WorkflowHealthItemApi = zod.object({
     repo: zod
@@ -376,21 +378,23 @@ export const WorkflowHealthItemApi = zod.object({
             name: zod.string().describe('Repository name.'),
         })
         .describe('Repository the workflow runs in.'),
-    daily: zod
+    buckets: zod
         .array(
             zod.object({
-                day: zod.iso.date().describe('UTC calendar day.'),
-                run_count: zod.number().describe('Runs started that day.'),
-                completed: zod.number().describe('Runs that completed that day.'),
-                successes: zod.number().describe("Completed runs with conclusion 'success' that day."),
+                bucket_start: zod.iso
+                    .datetime({ offset: true })
+                    .describe("Bucket start, aligned to the item's granularity (top of hour, midnight, or Monday)."),
+                run_count: zod.number().describe('Runs started in this bucket.'),
+                completed: zod.number().describe('Runs that completed in this bucket.'),
+                successes: zod.number().describe("Completed runs with conclusion 'success' in this bucket."),
                 failures: zod
                     .number()
                     .describe(
-                        "Completed runs that failed that day (conclusion 'failure' or 'timed_out'); excludes skipped, cancelled, and action_required runs."
+                        "Completed runs that failed in this bucket (conclusion 'failure' or 'timed_out'); excludes skipped, cancelled, and action_required runs."
                     ),
             })
         )
-        .describe('Daily run history across the whole window, oldest first, zero-filled.'),
+        .describe('Run history across the whole window, oldest first, zero-filled, bucketed by granularity.'),
     workflow_name: zod.string().describe('GitHub Actions workflow name.'),
     run_count: zod.number().describe('Total runs started in the window.'),
     success_rate: zod
@@ -409,7 +413,77 @@ export const WorkflowHealthItemApi = zod.object({
         .datetime({ offset: true })
         .nullable()
         .describe("When the most recent failing run (conclusion 'failure' or 'timed_out') started, or null."),
+    latest_run_failed: zod
+        .boolean()
+        .nullable()
+        .describe(
+            "Whether the most recent completed run was a decisive failure (conclusion 'failure' or 'timed_out'). Null when no run has completed in the window. Powers the OK\/RED status badge."
+        ),
+    granularity: zod
+        .string()
+        .describe("Bucket width of the `buckets` series, chosen to fit the window: 'hour', 'day', or 'week'."),
 })
 
 export type WorkflowHealthItemApi = zod.input<typeof WorkflowHealthItemApi>
 export type WorkflowHealthItemApiOutput = zod.output<typeof WorkflowHealthItemApi>
+
+export const WorkflowJobApi = zod.object({
+    id: zod.number().describe('GitHub Actions job id.'),
+    run_id: zod.number().describe('The workflow run id this job belongs to.'),
+    name: zod.string().describe('Job name.'),
+    status: zod.string().describe("Raw job status: 'queued', 'in_progress', 'completed', etc."),
+    conclusion: zod
+        .string()
+        .nullable()
+        .describe("Job conclusion ('success', 'failure', 'cancelled', 'skipped', ...), or null while running."),
+    started_at: zod.iso
+        .datetime({ offset: true })
+        .nullable()
+        .describe('When the job started, or null while still queued.'),
+    completed_at: zod.iso
+        .datetime({ offset: true })
+        .nullable()
+        .describe('When the job completed, or null while still running.'),
+    duration_seconds: zod.number().nullable().describe('Wall-clock duration in seconds; null until the job completes.'),
+    runner_label: zod.string().describe("Runner tier the job ran on (e.g. '16-core'), or '' when unknown."),
+    estimated_cost_usd: zod
+        .number()
+        .nullable()
+        .describe(
+            "Estimated cost in USD from runner tier + elapsed time; null when the tier is unknown or the job hasn't finished."
+        ),
+})
+
+export type WorkflowJobApi = zod.input<typeof WorkflowJobApi>
+export type WorkflowJobApiOutput = zod.output<typeof WorkflowJobApi>
+
+export const WorkflowRunDetailApi = zod.object({
+    repo: zod
+        .object({
+            provider: zod.string().describe("Code host provider, e.g. 'github'."),
+            owner: zod.string().describe('Repository owner or organization.'),
+            name: zod.string().describe('Repository name.'),
+        })
+        .describe('Repository the run belongs to.'),
+    id: zod.number().describe('GitHub Actions run id.'),
+    workflow_name: zod.string().describe('GitHub Actions workflow name.'),
+    head_sha: zod.string().describe('Commit SHA the run was triggered on.'),
+    head_branch: zod.string().describe('Git branch the run was triggered on.'),
+    status: zod.string().describe("Raw run status: 'queued', 'in_progress', 'completed', etc."),
+    conclusion: zod
+        .string()
+        .nullable()
+        .describe(
+            "Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', 'action_required', ...), or null while still in progress."
+        ),
+    run_started_at: zod.iso.datetime({ offset: true }).describe('When the run started.'),
+    updated_at: zod.iso
+        .datetime({ offset: true })
+        .describe('When the run was last updated (its finish time once completed).'),
+    duration_seconds: zod.number().nullable().describe('Wall-clock duration in seconds; null until the run completes.'),
+    run_attempt: zod.number().describe('Re-run attempt number; 1 for the first attempt.'),
+    pr_number: zod.number().describe('Attributed pull request number, or 0 when unattributed.'),
+})
+
+export type WorkflowRunDetailApi = zod.input<typeof WorkflowRunDetailApi>
+export type WorkflowRunDetailApiOutput = zod.output<typeof WorkflowRunDetailApi>

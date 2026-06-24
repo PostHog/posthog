@@ -34,8 +34,8 @@ export type CardFilter = 'open' | 'failing' | 'stuck'
 /** Mirrors the ci_cards "stuck" rule: open, non-draft, non-bot, older than 7 days. */
 export const STUCK_AFTER_DAYS = 7
 
-/** Mirrors the workflow_health endpoint's default window. */
-export const DEFAULT_WORKFLOW_DATE_FROM = '-30d'
+/** Mirrors the workflow_health endpoint's default window — CI health is a "right now" question. */
+export const DEFAULT_WORKFLOW_DATE_FROM = '-24h'
 
 export interface PullRequestRow {
     number: number
@@ -71,9 +71,12 @@ export interface CardsData {
     failingCi: number
 }
 
-export interface WorkflowHealthDay {
-    /** UTC calendar day. */
-    day: string
+/** Bucket width of a workflow's history series, chosen server-side to fit the window. */
+export type WorkflowGranularity = 'hour' | 'day' | 'week'
+
+export interface WorkflowHealthBucket {
+    /** Bucket start (ISO), aligned to the granularity (top of hour / midnight / Monday). */
+    bucketStart: string
     runCount: number
     completed: number
     successes: number
@@ -91,23 +94,71 @@ export interface WorkflowHealthRow {
     p50Seconds: number | null
     p95Seconds: number | null
     lastFailureAt: string | null
+    /** Most recent completed run was a decisive failure; null when nothing has completed. Drives OK/RED. */
+    latestRunFailed: boolean | null
+    /** Bucket width of `buckets`: 'hour', 'day', or 'week'. */
+    granularity: WorkflowGranularity
     /** Zero-filled across the whole window, oldest first. */
-    daily: WorkflowHealthDay[]
+    buckets: WorkflowHealthBucket[]
+}
+
+export type WorkflowTrendDirection = 'up' | 'down' | 'flat'
+
+export interface WorkflowFailureSeries {
+    /** Completed runs per bucket — drives total (stacked) bar height, i.e. volume. */
+    completed: number[]
+    /** Decisive failures per bucket — the red portion of each stacked bar. */
+    failures: number[]
+    /** Per-bucket tooltip label. */
+    labels: string[]
+}
+
+function formatBucket(bucketStart: string, granularity: WorkflowGranularity): string {
+    const at = dayjs(bucketStart)
+    if (granularity === 'hour') {
+        return at.format('MMM D, HH:mm')
+    }
+    if (granularity === 'week') {
+        return `Week of ${at.format('MMM D')}`
+    }
+    return at.format('MMM D')
 }
 
 /**
- * Daily series for the trend sparkline. Bar height is the failure rate (decisive
- * failures over runs that completed that day), so healthy rows stay flat and bad days
- * spike. Skipped, cancelled, and action_required runs are not failures — counting them
- * as non-passing made green workflows look broken.
+ * Series for the run-status sparkline. Each bar is stacked: total height is completed runs (volume)
+ * and the red portion is decisive failures, so the red *fraction* reads as the failure rate — 1% is a
+ * sliver, 50% is half-red — which length encodes accurately (unlike shade). Skipped, cancelled, and
+ * action_required runs are not failures.
  */
-export function workflowTrendSeries(daily: WorkflowHealthDay[]): { values: number[]; labels: string[] } {
-    const values = daily.map((d) => (d.completed > 0 ? d.failures / d.completed : 0))
-    const labels = daily.map((d) => {
-        const date = dayjs(d.day).format('MMM D')
-        return d.completed > 0 ? `${date} · ${d.failures} of ${d.completed} failed` : `${date} · no completed runs`
+export function workflowFailureSeries(
+    buckets: WorkflowHealthBucket[],
+    granularity: WorkflowGranularity
+): WorkflowFailureSeries {
+    const completed = buckets.map((b) => b.completed)
+    const failures = buckets.map((b) => b.failures)
+    const labels = buckets.map((b) => {
+        const when = formatBucket(b.bucketStart, granularity)
+        return b.completed > 0 ? `${when} · ${b.failures} of ${b.completed} failed` : `${when} · no completed runs`
     })
-    return { values, labels }
+    return { completed, failures, labels }
+}
+
+/** Failure direction: are failures rising in the recent half of the window vs the prior half? */
+export function workflowFailureTrend(buckets: WorkflowHealthBucket[]): WorkflowTrendDirection {
+    if (buckets.length < 2) {
+        return 'flat'
+    }
+    const mid = Math.floor(buckets.length / 2)
+    const sumFailures = (slice: WorkflowHealthBucket[]): number => slice.reduce((total, b) => total + b.failures, 0)
+    const prior = sumFailures(buckets.slice(0, mid))
+    const recent = sumFailures(buckets.slice(mid))
+    if (recent > prior) {
+        return 'up'
+    }
+    if (recent < prior) {
+        return 'down'
+    }
+    return 'flat'
 }
 
 export function prKeyOf(row: Pick<PullRequestRow, 'repoOwner' | 'repoName' | 'number'>): string {
@@ -299,14 +350,19 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                                 p50Seconds: it.p50_seconds,
                                 p95Seconds: it.p95_seconds,
                                 lastFailureAt: it.last_failure_at,
-                                daily: it.daily.map((d) => ({
-                                    day: d.day,
-                                    runCount: d.run_count,
-                                    completed: d.completed,
-                                    successes: d.successes,
+                                // Defensive ?? null: a new frontend can briefly hit an older backend
+                                // whose response predates this field — degrade to "unknown", not crash.
+                                latestRunFailed: it.latest_run_failed ?? null,
+                                // Defensive ?? 'day': older backends predate adaptive bucketing.
+                                granularity: (it.granularity ?? 'day') as WorkflowGranularity,
+                                buckets: it.buckets.map((b) => ({
+                                    bucketStart: b.bucket_start,
+                                    runCount: b.run_count,
+                                    completed: b.completed,
+                                    successes: b.successes,
                                     // Defensive ?? 0: a new frontend can briefly hit an older backend whose
                                     // response predates this field — degrade to 0, don't compute NaN bars.
-                                    failures: d.failures ?? 0,
+                                    failures: b.failures ?? 0,
                                 })),
                             })
                         )
@@ -528,6 +584,16 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 }
                 return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
             },
+            // Mirror the applied branch into `?q=` so a branch-scoped view is shareable and survives reload.
+            setAppliedBranch: ({ branch }) => {
+                const searchParams = { ...router.values.searchParams }
+                if (branch) {
+                    searchParams.q = branch
+                } else {
+                    delete searchParams.q
+                }
+                return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
+            },
         })),
 
         urlToAction(({ actions, values }) => {
@@ -538,9 +604,24 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     actions.setSourceId(next)
                 }
             }
+            // `?q=` deep-links a branch-scoped workflow view (e.g. ?q=master). Stage it in the box and apply.
+            const applyBranchFromUrl = (q: string | undefined): void => {
+                const next = (q ?? '').trim()
+                if (next === values.appliedBranch) {
+                    return
+                }
+                actions.setBranchFilter(next)
+                // An empty value already applies+loads via setBranchFilter's listener; a real branch needs the apply.
+                if (next !== '') {
+                    actions.setAppliedBranch(next)
+                }
+            }
             return {
                 [urls.engineeringAnalytics()]: (_, searchParams) => applySource(searchParams.source),
-                [urls.engineeringAnalyticsWorkflows()]: (_, searchParams) => applySource(searchParams.source),
+                [urls.engineeringAnalyticsWorkflows()]: (_, searchParams) => {
+                    applySource(searchParams.source)
+                    applyBranchFromUrl(searchParams.q)
+                },
             }
         }),
 

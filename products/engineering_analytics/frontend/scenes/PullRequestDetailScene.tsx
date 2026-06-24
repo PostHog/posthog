@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 import { Fragment } from 'react'
 
 import { IconExternal } from '@posthog/icons'
@@ -16,15 +17,17 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
-import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
+import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import type { PullRequestApi } from '../generated/api.schemas'
-import { githubPrUrl, githubRunUrl, githubWorkflowUrl } from '../lib/github'
+import type { PullRequestApi, WorkflowJobApi } from '../generated/api.schemas'
+import { githubPrUrl, githubWorkflowUrl } from '../lib/github'
 import { LifecycleSummary, WorkflowRun, isPassingConclusion } from '../lib/lifecycle'
+import { verdictTag } from '../lib/runStatus'
 import { PullRequestDetailLogicProps, pullRequestDetailLogic } from './pullRequestDetailLogic'
 
 export const scene: SceneExport<PullRequestDetailLogicProps> = {
@@ -42,20 +45,6 @@ const STATE_TAG: Record<string, { label: string; type: LemonTagType }> = {
     open: { label: 'Open', type: 'primary' },
     merged: { label: 'Merged', type: 'success' },
     closed: { label: 'Closed', type: 'danger' },
-}
-
-function verdictTag(conclusion: string | null): { label: string; type: LemonTagType } {
-    if (conclusion === null) {
-        return { label: 'Running', type: 'warning' }
-    }
-    const label = capitalizeFirstLetter(conclusion.replace('_', ' '))
-    if (conclusion === 'failure' || conclusion === 'timed_out') {
-        return { label, type: 'danger' }
-    }
-    if (isPassingConclusion(conclusion)) {
-        return { label, type: conclusion === 'success' ? 'success' : 'muted' }
-    }
-    return { label, type: 'warning' }
 }
 
 function gapBetween(from: string, to: string): string {
@@ -121,13 +110,27 @@ function LifecycleStrip({ summary, openedAt }: { summary: LifecycleSummary; open
     const connector = (dashed: boolean | undefined): string =>
         dashed ? 'w-full border-t border-dashed border-border-bold' : 'h-px w-full bg-border-bold'
 
+    // Connector widths are proportional to real elapsed time, so the strip reads as a timeline —
+    // a long review wait visibly dominates a quick queue. Floor each segment so a near-instant gap
+    // still draws a visible connector instead of collapsing to nothing.
+    const totalSeconds = Math.max(1, dayjs(nodes[nodes.length - 1].at).diff(dayjs(nodes[0].at), 'second'))
+    const minGrow = totalSeconds * 0.04
+
     return (
         <div className="flex items-center gap-6 rounded-lg border bg-surface-primary px-5 py-3">
             <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto">
                 {nodes.map((node, index) => (
                     <Fragment key={node.key}>
                         {index > 0 && (
-                            <div className="flex min-w-10 flex-1 flex-col gap-1">
+                            <div
+                                className="flex min-w-10 flex-col gap-1"
+                                style={{
+                                    flexGrow: Math.max(
+                                        minGrow,
+                                        dayjs(node.at).diff(dayjs(nodes[index - 1].at), 'second')
+                                    ),
+                                }}
+                            >
                                 <span className="text-center text-xs leading-4 whitespace-nowrap text-secondary tabular-nums">
                                     {gapBetween(nodes[index - 1].at, node.at)}
                                 </span>
@@ -186,9 +189,129 @@ function MetaRow({ pullRequest }: { pullRequest: PullRequestApi }): JSX.Element 
     )
 }
 
+// Verdict tag type → bar fill, so the Gantt bars match the Verdict column's colors.
+const BAR_BG: Record<string, string> = {
+    success: 'bg-success',
+    danger: 'bg-danger',
+    warning: 'bg-warning',
+    muted: 'bg-muted',
+}
+
+/**
+ * One run as a Gantt bar on the shared CI timeline (earliest start → latest finish across the PR's
+ * runs), so overlap and stragglers are visible at a glance. A still-running bar extends to "now".
+ */
+function RunGanttBar({
+    run,
+    axisStart,
+    axisEnd,
+}: {
+    run: WorkflowRun
+    axisStart: number
+    axisEnd: number
+}): JSX.Element {
+    if (!run.startedAt) {
+        return <span className="text-xs text-secondary">—</span>
+    }
+    const start = dayjs(run.startedAt).valueOf()
+    const end = run.finishedAt ? dayjs(run.finishedAt).valueOf() : dayjs().valueOf()
+    const span = Math.max(1, axisEnd - axisStart)
+    const left = Math.max(0, Math.min(100, ((start - axisStart) / span) * 100))
+    const width = Math.max(2, Math.min(100 - left, ((end - start) / span) * 100))
+    const tag = verdictTag(run.conclusion)
+    const finishedLabel = run.finishedAt ? dayjs(run.finishedAt).format('HH:mm:ss') : 'now'
+    const durationLabel = run.durationSeconds == null ? '' : ` · ${humanFriendlyDuration(run.durationSeconds)}`
+    return (
+        <div
+            className="relative h-3 w-full"
+            title={`${dayjs(run.startedAt).format('HH:mm:ss')} → ${finishedLabel}${durationLabel}`}
+        >
+            <div
+                className={cn(
+                    'absolute top-0 h-3 rounded-sm',
+                    BAR_BG[tag.type] ?? 'bg-muted',
+                    run.conclusion === null && 'animate-pulse'
+                )}
+                style={{ left: `${left}%`, width: `${width}%` }}
+            />
+        </div>
+    )
+}
+
+// Stable per-row key — re-runs share a runId, so the start time disambiguates attempt rows. Used for
+// both LemonTable's rowKey and the expand-state set, so expanding one attempt doesn't open the others.
+function runRowKey(run: WorkflowRun): string {
+    return `${run.workflow}@${run.startedAt ?? run.finishedAt ?? run.runId ?? ''}`
+}
+
+function formatCost(usd: number | null): string {
+    return usd == null ? '—' : `$${usd.toFixed(2)}`
+}
+
+/** Expanded-row content for a run: its jobs (runner tier, duration, est. cost). Lazy-loaded on expand. */
+function RunJobs({ jobs, loading }: { jobs: WorkflowJobApi[] | undefined; loading: boolean }): JSX.Element {
+    if (jobs === undefined) {
+        return <div className="px-3 py-2 text-xs text-secondary">{loading ? 'Loading jobs…' : 'No job data yet.'}</div>
+    }
+    if (jobs.length === 0) {
+        return (
+            <div className="px-3 py-2 text-xs text-secondary">
+                No job data yet — the job-level source isn't synced for this team.
+            </div>
+        )
+    }
+    const jobColumns: LemonTableColumns<WorkflowJobApi> = [
+        { title: 'Job', key: 'name', render: (_, job) => <span className="font-medium">{job.name}</span> },
+        {
+            title: 'Status',
+            key: 'status',
+            width: 120,
+            render: (_, job) => {
+                const tag = verdictTag(job.conclusion)
+                return <LemonTag type={tag.type}>{tag.label}</LemonTag>
+            },
+        },
+        {
+            title: 'Runner',
+            key: 'runner',
+            width: 120,
+            render: (_, job) => <span className="font-mono text-xs">{job.runner_label || '—'}</span>,
+        },
+        {
+            title: 'Duration',
+            key: 'duration',
+            width: 110,
+            align: 'right',
+            render: (_, job) => (
+                <span className="text-xs whitespace-nowrap tabular-nums">
+                    {job.duration_seconds == null ? '—' : humanFriendlyDuration(job.duration_seconds)}
+                </span>
+            ),
+        },
+        {
+            title: 'Est. cost',
+            key: 'cost',
+            width: 100,
+            align: 'right',
+            render: (_, job) => <span className="text-xs tabular-nums">{formatCost(job.estimated_cost_usd)}</span>,
+        },
+    ]
+    return <LemonTable embedded size="small" columns={jobColumns} dataSource={jobs} rowKey={(job) => job.id} />
+}
+
 export function PullRequestDetailScene(): JSX.Element {
-    const { lifecycle, lifecycleLoading, loadFailed, summary, runs } = useValues(pullRequestDetailLogic)
-    const { loadLifecycle } = useActions(pullRequestDetailLogic)
+    const {
+        lifecycle,
+        lifecycleLoading,
+        loadFailed,
+        summary,
+        runs,
+        sourceId,
+        runJobs,
+        runJobsLoading,
+        expandedRunKeys,
+    } = useValues(pullRequestDetailLogic)
+    const { loadLifecycle, setRunExpanded } = useActions(pullRequestDetailLogic)
 
     const pullRequest = lifecycle?.pull_request
     const githubUrl = pullRequest
@@ -199,35 +322,104 @@ export function PullRequestDetailScene(): JSX.Element {
     const failed = runs.filter((run) => run.conclusion !== null && !isPassingConclusion(run.conclusion)).length
     const running = runs.filter((run) => run.conclusion === null).length
 
+    // Shared Gantt axis: earliest start → latest finish (running runs extend to now) across all runs.
+    const startMs = runs
+        .map((run) => run.startedAt)
+        .filter((at): at is string => !!at)
+        .map((at) => dayjs(at).valueOf())
+    const endMs = runs
+        .map((run) => run.finishedAt ?? (run.startedAt ? dayjs().toISOString() : null))
+        .filter((at): at is string => !!at)
+        .map((at) => dayjs(at).valueOf())
+    const axisStart = startMs.length ? Math.min(...startMs) : null
+    const axisEnd = endMs.length ? Math.max(...endMs) : null
+
+    // Re-runs share a runId; number the rows of each multi-attempt run by start order so the table can
+    // label them "attempt N". Single-attempt runs get no label.
+    const attemptIndexByKey = new Map<string, number>()
+    const runsByRunId = new Map<number, WorkflowRun[]>()
+    runs.forEach((run) => {
+        if (run.runId != null) {
+            const group = runsByRunId.get(run.runId) ?? []
+            group.push(run)
+            runsByRunId.set(run.runId, group)
+        }
+    })
+    runsByRunId.forEach((group) => {
+        if (group.length > 1) {
+            ;[...group]
+                .sort((a, b) => (a.startedAt ?? '').localeCompare(b.startedAt ?? ''))
+                .forEach((run, index) => attemptIndexByKey.set(runRowKey(run), index + 1))
+        }
+    })
+
     const columns: LemonTableColumns<WorkflowRun> = [
         {
             title: 'Workflow',
             key: 'workflow',
-            render: (_, run) =>
-                pullRequest ? (
-                    <Link
-                        to={
-                            run.runId != null
-                                ? githubRunUrl(pullRequest.repo.owner, pullRequest.repo.name, run.runId)
-                                : githubWorkflowUrl(pullRequest.repo.owner, pullRequest.repo.name, run.workflow)
-                        }
-                        target="_blank"
-                        className="font-medium"
-                    >
-                        {run.workflow}
-                    </Link>
-                ) : (
-                    <span className="font-medium">{run.workflow}</span>
-                ),
+            sorter: (a, b) => a.workflow.localeCompare(b.workflow),
+            render: (_, run) => {
+                const attempt = attemptIndexByKey.get(runRowKey(run))
+                const attemptTag = attempt ? <LemonTag type="muted">attempt {attempt}</LemonTag> : null
+                // A run with an id links to its detail page (internal); without one, fall back to the
+                // workflow's GitHub Actions list (we have no run to point at).
+                const label =
+                    pullRequest && run.runId != null ? (
+                        <Link
+                            to={
+                                combineUrl(
+                                    urls.engineeringAnalyticsWorkflowRun(
+                                        pullRequest.repo.owner,
+                                        pullRequest.repo.name,
+                                        run.runId
+                                    ),
+                                    sourceId ? { source: sourceId } : {}
+                                ).url
+                            }
+                            className="font-medium"
+                        >
+                            {run.workflow}
+                        </Link>
+                    ) : pullRequest ? (
+                        <Link
+                            to={githubWorkflowUrl(pullRequest.repo.owner, pullRequest.repo.name, run.workflow)}
+                            target="_blank"
+                            className="font-medium"
+                        >
+                            {run.workflow}
+                        </Link>
+                    ) : (
+                        <span className="font-medium">{run.workflow}</span>
+                    )
+                return (
+                    <div className="flex items-center gap-2">
+                        {label}
+                        {attemptTag}
+                    </div>
+                )
+            },
         },
         {
             title: 'Verdict',
             key: 'verdict',
             width: 140,
+            sorter: (a, b) => verdictTag(a.conclusion).label.localeCompare(verdictTag(b.conclusion).label),
             render: (_, run) => {
                 const tag = verdictTag(run.conclusion)
                 return <LemonTag type={tag.type}>{tag.label}</LemonTag>
             },
+        },
+        {
+            title: 'Timeline',
+            key: 'timeline',
+            width: 240,
+            sorter: (a, b) => (a.startedAt ?? '').localeCompare(b.startedAt ?? ''),
+            render: (_, run) =>
+                axisStart != null && axisEnd != null ? (
+                    <RunGanttBar run={run} axisStart={axisStart} axisEnd={axisEnd} />
+                ) : (
+                    <span className="text-xs text-secondary">—</span>
+                ),
         },
         {
             title: 'Duration',
@@ -317,9 +509,23 @@ export function PullRequestDetailScene(): JSX.Element {
                     size="small"
                     columns={columns}
                     dataSource={runs}
-                    rowKey={(run) => `${run.workflow}-${run.startedAt ?? run.finishedAt}`}
+                    rowKey={runRowKey}
                     loading={lifecycleLoading}
                     useURLForSorting={false}
+                    // Chronological by default so the table reads top→bottom like the Gantt; headers re-sort.
+                    defaultSorting={{ columnKey: 'timeline', order: 1 }}
+                    expandable={{
+                        rowExpandable: (run) => run.runId != null,
+                        isRowExpanded: (run) => expandedRunKeys.includes(runRowKey(run)),
+                        onRowExpand: (run) => setRunExpanded(runRowKey(run), true, run.runId),
+                        onRowCollapse: (run) => setRunExpanded(runRowKey(run), false, run.runId),
+                        expandedRowRender: (run) => (
+                            <RunJobs
+                                jobs={run.runId != null ? runJobs[run.runId] : undefined}
+                                loading={runJobsLoading}
+                            />
+                        ),
+                    }}
                     emptyState="No CI runs on the head commit yet."
                     nouns={['workflow run', 'workflow runs']}
                 />

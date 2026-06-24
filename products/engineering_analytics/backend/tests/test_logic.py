@@ -34,6 +34,7 @@ from products.engineering_analytics.backend.logic.sources import (
     list_github_sources,
     resolve_github_tables,
 )
+from products.engineering_analytics.backend.logic.views.source_schema import WORKFLOW_JOBS_COLUMNS
 from products.engineering_analytics.backend.tests.test_views import (
     _PULL_REQUESTS_COLUMNS,
     _WORKFLOW_RUNS_COLUMNS,
@@ -68,6 +69,36 @@ def _ago(days: int) -> str:
     # Seed dates relative to real time: HogQL now() runs server-side and ignores
     # freezegun, so window/age assertions must share the clock the query uses.
     return (timezone.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _job_row(
+    job_id: int,
+    run_id: int,
+    name: str,
+    conclusion: str,
+    *,
+    labels: str = '["depot-ubuntu-22.04-4"]',
+    started: str = "2026-01-01 00:00:00",
+    completed: str = "2026-01-01 00:02:00",
+) -> dict[str, Any]:
+    return {
+        "id": job_id,
+        "run_id": run_id,
+        "run_attempt": 1,
+        "name": name,
+        "workflow_name": "CI",
+        "status": "completed",
+        "conclusion": conclusion,
+        "head_sha": "sha60",
+        "head_branch": "main",
+        "labels": labels,
+        "runner_name": "runner-1",
+        "runner_group_name": "depot",
+        "created_at": started,
+        "started_at": started,
+        "completed_at": completed,
+        "steps": "[]",
+    }
 
 
 def _header(
@@ -291,26 +322,32 @@ class TestEndpointMapping(BaseTest):
         assert len(result.items) == 2
 
     def test_workflow_health_maps_and_nulls_empty_window(self) -> None:
+        # Columns: owner, name, workflow, run_count, success_rate, p50, p95, last_failure_at,
+        # completed_count, latest_failed.
         rows = [
-            ("PostHog", "posthog", "CI", 10, 0.9, 120.0, 600.0, _dt("2026-01-20T00:00:00")),
-            # No completed runs: success_rate is NULL and quantileIf returns NaN — both map to None.
-            ("PostHog", "posthog", "Deploy", 2, None, float("nan"), float("nan"), None),
+            ("PostHog", "posthog", "CI", 10, 0.9, 120.0, 600.0, _dt("2026-01-20T00:00:00"), 8, 0),
+            # No completed runs: success_rate is NULL and quantileIf returns NaN — both map to None,
+            # and latest_run_failed is None (the completed_count guard) rather than False.
+            ("PostHog", "posthog", "Deploy", 2, None, float("nan"), float("nan"), None, 0, 0),
         ]
-        # Must be inside the -30d window, which is relative to now. Columns:
-        # owner, name, workflow, day, run_count, completed, successes, failures.
-        daily_rows = [("PostHog", "posthog", "CI", datetime.now(tz=UTC).date() - timedelta(days=1), 10, 8, 7, 1)]
-        with mock.patch(_RUN_QUERY, side_effect=[_resp(rows), _resp(daily_rows)]):
+        # A -30d window buckets by day. Must land inside the window (relative to now). Columns:
+        # owner, name, workflow, bucket_start, run_count, completed, successes, failures.
+        bucket_rows = [("PostHog", "posthog", "CI", datetime.now(tz=UTC) - timedelta(days=1), 10, 8, 7, 1)]
+        with mock.patch(_RUN_QUERY, side_effect=[_resp(rows), _resp(bucket_rows)]):
             items = api.list_workflow_health(team=self.team, date_from="-30d", date_to=None)
 
         assert items[0].workflow_name == "CI" and items[0].success_rate == 0.9
         assert items[0].repo.owner == "PostHog" and items[0].repo.name == "posthog"
-        # The daily series spans the whole window, zero-filled except the day with runs.
-        assert len(items[0].daily) >= 30
-        seeded_day = next(entry for entry in items[0].daily if entry.run_count > 0)
-        assert (seeded_day.completed, seeded_day.successes, seeded_day.failures) == (8, 7, 1)
-        assert all(entry.run_count == 0 for entry in items[1].daily)
+        assert items[0].granularity == "day"
+        assert items[0].latest_run_failed is False
+        # The series spans the whole window, zero-filled except the bucket with runs.
+        assert len(items[0].buckets) >= 30
+        seeded_bucket = next(entry for entry in items[0].buckets if entry.run_count > 0)
+        assert (seeded_bucket.completed, seeded_bucket.successes, seeded_bucket.failures) == (8, 7, 1)
+        assert all(entry.run_count == 0 for entry in items[1].buckets)
         assert items[0].p50_seconds == 120.0 and items[0].p95_seconds == 600.0
         assert items[1].success_rate is None
+        assert items[1].latest_run_failed is None
         assert items[1].p50_seconds is None and items[1].p95_seconds is None
         assert items[1].last_failure_at is None
 
@@ -586,9 +623,9 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
             ],
         )
         ci = next(i for i in api.list_workflow_health(team=self.team) if i.workflow_name == "CI")
-        day = next(entry for entry in ci.daily if entry.run_count > 0)
+        bucket = next(entry for entry in ci.buckets if entry.run_count > 0)
         # 6 completed, 1 success, 2 failures (failure + timed_out) — skipped/cancelled/action_required are neither.
-        assert (day.completed, day.successes, day.failures) == (6, 1, 2)
+        assert (bucket.completed, bucket.successes, bucket.failures) == (6, 1, 2)
 
     def test_workflow_health_last_failure_includes_timed_out(self) -> None:
         # last_failure_at must agree with the failure definition used by the trend: a workflow whose
@@ -608,6 +645,104 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         )
         ci = next(i for i in api.list_workflow_health(team=self.team) if i.workflow_name == "CI")
         assert ci.last_failure_at is not None
+        # The latest completed run (the timeout) was decisive — drives the RED status badge.
+        assert ci.latest_run_failed is True
+
+    def test_workflow_run_detail_by_id(self) -> None:
+        # The run detail page fetches one run by id; re-runs share the id, so the latest attempt wins.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(42, "alice", "open", 0, _ago(1), head_sha="sha42")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(
+                    7777, "CI", "sha42", "completed", "failure", _ago(2), _ago(2), head_branch="master", pr_number=42
+                ),
+                _run_row(
+                    7777,
+                    "CI",
+                    "sha42",
+                    "completed",
+                    "success",
+                    _ago(1),
+                    _ago(1),
+                    head_branch="master",
+                    pr_number=42,
+                    run_attempt=2,
+                ),
+            ],
+        )
+        run = api.get_workflow_run(team=self.team, run_id=7777)
+        assert run is not None
+        assert run.id == 7777
+        assert run.workflow_name == "CI"
+        assert run.run_attempt == 2  # latest attempt wins
+        assert run.conclusion == "success"
+        assert run.status == "completed"
+        assert run.head_branch == "master"
+        assert run.pr_number == 42
+        assert run.repo.owner == "PostHog" and run.repo.name == "posthog"
+        assert run.duration_seconds is not None
+
+        # An unknown id is None (the view turns this into a 404).
+        assert api.get_workflow_run(team=self.team, run_id=99999) is None
+
+    def test_workflow_run_list_scoped_to_workflow(self) -> None:
+        # The workflow detail page lists one workflow's runs, newest first, scoped to its repo.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(50, "alice", "open", 0, _ago(1), head_sha="sha50")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(8001, "CI", "sha-a", "completed", "success", _ago(3), _ago(3)),
+                _run_row(8002, "CI", "sha-b", "completed", "failure", _ago(1), _ago(1)),
+                _run_row(8003, "Deploy", "sha-c", "completed", "success", _ago(2), _ago(2)),
+            ],
+        )
+        ci_runs = api.list_workflow_runs(team=self.team, repo="PostHog/posthog", workflow_name="CI")
+        assert [r.id for r in ci_runs] == [8002, 8001]  # only CI runs, newest first
+        assert all(r.workflow_name == "CI" for r in ci_runs)
+
+        # A repo with no such workflow yields an empty list (not an error).
+        assert api.list_workflow_runs(team=self.team, repo="PostHog/posthog", workflow_name="Nope") == []
+
+    def test_workflow_jobs_optional_and_costed(self) -> None:
+        # Jobs are an optional source: absent → graceful empty; present → costed per runner tier.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(60, "alice", "open", 0, _ago(1), head_sha="sha60")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [_run_row(9100, "CI", "sha60", "completed", "failure", _ago(1), _ago(1))],
+        )
+        # No jobs table synced yet → empty, not an error (the graceful path).
+        assert api.list_workflow_jobs(team=self.team, run_id=9100) == []
+
+        self._create_table(
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [
+                _job_row(91000, 9100, "build", "success", labels='["depot-ubuntu-22.04-16"]'),
+                _job_row(91001, 9100, "e2e", "failure", labels='["ubuntu-latest"]'),
+            ],
+        )
+        jobs = api.list_workflow_jobs(team=self.team, run_id=9100)
+        assert {j.name for j in jobs} == {"build", "e2e"}
+        build = next(j for j in jobs if j.name == "build")
+        assert build.runner_label == "16-core" and build.estimated_cost_usd is not None
+        # github-hosted runner isn't Depot-billed → no cost estimate.
+        assert next(j for j in jobs if j.name == "e2e").estimated_cost_usd is None
 
     def test_workflow_health_branch_filter(self) -> None:
         self._create_table(

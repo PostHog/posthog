@@ -27,6 +27,8 @@ from products.engineering_analytics.backend.facade.contracts import (
     PRLifecycle,
     PullRequestList,
     WorkflowHealthItem,
+    WorkflowJob,
+    WorkflowRunDetail,
 )
 
 if TYPE_CHECKING:
@@ -57,6 +59,39 @@ def get_pr_lifecycle(
     return logic.build_pr_lifecycle(
         curated=_authorized_source(team, source_id, user_access_control), pr_number=pr_number, repo=repo
     )
+
+
+def get_workflow_run(
+    *,
+    team: Team,
+    run_id: int,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> WorkflowRunDetail | None:
+    return logic.build_workflow_run(curated=_authorized_source(team, source_id, user_access_control), run_id=run_id)
+
+
+def list_workflow_runs(
+    *,
+    team: Team,
+    repo: str,
+    workflow_name: str,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> list[WorkflowRunDetail]:
+    return logic.build_workflow_run_list(
+        curated=_authorized_source(team, source_id, user_access_control), repo=repo, workflow_name=workflow_name
+    )
+
+
+def list_workflow_jobs(
+    *,
+    team: Team,
+    run_id: int,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> list[WorkflowJob]:
+    return logic.build_workflow_jobs(curated=_authorized_source(team, source_id, user_access_control), run_id=run_id)
 
 
 def get_ci_cards(

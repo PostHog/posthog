@@ -41,9 +41,14 @@ from posthog.models.scoping import team_scope
 from posthog.storage import object_storage
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
-from products.engineering_analytics.backend.logic.sources import PULL_REQUESTS_SCHEMA, WORKFLOW_RUNS_SCHEMA
+from products.engineering_analytics.backend.logic.sources import (
+    PULL_REQUESTS_SCHEMA,
+    WORKFLOW_JOBS_SCHEMA,
+    WORKFLOW_RUNS_SCHEMA,
+)
 from products.engineering_analytics.backend.logic.views.source_schema import (
     PULL_REQUESTS_COLUMNS,
+    WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
 from products.warehouse_sources.backend.models.credential import get_or_create_datawarehouse_credential
@@ -83,6 +88,53 @@ def _flatten_run(run: dict[str, Any]) -> dict[str, Any]:
         "repository": json.dumps(run["repository"]),
         "pull_requests": json.dumps(run.get("pull_requests", [])),
     }
+
+
+# Local-demo stopgap: the real job-level source (github_workflow_jobs) is built separately. Until it
+# lands, synthesize a few jobs per run so the expandable job breakdown is demoable end to end. Tiers
+# vary so the cost model produces a spread; the last job inherits a failing run's conclusion.
+_JOB_NAMES = ("build", "test", "lint", "e2e")
+_RUNNER_LABELS = (
+    '["depot-ubuntu-22.04-16"]',
+    '["depot-ubuntu-22.04-8"]',
+    '["depot-ubuntu-22.04-4"]',
+    '["ubuntu-latest"]',
+)
+
+
+def _synthesize_jobs(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    jobs: list[dict[str, Any]] = []
+    for run in runs:
+        completed = run.get("status") == "completed"
+        run_conclusion = run.get("conclusion")
+        count = (run["id"] % 3) + 2  # 2–4 jobs, deterministic per run
+        for idx in range(count):
+            is_last = idx == count - 1
+            # Healthy jobs pass; a failing run's failure surfaces on its last job.
+            conclusion = run_conclusion if (is_last and run_conclusion in ("failure", "timed_out")) else None
+            if completed and conclusion is None:
+                conclusion = "success"
+            jobs.append(
+                {
+                    "id": run["id"] * 10 + idx,
+                    "run_id": run["id"],
+                    "run_attempt": run.get("run_attempt", 1),
+                    "name": _JOB_NAMES[idx % len(_JOB_NAMES)],
+                    "workflow_name": run.get("name"),
+                    "status": run.get("status"),
+                    "conclusion": conclusion,
+                    "head_sha": run.get("head_sha"),
+                    "head_branch": run.get("head_branch"),
+                    "labels": _RUNNER_LABELS[idx % len(_RUNNER_LABELS)],
+                    "runner_name": f"runner-{idx + 1}",
+                    "runner_group_name": "depot",
+                    "created_at": run.get("run_started_at"),
+                    "started_at": run.get("run_started_at"),
+                    "completed_at": run.get("updated_at") if completed else None,
+                    "steps": "[]",
+                }
+            )
+    return jobs
 
 
 def _warehouse_endpoint() -> str:
@@ -153,11 +205,16 @@ class Command(BaseCommand):
             self._upsert_schema_table(
                 team, source, credential, prefix, WORKFLOW_RUNS_SCHEMA, WORKFLOW_RUNS_COLUMNS, map(_flatten_run, runs)
             )
+            # Local-demo stopgap until the real job-level source lands (see _synthesize_jobs).
+            jobs = _synthesize_jobs(runs)
+            self._upsert_schema_table(
+                team, source, credential, prefix, WORKFLOW_JOBS_SCHEMA, WORKFLOW_JOBS_COLUMNS, jobs
+            )
 
         self.stdout.write(
             self.style.SUCCESS(
-                f"Seeded {len(prs)} pull requests and {len(runs)} workflow runs into team {team.pk} "
-                f"under GitHub source prefix '{prefix}'."
+                f"Seeded {len(prs)} pull requests, {len(runs)} workflow runs, and {len(jobs)} jobs into "
+                f"team {team.pk} under GitHub source prefix '{prefix}'."
             )
         )
 

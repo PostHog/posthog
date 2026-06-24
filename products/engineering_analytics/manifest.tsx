@@ -29,13 +29,40 @@ export const manifest: ProductManifest = {
             description: 'A single pull request: lifecycle milestones and CI runs on its head commit.',
             iconType: 'health',
         },
+        EngineeringAnalyticsWorkflowRun: {
+            import: () => import('./frontend/scenes/WorkflowRunDetailScene'),
+            projectBased: true,
+            name: 'Workflow run',
+            layout: 'app-container',
+            description: 'A single workflow run: status, duration, branch, and the attributed pull request.',
+            iconType: 'health',
+        },
+        EngineeringAnalyticsWorkflowRuns: {
+            import: () => import('./frontend/scenes/WorkflowRunsScene'),
+            projectBased: true,
+            name: 'Workflow runs',
+            layout: 'app-container',
+            description: "A single workflow's recent runs across the connected repo.",
+            iconType: 'health',
+        },
     },
+    // Detail paths mirror GitHub 1:1 (owner/repo/pull/:n, owner/repo/actions/runs/:id); the cross-repo
+    // aggregate dashboards stay at the product root. Provider lives on the data (RepoRef.provider), so
+    // these url builders are the single place to branch verbs for a future provider (e.g. GitLab).
     routes: {
         '/engineering-analytics': ['EngineeringAnalytics', 'engineeringAnalytics'],
         '/engineering-analytics/workflows': ['EngineeringAnalytics', 'engineeringAnalyticsWorkflows'],
-        '/engineering-analytics/pr/:repoOwner/:repoName/:number': [
+        '/engineering-analytics/:repoOwner/:repoName/pull/:number': [
             'EngineeringAnalyticsPullRequest',
             'engineeringAnalyticsPullRequest',
+        ],
+        '/engineering-analytics/:repoOwner/:repoName/actions/runs/:runId': [
+            'EngineeringAnalyticsWorkflowRun',
+            'engineeringAnalyticsWorkflowRun',
+        ],
+        '/engineering-analytics/:repoOwner/:repoName/actions/workflows/:workflowName': [
+            'EngineeringAnalyticsWorkflowRuns',
+            'engineeringAnalyticsWorkflowRuns',
         ],
     },
     redirects: {},
@@ -43,7 +70,11 @@ export const manifest: ProductManifest = {
         engineeringAnalytics: (): string => '/engineering-analytics',
         engineeringAnalyticsWorkflows: (): string => '/engineering-analytics/workflows',
         engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
-            `/engineering-analytics/pr/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/${number}`,
+            `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/pull/${number}`,
+        engineeringAnalyticsWorkflowRun: (repoOwner: string, repoName: string, runId: number | string): string =>
+            `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/runs/${runId}`,
+        engineeringAnalyticsWorkflowRuns: (repoOwner: string, repoName: string, workflowName: string): string =>
+            `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/workflows/${encodeURIComponent(workflowName)}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],

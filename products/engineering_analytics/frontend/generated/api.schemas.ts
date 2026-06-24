@@ -224,24 +224,24 @@ export interface GitHubSourceApi {
     prefix: string
 }
 
-export interface WorkflowHealthDayApi {
-    /** UTC calendar day. */
-    day: string
-    /** Runs started that day. */
+export interface WorkflowHealthBucketApi {
+    /** Bucket start, aligned to the item's granularity (top of hour, midnight, or Monday). */
+    bucket_start: string
+    /** Runs started in this bucket. */
     run_count: number
-    /** Runs that completed that day. */
+    /** Runs that completed in this bucket. */
     completed: number
-    /** Completed runs with conclusion 'success' that day. */
+    /** Completed runs with conclusion 'success' in this bucket. */
     successes: number
-    /** Completed runs that failed that day (conclusion 'failure' or 'timed_out'); excludes skipped, cancelled, and action_required runs. */
+    /** Completed runs that failed in this bucket (conclusion 'failure' or 'timed_out'); excludes skipped, cancelled, and action_required runs. */
     failures: number
 }
 
 export interface WorkflowHealthItemApi {
     /** Repository the workflow runs in. */
     repo: RepoRefApi
-    /** Daily run history across the whole window, oldest first, zero-filled. */
-    daily: WorkflowHealthDayApi[]
+    /** Run history across the whole window, oldest first, zero-filled, bucketed by granularity. */
+    buckets: WorkflowHealthBucketApi[]
     /** GitHub Actions workflow name. */
     workflow_name: string
     /** Total runs started in the window. */
@@ -266,6 +266,84 @@ export interface WorkflowHealthItemApi {
      * @nullable
      */
     last_failure_at: string | null
+    /**
+     * Whether the most recent completed run was a decisive failure (conclusion 'failure' or 'timed_out'). Null when no run has completed in the window. Powers the OK/RED status badge.
+     * @nullable
+     */
+    latest_run_failed: boolean | null
+    /** Bucket width of the `buckets` series, chosen to fit the window: 'hour', 'day', or 'week'. */
+    granularity: string
+}
+
+export interface WorkflowJobApi {
+    /** GitHub Actions job id. */
+    id: number
+    /** The workflow run id this job belongs to. */
+    run_id: number
+    /** Job name. */
+    name: string
+    /** Raw job status: 'queued', 'in_progress', 'completed', etc. */
+    status: string
+    /**
+     * Job conclusion ('success', 'failure', 'cancelled', 'skipped', ...), or null while running.
+     * @nullable
+     */
+    conclusion: string | null
+    /**
+     * When the job started, or null while still queued.
+     * @nullable
+     */
+    started_at: string | null
+    /**
+     * When the job completed, or null while still running.
+     * @nullable
+     */
+    completed_at: string | null
+    /**
+     * Wall-clock duration in seconds; null until the job completes.
+     * @nullable
+     */
+    duration_seconds: number | null
+    /** Runner tier the job ran on (e.g. '16-core'), or '' when unknown. */
+    runner_label: string
+    /**
+     * Estimated cost in USD from runner tier + elapsed time; null when the tier is unknown or the job hasn't finished.
+     * @nullable
+     */
+    estimated_cost_usd: number | null
+}
+
+export interface WorkflowRunDetailApi {
+    /** Repository the run belongs to. */
+    repo: RepoRefApi
+    /** GitHub Actions run id. */
+    id: number
+    /** GitHub Actions workflow name. */
+    workflow_name: string
+    /** Commit SHA the run was triggered on. */
+    head_sha: string
+    /** Git branch the run was triggered on. */
+    head_branch: string
+    /** Raw run status: 'queued', 'in_progress', 'completed', etc. */
+    status: string
+    /**
+     * Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', 'action_required', ...), or null while still in progress.
+     * @nullable
+     */
+    conclusion: string | null
+    /** When the run started. */
+    run_started_at: string
+    /** When the run was last updated (its finish time once completed). */
+    updated_at: string
+    /**
+     * Wall-clock duration in seconds; null until the run completes.
+     * @nullable
+     */
+    duration_seconds: number | null
+    /** Re-run attempt number; 1 for the first attempt. */
+    run_attempt: number
+    /** Attributed pull request number, or 0 when unattributed. */
+    pr_number: number
 }
 
 export type EngineeringAnalyticsCiCardsParams = {
@@ -318,4 +396,41 @@ export type EngineeringAnalyticsWorkflowHealthParams = {
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
+}
+
+export type EngineeringAnalyticsWorkflowJobsParams = {
+    /**
+     * Workflow run id to list jobs for.
+     */
+    run_id: number
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
+export type EngineeringAnalyticsWorkflowRunParams = {
+    /**
+     * GitHub Actions run id to inspect.
+     */
+    run_id: number
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
+export type EngineeringAnalyticsWorkflowRunsParams = {
+    /**
+     * 'owner/name' repository the workflow belongs to.
+     */
+    repo: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+    /**
+     * Workflow name to list runs for.
+     */
+    workflow_name: string
 }

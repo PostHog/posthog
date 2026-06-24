@@ -20,8 +20,10 @@ from products.engineering_analytics.backend.facade.contracts import (
     PullRequestList,
     PullRequestListItem,
     RepoRef,
-    WorkflowHealthDay,
+    WorkflowHealthBucket,
     WorkflowHealthItem,
+    WorkflowJob,
+    WorkflowRunDetail,
 )
 
 
@@ -104,6 +106,60 @@ class PRLifecycleSerializer(DataclassSerializer):
         }
 
 
+class WorkflowRunDetailSerializer(DataclassSerializer):
+    repo = RepoRefSerializer(help_text="Repository the run belongs to.")
+
+    class Meta:
+        dataclass = WorkflowRunDetail
+        extra_kwargs = {
+            "id": {"help_text": "GitHub Actions run id."},
+            "workflow_name": {"help_text": "GitHub Actions workflow name."},
+            "head_sha": {"help_text": "Commit SHA the run was triggered on."},
+            "head_branch": {"help_text": "Git branch the run was triggered on."},
+            "status": {"help_text": "Raw run status: 'queued', 'in_progress', 'completed', etc."},
+            "conclusion": {
+                "help_text": "Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', "
+                "'action_required', ...), or null while still in progress.",
+                "allow_null": True,
+            },
+            "run_started_at": {"help_text": "When the run started."},
+            "updated_at": {"help_text": "When the run was last updated (its finish time once completed)."},
+            "duration_seconds": {
+                "help_text": "Wall-clock duration in seconds; null until the run completes.",
+                "allow_null": True,
+            },
+            "run_attempt": {"help_text": "Re-run attempt number; 1 for the first attempt."},
+            "pr_number": {"help_text": "Attributed pull request number, or 0 when unattributed."},
+        }
+
+
+class WorkflowJobSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = WorkflowJob
+        extra_kwargs = {
+            "id": {"help_text": "GitHub Actions job id."},
+            "run_id": {"help_text": "The workflow run id this job belongs to."},
+            "name": {"help_text": "Job name."},
+            "status": {"help_text": "Raw job status: 'queued', 'in_progress', 'completed', etc."},
+            "conclusion": {
+                "help_text": "Job conclusion ('success', 'failure', 'cancelled', 'skipped', ...), or null while running.",
+                "allow_null": True,
+            },
+            "started_at": {"help_text": "When the job started, or null while still queued.", "allow_null": True},
+            "completed_at": {"help_text": "When the job completed, or null while still running.", "allow_null": True},
+            "duration_seconds": {
+                "help_text": "Wall-clock duration in seconds; null until the job completes.",
+                "allow_null": True,
+            },
+            "runner_label": {"help_text": "Runner tier the job ran on (e.g. '16-core'), or '' when unknown."},
+            "estimated_cost_usd": {
+                "help_text": "Estimated cost in USD from runner tier + elapsed time; null when the tier is "
+                "unknown or the job hasn't finished.",
+                "allow_null": True,
+            },
+        }
+
+
 class CIStatusRollupSerializer(DataclassSerializer):
     class Meta:
         dataclass = CIStatusRollup
@@ -178,16 +234,18 @@ class CICardSummarySerializer(DataclassSerializer):
         }
 
 
-class WorkflowHealthDaySerializer(DataclassSerializer):
+class WorkflowHealthBucketSerializer(DataclassSerializer):
     class Meta:
-        dataclass = WorkflowHealthDay
+        dataclass = WorkflowHealthBucket
         extra_kwargs = {
-            "day": {"help_text": "UTC calendar day."},
-            "run_count": {"help_text": "Runs started that day."},
-            "completed": {"help_text": "Runs that completed that day."},
-            "successes": {"help_text": "Completed runs with conclusion 'success' that day."},
+            "bucket_start": {
+                "help_text": "Bucket start, aligned to the item's granularity (top of hour, midnight, or Monday)."
+            },
+            "run_count": {"help_text": "Runs started in this bucket."},
+            "completed": {"help_text": "Runs that completed in this bucket."},
+            "successes": {"help_text": "Completed runs with conclusion 'success' in this bucket."},
             "failures": {
-                "help_text": "Completed runs that failed that day (conclusion 'failure' or 'timed_out'); "
+                "help_text": "Completed runs that failed in this bucket (conclusion 'failure' or 'timed_out'); "
                 "excludes skipped, cancelled, and action_required runs."
             },
         }
@@ -195,8 +253,8 @@ class WorkflowHealthDaySerializer(DataclassSerializer):
 
 class WorkflowHealthItemSerializer(DataclassSerializer):
     repo = RepoRefSerializer(help_text="Repository the workflow runs in.")
-    daily = WorkflowHealthDaySerializer(
-        many=True, help_text="Daily run history across the whole window, oldest first, zero-filled."
+    buckets = WorkflowHealthBucketSerializer(
+        many=True, help_text="Run history across the whole window, oldest first, zero-filled, bucketed by granularity."
     )
 
     class Meta:
@@ -219,5 +277,13 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
             "last_failure_at": {
                 "help_text": "When the most recent failing run (conclusion 'failure' or 'timed_out') started, or null.",
                 "allow_null": True,
+            },
+            "latest_run_failed": {
+                "help_text": "Whether the most recent completed run was a decisive failure (conclusion 'failure' "
+                "or 'timed_out'). Null when no run has completed in the window. Powers the OK/RED status badge.",
+                "allow_null": True,
+            },
+            "granularity": {
+                "help_text": "Bucket width of the `buckets` series, chosen to fit the window: 'hour', 'day', or 'week'."
             },
         }

@@ -1,4 +1,4 @@
-import { afterMount, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { ApiConfig } from 'lib/api'
@@ -6,8 +6,8 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import { engineeringAnalyticsPrLifecycle } from '../generated/api'
-import type { PRLifecycleApi } from '../generated/api.schemas'
+import { engineeringAnalyticsPrLifecycle, engineeringAnalyticsWorkflowJobs } from '../generated/api'
+import type { PRLifecycleApi, WorkflowJobApi } from '../generated/api.schemas'
 import { LifecycleSummary, WorkflowRun, isPassingConclusion, summarizeLifecycle, workflowRuns } from '../lib/lifecycle'
 import type { pullRequestDetailLogicType } from './pullRequestDetailLogicType'
 
@@ -38,7 +38,12 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
             `${props.tabId ?? 'default'}/${props.repoOwner}/${props.repoName}#${props.number}@${props.sourceId ?? ''}`
     ),
 
-    loaders(({ props }) => ({
+    actions({
+        // Row expansion is keyed by a per-row key (re-runs share a run_id), while jobs are fetched by run_id.
+        setRunExpanded: (rowKey: string, expanded: boolean, runId: number | null) => ({ rowKey, expanded, runId }),
+    }),
+
+    loaders(({ props, values }) => ({
         lifecycle: [
             null as PRLifecycleApi | null,
             {
@@ -48,6 +53,19 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                         repo: `${props.repoOwner}/${props.repoName}`,
                         source_id: props.sourceId ?? undefined,
                     }),
+            },
+        ],
+        runJobs: [
+            {} as Record<number, WorkflowJobApi[]>,
+            {
+                // Lazy: fetched only when a run row is first expanded. Keyed by run_id; merged in.
+                loadJobs: async ({ runId }: { runId: number }): Promise<Record<number, WorkflowJobApi[]>> => ({
+                    ...values.runJobs,
+                    [runId]: await engineeringAnalyticsWorkflowJobs(projectId(), {
+                        run_id: runId,
+                        source_id: props.sourceId ?? undefined,
+                    }),
+                }),
             },
         ],
     })),
@@ -61,9 +79,27 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                 loadLifecycleFailure: () => true,
             },
         ],
+        expandedRunKeys: [
+            [] as string[],
+            {
+                setRunExpanded: (state, { rowKey, expanded }) =>
+                    expanded ? Array.from(new Set([...state, rowKey])) : state.filter((key) => key !== rowKey),
+            },
+        ],
     }),
 
+    listeners(({ actions, values }) => ({
+        setRunExpanded: ({ expanded, runId }) => {
+            // Fetch a run's jobs once, on first expand.
+            if (expanded && runId != null && !(runId in values.runJobs)) {
+                actions.loadJobs({ runId })
+            }
+        },
+    })),
+
     selectors({
+        // Exposed so the scene can preserve `?source=` when linking out to a run detail page.
+        sourceId: [() => [(_, p: PullRequestDetailLogicProps) => p.sourceId], (sourceId): string | null => sourceId],
         summary: [
             (s) => [s.lifecycle],
             (lifecycle): LifecycleSummary | null => (lifecycle ? summarizeLifecycle(lifecycle.events) : null),

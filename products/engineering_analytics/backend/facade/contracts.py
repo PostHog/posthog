@@ -21,7 +21,7 @@ read layer maps them into these types. Reviewers, deploys, and file paths are
 intentionally absent until the warehouse data that backs them lands.
 """
 
-from datetime import date, datetime
+from datetime import datetime
 from enum import StrEnum
 
 from pydantic.dataclasses import dataclass
@@ -139,6 +139,56 @@ class WorkflowRun:
 
 
 @dataclass(frozen=True)
+class WorkflowRunDetail:
+    """A single workflow run, for the run detail page. Run-level only — per-job/step data isn't in
+    the warehouse yet (see WORKFLOW_JOBS_COLUMNS). ``pr_number`` is 0 when the run isn't attributed
+    to a pull request (fork PR, or a push with no open PR); multi-PR runs credit the first only.
+    """
+
+    repo: RepoRef
+    id: int
+    workflow_name: str
+    head_sha: str
+    head_branch: str
+    # Raw run status: 'queued', 'in_progress', 'completed', ... (passthrough).
+    status: str
+    # Raw conclusion passthrough ('success' / 'failure' / 'timed_out' / 'cancelled' / 'skipped' /
+    # 'action_required' / ...), or None while still in progress. Kept as a str (not WorkflowConclusion)
+    # because the data carries conclusions outside that enum.
+    conclusion: str | None
+    run_started_at: datetime
+    updated_at: datetime
+    # None until the run completes — duration is only computed for completed runs.
+    duration_seconds: int | None
+    # Re-run attempt number; 1 for the first attempt.
+    run_attempt: int
+    # Attributed pull request number, or 0 when unattributed.
+    pr_number: int
+
+
+@dataclass(frozen=True)
+class WorkflowJob:
+    """One job within a workflow run, for the run's expandable job breakdown. ``estimated_cost_usd``
+    is derived from the runner tier (parsed from ``runner_label``) and the job's elapsed time via the
+    cost model; None when the tier is unknown or the job hasn't finished.
+    """
+
+    id: int
+    run_id: int
+    name: str
+    # Raw status / conclusion passthrough; conclusion is None while the job is still in progress.
+    status: str
+    conclusion: str | None
+    # None while queued / running, respectively.
+    started_at: datetime | None
+    completed_at: datetime | None
+    duration_seconds: int | None
+    # The job's primary runner label (tier), or '' when unknown.
+    runner_label: str
+    estimated_cost_usd: float | None
+
+
+@dataclass(frozen=True)
 class PRLifecycleEvent:
     kind: PRLifecycleEventKind
     at: datetime
@@ -225,14 +275,16 @@ class CICardSummary:
 
 
 @dataclass(frozen=True)
-class WorkflowHealthDay:
-    """One day of a workflow's run history; days without runs are zero-filled.
-    ``failures`` is decisive failures only (failure / timed_out), matching the CI
-    rollup — skipped, cancelled, and action_required runs are neither successes nor
-    failures, so they must not be treated as non-passing.
+class WorkflowHealthBucket:
+    """One time bucket of a workflow's run history; empty buckets are zero-filled. The
+    bucket width (hour / day / week) is set per item in ``WorkflowHealthItem.granularity``
+    to fit the window. ``failures`` is decisive failures only (failure / timed_out),
+    matching the CI rollup — skipped, cancelled, and action_required runs are neither
+    successes nor failures, so they must not be treated as non-passing.
     """
 
-    day: date
+    # Bucket start, aligned to the granularity (top of hour / midnight / Monday).
+    bucket_start: datetime
     run_count: int
     completed: int
     successes: int
@@ -252,5 +304,12 @@ class WorkflowHealthItem:
     p50_seconds: float | None
     p95_seconds: float | None
     last_failure_at: datetime | None
-    # Daily run history across the whole window, oldest first, zero-filled.
-    daily: list[WorkflowHealthDay]
+    # Whether the most recent completed run was a decisive failure (failure / timed_out).
+    # None when nothing has completed in the window. Drives the OK/RED status badge — a
+    # bool, not the raw conclusion, because the data carries conclusions outside
+    # WorkflowConclusion (e.g. action_required) that would fail validation here.
+    latest_run_failed: bool | None
+    # Bucket width of the history series, chosen to fit the window: 'hour', 'day', or 'week'.
+    granularity: str
+    # Run history across the whole window, oldest first, zero-filled, bucketed by `granularity`.
+    buckets: list[WorkflowHealthBucket]

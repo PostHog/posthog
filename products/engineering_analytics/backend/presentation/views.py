@@ -27,6 +27,8 @@ from products.engineering_analytics.backend.presentation.serializers import (
     PRLifecycleSerializer,
     PullRequestListSerializer,
     WorkflowHealthItemSerializer,
+    WorkflowJobSerializer,
+    WorkflowRunDetailSerializer,
 )
 
 ENGINEERING_ANALYTICS_TAG = "engineering_analytics"
@@ -84,7 +86,16 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     """PR and CI lifecycle analytics over the GitHub warehouse data."""
 
     scope_object = "engineering_analytics"
-    scope_object_read_actions = ["sources", "ci_cards", "pull_requests", "workflow_health", "pr_lifecycle"]
+    scope_object_read_actions = [
+        "sources",
+        "ci_cards",
+        "pull_requests",
+        "workflow_health",
+        "pr_lifecycle",
+        "workflow_run",
+        "workflow_runs",
+        "workflow_jobs",
+    ]
     scope_object_write_actions: list[str] = []
 
     def handle_exception(self, exc: Exception) -> Response:
@@ -170,10 +181,11 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             ),
         },
         description=(
-            "Per-workflow CI health over a window (default last 30 days, maximum 366 days): run count, success "
-            "rate, p50/p95 duration over completed runs, last failure time, and a zero-filled daily run history. "
-            "Optionally scope to a single git branch via `branch`. Use this for 'is CI getting slower' and "
-            "'which workflow is the long pole'; compare two windows to get a trend."
+            "Per-workflow CI health over a window (default last 24 hours, maximum 366 days): run count, success "
+            "rate, p50/p95 duration over completed runs, last failure time, latest-run status, and a zero-filled "
+            "run history bucketed by hour/day/week to fit the window. Optionally scope to a single git branch via "
+            "`branch`. Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two "
+            "windows to get a trend."
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)
@@ -238,3 +250,138 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         if result is None:
             return Response({"detail": "Pull request not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(PRLifecycleSerializer(instance=result).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_workflow_run",
+        parameters=[
+            OpenApiParameter(
+                name="run_id",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="GitHub Actions run id to inspect.",
+            ),
+            _SOURCE_ID,
+        ],
+        responses={
+            200: WorkflowRunDetailSerializer,
+            400: OpenApiResponse(description="Missing or non-integer run_id, or invalid source_id."),
+            404: OpenApiResponse(description="No workflow run with that id in the warehouse."),
+        },
+        description=(
+            "A single workflow run: status, conclusion, duration, branch, attempt, and the attributed pull "
+            "request. Run-level only — per-job and per-step detail are not tracked yet."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def workflow_run(self, request: Request, **kwargs) -> Response:
+        raw_run_id = request.query_params.get("run_id")
+        if raw_run_id is None:
+            return Response({"detail": "run_id must be an integer"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            run_id = int(raw_run_id)
+        except ValueError:
+            return Response({"detail": "run_id must be an integer"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            result = api.get_workflow_run(
+                team=self.team,
+                run_id=run_id,
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid source_id")
+        if result is None:
+            return Response({"detail": "Workflow run not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(WorkflowRunDetailSerializer(instance=result).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_workflow_runs",
+        parameters=[
+            OpenApiParameter(
+                name="workflow_name",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Workflow name to list runs for.",
+            ),
+            OpenApiParameter(
+                name="repo",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="'owner/name' repository the workflow belongs to.",
+            ),
+            _SOURCE_ID,
+        ],
+        responses={
+            200: WorkflowRunDetailSerializer(many=True),
+            400: OpenApiResponse(description="Missing workflow_name/repo, or invalid repo or source_id."),
+        },
+        description=(
+            "Recent runs of a single workflow within a repo, newest first. Each row is run-level — per-job "
+            "and per-step detail are not tracked yet. Use this as the GitHub 'workflow' page between the "
+            "workflow list and a single run."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def workflow_runs(self, request: Request, **kwargs) -> Response:
+        workflow_name = request.query_params.get("workflow_name")
+        repo = request.query_params.get("repo")
+        if not workflow_name or not repo:
+            return Response({"detail": "workflow_name and repo are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            runs = api.list_workflow_runs(
+                team=self.team,
+                repo=repo,
+                workflow_name=workflow_name,
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid repo or source_id")
+        return Response(WorkflowRunDetailSerializer(instance=runs, many=True).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_workflow_jobs",
+        parameters=[
+            OpenApiParameter(
+                name="run_id",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Workflow run id to list jobs for.",
+            ),
+            _SOURCE_ID,
+        ],
+        responses={
+            200: WorkflowJobSerializer(many=True),
+            400: OpenApiResponse(description="Missing or non-integer run_id, or invalid source_id."),
+        },
+        description=(
+            "Jobs of a single workflow run, with per-job duration, runner tier, and estimated cost. "
+            "Returns an empty list when the job-level source isn't synced yet."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def workflow_jobs(self, request: Request, **kwargs) -> Response:
+        raw_run_id = request.query_params.get("run_id")
+        if raw_run_id is None:
+            return Response({"detail": "run_id must be an integer"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            run_id = int(raw_run_id)
+        except ValueError:
+            return Response({"detail": "run_id must be an integer"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            jobs = api.list_workflow_jobs(
+                team=self.team,
+                run_id=run_id,
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid source_id")
+        return Response(WorkflowJobSerializer(instance=jobs, many=True).data)

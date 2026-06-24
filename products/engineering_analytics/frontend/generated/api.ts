@@ -14,10 +14,15 @@ import type {
     EngineeringAnalyticsPrLifecycleParams,
     EngineeringAnalyticsPullRequestsParams,
     EngineeringAnalyticsWorkflowHealthParams,
+    EngineeringAnalyticsWorkflowJobsParams,
+    EngineeringAnalyticsWorkflowRunParams,
+    EngineeringAnalyticsWorkflowRunsParams,
     GitHubSourceApi,
     PRLifecycleApi,
     PullRequestListApi,
     WorkflowHealthItemApi,
+    WorkflowJobApi,
+    WorkflowRunDetailApi,
 } from './api.schemas'
 
 export const getEngineeringAnalyticsCiCardsUrl = (projectId: string, params?: EngineeringAnalyticsCiCardsParams) => {
@@ -153,7 +158,7 @@ export const getEngineeringAnalyticsWorkflowHealthUrl = (
 }
 
 /**
- * Per-workflow CI health over a window (default last 30 days, maximum 366 days): run count, success rate, p50/p95 duration over completed runs, last failure time, and a zero-filled daily run history. Optionally scope to a single git branch via `branch`. Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend.
+ * Per-workflow CI health over a window (default last 24 hours, maximum 366 days): run count, success rate, p50/p95 duration over completed runs, last failure time, latest-run status, and a zero-filled run history bucketed by hour/day/week to fit the window. Optionally scope to a single git branch via `branch`. Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend.
  */
 export const engineeringAnalyticsWorkflowHealth = async (
     projectId: string,
@@ -161,6 +166,105 @@ export const engineeringAnalyticsWorkflowHealth = async (
     options?: RequestInit
 ): Promise<WorkflowHealthItemApi[]> => {
     return apiMutator<WorkflowHealthItemApi[]>(getEngineeringAnalyticsWorkflowHealthUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsWorkflowJobsUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsWorkflowJobsParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/workflow_jobs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/workflow_jobs/`
+}
+
+/**
+ * Jobs of a single workflow run, with per-job duration, runner tier, and estimated cost. Returns an empty list when the job-level source isn't synced yet.
+ */
+export const engineeringAnalyticsWorkflowJobs = async (
+    projectId: string,
+    params: EngineeringAnalyticsWorkflowJobsParams,
+    options?: RequestInit
+): Promise<WorkflowJobApi[]> => {
+    return apiMutator<WorkflowJobApi[]>(getEngineeringAnalyticsWorkflowJobsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsWorkflowRunUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsWorkflowRunParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/workflow_run/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/workflow_run/`
+}
+
+/**
+ * A single workflow run: status, conclusion, duration, branch, attempt, and the attributed pull request. Run-level only — per-job and per-step detail are not tracked yet.
+ */
+export const engineeringAnalyticsWorkflowRun = async (
+    projectId: string,
+    params: EngineeringAnalyticsWorkflowRunParams,
+    options?: RequestInit
+): Promise<WorkflowRunDetailApi> => {
+    return apiMutator<WorkflowRunDetailApi>(getEngineeringAnalyticsWorkflowRunUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsWorkflowRunsUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsWorkflowRunsParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/workflow_runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/workflow_runs/`
+}
+
+/**
+ * Recent runs of a single workflow within a repo, newest first. Each row is run-level — per-job and per-step detail are not tracked yet. Use this as the GitHub 'workflow' page between the workflow list and a single run.
+ */
+export const engineeringAnalyticsWorkflowRuns = async (
+    projectId: string,
+    params: EngineeringAnalyticsWorkflowRunsParams,
+    options?: RequestInit
+): Promise<WorkflowRunDetailApi[]> => {
+    return apiMutator<WorkflowRunDetailApi[]>(getEngineeringAnalyticsWorkflowRunsUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

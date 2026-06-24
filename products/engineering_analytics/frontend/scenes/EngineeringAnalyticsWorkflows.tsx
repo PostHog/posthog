@@ -1,19 +1,29 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 
-import { LemonInput, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { IconTrending } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { getSeriesColorPalette } from 'lib/colors'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
+import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { dateFilterToText, dateMapping } from 'lib/utils/dateFilters'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { urls } from 'scenes/urls'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
-import { githubWorkflowUrl } from '../lib/github'
-import { WorkflowHealthRow, engineeringAnalyticsLogic, workflowTrendSeries } from './engineeringAnalyticsLogic'
+import { FailureSparkline } from '../components/FailureSparkline'
+import {
+    WorkflowHealthRow,
+    WorkflowTrendDirection,
+    engineeringAnalyticsLogic,
+    workflowFailureSeries,
+    workflowFailureTrend,
+} from './engineeringAnalyticsLogic'
 
 // The endpoint caps the window at 366 days, so "All time" and week/month snaps are out.
 const WORKFLOW_DATE_OPTIONS = dateMapping.filter(({ key }) =>
@@ -51,6 +61,55 @@ function successRateClass(rate: number | null): string {
     return ''
 }
 
+/** Stable per-name color so each workflow keeps the same dot across renders and sorts. */
+function WorkflowDot({ name }: { name: string }): JSX.Element {
+    const palette = getSeriesColorPalette()
+    let hash = 0
+    for (let i = 0; i < name.length; i++) {
+        hash = (hash * 31 + name.charCodeAt(i)) | 0
+    }
+    const color = palette[Math.abs(hash) % palette.length]
+    return <span className="inline-block h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
+}
+
+/** Sort key so a Status sort surfaces failing workflows first. */
+function statusRank(failed: boolean | null): number {
+    if (failed === true) {
+        return 2
+    }
+    return failed === null ? 1 : 0
+}
+
+function StatusTag({ failed }: { failed: boolean | null }): JSX.Element {
+    if (failed === null) {
+        // Nothing has completed in the window — no pass/fail signal to show.
+        return <span className="text-xs text-secondary">—</span>
+    }
+    return failed ? <LemonTag type="danger">Failing</LemonTag> : <LemonTag type="success">Passing</LemonTag>
+}
+
+function TrendArrow({ direction }: { direction: WorkflowTrendDirection }): JSX.Element {
+    if (direction === 'up') {
+        return (
+            <Tooltip title="Failures rising">
+                <IconTrending className="text-danger shrink-0" />
+            </Tooltip>
+        )
+    }
+    if (direction === 'down') {
+        return (
+            <Tooltip title="Failures falling">
+                <IconTrendingDown className="text-success shrink-0" />
+            </Tooltip>
+        )
+    }
+    return (
+        <Tooltip title="No change in failures">
+            <IconTrendingFlat className="text-muted shrink-0" />
+        </Tooltip>
+    )
+}
+
 export function EngineeringAnalyticsWorkflows(): JSX.Element {
     const {
         workflowHealth,
@@ -61,6 +120,7 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
         workflowDateTo,
         branchInput,
         appliedBranch,
+        sourceId,
     } = useValues(engineeringAnalyticsLogic)
     const { setWorkflowDateRange, setBranchFilter, applyBranchFilter, refresh } = useActions(engineeringAnalyticsLogic)
 
@@ -71,21 +131,41 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
         return <CIAnalyticsLoadError onRetry={refresh} />
     }
 
-    const windowLabel = dateFilterToText(workflowDateFrom, workflowDateTo, 'Last 30 days') ?? 'Last 30 days'
+    const windowLabel = dateFilterToText(workflowDateFrom, workflowDateTo, 'Last 24 hours') ?? 'Last 24 hours'
+
+    // Stage + apply a branch in one click (the chips). Clicking the active chip clears back to all branches.
+    const selectBranch = (branch: string): void => {
+        setBranchFilter(branch)
+        applyBranchFilter()
+    }
 
     const columns: LemonTableColumns<WorkflowHealthRow> = [
         {
             title: 'Workflow',
             key: 'workflowName',
             render: (_, row) => (
-                <Link
-                    to={githubWorkflowUrl(row.repoOwner, row.repoName, row.workflowName)}
-                    target="_blank"
-                    className="font-medium"
-                >
-                    {row.workflowName}
-                </Link>
+                <div className="flex items-center gap-2">
+                    <WorkflowDot name={row.workflowName} />
+                    <Link
+                        to={
+                            combineUrl(
+                                urls.engineeringAnalyticsWorkflowRuns(row.repoOwner, row.repoName, row.workflowName),
+                                sourceId ? { source: sourceId } : {}
+                            ).url
+                        }
+                        className="font-medium"
+                    >
+                        {row.workflowName}
+                    </Link>
+                </div>
             ),
+        },
+        {
+            title: 'Status',
+            key: 'status',
+            // Failing first when sorted: failing (2) > unknown (1) > passing (0).
+            sorter: (a, b) => statusRank(a.latestRunFailed) - statusRank(b.latestRunFailed),
+            render: (_, row) => <StatusTag failed={row.latestRunFailed} />,
         },
         {
             title: 'Runs',
@@ -106,25 +186,25 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
             ),
         },
         {
-            title: 'Trend',
+            title: 'Failures',
             key: 'trend',
             // Pinned so the layout doesn't shift when sorting reorders rows with and without history.
             width: 272,
             render: function RenderTrend(_, row) {
-                if (row.daily.length === 0) {
+                if (row.buckets.length === 0) {
                     return <span className="text-xs text-secondary">—</span>
                 }
-                const { values, labels } = workflowTrendSeries(row.daily)
+                const { completed, failures, labels } = workflowFailureSeries(row.buckets, row.granularity)
                 return (
-                    <Sparkline
-                        className="h-8"
-                        type="bar"
-                        name="Failing"
-                        data={values}
-                        labels={labels}
-                        maximumIndicator={false}
-                        renderTooltipValue={(value) => `${humanFriendlyNumber(value * 100)}%`}
-                    />
+                    <div className="flex items-center gap-2">
+                        <FailureSparkline
+                            className="flex-1"
+                            completed={completed}
+                            failures={failures}
+                            labels={labels}
+                        />
+                        <TrendArrow direction={workflowFailureTrend(row.buckets)} />
+                    </div>
                 )
             },
         },
@@ -181,6 +261,18 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
                     onBlur={applyBranchFilter}
                     data-attr="engineering-analytics-branch-filter"
                 />
+                {/* Quick presets for the default branch. We can't tell main from master without another query,
+                    so offer both — clicking the active one clears back to all branches. */}
+                {['main', 'master'].map((branch) => (
+                    <LemonButton
+                        key={branch}
+                        size="xsmall"
+                        type={appliedBranch === branch ? 'primary' : 'secondary'}
+                        onClick={() => selectBranch(appliedBranch === branch ? '' : branch)}
+                    >
+                        {branch}
+                    </LemonButton>
+                ))}
             </div>
             <LemonTable
                 data-attr="engineering-analytics-workflow-table"
@@ -188,6 +280,8 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
                 columns={columns}
                 dataSource={workflowHealth}
                 rowKey={(row) => `${row.repoOwner}/${row.repoName}:${row.workflowName}`}
+                // De-emphasize workflows with nothing settled in the window — no pass/fail signal to read.
+                rowClassName={(row) => (row.successRate === null ? 'opacity-60' : null)}
                 loading={workflowHealthLoading}
                 useURLForSorting={false}
                 pagination={{ pageSize: 50 }}
