@@ -5,11 +5,10 @@ from typing import Any, Optional
 import requests
 from dateutil import parser
 from structlog.types import FilteringBoundLogger
-from urllib3.util.retry import Retry
 
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
-from posthog.temporal.data_imports.sources.common.http import make_tracked_session
+from posthog.temporal.data_imports.sources.common.http import DEFAULT_RETRY, make_tracked_session
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.paddle.settings import ENDPOINTS, INCREMENTAL_FIELDS
 
@@ -43,15 +42,22 @@ def _format_paddle_datetime_query_value(value: Any) -> str:
     return parsed.isoformat().replace("+00:00", "Z")
 
 
-def _get_paddle_session() -> requests.Session:
-    # Plain session with no retry adapter: errors fail fast so the caller
-    # can surface them immediately rather than silently retrying.
-    return make_tracked_session(retry=Retry(total=0))
+def _get_paddle_session(api_key: str) -> requests.Session:
+    # DEFAULT_RETRY backs off on 429/5xx (honoring Retry-After) but leaves auth/4xx
+    # failures to surface immediately, so a transient rate-limit doesn't fail the sync.
+    # The bearer token is set on the session and registered with redact_values so the
+    # tracked transport scrubs it from logged URLs, headers, and captured samples.
+    return make_tracked_session(
+        retry=DEFAULT_RETRY,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        redact_values=(api_key,),
+    )
 
 
 def paddle_request(session: requests.Session, method: str, url: str, **kwargs) -> requests.Response:
-    # No retry adapter on the session — errors surface immediately so the
-    # caller (get_rows / validate_credentials) can decide how to handle them.
     response = session.request(method, url, **kwargs)
     return response
 
@@ -64,11 +70,6 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[PaddleResumeConfig],
     should_use_incremental_field: bool = False,
 ):
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-
     url = f"{PADDLE_BASE_URL}/{endpoint}"
     params: dict[str, Any] = {"per_page": 200}
     incremental_field_config = INCREMENTAL_FIELDS.get(endpoint, [])
@@ -88,7 +89,7 @@ def get_rows(
         params = {}
 
     batcher = Batcher(logger=logger)
-    session = _get_paddle_session()
+    session = _get_paddle_session(api_key)
     seen_urls: set[str] = set()
 
     while url:
@@ -96,7 +97,7 @@ def get_rows(
             break
         seen_urls.add(url)
 
-        response = paddle_request(session, "GET", url, headers=headers, params=params)
+        response = paddle_request(session, "GET", url, params=params)
 
         response.raise_for_status()
         data = response.json()
@@ -169,15 +170,11 @@ def paddle_source(
 
 
 def validate_credentials(api_key: str, table_name: Optional[str] = None) -> bool:
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-    }
-
     endpoints_to_check = [table_name] if table_name else ENDPOINTS
-    session = _get_paddle_session()
+    session = _get_paddle_session(api_key)
 
     for endpoint in endpoints_to_check:
-        response = paddle_request(session, "GET", f"{PADDLE_BASE_URL}/{endpoint}", headers=headers)
+        response = paddle_request(session, "GET", f"{PADDLE_BASE_URL}/{endpoint}")
         if response.status_code == 403:
             raise PaddlePermissionError(f"Missing permissions for {endpoint}")
         response.raise_for_status()

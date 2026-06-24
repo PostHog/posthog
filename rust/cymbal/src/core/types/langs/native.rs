@@ -330,6 +330,19 @@ impl RawNativeFrame {
         }
     }
 
+    /// The uploaded debug symbol set this frame resolves against, identified by
+    /// the matched debug image's `debug_id` (the chunk_id used at upload). None
+    /// when no debug image matches the address, so there is no symbol set to
+    /// link — e.g. a JIT or otherwise unmapped frame.
+    pub fn symbol_set_ref(&self, debug_images: &[DebugImage]) -> Option<String> {
+        launch_invariant_addr(
+            self.instruction_addr.as_deref(),
+            self.image_addr.as_deref(),
+            debug_images,
+        )
+        .map(|(debug_id, _)| debug_id)
+    }
+
     pub fn frame_id(&self, debug_images: &[DebugImage]) -> String {
         let mut hasher = Sha512::new();
 
@@ -695,6 +708,18 @@ mod test {
             image_type: Some("elf".to_string()),
             arch: Some("x86_64".to_string()),
         }
+    }
+
+    #[test]
+    fn symbol_set_ref_is_matched_debug_id() {
+        let frame = native_frame_at(0x1000_4000, 0x1000_0000);
+        let images = [debug_image_at("rust-build-1", 0x1000_0000)];
+        assert_eq!(
+            frame.symbol_set_ref(&images),
+            Some("rust-build-1".to_string())
+        );
+        // No matching debug image -> no symbol set to link.
+        assert_eq!(frame.symbol_set_ref(&[]), None);
     }
 
     // Fixture facts (see tests/static/native/build.sh; constants extracted
