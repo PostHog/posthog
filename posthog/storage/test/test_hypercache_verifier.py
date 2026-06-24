@@ -758,6 +758,7 @@ class TestVerifyAndFixAllTeams(BaseTest):
 
         with (
             patch("posthog.storage.hypercache_verifier.MAX_FIX_DETAIL_INFO_LOGS", 0),
+            patch("posthog.storage.hypercache_verifier.PROGRESS_LOG_BATCH_INTERVAL", 999),
             patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={}),
             patch("posthog.storage.hypercache_verifier.logger.info") as mock_info,
         ):
