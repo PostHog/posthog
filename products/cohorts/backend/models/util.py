@@ -301,7 +301,7 @@ def _sanitize_query_for_cohort(query_dict: dict) -> dict:
 
     The ``search`` term is deliberately preserved: when a static cohort is
     created from the persons list ("Save as static cohort"), the user expects
-    only the persons matching their free-text search to be added — not every
+    only the persons matching their free-text search to be added, not every
     person (see issue #65303). The search term is part of the ActorsQuery and
     is applied by ActorsQueryRunner/PersonStrategy exactly as it is on the live
     persons list, so leaving it in place keeps the two paths consistent.
