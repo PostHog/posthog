@@ -727,6 +727,44 @@ describe('janitor HTTP', () => {
         expect(paths).toEqual(['agent.md', 'skills/research.md'])
     })
 
+    it('PUT /revisions/:id/skills/:id writes SKILL.md + companion files', async () => {
+        const { app, bundles, revisionId } = await mkRevisionApp()
+        const res = await request(app)
+            .put(`/revisions/${revisionId}/skills/triage`)
+            .send({
+                description: 'triage inbound',
+                body: '---\nname: triage\n---\nthe body',
+                files: [{ path: 'references/api.md', content: '# API' }],
+            })
+        expect(res.status).toBe(200)
+        expect(res.body).toMatchObject({ ok: true, skill_id: 'triage', files_written: 1 })
+        expect(await bundles.readText(revisionId, 'skills/triage/SKILL.md')).toContain('the body')
+        expect(await bundles.readText(revisionId, 'skills/triage/references/api.md')).toBe('# API')
+    })
+
+    it('PUT /revisions/:id/skills/:id rejects a companion path escaping the skill folder', async () => {
+        const { app, bundles, revisionId } = await mkRevisionApp()
+        const res = await request(app)
+            .put(`/revisions/${revisionId}/skills/triage`)
+            .send({ description: 'd', body: 'b', files: [{ path: '../escape.md', content: 'x' }] })
+        expect(res.status).toBe(400)
+        expect(res.body.error).toBe('invalid_skill_file_path')
+        // Invalid input must not have cleared/written anything.
+        expect(await bundles.exists(revisionId, 'skills/triage/SKILL.md')).toBe(false)
+    })
+
+    it('PUT /revisions/:id/skills/:id re-PUT sweeps stale companions', async () => {
+        const { app, bundles, revisionId } = await mkRevisionApp()
+        await request(app)
+            .put(`/revisions/${revisionId}/skills/triage`)
+            .send({ description: 'd', body: 'b', files: [{ path: 'old.md', content: '1' }] })
+        await request(app)
+            .put(`/revisions/${revisionId}/skills/triage`)
+            .send({ description: 'd', body: 'b2', files: [{ path: 'new.md', content: '2' }] })
+        expect(await bundles.exists(revisionId, 'skills/triage/old.md')).toBe(false)
+        expect(await bundles.readText(revisionId, 'skills/triage/new.md')).toBe('2')
+    })
+
     // The single-file `/file` and bulk `/bundle` (with `mode`) endpoints
     // were removed alongside the typed bundle rollout. End-to-end coverage
     // of the typed endpoints lives in

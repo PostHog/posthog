@@ -27,8 +27,31 @@ import { BundleEntry, BundleStore } from './bundle'
 // ─── Canonical S3 paths ──────────────────────────────────────────────
 
 export const AGENT_MD_PATH = 'agent.md'
+export const SKILL_BODY_FILENAME = 'SKILL.md'
 export function skillBodyPath(skillId: string): string {
-    return `skills/${skillId}/SKILL.md`
+    return `skills/${skillId}/${SKILL_BODY_FILENAME}`
+}
+
+/**
+ * Resolve a skill companion file's relative path to its canonical bundle path
+ * (`skills/<id>/<rel>`), rejecting anything that would escape the skill folder
+ * or collide with the reserved `SKILL.md` body. Mirrors the runtime guard in
+ * `@posthog/load-skill`'s `resolveSkillFile` so what we write is exactly what
+ * the loader will later accept. Throws on invalid input.
+ */
+export function skillCompanionPath(skillId: string, relPath: string): string {
+    const rel = relPath.replace(/\\/g, '/')
+    if (!rel || rel.startsWith('/')) {
+        throw new Error(`skill file "${relPath}" must be a non-empty relative path inside the skill folder.`)
+    }
+    const segments = rel.split('/')
+    if (segments.some((s) => s === '..' || s === '.' || s === '')) {
+        throw new Error(`skill file "${relPath}" must not contain traversal or empty segments.`)
+    }
+    if (rel === SKILL_BODY_FILENAME) {
+        throw new Error(`skill file "${relPath}" is reserved — the body is written from the skill's \`body\`.`)
+    }
+    return `skills/${skillId}/${rel}`
 }
 export function toolSourcePath(toolId: string): string {
     return `tools/${toolId}/source.ts`
@@ -364,7 +387,9 @@ export async function deleteToolFiles(revisionId: string, store: BundleStore, to
 }
 
 /**
- * Delete one skill's folder (`skills/<id>/` — currently just SKILL.md).
+ * Delete one skill's folder (`skills/<id>/` — SKILL.md plus any companion
+ * files), so a re-PUT fully replaces the skill rather than leaving stale
+ * companions behind.
  */
 export async function deleteSkillFiles(revisionId: string, store: BundleStore, skillId: string): Promise<void> {
     const entries = await store.list(revisionId, `skills/${skillId}/`)

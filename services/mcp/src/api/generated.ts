@@ -8393,6 +8393,26 @@ export namespace Schemas {
       Archived: 'archived',
     } as const;
 
+    /**
+     * One reference to a versioned skill in the llma-skill store, pinned into
+     * this agent's bundle at freeze.
+     */
+    export interface SkillRef {
+      /** Name of the skill in the llma-skill store to pin into this agent. Resolved at freeze to the chosen `version` and materialized into the bundle. */
+      from_template: string;
+      /**
+         * Folder the resolved skill is materialized under in the bundle (`skills/<alias>/`). Lowercase letters, digits, hyphens or underscores; must be unique within the revision.
+         * @maxLength 64
+         * @pattern ^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$
+         */
+      alias: string;
+      /**
+         * Specific published version to pin. Omit to pin the store's latest version at freeze time.
+         * @minimum 1
+         */
+      version?: number;
+    }
+
     export interface AgentRevision {
       readonly id: string;
       readonly application: string;
@@ -8404,6 +8424,8 @@ export namespace Schemas {
       /** @nullable */
       readonly bundle_sha256: string | null;
       spec?: AgentRevisionSpec;
+      /** Store-skill references for this draft, set via the `skill_refs` action and resolved into the bundle at freeze. Empty on a frozen revision once derived into `spec.skills`. */
+      readonly skill_refs: readonly SkillRef[];
       /** @nullable */
       readonly created_by_id: number | null;
       /**
@@ -34368,6 +34390,8 @@ export namespace Schemas {
       /** @nullable */
       readonly bundle_sha256?: string | null;
       spec?: PatchedAgentRevisionSpec;
+      /** Store-skill references for this draft, set via the `skill_refs` action and resolved into the bundle at freeze. Empty on a frozen revision once derived into `spec.skills`. */
+      readonly skill_refs?: readonly SkillRef[];
       /** @nullable */
       readonly created_by_id?: number | null;
       /**
@@ -45894,6 +45918,14 @@ export namespace Schemas {
      */
     export interface SetEnvRequest {
       env: SetEnvRequestEnv;
+    }
+
+    /**
+     * Body for PUT /revisions/<id>/skill_refs/ — full-replace the draft's references.
+     */
+    export interface SetSkillRefsRequest {
+      /** The complete set of store-skill references for this draft; replaces any existing references. */
+      skill_refs: SkillRef[];
     }
 
     /**

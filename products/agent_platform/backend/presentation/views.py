@@ -73,6 +73,7 @@ from ..db import WRITER_DB
 from ..logic.internal_jwt import AgentInternalAudience, encode_agent_internal_jwt
 from ..logic.janitor_client import JanitorClient, JanitorClientError, default_client
 from ..logic.posthog_identity_app import provision_posthog_identity_apps
+from ..logic.skill_resolution import resolve_skill_ref, stamp_skill_provenance
 from ..logic.spec_schema import missing_required_secrets
 from ..models import AgentApplication, AgentIdentityCredential, AgentRevision
 from .serializers import (
@@ -85,6 +86,7 @@ from .serializers import (
     PromoteRevisionRequestSerializer,
     SetEnvKeyRequestSerializer,
     SetEnvRequestSerializer,
+    SetSkillRefsRequestSerializer,
     WriteAgentMdRequestSerializer,
     WriteSkillRequestSerializer,
     WriteSpecRequestSerializer,
@@ -1991,6 +1993,28 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         revision: AgentRevision = self.get_object()
         return Response(self._call(_janitor().delete_skill, str(revision.id), skill_id))
 
+    @extend_schema(request=SetSkillRefsRequestSerializer, responses={200: AgentRevisionSerializer})
+    @action(detail=True, methods=["put"], url_path="skill_refs")
+    def set_skill_refs(self, request: Request, **kwargs) -> Response:
+        """Full-replace the draft's store-skill references. They are resolved
+        and materialized into the bundle at freeze, not here — this only records
+        which skills (and pinned versions) the freeze should pull in."""
+        revision: AgentRevision = self.get_object()
+        if revision.state != "draft":
+            raise ValidationError(
+                f"Cannot set skill references on a {revision.state} revision; only 'draft' is mutable."
+            )
+        body = SetSkillRefsRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        refs = body.validated_data["skill_refs"]
+        aliases = [r["alias"] for r in refs]
+        if len(set(aliases)) != len(aliases):
+            raise ValidationError("Each skill reference must have a unique 'alias' within the revision.")
+        revision.skill_refs = [dict(r) for r in refs]
+        revision.save(update_fields=["skill_refs"])
+        revision.refresh_from_db()
+        return Response(AgentRevisionSerializer(revision).data)
+
     @extend_schema(request=WriteToolRequestSerializer)
     @action(detail=True, methods=["put"], url_path=r"tools/(?P<tool_id>[a-z0-9][a-z0-9_-]*)")
     def put_tool(self, request: Request, tool_id: str, **kwargs) -> Response:
@@ -2200,14 +2224,35 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if revision.state != "draft":
             raise ValidationError(f"Cannot freeze a {revision.state} revision; only 'draft' can be frozen.")
         janitor_client = _janitor()
-        # Skill / custom-tool template pinning (freeze_templates_into_bundle) is
-        # disabled pending a registry rethink — see the commented-out template
-        # routes in routes.py.
+        # Resolve every draft skill reference against the llma-skill store at its
+        # pinned version, then materialize each into the bundle (SKILL.md +
+        # companions) BEFORE sealing — so a frozen revision carries the exact
+        # skill bytes and never re-resolves a possibly-changed skill at runtime.
+        # Resolution is pure (no side effects) and runs to completion first, so a
+        # missing/un-exportable/duplicate-alias ref fails the freeze before any
+        # bundle write, never leaving the draft half-materialized. Alias
+        # uniqueness is re-checked here because refs can reach the column via fork
+        # or raw write, bypassing the `skill_refs` endpoint's validation.
+        # (Custom-tool template pinning stays disabled pending a registry rethink
+        # — see the commented-out template routes in routes.py.)
+        resolved_skills = [resolve_skill_ref(self.team, ref) for ref in (revision.skill_refs or [])]
+        aliases = [r.alias for r in resolved_skills]
+        if len(set(aliases)) != len(aliases):
+            raise ValidationError("Each skill reference must resolve to a unique 'alias'.")
+        provenance_by_alias: dict[str, dict] = {}
+        for resolved in resolved_skills:
+            self._call(janitor_client.put_skill, str(revision.id), resolved.alias, resolved.put_skill_payload())
+            provenance_by_alias[resolved.alias] = {
+                "from_template": resolved.from_template,
+                "version": resolved.version,
+                "source_version_id": resolved.source_version_id,
+            }
         result = self._call(janitor_client.freeze, str(revision.id))
         revision.state = "ready"
         revision.bundle_sha256 = result["bundle_sha256"]
         derived_spec = result.get("derived_spec")
         if derived_spec is not None:
+            stamp_skill_provenance(derived_spec, provenance_by_alias)
             revision.spec = derived_spec
             revision.save(update_fields=["state", "bundle_sha256", "spec"])
         else:
@@ -2264,6 +2309,9 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             state="draft",
             bundle_uri=source.bundle_uri,  # same bundle root; janitor scopes by revision_id
             spec=source.spec,
+            # Carry store-skill references forward so a forked draft keeps (and can
+            # re-resolve / re-pin) the same skills — they're the only skill source.
+            skill_refs=source.skill_refs,
             # Secrets are per-revision: carry the parent's encrypted env forward
             # so the author isn't forced to re-enter every secret on each new
             # draft. The ciphertext copies verbatim (same EncryptedFields key

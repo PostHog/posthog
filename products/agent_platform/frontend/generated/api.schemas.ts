@@ -221,6 +221,26 @@ export const AgentRevisionApiSpecFrameworkPromptOmitItem = {
     ReasoningHint: 'reasoning_hint',
 } as const
 
+/**
+ * One reference to a versioned skill in the llma-skill store, pinned into
+ * this agent's bundle at freeze.
+ */
+export interface SkillRefApi {
+    /** Name of the skill in the llma-skill store to pin into this agent. Resolved at freeze to the chosen `version` and materialized into the bundle. */
+    from_template: string
+    /**
+     * Folder the resolved skill is materialized under in the bundle (`skills/<alias>/`). Lowercase letters, digits, hyphens or underscores; must be unique within the revision.
+     * @maxLength 64
+     * @pattern ^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$
+     */
+    alias: string
+    /**
+     * Specific published version to pin. Omit to pin the store's latest version at freeze time.
+     * @minimum 1
+     */
+    version?: number
+}
+
 export type AgentRevisionApiSpecTriggersItem =
     | {
           type: 'slack'
@@ -579,6 +599,8 @@ export interface AgentRevisionApi {
     /** @nullable */
     readonly bundle_sha256: string | null
     spec?: AgentRevisionApiSpec
+    /** Store-skill references for this draft, set via the `skill_refs` action and resolved into the bundle at freeze. Empty on a frozen revision once derived into `spec.skills`. */
+    readonly skill_refs: readonly SkillRefApi[]
     /** @nullable */
     readonly created_by_id: number | null
     /**
@@ -979,6 +1001,8 @@ export interface PatchedAgentRevisionApi {
     /** @nullable */
     readonly bundle_sha256?: string | null
     spec?: PatchedAgentRevisionApiSpec
+    /** Store-skill references for this draft, set via the `skill_refs` action and resolved into the bundle at freeze. Empty on a frozen revision once derived into `spec.skills`. */
+    readonly skill_refs?: readonly SkillRefApi[]
     /** @nullable */
     readonly created_by_id?: number | null
     /**
@@ -1094,6 +1118,14 @@ export type SetEnvRequestApiEnv = { [key: string]: string }
  */
 export interface SetEnvRequestApi {
     env: SetEnvRequestApiEnv
+}
+
+/**
+ * Body for PUT /revisions/<id>/skill_refs/ — full-replace the draft's references.
+ */
+export interface SetSkillRefsRequestApi {
+    /** The complete set of store-skill references for this draft; replaces any existing references. */
+    skill_refs: SkillRefApi[]
 }
 
 export interface AgentRevisionSlackManifestResponseApi {

@@ -65,6 +65,7 @@ import type {
     PreviewProxyInvokeRequestApi,
     SetEnvKeyRequestApi,
     SetEnvRequestApi,
+    SetSkillRefsRequestApi,
     WriteAgentMdRequestApi,
     WriteSkillRequestApi,
     WriteSpecRequestApi,
@@ -1078,6 +1079,34 @@ export const agentApplicationsRevisionsSetEnvCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(setEnvRequestApi),
+    })
+}
+
+export const getAgentApplicationsRevisionsSkillRefsUpdateUrl = (
+    projectId: string,
+    applicationId: string,
+    id: string
+) => {
+    return `/api/projects/${projectId}/agent_applications/${applicationId}/revisions/${id}/skill_refs/`
+}
+
+/**
+ * Full-replace the draft's store-skill references. They are resolved
+ * and materialized into the bundle at freeze, not here — this only records
+ * which skills (and pinned versions) the freeze should pull in.
+ */
+export const agentApplicationsRevisionsSkillRefsUpdate = async (
+    projectId: string,
+    applicationId: string,
+    id: string,
+    setSkillRefsRequestApi: SetSkillRefsRequestApi,
+    options?: RequestInit
+): Promise<AgentRevisionApi> => {
+    return apiMutator<AgentRevisionApi>(getAgentApplicationsRevisionsSkillRefsUpdateUrl(projectId, applicationId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(setSkillRefsRequestApi),
     })
 }
 

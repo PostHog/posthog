@@ -13,6 +13,7 @@ import secrets
 from typing import Any
 
 from django.conf import settings
+from django.core.validators import RegexValidator
 from django.db import IntegrityError
 
 import jsonschema
@@ -250,8 +251,58 @@ class AgentSpecField(serializers.JSONField):
     opaque `{}`."""
 
 
+class SkillRefSerializer(serializers.Serializer):
+    """One reference to a versioned skill in the llma-skill store, pinned into
+    this agent's bundle at freeze."""
+
+    from_template = serializers.CharField(
+        help_text=(
+            "Name of the skill in the llma-skill store to pin into this agent. "
+            "Resolved at freeze to the chosen `version` and materialized into the bundle."
+        ),
+    )
+    alias = serializers.CharField(
+        max_length=64,
+        validators=[
+            RegexValidator(
+                r"^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$",
+                message="alias must be lowercase letters, digits, hyphens or underscores.",
+            )
+        ],
+        help_text=(
+            "Folder the resolved skill is materialized under in the bundle (`skills/<alias>/`). "
+            "Lowercase letters, digits, hyphens or underscores; must be unique within the revision."
+        ),
+    )
+    version = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Specific published version to pin. Omit to pin the store's latest version at freeze time.",
+    )
+
+
+class SetSkillRefsRequestSerializer(serializers.Serializer):
+    """Body for PUT /revisions/<id>/skill_refs/ — full-replace the draft's references."""
+
+    # Bound the count so freeze (one store fetch + one janitor write per ref)
+    # can't fan out without limit. Generous vs. realistic agent skill counts.
+    skill_refs = SkillRefSerializer(
+        many=True,
+        max_length=50,
+        help_text="The complete set of store-skill references for this draft; replaces any existing references.",
+    )
+
+
 class AgentRevisionSerializer(serializers.ModelSerializer):
     spec = AgentSpecField(required=False, default=dict)
+    skill_refs = SkillRefSerializer(
+        many=True,
+        read_only=True,
+        help_text=(
+            "Store-skill references for this draft, set via the `skill_refs` action and resolved into the "
+            "bundle at freeze. Empty on a frozen revision once derived into `spec.skills`."
+        ),
+    )
     created_by = serializers.SerializerMethodField(
         help_text="Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.",
     )
@@ -282,18 +333,21 @@ class AgentRevisionSerializer(serializers.ModelSerializer):
             "bundle_uri",
             "bundle_sha256",
             "spec",
+            "skill_refs",
             "created_by_id",
             "created_by",
             "created_at",
             "updated_at",
         ]
         # state transitions happen through promote / archive actions; spec is
-        # mutable only while state='draft' (enforced in the view).
+        # mutable only while state='draft' (enforced in the view). skill_refs is
+        # set through the dedicated `skill_refs` action, not this serializer.
         read_only_fields = [
             "id",
             "application",
             "state",
             "bundle_sha256",
+            "skill_refs",
             "created_by_id",
             "created_at",
             "updated_at",

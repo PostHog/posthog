@@ -127,6 +127,15 @@ class AgentRevision(ProductTeamModel, UUIDModel):
 
     spec = models.JSONField(default=dict)
 
+    # Draft references to versioned skills in the llma-skill store. Each entry
+    # is {from_template, alias, version?}. Freeze resolves them against the
+    # store at the pinned version, materializes the skill (SKILL.md + any
+    # companion files) into the bundle under skills/<alias>/, and stamps
+    # provenance onto the frozen spec — so a frozen revision never re-resolves a
+    # possibly-changed skill at runtime. Authoring-time only; carried forward
+    # when a new draft is forked from a parent.
+    skill_refs = models.JSONField(default=list, db_default=Value("[]"))
+
     # Encrypted JSON env block — the secret values this revision runs with.
     # Decrypted at runtime by the worker via `EncryptedFields` (see
     # services/agent-shared/src/runtime/encryption.ts). Lives on the revision

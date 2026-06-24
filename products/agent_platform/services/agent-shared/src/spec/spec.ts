@@ -600,6 +600,9 @@ export const SkillRefSchema = z.object({
     from_template: z.string().optional(),
     alias: z.string().optional(),
     version: z.number().int().nonnegative().optional(),
+    // Immutable per-version row id of the resolved store skill — the exact
+    // provenance anchor, stamped at freeze. Optional so older frozen specs parse.
+    source_version_id: z.string().optional(),
 })
 
 /**
