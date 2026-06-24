@@ -108,8 +108,6 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         // AI suggestions
         setAiSuggestionsEnabled: (enabled: boolean) => ({ enabled }),
         setAiSuggestionsLoading: (loading: boolean) => ({ loading }),
-        setAiDiagnosticsEnabled: (enabled: boolean) => ({ enabled }),
-        setAiDiagnosticsLoading: (loading: boolean) => ({ loading }),
     }),
     reducers({
         conversationsEnabledLoading: [
@@ -274,14 +272,6 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             false,
             {
                 setAiSuggestionsLoading: (_, { loading }) => loading,
-                updateCurrentTeamSuccess: () => false,
-                updateCurrentTeamFailure: () => false,
-            },
-        ],
-        aiDiagnosticsLoading: [
-            false,
-            {
-                setAiDiagnosticsLoading: (_, { loading }) => loading,
                 updateCurrentTeamSuccess: () => false,
                 updateCurrentTeamFailure: () => false,
             },
@@ -502,10 +492,6 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         aiSuggestionsEnabled: [
             (s) => [s.currentTeam],
             (currentTeam): boolean => !!currentTeam?.conversations_settings?.ai_suggestions_enabled,
-        ],
-        aiDiagnosticsEnabled: [
-            (s) => [s.currentTeam],
-            (currentTeam): boolean => !!currentTeam?.conversations_settings?.ai_diagnostics_enabled,
         ],
     }),
     listeners(({ values, actions }) => ({
@@ -885,15 +871,6 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 conversations_settings: {
                     ...values.currentTeam?.conversations_settings,
                     ai_suggestions_enabled: enabled,
-                },
-            })
-        },
-        setAiDiagnosticsEnabled: ({ enabled }) => {
-            actions.setAiDiagnosticsLoading(true)
-            actions.updateCurrentTeam({
-                conversations_settings: {
-                    ...values.currentTeam?.conversations_settings,
-                    ai_diagnostics_enabled: enabled,
                 },
             })
         },
