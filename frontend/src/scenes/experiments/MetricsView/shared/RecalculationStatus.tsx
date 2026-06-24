@@ -25,7 +25,7 @@ function StatusSegment({ loading, children }: { loading: boolean; children: Reac
 
 export function RecalculationStatus({ experiment }: { experiment: Experiment }): JSX.Element {
     const { exposuresLoading } = useValues(experimentLogic)
-    const { isRecalculating, recalculationProgress, lastRefresh, currentRecalculation } = useValues(
+    const { isRecalculating, recalculationProgress, lastRefresh, currentRecalculation, totalMetricsCount } = useValues(
         experimentMetricsLogic({ experiment })
     )
 
@@ -34,9 +34,7 @@ export function RecalculationStatus({ experiment }: { experiment: Experiment }):
 
     const metricsLabel = isRecalculating
         ? `Calculating metrics ${completed}/${total}`
-        : total > 0
-          ? `${total} ${total === 1 ? 'metric' : 'metrics'}`
-          : 'No metrics'
+        : `${totalMetricsCount} ${totalMetricsCount === 1 ? 'metric' : 'metrics'}`
 
     return (
         <div className="inline-flex items-center gap-2.5 rounded border border-primary bg-surface-secondary px-2.5 py-1 text-xs">
@@ -53,7 +51,8 @@ export function RecalculationStatus({ experiment }: { experiment: Experiment }):
 
             <LemonDivider vertical className="h-3.5" />
 
-            <span className="flex items-center gap-1 whitespace-nowrap text-muted">
+            {/* TZLabel hardcodes `align-middle`, which sits a few px low in this flex row; reset its span. */}
+            <span className="flex items-center gap-1 whitespace-nowrap text-muted [&_span]:align-baseline">
                 <span>Updated</span>
                 <ExperimentLastRefreshText lastRefresh={lastRefresh} />
             </span>
