@@ -101,4 +101,17 @@ describe('accountNotebooksLogic', () => {
         expect(notebookPanelLogic.values.selectedNotebook).toBe('note-1')
         expect(logic.values.notebooks).toEqual([{ short_id: 'note-1' }])
     })
+
+    it('createNote resets to the first page so the new note is visible', async () => {
+        await mount()
+        logic.actions.setPage(2)
+        await expectLogic(logic).toFinishAllListeners()
+        mockCreate.mockResolvedValue({ short_id: 'note-1' } as AccountNotebookApi)
+
+        logic.actions.createNote()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.page).toBe(1)
+        expect(mockList).toHaveBeenLastCalledWith(TEAM, 'acc-1', expect.objectContaining({ offset: 0 }))
+    })
 })
