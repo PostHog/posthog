@@ -61,9 +61,9 @@ def normalize_host(site_url: str | None) -> str:
     if not re.match(r"^https?://", host, flags=re.IGNORECASE):
         host = f"https://{host}"
     host = host.rstrip("/")
-    # Tolerate a pasted REST root.
+    # Tolerate a pasted REST root. The regex strips a non-slash suffix, so no trailing slash remains.
     host = re.sub(r"/wp-json(/wp/v2)?$", "", host, flags=re.IGNORECASE)
-    return host.rstrip("/")
+    return host
 
 
 def _base_url(site_url: str | None) -> str:
