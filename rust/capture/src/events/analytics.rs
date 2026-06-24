@@ -181,7 +181,7 @@ pub fn process_single_event(
     }
 
     let event = CapturedEvent {
-        // Seed server-assigned UUIDv7s from the event's resolved timestamp, not ingestion time, so the embedded time tracks events.timestamp. Pre-epoch timestamps don't fit the 48-bit field, so fall back to now.
+        // Seed the UUIDv7 from the event timestamp, not ingestion time, so its embedded time tracks events.timestamp.
         uuid: event.uuid.unwrap_or_else(|| {
             match u64::try_from(parsed_timestamp.timestamp.timestamp_millis()) {
                 Ok(millis) => uuid_v7_at_millis(millis),
@@ -501,7 +501,6 @@ mod tests {
         // The high 48 bits of a UUIDv7 hold the Unix-millisecond timestamp.
         let uuid_millis = processed.event.uuid.as_u128() >> 80;
         assert_eq!(uuid_millis, expected_millis);
-        // Must reflect the 2020 event time, not the 2023 ingestion clock.
         assert!(now.timestamp_millis() as u128 - uuid_millis > 60_000_000_000);
     }
 

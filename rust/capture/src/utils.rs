@@ -65,8 +65,7 @@ pub fn uuid_v7() -> Uuid {
     uuid_v7_at_millis(now_millis)
 }
 
-/// Like [`uuid_v7`] but encodes a caller-provided Unix-millisecond timestamp into the time
-/// component, so a server-assigned UUID can carry the event's own time, not ingestion time.
+/// Like [`uuid_v7`] but encodes a caller-provided Unix-ms timestamp, so a server-assigned UUID carries the event's own time rather than ingestion time.
 pub fn uuid_v7_at_millis(unix_millis: u64) -> Uuid {
     let bytes = random_bytes();
     encode_unix_timestamp_millis(unix_millis, &bytes)
