@@ -634,9 +634,36 @@ class AccountNotebookViewSet(
     queryset = None
     lookup_field = "short_id"
 
+    ALLOWED_ORDERING = frozenset({"created_at", "-created_at", "created_by", "-created_by"})
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="search",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Full-text search across notebook title and content.",
+            ),
+            OpenApiParameter(
+                name="ordering",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["created_at", "-created_at", "created_by", "-created_by"],
+                description="Sort by creation date or author. Defaults to '-created_at'.",
+            ),
+        ],
+    )
     def list(self, request: Request, *args, **kwargs) -> Response:
+        ordering = request.query_params.get("ordering")
+        ordering = ordering if ordering in self.ALLOWED_ORDERING else None
         notebooks = api.list_account_notebooks(
-            self.team_id, self.parents_query_dict["account_id"], user_access_control=self.user_access_control
+            self.team_id,
+            self.parents_query_dict["account_id"],
+            user_access_control=self.user_access_control,
+            search=request.query_params.get("search", "").strip() or None,
+            order=ordering,
         )
         if notebooks is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)

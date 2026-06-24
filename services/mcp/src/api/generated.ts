@@ -52389,6 +52389,14 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Sort by creation date or author. Defaults to '-created_at'.
+     */
+    ordering?: string;
+    /**
+     * Full-text search across notebook title and content.
+     */
+    search?: string;
     };
 
     export type EnvironmentsAlertsListParams = {
@@ -57182,6 +57190,14 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Sort by creation date or author. Defaults to '-created_at'.
+     */
+    ordering?: string;
+    /**
+     * Full-text search across notebook title and content.
+     */
+    search?: string;
     };
 
     export type ActionsListParams = {

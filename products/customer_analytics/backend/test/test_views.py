@@ -1,4 +1,5 @@
 import pytest
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
@@ -1030,6 +1031,36 @@ class TestAccountNotebookViewSet(APIBaseTest):
         self.assertEqual(status.HTTP_200_OK, response.status_code)
         short_ids = [n["short_id"] for n in response.json()["results"]]
         self.assertEqual(short_ids, [account_notebook.short_id])
+
+    def _link_internal_notebook(self, **kwargs) -> Notebook:
+        notebook = Notebook.objects.create(team=self.team, visibility=Notebook.Visibility.INTERNAL, **kwargs)
+        ResourceNotebook.objects.create(notebook=notebook, account=self.account)
+        return notebook
+
+    def test_list_search_matches_title_and_content(self):
+        by_title = self._link_internal_notebook(title="Renewal planning", text_content="")
+        by_content = self._link_internal_notebook(title="Untitled", text_content="discuss renewal terms")
+        self._link_internal_notebook(title="Onboarding", text_content="kickoff call")
+
+        response = self.client.get(f"{self.endpoint_base}?search=renewal")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        short_ids = {n["short_id"] for n in response.json()["results"]}
+        self.assertEqual(short_ids, {by_title.short_id, by_content.short_id})
+
+    def test_list_orders_by_created_at(self):
+        with freeze_time("2024-01-01"):
+            older = self._link_internal_notebook(title="Older", content={})
+        with freeze_time("2024-01-02"):
+            newer = self._link_internal_notebook(title="Newer", content={})
+
+        default_order = [n["short_id"] for n in self.client.get(self.endpoint_base).json()["results"]]
+        self.assertEqual(default_order, [newer.short_id, older.short_id])
+
+        ascending = [
+            n["short_id"] for n in self.client.get(f"{self.endpoint_base}?ordering=created_at").json()["results"]
+        ]
+        self.assertEqual(ascending, [older.short_id, newer.short_id])
 
     def test_retrieve_returns_notebook_for_account(self):
         notebook = Notebook.objects.create(

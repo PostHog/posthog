@@ -1161,13 +1161,21 @@ def get_accessible_account_id(team_id: int, account_id: str, user_access_control
 
 
 def list_account_notebooks(
-    team_id: int, account_id: str, user_access_control: "UserAccessControl"
+    team_id: int,
+    account_id: str,
+    user_access_control: "UserAccessControl",
+    *,
+    search: str | None = None,
+    order: str | None = None,
 ) -> list[contracts.AccountNotebookView] | None:
-    """Internal notebooks linked to an accessible account, newest first. None when the
-    parent account isn't accessible (→ 404)."""
+    """Internal notebooks linked to an accessible account. Optionally full-text filtered by
+    ``search`` (title + content) and sorted by ``order`` (creation date or author); defaults to
+    newest first. None when the parent account isn't accessible (→ 404)."""
     if get_accessible_account_id(team_id, account_id, user_access_control) is None:
         return None
-    return [_to_account_notebook_view(n) for n in notebooks.list_account_notebooks(account_id)]
+    return [
+        _to_account_notebook_view(n) for n in notebooks.list_account_notebooks(account_id, search=search, order=order)
+    ]
 
 
 def get_account_notebook(
