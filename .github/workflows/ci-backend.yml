@@ -287,7 +287,7 @@ jobs:
             # (e.g. posthog/hogql/test/test_direct_postgres_query.py imports
             # postgres) — a PR touching them must run the full matrix or it would
             # silently skip those tests. `coupled` is kept complete by the guard
-            # test posthog/temporal/data_imports/sources/tests/test_ci_core_coupled_sources.py.
+            # test products/warehouse_sources/backend/temporal/data_imports/sources/tests/test_ci_core_coupled_sources.py.
             # Fails OPEN: empty/non-source/coupled file list → false → full matrix.
             # PR events only; push and merge_group always run everything.
             - name: Determine if only data warehouse sources changed
@@ -296,7 +296,7 @@ jobs:
               env:
                   BACKEND_FILES: ${{ steps.filter.outputs.backend_files }}
               run: |
-                  prefix="posthog/temporal/data_imports/sources/"
+                  prefix="products/warehouse_sources/backend/temporal/data_imports/sources/"
                   # Space-separated, double-quoted, single line — parsed by the guard test.
                   coupled="common google_search_console mysql postgres salesforce stripe"
                   only_sources=false

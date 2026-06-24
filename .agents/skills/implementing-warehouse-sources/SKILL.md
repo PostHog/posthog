@@ -1,24 +1,24 @@
 ---
 name: implementing-warehouse-sources
-description: Implement and extend PostHog Data warehouse import sources. Use when adding a new source under posthog/temporal/data_imports/sources, adding datasets/endpoints to an existing source, or adding incremental sync, resumable imports, webhook ingestion, pagination, credentials validation, and source tests.
+description: Implement and extend PostHog Data warehouse import sources. Use when adding a new source under products/warehouse_sources/backend/temporal/data_imports/sources, adding datasets/endpoints to an existing source, or adding incremental sync, resumable imports, webhook ingestion, pagination, credentials validation, and source tests.
 ---
 
 # Implementing Data warehouse sources
 
-Use this skill when building or updating Data warehouse sources in `posthog/temporal/data_imports/sources/`.
+Use this skill when building or updating Data warehouse sources in `products/warehouse_sources/backend/temporal/data_imports/sources/`.
 
 ## Read first
 
 Before coding, read:
 
-- `posthog/temporal/data_imports/sources/source.template` (use the top-of-file TODOs as a starting reference, but verify target files against the current source implementations — the template can drift, e.g. it currently still points at the old `posthog/warehouse/types.py` path instead of `products/data_warehouse/backend/types.py`)
-- `posthog/temporal/data_imports/sources/README.md`
-- `posthog/temporal/data_imports/sources/SOURCES.md` — inventory of every registered source with its communication method (HTTP / vendor SDK / gRPC / DB protocol / webhook) and tracked-transport state. Skim this first to see how similar sources are wired and what state today's source you're touching is in. **Keep it in sync** — see "Updating SOURCES.md" below.
-- `posthog/temporal/data_imports/sources/common/base.py` — base classes (`SimpleSource`, `ResumableSource`, `WebhookSource`) and the `FieldType` union
-- `posthog/temporal/data_imports/sources/common/resumable.py` — `ResumableSourceManager`
-- `posthog/temporal/data_imports/sources/common/webhook_s3.py` — `WebhookSourceManager`
-- 1 API source with `settings.py` + transport logic (e.g. klaviyo, github). For dependent-resource fan-out (parent→child with `type: "resolve"`), also read `posthog/temporal/data_imports/sources/common/rest_source/__init__.py` and `config_setup.py` (e.g. `process_parent_data_item`, `make_parent_key_name`).
-- For webhook-capable sources, read `posthog/temporal/data_imports/sources/stripe/source.py` as the reference implementation.
+- `products/warehouse_sources/backend/temporal/data_imports/sources/source.template` (use the top-of-file TODOs as a starting reference, but verify target files against the current source implementations — the template can drift, e.g. it currently still points at the old `posthog/warehouse/types.py` path instead of `products/warehouse_sources/backend/types.py`)
+- `products/warehouse_sources/backend/temporal/data_imports/sources/README.md`
+- `products/warehouse_sources/backend/temporal/data_imports/sources/SOURCES.md` — inventory of every registered source with its communication method (HTTP / vendor SDK / gRPC / DB protocol / webhook) and tracked-transport state. Skim this first to see how similar sources are wired and what state today's source you're touching is in. **Keep it in sync** — see "Updating SOURCES.md" below.
+- `products/warehouse_sources/backend/temporal/data_imports/sources/common/base.py` — base classes (`SimpleSource`, `ResumableSource`, `WebhookSource`) and the `FieldType` union
+- `products/warehouse_sources/backend/temporal/data_imports/sources/common/resumable.py` — `ResumableSourceManager`
+- `products/warehouse_sources/backend/temporal/data_imports/sources/common/webhook_s3.py` — `WebhookSourceManager`
+- 1 API source with `settings.py` + transport logic (e.g. klaviyo, github). For dependent-resource fan-out (parent→child with `type: "resolve"`), also read `products/warehouse_sources/backend/temporal/data_imports/sources/common/rest_source/__init__.py` and `config_setup.py` (e.g. `process_parent_data_item`, `make_parent_key_name`).
+- For webhook-capable sources, read `products/warehouse_sources/backend/temporal/data_imports/sources/stripe/source.py` as the reference implementation.
 
 ## Picking the right base class
 
@@ -59,18 +59,18 @@ Follow this order. Each step maps to TODOs in `source.template`.
 2. **Bootstrap the source.** Copy the template and wire up the enum/type references:
 
    ```sh
-   mkdir -p posthog/temporal/data_imports/sources/{SOURCE_NAME}
-   cp posthog/temporal/data_imports/sources/source.template posthog/temporal/data_imports/sources/{SOURCE_NAME}/source.py
+   mkdir -p products/warehouse_sources/backend/temporal/data_imports/sources/{SOURCE_NAME}
+   cp products/warehouse_sources/backend/temporal/data_imports/sources/source.template products/warehouse_sources/backend/temporal/data_imports/sources/{SOURCE_NAME}/source.py
    ```
 
    Then update the two hand-edited files (the template still lists `posthog/schema.py` too, but that file is regenerated by `pnpm run schema:build` in step 12 — don't maintain it by hand):
-   - `ExternalDataSourceType` at `products/data_warehouse/backend/types.py` — follow the existing convention in that file: `ALL_CAPS` with **no underscores** between words (e.g. `ACTIVECAMPAIGN`, `APPLESEARCHADS`), value is `PascalCase`
+   - `ExternalDataSourceType` at `products/warehouse_sources/backend/types.py` — follow the existing convention in that file: `ALL_CAPS` with **no underscores** between words (e.g. `ACTIVECAMPAIGN`, `APPLESEARCHADS`), value is `PascalCase`
    - `externalDataSources` at `frontend/src/queries/schema/schema-general.ts` (`lower-kebab-case`)
 
 3. **Pick the base class** (see above) and rename the class / `source_type` return.
 4. **Define `get_source_config`** — name, **category** (required — see "Source category & keywords"), label, caption, docsUrl, iconPath, fields, and optional `keywords`. Use appropriate field types (see below).
-5. **Register** the source — add an import line to `posthog/temporal/data_imports/sources/__init__.py` and include it in `__all__`. (The `@SourceRegistry.register` decorator on the class handles runtime registration.)
-6. **Run the config generator**: `pnpm run generate:source-configs`. Confirm the new config class appears in `posthog/temporal/data_imports/sources/generated_configs.py`. **Do not edit that file by hand.** Every time you change `get_source_config.fields`, re-run the generator.
+5. **Register** the source — add an import line to `products/warehouse_sources/backend/temporal/data_imports/sources/__init__.py` and include it in `__all__`. (The `@SourceRegistry.register` decorator on the class handles runtime registration.)
+6. **Run the config generator**: `pnpm run generate:source-configs`. Confirm the new config class appears in `products/warehouse_sources/backend/temporal/data_imports/sources/generated_configs.py`. **Do not edit that file by hand.** Every time you change `get_source_config.fields`, re-run the generator.
 7. **Swap the generic `Config` type** in `source.py` for the generated `{Source}SourceConfig` class.
 8. **Implement**: `validate_credentials`, `get_schemas`, `source_for_pipeline` (plus `get_resumable_source_manager` / `get_webhook_source_manager` as needed).
 9. **Split transport logic.** Put API client, paginator, row normalization, and `SourceResponse` assembly in `{source}.py`. Keep endpoint catalog/incremental fields/primary keys/partition defaults in `settings.py`.
@@ -123,8 +123,8 @@ authoritative — they're applied directly (`description_source="canonical"`) an
 Add a `canonical_descriptions.py` **accompanying the source** (sibling of `source.py` / `settings.py`):
 
 ```python
-# posthog/temporal/data_imports/sources/{source}/canonical_descriptions.py
-from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
+# products/warehouse_sources/backend/temporal/data_imports/sources/{source}/canonical_descriptions.py
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "Charge": {  # key = ExternalDataSchema.name (the endpoint name from get_schemas / ENDPOINTS)
@@ -142,7 +142,7 @@ Then override the hook on the source class with a lazy import of the sibling fil
 
 ```python
 def get_canonical_descriptions(self) -> CanonicalDescriptions:
-    from posthog.temporal.data_imports.sources.{source}.canonical_descriptions import CANONICAL_DESCRIPTIONS
+    from products.warehouse_sources.backend.temporal.data_imports.sources.{source}.canonical_descriptions import CANONICAL_DESCRIPTIONS
     return CANONICAL_DESCRIPTIONS
 ```
 
@@ -225,7 +225,7 @@ the name already obviously matches; don't add noise.
 
 ## Source fields (the form the user fills in)
 
-Defined in `get_source_config.fields`. All field types live in `posthog/schema.py` and are unioned as `FieldType` in `posthog/temporal/data_imports/sources/common/base.py`.
+Defined in `get_source_config.fields`. All field types live in `posthog/schema.py` and are unioned as `FieldType` in `products/warehouse_sources/backend/temporal/data_imports/sources/common/base.py`.
 
 - `SourceFieldInputConfig` — basic input (`text`, `email`, `number`, `password`, `textarea`). Rendered as `<LemonInput />`.
 - `SourceFieldSwitchGroupConfig` — toggle that reveals a sub-group of fields. Use for optional feature blocks.
@@ -248,7 +248,7 @@ Prefer yielding data in the shape the API returns it. No custom dataclasses, no 
 
 **Don't import or instantiate `Batcher` at the source layer.** The pipeline already runs one (`pipelines/pipeline/pipeline.py`) at the same 5000-row / 200 MiB thresholds. Yielding raw `dict` / `list[dict]` from your generator is the canonical path — reach for `pyarrow.Table` only when you already have arrow-shaped data (e.g., a ClickHouse adapter). Source-level batching results in double-buffering with no behavioral win.
 
-For pyarrow tables, cap in-memory rows at ~200 MiB or ~5000 rows. Use helpers like `table_from_iterator()` / `table_from_py_list()` from `posthog/temporal/data_imports/pipelines/pipeline/utils.py`.
+For pyarrow tables, cap in-memory rows at ~200 MiB or ~5000 rows. Use helpers like `table_from_iterator()` / `table_from_py_list()` from `products/warehouse_sources/backend/temporal/data_imports/pipelines/pipeline/utils.py`.
 
 **URL construction:** use `urllib.parse.urlencode` for query strings. Don't use `requests.Request(...).prepare().url` — `PreparedRequest.url` is typed `Optional[str]` and the typical workaround (`prepared.url or f"..."`) carries an unreachable fallback. `urlencode` is shorter, dependency-free, and produces identical output for ASCII-safe params.
 
@@ -321,8 +321,8 @@ Discovery cost: `validate_credentials` and `database_schema` run discovery with 
 
 ## Outbound HTTP must go through the tracked transport
 
-Every HTTP call from `posthog/temporal/data_imports/sources/**` must go through `make_tracked_session()` (from
-`posthog.temporal.data_imports.sources.common.http`). The tracked session attaches `team_id`, `source_type`,
+Every HTTP call from `products/warehouse_sources/backend/temporal/data_imports/sources/**` must go through `make_tracked_session()` (from
+`products.warehouse_sources.backend.temporal.data_imports.sources.common.http`). The tracked session attaches `team_id`, `source_type`,
 `external_data_source_id`, `external_data_schema_id`, and `external_data_job_id` to every outbound request's
 log line and OTel metric, and participates in opt-in sample capture.
 
@@ -346,7 +346,7 @@ CI enforces this via `.semgrep/rules/data-imports-http-transport.yaml`. The rule
 ## Outbound gRPC must go through the tracked gRPC transport
 
 gRPC calls from `sources/**` ride client interceptors from
-`posthog.temporal.data_imports.sources.common.grpc`, which attach the same `JobContext` labels to logs and
+`products.warehouse_sources.backend.temporal.data_imports.sources.common.grpc`, which attach the same `JobContext` labels to logs and
 OTel metrics (`data_import_grpc_*`) and feed opt-in sample capture (protobuf → scrubbed JSON). Two seams:
 
 - For SDKs that accept an `interceptors=` list (google-ads `GoogleAdsClient.get_service(...)`), pass
@@ -363,7 +363,7 @@ and direct `BigQueryReadClient(...)` / `GoogleAdsClient(...)` construction insid
 
 ## Updating SOURCES.md
 
-`posthog/temporal/data_imports/sources/SOURCES.md` is the inventory of every registered source, its
+`products/warehouse_sources/backend/temporal/data_imports/sources/SOURCES.md` is the inventory of every registered source, its
 communication method, and whether its outbound traffic is tracked. Update it as part of the same PR
 whenever you:
 
@@ -427,7 +427,7 @@ If undocumented, keep parsing/merge logic conservative and add a short code comm
 ## Endpoint inventory workflow
 
 - Build an endpoint inventory before expanding coverage (path, auth scopes, grain, pagination style, primary key shape, incremental candidates).
-- Keep it in source-local docs (e.g. `posthog/temporal/data_imports/sources/<source>/api_inventory.md`).
+- Keep it in source-local docs (e.g. `products/warehouse_sources/backend/temporal/data_imports/sources/<source>/api_inventory.md`).
 - Add endpoints in phases: org-level list endpoints → project-level fan-out → child/fan-out endpoints with bounded pagination.
 
 ## Top-level endpoints (org/account level)
@@ -539,7 +539,7 @@ source-create and sync time to block hosts resolving to internal/private IPs.
 
 ## Mixins
 
-From `posthog/temporal/data_imports/sources/common/mixins.py`:
+From `products/warehouse_sources/backend/temporal/data_imports/sources/common/mixins.py`:
 
 - `SSHTunnelMixin` — `with_ssh_tunnel()` context plus `make_ssh_tunnel_func()` for deferred tunnel opening.
 - `OAuthMixin` — `get_oauth_integration()` to pull `Integration` from the DB.
@@ -583,9 +583,9 @@ Use parameterized tests for status codes and edge cases. Lean toward over-coveri
 
 ```text
 Bootstrapping:
-- [ ] Enum added to products/data_warehouse/backend/types.py (ALL_CAPS, no underscores between words)
+- [ ] Enum added to products/warehouse_sources/backend/types.py (ALL_CAPS, no underscores between words)
 - [ ] Entry added to frontend/src/queries/schema/schema-general.ts (kebab-case) — `pnpm run schema:build` regenerates posthog/schema.py from this; don't hand-edit posthog/schema.py
-- [ ] Source imported in posthog/temporal/data_imports/sources/__init__.py + __all__
+- [ ] Source imported in products/warehouse_sources/backend/temporal/data_imports/sources/__init__.py + __all__
 - [ ] Class inherits from SimpleSource / ResumableSource / WebhookSource (or combo) — see "Picking the right base class"
 
 Source implementation:
