@@ -1,0 +1,125 @@
+name: Compute affected Rust services
+description: |
+    Builds the affected-services binary (cached) and runs it to determine
+    which crates and container images are affected by the current change.
+
+inputs:
+    event-name:
+        description: github.event_name — controls how the base ref is resolved
+        required: true
+    pr-base-sha:
+        description: 'Base SHA for PR / merge-group events'
+        required: false
+        default: ''
+    push-before-sha:
+        description: 'Previous HEAD for push events (github.event.before)'
+        required: false
+        default: ''
+    rebuild-all:
+        description: 'Force a full rebuild (skip diff analysis)'
+        required: false
+        default: 'false'
+
+outputs:
+    crates:
+        description: JSON array of affected crate names
+        value: ${{ steps.compute.outputs.crates }}
+    images:
+        description: "Comma-separated affected image names (empty = all, 'none' = skip)"
+        value: ${{ steps.compute.outputs.images }}
+    rebuild-all:
+        description: "'true' when every service needs rebuilding"
+        value: ${{ steps.compute.outputs.rebuild_all }}
+
+runs:
+    using: composite
+    steps:
+        - name: Restore cached binary
+          id: cache
+          uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+          with:
+              path: rust/target/release/affected-services
+              key: affected-services-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust/affected-services/**', 'rust/Cargo.lock') }}
+
+        - name: Build on cache miss
+          if: steps.cache.outputs.cache-hit != 'true'
+          shell: bash
+          working-directory: rust
+          run: cargo build -p affected-services --release --locked
+
+        - name: Save binary to cache
+          # Save only on master — a PR ref's cache is scoped to that PR alone and
+          # just evicts the shared one. PRs restore master's binary; PRs that touch
+          # affected-services rebuild without saving. Matches setup-sccache/sqlx-cli.
+          if: steps.cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/master'
+          uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+          with:
+              path: rust/target/release/affected-services
+              key: affected-services-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust/affected-services/**', 'rust/Cargo.lock') }}
+
+        - name: Compute affected services
+          id: compute
+          shell: bash
+          env:
+              EVENT_NAME: ${{ inputs.event-name }}
+              PR_BASE_SHA: ${{ inputs.pr-base-sha }}
+              PUSH_BEFORE_SHA: ${{ inputs.push-before-sha }}
+              FORCE_REBUILD: ${{ inputs.rebuild-all }}
+          working-directory: rust
+          run: |
+              if [ "$FORCE_REBUILD" = "true" ]; then
+                  echo "rebuild-all requested"
+                  result=$(./target/release/affected-services --files rust/Cargo.lock)
+              else
+                  if [ "$EVENT_NAME" = "push" ]; then
+                      base_ref="$PUSH_BEFORE_SHA"
+                  else
+                      # Try to resolve the base branch name from the input or
+                      # the GitHub event payload so we diff against the current
+                      # tip rather than the potentially stale PR base SHA.
+                      base_branch=""
+                      if [ -f "$GITHUB_EVENT_PATH" ]; then
+                          base_branch=$(jq -r '.pull_request.base.ref // empty' "$GITHUB_EVENT_PATH" 2>/dev/null || true)
+                      fi
+
+                      if [ -n "$base_branch" ]; then
+                          git fetch --no-tags origin "$base_branch"
+                          base_ref=$(git merge-base FETCH_HEAD HEAD || true)
+                          if [ -n "$base_ref" ]; then
+                              echo "Using merge-base of origin/$base_branch and HEAD: $base_ref"
+                          else
+                              echo "merge-base empty; falling back to PR base SHA"
+                              base_ref="$PR_BASE_SHA"
+                          fi
+                      else
+                          base_ref="$PR_BASE_SHA"
+                      fi
+                  fi
+
+                  if [ -z "$base_ref" ] || echo "$base_ref" | grep -qE '^0+$'; then
+                      echo "No valid base ref — rebuilding all"
+                      result=$(./target/release/affected-services --files rust/Cargo.lock)
+                  else
+                      result=$(./target/release/affected-services --base-ref "$base_ref")
+                  fi
+              fi
+
+              rebuild_all=$(echo "$result" | jq -r '.rebuild_all')
+              crates=$(echo "$result" | jq -c '.crates')
+              images=$(echo "$result" | jq -r '.images | join(",")')
+
+              echo "rebuild_all=$rebuild_all, crates=$crates, images=$images"
+
+              echo "rebuild_all=$rebuild_all" >> "$GITHUB_OUTPUT"
+              echo "crates=$crates" >> "$GITHUB_OUTPUT"
+
+              if [ "$rebuild_all" = "true" ]; then
+                  echo "Rebuild all triggered"
+                  echo "images=" >> "$GITHUB_OUTPUT"
+              elif [ -z "$images" ]; then
+                  echo "No images affected — build will be skipped"
+                  echo "images=none" >> "$GITHUB_OUTPUT"
+              else
+                  echo "Affected images: $images"
+                  echo "images=$images" >> "$GITHUB_OUTPUT"
+              fi

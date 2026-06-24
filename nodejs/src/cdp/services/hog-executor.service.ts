@@ -8,7 +8,8 @@ import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
 import { FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError, fetch } from '~/utils/request'
 import { tryCatch } from '~/utils/try-catch'
 
-import { PluginsServerConfig } from '../../types'
+import { buildIntegerMatcherWithPercentage } from '../../config/config'
+import { PluginsServerConfig, ValueMatcher } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { TeamManager } from '../../utils/team-manager'
@@ -27,12 +28,20 @@ import type {
     MinimalLogEntry,
 } from '../types'
 import { createAddLogFunction, destinationE2eLagMsSummary, sanitizeLogMessage } from '../utils'
+import { resolveAwsSigV4Credentials, signAwsRequest } from '../utils/aws-sigv4'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
+import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { HogInputsService } from './hog-inputs.service'
 import { EmailService } from './messaging/email.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
+import {
+    SelfLoopGuardMode,
+    isPostHogIngestUrl,
+    isSelfReferentialIngestFetch,
+    selfLoopGuardCounter,
+} from './self-loop-guard'
 
 /** Narrowed config type for CDP fetch retry settings, used by native/segment destination executors */
 export type CdpFetchConfig = Pick<
@@ -46,12 +55,19 @@ export interface HogExecutorConfig {
     fetchRetries: number
     fetchBackoffBaseMs: number
     fetchBackoffMaxMs: number
+    selfLoopGuardMode: SelfLoopGuardMode
+    emailQueueRouting: string
 }
 
 export interface HogExecutorAsyncContext {
     teamManager: TeamManager
     siteUrl: string
 }
+
+const cdpEmailQueuedTotal = new Counter({
+    name: 'cdp_email_queued_total',
+    help: 'Total emails routed to the dedicated email queue',
+})
 
 const cdpHttpRequests = new Counter({
     name: 'cdp_http_requests',
@@ -176,16 +192,25 @@ export type HogExecutorExecuteOptions = {
 export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
     maxAsyncFunctions?: number
     maxFetchRetries?: number
+    // When true, emails are sent inline via EmailService instead of being routed to
+    // the dedicated email queue. Used by the test panel — the test endpoint executes
+    // in-process and never enqueues to cyclotron, so routing would leave the job
+    // unworked.
+    sendEmailsInline?: boolean
 }
 
 export class HogExecutorService {
+    private emailQueueMatcher: ValueMatcher<number>
+
     constructor(
         private config: HogExecutorConfig,
         private asyncContext: HogExecutorAsyncContext,
         private hogInputsService: HogInputsService,
         private emailService: EmailService,
         private recipientTokensService: RecipientTokensService
-    ) {}
+    ) {
+        this.emailQueueMatcher = buildIntegerMatcherWithPercentage(config.emailQueueRouting)
+    }
 
     async buildInputsWithGlobals(
         hogFunction: HogFunctionType,
@@ -338,10 +363,43 @@ export class HogExecutorService {
                     break
                 }
 
+                // Queue-aware routing: each worker can execute some actions inline
+                // and routes others to a specialized queue. The email worker sends
+                // emails inline but routes fetches back to hogflow. The hogflow
+                // worker does fetches inline but routes emails to the email queue
+                // (when the team is configured for it via CDP_EMAIL_QUEUE_ROUTING).
+                //
+                // Future: once we add an execution time budget, the email worker
+                // will also handle fetches inline. The only reason to reschedule
+                // back to hogflow will be when overall execution time exceeds the
+                // budget, to avoid blocking the queue.
                 if (queueParamsType === 'fetch') {
-                    result = await this.executeFetch(nextInvocation, options)
+                    if (invocation.queue === 'email') {
+                        result = this.routeToQueue(
+                            nextInvocation,
+                            nextInvocation.queueMetadata?.originQueue ?? 'hogflow'
+                        )
+                    } else {
+                        result = await this.executeFetch(nextInvocation, options)
+                    }
                 } else if (queueParamsType === 'email') {
-                    result = await this.emailService.executeSendEmail(nextInvocation)
+                    // Route to the email queue only if we're not already there,
+                    // the team is configured for it, and the caller hasn't asked
+                    // for inline-only execution (e.g. the test panel).
+                    const routeToEmailQueue =
+                        invocation.queue !== 'email' &&
+                        this.emailQueueMatcher(nextInvocation.teamId) &&
+                        !options?.sendEmailsInline
+                    if (routeToEmailQueue) {
+                        result = this.routeEmailToQueue(nextInvocation)
+                    } else {
+                        // `sendEmailsInline` is only set by the test panel, so it doubles as the
+                        // "this is a test send" signal — propagated into the email's tracking code.
+                        result = await this.emailService.executeSendEmail(
+                            nextInvocation,
+                            options?.sendEmailsInline ?? false
+                        )
+                    }
                 } else {
                     throw new Error(`Unknown queue type: ${queueParamsType}`)
                 }
@@ -355,8 +413,8 @@ export class HogExecutorService {
             logs.push(...result.logs)
             metrics.push(...result.metrics)
 
-            // If we have finished _or_ something has been scheduled to run later _or_ we have reached the max async functions then we break the loop
-            if (result.finished || result.invocation.queueScheduledAt) {
+            // If we have finished _or_ something has been scheduled to run later _or_ the job was routed to a different queue then we break the loop
+            if (result.finished || result.invocation.queueScheduledAt || result.invocation.queue !== invocation.queue) {
                 break
             }
         }
@@ -373,6 +431,56 @@ export class HogExecutorService {
         result.metrics = metrics
 
         return result
+    }
+
+    /**
+     * Routes an email send to the dedicated email queue instead of sending inline.
+     * The email worker will pick this up, send via SES, and return the job to the
+     * original queue so the workflow can continue.
+     */
+    private routeEmailToQueue(
+        invocation: CyclotronJobInvocationHogFunction
+    ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> {
+        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(
+            invocation,
+            {
+                queue: 'email',
+                queueParameters: invocation.queueParameters,
+                queueMetadata: {
+                    ...invocation.queueMetadata,
+                    originQueue: invocation.queue,
+                },
+            },
+            { finished: false }
+        )
+
+        result.metrics.push({
+            team_id: invocation.teamId,
+            app_source_id: invocation.parentRunId ?? invocation.functionId,
+            instance_id: invocation.state.actionId || invocation.id,
+            metric_kind: 'email',
+            metric_name: 'email_queued',
+            count: 1,
+        })
+
+        cdpEmailQueuedTotal.inc()
+
+        return result
+    }
+
+    private routeToQueue(
+        invocation: CyclotronJobInvocationHogFunction,
+        targetQueue: string
+    ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> {
+        return createInvocationResult<CyclotronJobInvocationHogFunction>(
+            invocation,
+            {
+                queue: targetQueue as CyclotronJobInvocationHogFunction['queue'],
+                queueParameters: invocation.queueParameters,
+                queueMetadata: undefined,
+            },
+            { finished: false }
+        )
     }
 
     @instrumented({ key: 'hog-executor.execute', sendException: false })
@@ -662,7 +770,56 @@ export class HogExecutorService {
             }
         }
 
-        const fetchParams: FetchOptions = { method, headers }
+        // Observe-only detection of event-forwarding loops: a fetch back into this
+        // project's own ingestion endpoint re-enters the pipeline and can re-trigger this
+        // same function. We only measure for now (a follow-up will design enforcement from
+        // this signal). The ingest-URL check gates the team lookup so external fetches (the
+        // common case) pay nothing, and the whole block fails open - detection must never
+        // break a destination it was only meant to watch.
+        if (this.config.selfLoopGuardMode !== 'disabled' && isPostHogIngestUrl(params.url)) {
+            try {
+                const team = await this.asyncContext.teamManager.getTeam(invocation.teamId)
+                if (team && isSelfReferentialIngestFetch({ url: params.url, body: params.body, team })) {
+                    selfLoopGuardCounter.inc({ mode: this.config.selfLoopGuardMode, action: 'detected' })
+                    addLog(
+                        'warn',
+                        `This fetch targets a PostHog ingestion endpoint using this project's own API key, which can form an event-forwarding loop. To capture an event back into this project use the 'postHogCapture' helper, or to enrich incoming events use a transformation.`
+                    )
+                }
+            } catch (err) {
+                logger.warn('🦔', '[HogExecutor] Self-loop guard detection skipped due to an internal error', {
+                    error: err,
+                    teamId: invocation.teamId,
+                })
+            }
+        }
+
+        // AWS SigV4 signatures expire after ~5 minutes. Sign immediately before the
+        // fetch (every attempt — including retries) so a request that sat in the
+        // backoff queue or whose first attempt timed out cannot reach AWS with a
+        // stale signature. Signing artifacts (Authorization, X-Amz-Date) are
+        // regenerated here and never persisted back to queueParameters. Credential
+        // resolution + missing-input handling live in `aws-sigv4.ts` — see
+        // `resolveAwsSigV4Credentials` for the encrypted_inputs/inputs lookup order.
+        let signedHeaders = headers
+        if (params.aws_sigv4) {
+            const resolved = resolveAwsSigV4Credentials(params.aws_sigv4, invocation.hogFunction)
+            if (!resolved.ok) {
+                addLog('error', resolved.error)
+                result.error = new Error(resolved.error)
+                result.finished = true
+                return result
+            }
+            signedHeaders = signAwsRequest({
+                method,
+                url: params.url,
+                body: params.body ?? '',
+                headers,
+                credentials: resolved.credentials,
+            })
+        }
+
+        const fetchParams: FetchOptions = { method, headers: signedHeaders }
 
         if (!['GET', 'HEAD'].includes(method) && params.body) {
             fetchParams.body = params.body
@@ -682,6 +839,17 @@ export class HogExecutorService {
         result.invocation.state.attempts++
 
         if (!fetchResponse || (fetchResponse?.status && fetchResponse.status >= 400)) {
+            const nonFailureSchemaEntry = invocation.hogFunction.inputs_schema?.find(
+                (s) => s.type === 'non_failure_status_codes'
+            )
+            const nonFailureConfig = nonFailureSchemaEntry
+                ? (invocation.hogFunction.inputs?.[nonFailureSchemaEntry.key]?.value as
+                      | Array<number | string>
+                      | null
+                      | undefined)
+                : undefined
+            const isNonFailure = isNonFailureStatus(fetchResponse?.status, nonFailureConfig)
+
             const backoffMs = Math.min(
                 this.config.fetchBackoffBaseMs * result.invocation.state.attempts +
                     Math.floor(Math.random() * this.config.fetchBackoffBaseMs),
@@ -702,18 +870,17 @@ export class HogExecutorService {
                 message += ` Retrying in ${backoffMs}ms.`
             }
 
-            addLog('error', message)
+            addLog(isNonFailure ? 'info' : 'error', message)
 
             const maxRetries = options?.maxFetchRetries ?? this.config.fetchRetries
             if (canRetry && result.invocation.state.attempts < maxRetries) {
                 await fetchResponse?.dump()
-                result.invocation.queue = 'hog'
                 result.invocation.queueParameters = params
                 result.invocation.queuePriority = invocation.queuePriority + 1
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: backoffMs })
 
                 return result
-            } else {
+            } else if (!isNonFailure) {
                 result.error = new Error(message)
             }
         }

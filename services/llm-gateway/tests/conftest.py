@@ -43,7 +43,7 @@ def create_test_app(
     ]
 
     @asynccontextmanager
-    async def test_lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    async def test_lifespan(app: FastAPI) -> AsyncGenerator[None]:
         app.state.db_pool = mock_db_pool
         app.state.redis = None
         app.state.throttle_runner = ThrottleRunner(throttles=throttles if throttles is not None else default_throttles)
@@ -85,25 +85,25 @@ def authenticated_user() -> AuthenticatedUser:
 
 
 @pytest.fixture
-def app(mock_db_pool: MagicMock) -> Generator[FastAPI, None, None]:
+def app(mock_db_pool: MagicMock) -> Generator[FastAPI]:
     application = create_test_app(mock_db_pool)
     yield application
 
 
 @pytest.fixture
-def client(app: FastAPI) -> Generator[TestClient, None, None]:
+def client(app: FastAPI) -> Generator[TestClient]:
     with TestClient(app) as c:
         yield c
 
 
 @pytest.fixture
-async def async_client(app: FastAPI) -> AsyncGenerator[AsyncClient, None]:
+async def async_client(app: FastAPI) -> AsyncGenerator[AsyncClient]:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac
 
 
 @pytest.fixture
-def authenticated_client(mock_db_pool: MagicMock) -> Generator[TestClient, None, None]:
+def authenticated_client(mock_db_pool: MagicMock) -> Generator[TestClient]:
     app = create_test_app(mock_db_pool)
 
     conn = AsyncMock()
@@ -114,6 +114,7 @@ def authenticated_client(mock_db_pool: MagicMock) -> Generator[TestClient, None,
             "scopes": ["llm_gateway:read"],
             "current_team_id": 1,
             "distinct_id": "test-distinct-id",
+            "is_staff": False,
         }
     )
     mock_db_pool.acquire = AsyncMock(return_value=conn)

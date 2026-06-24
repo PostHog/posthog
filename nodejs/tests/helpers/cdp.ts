@@ -1,7 +1,10 @@
 import { mockProducer } from './mocks/producer.mock'
 
+import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
+import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+
 import { CdpConsumerBaseDeps } from '../../src/cdp/consumers/cdp-base.consumer'
-import { CdpLegacyEventsConsumerDeps } from '../../src/cdp/consumers/cdp-legacy-event.consumer'
 import {
     CdpProducerName,
     WAREHOUSE_PRODUCER,
@@ -10,7 +13,6 @@ import {
     WARPSTREAM_INGESTION_PRODUCER,
 } from '../../src/cdp/outputs/producers'
 import { InternalCaptureService } from '../../src/common/services/internal-capture'
-import { KafkaProducerRegistry } from '../../src/ingestion/outputs/kafka-producer-registry'
 import { KafkaProducerWrapper } from '../../src/kafka/producer'
 import { Hub } from '../../src/types'
 
@@ -31,6 +33,23 @@ function buildTestCdpProducerRegistry(
     })
 }
 
+/**
+ * No-op read repositories for tests that don't exercise person/group lookups.
+ * Tests that need real resolution should override via spread.
+ */
+const noopGroupReadRepository: GroupReadRepository = {
+    fetchGroupsByKeys: () => Promise.resolve([]),
+    fetchGroupTypesByTeamIds: () => Promise.resolve({}),
+    fetchGroupTypesByProjectIds: () => Promise.resolve({}),
+}
+
+const noopPersonReadRepository: PersonReadRepository = {
+    fetchPerson: () => Promise.resolve(undefined),
+    fetchPersonsByDistinctIds: () => Promise.resolve([]),
+    fetchPersonsByPersonIds: () => Promise.resolve([]),
+    fetchDistinctIdsForPersons: () => Promise.resolve({}),
+}
+
 export function createCdpConsumerDeps(hub: Hub, kafkaProducer?: KafkaProducerWrapper): CdpConsumerBaseDeps {
     return {
         postgres: hub.postgres,
@@ -40,19 +59,9 @@ export function createCdpConsumerDeps(hub: Hub, kafkaProducer?: KafkaProducerWra
         integrationManager: hub.integrationManager,
         cdpProducerRegistry: buildTestCdpProducerRegistry(kafkaProducer),
         internalCaptureService: new InternalCaptureService(hub),
-        personRepository: hub.personRepository,
+        personRepository: noopPersonReadRepository,
         geoipService: hub.geoipService,
-        groupRepository: hub.groupRepository,
+        groupRepository: noopGroupReadRepository,
         quotaLimiting: hub.quotaLimiting,
-    }
-}
-
-export function createCdpLegacyEventsConsumerDeps(
-    hub: Hub,
-    kafkaProducer?: KafkaProducerWrapper
-): CdpLegacyEventsConsumerDeps {
-    return {
-        ...createCdpConsumerDeps(hub, kafkaProducer),
-        groupTypeManager: hub.groupTypeManager,
     }
 }

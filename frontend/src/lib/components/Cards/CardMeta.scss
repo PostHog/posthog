@@ -1,91 +1,5 @@
-.TextCard,
-.InsightCard,
-.ButtonTileCard {
-    .handle {
-        position: absolute;
-        z-index: var(--z-raised);
-        display: flex;
-        align-items: flex-end;
-        justify-content: center;
-        width: 100%;
-        height: 100%;
-        pointer-events: none;
-
-        &.horizontal {
-            svg {
-                transform: rotate(90deg) translateX(0.75rem);
-            }
-
-            &.top {
-                align-items: flex-start;
-
-                svg {
-                    transform: rotate(90deg) translateX(-0.75rem);
-                }
-            }
-        }
-
-        &.vertical {
-            flex-direction: column;
-
-            &.right {
-                align-items: flex-end;
-                justify-content: center;
-
-                svg {
-                    transform: translateX(0.5rem);
-                }
-            }
-
-            &.left {
-                align-items: flex-start;
-                justify-content: center;
-
-                svg {
-                    transform: translateX(-0.5rem);
-                }
-            }
-        }
-
-        &.corner {
-            align-items: flex-end;
-
-            // default bottom-right positioning
-            justify-content: flex-end;
-
-            svg {
-                transform: translate(0.5rem, 0.5rem);
-            }
-
-            /* Mirror the corner handle graphic while keeping the same anchor point */
-            &.bottom-left {
-                align-items: flex-end;
-                justify-content: flex-start;
-
-                svg {
-                    transform: translate(-0.5rem, 0.5rem) rotateY(180deg);
-                }
-            }
-
-            &.top-right {
-                align-items: flex-start;
-                justify-content: flex-end;
-
-                svg {
-                    transform: translate(0.5rem, -0.5rem) rotateX(180deg);
-                }
-            }
-
-            &.top-left {
-                align-items: flex-start;
-                justify-content: flex-start;
-
-                svg {
-                    transform: translate(-0.5rem, -0.5rem) rotateX(180deg) rotateY(180deg);
-                }
-            }
-        }
-    }
+.DashboardTileCard {
+    min-height: 0;
 }
 
 .CardMeta {
@@ -121,6 +35,7 @@
     .CardMeta__primary {
         display: flex;
         width: 100%;
+        min-width: 0;
         padding: 1rem;
     }
 
@@ -189,6 +104,9 @@
             position: absolute;
             top: 0.5rem;
             right: 0.75rem;
+
+            // Opaque strip so the hover-revealed refresh icon sits over (not garbles) the title tail.
+            background: var(--color-bg-surface-primary);
         }
 
         .CardMeta__divider {
@@ -203,7 +121,8 @@
 
         @container (min-width: 14rem) {
             .CardMeta__heading {
-                display: block;
+                // Let the top-heading row participate in CardMeta__top flex layout without an extra wrapper box.
+                display: contents;
             }
         }
     }
@@ -255,6 +174,7 @@
     flex-direction: column;
     align-items: flex-start;
     width: 100%;
+    min-width: 0;
     height: fit-content;
     min-height: 2rem;
 
@@ -279,4 +199,25 @@
     display: flex;
     gap: 0.25rem;
     align-items: center;
+}
+
+// Refresh control is hidden at rest and revealed only when hovering the tile header.
+// Use `visibility` (not `opacity`) so a disabled LemonButton's own opacity override
+// — which kicks in once a refreshed tile is rate-limited — can't keep it visible.
+// Keyboard/touch users reach refresh via the always-present "⋯" menu.
+.CardMeta__refresh {
+    visibility: hidden;
+}
+
+.CardMeta:hover .CardMeta__refresh {
+    visibility: visible;
+}
+
+// On compact tiles too narrow to fit the icon without overlapping the title, keep it hidden
+// even on hover — refresh stays available in the "⋯" menu. The container is only established in
+// compact mode, so this never applies to the non-compact (saved insights) layout.
+@container (max-width: 22rem) {
+    .CardMeta:hover .CardMeta__refresh {
+        visibility: hidden;
+    }
 }

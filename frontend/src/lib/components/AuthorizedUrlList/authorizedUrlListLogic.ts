@@ -18,9 +18,9 @@ import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { isDomain, isURL } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProductIntent } from 'lib/utils/product-intents'
+import { isDomain, isURL } from 'lib/utils/url'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -198,38 +198,53 @@ export const checkUrlIsAuthorized = (url: string | URL, authorizedUrls: string[]
         const urlWithoutPath = parsedUrl.protocol + '//' + parsedUrl.host
         const hostNormalized = stripWww(parsedUrl.hostname)
 
-        const exactMatch = authorizedUrls.some((authorizedUrl) => {
-            if (authorizedUrl.indexOf(urlWithoutPath) > -1) {
-                return true
+        return authorizedUrls.some((authorizedUrl) => {
+            // Wildcard entries (subdomain or port wildcards, e.g. `https://*.example.com`). Anchor the
+            // pattern with ^…$ so a `*` cannot match a suffix of an unrelated origin such as
+            // `https://app.example.com.evil.com`.
+            if (authorizedUrl.includes('*')) {
+                try {
+                    const regex = new RegExp('^' + authorizedUrl.replace(/\./g, '\\.').replace(/\*/g, '.*') + '$')
+                    return regex.test(urlWithoutPath)
+                } catch {
+                    return false
+                }
             }
-            // www-equivalence: compare hostnames with www. stripped
+
+            // Exact entries: compare by origin (protocol + host) instead of a substring check, so a
+            // different domain cannot be authorized merely by being a prefix/substring of an entry
+            // (e.g. `https://example.co` against `https://example.com`).
             try {
-                const authorizedHost = sanitizePossibleWildCardedURL(authorizedUrl).hostname
-                return stripWww(authorizedHost) === hostNormalized
+                const authorizedUrlParsed = sanitizePossibleWildCardedURL(authorizedUrl)
+                if (authorizedUrlParsed.protocol + '//' + authorizedUrlParsed.host === urlWithoutPath) {
+                    return true
+                }
+                // www-equivalence: same protocol, hostnames equal with www. stripped. The protocol
+                // check keeps an http origin from matching an https-only authorized entry.
+                return (
+                    authorizedUrlParsed.protocol === parsedUrl.protocol &&
+                    stripWww(authorizedUrlParsed.hostname) === hostNormalized
+                )
             } catch {
                 return false
             }
         })
-
-        if (exactMatch) {
-            return true
-        }
-
-        const wildcardMatch = !!authorizedUrls.find((authorizedUrl) => {
-            // Matches something like `https://*.example.com` against the urlWithoutPath
-            const regex = new RegExp(authorizedUrl.replace(/\./g, '\\.').replace(/\*/g, '.*'))
-            return urlWithoutPath.match(regex)
-        })
-
-        if (wildcardMatch) {
-            return true
-        }
     } catch {
         // Ignore invalid URLs
     }
 
     return false
 }
+
+/**
+ * Schemes allowed to be rendered in the Site preview iframe. That iframe runs with
+ * `allow-scripts allow-same-origin`, so a `javascript:`/`data:`/`blob:` src would execute in the
+ * PostHog origin. Only ever frame an http(s) URL the team has explicitly authorized.
+ */
+const FRAMEABLE_URL_SCHEME = /^https?:\/\//i
+
+export const checkUrlIsSafeToFrame = (url: string, authorizedUrls: string[]): boolean =>
+    FRAMEABLE_URL_SCHEME.test(url) && checkUrlIsAuthorized(url, authorizedUrls)
 
 export interface SuggestedDomain {
     url: string
@@ -554,6 +569,13 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
             (s) => [s.authorizedUrls],
             (authorizedUrls) => (url: string) => {
                 return checkUrlIsAuthorized(url, authorizedUrls)
+            },
+        ],
+
+        checkUrlIsSafeToFrame: [
+            (s) => [s.authorizedUrls],
+            (authorizedUrls) => (url: string) => {
+                return checkUrlIsSafeToFrame(url, authorizedUrls)
             },
         ],
     }),

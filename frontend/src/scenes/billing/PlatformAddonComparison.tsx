@@ -21,7 +21,8 @@ import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
-import { humanFriendlyCurrency, toSentenceCase } from 'lib/utils'
+import { humanFriendlyCurrency } from 'lib/utils/numbers'
+import { toSentenceCase } from 'lib/utils/strings'
 
 import { BillingFeatureType, BillingPlan, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
@@ -151,10 +152,10 @@ const PlanCard = ({
                     </Link>
                 </div>
             )}
-            {pricedPlan?.flat_rate && (
+            {pricedPlan?.flat_rate && addon.type !== BillingPlan.Enterprise && (
                 <PlanPrice addon={addon} unit_amount_usd={pricedPlan.unit_amount_usd} unit_label={pricedPlan.unit} />
             )}
-            <div className="-mt-2">
+            <div className="mt-auto">
                 <BillingProductAddonActions addon={addon} buttonSize="small" align="left" hidePricingNote />
             </div>
         </div>
@@ -176,7 +177,7 @@ const LegacyPlanHero = ({ addon }: { addon: BillingProductV2AddonType }): JSX.El
                         <LemonTag type="warning">Legacy</LemonTag>
                     </div>
                     <div>
-                        You're on our legacy {addon.name} add-on. Compare the new plans below if you'd like to switch.
+                        You're on our legacy {addon.name} package. Compare the new plans below if you'd like to switch.
                     </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0 self-center">
@@ -196,7 +197,7 @@ const LegacyPlanHero = ({ addon }: { addon: BillingProductV2AddonType }): JSX.El
                                     reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, addon.type)
                                 }}
                             >
-                                Remove add-on
+                                Remove package
                             </LemonButton>
                         }
                     />

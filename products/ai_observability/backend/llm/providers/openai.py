@@ -1,0 +1,473 @@
+"""OpenAI provider for unified LLM client."""
+
+import json
+import uuid
+import logging
+from collections.abc import Generator
+from typing import Any
+
+from django.conf import settings
+
+import openai
+import posthoganalytics
+from openai.types import CompletionUsage, ReasoningEffort
+from openai.types.chat import ChatCompletionDeveloperMessageParam, ChatCompletionSystemMessageParam
+from posthoganalytics.ai.openai import (
+    AzureOpenAI as WrappedAzureOpenAI,
+    OpenAI,
+)
+from pydantic import BaseModel
+
+from products.ai_observability.backend.llm.errors import (
+    AuthenticationError,
+    ModelNotFoundError,
+    ModelPermissionError,
+    QuotaExceededError,
+    RateLimitError,
+    StructuredOutputParseError,
+)
+from products.ai_observability.backend.llm.types import (
+    AnalyticsContext,
+    CompletionRequest,
+    CompletionResponse,
+    StreamChunk,
+    Usage,
+)
+from products.ai_observability.backend.providers.formatters.openai_formatter import convert_to_openai_messages
+from products.ai_observability.backend.providers.formatters.tools_handler import LLMToolsHandler, ToolFormat
+
+logger = logging.getLogger(__name__)
+
+
+class OpenAIConfig:
+    REASONING_EFFORT: ReasoningEffort = "medium"
+    TEMPERATURE: float = 0
+    TIMEOUT: float = 300.0
+
+    SUPPORTED_MODELS: list[str] = [
+        "gpt-5.4",
+        "gpt-5.2",
+        "gpt-5.1",
+        "gpt-5-nano",
+        "gpt-5-mini",
+        "gpt-5",
+        "gpt-4.1-nano",
+        "gpt-4.1-mini",
+        "gpt-4.1",
+        "o4-mini",
+        "o3",
+        "o3-mini",
+    ]
+
+    # "Pro" tier models are served only by the Responses API, so they 404 on chat
+    # completions. Excluded from the picker (curated list + list_models discovery).
+    RESPONSES_ONLY_MODELS: frozenset[str] = frozenset(
+        {
+            "gpt-5.2-pro",
+            "gpt-5-pro",
+            "o1-pro",
+            "o3-pro",
+        }
+    )
+
+    # Models available to trial users (PostHog pays). Excludes expensive
+    # "pro" tiers and includes one flagship model for quality evaluation.
+    TRIAL_MODELS: list[str] = [
+        "gpt-4.1",
+        "gpt-4.1-mini",
+        "gpt-4.1-nano",
+        "gpt-5-mini",
+        "gpt-5-nano",
+        "o3-mini",
+        "o4-mini",
+    ]
+
+    DEFAULT_MODEL: str = "gpt-5-mini"
+
+    SUPPORTED_MODELS_WITH_THINKING: list[str] = [
+        "gpt-5.4",
+        "gpt-5.2",
+        "gpt-5.1",
+        "gpt-5-nano",
+        "gpt-5-mini",
+        "gpt-5",
+        "o4-mini",
+        "o3",
+        "o3-mini",
+    ]
+
+
+class OpenAIAdapter:
+    """OpenAI provider implementing the unified Client interface."""
+
+    name = "openai"
+
+    def _create_client(
+        self,
+        api_key: str,
+        base_url: str | None,
+        analytics: AnalyticsContext,
+    ) -> Any:
+        """Create an OpenAI client. Override in subclasses for different client types (e.g. AzureOpenAI)."""
+        from products.ai_observability.backend.llm.providers._diagnostics import tagged_http_client
+
+        default_headers = self._get_default_headers()
+        posthog_client = posthoganalytics.default_client
+        http_client = tagged_http_client(timeout=OpenAIConfig.TIMEOUT)
+        if analytics.capture and posthog_client:
+            return OpenAI(
+                api_key=api_key,
+                posthog_client=posthog_client,
+                base_url=base_url,
+                timeout=OpenAIConfig.TIMEOUT,
+                default_headers=default_headers or None,
+                http_client=http_client,
+            )
+        return openai.OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=OpenAIConfig.TIMEOUT,
+            default_headers=default_headers or None,
+            http_client=http_client,
+        )
+
+    def complete(
+        self,
+        request: CompletionRequest,
+        api_key: str | None,
+        analytics: AnalyticsContext,
+        base_url: str | None = None,
+    ) -> CompletionResponse:
+        """Non-streaming completion with optional structured output."""
+        effective_api_key = api_key or self._get_default_api_key()
+        effective_base_url = base_url or settings.OPENAI_BASE_URL
+
+        client = self._create_client(effective_api_key, effective_base_url, analytics)
+
+        messages: Any = self._build_messages(request)
+
+        try:
+            if request.response_format and issubclass(request.response_format, BaseModel):
+                try:
+                    # Try native structured output parsing first
+                    response = client.beta.chat.completions.parse(
+                        model=request.model,
+                        messages=messages,
+                        response_format=request.response_format,
+                        **(self._build_analytics_kwargs(analytics, client)),
+                    )
+                    parsed = response.choices[0].message.parsed
+                    content = parsed.model_dump_json() if parsed else ""
+                    usage = self._extract_usage(response.usage)
+                    return CompletionResponse(
+                        content=content,
+                        model=request.model,
+                        usage=usage,
+                        parsed=parsed,
+                    )
+                except openai.BadRequestError as e:
+                    # Fall back to manual JSON parsing for older models that don't support json_schema
+                    if "response_format" in str(e).lower() or "json_schema" in str(e).lower():
+                        return self._complete_with_json_fallback(client, request, messages, analytics)
+                    raise
+            else:
+                create_response = client.chat.completions.create(
+                    model=request.model,
+                    messages=messages,
+                    temperature=request.temperature if request.temperature is not None else OpenAIConfig.TEMPERATURE,
+                    max_completion_tokens=request.max_tokens,
+                    **(self._build_analytics_kwargs(analytics, client)),
+                )
+                content = create_response.choices[0].message.content or ""
+                usage = self._extract_usage(create_response.usage)
+                return CompletionResponse(
+                    content=content,
+                    model=request.model,
+                    usage=usage,
+                )
+        except openai.AuthenticationError as e:
+            raise AuthenticationError(str(e))
+        except openai.NotFoundError:
+            raise ModelNotFoundError(request.model)
+        except openai.PermissionDeniedError:
+            raise ModelPermissionError(request.model)
+        except openai.RateLimitError as e:
+            error_body = getattr(e, "body", {}) or {}
+            error_code = error_body.get("code", "") or error_body.get("error", {}).get("code", "")
+            if error_code == "insufficient_quota":
+                raise QuotaExceededError(str(e))
+            raise RateLimitError(str(e))
+        except openai.APIStatusError as e:
+            # OpenRouter returns 402 when the key can't afford the requested
+            # max_tokens (or is out of credits). Retrying never helps — mirror
+            # the quota path so the workflow marks the key errored and stops.
+            if getattr(e, "status_code", None) == 402:
+                raise QuotaExceededError(str(e))
+            raise
+
+    def _complete_with_json_fallback(
+        self,
+        client: Any,
+        request: CompletionRequest,
+        messages: list[dict],
+        analytics: AnalyticsContext,
+    ) -> CompletionResponse:
+        """Fallback for models that don't support json_schema response format."""
+        assert request.response_format is not None
+
+        json_schema = request.response_format.model_json_schema()
+        enhanced_system = f"""{request.system or ""}
+
+You must respond with valid JSON that matches this schema:
+{json.dumps(json_schema, indent=2)}
+
+Return ONLY the JSON object, no other text or markdown formatting."""
+
+        enhanced_messages = [{"role": "system", "content": enhanced_system}]
+        enhanced_messages.extend(request.messages)
+
+        create_response = client.chat.completions.create(
+            model=request.model,
+            messages=enhanced_messages,
+            temperature=request.temperature if request.temperature is not None else OpenAIConfig.TEMPERATURE,
+            max_completion_tokens=request.max_tokens,
+            **(self._build_analytics_kwargs(analytics, client)),
+        )
+
+        content = create_response.choices[0].message.content or ""
+        usage = self._extract_usage(create_response.usage)
+
+        # Parse the JSON response
+        try:
+            clean_content = content.strip()
+            if clean_content.startswith("```"):
+                lines = clean_content.split("\n")
+                clean_content = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+            parsed = request.response_format.model_validate_json(clean_content)
+        except Exception as e:
+            logger.warning(f"Failed to parse structured output from OpenAI fallback: {e}")
+            raise StructuredOutputParseError(f"Failed to parse structured output: {e}") from e
+
+        return CompletionResponse(
+            content=content,
+            model=request.model,
+            usage=usage,
+            parsed=parsed,
+        )
+
+    def stream(
+        self,
+        request: CompletionRequest,
+        api_key: str | None,
+        analytics: AnalyticsContext,
+        base_url: str | None = None,
+    ) -> Generator[StreamChunk]:
+        """Streaming completion."""
+        effective_api_key = api_key or self._get_default_api_key()
+        effective_base_url = base_url or settings.OPENAI_BASE_URL
+        model_id = request.model
+
+        client = self._create_client(effective_api_key, effective_base_url, analytics)
+
+        supports_reasoning = model_id in OpenAIConfig.SUPPORTED_MODELS_WITH_THINKING
+        reasoning_on = supports_reasoning and (request.thinking or bool(request.reasoning_level))
+
+        tools = self._convert_tools(request.tools) if request.tools else None
+
+        try:
+            effective_temperature = request.temperature if request.temperature is not None else OpenAIConfig.TEMPERATURE
+
+            def build_common_kwargs() -> dict[str, Any]:
+                common: dict[str, Any] = {
+                    "stream": True,
+                    "stream_options": {"include_usage": True},
+                }
+                if analytics.capture:
+                    common["posthog_distinct_id"] = analytics.distinct_id
+                    common["posthog_trace_id"] = analytics.trace_id or str(uuid.uuid4())
+                    common["posthog_properties"] = analytics.properties or {}
+                    common["posthog_groups"] = analytics.groups or {}
+                if model_id not in OpenAIConfig.SUPPORTED_MODELS_WITH_THINKING:
+                    common["temperature"] = effective_temperature
+                if request.max_tokens is not None:
+                    common["max_completion_tokens"] = request.max_tokens
+                if tools is not None:
+                    common["tools"] = tools
+                return common
+
+            messages = request.messages
+            system = request.system or ""
+
+            if supports_reasoning:
+                selected_effort: ReasoningEffort | None = None
+                if request.reasoning_level in ("minimal", "low", "medium", "high"):
+                    selected_effort = request.reasoning_level  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+                elif reasoning_on:
+                    selected_effort = OpenAIConfig.REASONING_EFFORT
+                stream = client.chat.completions.create(
+                    model=model_id,
+                    messages=[
+                        ChatCompletionDeveloperMessageParam({"role": "developer", "content": system}),
+                        *convert_to_openai_messages(messages),
+                    ],
+                    reasoning_effort=selected_effort,
+                    **build_common_kwargs(),
+                )
+            else:
+                stream = client.chat.completions.create(
+                    model=model_id,
+                    messages=[
+                        ChatCompletionSystemMessageParam({"role": "system", "content": system}),
+                        *convert_to_openai_messages(messages),
+                    ],
+                    **build_common_kwargs(),
+                )
+
+            for chunk in stream:
+                if len(chunk.choices) > 0:
+                    choice = chunk.choices[0]
+                    if choice.delta.content:
+                        yield StreamChunk(type="text", data={"text": choice.delta.content})
+                    if choice.delta.tool_calls:
+                        for tool_call in choice.delta.tool_calls:
+                            yield StreamChunk(
+                                type="tool_call",
+                                data={
+                                    "id": tool_call.id,
+                                    "function": {
+                                        "name": tool_call.function.name if tool_call.function.name else "",
+                                        "arguments": tool_call.function.arguments
+                                        if tool_call.function.arguments
+                                        else "",
+                                    },
+                                },
+                            )
+                if chunk.usage:
+                    yield from self._yield_usage_chunks(chunk.usage)
+
+        except Exception as e:
+            logger.exception(f"OpenAI API error: {e}")
+            yield StreamChunk(type="error", data={"error": str(e)})
+
+    @staticmethod
+    def validate_key(api_key: str, **kwargs: Any) -> tuple[str, str | None]:
+        """Validate an OpenAI API key."""
+        from products.ai_observability.backend.models.provider_keys import LLMProviderKey
+
+        if not api_key.startswith(("sk-", "sk-proj-")):
+            return (LLMProviderKey.State.INVALID, "Invalid key format (should start with 'sk-' or 'sk-proj-')")
+        try:
+            client = openai.OpenAI(api_key=api_key, timeout=OpenAIConfig.TIMEOUT)
+            client.models.list()
+            return (LLMProviderKey.State.OK, None)
+        except openai.AuthenticationError:
+            return (LLMProviderKey.State.INVALID, "Invalid API key")
+        except openai.RateLimitError:
+            return (LLMProviderKey.State.ERROR, "Rate limited, please try again later")
+        except openai.APIConnectionError:
+            return (LLMProviderKey.State.ERROR, "Could not connect to OpenAI")
+        except Exception as e:
+            logger.exception(f"OpenAI key validation error: {e}")
+            return (LLMProviderKey.State.ERROR, "Validation failed, please try again")
+
+    @staticmethod
+    def recommended_models() -> set[str]:
+        return set(OpenAIConfig.SUPPORTED_MODELS)
+
+    @staticmethod
+    def list_models(api_key: str | None = None, **kwargs: Any) -> list[str]:
+        """List available OpenAI models.
+
+        Without a key, returns the curated SUPPORTED_MODELS list.
+        With a key, returns SUPPORTED_MODELS first, then remaining chat-capable
+        models from the API sorted by creation date (newest first).
+        """
+        if not api_key:
+            return OpenAIConfig.SUPPORTED_MODELS
+
+        supported = set(OpenAIConfig.SUPPORTED_MODELS)
+        try:
+            client = openai.OpenAI(api_key=api_key, timeout=OpenAIConfig.TIMEOUT)
+            api_models = client.models.list()
+            filtered = [
+                m
+                for m in api_models
+                if m.id not in supported
+                and m.id not in OpenAIConfig.RESPONSES_ONLY_MODELS
+                and m.id.startswith(("gpt-", "o1", "o3", "o4", "chatgpt-"))
+            ]
+            filtered.sort(key=lambda m: m.created, reverse=True)
+            other = [m.id for m in filtered]
+            return list(OpenAIConfig.SUPPORTED_MODELS) + other
+        except Exception:
+            logger.exception("Error fetching OpenAI models from API")
+            return OpenAIConfig.SUPPORTED_MODELS
+
+    @staticmethod
+    def get_api_key() -> str:
+        """Get the default API key from settings."""
+        api_key = settings.OPENAI_API_KEY
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY is not set in environment or settings")
+        return api_key
+
+    def _get_default_api_key(self) -> str:
+        return self.get_api_key()
+
+    def _get_default_headers(self) -> dict[str, str]:
+        return {}
+
+    def _build_messages(self, request: CompletionRequest) -> list[dict]:
+        messages = []
+        if request.system:
+            messages.append({"role": "system", "content": request.system})
+        messages.extend(request.messages)
+        return messages
+
+    def _build_analytics_kwargs(self, analytics: AnalyticsContext, client) -> dict:
+        if analytics.capture and isinstance(client, OpenAI | WrappedAzureOpenAI):
+            return {
+                "posthog_distinct_id": analytics.distinct_id,
+                "posthog_trace_id": analytics.trace_id or str(uuid.uuid4()),
+                "posthog_properties": analytics.properties or {},
+                "posthog_groups": analytics.groups or {},
+            }
+        return {}
+
+    def _extract_usage(self, usage) -> Usage | None:
+        if not usage:
+            return None
+        cache_read = 0
+        if usage.prompt_tokens_details and usage.prompt_tokens_details.cached_tokens:
+            cache_read = usage.prompt_tokens_details.cached_tokens
+        return Usage(
+            input_tokens=usage.prompt_tokens or 0,
+            output_tokens=usage.completion_tokens or 0,
+            total_tokens=usage.total_tokens or 0,
+            cache_read_tokens=cache_read,
+        )
+
+    def _yield_usage_chunks(self, usage: CompletionUsage) -> Generator[StreamChunk]:
+        input_tokens = usage.prompt_tokens or 0
+        output_tokens = usage.completion_tokens or 0
+        cache_read_tokens = (
+            usage.prompt_tokens_details.cached_tokens
+            if usage.prompt_tokens_details and usage.prompt_tokens_details.cached_tokens is not None
+            else 0
+        )
+        non_cached_input_tokens = max(0, input_tokens - cache_read_tokens)
+        yield StreamChunk(
+            type="usage",
+            data={
+                "input_tokens": non_cached_input_tokens,
+                "output_tokens": output_tokens,
+                "cache_read_tokens": cache_read_tokens,
+                "cache_write_tokens": 0,
+            },
+        )
+
+    def _convert_tools(self, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        handler = LLMToolsHandler(tools)
+        result = handler.convert_to(ToolFormat.OPENAI)
+        assert result is not None, "tools must be non-empty when calling _convert_tools"
+        return result

@@ -143,7 +143,7 @@ const Actions = (record: ErrorEventType): JSX.Element => {
                     icon={<IconAI />}
                     onClick={(event) => {
                         cancelEvent(event)
-                        urls.llmAnalyticsTrace(record.properties.$ai_trace_id, {
+                        urls.aiObservabilityTrace(record.properties.$ai_trace_id, {
                             event: record.uuid,
                             timestamp: record.timestamp,
                         })

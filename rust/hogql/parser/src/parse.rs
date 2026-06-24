@@ -44,9 +44,10 @@ pub fn parse_expr(src: &str, is_internal: bool) -> Result<Value, ParseError> {
 pub fn parse_expr_with_emit<E: Emitter + Clone>(
     emit: E,
     src: &str,
-    _is_internal: bool,
+    is_internal: bool,
 ) -> Result<E::Value, ParseError> {
     let mut p = Parser::new_with_emit(src, emit)?;
+    p.suppress_pos = is_internal;
     // Bare-list lambda `IDENT (, IDENT)* -> body` is only valid at the
     // outermost expression level; inside an argument list each item parses
     // independently and the commas are separators. So we try it here
@@ -153,7 +154,16 @@ pub fn parse_full_template_string_with_emit<E: Emitter + Clone>(
     // `body_offset` and `body_end`. For the standalone entry point the
     // body extends to the end of `src` — there is no trailing `'`.
     let body_end = src.len();
-    parse_template_body(&emit, src, body_offset, body_end)
+    let result = parse_template_body(&emit, src, body_offset, body_end)?;
+    // cpp positions the result by chunk count: a multi-chunk `concat(...)`
+    // gets the outer rule-ctx span `(0, src.len())`, while a single-chunk
+    // shortcut keeps the inner element's own span (the literal text or the
+    // substitution expr). `with_pos` is idempotent — it sets `(0, src.len())`
+    // on the position-less `concat` and is a no-op on the already-positioned
+    // single-chunk cases.
+    let start_pos = template::pos_in_source(&emit, src, 0);
+    let end_pos = template::pos_in_source(&emit, src, src.len());
+    Ok(emit.with_pos(result, start_pos, end_pos))
 }
 
 // ============================================================================
@@ -304,6 +314,18 @@ pub(crate) struct Parser<'a, E: Emitter = JsonEmitter> {
     pub(crate) is_ascii_src: bool,
     /// Live recursive-descent depth shared across expression / subquery / statement nesting; bumped on entry to each recursive entry point, decremented on exit. Enforces `MAX_RECURSION_DEPTH`.
     pub(crate) recursion_depth: u32,
+    /// When set, every node is emitted position-less (`pos_obj` returns
+    /// `null`). Mirrors cpp's `is_internal` flag, which gates every
+    /// `addPositionInfo(json, ctx)` call: a synthetic fragment parsed with
+    /// `start=None` (e.g. an injected database `ExpressionField`) carries no
+    /// meaningful source spans, so cpp emits none and we must match.
+    pub(crate) suppress_pos: bool,
+    /// UTF-8 byte length of a leading BOM (3) or 0 if none. cpp's ANTLR
+    /// lexer treats a leading `U+FEFF` as zero-width: every emitted char
+    /// offset is reckoned from the char AFTER the BOM, so `let` at byte 3
+    /// gets char offset 0 (not 1). `pos_obj` subtracts this width past the
+    /// BOM so rust matches.
+    pub(crate) leading_bom_bytes: usize,
     /// AST node builder. Routes every node/position construction through the `Emitter` trait so we can swap `JsonEmitter` (current default, kept for WASM) for `PyEmitter` (constructs Python ast.* objects directly, avoiding the `serde_json::Value` intermediate). See `crate::emit`.
     pub(crate) emit: E,
 }
@@ -343,6 +365,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             char_offsets: std::cell::OnceCell::new(),
             is_ascii_src,
             recursion_depth: 0,
+            suppress_pos: false,
+            leading_bom_bytes: if src.starts_with('\u{FEFF}') { 3 } else { 0 },
             emit,
         })
     }
@@ -441,7 +465,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             _ => "",
         };
         Err(self.err(format!(
-            "trailing tokens after expression: {:?}{extra}",
+            "trailing tokens after expression: '{}' ({:?}){extra}",
+            self.text(self.peek0),
             self.peek()
         )))
     }
@@ -462,6 +487,15 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// character-based, so byte offsets need converting through `src`
     /// slicing for any source containing non-ASCII bytes.
     pub(crate) fn pos_obj(&self, byte_offset: usize) -> E::Value {
+        // `is_internal` parses (cpp's term) emit no positions at all — every
+        // node stays at its dataclass `start`/`end` default. Returning `null`
+        // here is the single chokepoint: `with_pos` / `replace_pos` then leave
+        // the node bare (json `start:null` → None; py setattr of None is a
+        // no-op on the already-None default), matching cpp's `!is_internal`
+        // gate on `addPositionInfo`.
+        if self.suppress_pos {
+            return self.emit.null();
+        }
         let (line, byte_col, line_start_byte) = offset_to_line_col(&self.line_starts, byte_offset);
         // ASCII fast path: byte == char in every dimension. Avoid the
         // `byte_to_char_index` binary search and the line-slice chars
@@ -469,15 +503,25 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         if self.is_ascii_src {
             return self.emit.position(line, byte_col, byte_offset);
         }
-        let char_offset = self.byte_to_char_index(byte_offset);
+        let mut char_offset = self.byte_to_char_index(byte_offset);
         // Column needs to be characters-in-line, not bytes-in-line. For
         // lines with multi-byte chars we count chars between the line
         // start and the offset.
-        let column = if byte_col == 0 {
+        let mut column = if byte_col == 0 {
             0
         } else {
             self.src[line_start_byte..byte_offset].chars().count() as u32
         };
+        // cpp's ANTLR lexer treats a leading UTF-8 BOM (`U+FEFF`, 3 bytes / 1 char) as zero-width: every char offset
+        // it reports is reckoned from the char AFTER the BOM, and the BOM contributes no column on line 1. Mirror
+        // that here past the BOM byte boundary — without this, every offset is `+1` and a BOM-prefixed source
+        // diverges from cpp at every node.
+        if self.leading_bom_bytes > 0 && byte_offset >= self.leading_bom_bytes {
+            char_offset = char_offset.saturating_sub(1);
+            if line == 1 {
+                column = column.saturating_sub(1);
+            }
+        }
         self.emit.position(line, column, char_offset)
     }
 
@@ -931,6 +975,117 @@ pub(crate) fn identifier_text(src: &str, kind: TokenKind) -> String {
     }
 }
 
+/// Lenient cpp `parse_string_literal_text` twin (`string.cpp`), exposed via PyO3 for cpp-wheel API parity.
+/// Accepts doubled + backslash-escaped quotes (4 quote types, incl. `{...}`) unlike the strict [`decode_quoted_body`].
+pub(crate) fn parse_string_literal_text(text: &str) -> Result<String, ParseError> {
+    if text.is_empty() {
+        return Err(ParseError::parsing(
+            "Encountered an unexpected empty string input",
+            0,
+            0,
+        ));
+    }
+    let bytes = text.as_bytes();
+    let first = bytes[0];
+    let last = bytes[bytes.len() - 1];
+    // Quote bytes are ASCII, so the byte 1/len-1 slice is char-boundary-safe; the `_` arm never slices.
+    let stripped = match (first, last) {
+        (b'\'', b'\'') => inner_between_quotes(text)
+            .replace("''", "'")
+            .replace("\\'", "'"),
+        (b'"', b'"') => inner_between_quotes(text)
+            .replace("\"\"", "\"")
+            .replace("\\\"", "\""),
+        (b'`', b'`') => inner_between_quotes(text)
+            .replace("``", "`")
+            .replace("\\`", "`"),
+        (b'{', b'}') => inner_between_quotes(text)
+            .replace("{{", "{")
+            .replace("\\{", "{"),
+        _ => {
+            return Err(ParseError::syntax(
+                format!(
+                    "Invalid string literal, must start and end with the same quote type: {text}"
+                ),
+                0,
+                0,
+            ));
+        }
+    };
+    Ok(replace_common_escape_characters(&stripped))
+}
+
+/// Drop the surrounding quote bytes, cpp `substr(1, size-2)`-style: a length-1 input yields `""`, not a panic.
+fn inner_between_quotes(text: &str) -> &str {
+    if text.len() < 2 {
+        ""
+    } else {
+        &text[1..text.len() - 1]
+    }
+}
+
+/// Twin of cpp's `replace_common_escape_characters`: single pass, `\0` dropped, unknown `\X` keeps the backslash.
+fn replace_common_escape_characters(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            if let Some(&next) = chars.peek() {
+                match next {
+                    'b' => {
+                        out.push('\u{08}');
+                        chars.next();
+                        continue;
+                    }
+                    'f' => {
+                        out.push('\u{0C}');
+                        chars.next();
+                        continue;
+                    }
+                    'r' => {
+                        out.push('\r');
+                        chars.next();
+                        continue;
+                    }
+                    'n' => {
+                        out.push('\n');
+                        chars.next();
+                        continue;
+                    }
+                    't' => {
+                        out.push('\t');
+                        chars.next();
+                        continue;
+                    }
+                    // cpp drops the NUL: `\0` consumes both and emits nothing.
+                    '0' => {
+                        chars.next();
+                        continue;
+                    }
+                    'a' => {
+                        out.push('\u{07}');
+                        chars.next();
+                        continue;
+                    }
+                    'v' => {
+                        out.push('\u{0B}');
+                        chars.next();
+                        continue;
+                    }
+                    '\\' => {
+                        out.push('\\');
+                        chars.next();
+                        continue;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        out.push(c);
+    }
+    out
+}
+
 /// Keywords accepted as the type-cast target on the `::` postfix. Maps to
 /// the grammar's `columnTypeCastIdentifier` rule: IDENTIFIER /
 /// QUOTED_IDENTIFIER / interval-units / `DATE` / `TIME` / `TIMESTAMP` /
@@ -1305,6 +1460,81 @@ fn build_char_offsets(src: &str) -> Vec<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::ErrorKind;
+
+    /// Parity cases mirroring the DB-bound `_test_parse_string.py` factory, pinned DB-free here.
+    #[test]
+    fn parse_string_literal_text_matches_cpp() {
+        let f = |s: &str| parse_string_literal_text(s).expect("should decode");
+
+        // Quote types.
+        assert_eq!(f("`asd`"), "asd");
+        assert_eq!(f("'asd'"), "asd");
+        assert_eq!(f("\"asd\""), "asd");
+        assert_eq!(f("{asd}"), "asd");
+
+        // Doubled-quote escapes.
+        assert_eq!(f("`a``sd`"), "a`sd");
+        assert_eq!(f("'a''sd'"), "a'sd");
+        assert_eq!(f("\"a\"\"sd\""), "a\"sd");
+        assert_eq!(f("{a{{sd}"), "a{sd");
+        assert_eq!(f("{a}sd}"), "a}sd");
+
+        // Odd / long quote runs — pins str::replace against cpp's sequential replace_all.
+        assert_eq!(f("''''''"), "''");
+        assert_eq!(f("'a'''b'"), "a''b");
+        assert_eq!(f("`a```b`"), "a``b");
+
+        // Backslash-escaped quotes (the lenient form the strict in-parser decoder rejects).
+        assert_eq!(f("`a\\`sd`"), "a`sd");
+        assert_eq!(f("'a\\'sd'"), "a'sd");
+        assert_eq!(f("\"a\\\"sd\""), "a\"sd");
+        assert_eq!(f("{a\\{sd}"), "a{sd");
+
+        // Common escapes; `\0` is dropped.
+        assert_eq!(f("`a\nsd`"), "a\nsd");
+        assert_eq!(f("`a\\bsd`"), "a\u{08}sd");
+        assert_eq!(f("`a\\fsd`"), "a\u{0C}sd");
+        assert_eq!(f("`a\\rsd`"), "a\rsd");
+        assert_eq!(f("`a\\nsd`"), "a\nsd");
+        assert_eq!(f("`a\\tsd`"), "a\tsd");
+        assert_eq!(f("`a\\asd`"), "a\u{07}sd");
+        assert_eq!(f("`a\\vsd`"), "a\u{0B}sd");
+        assert_eq!(f("`a\\\\sd`"), "a\\sd");
+        assert_eq!(f("`a\\0sd`"), "asd");
+
+        // Unknown escapes keep the backslash.
+        assert_eq!(f("`a\\xsd`"), "a\\xsd");
+        assert_eq!(f("`a\\ysd`"), "a\\ysd");
+        assert_eq!(f("`a\\osd`"), "a\\osd");
+
+        // Backslash sequencing.
+        assert_eq!(f("`a\\\\nsd`"), "a\\nsd");
+        assert_eq!(f("`a\\\\n\\sd`"), "a\\n\\sd");
+        assert_eq!(f("`a\\\\n\\\\tsd`"), "a\\n\\tsd");
+
+        // Multibyte content survives the byte-level quote strip.
+        assert_eq!(f("`café`"), "café");
+        assert_eq!(f("{ünïcödé}"), "ünïcödé");
+    }
+
+    /// Mismatched quotes raise `SyntaxError`; empty input raises `ParsingError` (cpp's declared class).
+    #[test]
+    fn parse_string_literal_text_error_paths() {
+        let mismatched = parse_string_literal_text("`asd'").expect_err("mismatched quotes");
+        assert!(matches!(mismatched.kind, ErrorKind::Syntax));
+        assert_eq!(
+            mismatched.message,
+            "Invalid string literal, must start and end with the same quote type: `asd'"
+        );
+
+        let empty = parse_string_literal_text("").expect_err("empty input");
+        assert!(matches!(empty.kind, ErrorKind::Parsing));
+        assert_eq!(
+            empty.message,
+            "Encountered an unexpected empty string input"
+        );
+    }
 
     /// `checkpoint` + `restore` on a freshly-constructed parser must
     /// leave it indistinguishable from one constructed at the same

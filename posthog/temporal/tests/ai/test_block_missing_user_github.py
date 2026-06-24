@@ -7,7 +7,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
-from posthog.temporal.ai.posthog_code_slack_mention import (
+from posthog.temporal.ai.slack_app import (
     PostHogCodeSlackMentionWorkflowInputs,
     block_posthog_code_task_if_no_personal_github_activity,
 )
@@ -26,9 +26,7 @@ class TestBlockPostHogCodeTaskIfNoPersonalGitHub(TestCase):
         self.org = Organization.objects.create(name="TestOrg")
         self.team = Team.objects.create(organization=self.org, name="TestTeam")
         self.user = User.objects.create(email="alice@test.com")
-        self.integration = Integration.objects.create(
-            team=self.team, kind="slack-posthog-code", integration_id="T_SLACK", config={}
-        )
+        self.integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
 
     @patch("posthog.models.integration.SlackIntegration")
     def test_returns_true_and_posts_block_when_user_has_no_personal_github(self, mock_slack_cls):

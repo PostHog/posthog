@@ -20,7 +20,9 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
             .string()
             .max(accountsCreateBodyExternalIdMax)
             .nullish()
-            .describe('Identifier for the account in an external system (e.g. CRM ID). Optional.'),
+            .describe(
+                "Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional."
+            ),
         properties: zod
             .object({
                 csm: zod
@@ -46,10 +48,12 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
                 billing_id: zod.string().nullish(),
                 sfdc_id: zod.string().nullish(),
                 zendesk_id: zod.string().nullish(),
+                slack_channel_id: zod.string().nullish(),
+                usage_dashboard_link: zod.string().nullish(),
             })
             .nullish()
             .describe(
-                'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.'
+                'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.'
             ),
         tags: zod
             .array(zod.string())
@@ -81,7 +85,9 @@ export const AccountsUpdateBody = /* @__PURE__ */ zod
             .string()
             .max(accountsUpdateBodyExternalIdMax)
             .nullish()
-            .describe('Identifier for the account in an external system (e.g. CRM ID). Optional.'),
+            .describe(
+                "Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional."
+            ),
         properties: zod
             .object({
                 csm: zod
@@ -107,10 +113,12 @@ export const AccountsUpdateBody = /* @__PURE__ */ zod
                 billing_id: zod.string().nullish(),
                 sfdc_id: zod.string().nullish(),
                 zendesk_id: zod.string().nullish(),
+                slack_channel_id: zod.string().nullish(),
+                usage_dashboard_link: zod.string().nullish(),
             })
             .nullish()
             .describe(
-                'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.'
+                'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.'
             ),
         tags: zod
             .array(zod.string())
@@ -134,7 +142,9 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
             .string()
             .max(accountsPartialUpdateBodyExternalIdMax)
             .nullish()
-            .describe('Identifier for the account in an external system (e.g. CRM ID). Optional.'),
+            .describe(
+                "Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional."
+            ),
         properties: zod
             .object({
                 csm: zod
@@ -160,10 +170,12 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
                 billing_id: zod.string().nullish(),
                 sfdc_id: zod.string().nullish(),
                 zendesk_id: zod.string().nullish(),
+                slack_channel_id: zod.string().nullish(),
+                usage_dashboard_link: zod.string().nullish(),
             })
             .nullish()
             .describe(
-                'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.'
+                'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.'
             ),
         tags: zod
             .array(zod.string())
@@ -171,6 +183,92 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
             .describe('Tag names attached to the account. Pass a list to replace existing tags.'),
     })
     .describe('A Customer Analytics account — a logical grouping used to assign customer-success ownership.')
+
+export const customPropertyDefinitionsCreateBodyNameMax = 400
+
+export const customPropertyDefinitionsCreateBodyIsBigNumberDefault = false
+
+export const CustomPropertyDefinitionsCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(customPropertyDefinitionsCreateBodyNameMax)
+            .describe('Human-readable name of the custom property. Unique within the team.'),
+        description: zod.string().nullish().describe('Optional description of what the property represents.'),
+        display_type: zod
+            .enum(['text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean'])
+            .describe(
+                '\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean'
+            )
+            .describe(
+                "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', or 'boolean'.\n\n\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean"
+            ),
+        is_big_number: zod
+            .boolean()
+            .default(customPropertyDefinitionsCreateBodyIsBigNumberDefault)
+            .describe('Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties.'),
+    })
+    .describe(
+        "A team-scoped definition of a custom account property — the attribute side of the model.\n\nHolds only the property's shape (name, display type, big-number flag). Per-account values are\nstored separately, so this serializer never reads or writes account values. The numeric-only\nbig-number rule and the unique-name conflict are enforced behind the facade."
+    )
+
+export const customPropertyDefinitionsUpdateBodyNameMax = 400
+
+export const customPropertyDefinitionsUpdateBodyIsBigNumberDefault = false
+
+export const CustomPropertyDefinitionsUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(customPropertyDefinitionsUpdateBodyNameMax)
+            .describe('Human-readable name of the custom property. Unique within the team.'),
+        description: zod.string().nullish().describe('Optional description of what the property represents.'),
+        display_type: zod
+            .enum(['text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean'])
+            .describe(
+                '\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean'
+            )
+            .describe(
+                "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', or 'boolean'.\n\n\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean"
+            ),
+        is_big_number: zod
+            .boolean()
+            .default(customPropertyDefinitionsUpdateBodyIsBigNumberDefault)
+            .describe('Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties.'),
+    })
+    .describe(
+        "A team-scoped definition of a custom account property — the attribute side of the model.\n\nHolds only the property's shape (name, display type, big-number flag). Per-account values are\nstored separately, so this serializer never reads or writes account values. The numeric-only\nbig-number rule and the unique-name conflict are enforced behind the facade."
+    )
+
+export const customPropertyDefinitionsPartialUpdateBodyNameMax = 400
+
+export const customPropertyDefinitionsPartialUpdateBodyIsBigNumberDefault = false
+
+export const CustomPropertyDefinitionsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(customPropertyDefinitionsPartialUpdateBodyNameMax)
+            .optional()
+            .describe('Human-readable name of the custom property. Unique within the team.'),
+        description: zod.string().nullish().describe('Optional description of what the property represents.'),
+        display_type: zod
+            .enum(['text', 'number', 'currency', 'percent', 'date', 'datetime', 'boolean'])
+            .describe(
+                '\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean'
+            )
+            .optional()
+            .describe(
+                "How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', or 'boolean'.\n\n\* `text` - text\n\* `number` - number\n\* `currency` - currency\n\* `percent` - percent\n\* `date` - date\n\* `datetime` - datetime\n\* `boolean` - boolean"
+            ),
+        is_big_number: zod
+            .boolean()
+            .default(customPropertyDefinitionsPartialUpdateBodyIsBigNumberDefault)
+            .describe('Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties.'),
+    })
+    .describe(
+        "A team-scoped definition of a custom account property — the attribute side of the model.\n\nHolds only the property's shape (name, display type, big-number flag). Per-account values are\nstored separately, so this serializer never reads or writes account values. The numeric-only\nbig-number rule and the unique-name conflict are enforced behind the facade."
+    )
 
 export const customerJourneysCreateBodyNameMax = 400
 
@@ -180,9 +278,46 @@ export const CustomerJourneysCreateBody = /* @__PURE__ */ zod.object({
     description: zod.string().nullish(),
 })
 
+export const customerJourneysUpdateBodyNameMax = 400
+
+export const CustomerJourneysUpdateBody = /* @__PURE__ */ zod.object({
+    insight: zod.number(),
+    name: zod.string().max(customerJourneysUpdateBodyNameMax),
+    description: zod.string().nullish(),
+})
+
+export const customerJourneysPartialUpdateBodyNameMax = 400
+
+export const CustomerJourneysPartialUpdateBody = /* @__PURE__ */ zod.object({
+    insight: zod.number().optional(),
+    name: zod.string().max(customerJourneysPartialUpdateBodyNameMax).optional(),
+    description: zod.string().nullish(),
+})
+
 export const CustomerProfileConfigsCreateBody = /* @__PURE__ */ zod.object({
     scope: zod
         .enum(['person', 'group_0', 'group_1', 'group_2', 'group_3', 'group_4'])
+        .describe(
+            '\* `person` - Person\n\* `group_0` - Group 0\n\* `group_1` - Group 1\n\* `group_2` - Group 2\n\* `group_3` - Group 3\n\* `group_4` - Group 4'
+        ),
+    content: zod.unknown().optional(),
+    sidebar: zod.unknown().optional(),
+})
+
+export const CustomerProfileConfigsUpdateBody = /* @__PURE__ */ zod.object({
+    scope: zod
+        .enum(['person', 'group_0', 'group_1', 'group_2', 'group_3', 'group_4'])
+        .describe(
+            '\* `person` - Person\n\* `group_0` - Group 0\n\* `group_1` - Group 1\n\* `group_2` - Group 2\n\* `group_3` - Group 3\n\* `group_4` - Group 4'
+        ),
+    content: zod.unknown().optional(),
+    sidebar: zod.unknown().optional(),
+})
+
+export const CustomerProfileConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    scope: zod
+        .enum(['person', 'group_0', 'group_1', 'group_2', 'group_3', 'group_4'])
+        .optional()
         .describe(
             '\* `person` - Person\n\* `group_0` - Group 0\n\* `group_1` - Group 1\n\* `group_2` - Group 2\n\* `group_3` - Group 3\n\* `group_4` - Group 4'
         ),

@@ -1,5 +1,5 @@
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 
 export function formatTimeAgo(date: string | Date): string {
     const diff = dayjs().diff(dayjs(date), 'seconds')

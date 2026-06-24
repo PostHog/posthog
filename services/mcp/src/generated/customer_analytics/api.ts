@@ -61,7 +61,9 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
             .string()
             .max(accountsCreateBodyExternalIdMax)
             .nullish()
-            .describe('Identifier for the account in an external system (e.g. CRM ID). Optional.'),
+            .describe(
+                "Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional."
+            ),
         properties: zod
             .object({
                 csm: zod
@@ -87,10 +89,12 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
                 billing_id: zod.string().nullish(),
                 sfdc_id: zod.string().nullish(),
                 zendesk_id: zod.string().nullish(),
+                slack_channel_id: zod.string().nullish(),
+                usage_dashboard_link: zod.string().nullish(),
             })
             .nullish()
             .describe(
-                'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.'
+                'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.'
             ),
         tags: zod
             .array(zod.string())
@@ -187,7 +191,9 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
             .string()
             .max(accountsPartialUpdateBodyExternalIdMax)
             .nullish()
-            .describe('Identifier for the account in an external system (e.g. CRM ID). Optional.'),
+            .describe(
+                "Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional."
+            ),
         properties: zod
             .object({
                 csm: zod
@@ -213,10 +219,12 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
                 billing_id: zod.string().nullish(),
                 sfdc_id: zod.string().nullish(),
                 zendesk_id: zod.string().nullish(),
+                slack_channel_id: zod.string().nullish(),
+                usage_dashboard_link: zod.string().nullish(),
             })
             .nullish()
             .describe(
-                'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id). Defaults to an empty object. Unknown keys are rejected.'
+                'Typed account properties: assignment fields (csm, account_executive, account_owner) and external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link). Defaults to an empty object. Unknown keys are rejected.'
             ),
         tags: zod
             .array(zod.string())

@@ -57,8 +57,32 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
             return
 
         new_source = SourceRegistry.get_source(source_type_enum)
-        config = new_source.parse_config(source.job_inputs)
-        schemas = new_source.get_schemas(config, inputs.team_id)
+
+        try:
+            config = new_source.parse_config(source.job_inputs)
+        except Exception:
+            # Config parsing is deterministic over the stored `job_inputs`, so a corrupt or
+            # double-encoded config fails identically on every discovery run - there is nothing
+            # to retry. The per-schema sync path surfaces and disables the source on the same
+            # config, so skip quietly here rather than spamming retries and error tracking.
+            logger.warning("Skipping schema discovery: source config could not be parsed", exc_info=True)
+            return
+
+        try:
+            schemas = new_source.get_schemas(config, inputs.team_id)
+        except Exception as e:
+            # Schema discovery is best-effort and runs on its own ~6h cadence. If the source's
+            # credentials are broken (expired/revoked tokens, permission denied, deleted account,
+            # etc.) discovery will keep failing until the user reconnects — there is nothing to
+            # retry here, and the per-schema sync path surfaces and disables the source on the
+            # same error. Skip quietly on known non-retryable source errors rather than spamming
+            # retries and error tracking on every discovery run. Other errors still propagate.
+            error_msg = str(e)
+            non_retryable_errors = new_source.get_non_retryable_errors()
+            if any(pattern in error_msg for pattern in non_retryable_errors):
+                logger.warning(f"Skipping schema discovery due to non-retryable source error: {error_msg}")
+                return
+            raise
 
         schemas_to_sync = {s.name: s.label for s in schemas}
     else:

@@ -28,6 +28,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 
 from posthog.clickhouse.materialized_columns import ColumnName
+from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.hogql_queries.insights.funnels.funnel_aggregation_operations import FirstTimeForUserAggregationQuery
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.utils import (
@@ -36,6 +37,7 @@ from posthog.hogql_queries.insights.funnels.utils import (
     entity_config_mismatch,
     get_breakdown_expr,
 )
+from posthog.hogql_queries.insights.utils.aggregations import FirstTimeForUserDataWarehouseConfig
 from posthog.hogql_queries.insights.utils.breakdowns import NOT_IN_COHORT_ID, strip_user_aliases
 from posthog.hogql_queries.insights.utils.data_warehouse_schema_mixin import DataWarehouseSchemaMixin
 from posthog.hogql_queries.insights.utils.properties import Properties
@@ -220,6 +222,20 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         )
         return stmt
 
+    def _warehouse_timestamp_expr(self, table_entity: FunnelsDataWarehouseNode) -> ast.Expr:
+        field = self.get_warehouse_field(table_entity.table_name, table_entity.timestamp_field)
+
+        if isinstance(field, DateTimeDatabaseField) or isinstance(field, DateDatabaseField):
+            return ast.Field(chain=[self.EVENT_TABLE_ALIAS, table_entity.timestamp_field])
+        elif isinstance(field, StringDatabaseField):
+            return ast.Call(
+                name="toDateTime", args=[ast.Field(chain=[self.EVENT_TABLE_ALIAS, table_entity.timestamp_field])]
+            )
+        else:
+            raise ValidationError(
+                detail=f"Unsupported timestamp field type for {table_entity.table_name}.{table_entity.timestamp_field}"
+            )
+
     def _build_data_warehouse_table_query(
         self,
         table_config_index: int,
@@ -230,20 +246,9 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
 
         all_step_cols = self._get_funnel_cols(table_entity, table_config_index)
 
-        field = self.get_warehouse_field(table_entity.table_name, table_entity.timestamp_field)
+        timestamp_expr = self._warehouse_timestamp_expr(table_entity)
 
-        timestamp_expr: ast.Expr
-        if isinstance(field, DateTimeDatabaseField) or isinstance(field, DateDatabaseField):
-            timestamp_expr = ast.Field(chain=[self.EVENT_TABLE_ALIAS, table_entity.timestamp_field])
-        elif isinstance(field, StringDatabaseField):
-            timestamp_expr = ast.Call(
-                name="toDateTime", args=[ast.Field(chain=[self.EVENT_TABLE_ALIAS, table_entity.timestamp_field])]
-            )
-        else:
-            raise ValidationError(
-                detail=f"Unsupported timestamp field type for {table_entity.table_name}.{table_entity.timestamp_field}"
-            )
-
+        tag_contains_user_hogql()
         select: list[ast.Expr] = [
             ast.Alias(
                 alias="timestamp",
@@ -380,22 +385,38 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             filters.append(filter_expr)
 
         if step_entity.math == FunnelMathType.FIRST_TIME_FOR_USER:
-            subquery = FirstTimeForUserAggregationQuery(self.context, filter_expr, event_expr).to_query()
-            first_time_filter = ast.CompareOperation(
-                left=ast.Field(chain=["e", "uuid"]), right=subquery, op=ast.CompareOperationOp.GlobalIn
-            )
+            dwh_config, lhs = self._first_time_config_and_lhs(table_entity)
+            subquery = FirstTimeForUserAggregationQuery(
+                self.context, filter_expr, event_expr, dwh_config=dwh_config
+            ).to_query()
+            first_time_filter = ast.CompareOperation(left=lhs, right=subquery, op=ast.CompareOperationOp.GlobalIn)
             return ast.And(exprs=[*filters, first_time_filter])
         elif step_entity.math == FunnelMathType.FIRST_TIME_FOR_USER_WITH_FILTERS:
+            dwh_config, lhs = self._first_time_config_and_lhs(table_entity)
             subquery = FirstTimeForUserAggregationQuery(
-                self.context, ast.Constant(value=1), ast.And(exprs=filters)
+                self.context, ast.Constant(value=1), ast.And(exprs=filters), dwh_config=dwh_config
             ).to_query()
-            first_time_filter = ast.CompareOperation(
-                left=ast.Field(chain=["e", "uuid"]), right=subquery, op=ast.CompareOperationOp.GlobalIn
-            )
+            first_time_filter = ast.CompareOperation(left=lhs, right=subquery, op=ast.CompareOperationOp.GlobalIn)
             return ast.And(exprs=[*filters, first_time_filter])
         elif len(filters) > 1:
             return ast.And(exprs=filters)
         return filters[0]
+
+    def _first_time_config_and_lhs(
+        self, table_entity: FunnelsDataWarehouseNode | None
+    ) -> tuple[FirstTimeForUserDataWarehouseConfig | None, ast.Expr]:
+        # The first-time-for-user subquery defaults to the events table; for a data warehouse step it
+        # must target the DWH table, timestamp, aggregation target, and id field instead.
+        if isinstance(table_entity, FunnelsDataWarehouseNode):
+            dwh_config = FirstTimeForUserDataWarehouseConfig(
+                table_expr=ast.Field(chain=[table_entity.table_name]),
+                timestamp_expr=self._warehouse_timestamp_expr(table_entity),
+                group_by_expr=parse_expr(table_entity.aggregation_target_field),
+                id_select_expr=ast.Field(chain=[table_entity.id_field]),
+            )
+            lhs: ast.Expr = ast.Field(chain=[self.EVENT_TABLE_ALIAS, table_entity.id_field])
+            return dwh_config, lhs
+        return None, ast.Field(chain=[self.EVENT_TABLE_ALIAS, "uuid"])
 
     def _get_steps_conditions(self, steps_with_index: Sequence[tuple[int, FunnelEntityNode]]) -> ast.Expr:
         step_conditions: list[ast.Expr] = []
@@ -421,8 +442,13 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             return get_breakdown_expr(breakdown, properties_column)
         elif breakdownType == "event":
             properties_column = "properties"
-            normalize_url = breakdownFilter.breakdown_normalize_url
-            return get_breakdown_expr(breakdown, properties_column, normalize_url=normalize_url)
+            return get_breakdown_expr(
+                breakdown,
+                properties_column,
+                normalize_url=breakdownFilter.breakdown_normalize_url,
+                path_cleaning=breakdownFilter.breakdown_path_cleaning,
+                team=self.context.team,
+            )
         elif breakdownType == "cohort":
             if isinstance(breakdown, int):
                 cohort_id = breakdown
@@ -558,6 +584,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
 
         # Aggregating by HogQL
         elif funnelsFilter.funnelAggregateByHogQL and funnelsFilter.funnelAggregateByHogQL != "person_id":
+            tag_contains_user_hogql()
             aggregation_target = parse_expr(funnelsFilter.funnelAggregateByHogQL)
 
         if isinstance(aggregation_target, str):

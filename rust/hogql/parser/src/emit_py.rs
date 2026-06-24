@@ -768,12 +768,13 @@ impl<'py> Emitter for PyEmitter<'py> {
         self.build(&self.cls_variable_declaration, &kw)
     }
     fn catch_clause(&self, var: PyAst, ty: PyAst, body: PyAst) -> PyAst {
-        // cpp emits this as a `[var, type, body]` JSON array — we mirror the shape on Py since `TryCatchStatement.catches` is `list[list[Expr | Type | Block]]`.
-        let list = PyList::empty_bound(self.py);
-        list.append(var.obj).unwrap();
-        list.append(ty.obj).unwrap();
-        list.append(body.obj).unwrap();
-        self.wrap_prim(list.into_any().unbind())
+        // cpp emits this as a `[var, type, body]` JSON array; the Python AST types
+        // `TryCatchStatement.catches` as `list[tuple[Optional[str], Optional[str], Statement]]`
+        // (matching what `CloningVisitor.visit_try_catch_statement` builds and what
+        // `json_ast._TUPLE_INNER_FIELDS` now deserialises cpp/rust-json arrays into).
+        // Build a tuple here so `rust-py` produces the canonical shape directly.
+        let pair = PyTuple::new_bound(self.py, [var.obj, ty.obj, body.obj]);
+        self.wrap_prim(pair.into_any().unbind())
     }
 
     // ===== Query / clause builders =====

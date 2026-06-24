@@ -79,6 +79,7 @@ const meta: Meta<StoryArgs> = {
                     },
                 },
                 '/api/element/stats/': listHeatmapStatsAPIResponse,
+                '/api/heatmap/': { results: [] },
                 '/api/projects/@current/feature_flags/my_flags': listMyFlagsAPIResponse,
                 '/api/projects/@current/actions/': listActionsAPIResponse,
                 '/api/projects/@current/web_experiments/': listExperimentsAPIResponse,

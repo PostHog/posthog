@@ -2,6 +2,18 @@ import './styles/layers.css'
 
 export { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from './accordion'
 export {
+    AlertDialog,
+    AlertDialogClose,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogOverlay,
+    AlertDialogPortal,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from './alert-dialog'
+export {
     Autocomplete,
     AutocompleteClear,
     AutocompleteCollection,
@@ -18,6 +30,7 @@ export {
     AutocompleteValue,
     useAutocompleteAnchor,
 } from './autocomplete'
+export { Avatar, AvatarImage, AvatarFallback, AvatarGroup } from './avatar'
 export { Badge, badgeVariants } from './badge'
 export { Button, buttonVariants, type ButtonProps } from './button'
 export { ButtonGroup, ButtonGroupSeparator, ButtonGroupText, buttonGroupVariants } from './button-group'
@@ -25,7 +38,7 @@ export { Card, CardHeader, CardFooter, CardTitle, CardDescription, CardContent }
 export { CardGroup } from './card-group'
 export { Checkbox, CheckboxIndicator } from './checkbox'
 export { Chip, ChipClose, ChipGroup } from './chip'
-export { Collapsible, CollapsibleTrigger, CollapsibleContent } from './collapsible'
+export { Collapsible, CollapsibleHeader, CollapsibleTrigger, CollapsibleContent } from './collapsible'
 export { MenuLabel } from './menu-label'
 export {
     Combobox,
@@ -124,6 +137,7 @@ export {
     FieldContent,
     FieldTitle,
 } from './field'
+export { Heading, headingVariants } from './heading'
 export { Input } from './input'
 export {
     NumberFieldRoot,
@@ -178,6 +192,17 @@ export {
     MenubarSubTrigger,
     MenubarSubContent,
 } from './menubar'
+export {
+    Pagination,
+    PaginationContent,
+    PaginationItem,
+    PaginationButton,
+    PaginationPrevious,
+    PaginationNext,
+    PaginationEllipsis,
+    getPaginationRange,
+    type PaginationRangeItem,
+} from './pagination'
 export { Popover, PopoverContent, PopoverTrigger } from './popover'
 export {
     Progress,
@@ -218,7 +243,19 @@ export {
 } from './toast'
 export { Spinner } from './spinner'
 export { Switch } from './switch'
+export {
+    Table,
+    TableHeader,
+    TableBody,
+    TableFooter,
+    TableHead,
+    TableRow,
+    TableCell,
+    TableEmpty,
+    TableCaption,
+} from './table'
 export { Tabs, TabsContent, TabsList, TabsTrigger } from './tabs'
+export { Text, textVariants } from './text'
 export { Textarea } from './textarea'
 export { Toggle, toggleVariants } from './toggle'
 export { ToggleGroup, ToggleGroupItem } from './toggle-group'

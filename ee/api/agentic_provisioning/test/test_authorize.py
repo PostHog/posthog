@@ -2,18 +2,21 @@ import json
 import time
 from urllib.parse import quote
 
-import pytest
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from django.core.cache import cache
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.models import Organization, OrganizationMembership, Team
+from posthog.models.oauth import OAuthApplication
 from posthog.models.user import User
 
 from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
 from ee.api.agentic_provisioning.signature import compute_signature
-from ee.api.agentic_provisioning.test.base import HMAC_SECRET
+from ee.api.agentic_provisioning.test.base import HMAC_SECRET, TEST_STRIPE_OAUTH_CLIENT_ID
 
 DUMMY_CALLBACK = "https://marketplace.stripe.com/oauth/callback"
 
@@ -80,9 +83,65 @@ class TestAgenticAuthorize(APIBaseTest):
         assert code_data["team_id"] == self.team.id
         assert code_data["scopes"] == ["query:read", "project:read"]
 
-    @pytest.mark.requires_secrets
-    @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET, STRIPE_ORCHESTRATOR_CALLBACK_URL=DUMMY_CALLBACK)
+    def _make_skip_consent_partner(self) -> OAuthApplication:
+        return OAuthApplication.objects.create(
+            client_id="authorize-skip-consent-partner",
+            name="Skip Consent Partner",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://partner.example.com/callback",
+            algorithm="RS256",
+            is_first_party=True,
+            provisioning_auth_method="hmac",
+            provisioning_partner_type="test_partner",
+            provisioning_active=True,
+            provisioning_skip_existing_user_consent=True,
+        )
+
+    @parameterized.expand(
+        [
+            # consent_required=True forces the consent UI for a skip-consent partner whose request
+            # fell through to consent (trust not proven), even for a single-org/single-team user.
+            ("consent_required_flag_set", {"consent_required": True}),
+            # Fail closed: a partner-identified pending state missing the flag (e.g. cached by an
+            # older pod mid-deploy) must not auto-approve either.
+            ("flag_missing_fails_closed", {}),
+        ]
+    )
+    def test_skip_consent_partner_not_auto_approved(self, name, extra):
+        partner = self._make_skip_consent_partner()
+        state = f"state_{name}"
+        self._set_pending_auth(
+            state,
+            self.user.email,
+            partner_id=str(partner.id),
+            partner_name=partner.name,
+            **extra,
+        )
+        res = self.client.get(f"/api/agentic/authorize?state={state}")
+        assert res.status_code == 302
+        assert "/agentic/authorize?" in res["Location"]
+        assert not res["Location"].startswith("https://partner.example.com/callback")
+        assert "code=" not in res["Location"]
+        assert cache.get(f"{PENDING_AUTH_CACHE_PREFIX}{state}") is not None
+
+    @override_settings(
+        STRIPE_SIGNING_SECRET=HMAC_SECRET,
+        STRIPE_POSTHOG_OAUTH_CLIENT_ID=TEST_STRIPE_OAUTH_CLIENT_ID,
+    )
     def test_full_a1_flow_with_token_exchange(self):
+        # The token exchange resolves the legacy Stripe OAuth app by client_id and now
+        # hard-fails if it's missing, so the e2e flow needs the app row to exist.
+        OAuthApplication.objects.create(
+            name="PostHog Stripe App",
+            client_id=TEST_STRIPE_OAUTH_CLIENT_ID,
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://localhost",
+            algorithm="RS256",
+        )
         self._set_pending_auth("state_e2e", self.user.email)
 
         res = self.client.get("/api/agentic/authorize?state=state_e2e")
@@ -166,6 +225,34 @@ class TestAgenticAuthorizeConfirm(AgenticAuthorizeMultiOrgBase):
             content_type="application/json",
         )
         assert cache.get(f"{PENDING_AUTH_CACHE_PREFIX}state_consume") is None
+
+    @patch("ee.api.agentic_provisioning.views._capture_provisioning_event")
+    def test_confirm_success_attributes_partner(self, mock_capture_event):
+        partner = OAuthApplication.objects.create(
+            client_id="confirm-attribution-partner",
+            name="Confirm Attribution Client",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris=DUMMY_CALLBACK,
+            algorithm="RS256",
+            provisioning_auth_method="pkce",
+            provisioning_partner_type="test_partner",
+            provisioning_active=True,
+        )
+        self._set_pending_auth("state_attr", self.user.email, partner_id=str(partner.id), partner_name=partner.name)
+        res = self.client.post(
+            "/api/agentic/authorize/confirm/",
+            {"state": "state_attr", "team_id": self.team.id},
+            content_type="application/json",
+        )
+        assert res.status_code == 200
+
+        success_calls = [
+            call for call in mock_capture_event.call_args_list if call.args[:2] == ("authorize_confirm", "success")
+        ]
+        assert len(success_calls) == 1
+        assert success_calls[0].kwargs["partner"] == partner
 
     def test_confirm_rejects_expired_state(self):
         res = self.client.post(

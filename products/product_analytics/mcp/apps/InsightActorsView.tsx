@@ -3,41 +3,10 @@ import { type ReactElement, type ReactNode, useMemo } from 'react'
 import { DataTable, type DataTableColumn } from '@posthog/mcp-ui'
 import { Badge, Button } from '@posthog/quill'
 
-export interface InsightActorsData {
-    query: Record<string, unknown>
-    results: {
-        columns: string[]
-        results: (string | number | null | string[])[][]
-    }
-    hasMore: boolean
-    offset: number
-    _posthogUrl?: string
-}
+import { type ActorRow, type InsightActorsData, isRetentionActorsData, toActorRows } from './insightActorsTransforms'
+import { RetentionActorsView } from './RetentionActorsView'
 
-interface ActorRow {
-    distinct_id: string | null
-    email: string | null
-    name: string | null
-    event_count: number | null
-    recordings: string[]
-}
-
-function toActorRows(data: InsightActorsData): ActorRow[] {
-    const { columns, results } = data.results
-    return results.map((row) => {
-        const obj: Record<string, unknown> = {}
-        columns.forEach((col, i) => {
-            obj[col] = row[i]
-        })
-        return {
-            distinct_id: (obj.distinct_id as string) ?? null,
-            email: (obj.email as string) ?? null,
-            name: (obj.name as string) ?? null,
-            event_count: (obj.event_count as number) ?? null,
-            recordings: Array.isArray(obj.recordings) ? (obj.recordings as string[]) : [],
-        }
-    })
-}
+export type { InsightActorsData }
 
 interface InsightActorsViewProps {
     data: InsightActorsData
@@ -45,7 +14,18 @@ interface InsightActorsViewProps {
 }
 
 export function InsightActorsView({ data, openLink }: InsightActorsViewProps): ReactElement {
+    // Retention actors have a per-interval grid shape (no event_count) — render the cohort table instead.
+    if (isRetentionActorsData(data)) {
+        return <RetentionActorsView data={data} />
+    }
+    return <EventCountActorsView data={data} openLink={openLink} />
+}
+
+function EventCountActorsView({ data, openLink }: InsightActorsViewProps): ReactElement {
     const rows = useMemo(() => toActorRows(data), [data])
+    // Membership-based sources (stickiness, lifecycle) project only the actor — no event count and
+    // no recordings — so drive both columns off the actual result columns rather than assume them.
+    const hasEventCount = data.results.columns.includes('event_count')
     const hasRecordings = data.results.columns.includes('recordings')
 
     const columns = useMemo((): DataTableColumn<ActorRow>[] => {
@@ -65,14 +45,17 @@ export function InsightActorsView({ data, openLink }: InsightActorsViewProps): R
                     )
                 },
             },
-            {
+        ]
+
+        if (hasEventCount) {
+            cols.push({
                 key: 'event_count',
                 header: 'Event count',
                 sortable: true,
                 align: 'right',
                 render: (row): ReactNode => <Badge>{row.event_count?.toLocaleString() ?? '—'}</Badge>,
-            },
-        ]
+            })
+        }
 
         if (hasRecordings) {
             cols.push({
@@ -111,7 +94,7 @@ export function InsightActorsView({ data, openLink }: InsightActorsViewProps): R
         }
 
         return cols
-    }, [hasRecordings, openLink])
+    }, [hasEventCount, hasRecordings, openLink])
 
     return (
         <div className="p-4">
@@ -125,7 +108,8 @@ export function InsightActorsView({ data, openLink }: InsightActorsViewProps): R
                 <DataTable<ActorRow>
                     columns={columns}
                     data={rows}
-                    defaultSort={{ key: 'event_count', direction: 'desc' }}
+                    // Without an event count there's nothing to rank by — keep the query's actor order.
+                    defaultSort={hasEventCount ? { key: 'event_count', direction: 'desc' } : undefined}
                     emptyMessage="No actors found for this data point"
                 />
             </div>

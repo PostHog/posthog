@@ -42,15 +42,45 @@ const AssistantDataVisualizationYAxisSettings = z.object({
 })
 
 const AssistantDataVisualizationAxisDisplaySettings = z.object({
+    color: z.string().describe('Custom color for this series as a hex string (e.g. `#1d4aff`).').optional(),
+    displayType: z
+        .enum(['auto', 'line', 'bar', 'area'])
+        .describe(
+            'Override how this individual series is rendered, independent of the chart-level `display` type. Use this to mix series types — e.g. plot one series as `bar` and overlay another as `line`. `auto` follows the chart-level display type.'
+        )
+        .optional(),
+    label: z
+        .string()
+        .describe('Custom label for this series, shown in the legend and tooltips instead of the column name.')
+        .optional(),
+    trendLine: z.coerce
+        .boolean()
+        .describe('Draw a linear trend line for this series. Only meaningful for line, bar, and area charts.')
+        .optional(),
     yAxisPosition: z
         .enum(['left', 'right'])
         .describe('Which Y axis this numeric series should use. Use `right` for a secondary Y axis.')
         .optional(),
 })
 
+const AssistantDataVisualizationAxisFormatting = z.object({
+    decimalPlaces: z.coerce.number().describe('Number of decimal places to display.').optional(),
+    prefix: z.string().describe('Text prepended to each value (e.g. `$`).').optional(),
+    style: z
+        .enum(['none', 'number', 'short', 'percent'])
+        .describe(
+            'Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — render the value as a percentage.'
+        )
+        .optional(),
+    suffix: z.string().describe('Text appended to each value (e.g. `%` or ` ms`).').optional(),
+})
+
 const AssistantDataVisualizationAxisSettings = z.object({
     display: AssistantDataVisualizationAxisDisplaySettings.describe(
         'Display settings for a plotted Y series.'
+    ).optional(),
+    formatting: AssistantDataVisualizationAxisFormatting.describe(
+        'Number-formatting settings for the values on this axis or series.'
     ).optional(),
 })
 
@@ -79,6 +109,10 @@ const AssistantDataVisualizationChartSettings = z.object({
         .optional(),
     showLegend: z.coerce.boolean().describe('Show the chart legend.').optional(),
     showNullsAsZero: z.coerce.boolean().describe('Replace null aggregation results with zero.').optional(),
+    showValuesOnSeries: z.coerce
+        .boolean()
+        .describe("Render each data point's value as a label directly on the series.")
+        .optional(),
     stackBars100: z.coerce
         .boolean()
         .describe('Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`.')
@@ -98,6 +132,7 @@ const AssistantDataVisualizationDisplayType = z.enum([
     'BoldNumber',
     'ActionsLineGraph',
     'ActionsBar',
+    'ActionsPie',
     'ActionsStackedBar',
     'ActionsAreaGraph',
     'TwoDimensionalHeatmap',
@@ -118,7 +153,7 @@ const AssistantDataVisualizationNode = z.object({
         'Chart configuration. Ignored when `display` is `ActionsTable` or `BoldNumber`.'
     ).optional(),
     display: AssistantDataVisualizationDisplayType.describe(
-        'Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Otherwise → `ActionsTable`.'
+        'Visualization type. Defaults to `ActionsTable` when omitted.\n\nGuidance:\n- Single-value result (one numeric column, one row) → `BoldNumber`.\n- Time series → `ActionsLineGraph` or `ActionsAreaGraph`.\n- Categorical proportions → `ActionsPie`.\n- Categorical comparison → `ActionsBar` or `ActionsStackedBar`.\n- Two-dimensional aggregation → `TwoDimensionalHeatmap`.\n- Otherwise → `ActionsTable`.'
     ).optional(),
     kind: z.literal('DataVisualizationNode').default('DataVisualizationNode'),
     source: z.record(z.string(), z.unknown()).describe('HogQL query object that produces the rows to visualize.'),

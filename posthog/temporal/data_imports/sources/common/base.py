@@ -1,6 +1,9 @@
 import dataclasses
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Generic, Optional, TypeVar, Union
+
+import structlog
 
 from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
@@ -20,14 +23,53 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import ResumableData, SourceInputs, SourceResponse
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import get_config_for_source
 
-from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField
+
+logger = structlog.get_logger(__name__)
 
 MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP = "Required for Marketing analytics to work with this source."
+
+
+def _incremental_field_labels(fields: list[IncrementalField]) -> list[str]:
+    labels = []
+    for f in fields:
+        label = f.get("label") or f.get("field")
+        if label:
+            labels.append(label)
+    return labels
+
+
+def _documented_table_from_schema(schema: SourceSchema, canonical: Mapping[str, Any]) -> dict[str, Any]:
+    """Shape a `SourceSchema` (+ curated canonical entry) into a public-docs table entry."""
+    if schema.webhook_only:
+        sync_methods = ["Webhook only"]
+    else:
+        sync_methods = []
+        if schema.supports_webhooks:
+            sync_methods.append("Webhook")
+        if schema.supports_cdc:
+            sync_methods.append("CDC")
+        if schema.supports_incremental:
+            sync_methods.append("Incremental")
+        if schema.supports_append and not schema.supports_incremental:
+            sync_methods.append("Append only")
+        sync_methods.append("Full refresh")
+
+    return {
+        "name": schema.name,
+        "label": schema.label or schema.name,
+        "description": schema.description or canonical.get("description"),
+        "sync_methods": sync_methods,
+        "incremental_fields": _incremental_field_labels(schema.incremental_fields),
+        "primary_keys": schema.detected_primary_keys or [],
+    }
+
 
 ConfigType = TypeVar("ConfigType", bound=Config)
 ConfigType_contra = TypeVar("ConfigType_contra", bound=Config, contravariant=True)
@@ -50,6 +92,17 @@ class _BaseSource(ABC, Generic[ConfigType]):
     This class provides common functionality for all sources but does NOT define
     source_for_pipeline - use SimpleSource or ResumableSource instead.
     """
+
+    # Default `False` for every source; `SQLSource` flips to `True` (subclasses opt out
+    # via their own override if a driver genuinely can't project columns).
+    supports_column_selection: bool = False
+
+    # Opt-in: set `True` only on sources whose `get_schemas` iterates a static endpoint
+    # catalog with NO I/O — no network, no DB, no credentials. Those sources surface their
+    # table list in public docs (see `get_documented_tables`). Left `False` for SQL / file /
+    # API sources that discover schemas over a live connection, since calling their
+    # `get_schemas` with a placeholder config could connect, hang, or close the DB session.
+    lists_tables_without_credentials: bool = False
 
     @property
     @abstractmethod
@@ -74,6 +127,18 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
         return {}
 
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        """Curated, documentation-sourced descriptions for this source's well-known tables/endpoints.
+
+        Keyed by schema/endpoint name (matching what `get_schemas` returns). Each entry may carry a
+        table `description`, a `docs_url`, and per-`columns` descriptions. The default empty mapping
+        means every table falls back to LLM enrichment. Only meaningful for fixed-schema sources
+        (SaaS APIs); SQL sources with arbitrary user schemas leave this empty. Override with a lazy
+        import of the source's sibling `canonical_descriptions.py`.
+        """
+
+        return {}
+
     def get_schemas(
         self,
         config: ConfigType,
@@ -89,6 +154,44 @@ class _BaseSource(ABC, Generic[ConfigType]):
         without caches can ignore the flag.
         """
         raise NotImplementedError()
+
+    def _placeholder_config(self) -> ConfigType:
+        """Build a credential-free config instance for static, no-network schema listing.
+
+        Required (no-default) fields are filled with empty placeholders. We construct the
+        dataclass directly (bypassing `from_dict`), so no converters or validation run and
+        the resulting object only satisfies the `get_schemas` signature — it is never used
+        to make a request.
+        """
+        cls = self._config_class
+        kwargs: dict[str, Any] = {}
+        for f in dataclasses.fields(cls):
+            # `init=False` fields aren't accepted by `__init__`; passing them raises TypeError.
+            if not f.init:
+                continue
+            if f.default is not dataclasses.MISSING or f.default_factory is not dataclasses.MISSING:
+                continue
+            kwargs[f.name] = ""
+        return cls(**kwargs)
+
+    def get_documented_tables(self) -> list[dict[str, Any]]:
+        """Credential-free table catalog for public documentation (posthog.com).
+
+        Returns one entry per well-known table for fixed-schema sources, merging
+        `get_schemas` metadata (sync methods, incremental fields) with curated
+        `get_canonical_descriptions`. SQL / file sources (user-defined schemas) return
+        ``[]`` so their docs render a generic "discovered from your source" note. Any
+        failure degrades to ``[]`` — this must never break the public endpoint.
+        """
+        if not self.lists_tables_without_credentials:
+            return []
+        try:
+            schemas = self.get_schemas(self._placeholder_config(), team_id=0)
+            canonical = self.get_canonical_descriptions()
+            return [_documented_table_from_schema(schema, canonical.get(schema.name, {})) for schema in schemas]
+        except Exception:
+            logger.exception("get_documented_tables failed", source_type=str(self.source_type))
+            return []
 
     @property
     @abstractmethod
@@ -114,6 +217,17 @@ class _BaseSource(ABC, Generic[ConfigType]):
     def get_endpoint_permissions(self, config: ConfigType, team_id: int, endpoints: list[str]) -> dict[str, str | None]:
         """Per-endpoint access check. ``{name: None}`` if reachable, ``{name: reason}`` if not. Default = all reachable."""
         return dict.fromkeys(endpoints)
+
+    @property
+    def connection_host_fields(self) -> list[str]:
+        """``job_inputs`` fields that determine where stored credentials are sent.
+
+        Changing one of these on an existing source must require the editor to re-enter the
+        source's secrets — otherwise an org member could retarget the preserved credential at a
+        server they control and exfiltrate it. The update serializer enforces this. ``host`` and
+        the SSH tunnel target are handled separately, so sources whose connection target lives in
+        a differently named field (e.g. Okta's ``okta_domain``) should list it here."""
+        return []
 
     def cleanup_cdc_resources_on_deletion(self, source: "ExternalDataSource") -> None:
         """Best-effort teardown of CDC resources tied to the source. No-op by default."""
@@ -149,6 +263,15 @@ class WebhookCreationResult:
     # (e.g. when the source's API doesn't return the signing secret on create).
     # Empty list means the auto-created webhook is fully configured.
     pending_inputs: list[str] = dataclasses.field(default_factory=list)
+
+
+@dataclasses.dataclass
+class WebhookSyncResult:
+    """Outcome of reconciling an existing webhook's events — success plus an optional actionable
+    message. Distinct from WebhookCreationResult, which also carries create-only fields."""
+
+    success: bool
+    error: str | None = None
 
 
 @dataclasses.dataclass
@@ -189,6 +312,22 @@ class WebhookSource(_BaseSource[ConfigType], Generic[ConfigType]):
         webhook creation, returns a failed result so the user can set it up manually.
         """
         raise NotImplementedError()
+
+    def get_desired_webhook_events(self, config: ConfigType, eligible_schema_names: list[str]) -> list[str] | None:
+        """Events the webhook should subscribe to. ``None`` when the source has no
+        provider-side subscription to drift (e.g. Slack); such sources skip reconciliation."""
+        return None
+
+    def sync_webhook_events(
+        self,
+        config: ConfigType,
+        webhook_url: str,
+        team_id: int,
+        eligible_schema_names: list[str],
+    ) -> WebhookSyncResult:
+        """Reconcile the provider's subscribed events with the selected schemas. No-op default
+        for sources without a provider-side subscription; override where one exists (Stripe)."""
+        return WebhookSyncResult(success=True)
 
     def webhook_inputs_updated(
         self, config: ConfigType, webhook_url: str, team_id: int, inputs: dict[str, Any]

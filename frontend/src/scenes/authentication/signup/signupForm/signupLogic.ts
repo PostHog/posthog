@@ -10,9 +10,9 @@ import api from 'lib/api'
 import { ValidatedPasswordResult, validatePassword } from 'lib/components/PasswordStrength'
 import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getRelativeNextPath } from 'lib/utils'
+import { getRelativeNextPath } from 'lib/utils/url'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { getPasskeyErrorMessage } from 'scenes/settings/user/passkeys/utils'
+import { getPasskeyErrorMessage, isWebAuthnCancellation } from 'scenes/settings/user/passkeys/utils'
 import { RegistrationBeginResponse } from 'scenes/settings/user/passkeySettingsLogic'
 import { urls } from 'scenes/urls'
 
@@ -220,7 +220,8 @@ export const signupLogic = kea<signupLogicType>([
                     return
                 }
                 actions.setPendingInvite(null)
-                actions.setPanel(1)
+                // Demo is passwordless — skip the password/passkey panel straight to onboarding.
+                actions.setPanel(values.preflight?.demo ? 2 : 1)
             },
         },
         signupPanelAuth: {
@@ -615,7 +616,9 @@ export const signupLogic = kea<signupLogicType>([
                 actions.setPasskeyRegistered(true)
                 actions.setSignupPanelAuthValue('password', '') // Clear password since we're using passkey
             } catch (e: any) {
-                actions.setPasskeyError(getPasskeyErrorMessage(e, 'Failed to register passkey. Please try again.'))
+                if (!isWebAuthnCancellation(e)) {
+                    actions.setPasskeyError(getPasskeyErrorMessage(e, 'Failed to register passkey. Please try again.'))
+                }
             } finally {
                 actions.setPasskeyRegistering(false)
             }

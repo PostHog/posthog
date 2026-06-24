@@ -1,22 +1,22 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
-import {
-    canonicalizeApiHost,
-    canonicalizeUiHost,
-    toolbarConfigLogic,
-    toolbarFetch,
-    toolbarUploadMedia,
-} from '~/toolbar/toolbarConfigLogic'
+import { canonicalizeApiHost, canonicalizeUiHost, toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarFetch, toolbarUploadMedia } from '~/toolbar/toolbarFetch'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
-global.fetch = jest.fn(() =>
-    Promise.resolve({
-        ok: true,
-        status: 200,
-        json: () => Promise.resolve([]),
-    } as any as Response)
-)
+// The toolbar calls `global.fetch` directly (not the app api client / MSW). Reassign the mock per
+// test in beforeEach — the MSW jest harness installs its own `global.fetch` in a global beforeAll,
+// which runs after this module loads and would otherwise clobber a top-level assignment.
+const installFetchMock = (): void => {
+    global.fetch = jest.fn(() =>
+        Promise.resolve({
+            ok: true,
+            status: 200,
+            json: () => Promise.resolve([]),
+        } as any as Response)
+    )
+}
 
 /** Mock fetch so the HEAD check succeeds and then the token exchange succeeds. */
 function mockTokenExchangeSuccess(): void {
@@ -39,7 +39,9 @@ describe('toolbar toolbarConfigLogic', () => {
         initKeaTests()
         localStorage.clear()
         sessionStorage.clear()
-        ;(global.fetch as jest.Mock).mockClear()
+        // Install the fetch mock after initKeaTests so its mount-time /_preflight/ call isn't
+        // counted by tests that assert on global.fetch.mock.calls.
+        installFetchMock()
         mockOpen = jest.spyOn(window, 'open').mockReturnValue({} as Window)
     })
 
@@ -898,6 +900,26 @@ describe('toolbar toolbarConfigLogic', () => {
             expect((global.fetch as jest.Mock).mock.calls).toHaveLength(1)
             expect(logic.values.accessToken).toBe('access-token')
         })
+
+        it('does not throw when a customer fetch wrapper resolves to undefined', async () => {
+            const logic = toolbarConfigLogic.build({
+                apiURL: 'http://localhost',
+                accessToken: 'access-token',
+                refreshToken: 'refresh-token',
+                clientId: 'client-id',
+            })
+            logic.mount()
+            // A site-level `window.fetch` wrapper that returns `undefined` instead of a Response
+            // used to crash the OAuth chain with "Cannot read properties of undefined (reading 'status')".
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.resolve(undefined))
+
+            const response = await toolbarFetch('/api/projects/@current/actions/')
+
+            // Normalized into a synthetic failed response so callers can degrade gracefully.
+            expect(response).toBeInstanceOf(Response)
+            expect(response.ok).toBe(false)
+            expect(logic.values.accessToken).toBe('access-token')
+        })
     })
 
     describe('authorization code extraction and hash cleanup', () => {
@@ -927,6 +949,16 @@ describe('toolbar toolbarConfigLogic', () => {
                 '/#/dashboard&tab=1',
             ],
             ['handles percent-encoded delimiters', '#__posthog_toolbar=code%3Aabc%2Cclient_id%3Axyz', '/'],
+            [
+                'restores ? when toolbar param was the first hash query on a SPA route',
+                '#/login?__posthog_toolbar=code:abc,client_id:xyz&foo=bar',
+                '/#/login?foo=bar',
+            ],
+            [
+                'preserves trailing hash query when toolbar param was last',
+                '#/login?foo=bar&__posthog_toolbar=code:abc,client_id:xyz',
+                '/#/login?foo=bar',
+            ],
         ])('%s', (_label, hash, expectedUrl) => {
             jest.useFakeTimers()
             window.history.pushState({}, '', `/${hash}`)

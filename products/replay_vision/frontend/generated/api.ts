@@ -11,16 +11,25 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     EstimateRequestApi,
     EstimateResponseApi,
+    ObservationStatsApi,
     ObserveRequestApi,
     ObserveResponseApi,
     PaginatedReplayObservationListApi,
     PaginatedReplayScannerListApi,
+    PaginatedVisionActionListApi,
     PatchedReplayScannerApi,
+    PatchedVisionActionApi,
     ReplayObservationApi,
     ReplayScannerApi,
+    ScannerCreatorsResponseApi,
+    ScannerStatsResponseApi,
+    VisionActionApi,
+    VisionActionsListParams,
     VisionObservationsListParams,
+    VisionQuotaApi,
     VisionScannersListParams,
     VisionScannersObservationsListParams,
+    VisionScannersObservationsStatsRetrieveParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -40,20 +49,123 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
       }
     : DistributeReadOnlyOverUnions<T>
 
-export const getVisionObservationsListUrl = (projectId: string, params: VisionObservationsListParams) => {
+export const getVisionActionsListUrl = (projectId: string, params?: VisionActionsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/vision/observations/?${stringifiedParams}`
-        : `/api/environments/${projectId}/vision/observations/`
+        ? `/api/projects/${projectId}/vision/actions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/actions/`
+}
+
+/**
+ * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ */
+export const visionActionsList = async (
+    projectId: string,
+    params?: VisionActionsListParams,
+    options?: RequestInit
+): Promise<PaginatedVisionActionListApi> => {
+    return apiMutator<PaginatedVisionActionListApi>(getVisionActionsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionActionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/actions/`
+}
+
+/**
+ * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ */
+export const visionActionsCreate = async (
+    projectId: string,
+    visionActionApi: NonReadonly<VisionActionApi>,
+    options?: RequestInit
+): Promise<VisionActionApi> => {
+    return apiMutator<VisionActionApi>(getVisionActionsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(visionActionApi),
+    })
+}
+
+export const getVisionActionsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/actions/${id}/`
+}
+
+/**
+ * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ */
+export const visionActionsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<VisionActionApi> => {
+    return apiMutator<VisionActionApi>(getVisionActionsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionActionsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/actions/${id}/`
+}
+
+/**
+ * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ */
+export const visionActionsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedVisionActionApi?: NonReadonly<PatchedVisionActionApi>,
+    options?: RequestInit
+): Promise<VisionActionApi> => {
+    return apiMutator<VisionActionApi>(getVisionActionsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedVisionActionApi),
+    })
+}
+
+export const getVisionActionsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/actions/${id}/`
+}
+
+/**
+ * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ */
+export const visionActionsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getVisionActionsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getVisionObservationsListUrl = (projectId: string, params: VisionObservationsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/observations/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/observations/`
 }
 
 /**
@@ -71,7 +183,7 @@ export const visionObservationsList = async (
 }
 
 export const getVisionObservationsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/vision/observations/${id}/`
+    return `/api/projects/${projectId}/vision/observations/${id}/`
 }
 
 /**
@@ -88,20 +200,34 @@ export const visionObservationsRetrieve = async (
     })
 }
 
+export const getEnvironmentVisionQuotaRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/quota/`
+}
+
+export const environmentVisionQuotaRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<VisionQuotaApi> => {
+    return apiMutator<VisionQuotaApi>(getEnvironmentVisionQuotaRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getVisionScannersListUrl = (projectId: string, params?: VisionScannersListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/vision/scanners/?${stringifiedParams}`
-        : `/api/environments/${projectId}/vision/scanners/`
+        ? `/api/projects/${projectId}/vision/scanners/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/scanners/`
 }
 
 /**
@@ -119,7 +245,7 @@ export const visionScannersList = async (
 }
 
 export const getVisionScannersCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/vision/scanners/`
+    return `/api/projects/${projectId}/vision/scanners/`
 }
 
 /**
@@ -139,7 +265,7 @@ export const visionScannersCreate = async (
 }
 
 export const getVisionScannersRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/vision/scanners/${id}/`
+    return `/api/projects/${projectId}/vision/scanners/${id}/`
 }
 
 /**
@@ -157,7 +283,7 @@ export const visionScannersRetrieve = async (
 }
 
 export const getVisionScannersPartialUpdateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/vision/scanners/${id}/`
+    return `/api/projects/${projectId}/vision/scanners/${id}/`
 }
 
 /**
@@ -178,7 +304,7 @@ export const visionScannersPartialUpdate = async (
 }
 
 export const getVisionScannersDestroyUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/vision/scanners/${id}/`
+    return `/api/projects/${projectId}/vision/scanners/${id}/`
 }
 
 /**
@@ -192,7 +318,7 @@ export const visionScannersDestroy = async (projectId: string, id: string, optio
 }
 
 export const getVisionScannersObserveCreateUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/vision/scanners/${id}/observe/`
+    return `/api/projects/${projectId}/vision/scanners/${id}/observe/`
 }
 
 /**
@@ -221,15 +347,15 @@ export const getVisionScannersObservationsListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/environments/${projectId}/vision/scanners/${scannerId}/observations/?${stringifiedParams}`
-        : `/api/environments/${projectId}/vision/scanners/${scannerId}/observations/`
+        ? `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/`
 }
 
 /**
@@ -251,7 +377,7 @@ export const visionScannersObservationsList = async (
 }
 
 export const getVisionScannersObservationsRetrieveUrl = (projectId: string, scannerId: string, id: string) => {
-    return `/api/environments/${projectId}/vision/scanners/${scannerId}/observations/${id}/`
+    return `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/${id}/`
 }
 
 /**
@@ -269,8 +395,63 @@ export const visionScannersObservationsRetrieve = async (
     })
 }
 
+export const getVisionScannersObservationsStatsRetrieveUrl = (
+    projectId: string,
+    scannerId: string,
+    params?: VisionScannersObservationsStatsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/stats/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/scanners/${scannerId}/observations/stats/`
+}
+
+/**
+ * Aggregate counts and per-scanner-type distributions over the filtered observation set. Same filters as the list endpoint apply.
+ */
+export const visionScannersObservationsStatsRetrieve = async (
+    projectId: string,
+    scannerId: string,
+    params?: VisionScannersObservationsStatsRetrieveParams,
+    options?: RequestInit
+): Promise<ObservationStatsApi> => {
+    return apiMutator<ObservationStatsApi>(
+        getVisionScannersObservationsStatsRetrieveUrl(projectId, scannerId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getVisionScannersCreatorsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/creators/`
+}
+
+/**
+ * Distinct creators across the team's scanners — feeds the `Created by` filter dropdown.
+ */
+export const visionScannersCreatorsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ScannerCreatorsResponseApi> => {
+    return apiMutator<ScannerCreatorsResponseApi>(getVisionScannersCreatorsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getVisionScannersEstimateCreateUrl = (projectId: string) => {
-    return `/api/environments/${projectId}/vision/scanners/estimate/`
+    return `/api/projects/${projectId}/vision/scanners/estimate/`
 }
 
 /**
@@ -286,5 +467,22 @@ export const visionScannersEstimateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(estimateRequestApi),
+    })
+}
+
+export const getVisionScannersStatsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/stats/`
+}
+
+/**
+ * Team-wide scanner counts — independent of list filters, so the overview stays stable.
+ */
+export const visionScannersStatsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ScannerStatsResponseApi> => {
+    return apiMutator<ScannerStatsResponseApi>(getVisionScannersStatsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }

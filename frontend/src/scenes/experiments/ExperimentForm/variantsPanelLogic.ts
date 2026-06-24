@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 
 import api from 'lib/api'
-import { toParams } from 'lib/utils'
+import { toParams } from 'lib/utils/url'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { validateFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
@@ -18,16 +18,14 @@ export type FeatureFlagKeyValidation = {
 }
 
 export const variantsPanelLogic = kea<variantsPanelLogicType>({
-    key: (props) => props.tabId || props.experiment?.id || 'new',
+    key: (props) => props.experiment?.id || 'new',
     path: (key) => ['scenes', 'experiments', 'create', 'panels', 'variantsPanelLogic', key],
     props: {
         experiment: {} as Experiment,
         disabled: false as boolean,
-        tabId: undefined as string | undefined,
     } as {
         experiment: Experiment
         disabled: boolean
-        tabId?: string
     },
     connect: {
         values: [

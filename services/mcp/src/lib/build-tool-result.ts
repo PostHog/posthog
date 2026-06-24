@@ -1,6 +1,6 @@
 import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 
-import { isCodingAgentClient } from '@/lib/client-detection'
+import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY } from '@/tools/types'
 import type { AnalyticsMetadata, WithAnalytics } from '@/ui-apps/types'
@@ -19,8 +19,8 @@ export interface BuildToolResultOptions {
     toolName: string
     /** The input params passed to the tool (used to read `output_format=json` escape hatch). */
     params: unknown
-    /** The MCP `clientInfo.name` captured during `initialize`. */
-    clientName: string | undefined
+    /** Whether formatted-result text should win over structuredContent for this client profile. */
+    suppressStructuredContentForFormattedResults?: boolean | undefined
     /** PostHog distinctId for analytics metadata (only read when a UI resource is present). */
     distinctId?: string | undefined
     /**
@@ -68,20 +68,39 @@ export function markExecPayload(payload: ToolResultPayload): ToolResultPayload {
 }
 
 /**
+ * Estimate output tokens from the text actually returned to the client — the
+ * serialized TOON/JSON/formatted string, not the raw handler object. TOON is
+ * materially smaller than JSON for tabular results, so measuring the raw object
+ * would over-count. `structuredContent` is deliberately excluded: it duplicates
+ * the text for UI tools, so counting it would double-bill those calls.
+ */
+export function estimateResponseTokens(response: ToolResultPayload): number {
+    return estimateTokens(response.content.map((part) => part.text).join(''))
+}
+
+/**
  * Assembles the MCP tool-call response payload.
  *
  * Two behaviors worth calling out:
  * 1. When the handler returns a primitive string, we pass it through to `formatResponse`
  *    unchanged. Earlier, object-rest on a string exploded it into a character-indexed
  *    dict ({"0":"{","1":"\""...}).
- * 2. When `formattedResults` is present AND the client is a coding-agent
- *    (e.g. Claude Code) AND the caller didn't opt into JSON via `output_format=json`,
- *    we drop `structuredContent`. Coding agents surface `structuredContent` to the model
- *    in preference to `content[].text`, so keeping it would hide the formatted table
+ * 2. When `formattedResults` is present AND the resolved client profile needs formatted
+ *    text to win AND the caller didn't opt into JSON via `output_format=json`, we drop
+ *    `structuredContent`. Coding agents surface `structuredContent` to the model in
+ *    preference to `content[].text`, so keeping it would hide the formatted table
  *    behind raw JSON.
  */
 export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResultPayload {
-    const { handlerResult, toolMeta, toolName, params, clientName, distinctId, includeUiResponseMeta } = opts
+    const {
+        handlerResult,
+        toolMeta,
+        toolName,
+        params,
+        suppressStructuredContentForFormattedResults,
+        distinctId,
+        includeUiResponseMeta,
+    } = opts
 
     const isStringResult = typeof handlerResult === 'string'
     const formattedResults: string | undefined = isStringResult
@@ -124,7 +143,7 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
     const text = formattedResults ?? (useJson ? JSON.stringify(rawResult) : formatResponse(rawResult))
 
     const suppressStructuredContent =
-        formattedResults !== undefined && !callerWantsJson && isCodingAgentClient(clientName)
+        formattedResults !== undefined && !callerWantsJson && !!suppressStructuredContentForFormattedResults
 
     const payload: ToolResultPayload = {
         content: [{ type: 'text', text }],

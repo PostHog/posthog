@@ -3,10 +3,10 @@ from typing import Optional
 from celery import shared_task
 from structlog import get_logger
 
-from posthog.models import PluginConfig
 from posthog.tasks.email import get_members_to_notify_for_pipeline_error, send_fatal_plugin_error
 from posthog.tasks.utils import CeleryQueue
 
+from products.cdp.backend.models.plugin import PluginConfig
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -104,7 +104,7 @@ def fatal_plugin_error(
 def hog_function_state_transition(hog_function_id: str, state: int) -> None:
     logger.info("hog_function_state_transition (disabled)", hog_function_id=hog_function_id, state=state)
     return
-    # from posthog.models.hog_functions.hog_function import HogFunction
+    # from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
     # logger.info("hog_function_state_transition", hog_function_id=hog_function_id, state=state)
 

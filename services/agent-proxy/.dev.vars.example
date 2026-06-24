@@ -1,0 +1,100 @@
+# agent-proxy local development environment variables.
+#
+# Copy to .dev.vars and fill in real values. The .dev.vars file is git-ignored;
+# this example file is checked in as documentation.
+#
+# In production all values come from Kubernetes Secrets or environment injection.
+# Required vars are marked; optional vars show their default when absent.
+
+# ---------------------------------------------------------------------------
+# Redis
+# ---------------------------------------------------------------------------
+
+# Task-run stream Redis connection URL. Required in production (NODE_ENV=production).
+# In non-production NODE_ENV the service falls back to a local Redis instance
+# when this is unset.
+# nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
+TASKS_REDIS_URL=redis://localhost:6379
+
+# ---------------------------------------------------------------------------
+# JWT / Auth
+# ---------------------------------------------------------------------------
+
+# RS256 public key PEM used to verify both token types:
+#   - posthog:stream_read   (GET /v1/runs/:run/stream leg)
+#   - posthog:sandbox_event_ingest (POST /v1/runs/:run/ingest leg)
+#
+# Required. Store the PEM with literal \n sequences (backslash + n) — the
+# service normalizes them to real newlines before calling importSPKI.
+#
+# To generate a test key pair:
+#   openssl genrsa -out test-private.pem 2048
+#   openssl rsa -in test-private.pem -pubout -out test-public.pem
+#   awk 'NR>1{printf "%s", prev} {prev=$0} END{print prev}' test-public.pem \
+#     | sed 's/-----BEGIN PUBLIC KEY-----/-----BEGIN PUBLIC KEY-----\\n/' \
+#     | sed 's/-----END PUBLIC KEY-----/\\n-----END PUBLIC KEY-----/'
+SANDBOX_JWT_PUBLIC_KEY=
+
+# ---------------------------------------------------------------------------
+# Callbacks
+# ---------------------------------------------------------------------------
+
+# Base URL of the internal Django service (no trailing slash). Required in
+# production. When unset in dev the callback fires are silently skipped, so
+# local ingest testing works without a running Django process.
+AGENT_PROXY_DJANGO_CALLBACK_URL=http://localhost:8000
+
+# ---------------------------------------------------------------------------
+# HTTP server
+# ---------------------------------------------------------------------------
+
+# TCP port the Hono server listens on. Optional; default 8003.
+PORT=8003
+
+# Per-pod cap on concurrent SSE stream connections. Each open stream holds a
+# dedicated Redis connection, so this protects the Redis maxclients budget.
+# Optional; default 1000.
+AGENT_PROXY_MAX_CONCURRENT_STREAMS=1000
+
+# Cap on concurrent SSE stream connections per task run, so a single
+# stream-read token cannot exhaust the pod-wide budget. Optional; default 25.
+AGENT_PROXY_MAX_STREAMS_PER_RUN=25
+
+# Bearer token gating GET /_metrics when set (scrape with: Authorization:
+# Bearer <token>). Deployments scrape in-cluster via annotation-based Prometheus
+# (no auth header) and block external /_metrics at the ingress, so this is left
+# empty there; set it only for a scrape path that can send the header.
+AGENT_PROXY_METRICS_TOKEN=
+
+# TCP bind address. Optional; default 0.0.0.0 (all interfaces).
+HOST=0.0.0.0
+
+# ---------------------------------------------------------------------------
+# CORS
+# ---------------------------------------------------------------------------
+
+# Comma-separated list of allowed origins for CORS responses.
+# Use * to allow all origins (dev only). Leave empty to disable CORS.
+# Example: http://localhost:3000,https://app.example.com
+TASKS_AGENT_PROXY_CORS_ORIGINS=*
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+
+# Log level threshold: debug | info | warn | error.
+# Defaults: debug (local dev), info (production), warn (test).
+AGENT_PROXY_LOG_LEVEL=debug
+
+# ---------------------------------------------------------------------------
+# Lifecycle / shutdown
+# ---------------------------------------------------------------------------
+
+# Maximum time in milliseconds to wait for in-flight SSE connections to drain
+# before the process exits on SIGTERM/SIGINT. Optional; default 300000 (5 min).
+SHUTDOWN_GRACE_MS=300000
+
+# Additional sleep in milliseconds before closing the HTTP server on shutdown.
+# Useful when a load balancer needs time to drain traffic before the pod stops.
+# Optional; default 0 (no pre-stop delay).
+SHUTDOWN_PRESTOP_DELAY_MS=0

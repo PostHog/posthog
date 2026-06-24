@@ -215,12 +215,31 @@ const FileDownloadBatchExportsCreateSchema = FileDownloadBatchExportsCreateBody
 const fileDownloadBatchExportsCreate = (): ToolBase<typeof FileDownloadBatchExportsCreateSchema, unknown> => ({
     name: 'file-download-batch-exports-create',
     schema: FileDownloadBatchExportsCreateSchema,
-    // eslint-disable-next-line no-unused-vars
     handler: async (context: Context, params: z.infer<typeof FileDownloadBatchExportsCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.file !== undefined) {
+            body['file'] = params.file
+        }
+        if (params.model !== undefined) {
+            body['model'] = params.model
+        }
+        if ('include' in params && params.include !== undefined) {
+            body['include'] = params.include
+        }
+        if ('exclude' in params && params.exclude !== undefined) {
+            body['exclude'] = params.exclude
+        }
+        if (params.data_interval_start !== undefined) {
+            body['data_interval_start'] = params.data_interval_start
+        }
+        if (params.data_interval_end !== undefined) {
+            body['data_interval_end'] = params.data_interval_end
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/file_download_batch_exports/`,
+            body,
         })
         return result
     },

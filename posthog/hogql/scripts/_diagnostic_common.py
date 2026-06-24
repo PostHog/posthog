@@ -30,26 +30,62 @@ import os
 import re
 import sys
 import json
+import math
 import signal
 import traceback
 import subprocess
 import dataclasses
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any, NoReturn
 
-from posthog.hogql.errors import BaseHogQLError
-from posthog.hogql.parser import HogQLParserShadowMismatch, parse_expr, parse_program, parse_select
+from hogql_parser import parse_string_literal_text as _cpp_parse_string_literal_text
+from hogql_parser_rs import parse_string_literal_text as _rust_parse_string_literal_text
+
+from posthog.hogql.errors import BaseHogQLError, ParsingError
+from posthog.hogql.parser import (
+    HogQLParserShadowMismatch,
+    parse_expr,
+    parse_program,
+    parse_select,
+    parse_string_template,
+)
 from posthog.hogql.visitor import clear_locations
+
+
+def _parse_full_template_string(query: str, backend: Any = None) -> Any:
+    """Entry point for the `full_template_string` rule. The `fullTemplateString`
+    grammar strategy emits the `F'…` form (`QUOTE_SINGLE_TEMPLATE_FULL` then the
+    body, no closing quote), but `parse_string_template` takes only the body and
+    re-adds the `F'` itself — so strip the leading `F'`. Mirrors the pytest PBT
+    (`test_parser_grammar_pbt.py`)."""
+    body = query[2:] if query.startswith("F'") else query
+    return parse_string_template(body, backend=backend)
+
+
+def _parse_string_literal_text(query: str, backend: Any = None) -> str:
+    """Dispatch the unquoter by backend family (`cpp*`/`rust*`) for parity fuzzing; raises like both wheels."""
+    use_cpp = backend is None or str(backend).startswith("cpp")
+    # cpp wheel aborts the process on "" (uncaught C++ ParsingError); raise the class it declares so the grind survives.
+    if use_cpp and query == "":
+        raise ParsingError("Encountered an unexpected empty string input")
+    fn = _cpp_parse_string_literal_text if use_cpp else _rust_parse_string_literal_text
+    return fn(query)
+
 
 # Maps a diagnostic `--rule` value to its parser entry point. `program`
 # covers the Hog imperative-statement layer (let / if / while / for /
-# fn / try-catch / return / throw / blocks).
+# fn / try-catch / return / throw / blocks); `full_template_string` is the
+# standalone `F'…` template parser (`parse_string_template`), a separate
+# EOF-terminated grammar entry that inline `f'…` columnExpr templates don't
+# exercise.
 _PARSER_FOR_RULE: dict[str, Callable[..., Any]] = {
     "expr": parse_expr,
     "select": parse_select,
     "program": parse_program,
+    "full_template_string": _parse_full_template_string,
+    "string_literal": _parse_string_literal_text,
 }
 
 # ---------------------------------------------------------------------------
@@ -70,6 +106,41 @@ def _node_fields(node: Any) -> list[tuple[str, Any]]:
     if not dataclasses.is_dataclass(node):
         return []
     return [(f.name, getattr(node, f.name, None)) for f in dataclasses.fields(node)]
+
+
+def _nan_tolerant_equal(a: Any, b: Any, depth: int = 0) -> bool:
+    """Deep structural equality that treats two NaNs as equal (`float("nan") !=
+    float("nan")`) and otherwise defers to `==`, which already treats a str-enum
+    member as equal to its value (`CompareOperationOp.Eq == '=='`). Needed because
+    cpp-json leaves enum-shaped fields (`op`) as raw strings while rust-py emits
+    the enum, so an AST carrying BOTH a NaN constant AND such a field satisfies
+    neither dataclass `==` (NaN) nor `repr` equality (str vs enum) even though the
+    two parses are identical. Only ever upgrades a mismatch to agreement — a real
+    structural / positional / value difference still surfaces."""
+    if depth > 80:
+        return repr(a) == repr(b)
+    if isinstance(a, float) and isinstance(b, float):
+        return a == b or (math.isnan(a) and math.isnan(b))
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(_nan_tolerant_equal(x, y, depth + 1) for x, y in zip(a, b))
+    if isinstance(a, dict) and isinstance(b, dict):
+        return set(a) == set(b) and all(_nan_tolerant_equal(a[k], b[k], depth + 1) for k in a)
+    if dataclasses.is_dataclass(a) and dataclasses.is_dataclass(b):
+        return type(a) is type(b) and all(
+            _nan_tolerant_equal(getattr(a, f.name, None), getattr(b, f.name, None), depth + 1)
+            for f in dataclasses.fields(a)
+        )
+    return bool(a == b)
+
+
+def asts_agree(oracle: Any, candidate: Any) -> bool:
+    """True when two parsed ASTs are equivalent. Mirrors the production shadow
+    comparison in `posthog/hogql/parser.py` (dataclass `==`), then falls back to
+    a NaN-tolerant deep walk so a NaN-bearing AST doesn't read as a spurious
+    mismatch (`float("nan") != float("nan")`) — including when an enum-vs-str
+    field rules out the simpler `repr()` equality. Only ever upgrades a mismatch
+    to agreement, so it can't mask a real structural / positional divergence."""
+    return oracle == candidate or _nan_tolerant_equal(oracle, candidate)
 
 
 def _diff_path(oracle: Any, candidate: Any, path: list | None = None, depth: int = 0) -> list:
@@ -130,6 +201,73 @@ def _format_diff_path(steps: list) -> str:
         return f"  {label}: (no terminal value)"
     field, o_repr, c_repr = terminal
     return f"  {label}{field}\n    oracle:    {o_repr[:200]}\n    candidate: {c_repr[:200]}"
+
+
+# ---------------------------------------------------------------------------
+# AST shape walkers (k-paths and depth)
+# ---------------------------------------------------------------------------
+#
+# Cheap, in-process traversals that fold an AST into a coverage-flavoured signal
+# without any native instrumentation. Used as `target()` observations and
+# `event()` labels in the PBT layer; safe to call on every example because both
+# walkers are depth-bounded and run in O(nodes).
+
+
+def _iter_child_nodes(value: Any) -> Iterator[Any]:
+    """Yield the AST dataclass nodes one level below `value`, descending
+    through intervening lists / tuples / dicts (which hold child nodes in the
+    HogQL AST) but stopping at scalars. A dataclass *type* (as opposed to an
+    instance) is a scalar for our purposes."""
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        yield value
+        return
+    if isinstance(value, list | tuple):
+        for item in value:
+            yield from _iter_child_nodes(item)
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _iter_child_nodes(item)
+
+
+def ast_kpaths(root: Any, k: int = 2, *, max_depth: int = 64) -> set[tuple[str, ...]]:
+    """All node-type k-paths in `root`: the set of length-`k` windows of AST
+    node-type names along each root->descendant path. `k=1` is the set of node
+    types present, `k=2` every parent->child edge, `k=3` every
+    grandparent->parent->child triple. Depth-bounded so a pathological tree
+    can't blow the stack."""
+    out: set[tuple[str, ...]] = set()
+
+    def walk(node: Any, chain: tuple[str, ...]) -> None:
+        chain = (*chain, _node_type(node))
+        if len(chain) >= k:
+            out.add(chain[-k:])
+        if len(chain) >= max_depth:
+            return
+        for _, value in _node_fields(node):
+            for child in _iter_child_nodes(value):
+                walk(child, chain)
+
+    walk(root, ())
+    return out
+
+
+def ast_depth(root: Any, *, max_depth: int = 256) -> int:
+    """Maximum AST node nesting depth (root = depth 1). Capped so a pathological
+    tree returns the cap rather than recursing without bound."""
+    best = 0
+
+    def walk(node: Any, d: int) -> None:
+        nonlocal best
+        if d > best:
+            best = d
+        if d >= max_depth:
+            return
+        for _, value in _node_fields(node):
+            for child in _iter_child_nodes(value):
+                walk(child, d + 1)
+
+    walk(root, 1)
+    return best
 
 
 # ---------------------------------------------------------------------------
@@ -318,9 +456,47 @@ def _shape_for(
         return DivergenceShape(kind="candidate_reject", reject_signature=c_detail)
     if c_status == "crash":
         return None
-    if o_ast == c_ast:
+    if asts_agree(o_ast, c_ast):
         return None
     return _ast_mismatch_shape((_node_type(o_ast), _node_type(c_ast)), _diff_path(o_ast, c_ast))
+
+
+# ---------------------------------------------------------------------------
+# Minimiser — reduce a divergence to its smallest still-diverging repro
+# ---------------------------------------------------------------------------
+
+
+def shrink_to_shape(
+    query: str,
+    rule: str,
+    oracle_backend: str,
+    candidate_backend: str,
+    target_shape: DivergenceShape,
+) -> str:
+    """Reduce `query` to the smallest variant that still produces
+    `target_shape` against the two backends, via shrinkray (see `_shrink`).
+    The interestingness predicate is exactly "same divergence shape", so the
+    reduction can't wander onto a different bug.
+
+    Returns the original query unchanged on any ordinary (`Exception`)
+    failure — a bad reduction must never abort the grind. A `BaseException`
+    (a shadow-mismatch `SystemExit`, a Ctrl-C) intentionally still
+    propagates."""
+
+    def is_interesting(candidate: str) -> bool:
+        return _shape_for(candidate, rule, oracle_backend, candidate_backend) == target_shape
+
+    # Imported lazily: shrinkray is the optional `hogql-parser-parity` group,
+    # and this module is on the import path of `test_diagnostic_common.py`,
+    # `parser_bench.py`, and `pbt_corpus.py` — none of which shrink. A
+    # module-level import would break their (CI-collected) import without the
+    # group. Only this shrink path requires it.
+    from posthog.hogql.scripts import _shrink  # noqa: PLC0415
+
+    try:
+        return _shrink.shrink(query, is_interesting)
+    except Exception:
+        return query
 
 
 # ===========================================================================
@@ -568,6 +744,56 @@ class Failure:
     query: str
     detail: str  # rejection message, crash traceback, or formatted diff path
     n_occurrences: int
+    shrunk_from: int | None = None  # original char length if `shrink_failures` reduced `query`, else None
+
+
+def shrink_failures(
+    failures: list[Failure],
+    *,
+    rule: str,
+    oracle: str,
+    candidate: str,
+) -> list[Failure]:
+    """Reduce each shrinkable failure's query to its minimal still-diverging
+    form via shrinkray, returning a new list. `ast_mismatch` and
+    `candidate_reject` shrink toward their recomputed `DivergenceShape`;
+    crashes (`candidate_crash` / `oracle_crash`) are left verbatim — a crash
+    isn't a stable shape to reduce toward (same limitation as the PBT path).
+    Progress goes to stderr because shrinking a large failure set is slow."""
+    out: list[Failure] = []
+    shrinkable = {"candidate_reject", "ast_mismatch"}
+    # Count only the shrinkable failures so the progress bar reflects work
+    # actually done — crashes are passed through verbatim, not shrunk.
+    shrinkable_total = sum(1 for fa in failures if fa.kind in shrinkable)
+    done = 0
+    for i, fa in enumerate(failures):
+        try:
+            if fa.kind in shrinkable:
+                done += 1
+                sys.stderr.write(f"\r  [shrink] {done}/{shrinkable_total} …")
+                sys.stderr.flush()
+                shape = _shape_for(fa.query, rule, oracle, candidate)
+                if shape is not None:
+                    shrunk = shrink_to_shape(fa.query, rule, oracle, candidate, shape)
+                    if shrunk != fa.query:
+                        out.append(dataclasses.replace(fa, query=shrunk, shrunk_from=len(fa.query)))
+                        continue
+            out.append(fa)
+        except KeyboardInterrupt:
+            # Ctrl-C during the (slow) shrink phase must not discard the
+            # completed grind's failures — emit the current and remaining
+            # ones un-shrunk so the caller still writes a full dump. Each
+            # iteration appends exactly once, so `len(out) == i` iff this
+            # failure hasn't been appended yet; that guards against a double
+            # entry when the interrupt lands after the append but before the
+            # `continue`, wherever in the iteration it strikes.
+            sys.stderr.write(f"\r  [shrink] interrupted at {done}/{shrinkable_total} — keeping the rest un-shrunk\n")
+            if len(out) == i:
+                out.append(fa)
+            out.extend(failures[i + 1 :])
+            return out
+    sys.stderr.write("\r" + " " * 40 + "\r")
+    return out
 
 
 def write_failures(path: Path, failures: list[Failure], repo_root: Path, *, title: str) -> None:
@@ -585,8 +811,10 @@ def write_failures(path: Path, failures: list[Failure], repo_root: Path, *, titl
         f.write("-- Each block: occurrences count, failure kind + detail, then the entry.\n\n")
         for i, fa in enumerate(failures):
             f.write("-- " + "=" * 76 + "\n")
-            f.write(f"-- [{i + 1}/{len(failures)}] seen {fa.n_occurrences}x in last 7d\n")
+            f.write(f"-- [{i + 1}/{len(failures)}] seen {fa.n_occurrences}x\n")
             f.write(f"-- kind: {fa.kind}\n")
+            if fa.shrunk_from is not None:
+                f.write(f"-- shrunk: {fa.shrunk_from} -> {len(fa.query)} chars\n")
             for line in fa.detail.splitlines() or [""]:
                 f.write(f"-- {line}\n" if line else "--\n")
             f.write("\n")
@@ -676,7 +904,7 @@ def run_corpus_parity(
                 crash_buckets[crash_signature(c_detail or "")] += 1
                 failures.append(Failure("candidate_crash", query, c_detail or "<no traceback>", n_occ))
                 continue
-            if o_ast == c_ast:
+            if asts_agree(o_ast, c_ast):
                 counts["pass"] += 1
                 continue
             counts["ast_mismatch"] += 1

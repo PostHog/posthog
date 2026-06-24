@@ -1,13 +1,16 @@
 ---
 name: debugging-ci-failures
 description: >
-  Debugs failing GitHub Actions CI runs for PostHog PRs, commits, and branches.
-  Use when the user asks why CI is red, mentions a failing check, GitHub Actions
-  run, Depot runner, workflow, job, shard, flaky test, lint failure, typecheck
+  Debugs failing GitHub Actions CI runs for PostHog PRs, commits, and branches,
+  and answers broad CI-health questions ("is CI red?", "is master green today?",
+  "what's broken right now?"). Use when the user asks why CI is red, asks for the
+  current CI or master status, or mentions a failing check, GitHub Actions run,
+  Depot runner, workflow, job, shard, flaky test, lint failure, typecheck
   failure, snapshot diff, migration check, generated types drift, or skills
-  build failure. Guides read-only inspection, failure classification, smallest
-  local reproduction with hogli, and safe reporting without rerunning CI or
-  posting to GitHub.
+  build failure. Start with the `hogli ci:insights` digest (aggregated cross-run
+  CI intelligence), then guides read-only inspection, failure classification,
+  smallest local reproduction with hogli, and safe reporting without rerunning CI
+  or posting to GitHub.
 ---
 
 # Debugging PostHog CI failures
@@ -15,6 +18,14 @@ description: >
 Find the first meaningful failure, classify it, reproduce the smallest useful
 case locally when appropriate, and report the result. Avoid public-visible or
 irreversible actions unless the user explicitly asks.
+
+Always start with the `hogli ci:insights` digest. It is the institutional,
+cross-run source of truth, and it is fresher and more reliable than scraping
+`gh run list` / the GitHub Actions API, which can lag or rate-limit.
+
+This skill triages and classifies. Once a failure is confirmed flaky, hand off
+to the `fixing-flaky-tests` skill, which owns local reproduction, root-cause
+fixing, and N-run validation.
 
 ## Safety rules
 
@@ -33,6 +44,36 @@ change local Git state, make sure it is necessary for the task and does not
 overwrite unrelated work.
 
 ## Workflow
+
+### 1. Start with CI insights (always first)
+
+`hogli ci:insights` is the institutional CI-intelligence backend. It aggregates
+cross-run history — recurring flakes, occurrence counts, confidence, and any
+proposed or merged fix — that a single run can't show. Consult it before any raw
+`gh` log archaeology; the raw GitHub Actions API can lag or rate-limit, while the
+insights digest is the freshest aggregated view.
+
+```bash
+hogli ci:insights                                # digest for the current repo + branch
+hogli ci:insights search "<error or test name>"  # match a specific failure
+hogli ci:insights view <id>                       # one insight + its remediation actions
+hogli ci:insights plan <id>                       # print the recommended fix plan (does not apply it)
+```
+
+- Broad question ("is CI red?", "is master green today?", "what's broken right
+  now?"): the no-arg digest answers directly — it lists open / in-progress /
+  resolved counts and the most recent insights with severity and confidence. You
+  often do not need a target PR or run at all; report from the digest.
+- Specific failure: run `search "<error>"` to match it before reading logs. When
+  a matching insight exists, weigh its confidence and occurrence history, and note
+  whether a fix is already merged (the failure may already be resolved on
+  `master`) or proposed (a plan you can adapt).
+
+`hogli ci:insights` prints a setup hint if the backend isn't installed or
+authenticated — if so, fall back to the `gh`-based inspection below. Surface what
+you find per the Safety rules — do not auto-apply a fix.
+
+### 2. Find the failing run (for a specific failure)
 
 Determine the target in this order:
 
@@ -70,19 +111,19 @@ explains the run's conclusion. Keep excerpts under 40 lines.
 
 ## Classification
 
-| Signal in the log                                                        | Class               | First action                                                         |
-| ------------------------------------------------------------------------ | ------------------- | -------------------------------------------------------------------- |
-| `AssertionError`, test diff, `FAILED test_...` in a committed test file  | code regression     | reproduce with `hogli test <path>::<test>`                           |
-| Test failed here, passed on `master` or on rerun in the same PR          | flaky test          | confirm against `master` history; do not "fix" without user approval |
-| `ruff`, `oxlint`, `stylelint`, `markdownlint`, `prettier` errors         | lint                | `hogli lint:python:fix` or `hogli format` on touched files           |
-| `mypy`, `pyright`, `tsc`, `typescript:check` errors                      | typecheck           | run the same checker locally, not the full suite                     |
-| Chromatic / Storybook / Playwright visual diff, snapshot mismatch        | snapshot / visual   | surface the diff URL; do NOT auto-accept snapshots                   |
-| `manage.py migrate` error, `migrations:check` failure, missing migration | migration / schema  | `hogli migrations:check` locally                                     |
-| OpenAPI schema diff, generated API types out of sync                     | codegen drift       | `hogli build:openapi`                                                |
-| `Cannot connect`, `ECONNREFUSED`, OOM, runner killed, setup step timeout | infra / runner      | treat as transient; report, do not fix                               |
-| `apt-get`, `uv sync`, `pnpm install`, docker pull, setup action failures | environment / setup | diff `.nvmrc`, `pyproject.toml`, `package.json`, Dockerfiles         |
-| `hogli lint:skills`, `hogli build:skills` failure                        | skills build        | run the same `hogli` command locally                                 |
-| SDK compat check, `ci-survey-sdk-check`, cross-version failure           | SDK compatibility   | check SDK version matrix for the affected package                    |
+| Signal in the log                                                        | Class               | First action                                                       |
+| ------------------------------------------------------------------------ | ------------------- | ------------------------------------------------------------------ |
+| `AssertionError`, test diff, `FAILED test_...` in a committed test file  | code regression     | reproduce with `hogli test <path>::<test>`                         |
+| Test failed here, passed on `master` or on rerun in the same PR          | flaky test          | confirm against `master` history; to fix, use `fixing-flaky-tests` |
+| `ruff`, `oxlint`, `stylelint`, `markdownlint`, `prettier` errors         | lint                | `hogli lint:python:fix` or `hogli format` on touched files         |
+| `mypy`, `pyright`, `tsc`, `typescript:check` errors                      | typecheck           | run the same checker locally, not the full suite                   |
+| Chromatic / Storybook / Playwright visual diff, snapshot mismatch        | snapshot / visual   | surface the diff URL; do NOT auto-accept snapshots                 |
+| `manage.py migrate` error, `migrations:check` failure, missing migration | migration / schema  | `hogli migrations:check` locally                                   |
+| OpenAPI schema diff, generated API types out of sync                     | codegen drift       | `hogli build:openapi`                                              |
+| `Cannot connect`, `ECONNREFUSED`, OOM, runner killed, setup step timeout | infra / runner      | treat as transient; report, do not fix                             |
+| `apt-get`, `uv sync`, `pnpm install`, docker pull, setup action failures | environment / setup | diff `.nvmrc`, `pyproject.toml`, `package.json`, Dockerfiles       |
+| `hogli lint:skills`, `hogli build:skills` failure                        | skills build        | run the same `hogli` command locally                               |
+| SDK compat check, `ci-survey-sdk-check`, cross-version failure           | SDK compatibility   | check SDK version matrix for the affected package                  |
 
 If multiple signals match, choose the most specific class. For example, prefer
 codegen drift over lint, migration over typecheck, and snapshot / visual over a
@@ -96,7 +137,7 @@ is unclear, read `.agents/skills/hogli/SKILL.md` and `hogli <command> --help`.
 | Class               | Repro guidance                                                                       |
 | ------------------- | ------------------------------------------------------------------------------------ |
 | code regression     | `hogli test path/to/test.py::TestClass::test_method` or `hogli test <file.test.ts>`  |
-| flaky test          | Run the exact test repeatedly only if the runner supports it. Do not invent flags.   |
+| flaky test          | Hand off to the `fixing-flaky-tests` skill.                                          |
 | lint                | Use the failing formatter/linter on touched files, e.g. `hogli format:python`.       |
 | typecheck           | Run the failing checker, e.g. `pnpm --filter=@posthog/frontend typescript:check`.    |
 | snapshot / visual   | Run the specific Playwright or Storybook workflow; read `playwright-test` if needed. |

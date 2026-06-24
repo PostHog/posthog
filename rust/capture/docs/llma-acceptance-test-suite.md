@@ -182,10 +182,10 @@ cd common/ingestion/acceptance_tests
 python run_tests.py
 
 # Or run pytest directly for specific tests
-pytest test_llm_analytics.py::TestLLMAnalytics::test_basic_ai_generation_event -v
+pytest test_llm_analytics.py::TestAIObservability::test_basic_ai_generation_event -v
 
 # Run specific test class
-pytest test_llm_analytics.py::TestLLMAnalytics -v
+pytest test_llm_analytics.py::TestAIObservability -v
 ```
 
 The `run_tests.py` script automatically:

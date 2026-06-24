@@ -101,6 +101,11 @@ NON_RETRYABLE_ERROR_TYPES = (
     "InvalidCredentialsError",
     # Raised by Redshift client when the cluster has insufficient system resources.
     "InsufficientSystemResourcesError",
+    # The S3 credentials provided for the COPY can't read the staged files.
+    "InsufficientS3PermissionsError",
+    # Redshift failed to COPY the staged files from S3 (IAM role auth, cause not locally confirmable).
+    # These (read access, region, manifest) don't self-heal, so retrying is pointless.
+    "RedshiftS3CopyError",
 )
 
 
@@ -129,6 +134,41 @@ class InsufficientSystemResourcesError(Exception):
     """
 
     pass
+
+
+class InsufficientS3PermissionsError(Exception):
+    """Error raised when Redshift cannot read the staged files from S3 during COPY.
+
+    Redshift surfaces a missing read permission as the misleading "COPY with MANIFEST parameter
+    requires full path of an S3 object" error rather than a clean access-denied. We translate it
+    into something actionable once we've confirmed S3 read is denied with the same credentials.
+    """
+
+    def __init__(self, bucket: str):
+        super().__init__(
+            f"Redshift could not read the staged files from S3 bucket '{bucket}'."
+            " The S3 credentials provided for the Redshift COPY are missing read access"
+            " (Redshift requires both 's3:GetObject' and 's3:ListBucket')."
+            " If the bucket uses SSE-KMS encryption, 'kms:Decrypt' on the key is also required."
+            " Grant read access and retry."
+        )
+
+
+class RedshiftS3CopyError(Exception):
+    """Error raised when Redshift fails to COPY the staged files from S3 and we can't pin down why.
+
+    Used for IAM role auth, which we can't probe locally to confirm a read denial. The message points
+    at the common causes of a failed COPY so the user knows where to look.
+    """
+
+    def __init__(self, bucket: str):
+        super().__init__(
+            f"Redshift could not COPY the staged files from S3 bucket '{bucket}'."
+            " Common causes: the IAM role provided for the Redshift COPY lacks read access to the"
+            " bucket (Redshift requires 's3:GetObject' and 's3:ListBucket', plus 'kms:Decrypt' if the"
+            " bucket uses SSE-KMS encryption), or the bucket is in a different AWS region than the"
+            " Redshift cluster. Verify the role's permissions and the bucket region, then retry."
+        )
 
 
 class ClientErrorGroup(ExceptionGroup):
@@ -973,6 +1013,7 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
                     consumer=consumer,
                     producer_task=producer_task,
                     transformer=transformer,
+                    records_total=inputs.batch_export.records_total,
                 )
 
                 if merge_settings.requires_merge is True:
@@ -1121,6 +1162,83 @@ async def delete_uploaded_files(
             tg.create_task(delete_key(manifest_key))
 
 
+async def is_s3_read_access_denied(
+    bucket: str,
+    region_name: str,
+    credentials: AWSCredentials,
+    keys: collections.abc.Sequence[str],
+) -> bool:
+    """Return True only if a HEAD positively confirms read access is denied for any of `keys`.
+
+    We `head_object` each key with the same credentials Redshift uses for the COPY. A 403 / Access
+    Denied / Forbidden confirms a read-permission problem (including the SSE-KMS 'kms:Decrypt' case,
+    which also fails the HEAD). Anything else returns False — a successful HEAD, a non-permission
+    error (e.g. a 404), or an unexpected probe failure (e.g. a connection error). This is best-effort
+    by design: callers should only escalate to a hard error on a confirmed denial, and never mask an
+    original failure just because the probe itself couldn't run.
+    """
+    try:
+        session = aioboto3.Session()
+        async with session.client(
+            "s3",
+            region_name=region_name,
+            aws_access_key_id=credentials.aws_access_key_id,
+            aws_secret_access_key=credentials.aws_secret_access_key,
+        ) as client:
+            for key in keys:
+                try:
+                    await client.head_object(Bucket=bucket, Key=key)
+                except botocore.exceptions.ClientError as err:
+                    status = err.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+                    code = err.response.get("Error", {}).get("Code")
+                    if status == 403 or code in ("403", "AccessDenied", "Forbidden"):
+                        return True
+    except Exception:
+        LOGGER.warning("S3 read-access probe failed; treating as not confirmed", exc_info=True)
+    return False
+
+
+async def check_and_raise_redshift_copy_error(
+    err: psycopg.errors.InternalError_,
+    *,
+    authorization: IAMRole | AWSCredentials,
+    bucket: str,
+    region_name: str,
+    manifest_key: str,
+    files_uploaded: collections.abc.Sequence[str],
+) -> None:
+    """Translate a failed Redshift COPY into an actionable error.
+
+    Redshift reports a missing read permission as the misleading "requires full path of an S3 object"
+    error. We always generate a well-formed manifest, so for credential auth we confirm the real
+    cause by probing S3 read access (HEAD on the manifest + a staged file) with the same credentials
+    Redshift uses for the COPY: a confirmed denial raises `InsufficientS3PermissionsError`, otherwise
+    we return so the caller re-raises the original (it's some other COPY problem).
+
+    IAM role auth can't be probed locally, so we can't confirm the cause. We only translate when the
+    error matches a known S3 read/access marker, raising the more generic `RedshiftS3CopyError` that
+    points at the likely culprits (role read access or bucket region). Any other COPY error returns
+    unchanged so it keeps its original message and retry behaviour.
+    """
+    if isinstance(authorization, AWSCredentials):
+        probe_keys = [manifest_key, *files_uploaded[:1]]
+        if await is_s3_read_access_denied(
+            bucket=bucket, region_name=region_name, credentials=authorization, keys=probe_keys
+        ):
+            raise InsufficientS3PermissionsError(bucket) from err
+        return
+
+    markers = (
+        "requires full path of an S3 object",
+        "Access Denied",
+        "S3ServiceException",
+        "Forbidden",
+    )
+    diagnostics = (str(err), err.diag.message_primary or "", err.diag.message_detail or "")
+    if any(marker in text for text in diagnostics for marker in markers):
+        raise RedshiftS3CopyError(bucket) from err
+
+
 @activity.defn
 @handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInputs) -> BatchExportResult:
@@ -1262,6 +1380,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
             producer_task=producer_task,
             transformer=transformer,
             json_columns=table_schemas.super_columns,
+            records_total=inputs.batch_export.records_total,
         )
 
         if result.error is not None:
@@ -1331,14 +1450,25 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
                 try:
                     external_logger.info(f"Copying {len(consumer.files_uploaded)} file/s into Redshift")
 
-                    await redshift_client.acopy_from_s3_bucket(
-                        table_name=redshift_stage_table,
-                        parquet_fields=[field.name for field in transformer.schema],
-                        schema_name=inputs.table.schema_name,
-                        s3_bucket=inputs.copy.s3_bucket.name,
-                        manifest_key=manifest_key,
-                        authorization=inputs.copy.authorization,
-                    )
+                    try:
+                        await redshift_client.acopy_from_s3_bucket(
+                            table_name=redshift_stage_table,
+                            parquet_fields=[field.name for field in transformer.schema],
+                            schema_name=inputs.table.schema_name,
+                            s3_bucket=inputs.copy.s3_bucket.name,
+                            manifest_key=manifest_key,
+                            authorization=inputs.copy.authorization,
+                        )
+                    except psycopg.errors.InternalError_ as err:
+                        await check_and_raise_redshift_copy_error(
+                            err,
+                            authorization=inputs.copy.authorization,
+                            bucket=inputs.copy.s3_bucket.name,
+                            region_name=inputs.copy.s3_bucket.region_name,
+                            manifest_key=manifest_key,
+                            files_uploaded=consumer.files_uploaded,
+                        )
+                        raise
 
                     if merge_settings.requires_merge is True:
                         await redshift_client.amerge_tables(

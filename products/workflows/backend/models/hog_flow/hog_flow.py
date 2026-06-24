@@ -1,0 +1,113 @@
+from typing import TYPE_CHECKING, Final
+
+from django.db import models
+from django.db.models.signals import post_save
+from django.dispatch.dispatcher import receiver
+
+import structlog
+
+from posthog.models.team.team import Team
+from posthog.models.utils import UUIDTModel
+from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers
+
+from products.actions.backend.models.action import Action
+
+if TYPE_CHECKING:
+    pass
+
+logger = structlog.get_logger(__name__)
+
+# Billable action types that are subject to rate limiting and quota tracking
+# These action types incur costs and are counted against customer quotas
+BILLABLE_ACTION_TYPES: Final[set[str]] = {
+    "function",  # General function/webhook actions
+    "function_email",  # Email sending actions
+    "function_sms",  # SMS sending actions
+    "function_push",  # Push notification actions
+}
+
+# Action types that read person data and therefore cannot be used in person-less ("row-scoped")
+# workflows such as those triggered by a data warehouse table row sync. Keep in sync with the
+# frontend's PERSON_DEPENDENT_ACTION_TYPES.
+PERSON_DEPENDENT_ACTION_TYPES: Final[set[str]] = {
+    "wait_until_condition",
+    "random_cohort_branch",
+}
+
+
+class HogFlow(UUIDTModel):
+    """
+    Stores the version, layout and other meta information for each HogFlow
+    """
+
+    class Meta:
+        db_table = "posthog_hogflow"
+        indexes = [
+            models.Index(fields=["status", "team"]),
+            models.Index(fields=["version", "team"]),
+        ]
+
+        constraints = [
+            models.UniqueConstraint(fields=["team", "version", "id"], name="unique_version_per_flow"),
+        ]
+
+    class State(models.TextChoices):
+        DRAFT = "draft"
+        ACTIVE = "active"
+        ARCHIVED = "archived"
+
+    class ExitCondition(models.TextChoices):
+        CONVERSION = "exit_on_conversion"
+        TRIGGER_NOT_MATCHED = "exit_on_trigger_not_matched"
+        TRIGGER_NOT_MATCHED_OR_CONVERSION = "exit_on_trigger_not_matched_or_conversion"
+        ONLY_AT_END = "exit_only_at_end"
+
+    name = models.CharField(max_length=400, null=True, blank=True)
+    description = models.TextField(blank=True, default="")
+    version = models.IntegerField(default=1)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    status = models.CharField(max_length=20, choices=State, default=State.DRAFT)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    trigger = models.JSONField(default=dict)
+    trigger_masking = models.JSONField(null=True, blank=True)
+    conversion = models.JSONField(null=True, blank=True)
+    exit_condition = models.CharField(max_length=100, choices=ExitCondition, default=ExitCondition.CONVERSION)
+
+    edges = models.JSONField(default=dict)
+    actions = models.JSONField(default=dict)
+    abort_action = models.CharField(max_length=400, null=True, blank=True)
+    variables = models.JSONField(default=list, null=True, blank=True)
+
+    # Pre-computed set of billable action types in this workflow for efficient quota checking
+    # Contains only billable action types: 'function', 'function_email', 'function_sms', 'function_push'
+    billable_action_types = models.JSONField(default=list, null=True, blank=True)
+
+    # Draft storage for active workflows: stores pending edits separately from live config
+    draft = models.JSONField(null=True, blank=True)
+    draft_updated_at = models.DateTimeField(null=True, blank=True)
+
+    def __str__(self):
+        return f"HogFlow {self.id}/{self.version}: {self.name}"
+
+
+@receiver(post_save, sender=HogFlow)
+def hog_flow_saved(sender, instance: HogFlow, created, **kwargs):
+    reload_hog_flows_on_workers(team_id=instance.team_id, hog_flow_ids=[str(instance.id)])
+
+
+@receiver(post_save, sender=Action)
+def action_saved_for_hog_flows(sender, instance: Action, created, **kwargs):
+    from products.workflows.backend.tasks.hog_flows import refresh_affected_hog_flows  # noqa: PLC0415
+
+    refresh_affected_hog_flows.delay(action_id=instance.id)
+
+
+@receiver(post_save, sender=Team)
+def team_saved_for_hog_flows(sender, instance: Team, created, **kwargs):
+    from products.workflows.backend.tasks.hog_flows import refresh_affected_hog_flows  # noqa: PLC0415
+
+    refresh_affected_hog_flows.delay(team_id=instance.id)

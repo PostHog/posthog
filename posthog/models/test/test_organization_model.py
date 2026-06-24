@@ -9,10 +9,12 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models import Organization, OrganizationInvite, Plugin
+from posthog.models import Organization, OrganizationInvite
 from posthog.models.organization import OrganizationMembership
 from posthog.plugins.test.mock import mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ZIP
+
+from products.cdp.backend.models.plugin import Plugin
 
 from ee.billing.quota_limiting import QuotaResource
 
@@ -370,6 +372,52 @@ class TestOrganization(BaseTest):
         mock_remove_limited.assert_called_once()
         team_tokens = mock_remove_limited.call_args[0][1]
         self.assertIn(self.team.api_token, team_tokens)
+
+    @parameterized.expand(
+        [
+            ("limit_recordings_dispatches", "limit", QuotaResource.RECORDINGS, True),
+            ("limit_events_no_dispatch", "limit", QuotaResource.EVENTS, False),
+            ("unlimit_recordings_dispatches", "unlimit", QuotaResource.RECORDINGS, True),
+            ("unlimit_events_no_dispatch", "unlimit", QuotaResource.EVENTS, False),
+        ]
+    )
+    @patch("posthog.tasks.remote_config.update_team_remote_config")
+    @patch("ee.billing.quota_limiting.remove_limited_team_tokens")
+    @patch("ee.billing.quota_limiting.add_limited_team_tokens")
+    def test_admin_hook_dispatches_recordings_remote_config_sync(
+        self,
+        _name,
+        action,
+        resource,
+        expect_dispatch,
+        mock_add_limited,
+        mock_remove_limited,
+        mock_update_remote_config,
+    ):
+        second_team = self.organization.teams.create(name="Second Team", api_token="second_token")
+        self.organization.usage = {
+            "period": ["2024-01-01T00:00:00Z", "2024-02-01T00:00:00Z"],
+            # Carries `quota_limited_until` so `unlimit_product` exercises its usage-field write path.
+            # Harmless for `limit_product_until_end_of_billing_cycle`, which overwrites it.
+            resource.value: {"usage": 500, "limit": 1000, "quota_limited_until": 1234567890},
+        }
+        self.organization.save()
+
+        if action == "limit":
+            self.organization.limit_product_until_end_of_billing_cycle(resource)
+        else:
+            self.organization.unlimit_product(resource)
+
+        if expect_dispatch:
+            dispatched_team_ids = {
+                call.kwargs["args"][0] for call in mock_update_remote_config.apply_async.call_args_list
+            }
+            self.assertEqual(dispatched_team_ids, {self.team.id, second_team.id})
+            for call in mock_update_remote_config.apply_async.call_args_list:
+                self.assertEqual(call.kwargs.get("countdown"), 35)
+                self.assertEqual(call.kwargs.get("kwargs"), {"bypass_recordings_quota_cache": True})
+        else:
+            mock_update_remote_config.apply_async.assert_not_called()
 
     @patch("ee.billing.quota_limiting.get_client")
     def test_get_limited_products_no_teams(self, mock_get_client):

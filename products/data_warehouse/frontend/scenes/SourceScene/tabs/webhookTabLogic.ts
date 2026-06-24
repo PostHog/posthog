@@ -1,6 +1,7 @@
 import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -16,8 +17,11 @@ import type { webhookTabLogicType } from './webhookTabLogicType'
 
 export interface WebhookTabLogicProps {
     id: string
-    tabId?: string
 }
+
+export const WEBHOOK_SECTIONS = ['overview', 'configuration', 'activity'] as const
+export type WebhookSection = (typeof WEBHOOK_SECTIONS)[number]
+export const DEFAULT_WEBHOOK_SECTION: WebhookSection = 'overview'
 
 export const webhookTabLogic = kea<webhookTabLogicType>([
     props({} as WebhookTabLogicProps),
@@ -32,8 +36,17 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
         submitWebhookFields: true,
         deleteWebhook: true,
         setWebhookDeleting: (deleting: boolean) => ({ deleting }),
+        setCurrentSection: (section: WebhookSection) => ({ section }),
+        _setCurrentSection: (section: WebhookSection) => ({ section }),
     }),
     reducers({
+        currentSection: [
+            DEFAULT_WEBHOOK_SECTION as WebhookSection,
+            {
+                setCurrentSection: (_, { section }) => section,
+                _setCurrentSection: (_, { section }) => section,
+            },
+        ],
         webhookCreating: [
             false,
             {
@@ -185,6 +198,27 @@ export const webhookTabLogic = kea<webhookTabLogicType>([
             submit: async () => {
                 actions.submitWebhookFields()
             },
+        },
+    })),
+    actionToUrl(({ values }) => ({
+        setCurrentSection: () => {
+            return [
+                router.values.location.pathname,
+                { ...router.values.searchParams, section: values.currentSection },
+                router.values.hashParams,
+            ]
+        },
+    })),
+    urlToAction(({ actions, values }) => ({
+        '*': (_, searchParams): void => {
+            // Reset to default when no/invalid ?section= so the UI matches the deep link.
+            const possibleSection = searchParams.section as WebhookSection | undefined
+            const nextSection: WebhookSection = WEBHOOK_SECTIONS.includes(possibleSection as WebhookSection)
+                ? (possibleSection as WebhookSection)
+                : DEFAULT_WEBHOOK_SECTION
+            if (nextSection !== values.currentSection) {
+                actions._setCurrentSection(nextSection)
+            }
         },
     })),
     listeners(({ actions, props, values }) => ({

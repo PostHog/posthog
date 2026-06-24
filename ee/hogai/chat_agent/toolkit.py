@@ -6,7 +6,8 @@ from django.conf import settings
 
 from langchain_core.runnables import RunnableConfig
 
-from products.tasks.backend.max_tools import (
+from products.skills.backend.tools.skills import GetLLMSkillFileTool, GetLLMSkillTool, ListLLMSkillsTool
+from products.tasks.backend.facade.max_tools import (
     CreateTaskTool,
     GetTaskRunLogsTool,
     GetTaskRunTool,
@@ -23,6 +24,7 @@ from ee.hogai.tools import (
     CreateFormTool,
     CreateNotebookTool,
     ListDataTool,
+    ListFeatureFlagsTool,
     ManageMemoriesTool,
     ReadDataTool,
     ReadTaxonomyTool,
@@ -47,10 +49,14 @@ DEFAULT_TOOLS: list[type[MaxTool]] = [
     ReadDataTool,
     SearchTool,
     ListDataTool,
+    ListFeatureFlagsTool,
     TodoWriteTool,
     SwitchModeTool,
     CreateFormTool,
     CreateNotebookTool,
+    ListLLMSkillsTool,
+    GetLLMSkillTool,
+    GetLLMSkillFileTool,
 ]
 
 TASK_TOOLS: list[type[MaxTool]] = [

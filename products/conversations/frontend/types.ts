@@ -23,6 +23,32 @@ export type SidePanelViewState = 'list' | 'ticket' | 'new' | 'restore'
 export type RestoreFlowState = 'idle' | 'sending' | 'sent' | 'error'
 export type AssigneeFilterValue = 'all' | 'unassigned' | TicketAssignee
 
+export type TicketTagsMatch = 'any' | 'all'
+
+export type AITriageStatus = 'in_progress' | 'done'
+export type AITriageResult =
+    | 'persisted'
+    | 'escalated_with_best'
+    | 'escalated_no_reply'
+    | 'skipped_unactionable'
+    | 'blocked_unsafe'
+    | 'blocked_unsafe_reply'
+
+export interface AITriage {
+    schema_version?: number
+    status?: AITriageStatus
+    result?: AITriageResult
+    ticket_type?: 'how_to' | 'diagnostic' | 'account_billing' | 'unactionable'
+    needs_diagnostics?: boolean
+    diagnostics_allowed?: boolean
+    confidence?: number
+    attempts?: number
+    started_at?: string
+    finished_at?: string
+    workflow_id?: string
+    run_id?: string
+}
+
 export interface TicketViewFilters {
     status?: TicketStatus[]
     priority?: TicketPriority[]
@@ -30,6 +56,8 @@ export interface TicketViewFilters {
     sla?: TicketSlaState | 'all'
     assignee?: AssigneeFilterValue
     tags?: string[]
+    tagsMatch?: TicketTagsMatch
+    tagsExclude?: string[]
     dateFrom?: string | null
     dateTo?: string | null
     sorting?: Sorting | null
@@ -102,6 +130,7 @@ export interface Ticket {
     github_issue_number?: number | null
     person?: TicketPerson | null
     tags?: string[]
+    ai_triage?: AITriage
 }
 
 export interface ConversationTicket {
@@ -137,6 +166,9 @@ export interface MessageAuthor {
     email?: string
 }
 
+/** Delivery state of an outbound email reply, denormalized from the backend outbox. */
+export type EmailDeliveryStatus = 'sending' | 'sent' | 'failed'
+
 export interface ChatMessage {
     id: string
     content: string
@@ -146,6 +178,7 @@ export interface ChatMessage {
     createdBy?: MessageAuthor | null
     createdAt: string
     isPrivate?: boolean
+    emailDeliveryStatus?: EmailDeliveryStatus
 }
 
 export const statusOptions: { value: TicketStatus | 'all'; label: string }[] = [
@@ -202,3 +235,43 @@ export const slaOptions: { value: TicketSlaState | 'all'; label: string }[] = [
     { value: 'at-risk', label: 'At risk' },
     { value: 'breached', label: 'Breached' },
 ]
+
+export const aiTriageResultLabel: Record<AITriageResult, string> = {
+    persisted: 'Resolved',
+    escalated_with_best: 'Escalated (best)',
+    escalated_no_reply: 'Escalated',
+    skipped_unactionable: 'Skipped',
+    blocked_unsafe: 'Blocked',
+    blocked_unsafe_reply: 'Blocked (reply)',
+}
+
+export type AITriageTagType = 'success' | 'warning' | 'danger' | 'default'
+
+export function aiTriageResultTagType(result: AITriageResult): AITriageTagType {
+    switch (result) {
+        case 'persisted':
+            return 'success'
+        case 'escalated_with_best':
+        case 'escalated_no_reply':
+            return 'warning'
+        case 'blocked_unsafe':
+        case 'blocked_unsafe_reply':
+            return 'danger'
+        case 'skipped_unactionable':
+            return 'default'
+    }
+}
+
+export const aiTriageTicketTypeLabel: Record<string, string> = {
+    how_to: 'How-to',
+    diagnostic: 'Diagnostic',
+    account_billing: 'Account/Billing',
+    unactionable: 'Unactionable',
+}
+
+export const aiTriageTicketTypeDescription: Record<string, string> = {
+    how_to: 'Customer needs guidance on how to use a feature or accomplish a task',
+    diagnostic: 'Customer is experiencing a bug or issue that requires investigation',
+    account_billing: 'Related to account settings, billing, or subscription management',
+    unactionable: 'Ticket cannot be resolved by AI (e.g. feedback, spam, or out of scope)',
+}

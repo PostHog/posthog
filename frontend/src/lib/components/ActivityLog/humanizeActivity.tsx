@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { fullName } from 'lib/utils'
+import { fullName } from 'lib/utils/strings'
 
 import { ActivityScope, InsightShortId, PersonType, UserBasicType } from '~/types'
 
@@ -55,6 +55,8 @@ export type ActivityLogItem = {
     was_impersonated?: boolean
     /** SDK or integration that triggered this action (from x-posthog-client header). */
     client?: string | null
+    /** Client IP address captured at request time. Null for non-HTTP activity (system, background jobs). */
+    ip_address?: string | null
 }
 
 // the description of a single activity log is a sentence describing one or more changes that makes up the entry

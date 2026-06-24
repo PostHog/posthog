@@ -4,8 +4,9 @@ from django.db import close_old_connections, transaction
 import structlog
 from temporalio import activity
 
-from posthog.models.exported_asset import ExportedAsset
 from posthog.storage import object_storage
+
+from products.exports.backend.models.exported_asset import ExportedAsset
 
 from ..types import (
     BuildRasterizationResult,
@@ -57,6 +58,14 @@ def build_rasterization_input(exported_asset_id: int) -> BuildRasterizationResul
     # 1x for short clips so output plays in real time; 4x for full sessions to cap file size.
     default_speed = 1 if (duration is not None and duration <= 5) else 4
     playback_speed = ctx.get("playback_speed", default_speed)
+    recording_fps = ctx.get("recording_fps", 24)
+    # Cap the render rate so a large fps × speed product can't exhaust the shared rasterizer pool.
+    # Upper bound only: positivity is enforced in the Node validateInput, and fractional
+    # slow-motion speeds (< 1) are valid.
+    if playback_speed is not None:
+        playback_speed = min(360.0, float(playback_speed))
+    if recording_fps is not None:
+        recording_fps = min(60, int(recording_fps))
 
     activity_input = RasterizationActivityInput(
         team_id=asset.team_id,
@@ -64,7 +73,7 @@ def build_rasterization_input(exported_asset_id: int) -> BuildRasterizationResul
         s3_bucket=settings.OBJECT_STORAGE_BUCKET,
         s3_key_prefix=s3_key_prefix,
         playback_speed=playback_speed,
-        recording_fps=ctx.get("recording_fps", 24),
+        recording_fps=recording_fps,
         trim=ctx.get("trim"),
         show_metadata_footer=ctx.get("show_metadata_footer", False),
         viewport_width=viewport_width,

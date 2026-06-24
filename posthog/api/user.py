@@ -30,11 +30,11 @@ from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from django_otp.util import random_hex
-from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_view
 from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from prometheus_client import Counter
-from rest_framework import exceptions, mixins, serializers, viewsets
+from rest_framework import exceptions, mixins, serializers, status, viewsets
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
@@ -60,6 +60,7 @@ from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action, unparsed_hostname_in_allowed_url_list
 from posthog.auth import (
+    IDJagAccessTokenAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
@@ -90,6 +91,7 @@ from posthog.models.user import (
     OnboardingSkippedReason,
     ShortcutPosition,
 )
+from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
 from posthog.rate_limit import (
     OnboardingSkipThrottle,
@@ -97,6 +99,14 @@ from posthog.rate_limit import (
     UserAuthenticationThrottle,
     UserEmailVerificationThrottle,
 )
+from posthog.session.activity import (
+    list_user_sessions,
+    revoke_other_sessions,
+    revoke_user_auth_session,
+    session_public_id,
+    sync_current_session_metadata,
+)
+from posthog.session.models import Session
 from posthog.tasks.email import (
     send_email_change_emails,
     send_password_changed_email,
@@ -237,9 +247,9 @@ class UserSerializer(serializers.ModelSerializer):
     )
     requires_credential_review = serializers.SerializerMethodField(
         help_text=(
-            "True if the user has at least one Personal API Key and has not yet acknowledged "
-            "their existing credentials. Used to gate a one-shot review screen on first "
-            "post-provisioning login. Becomes False once the user POSTs to "
+            "True if the user has at least one Personal API Key or passkey and has not yet "
+            "acknowledged their existing credentials. Used to gate a one-shot review screen on "
+            "first post-provisioning login. Becomes False once the user POSTs to "
             "`/api/users/@me/credentials_review_complete/`. Read-only."
         ),
     )
@@ -385,11 +395,15 @@ class UserSerializer(serializers.ModelSerializer):
     def get_requires_credential_review(self, instance: User) -> bool:
         if instance.credentials_reviewed_at is not None:
             return False
-        return PersonalAPIKey.objects.filter(user=instance).exists()
+        if PersonalAPIKey.objects.filter(user=instance).exists():
+            return True
+        return WebauthnCredential.objects.filter(user=instance).exists()
 
     @tracer.start_as_current_span("user_serializer.is_2fa_enabled")
     def get_is_2fa_enabled(self, instance: User) -> bool:
-        return default_device(instance) is not None
+        has_totp_device = default_device(instance) is not None
+        has_passkey_2fa = bool(instance.passkeys_enabled_for_2fa) and has_passkeys(instance)
+        return has_totp_device or has_passkey_2fa
 
     @tracer.start_as_current_span("user_serializer.has_sso_enforcement")
     def get_has_sso_enforcement(self, instance: User) -> bool:
@@ -659,14 +673,28 @@ class UserSerializer(serializers.ModelSerializer):
             and is_email_available()
         ):
             new_email = validated_data["email"]
+            # Moving between two SSO-enforced domains of the same org is a domain migration, not an SSO bypass.
+            # SSO enforcement can only be set on a verified domain, so an enforced domain is always verified.
+            current_sso_enforced = OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email)
+            new_sso_enforced = OrganizationDomain.objects.get_sso_enforcement_for_email_address(new_email)
+            current_domain = OrganizationDomain.objects.get_verified_for_email_address(instance.email)
+            new_domain = OrganizationDomain.objects.get_verified_for_email_address(new_email)
+            is_same_org_migration = (
+                bool(current_sso_enforced)
+                and bool(new_sso_enforced)
+                and current_domain is not None
+                and new_domain is not None
+                and current_domain.organization_id == new_domain.organization_id
+            )
+
             # Block bypass: a user on an SSO-enforced domain can't move off of it.
-            if OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email):
+            if current_sso_enforced and not is_same_org_migration:
                 raise serializers.ValidationError(
                     "You can't change your email because SSO is enforced on your current email's domain.",
                     code="sso_enforced_current_email",
                 )
             # Block lockout: moving to an SSO-enforced domain blocks password reset and login.
-            if OrganizationDomain.objects.get_sso_enforcement_for_email_address(new_email):
+            if new_sso_enforced and not is_same_org_migration:
                 raise serializers.ValidationError(
                     "You can't change your email to a domain where SSO is enforced.",
                     code="sso_enforced_new_email",
@@ -765,7 +793,48 @@ class ScenePersonalisationSerializer(serializers.ModelSerializer):
         )
 
 
-@extend_schema(tags=["core"])
+class UserAuthSessionSerializer(serializers.ModelSerializer):
+    """A cookie-auth login session shown on the user's 'Web sessions' screen."""
+
+    id = serializers.SerializerMethodField(help_text="Identifier used to revoke this login session.")
+    last_activity = serializers.DateTimeField(
+        read_only=True, help_text="When this login session last made a request (refreshed periodically)."
+    )
+    location = serializers.CharField(
+        read_only=True, help_text="Approximate city and country derived from the IP address, if known."
+    )
+    device = serializers.CharField(
+        source="short_user_agent",
+        read_only=True,
+        help_text="Browser and operating system parsed from the user agent, e.g. 'Chrome 135 on macOS'.",
+    )
+    login_method = serializers.CharField(
+        read_only=True, help_text="How this session signed in (e.g. password, Google, SAML)."
+    )
+    is_current = serializers.SerializerMethodField(
+        help_text="Whether this is the login session making the current request."
+    )
+
+    class Meta:
+        model = Session
+        fields = ["id", "last_activity", "location", "device", "login_method", "is_current"]
+
+    @extend_schema_field({"type": "string", "format": "uuid"})
+    def get_id(self, obj: Session) -> str:
+        # Expose a stable, opaque id derived from the session key — never the key itself.
+        return str(session_public_id(obj.session_key))
+
+    @extend_schema_field({"type": "boolean"})
+    def get_is_current(self, obj: Session) -> bool:
+        request = self.context.get("request")
+        return bool(request and obj.session_key == request.session.session_key)
+
+
+class RevokeOtherSessionsResponseSerializer(serializers.Serializer):
+    revoked_count = serializers.IntegerField(help_text="Number of other login sessions that were revoked.")
+
+
+@extend_schema(extensions={"x-product": "core"})
 @extend_schema_view(
     retrieve=extend_schema(
         description=(
@@ -798,9 +867,10 @@ class UserViewSet(
     throttle_classes = [UserAuthenticationThrottle]
     serializer_class = UserSerializer
     authentication_classes = [
+        IDJagAccessTokenAuthentication,
         SessionAuthentication,
-        PersonalAPIKeyAuthentication,
         OAuthAccessTokenAuthentication,
+        PersonalAPIKeyAuthentication,
     ]
     permission_classes = [
         IsAuthenticated,
@@ -874,6 +944,64 @@ class UserViewSet(
         user = self.get_object()
         return Response({"github_login": user.get_github_login()})
 
+    @extend_schema(responses=UserAuthSessionSerializer(many=True))
+    @action(
+        methods=["GET"],
+        detail=True,
+        url_path="login_sessions",
+        authentication_classes=[SessionAuthentication],
+        permission_classes=[IsAuthenticated],
+        pagination_class=None,
+    )
+    def login_sessions(self, request, **kwargs):
+        """List the cookie-auth login sessions for the current user. Self-only — never another user."""
+        user = cast(User, request.user)
+        # Populate the current session's display metadata up front so it appears fully on first load
+        # (the activity middleware otherwise only records it after this response is sent).
+        sync_current_session_metadata(request, force=True)
+        rows = list_user_sessions(user)
+        current_key = request.session.session_key
+        rows.sort(key=lambda row: row.session_key != current_key)  # current first, stable on -last_activity
+        serializer = UserAuthSessionSerializer(rows, many=True, context=self.get_serializer_context())
+        return Response(serializer.data)
+
+    @extend_schema(request=None, responses={204: OpenApiResponse(description="Login session revoked.")})
+    @action(
+        methods=["DELETE"],
+        detail=True,
+        url_path=r"login_sessions/(?P<session_id>[0-9a-f-]+)",
+        authentication_classes=[SessionAuthentication],
+        permission_classes=[IsAuthenticated, TimeSensitiveActionPermission],
+    )
+    def revoke_login_session(self, request, session_id=None, **kwargs):
+        """Revoke a single login session belonging to the current user. Self-only.
+
+        Requires recent auth (TimeSensitiveActionPermission) so a stolen cookie can't weaponize
+        revocation, and is blocked while impersonating via ImpersonationBlockedPathsMiddleware.
+        """
+        user = cast(User, request.user)
+        if not revoke_user_auth_session(user, session_id):
+            raise NotFound("Login session not found.")
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(request=None, responses=RevokeOtherSessionsResponseSerializer)
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="login_sessions/revoke_others",
+        authentication_classes=[SessionAuthentication],
+        permission_classes=[IsAuthenticated, TimeSensitiveActionPermission],
+    )
+    def revoke_other_login_sessions(self, request, **kwargs):
+        """Revoke every login session for the current user except the one making this request. Self-only.
+
+        Requires recent auth (TimeSensitiveActionPermission) so a stolen cookie can't weaponize the
+        "log out everywhere else" lock-out, and is blocked while impersonating.
+        """
+        user = cast(User, request.user)
+        revoked_count = revoke_other_sessions(user, request.session.session_key)
+        return Response({"revoked_count": revoked_count})
+
     @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
     def verify_email(self, request, **kwargs):
         token = request.data["token"] if "token" in request.data else None
@@ -915,6 +1043,11 @@ class UserViewSet(
         passkeys_enabled_for_2fa = user_has_passkeys and user.passkeys_enabled_for_2fa
         if default_device(user) or passkeys_enabled_for_2fa:
             return Response({"success": True, "token": token, "requires_2fa": True})
+
+        # Don't hand a non-SSO session to an account whose domain enforces SSO — verifying an email
+        # must not become a password-backend login path around the IdP. The user logs in via SSO.
+        if OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email):
+            return Response({"success": True, "token": token, "requires_sso": True})
 
         login(self.request, user, backend="django.contrib.auth.backends.ModelBackend")
         set_two_factor_verified_in_session(self.request)
@@ -1248,7 +1381,8 @@ class UserViewSet(
             "Mark the user as having reviewed their existing credentials. Idempotent. "
             "Flips `requires_credential_review` to False so the post-login interstitial "
             "isn't shown again. Does not modify any credentials; the user revokes "
-            "individual Personal API Keys via the existing PAT endpoints from the same screen."
+            "individual Personal API Keys and passkeys via their existing endpoints from "
+            "the same screen."
         ),
     )
     @action(
@@ -1258,9 +1392,9 @@ class UserViewSet(
         authentication_classes=[SessionAuthentication],
     )
     def credentials_review_complete(self, request, **kwargs):
-        # Session-only auth: this endpoint dismisses the partner-issued-PAK review
-        # screen, so accepting PersonalAPIKeyAuthentication here would let the
-        # attacker who minted the PAK silently dismiss their own surfacing.
+        # Session-only auth: this endpoint dismisses the partner-issued-credential
+        # review screen, so accepting PersonalAPIKeyAuthentication here would let
+        # the attacker who minted the PAK silently dismiss their own surfacing.
         user = self.get_object()
         if user.credentials_reviewed_at is None:
             user.credentials_reviewed_at = django_timezone.now()
@@ -1402,7 +1536,16 @@ def toolbar_oauth_callback(request):
     quoted_client_id = urllib.parse.quote(oauth_app.client_id, safe="")
     toolbar_param = f"__posthog_toolbar=code:{quoted_code},client_id:{quoted_client_id}"
     if original_fragment:
-        fragment = f"{original_fragment}&{toolbar_param}"
+        # SPA hash routes (e.g. `#/login`) treat the entire post-`#` substring
+        # as the path, so `&` would make the auth params part of the route and
+        # 404. `?` is the standard hash-query separator that React Router,
+        # Vue Router, etc. split on. If the fragment already has a `?` (e.g.
+        # `#/login?foo=bar`), keep using `&` to extend the existing hash query.
+        if original_fragment.startswith("/") and "?" not in original_fragment:
+            separator = "?"
+        else:
+            separator = "&"
+        fragment = f"{original_fragment}{separator}{toolbar_param}"
     else:
         fragment = toolbar_param
     return redirect(f"{base_url}#{fragment}")

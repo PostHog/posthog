@@ -12,6 +12,7 @@ import type {
     PaginatedWizardSessionDTOListApi,
     UpsertWizardSessionRequestApi,
     WizardSessionDTOApi,
+    WizardSessionsLatestRetrieveParams,
     WizardSessionsListParams,
     WizardSessionsStreamRetrieveParams,
 } from './api.schemas'
@@ -21,7 +22,7 @@ export const getWizardSessionsListUrl = (projectId: string, params?: WizardSessi
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -84,12 +85,42 @@ export const wizardSessionsRetrieve = async (
     })
 }
 
+export const getWizardSessionsLatestRetrieveUrl = (projectId: string, params: WizardSessionsLatestRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/wizard/sessions/latest/?${stringifiedParams}`
+        : `/api/projects/${projectId}/wizard/sessions/latest/`
+}
+
+/**
+ * Return the single most-recent wizard session for a workflow (and optional skill), or 204 if none exists. Unlike `list`, this is a point lookup the app shell uses to decide whether to open the live SSE stream — it never returns a collection, and 'no run' is a 204 rather than a 404 so clients don't conflate it with a missing endpoint.
+ */
+export const wizardSessionsLatestRetrieve = async (
+    projectId: string,
+    params: WizardSessionsLatestRetrieveParams,
+    options?: RequestInit
+): Promise<WizardSessionDTOApi | void> => {
+    return apiMutator<WizardSessionDTOApi | void>(getWizardSessionsLatestRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getWizardSessionsStreamRetrieveUrl = (projectId: string, params: WizardSessionsStreamRetrieveParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -101,9 +132,9 @@ export const getWizardSessionsStreamRetrieveUrl = (projectId: string, params: Wi
 }
 
 /**
- * Server-Sent Events stream of wizard session updates for a (workflow_id, skill_id) pair. On connect, the current latest session (if any) is emitted as the first event; subsequent upserts are streamed in real time. The server closes the connection after 1800 seconds with an `event: end` line so the client (EventSource) can reconnect.
-
-**SDK consumers**: do not call the generated fetch wrapper for this path — it will buffer the entire infinite stream. Use the URL builder (`getWizardSessionsStreamRetrieveUrl`) with the browser's `EventSource` API instead.
+ * Server-Sent Events stream of wizard session updates for a (workflow_id, skill_id) pair. On connect, the current latest session (if any) is emitted as the first event; subsequent upserts are streamed in real time. The server closes the connection after 900 seconds with an `event: end` line so the client (EventSource) can reconnect.
+ *
+ * **SDK consumers**: do not call the generated fetch wrapper for this path — it will buffer the entire infinite stream. Use the URL builder (`getWizardSessionsStreamRetrieveUrl`) with the browser's `EventSource` API instead.
  */
 export const wizardSessionsStreamRetrieve = async (
     projectId: string,

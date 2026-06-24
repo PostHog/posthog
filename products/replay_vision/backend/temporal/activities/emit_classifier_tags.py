@@ -19,6 +19,7 @@ from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.sync import database_sync_to_async
 
+from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.types import EmitClassifierTagsInputs
 
 logger = structlog.get_logger(__name__)
@@ -28,6 +29,7 @@ _KAFKA_DELIVERY_TIMEOUT_S = 10.0
 
 
 @activity.defn
+@track_activity()
 async def emit_classifier_tags_activity(inputs: EmitClassifierTagsInputs) -> None:
     """Merge classifier tags into the session row via Kafka. Raises on failure."""
     # `get_metadata` only reads `team.pk`, so a stub instance avoids the extra DB roundtrip.

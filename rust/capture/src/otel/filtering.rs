@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use common_types::CapturedEvent;
 use serde_json::json;
-use tracing::warn;
+use tracing::error;
 use uuid::Uuid;
 
 use crate::api::CaptureError;
@@ -95,7 +95,7 @@ pub fn build_events(
         });
 
         let data = serde_json::to_string(&event_data).map_err(|e| {
-            warn!("Failed to serialize OTel event data: {}", e);
+            error!("Failed to serialize OTel event data: {}", e);
             CaptureError::InternalError(format!("failed to serialize event data: {e}"))
         })?;
 

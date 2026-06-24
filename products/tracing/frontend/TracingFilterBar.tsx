@@ -15,7 +15,7 @@ import { universalFiltersLogic } from 'lib/components/UniversalFilters/universal
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { dayjs } from 'lib/dayjs'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils'
+import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils/datetime'
 
 import { DateRange } from '~/queries/schema/schema-general'
 import {
@@ -30,7 +30,6 @@ import {
 import { tracingDataLogic } from './tracingDataLogic'
 import { tracingFiltersLogic } from './tracingFiltersLogic'
 import { tracingServiceFilterLogic, TracingServiceFilterLogicProps } from './tracingServiceFilterLogic'
-import { useTracingTabId } from './TracingTabContext'
 
 const taxonomicFilterLogicKey = 'tracing'
 const taxonomicGroupTypes = [
@@ -80,11 +79,10 @@ const dateMapping: DateMappingOption[] = [
 ]
 
 export function TracingFilterBar(): JSX.Element {
-    const tabId = useTracingTabId()
-    const { spansLoading } = useValues(tracingDataLogic({ tabId }))
-    const { runQuery } = useActions(tracingDataLogic({ tabId }))
-    const { filters, utcDateRange } = useValues(tracingFiltersLogic({ tabId }))
-    const { setDateRange, setServiceNames, setFilterGroup, setCompareMode } = useActions(tracingFiltersLogic({ tabId }))
+    const { spansLoading } = useValues(tracingDataLogic())
+    const { runQuery } = useActions(tracingDataLogic())
+    const { filters, utcDateRange } = useValues(tracingFiltersLogic())
+    const { setDateRange, setServiceNames, setFilterGroup, setCompareMode } = useActions(tracingFiltersLogic())
     const { dateRange, serviceNames, filterGroup, compareMode } = filters
 
     return (
@@ -178,8 +176,7 @@ function TracingFilterGroup({
     onFilterGroupChange: (filterGroup: UniversalFiltersGroup) => void
     children: React.ReactNode
 }): JSX.Element {
-    const tabId = useTracingTabId()
-    const { utcDateRange, filters } = useValues(tracingFiltersLogic({ tabId }))
+    const { utcDateRange, filters } = useValues(tracingFiltersLogic())
 
     const endpointFilters = {
         dateRange: { ...utcDateRange, date_to: utcDateRange.date_to ?? dayjs().toISOString() },
@@ -204,8 +201,7 @@ function TracingFilterGroup({
 
 function TracingFilterSearch(): JSX.Element {
     const [visible, setVisible] = useState<boolean>(false)
-    const tabIdForSearch = useTracingTabId()
-    const { utcDateRange, filters: tracingFilters } = useValues(tracingFiltersLogic({ tabId: tabIdForSearch }))
+    const { utcDateRange, filters: tracingFilters } = useValues(tracingFiltersLogic())
     const { addGroupFilter, setGroupValues } = useActions(universalFiltersLogic)
     const { filterGroup } = useValues(universalFiltersLogic)
 

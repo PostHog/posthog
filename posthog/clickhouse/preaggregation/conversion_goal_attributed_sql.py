@@ -1,6 +1,6 @@
 # Legacy: this module exists only to keep migration 0261 loadable on fresh DBs.
 # The runtime attribution path no longer reads or writes this table — it was superseded by the
-# reusable touchpoints precompute (marketing_touchpoints_preaggregated). Migration 0268 drops
+# reusable touchpoints precompute (marketing_touchpoints_preaggregated). Migration 0282 drops
 # the table on the AUX cluster. Do not add new callers here.
 #
 # Original purpose: pre-attributed output of the conversion-goal pipeline — one row per

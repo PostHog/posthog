@@ -9,12 +9,16 @@
         background-color: var(--muted);
     }
 
-    /* Trigger shared base */
+    /* Trigger shared base. Full-row sizing is scoped away from the icon-only
+       trigger, whose square dimensions come from the Button icon size. */
     .quill-collapsible__trigger {
-        width: 100%;
-        padding-inline: 0.5rem;
         font-size: var(--text-xs, 0.75rem);
         line-height: 1.625;
+    }
+
+    .quill-collapsible__trigger:not(.quill-collapsible__trigger--icon) {
+        width: 100%;
+        padding-inline: 0.5rem;
     }
 
     .quill-collapsible__trigger[aria-expanded='true'] {
@@ -42,6 +46,60 @@
         display: inline;
     }
 
+    /* Inside a header the trigger overlays the row's start, so a full-width
+       sibling button can own the entire row's hover surface (give it
+       padding-inline-start to clear the chevron). Centered via auto margins,
+       not translate — the Button :active translate would displace it. */
+    .quill-collapsible__header {
+        position: relative;
+    }
+
+    .quill-collapsible__header > .quill-collapsible__trigger--icon {
+        position: absolute;
+        inset-block: 0;
+        inset-inline-start: 0;
+        z-index: 1;
+        margin-block: auto;
+    }
+
+    /* The row, not the tiny button, communicates open state. */
+    .quill-collapsible__trigger--icon[aria-expanded='true'] {
+        background-color: transparent;
+    }
+
+    /* Single chevron rotates instead of swapping: closed points into reading
+       direction (mirrored in RTL), open points down in both directions. */
+    .quill-collapsible__trigger--icon svg[data-chevron='right'] {
+        transition: rotate 150ms ease;
+    }
+
+    [dir='rtl'] .quill-collapsible__trigger--icon svg[data-chevron='right'] {
+        rotate: 180deg;
+    }
+
+    .quill-collapsible__trigger--icon[data-panel-open] svg[data-chevron='right'],
+    [dir='rtl'] .quill-collapsible__trigger--icon[data-panel-open] svg[data-chevron='right'] {
+        rotate: 90deg;
+    }
+
+    /* Rest-icon swap (`icon` prop): the category icon shows at rest; hovering
+       the header row or focusing the trigger reveals the chevron. */
+    .quill-collapsible__trigger--swap svg[data-chevron='right'],
+    .quill-collapsible__header:hover .quill-collapsible__trigger--swap [data-slot='collapsible-trigger-rest-icon'],
+    .quill-collapsible__trigger--swap:focus-visible [data-slot='collapsible-trigger-rest-icon'] {
+        display: none;
+    }
+
+    .quill-collapsible__header:hover .quill-collapsible__trigger--swap svg[data-chevron='right'],
+    .quill-collapsible__trigger--swap:focus-visible svg[data-chevron='right'] {
+        display: inline;
+    }
+
+    .quill-collapsible__trigger--swap [data-slot='collapsible-trigger-rest-icon'] {
+        display: inline-flex;
+        color: var(--muted-foreground);
+    }
+
     .quill-collapsible__panel {
         position: relative;
         z-index: 1;
@@ -62,6 +120,7 @@
     }
 
     .quill-collapsible__panel-content--variant-folder {
+        padding-inline: 1.2rem;
         padding-inline-end: 0;
     }
 
@@ -76,5 +135,11 @@
 
     .quill-collapsible__panel-content p:not(:last-child) {
         margin-bottom: 1rem;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .quill-collapsible__trigger--icon svg[data-chevron='right'] {
+            transition: none;
+        }
     }
 }

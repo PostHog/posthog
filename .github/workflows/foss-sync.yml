@@ -28,39 +28,61 @@ jobs:
                   owner: PostHog
                   repositories: posthog-foss
 
-            - name: Sync repositories 1 to 1 - master branch
-              uses: PostHog/git-sync@29d9a6756e8646d0715d5caa9c66438be7e32a1f # v3
-              with:
-                  source_repo: 'https://x-access-token:${{ github.token }}@github.com/posthog/posthog.git'
-                  source_branch: 'master'
-                  destination_repo: 'https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/posthog/posthog-foss.git'
-                  destination_branch: 'master'
-            - name: Sync repositories 1 to 1 – tags
-              uses: PostHog/git-sync@29d9a6756e8646d0715d5caa9c66438be7e32a1f # v3
-              with:
-                  source_repo: 'https://x-access-token:${{ github.token }}@github.com/posthog/posthog.git'
-                  source_branch: 'refs/tags/*'
-                  destination_repo: 'https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/posthog/posthog-foss.git'
-                  destination_branch: 'refs/tags/*'
-            - name: Checkout posthog-foss
+            # blob:none avoids a full-history clone; full commit graph keeps pushes connected.
+            # persist-credentials:false so checkout's default-token auth header doesn't shadow
+            # the app token we push with (posthog is public, so lazy blob fetches still work).
+            - name: Checkout posthog
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
-                  repository: 'posthog/posthog-foss'
-                  ref: master
-                  token: ${{ steps.app-token.outputs.token }}
+                  fetch-depth: 0
+                  filter: blob:none
+                  fetch-tags: true
+                  persist-credentials: false
+
+            # Stage on a branch, not master, so master never momentarily exposes raw
+            # posthog (ee/, non-MIT LICENSE) before the FOSS cleanup commit lands.
+            - name: Push master tip to staging branch and sync tags
+              env:
+                  FOSS_TOKEN: ${{ steps.app-token.outputs.token }}
+              run: |
+                  git remote add foss "https://x-access-token:${FOSS_TOKEN}@github.com/PostHog/posthog-foss.git"
+                  git push foss "HEAD:refs/heads/foss-sync-staging" --force
+                  git push foss "refs/tags/*:refs/tags/*" --force
+
             - name: Change LICENSE to pure MIT
               run: |
-                  sed -i -e '/PostHog Inc\./,/Permission is hereby granted/c\Copyright (c) 2020-2021 PostHog Inc\.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy' LICENSE
+                  sed -i -e '/PostHog Inc\./,/Permission is hereby granted/c\Copyright (c) 2020-2026 PostHog Inc\.\n\nPermission is hereby granted, free of charge, to any person obtaining a copy' LICENSE
                   echo -e "MIT License\n\n$(cat LICENSE)" > LICENSE
             - name: Remove unused GitHub workflows
               run: |
                   cd .github/workflows
                   ls | grep -v foss-release-image-publish.yml | xargs rm
 
+            - name: Remove enterprise code and dependabot config
+              run: rm -rf ee/ .github/dependabot.yml
+
+            # Commit via the API (ghcommit-action) so it's signed by GitHub — required
+            # once posthog-foss enforces signed commits. Picks up modified + deleted files.
             - name: Commit "Sync and remove all non-FOSS parts"
-              uses: EndBug/add-and-commit@290ea2c423ad77ca9c62ae0f5b224379612c0321 # v10.0.0
+              id: foss-commit
+              uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
               with:
-                  message: 'Sync and remove all non-FOSS parts'
-                  remove: '-r ee/ .github/dependabot.yml'
-                  default_author: github_actions
-                  github_token: ${{ steps.app-token.outputs.token }}
+                  commit_message: 'Sync and remove all non-FOSS parts'
+                  repo: PostHog/posthog-foss
+                  branch: foss-sync-staging
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+
+            # Atomically repoint master to the signed commit (clean tip -> clean tip),
+            # then drop staging.
+            - name: Promote staging to master and clean up
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  FOSS_SHA: ${{ steps.foss-commit.outputs.commit-hash }}
+              run: |
+                  if gh api repos/PostHog/posthog-foss/git/ref/heads/master >/dev/null 2>&1; then
+                    gh api -X PATCH repos/PostHog/posthog-foss/git/refs/heads/master -f sha="$FOSS_SHA" -F force=true
+                  else
+                    gh api repos/PostHog/posthog-foss/git/refs -f ref=refs/heads/master -f sha="$FOSS_SHA"
+                  fi
+                  gh api -X DELETE repos/PostHog/posthog-foss/git/refs/heads/foss-sync-staging || true

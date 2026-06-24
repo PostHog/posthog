@@ -1,0 +1,32 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "attribute_type": {
+            "description": "Type of attributes: \"span_attribute\" for span-level attributes, \"span_resource_attribute\" for resource-level attributes.\n\n* `span_attribute` - span_attribute\n* `span_resource_attribute` - span_resource_attribute",
+            "enum": ["span_attribute", "span_resource_attribute"],
+            "type": "string"
+        },
+        "limit": {
+            "description": "Max results (default: 100).",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "number"
+        },
+        "offset": {
+            "description": "Pagination offset (default: 0).",
+            "minimum": 0,
+            "type": "number"
+        },
+        "search": {
+            "description": "Search filter for attribute names.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "search_values": {
+            "default": false,
+            "description": "When true, the search query also matches attribute values (not just keys), so a value such as a trace_id finds the key holding it.",
+            "type": "boolean"
+        }
+    },
+    "type": "object"
+}

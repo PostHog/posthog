@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 
 import { parseJSON } from '../../../utils/json-parse'
 import { createExampleInvocation } from '../../_tests/fixtures'

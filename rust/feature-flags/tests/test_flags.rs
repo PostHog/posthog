@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 use crate::common::*;
 
 use feature_flags::cohorts::cohort_models::CohortType;
-use feature_flags::config::{AggregatorModeConfig, DEFAULT_TEST_CONFIG};
+use feature_flags::config::DEFAULT_TEST_CONFIG;
 use feature_flags::utils::test_utils::{
     insert_config_in_hypercache, insert_flags_for_team_in_redis,
     insert_flags_with_metadata_for_team_in_redis, insert_new_team_in_redis, setup_pg_reader_client,
@@ -421,10 +421,14 @@ async fn it_rejects_missing_token() -> Result<()> {
         .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::UNAUTHORIZED, res.status());
+    let json_data = res.json::<Value>().await?;
+    assert_eq!(json_data["type"], "authentication_error");
+    assert_eq!(json_data["code"], "not_authenticated");
     assert_eq!(
-        res.text().await?,
+        json_data["detail"],
         "No API token provided. Please include a valid API token in your request."
     );
+    assert_eq!(json_data["attr"], Value::Null);
     Ok(())
 }
 
@@ -442,10 +446,14 @@ async fn it_rejects_invalid_token() -> Result<()> {
         .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
     assert_eq!(StatusCode::UNAUTHORIZED, res.status());
+    let json_data = res.json::<Value>().await?;
+    assert_eq!(json_data["type"], "authentication_error");
+    assert_eq!(json_data["code"], "authentication_failed");
     assert_eq!(
-        res.text().await?,
+        json_data["detail"],
         "The provided API key is invalid or has expired. Please check your API key and try again."
     );
+    assert_eq!(json_data["attr"], Value::Null);
     Ok(())
 }
 
@@ -5592,6 +5600,127 @@ async fn test_initial_property_population_respects_db_values(
     Ok(())
 }
 
+/// Tests that `$os` and `$os_name` are mirrored at match time, so a flag condition
+/// keyed on either property matches a person row that carries only one of them.
+///
+/// Web SDKs report the OS as `$os`; mobile SDKs report it as `$os_name`, and
+/// ingestion stores only one of the two on the person. Matching does exact-key
+/// lookups, so without the mirror a mobile person (DB has only `$os_name`) would
+/// fall through on a `$os` filter, and vice versa.
+///
+/// Each case runs with experience continuity off and on. The on cases pin the
+/// scenario reported in https://github.com/PostHog/posthog/issues/55532, where
+/// matching reads properties from the persisted person row — exactly where a
+/// legacy `$os_name`-only mobile row used to miss a `$os` filter.
+#[rstest]
+// Person row has only $os_name (mobile); flag filters on $os -> should match.
+#[case::os_name_in_db_matches_os_filter(json!({"$os_name": "Android"}), "$os", "Android", false, true)]
+// Person row has only $os (web); flag filters on $os_name -> should match.
+#[case::os_in_db_matches_os_name_filter(json!({"$os": "iOS"}), "$os_name", "iOS", false, true)]
+// Person row has only $os_name; flag filters on $os for a different value -> no match.
+#[case::os_name_in_db_wrong_value_no_match(json!({"$os_name": "Android"}), "$os", "iOS", false, false)]
+// Same three under experience continuity (the #55532 path: matches the persisted person row).
+#[case::eec_os_name_in_db_matches_os_filter(json!({"$os_name": "Android"}), "$os", "Android", true, true)]
+#[case::eec_os_in_db_matches_os_name_filter(json!({"$os": "iOS"}), "$os_name", "iOS", true, true)]
+#[case::eec_os_name_in_db_wrong_value_no_match(json!({"$os_name": "Android"}), "$os", "iOS", true, false)]
+#[tokio::test]
+async fn test_os_name_aliases_os_at_match_time(
+    #[case] db_properties: Value,
+    #[case] filter_key: &str,
+    #[case] filter_value: &str,
+    #[case] ensure_experience_continuity: bool,
+    #[case] flag_should_match: bool,
+) -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = format!("test_os_alias_{}", rand::thread_rng().gen::<u32>());
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+
+    context
+        .insert_person(team.id, distinct_id.clone(), Some(db_properties))
+        .await
+        .unwrap();
+
+    let flag_json = json!([
+        {
+            "id": 1,
+            "key": "os-flag",
+            "name": "Flag checking OS",
+            "active": true,
+            "deleted": false,
+            "team_id": team.id,
+            "ensure_experience_continuity": ensure_experience_continuity,
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": filter_key,
+                                "value": filter_value,
+                                "operator": "exact",
+                                "type": "person"
+                            }
+                        ],
+                        "rollout_percentage": 100
+                    }
+                ],
+            },
+        }
+    ]);
+
+    insert_flags_for_team_in_redis(client, team.id, Some(flag_json.to_string())).await?;
+
+    let server = ServerHandle::for_config(config).await;
+
+    // No person_properties override: properties come purely from the DB person row,
+    // which is the experience-continuity path this bug affects.
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+
+    if res.status() != StatusCode::OK {
+        let status = res.status();
+        let text = res.text().await?;
+        panic!("Non-200 response: {status}\nBody: {text}");
+    }
+
+    let json_data = res.json::<Value>().await?;
+
+    let expected_reason = if flag_should_match {
+        "condition_match"
+    } else {
+        "no_condition_match"
+    };
+
+    assert_json_include!(
+        actual: json_data,
+        expected: json!({
+            "errorsWhileComputingFlags": false,
+            "flags": {
+                "os-flag": {
+                    "key": "os-flag",
+                    "enabled": flag_should_match,
+                    "reason": {
+                        "code": expected_reason
+                    }
+                }
+            }
+        })
+    );
+
+    Ok(())
+}
+
 #[rstest]
 #[case(true)]
 #[case(false)]
@@ -5655,19 +5784,19 @@ async fn test_skip_writes_suppresses_billing_redis_counter(
         .await;
     assert_eq!(StatusCode::OK, res.status());
 
-    // Synchronous path writes inline before the response returns, so we can
-    // read back without polling.
-    let counter = client.hget(billing_key, bucket_field).await;
-
     if skip_writes {
+        // Sleep ~5 flush windows so even a slow CI scheduler couldn't hide
+        // an erroneous `record()` behind a delayed first tick.
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        let counter = client.hget(billing_key, bucket_field).await;
         assert!(
             counter.is_err(),
-            "billing counter should NOT be incremented when skip_writes=true"
+            "billing counter should NOT be incremented when skip_writes=true, got {counter:?}"
         );
     } else {
+        let counter = poll_for_billing_counter(&client, &billing_key, &bucket_field).await;
         assert_eq!(
-            counter.unwrap(),
-            "1",
+            counter, "1",
             "billing counter should be incremented when skip_writes=false"
         );
     }
@@ -5677,41 +5806,19 @@ async fn test_skip_writes_suppresses_billing_redis_counter(
 
 /// Verifies that an SDK request lands counts at the team-level and the
 /// library-level Redis hashes in the production keyspace — the load-bearing
-/// invariant readers (`calculate_decide_usage`) consume.
-///
-/// In `Shadow` mode the production keys are written by the synchronous
-/// `record_usage` path and the aggregator tees the same counts to the
-/// `:shadow` keyspace for offline reconciliation. In `Authoritative` mode
-/// the synchronous path is skipped — the aggregator's flush *is* the
-/// production write, and the shadow keyspace must stay silent (any write
-/// there is a double-count).
-///
-/// Pinning both modes here means the cutover from shadow to authoritative
-/// is observable as a swap of *who* writes the production keys, with the
-/// same end state from the reader's perspective.
-#[rstest]
-#[case::shadow(AggregatorModeConfig::Shadow, Some("1"))]
-#[case::authoritative(AggregatorModeConfig::Authoritative, None)]
+/// invariant readers (`calculate_decide_usage`) consume. The aggregator's
+/// periodic flush is the only writer.
 #[tokio::test]
-async fn test_billing_increments_land_in_production_keyspace_per_mode(
-    #[case] mode: AggregatorModeConfig,
-    #[case] expected_shadow: Option<&str>,
-) -> Result<()> {
+async fn test_billing_increments_land_in_production_keyspace() -> Result<()> {
     use feature_flags::config::FlexBool;
     use feature_flags::flags::flag_analytics::{
         current_bucket, get_team_request_key, get_team_request_library_key,
-        get_team_request_library_shadow_key, get_team_request_shadow_key,
     };
     use feature_flags::flags::flag_request::FlagRequestType;
     use feature_flags::handler::types::Library;
 
     let mut config = DEFAULT_TEST_CONFIG.clone();
     config.skip_writes = FlexBool(false);
-    config.billing_aggregator_mode = mode;
-    // Tight flush interval so the aggregator lands its write within the
-    // polling window. In authoritative mode the production key has no
-    // synchronous fallback, so this interval bounds the test latency.
-    config.billing_flush_interval_ms = 100;
 
     let distinct_id = format!("billing_lib_test_{}", rand::thread_rng().gen::<u32>());
 
@@ -5745,13 +5852,8 @@ async fn test_billing_increments_land_in_production_keyspace_per_mode(
     let team_key = get_team_request_key(team.id, FlagRequestType::Decide);
     let library_key =
         get_team_request_library_key(team.id, FlagRequestType::Decide, Library::PosthogNode);
-    let team_shadow_key = get_team_request_shadow_key(team.id, FlagRequestType::Decide);
-    let library_shadow_key =
-        get_team_request_library_shadow_key(team.id, FlagRequestType::Decide, Library::PosthogNode);
     client.del(team_key.clone()).await.unwrap();
     client.del(library_key.clone()).await.unwrap();
-    client.del(team_shadow_key.clone()).await.unwrap();
-    client.del(library_shadow_key.clone()).await.unwrap();
 
     let server = ServerHandle::for_config(config).await;
 
@@ -5775,9 +5877,6 @@ async fn test_billing_increments_land_in_production_keyspace_per_mode(
         .await?;
     assert_eq!(StatusCode::OK, res.status());
 
-    // Production keyspace — the load-bearing invariant. In shadow mode
-    // it's written synchronously; in authoritative it lands via the next
-    // aggregator flush. Polling absorbs both timings.
     let team_counter = poll_for_billing_counter(&client, &team_key, &bucket_field).await;
     assert_eq!(team_counter, "1", "team key should reflect one request");
 
@@ -5787,83 +5886,24 @@ async fn test_billing_increments_land_in_production_keyspace_per_mode(
         "library key should reflect one request"
     );
 
-    // Shadow keyspace — populated only in shadow mode. In authoritative
-    // mode the same write must NOT appear here, or we've double-counted
-    // the request once the per-request HINCRBY is removed.
-    match expected_shadow {
-        Some(expected) => {
-            let team_shadow_counter =
-                poll_for_billing_counter(&client, &team_shadow_key, &bucket_field).await;
-            assert_eq!(
-                team_shadow_counter, expected,
-                "shadow team key should reflect the aggregator's tee"
-            );
-
-            let library_shadow_counter =
-                poll_for_billing_counter(&client, &library_shadow_key, &bucket_field).await;
-            assert_eq!(
-                library_shadow_counter, expected,
-                "shadow library key should reflect the aggregator's tee"
-            );
-        }
-        None => {
-            // The production write has already landed (we polled for it
-            // above). Wait one more flush window so any erroneous shadow
-            // write would have landed too, then assert it didn't.
-            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-            let team_shadow = client
-                .hget(team_shadow_key.clone(), bucket_field.clone())
-                .await;
-            assert!(
-                team_shadow.is_err(),
-                "authoritative mode must not write the shadow team key, got {team_shadow:?}"
-            );
-            let library_shadow = client
-                .hget(library_shadow_key.clone(), bucket_field.clone())
-                .await;
-            assert!(
-                library_shadow.is_err(),
-                "authoritative mode must not write the shadow library key, got {library_shadow:?}"
-            );
-        }
-    }
-
     Ok(())
 }
 
 /// End-to-end shutdown-flush path. Sets a flush interval much longer than
 /// the test's runtime so the periodic flusher cannot fire — the only way
-/// the aggregator's target counter can land in Redis is via
+/// the production billing counter can land in Redis is via
 /// `BillingAggregator::shutdown()` after axum's graceful drain. Catches a
 /// regression that drops the `billing_aggregator.shutdown().await` call in
-/// `serve()`, swaps in `for_tests()`, or wires up the lifecycle ordering
-/// wrong (flushing before axum drains).
-///
-/// The aggregator's target keyspace differs by mode:
-///
-/// - **Shadow**: target = `:shadow` keys. The synchronous production-
-///   keyspace write is unaffected by the aggregator's lifecycle and is
-///   verified by `test_skip_writes_suppresses_billing_redis_counter`.
-/// - **Authoritative**: target = production keys. The synchronous path is
-///   gone, so the shutdown flush is the *only* path the production key
-///   has — making this case strictly stronger than the shadow one.
-#[rstest]
-#[case::shadow(AggregatorModeConfig::Shadow)]
-#[case::authoritative(AggregatorModeConfig::Authoritative)]
+/// `serve()` or wires up the lifecycle ordering wrong (flushing before
+/// axum drains).
 #[tokio::test]
-async fn test_shutdown_flush_lands_aggregator_target_keyspace_in_redis(
-    #[case] mode: AggregatorModeConfig,
-) -> Result<()> {
+async fn test_shutdown_flush_writes_production_billing_counter() -> Result<()> {
     use feature_flags::config::FlexBool;
-    use feature_flags::flags::flag_analytics::{
-        current_bucket, get_team_request_key, get_team_request_shadow_key,
-    };
+    use feature_flags::flags::flag_analytics::{current_bucket, get_team_request_key};
     use feature_flags::flags::flag_request::FlagRequestType;
 
     let mut config = DEFAULT_TEST_CONFIG.clone();
     config.skip_writes = FlexBool(false);
-    // The aggregator must be on for this test to mean anything.
-    config.billing_aggregator_mode = mode;
     // Long enough that no periodic flush can fire during the test. If the
     // counter shows up in Redis, the shutdown path is what put it there.
     config.billing_flush_interval_ms = 60_000;
@@ -5894,18 +5934,7 @@ async fn test_shutdown_flush_lands_aggregator_target_keyspace_in_redis(
     }]);
     insert_flags_for_team_in_redis(client.clone(), team.id, Some(flag_json.to_string())).await?;
 
-    // The aggregator's target key is the only one the test asserts
-    // against. In authoritative mode that's the production key; in
-    // shadow mode it's the `:shadow` mirror.
-    let billing_key = match mode {
-        AggregatorModeConfig::Shadow => {
-            get_team_request_shadow_key(team.id, FlagRequestType::Decide)
-        }
-        AggregatorModeConfig::Authoritative => {
-            get_team_request_key(team.id, FlagRequestType::Decide)
-        }
-        AggregatorModeConfig::Off => unreachable!("test cases set the mode explicitly"),
-    };
+    let billing_key = get_team_request_key(team.id, FlagRequestType::Decide);
     let bucket_field = current_bucket().to_string();
     client.del(billing_key.clone()).await.unwrap();
 
@@ -5933,7 +5962,7 @@ async fn test_shutdown_flush_lands_aggregator_target_keyspace_in_redis(
 
     // Trigger graceful shutdown. axum drains in-flight requests, then
     // `serve()` calls `billing_aggregator.shutdown().await` which performs
-    // the final flush to the aggregator's target keyspace.
+    // the final flush to the production billing keyspace.
     server.shutdown_now();
 
     // Poll for the counter to land. The helper polls for ~1s

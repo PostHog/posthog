@@ -1,6 +1,6 @@
 import { RGBColor } from 'd3'
 
-import { tryDecodeURIComponent } from 'lib/utils'
+import { tryDecodeURIComponent } from 'lib/utils/url'
 
 import { FunnelPathsFilter, PathsFilter } from '~/queries/schema/schema-general'
 import { FunnelPathType } from '~/types'

@@ -58,6 +58,11 @@ def reload_taggers_on_workers(team_id: int, tagger_ids: list[str]):
     publish_message("reload-taggers", {"teamId": team_id, "taggerIds": tagger_ids})
 
 
+def reload_provider_keys_on_workers(team_id: int, provider_key_ids: list[str]):
+    logger.info(f"Reloading provider keys {provider_key_ids} on workers")
+    publish_message("reload-provider-keys", {"teamId": team_id, "providerKeyIds": provider_key_ids})
+
+
 def reload_all_hog_functions_on_workers():
     logger.info(f"Reloading all hog functions on workers")
     publish_message("reload-all-hog-functions", {})
@@ -143,9 +148,12 @@ def get_hog_function_templates() -> requests.Response:
     )
 
 
-def create_batch_hog_flow_job_invocation(team_id: int, hog_flow_id: UUIDT, batch_job_id: UUIDT) -> requests.Response:
+def create_batch_hog_flow_job_invocation(
+    team_id: int, hog_flow_id: UUIDT, batch_job_id: UUIDT, max_audience_size: int | None = None
+) -> requests.Response:
     return internal_requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/batch_invocations/{batch_job_id}",
+        json={"max_audience_size": max_audience_size},
         headers=get_internal_api_headers(),
     )
 

@@ -1,23 +1,38 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { replayScannerLogic } from './replayScannerLogic'
-import { ClassifierScanner, ScorerScanner } from './types'
+import {
+    buildObservationListParams,
+    ObservationStatusValue,
+    ObservationTriggeredByValue,
+    ObservationVerdictValue,
+    parseCsvParam,
+    parseSortParam,
+    replayScannerLogic,
+} from './replayScannerLogic'
+import { defaultScannerTemplates } from './scannerTemplates'
+import { ClassifierScanner, ReplayScanner, ScorerScanner } from './types'
 
 describe('replayScannerLogic', () => {
     let logic: ReturnType<typeof replayScannerLogic.build>
+    let observeSpy: jest.Mock
 
     beforeEach(() => {
+        observeSpy = jest.fn(() => [202, { workflow_id: 'wf-test' }])
         useMocks({
             get: {
-                '/api/environments/:team/vision/scanners/:id/': () => [404, {}],
-                '/api/environments/:team/vision/scanners/:id/observations/': { results: [] },
+                '/api/projects/:team/vision/scanners/:id/': () => [404, {}],
+                '/api/projects/:team/vision/scanners/:id/observations/': { results: [] },
+            },
+            post: {
+                '/api/projects/:team/vision/scanners/:id/observe/': observeSpy,
             },
         })
         initKeaTests()
-        logic = replayScannerLogic({ id: 'new', tabId: 'test' })
+        logic = replayScannerLogic({ id: 'new' })
         logic.mount()
     })
 
@@ -36,6 +51,19 @@ describe('replayScannerLogic', () => {
                 sampling_rate: 1,
             })
         })
+
+        it('new scanner pre-fills from ?template= search param', async () => {
+            const template = defaultScannerTemplates.find((t) => t.key === 'dead_end')!
+            router.actions.push('/replay-vision/new', { template: template.key })
+            await expectLogic(logic, () => logic.actions.loadScanner()).toMatchValues({
+                scanner: expect.objectContaining({
+                    name: template.scanner_name,
+                    description: template.scanner_description,
+                    scanner_type: template.scanner_type,
+                    scanner_config: template.scanner_config,
+                }),
+            })
+        })
     })
 
     describe('setScannerType', () => {
@@ -44,7 +72,6 @@ describe('replayScannerLogic', () => {
             { type: 'summarizer' as const, expectedConfig: { prompt: '', length: 'medium' } },
             { type: 'classifier' as const, expectedConfig: { prompt: '', tags: [], multi_label: true } },
             { type: 'scorer' as const, expectedConfig: { prompt: '', scale: { min: 0, max: 10 } } },
-            { type: 'indexer' as const, expectedConfig: { prompt: '' } },
         ])(
             'switching to $type replaces scanner_config with the default for that type',
             async ({ type, expectedConfig }) => {
@@ -57,8 +84,31 @@ describe('replayScannerLogic', () => {
         it('does not preserve old prompt across type changes', async () => {
             logic.actions.setScannerValues({ scanner_config: { prompt: 'Was there a refund?' } })
             await expectLogic(logic, () => logic.actions.setScannerType('summarizer')).toMatchValues({
-                scanner: expect.objectContaining({ scanner_config: { prompt: '', length: 'medium' } }),
+                scanner: expect.objectContaining({
+                    scanner_config: { prompt: '', length: 'medium' },
+                }),
             })
+        })
+
+        it('clears the showScannerErrors flag so stale validation does not bleed into the new type', async () => {
+            logic.actions.submitScanner()
+            await expectLogic(logic).toMatchValues({ showScannerErrors: true })
+            logic.actions.setScannerType('summarizer')
+            await expectLogic(logic).toMatchValues({ showScannerErrors: false })
+        })
+    })
+
+    describe('submit intent', () => {
+        it('advance intent routes to /triggers without calling the API', async () => {
+            router.actions.push('/replay-vision/new/configure')
+            logic.actions.setScannerValues({
+                name: 'Test scanner',
+                scanner_config: { prompt: 'Q?' },
+            })
+            logic.actions.setSubmitIntent('advance')
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(router.values.location.pathname).toContain('/replay-vision/new/triggers')
+            expect(logic.values.submitIntent).toBe('save')
         })
     })
 
@@ -94,6 +144,69 @@ describe('replayScannerLogic', () => {
                     scanner_config: expect.objectContaining({ scale: expect.stringContaining('greater than') }),
                 },
             },
+            {
+                name: 'flags scorer scale when min is not a finite number',
+                setup: () => {
+                    logic.actions.setScannerType('scorer')
+                    logic.actions.setScannerValues({
+                        scanner_config: {
+                            prompt: 'rate this',
+                            scale: { min: Number.NaN, max: 10 },
+                        } as ScorerScanner['scanner_config'],
+                    })
+                },
+                expectedErrors: {
+                    scanner_config: expect.objectContaining({ scale: expect.stringContaining('numbers') }),
+                },
+            },
+            {
+                name: 'flags classifier with empty tag vocabulary',
+                setup: () => {
+                    logic.actions.setScannerType('classifier')
+                    logic.actions.setScannerValues({
+                        scanner_config: {
+                            prompt: 'tag this',
+                            tags: [],
+                            multi_label: true,
+                        } as ClassifierScanner['scanner_config'],
+                    })
+                },
+                expectedErrors: {
+                    scanner_config: expect.objectContaining({ tags: expect.stringContaining('at least one tag') }),
+                },
+            },
+            {
+                name: 'flags classifier with duplicate tags',
+                setup: () => {
+                    logic.actions.setScannerType('classifier')
+                    logic.actions.setScannerValues({
+                        scanner_config: {
+                            prompt: 'tag this',
+                            tags: ['Bug', 'bug'],
+                            multi_label: true,
+                        } as ClassifierScanner['scanner_config'],
+                    })
+                },
+                expectedErrors: {
+                    scanner_config: expect.objectContaining({ tags: 'Tags must be unique' }),
+                },
+            },
+            {
+                name: 'flags classifier with blank/whitespace tags',
+                setup: () => {
+                    logic.actions.setScannerType('classifier')
+                    logic.actions.setScannerValues({
+                        scanner_config: {
+                            prompt: 'tag this',
+                            tags: ['bug', '   '],
+                            multi_label: true,
+                        } as ClassifierScanner['scanner_config'],
+                    })
+                },
+                expectedErrors: {
+                    scanner_config: expect.objectContaining({ tags: "Tags can't be blank" }),
+                },
+            },
         ])('$name', async ({ setup, expectedErrors }) => {
             setup()
             await expectLogic(logic).toMatchValues({
@@ -115,6 +228,184 @@ describe('replayScannerLogic', () => {
             await expectLogic(logic).toMatchValues({
                 isScannerValid: true,
             })
+        })
+    })
+
+    describe('buildObservationListParams', () => {
+        const monitorScanner = { scanner_type: 'monitor' } as ReplayScanner
+        const scorerScanner = { scanner_type: 'scorer' } as ReplayScanner
+        const classifierScanner = { scanner_type: 'classifier' } as ReplayScanner
+        const emptyValues = {
+            observationStatusFilter: [] as ObservationStatusValue[],
+            observationTriggeredByFilter: [] as ObservationTriggeredByValue[],
+            observationVerdictFilter: [] as ObservationVerdictValue[],
+            observationTagFilter: [] as string[],
+            observationsSort: null,
+            scanner: null,
+        }
+
+        it('returns empty params when no filters, sort, or pagination', () => {
+            expect(buildObservationListParams({ ...emptyValues })).toEqual({})
+        })
+
+        it('passes limit and offset only when offset is positive', () => {
+            expect(buildObservationListParams({ ...emptyValues }, 50, 0)).toEqual({ limit: 50 })
+            expect(buildObservationListParams({ ...emptyValues }, 50, 100)).toEqual({ limit: 50, offset: 100 })
+        })
+
+        it('CSV-joins each filter array', () => {
+            const params = buildObservationListParams({
+                ...emptyValues,
+                observationStatusFilter: ['failed', 'succeeded'],
+                observationTriggeredByFilter: ['on_demand'],
+                observationVerdictFilter: ['yes', 'inconclusive'],
+                observationTagFilter: ['onboarding', 'support'],
+            })
+            expect(params.status).toBe('failed,succeeded')
+            expect(params.triggered_by).toBe('on_demand')
+            expect(params.verdict).toBe('yes,inconclusive')
+            expect(params.tags).toBe('onboarding,support')
+        })
+
+        it.each<[ReplayScanner, string]>([
+            [scorerScanner, 'result_score'],
+            [monitorScanner, 'result_verdict'],
+        ])('maps Result column for %p to %s', (scanner, expected) => {
+            const params = buildObservationListParams({
+                ...emptyValues,
+                scanner,
+                observationsSort: { columnKey: 'result', order: 1 },
+            })
+            expect(params.order_by).toBe(expected)
+        })
+
+        it('omits order_by for Result column when scanner type has no sortable result', () => {
+            const params = buildObservationListParams({
+                ...emptyValues,
+                scanner: classifierScanner,
+                observationsSort: { columnKey: 'result', order: 1 },
+            })
+            expect(params.order_by).toBeUndefined()
+        })
+
+        it('prefixes order_by with a minus sign for descending sort', () => {
+            const params = buildObservationListParams({
+                ...emptyValues,
+                observationsSort: { columnKey: 'created_at', order: -1 },
+            })
+            expect(params.order_by).toBe('-created_at')
+        })
+
+        it('maps version column to scanner_version', () => {
+            const params = buildObservationListParams({
+                ...emptyValues,
+                observationsSort: { columnKey: 'version', order: 1 },
+            })
+            expect(params.order_by).toBe('scanner_version')
+        })
+    })
+
+    describe('parseSortParam', () => {
+        it('returns null for empty/undefined inputs', () => {
+            expect(parseSortParam(undefined)).toBeNull()
+            expect(parseSortParam('')).toBeNull()
+        })
+
+        it('parses ascending and descending sort tokens', () => {
+            expect(parseSortParam('result')).toEqual({ columnKey: 'result', order: 1 })
+            expect(parseSortParam('-created_at')).toEqual({ columnKey: 'created_at', order: -1 })
+        })
+
+        it('returns null when only a minus sign is supplied', () => {
+            expect(parseSortParam('-')).toBeNull()
+        })
+    })
+
+    describe('parseCsvParam', () => {
+        it('returns an empty array for empty/undefined inputs', () => {
+            expect(parseCsvParam(undefined)).toEqual([])
+            expect(parseCsvParam('')).toEqual([])
+        })
+
+        it('splits, trims, and drops empty values', () => {
+            expect(parseCsvParam('a, b ,c,')).toEqual(['a', 'b', 'c'])
+        })
+    })
+
+    describe('observationsPage / sort URL sync', () => {
+        let scannedLogic: ReturnType<typeof replayScannerLogic.build>
+
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/vision/scanners/:id/': () => [
+                        200,
+                        {
+                            id: 'sid',
+                            name: 'm',
+                            scanner_type: 'monitor',
+                            scanner_config: { prompt: 'p' },
+                            sampling_rate: 1,
+                            enabled: true,
+                        },
+                    ],
+                    '/api/projects/:team/vision/scanners/:id/observations/': { results: [], count: 0 },
+                    '/api/projects/:team/vision/scanners/:id/observations/stats/': {
+                        status_counts: {
+                            total: 0,
+                            succeeded: 0,
+                            failed: 0,
+                            ineligible: 0,
+                            in_flight: 0,
+                            success_rate: null,
+                        },
+                        coverage: { recent_sessions: 0, total_sessions: 0, recent_days: 14 },
+                        available_tags: [],
+                        monitor: null,
+                        classifier: null,
+                        scorer: null,
+                    },
+                },
+            })
+            scannedLogic = replayScannerLogic({ id: 'sid' })
+            scannedLogic.mount()
+        })
+
+        afterEach(() => {
+            scannedLogic?.unmount()
+        })
+
+        it('changing the page resets to 1 when the user changes a filter', async () => {
+            scannedLogic.actions.setObservationsPage(5)
+            expect(scannedLogic.values.observationsPage).toBe(5)
+            await expectLogic(scannedLogic, () => {
+                scannedLogic.actions.setObservationStatusFilter(['failed'])
+            }).toMatchValues({ observationsPage: 1 })
+        })
+
+        it('changing sort resets page back to 1', async () => {
+            scannedLogic.actions.setObservationsPage(3)
+            await expectLogic(scannedLogic, () => {
+                scannedLogic.actions.setObservationsSort({ columnKey: 'created_at', order: 1 })
+            }).toMatchValues({ observationsPage: 1 })
+        })
+
+        it('writes non-default state into the URL search params', async () => {
+            await expectLogic(scannedLogic, () => {
+                scannedLogic.actions.setObservationStatusFilter(['failed', 'succeeded'])
+                scannedLogic.actions.setObservationsPage(3)
+            }).toFinishAllListeners()
+            expect(router.values.searchParams.status).toBe('failed,succeeded')
+            expect(String(router.values.searchParams.page)).toBe('3')
+        })
+
+        it('drops default state from the URL', async () => {
+            await expectLogic(scannedLogic, () => {
+                scannedLogic.actions.setObservationsPage(1)
+                scannedLogic.actions.setObservationsSort({ columnKey: 'created_at', order: -1 })
+            }).toFinishAllListeners()
+            expect(router.values.searchParams.page).toBeUndefined()
+            expect(router.values.searchParams.sort).toBeUndefined()
         })
     })
 
@@ -141,6 +432,33 @@ describe('replayScannerLogic', () => {
             await expectLogic(logic, () => logic.actions.setScannerValues({ name: 'Edited' })).toMatchValues({
                 hasUnsavedChanges: true,
             })
+        })
+    })
+
+    describe('triggerOnDemandObservation', () => {
+        it.each([
+            { name: 'empty string', input: '' },
+            { name: 'whitespace only', input: '   ' },
+        ])('bails on $name session ID without calling the API', async ({ input }) => {
+            const persisted = replayScannerLogic({ id: 'abc-123' })
+            persisted.mount()
+            try {
+                await expectLogic(persisted, () =>
+                    persisted.actions.triggerOnDemandObservation(input)
+                ).toDispatchActions(['triggerOnDemandObservationFailure'])
+                expect(persisted.values.triggeringOnDemandObservation).toBe(false)
+                expect(observeSpy).not.toHaveBeenCalled()
+            } finally {
+                persisted.unmount()
+            }
+        })
+
+        it('bails when scanner ID is new (unsaved scanner)', async () => {
+            await expectLogic(logic, () => logic.actions.triggerOnDemandObservation('019a3f47-8c2d')).toDispatchActions(
+                ['triggerOnDemandObservationFailure']
+            )
+            expect(logic.values.triggeringOnDemandObservation).toBe(false)
+            expect(observeSpy).not.toHaveBeenCalled()
         })
     })
 })

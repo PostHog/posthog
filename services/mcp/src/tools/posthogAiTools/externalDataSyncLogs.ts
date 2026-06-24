@@ -2,12 +2,13 @@ import { z } from 'zod'
 
 import type { Context, ToolBase } from '@/tools/types'
 
-import { invokeMcpTool } from './invokeTool'
-
+// PostHog ids are UUIDTs whose version/variant nibbles don't follow RFC 4122, so `z.uuid()`
+// (which enforces those nibbles in Zod 4) rejects valid ids — e.g. a `0` version nibble. Use
+// `z.guid()`, which accepts any 8-4-4-4-12 hex string.
 const schema = z.object({
-    schema_id: z.uuid().describe('UUID of the external data schema (table) to get sync logs for.'),
+    schema_id: z.guid().describe('UUID of the external data schema (table) to get sync logs for.'),
     job_id: z
-        .uuid()
+        .guid()
         .optional()
         .describe(
             'Optional workflow_run_id to filter logs for a specific sync job. Get this from external-data-sources-jobs.'
@@ -24,39 +25,31 @@ type Params = z.infer<typeof schema>
 
 const LEVEL_ORDER = ['DEBUG', 'INFO', 'WARNING', 'ERROR'] as const
 
-const tool = (): ToolBase<typeof schema, string> => ({
+const tool = (): ToolBase<typeof schema, unknown> => ({
     name: 'external-data-sync-logs',
     schema,
     handler: async (context: Context, params: Params) => {
+        const projectId = await context.stateManager.getProjectId()
+
         const minLevel = params.level ?? 'INFO'
         const minIndex = LEVEL_ORDER.indexOf(minLevel)
-        const includedLevels = LEVEL_ORDER.slice(minIndex).map((l) => `'${l.toLowerCase()}'`)
+        const includedLevels = LEVEL_ORDER.slice(minIndex).join(',')
 
-        let whereClause = `log_source = 'external_data_jobs' AND log_source_id = '${params.schema_id}'`
-        whereClause += ` AND lower(level) IN (${includedLevels.join(',')})`
-
+        const searchParams = new URLSearchParams()
+        searchParams.set('limit', String(params.limit ?? 100))
+        searchParams.set('level', includedLevels)
         if (params.job_id) {
-            whereClause += ` AND instance_id = '${params.job_id}'`
+            searchParams.set('instance_id', params.job_id)
         }
-
         if (params.search) {
-            const escaped = params.search.replace(/'/g, "\\'")
-            whereClause += ` AND message ILIKE '%${escaped}%'`
+            searchParams.set('search', params.search)
         }
 
-        const limit = params.limit ?? 100
-        const query = `SELECT instance_id, timestamp, level, message FROM log_entries WHERE ${whereClause} ORDER BY timestamp DESC LIMIT ${limit}`
-
-        const result = await invokeMcpTool(context, 'execute_sql', {
-            query,
-            truncate: true,
+        const basePath = `/api/environments/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(params.schema_id)}/logs/`
+        return context.api.request<unknown>({
+            method: 'GET',
+            path: `${basePath}?${searchParams.toString()}`,
         })
-
-        if (!result.success) {
-            throw new Error(result.content)
-        }
-
-        return result.content
     },
 })
 

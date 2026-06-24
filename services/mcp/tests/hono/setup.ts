@@ -4,6 +4,7 @@ vi.mock('cloudflare:workers', () => ({
     env: {
         INKEEP_API_KEY: undefined,
         POSTHOG_API_BASE_URL: undefined,
+        POSTHOG_PUBLIC_URL: undefined,
         MCP_APPS_BASE_URL: undefined,
         POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
         POSTHOG_UI_APPS_TOKEN: undefined,
@@ -26,10 +27,6 @@ vi.mock('@/resources/ui-apps', async (importOriginal) => {
 })
 
 vi.mock('@/resources/ui-apps.generated', async (importOriginal) => importOriginal())
-
-vi.mock('@posthog/mcp-analytics', () => ({
-    track: vi.fn(),
-}))
 
 // Mock template imports that may not exist
 vi.mock('@/templates/cli-proxy-command.md', async () => {

@@ -25,7 +25,7 @@ class TestLogsSamplingRulesAPI(APIBaseTest):
         data.update(overrides)
         return data
 
-    @patch("products.logs.backend.sampling_api.report_user_action")
+    @patch("products.logs.backend.presentation.views.sampling_api.report_user_action")
     def test_create_defaults_disabled_and_priority(self, mock_report):
         response = self.client.post(self.base_url, self._payload(), format="json")
         assert response.status_code == status.HTTP_201_CREATED, response.json()

@@ -1,7 +1,7 @@
 from django.db.models.functions import Lower
 
 from drf_spectacular.utils import extend_schema
-from rest_framework import serializers, viewsets
+from rest_framework import filters, serializers, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -37,9 +37,12 @@ class ExperimentToSavedMetricSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance: ExperimentToSavedMetric):
         data = super().to_representation(instance)
-        # Refresh action names to show current names instead of stale cached values
+        # Refresh action names to show current names instead of stale cached values.
+        # actions_by_id is preloaded once per page by ExperimentListSerializer (shared via the
+        # parent serializer context); None when used standalone, falling back to a per-call query.
         team = instance.experiment.team
-        data["query"] = refresh_action_names_in_metric(data.get("query"), team)
+        actions_by_id = self.context.get("actions_by_id")
+        data["query"] = refresh_action_names_in_metric(data.get("query"), team, actions_by_id)
         return data
 
 
@@ -134,11 +137,13 @@ class ExperimentSavedMetricSerializer(
         return ExperimentSavedMetricService(team=self.context["get_team"](), user=request.user)
 
 
-@extend_schema(tags=["experiments"], extensions={"x-swagger-tag": "experiment_saved_metrics"})
+@extend_schema(extensions={"x-swagger-tag": "experiment_saved_metrics", "x-product": "experiments"})
 class ExperimentSavedMetricViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "experiment_saved_metric"
-    queryset = ExperimentSavedMetric.objects.prefetch_related("created_by").order_by(Lower("name")).all()
+    queryset = ExperimentSavedMetric.objects.prefetch_related("created_by").order_by(Lower("name")).distinct()
     serializer_class = ExperimentSavedMetricSerializer
+    filter_backends = [filters.SearchFilter]
+    search_fields = ["name", "description", "tagged_items__tag__name"]
 
     def perform_destroy(self, instance: ExperimentSavedMetric) -> None:
         service = ExperimentSavedMetricService(team=self.team, user=self.request.user)

@@ -36,34 +36,21 @@ vi.mock('@/resources', () => ({
 
 import { z } from 'zod'
 
+import { PostHogRateLimitError, wrapError } from '@/lib/errors'
+import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
-import { InstructionsBuilder } from '@/hono/instructions'
-import type { RequestProperties } from '@/lib/request-properties'
-
-function makeProps(overrides: Partial<RequestProperties> = {}): RequestProperties {
-    return {
-        userHash: 'test-user',
-        apiToken: 'phx_test',
-        sessionId: 'sess-1',
-        mcpClientName: 'test',
-        mcpClientVersion: '1.0',
-        mcpProtocolVersion: '2025-03-26',
-        transport: 'streamable-http',
-        requestStartTime: Date.now(),
-        ...overrides,
-    }
-}
 
 function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> = {}): ResolvedState {
     return {
         reqCtx: {
             cache: { get: vi.fn(), set: vi.fn() },
-            getAnalyticsContextSafe: vi.fn().mockResolvedValue(undefined),
+            safelyGetAnalyticsContext: vi.fn().mockResolvedValue(undefined),
             trackEvent: vi.fn(),
             trackContextSwitchEvent: vi.fn(),
             getSessionUuid: vi.fn().mockResolvedValue(undefined),
+            getEffectiveSessionUuid: vi.fn().mockResolvedValue(undefined),
         } as any,
         context: {
             api: {},
@@ -74,13 +61,25 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
             getDistinctId: vi.fn(),
             trackEvent: vi.fn(),
         } as any,
-        version: 1,
         useSingleExec: false,
         toolFeatureFlags: undefined,
         apiKeyScopes: [],
-        clientProfile: { capabilities: { supportsInstructions: true } } as any,
+        clientProfile: {
+            capabilities: { supportsInstructions: true },
+            isCliModeEnabled: vi.fn(() => false),
+        } as any,
+        requestContext: {
+            sessionId: 'sess-1',
+            mcpClientName: 'test',
+            mcpClientVersion: '1.0',
+            mcpProtocolVersion: '2025-03-26',
+            transport: 'streamable-http',
+        },
+        sessionContext: null,
         allTools: tools as any,
+        scopeGatedTools: [],
         distinctId: 'test-distinct-id',
+        renderUiEnabled: false,
         ...overrides,
     }
 }
@@ -125,11 +124,7 @@ describe('ToolExecutor metrics', () => {
         it('records success counter and duration timer', async () => {
             vi.spyOn(catalog, 'getToolByName').mockReturnValue(makeFakeTool('my-tool') as any)
 
-            await executor.handleToolCall(
-                { name: 'my-tool', arguments: {} },
-                makeProps(),
-                makeState([{ name: 'my-tool' }])
-            )
+            await executor.handleToolCall({ name: 'my-tool', arguments: {} }, makeState([{ name: 'my-tool' }]))
 
             expect(mockToolDurationStartTimer).toHaveBeenCalledWith({ tool: 'my-tool' })
             expect(mockToolCallsInc).toHaveBeenCalledWith({ tool: 'my-tool', status: 'success' })
@@ -143,15 +138,48 @@ describe('ToolExecutor metrics', () => {
                 }) as any
             )
 
-            await executor.handleToolCall(
-                { name: 'fail-tool', arguments: {} },
-                makeProps(),
-                makeState([{ name: 'fail-tool' }])
-            )
+            await executor.handleToolCall({ name: 'fail-tool', arguments: {} }, makeState([{ name: 'fail-tool' }]))
 
             expect(mockToolCallsInc).toHaveBeenCalledWith({ tool: 'fail-tool', status: 'error' })
             expect(mockToolErrorsInc).toHaveBeenCalledWith({ tool: 'fail-tool', error_type: 'internal' })
             expect(mockToolDurationStartTimer.mock.results[0]!.value).toHaveBeenCalledWith({ status: 'error' })
+        })
+
+        it('classifies a downstream 429 as rate_limited, keeping it out of the error rate', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('execute-sql', async () => {
+                    throw new PostHogRateLimitError({
+                        body: '{}',
+                        url: 'https://us.posthog.com/api/environments/2/mcp_tools/execute_sql/',
+                        method: 'POST',
+                        retryAfterSeconds: 5,
+                    })
+                }) as any
+            )
+
+            await executor.handleToolCall({ name: 'execute-sql', arguments: {} }, makeState([{ name: 'execute-sql' }]))
+
+            expect(mockToolErrorsInc).toHaveBeenCalledWith({ tool: 'execute-sql', error_type: 'rate_limited' })
+        })
+
+        it('classifies a 429 wrapped in a cause chain as rate_limited', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('execute-sql', async () => {
+                    throw wrapError(
+                        'Failed to run query',
+                        new PostHogRateLimitError({
+                            body: '{}',
+                            url: 'https://us.posthog.com/api/environments/2/mcp_tools/execute_sql/',
+                            method: 'POST',
+                            retryAfterSeconds: null,
+                        })
+                    )
+                }) as any
+            )
+
+            await executor.handleToolCall({ name: 'execute-sql', arguments: {} }, makeState([{ name: 'execute-sql' }]))
+
+            expect(mockToolErrorsInc).toHaveBeenCalledWith({ tool: 'execute-sql', error_type: 'rate_limited' })
         })
 
         it('records validation_error without starting a timer', async () => {
@@ -160,18 +188,14 @@ describe('ToolExecutor metrics', () => {
                 base: { schema: z.object({ required_field: z.string() }), handler: vi.fn(), _meta: undefined },
             } as any)
 
-            await executor.handleToolCall(
-                { name: 'strict-tool', arguments: {} },
-                makeProps(),
-                makeState([{ name: 'strict-tool' }])
-            )
+            await executor.handleToolCall({ name: 'strict-tool', arguments: {} }, makeState([{ name: 'strict-tool' }]))
 
             expect(mockToolCallsInc).toHaveBeenCalledWith({ tool: 'strict-tool', status: 'validation_error' })
             expect(mockToolDurationStartTimer).not.toHaveBeenCalled()
         })
 
         it('records error for unknown tool', async () => {
-            await executor.handleToolCall({ name: 'nonexistent', arguments: {} }, makeProps(), makeState([]))
+            await executor.handleToolCall({ name: 'nonexistent', arguments: {} }, makeState([]))
 
             expect(mockToolCallsInc).toHaveBeenCalledWith({ tool: 'nonexistent', status: 'error' })
         })
@@ -179,14 +203,24 @@ describe('ToolExecutor metrics', () => {
 
     describe('single-exec mode', () => {
         function execState(): ResolvedState {
-            return makeState(
-                catalog.getPreBuiltEntries().map((e) => ({ name: e.name })),
-                { useSingleExec: true, version: 2 }
-            )
+            // Mirror getFilteredTools: full tool objects with real schemas and
+            // handlers, so exec's inner dispatch (schema validation, handler
+            // call) behaves as in production.
+            const tools = catalog.getPreBuiltEntries().map((entry) => {
+                const preBuilt = catalog.getToolByName(entry.name)!
+                return {
+                    ...preBuilt.base,
+                    title: entry.title,
+                    description: entry.description ?? '',
+                    annotations: entry.annotations,
+                    scopes: [],
+                }
+            })
+            return makeState(tools as any, { useSingleExec: true })
         }
 
         it('emits no exec-labelled counter or timer on success', async () => {
-            await executor.handleToolCall({ name: 'exec', arguments: { command: 'tools' } }, makeProps(), execState())
+            await executor.handleToolCall({ name: 'exec', arguments: { command: 'tools' } }, execState())
 
             expect(callsFor(mockToolCallsInc, 'exec')).toHaveLength(0)
             expect(callsFor(mockToolDurationStartTimer, 'exec')).toHaveLength(0)
@@ -195,7 +229,6 @@ describe('ToolExecutor metrics', () => {
         it('emits inner tool name for counter and duration on inner tool call', async () => {
             await executor.handleToolCall(
                 { name: 'exec', arguments: { command: 'call docs-search {"query": "test"}' } },
-                makeProps(),
                 execState()
             )
 
@@ -212,7 +245,6 @@ describe('ToolExecutor metrics', () => {
         it('classifies inner tool errors under the inner tool name, not exec', async () => {
             await executor.handleToolCall(
                 { name: 'exec', arguments: { command: 'call docs-search {"query": "test"}' } },
-                makeProps(),
                 execState()
             )
 
@@ -224,10 +256,29 @@ describe('ToolExecutor metrics', () => {
             expect(execClassifications).toHaveLength(0)
         })
 
+        it('records inner validation_error without a duration observation', async () => {
+            await executor.handleToolCall({ name: 'exec', arguments: { command: 'call docs-search {}' } }, execState())
+
+            expect(callsFor(mockToolCallsInc, 'docs-search')).toEqual([
+                { tool: 'docs-search', status: 'validation_error' },
+            ])
+            const innerDurations = mockToolDurationObserve.mock.calls.filter((c: any[]) => c[0]?.tool === 'docs-search')
+            expect(innerDurations).toHaveLength(0)
+            expect(callsFor(mockToolCallsInc, 'exec')).toHaveLength(0)
+        })
+
+        it('classifies inner validation failures as validation, not internal', async () => {
+            await executor.handleToolCall({ name: 'exec', arguments: { command: 'call docs-search {}' } }, execState())
+
+            expect(callsFor(mockToolErrorsInc, 'docs-search')).toEqual([
+                { tool: 'docs-search', error_type: 'validation' },
+            ])
+            expect(callsFor(mockToolErrorsInc, 'exec')).toHaveLength(0)
+        })
+
         it('emits exec-level error for framework failures before inner dispatch', async () => {
             await executor.handleToolCall(
                 { name: 'exec', arguments: { command: 'call nonexistent-tool-xyz {}' } },
-                makeProps(),
                 execState()
             )
 

@@ -15,6 +15,7 @@ export interface DefaultEvaluationContext {
 export interface DefaultEvaluationContextsResponse {
     default_evaluation_contexts: DefaultEvaluationContext[]
     available_contexts: string[]
+    hidden_contexts: string[]
     enabled: boolean
 }
 
@@ -30,6 +31,8 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
         loadDefaultEvaluationContexts: true,
         addContext: (contextName: string) => ({ contextName }),
         removeContext: (contextName: string) => ({ contextName }),
+        hideContext: (contextName: string) => ({ contextName }),
+        unhideContext: (contextName: string) => ({ contextName }),
         toggleEnabled: (enabled: boolean) => ({ enabled }),
         setNewContextInput: (value: string) => ({ value }),
         setIsAdding: (isAdding: boolean) => ({ isAdding }),
@@ -48,6 +51,17 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
             {
                 setIsAdding: (_, { isAdding }) => isAdding,
                 addContext: () => false,
+            },
+        ],
+        pendingContextName: [
+            null as string | null,
+            {
+                hideContext: (_, { contextName }) => contextName,
+                unhideContext: (_, { contextName }) => contextName,
+                hideContextSuccess: () => null,
+                hideContextFailure: () => null,
+                unhideContextSuccess: () => null,
+                unhideContextFailure: () => null,
             },
         ],
     }),
@@ -83,6 +97,11 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
                         }
 
                         if (response.created) {
+                            // The server unhides the name when an admin adds it as a default, so drop it
+                            // from hidden_contexts when the response reports it's no longer hidden.
+                            const hiddenContexts = response.hidden_from_suggestions
+                                ? currentData.hidden_contexts
+                                : currentData.hidden_contexts.filter((name) => name !== response.name)
                             return {
                                 ...currentData,
                                 default_evaluation_contexts: [
@@ -90,6 +109,7 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
                                     { id: response.id, name: response.name },
                                 ],
                                 available_contexts: [...currentData.available_contexts, response.name].sort(),
+                                hidden_contexts: hiddenContexts,
                             }
                         }
 
@@ -127,6 +147,60 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
                         throw error
                     }
                 },
+
+                hideContext: async ({ contextName }) => {
+                    const teamId = values.currentTeam?.id
+                    if (!teamId) {
+                        throw new Error('No team selected')
+                    }
+
+                    try {
+                        await api.create(`/api/environments/${teamId}/evaluation_context_suggestions/`, {
+                            context_name: contextName,
+                        })
+
+                        const currentData = values.defaultEvaluationContexts
+                        if (!currentData) {
+                            return currentData
+                        }
+
+                        return {
+                            ...currentData,
+                            available_contexts: currentData.available_contexts.filter((name) => name !== contextName),
+                            hidden_contexts: [...currentData.hidden_contexts, contextName].sort(),
+                        }
+                    } catch (error: any) {
+                        lemonToast.error(error.error || error.detail || 'Failed to hide suggestion')
+                        throw error
+                    }
+                },
+
+                unhideContext: async ({ contextName }) => {
+                    const teamId = values.currentTeam?.id
+                    if (!teamId) {
+                        throw new Error('No team selected')
+                    }
+
+                    try {
+                        await api.delete(
+                            `/api/environments/${teamId}/evaluation_context_suggestions/?context_name=${encodeURIComponent(contextName)}`
+                        )
+
+                        const currentData = values.defaultEvaluationContexts
+                        if (!currentData) {
+                            return currentData
+                        }
+
+                        return {
+                            ...currentData,
+                            available_contexts: [...currentData.available_contexts, contextName].sort(),
+                            hidden_contexts: currentData.hidden_contexts.filter((name) => name !== contextName),
+                        }
+                    } catch (error: any) {
+                        lemonToast.error(error.error || error.detail || 'Failed to restore suggestion')
+                        throw error
+                    }
+                },
             },
         ],
     })),
@@ -145,6 +219,14 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
         removeContextSuccess: () => {
             lemonToast.success('Context removed from default evaluation contexts')
         },
+
+        hideContextSuccess: () => {
+            lemonToast.success('Context hidden from suggestions')
+        },
+
+        unhideContextSuccess: () => {
+            lemonToast.success('Context restored to suggestions')
+        },
     })),
 
     selectors({
@@ -154,6 +236,8 @@ export const defaultEvaluationContextsLogic = kea<defaultEvaluationContextsLogic
         ],
 
         availableContexts: [(s) => [s.defaultEvaluationContexts], (data): string[] => data?.available_contexts || []],
+
+        hiddenContexts: [(s) => [s.defaultEvaluationContexts], (data): string[] => data?.hidden_contexts || []],
 
         isEnabled: [(s) => [s.currentTeam], (team): boolean => team?.default_evaluation_contexts_enabled || false],
 

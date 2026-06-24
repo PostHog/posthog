@@ -7,11 +7,11 @@ from django.db.models import Q
 
 import humanize
 
-from posthog.schema import DataWarehouseSyncWarning
-
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 if TYPE_CHECKING:
+    from posthog.schema import DataWarehouseSyncWarning
+
     from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
@@ -26,6 +26,14 @@ _NOT_DELETED = Q(deleted=False) | Q(deleted__isnull=True)
 
 def _ensure_utc(dt: datetime) -> datetime:
     return dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)
+
+
+def _is_stale(schema: ExternalDataSchema, now: datetime) -> bool:
+    """Stale once the last sync is older than 2x the cadence; unknown cadence or never-synced is not stale."""
+    interval = schema.sync_frequency_interval
+    if interval is None or schema.last_synced_at is None:
+        return False
+    return (now - _ensure_utc(schema.last_synced_at)) > interval * STALE_RUNNING_MULTIPLIER
 
 
 def _active_external_data_schemas(warehouse_table: DataWarehouseTable) -> list[ExternalDataSchema]:
@@ -47,14 +55,20 @@ def _build_warning_for_schema(
     schema: ExternalDataSchema,
     now: datetime,
 ) -> DataWarehouseSyncWarning | None:
+    # Deferred: posthog.schema (the pydantic models) stays off django.setup(), where this
+    # module loads in every process via the warehouse table model.
+    from posthog.schema import DataWarehouseSyncWarning  # noqa: PLC0415
+
     schema_status = schema.status
     source_type = schema.source.source_type if schema.source_id else "unknown"
+    source_id = str(schema.source_id) if schema.source_id else None
 
     def build(*, status: str, message: str) -> DataWarehouseSyncWarning:
         return DataWarehouseSyncWarning(
             table_name=table_name,
             schema_name=schema.name,
             source_type=source_type,
+            source_id=source_id,
             status=status,
             message=message,
         )
@@ -90,28 +104,42 @@ def _build_warning_for_schema(
         )
 
     if schema_status == ExternalDataSchema.Status.PAUSED or not schema.should_sync:
-        return build(
-            status=ExternalDataSchema.Status.PAUSED,
-            message=f"Sync of `{table_name}` (from {source_type}) is paused. Results reflect the last successful sync.",
-        )
+        if schema.last_synced_at is None:
+            message = (
+                f"Sync of `{table_name}` (from {source_type}) is paused and hasn't completed a sync yet "
+                "— the table may be empty or incomplete."
+            )
+        else:
+            ago = humanize.naturaltime(now - _ensure_utc(schema.last_synced_at))
+            if _is_stale(schema, now):
+                message = (
+                    f"Sync of `{table_name}` (from {source_type}) is paused. "
+                    f"Results reflect the last successful sync from {ago}."
+                )
+            else:
+                message = (
+                    f"Sync of `{table_name}` (from {source_type}) is paused — results are current as of "
+                    f"{ago}, but won't update until syncing is re-enabled."
+                )
+        return build(status=ExternalDataSchema.Status.PAUSED, message=message)
 
+    # Enabled and healthy: warn only once data is actually stale (covers RUNNING and idle COMPLETED).
+    last_synced = schema.last_synced_at
+    if last_synced is None or not _is_stale(schema, now):
+        return None
+
+    ago = humanize.naturaltime(now - _ensure_utc(last_synced))
     if schema_status == ExternalDataSchema.Status.RUNNING:
-        interval = schema.sync_frequency_interval
-        if interval is None or schema.last_synced_at is None:
-            return None
-        last_synced = _ensure_utc(schema.last_synced_at)
-        if (now - last_synced) <= interval * STALE_RUNNING_MULTIPLIER:
-            return None
-        return build(
-            status=ExternalDataSchema.Status.RUNNING,
-            message=(
-                f"`{table_name}` (from {source_type}) last completed syncing "
-                f"{humanize.naturaltime(now - last_synced)}, more than twice its configured sync interval. "
-                "A new sync is in progress but results may be out of date."
-            ),
+        message = (
+            f"`{table_name}` (from {source_type}) last completed syncing {ago}, more than twice its "
+            "configured sync interval. A new sync is in progress but results may be out of date."
         )
-
-    return None
+    else:
+        message = (
+            f"`{table_name}` (from {source_type}) last synced {ago}, more than twice its configured "
+            "sync interval. Results may be out of date."
+        )
+    return build(status=schema_status or ExternalDataSchema.Status.RUNNING, message=message)
 
 
 def get_warehouse_sync_warnings(

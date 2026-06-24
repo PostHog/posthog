@@ -2,17 +2,33 @@ import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 
 import { DateTime } from 'luxon'
 
+import { INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
+import { ASYNC_OUTPUT, PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
+import { PersonMessage } from '~/common/persons/person-message'
+import { fromInternalPerson } from '~/common/persons/person-update-batch'
+import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
+import { fetchDistinctIdValues } from '~/common/persons/repositories/test-helpers'
 import { KAFKA_INGESTION_WARNINGS, KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '~/config/kafka-topics'
-import { ASYNC_OUTPUT, PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '~/ingestion/analytics/outputs'
-import { INGESTION_WARNINGS_OUTPUT } from '~/ingestion/common/outputs'
-import { IngestionOutputs } from '~/ingestion/outputs/ingestion-outputs'
-import { SingleIngestionOutput } from '~/ingestion/outputs/single-ingestion-output'
-import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~/ingestion/pipelines/results'
+import { uuidFromDistinctId } from '~/ingestion/common/person-uuid'
+import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
+import { PersonOutputs } from '~/ingestion/common/persons/person-context'
+import { PersonContext } from '~/ingestion/common/persons/person-context'
+import { PersonEventProcessor } from '~/ingestion/common/persons/person-event-processor'
+import { PersonMergeService } from '~/ingestion/common/persons/person-merge-service'
+import {
+    SourcePersonNotFoundError,
+    TargetPersonNotFoundError,
+    createDefaultSyncMergeMode,
+} from '~/ingestion/common/persons/person-merge-types'
+import { PersonPropertyService } from '~/ingestion/common/persons/person-property-service'
+import { BatchBoundPersonsStore, PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
+import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~/ingestion/framework/results'
 import { KafkaProducerWrapper } from '~/kafka/producer'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
-import { fromInternalPerson } from '~/worker/ingestion/persons/person-update-batch'
-import { PersonsStore } from '~/worker/ingestion/persons/persons-store'
+import { ensureKafkaTopics } from '~/tests/helpers/kafka'
 
 import {
     ClickHousePerson,
@@ -28,21 +44,6 @@ import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { defaultRetryConfig } from '../../../src/utils/retries'
 import { UUIDT } from '../../../src/utils/utils'
-import { uuidFromDistinctId } from '../../../src/worker/ingestion/person-uuid'
-import { BatchWritingPersonsStore } from '../../../src/worker/ingestion/persons/batch-writing-person-store'
-import { PersonOutputs } from '../../../src/worker/ingestion/persons/person-context'
-import { PersonContext } from '../../../src/worker/ingestion/persons/person-context'
-import { PersonEventProcessor } from '../../../src/worker/ingestion/persons/person-event-processor'
-import { PersonMergeService } from '../../../src/worker/ingestion/persons/person-merge-service'
-import {
-    SourcePersonNotFoundError,
-    TargetPersonNotFoundError,
-    createDefaultSyncMergeMode,
-} from '../../../src/worker/ingestion/persons/person-merge-types'
-import { PersonMessage } from '../../../src/worker/ingestion/persons/person-message'
-import { PersonPropertyService } from '../../../src/worker/ingestion/persons/person-property-service'
-import { PostgresPersonRepository } from '../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
-import { fetchDistinctIdValues } from '../../../src/worker/ingestion/persons/repositories/test-helpers'
 import {
     createOrganization,
     createTeam,
@@ -67,17 +68,6 @@ function createPersonOutputs(kafkaProducer: KafkaProducerWrapper): PersonOutputs
             kafkaProducer,
             'test'
         ),
-        [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
-            INGESTION_WARNINGS_OUTPUT,
-            KAFKA_INGESTION_WARNINGS,
-            kafkaProducer,
-            'test'
-        ),
-    })
-}
-
-function createIngestionWarningsOutputs(kafkaProducer: KafkaProducerWrapper) {
-    return new IngestionOutputs({
         [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
             INGESTION_WARNINGS_OUTPUT,
             KAFKA_INGESTION_WARNINGS,
@@ -123,7 +113,7 @@ async function createPerson(
 
 async function flushPersonStoreToKafka(
     kafkaProducer: KafkaProducerWrapper,
-    personStore: PersonsStore,
+    personStore: PersonsStoreForBatch,
     kafkaAcks: Promise<void>
 ) {
     const kafkaMessages = await personStore.flush()
@@ -169,6 +159,11 @@ describe('PersonState.processEvent()', () => {
         mockProducerObserver.resetKafkaProducer()
 
         clickhouse = Clickhouse.create()
+        // Pre-create every topic ClickHouse's Kafka engine tables subscribe to. Otherwise any
+        // table whose topic is missing keeps retrying "Can't get assignment", which saturates
+        // ClickHouse's background scheduler and intermittently starves the consumers this suite
+        // waits on via delayUntilEventIngested — flaky timeouts in CI.
+        await ensureKafkaTopics(await clickhouse.getKafkaEngineTopics())
         await clickhouse.exec('SYSTEM STOP MERGES')
 
         organizationId = await createOrganization(hub.postgres)
@@ -223,10 +218,7 @@ describe('PersonState.processEvent()', () => {
             ...event,
         }
 
-        const personsStore = new BatchWritingPersonsStore(
-            personRepository,
-            createIngestionWarningsOutputs(kafkaProducer)
-        )
+        const personsStore = new BatchWritingPersonsStore(personRepository, createPersonOutputs(kafkaProducer))
 
         const context = new PersonContext(
             fullEvent as any,
@@ -235,9 +227,11 @@ describe('PersonState.processEvent()', () => {
             timestampParam,
             processPerson,
             createPersonOutputs(kafkaProducer),
-            personsStore,
+            new BatchBoundPersonsStore(personsStore, 0),
             0,
-            createDefaultSyncMergeMode()
+            createDefaultSyncMergeMode(),
+            false,
+            false
         )
         const processor = new PersonEventProcessor(
             context,
@@ -261,10 +255,7 @@ describe('PersonState.processEvent()', () => {
             ...event,
         }
 
-        const personsStore = new BatchWritingPersonsStore(
-            personRepository,
-            createIngestionWarningsOutputs(kafkaProducer)
-        )
+        const personsStore = new BatchWritingPersonsStore(personRepository, createPersonOutputs(kafkaProducer))
 
         const context = new PersonContext(
             fullEvent as PluginEvent,
@@ -273,9 +264,11 @@ describe('PersonState.processEvent()', () => {
             timestampParam,
             processPerson,
             createPersonOutputs(kafkaProducer),
-            personsStore,
+            new BatchBoundPersonsStore(personsStore, 0),
             0,
-            createDefaultSyncMergeMode()
+            createDefaultSyncMergeMode(),
+            false,
+            false
         )
         context.updateIsIdentified = updateIsIdentified
         return new PersonPropertyService(context)
@@ -288,7 +281,8 @@ describe('PersonState.processEvent()', () => {
         processPerson = true,
         timestampParam = timestamp,
         team = mainTeam,
-        mergeMode = createDefaultSyncMergeMode()
+        mergeMode = createDefaultSyncMergeMode(),
+        customPersonsStore?: BatchWritingPersonsStore
     ) {
         const fullEvent = {
             team_id: teamId,
@@ -296,10 +290,13 @@ describe('PersonState.processEvent()', () => {
             ...event,
         }
 
-        const personsStore = new BatchWritingPersonsStore(
-            customPersonRepository ?? (customHub ? new PostgresPersonRepository(customHub.postgres) : personRepository),
-            createIngestionWarningsOutputs(kafkaProducer)
-        )
+        const personsStore =
+            customPersonsStore ??
+            new BatchWritingPersonsStore(
+                customPersonRepository ??
+                    (customHub ? new PostgresPersonRepository(customHub.postgres) : personRepository),
+                createPersonOutputs(kafkaProducer)
+            )
 
         const context = new PersonContext(
             fullEvent as any,
@@ -308,9 +305,11 @@ describe('PersonState.processEvent()', () => {
             timestampParam,
             processPerson,
             createPersonOutputs(kafkaProducer),
-            personsStore,
+            new BatchBoundPersonsStore(personsStore, 0),
             0,
-            mergeMode
+            mergeMode,
+            false,
+            false
         )
         return new PersonMergeService(context)
     }
@@ -1359,7 +1358,7 @@ describe('PersonState.processEvent()', () => {
 
             const sharedPersonsStore = new BatchWritingPersonsStore(
                 personRepository,
-                createIngestionWarningsOutputs(kafkaProducer)
+                createPersonOutputs(kafkaProducer)
             )
 
             const createProcessorWithSharedStore = (event: Partial<PluginEvent>, distinctId: string) => {
@@ -1375,9 +1374,11 @@ describe('PersonState.processEvent()', () => {
                     timestamp,
                     true,
                     createPersonOutputs(kafkaProducer),
-                    sharedPersonsStore,
+                    new BatchBoundPersonsStore(sharedPersonsStore, 0),
                     0,
-                    createDefaultSyncMergeMode()
+                    createDefaultSyncMergeMode(),
+                    false,
+                    false
                 )
                 return new PersonEventProcessor(
                     context,
@@ -1530,7 +1531,7 @@ describe('PersonState.processEvent()', () => {
 
             const sharedPersonsStore = new BatchWritingPersonsStore(
                 personRepository,
-                createIngestionWarningsOutputs(kafkaProducer)
+                createPersonOutputs(kafkaProducer)
             )
 
             // Helper to create processor with shared store
@@ -1547,9 +1548,11 @@ describe('PersonState.processEvent()', () => {
                     timestamp,
                     true,
                     createPersonOutputs(kafkaProducer),
-                    sharedPersonsStore,
+                    new BatchBoundPersonsStore(sharedPersonsStore, 0),
                     0,
-                    createDefaultSyncMergeMode()
+                    createDefaultSyncMergeMode(),
+                    false,
+                    false
                 )
                 return new PersonEventProcessor(
                     context,
@@ -1641,7 +1644,7 @@ describe('PersonState.processEvent()', () => {
 
             const sharedPersonsStore = new BatchWritingPersonsStore(
                 personRepository,
-                createIngestionWarningsOutputs(kafkaProducer)
+                createPersonOutputs(kafkaProducer)
             )
 
             // Helper to create processor with shared store
@@ -1658,9 +1661,11 @@ describe('PersonState.processEvent()', () => {
                     timestamp,
                     true,
                     createPersonOutputs(kafkaProducer),
-                    sharedPersonsStore,
+                    new BatchBoundPersonsStore(sharedPersonsStore, 0),
                     0,
-                    createDefaultSyncMergeMode()
+                    createDefaultSyncMergeMode(),
+                    false,
+                    false
                 )
                 return new PersonEventProcessor(
                     context,
@@ -3197,10 +3202,12 @@ describe('PersonState.processEvent()', () => {
 
             // Verify that fetchPerson was called for both users
             expect(personRepository.fetchPerson).toHaveBeenCalledWith(teamId, firstUserDistinctId, {
+                callerTag: 'ingestion/person-update-conflict',
                 useReadReplica: false,
             })
 
             expect(personRepository.fetchPerson).toHaveBeenCalledWith(teamId, secondUserDistinctId, {
+                callerTag: 'ingestion/person-update-conflict',
                 useReadReplica: false,
             })
 
@@ -3253,10 +3260,12 @@ describe('PersonState.processEvent()', () => {
 
             // Verify that fetchPerson was called for both users
             expect(personRepository.fetchPerson).toHaveBeenCalledWith(teamId, firstUserDistinctId, {
+                callerTag: 'ingestion/person-update-conflict',
                 useReadReplica: false,
             })
 
             expect(personRepository.fetchPerson).toHaveBeenCalledWith(teamId, secondUserDistinctId, {
+                callerTag: 'ingestion/person-update-conflict',
                 useReadReplica: false,
             })
 
@@ -3405,16 +3414,20 @@ describe('PersonState.processEvent()', () => {
             })
 
             // Create a merge service with batch writing store for a $merge_dangerously event
+            const batchStore = new BatchWritingPersonsStore(personRepository, createPersonOutputs(kafkaProducer))
             const mergeService: PersonMergeService = personMergeService(
                 {
                     event: '$merge_dangerously',
                     distinct_id: secondUserDistinctId,
                 },
-                hub
+                hub,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                undefined,
+                batchStore
             )
-            const context = mergeService.getContext()
-
-            const batchStore = context.personStore as BatchWritingPersonsStore
 
             batchStore.setCachedPersonForUpdate(
                 teamId,
@@ -3453,7 +3466,7 @@ describe('PersonState.processEvent()', () => {
                         })
                     }
                     // Second call succeeds - call the original method
-                    return originalMoveDistinctIds(source, target, distinctId, limit, tx)
+                    return originalMoveDistinctIds(source, target, distinctId, limit, tx, 0)
                 })
 
             // Attempt to merge persons - this should trigger the retry logic
@@ -4303,7 +4316,7 @@ describe('PersonState.processEvent()', () => {
 
                     const personsStore = new BatchWritingPersonsStore(
                         personRepository,
-                        createIngestionWarningsOutputs(kafkaProducer)
+                        createPersonOutputs(kafkaProducer)
                     )
 
                     const context = new PersonContext(
@@ -4313,7 +4326,7 @@ describe('PersonState.processEvent()', () => {
                         timestamp,
                         true, // processPerson
                         createPersonOutputs(kafkaProducer),
-                        personsStore,
+                        new BatchBoundPersonsStore(personsStore, 0),
                         0,
                         mergeMode
                     )
@@ -4338,7 +4351,7 @@ describe('PersonState.processEvent()', () => {
                     // Mock the merge service to return a limit exceeded error
                     const mergeService = (processor as any).mergeService as PersonMergeService
                     const { PersonMergeLimitExceededError } = await import(
-                        '../../../src/worker/ingestion/persons/person-merge-types.js'
+                        '~/ingestion/common/persons/person-merge-types.js'
                     )
                     jest.spyOn(mergeService, 'handleIdentifyOrAlias').mockResolvedValue({
                         success: false,
@@ -4362,7 +4375,7 @@ describe('PersonState.processEvent()', () => {
                     // Mock the merge service to return a limit exceeded error
                     const mergeService = (processor as any).mergeService as PersonMergeService
                     const { PersonMergeLimitExceededError } = await import(
-                        '../../../src/worker/ingestion/persons/person-merge-types.js'
+                        '~/ingestion/common/persons/person-merge-types.js'
                     )
                     jest.spyOn(mergeService, 'handleIdentifyOrAlias').mockResolvedValue({
                         success: false,
@@ -4391,7 +4404,7 @@ describe('PersonState.processEvent()', () => {
                     // Mock the merge service to return a limit exceeded error
                     const mergeService = (processor as any).mergeService as PersonMergeService
                     const { PersonMergeLimitExceededError } = await import(
-                        '../../../src/worker/ingestion/persons/person-merge-types.js'
+                        '~/ingestion/common/persons/person-merge-types.js'
                     )
                     jest.spyOn(mergeService, 'handleIdentifyOrAlias').mockResolvedValue({
                         success: false,
