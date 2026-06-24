@@ -40,6 +40,7 @@ from products.tasks.backend.models import (
     CodeWorkflowConfig,
     CodeWorkstream,
     SandboxEnvironment,
+    SandboxEnvironmentUnavailableError,
     SandboxSnapshot,
     Task,
     TaskAutomation,
@@ -87,6 +88,7 @@ __all__ = [
     "CODE_WORKFLOW_CONFLICT",
     "CODE_WORKFLOW_INVALID",
     "CODE_WORKFLOW_SAVED",
+    "SandboxEnvironmentUnavailableError",
     "SandboxNetworkAccessLevel",
     "SandboxSnapshotStatus",
     "TaskOriginProduct",
@@ -723,9 +725,11 @@ def upsert_internal_sandbox_env(
 ) -> UUID:
     """Get-or-create an internal sandbox environment, reasserting policy on every call.
 
-    ``SandboxEnvironment`` has no unique constraint on ``(team_id, name)``, so concurrent
-    callers can both INSERT. We dedupe on ``MultipleObjectsReturned`` by keeping the oldest
-    row and deleting the rest.
+    A partial unique constraint on ``(team_id, name)`` for ``internal`` envs (see
+    ``SandboxEnvironment.Meta``) means concurrent callers can't INSERT duplicates: the loser's
+    INSERT raises ``IntegrityError``, which ``update_or_create`` absorbs by re-selecting the
+    winning row. This closes the race where deduping duplicates (deleting all but the oldest)
+    could delete the very env id another in-flight run was about to validate.
     """
     defaults: dict = {
         "network_access_level": network_access_level,
@@ -735,18 +739,8 @@ def upsert_internal_sandbox_env(
     if allowed_domains is not None:
         defaults["allowed_domains"] = allowed_domains
         defaults["include_default_domains"] = include_default_domains
-    try:
-        env, _ = SandboxEnvironment.objects.update_or_create(team_id=team_id, name=name, defaults=defaults)
-        return env.id
-    except SandboxEnvironment.MultipleObjectsReturned:
-        with transaction.atomic():
-            dupes = list(SandboxEnvironment.objects.filter(team_id=team_id, name=name).order_by("created_at"))
-            keeper = dupes[0]
-            SandboxEnvironment.objects.filter(id__in=[d.id for d in dupes[1:]]).delete()
-        for key, value in defaults.items():
-            setattr(keeper, key, value)
-        keeper.save(update_fields=list(defaults.keys()))
-        return keeper.id
+    env, _ = SandboxEnvironment.objects.update_or_create(team_id=team_id, name=name, defaults=defaults)
+    return env.id
 
 
 def create_completed_sandbox_snapshot(external_id: str) -> UUID:

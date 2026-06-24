@@ -405,7 +405,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
                 task_created_by_id=user_id,
             )
             if sandbox_env is None:
-                raise ValueError(f"Invalid sandbox_environment_id: {sandbox_environment_id}")
+                raise SandboxEnvironmentUnavailableError(f"Invalid sandbox_environment_id: {sandbox_environment_id}")
 
         task = Task.objects.create(
             team=team,
@@ -1332,6 +1332,15 @@ class SandboxSnapshot(UUIDModel):
         super().delete(*args, **kwargs)
 
 
+class SandboxEnvironmentUnavailableError(ValueError):
+    """A referenced sandbox environment could not be found or accessed for a task.
+
+    Subclasses ``ValueError`` for backwards compatibility with callers that caught the bare
+    ``ValueError`` ``_build_task`` used to raise. Callers that resolve internal envs (e.g. the
+    signals pipeline) can catch this specifically to recreate the env and retry.
+    """
+
+
 class SandboxEnvironment(UUIDModel):
     """Configuration for sandbox execution environments including network access and secrets."""
 
@@ -1394,6 +1403,16 @@ class SandboxEnvironment(UUIDModel):
         db_table = "posthog_sandbox_environment"
         indexes = [
             models.Index(fields=["team", "created_by"]),
+        ]
+        constraints = [
+            # Internal envs (e.g. the signals pipeline) are upserted by name per team and must be
+            # unique so concurrent runs can't INSERT duplicates that later get deduped away — see
+            # `upsert_internal_sandbox_env`. User-facing envs intentionally allow duplicate names.
+            models.UniqueConstraint(
+                fields=["team", "name"],
+                condition=models.Q(internal=True),
+                name="unique_internal_sandbox_env_team_name",
+            ),
         ]
 
     def is_accessible_for_task_creator(self, task_created_by_id: int | None) -> bool:

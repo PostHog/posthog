@@ -4,6 +4,7 @@ from typing import ClassVar
 
 from unittest.mock import patch
 
+from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.utils import timezone as django_timezone
 
@@ -254,6 +255,28 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(env_id_2, env_id)
         env.refresh_from_db()
         self.assertFalse(env.private)
+
+    def test_upsert_internal_sandbox_env_is_idempotent_under_concurrent_callers(self):
+        # The unique constraint means a racing INSERT collapses onto the existing row instead of
+        # forming a duplicate that a later dedup pass would delete out from under an in-flight run.
+        ids = {
+            facade.upsert_internal_sandbox_env(self.team.id, "SIGNALS_X", facade.SandboxNetworkAccessLevel.TRUSTED)
+            for _ in range(3)
+        }
+        self.assertEqual(len(ids), 1)
+        self.assertEqual(SandboxEnvironment.objects.filter(team_id=self.team.id, name="SIGNALS_X").count(), 1)
+
+    def test_duplicate_internal_envs_are_rejected_by_constraint(self):
+        facade.upsert_internal_sandbox_env(self.team.id, "SIGNALS_X", facade.SandboxNetworkAccessLevel.TRUSTED)
+        # Wrap in a savepoint so the broken transaction doesn't poison the surrounding test.
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            SandboxEnvironment.objects.create(team=self.team, name="SIGNALS_X", internal=True)
+
+    def test_non_internal_envs_may_share_a_name(self):
+        # Only internal envs are constrained; user-facing envs intentionally allow duplicate names.
+        SandboxEnvironment.objects.create(team=self.team, name="My env", internal=False)
+        SandboxEnvironment.objects.create(team=self.team, name="My env", internal=False)
+        self.assertEqual(SandboxEnvironment.objects.filter(team_id=self.team.id, name="My env").count(), 2)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_task_returns_contract(self, _mock_workflow):

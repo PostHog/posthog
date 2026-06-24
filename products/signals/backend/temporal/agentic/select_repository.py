@@ -152,19 +152,41 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                     result="no_repo",
                 )
                 return no_repo_result
-            sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
-                input.team_id,
-                SIGNALS_REPO_DISCOVERY_ENV_NAME,
-                tasks_facade.SandboxNetworkAccessLevel.CUSTOM,
-                allowed_domains=GITHUB_ONLY_DOMAINS,
-            )
-            result = await select_repository_for_report(
-                team_id=input.team_id,
-                user_id=user_id,
-                signals=input.signals,
-                signal_report_id=input.report_id,
-                sandbox_environment_id=sandbox_env_id,
-            )
+
+            async def _resolve_env() -> str:
+                return await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
+                    input.team_id,
+                    SIGNALS_REPO_DISCOVERY_ENV_NAME,
+                    tasks_facade.SandboxNetworkAccessLevel.CUSTOM,
+                    allowed_domains=GITHUB_ONLY_DOMAINS,
+                )
+
+            sandbox_env_id = await _resolve_env()
+            try:
+                result = await select_repository_for_report(
+                    team_id=input.team_id,
+                    user_id=user_id,
+                    signals=input.signals,
+                    signal_report_id=input.report_id,
+                    sandbox_environment_id=sandbox_env_id,
+                )
+            except tasks_facade.SandboxEnvironmentUnavailableError:
+                # The internal repo-discovery env was deleted between resolution and task build
+                # (e.g. a concurrent run, or a manual deletion). Recreate it and retry once rather
+                # than hard-failing report generation.
+                logger.warning(
+                    "signals repo selection: sandbox env vanished, recreating and retrying",
+                    report_id=input.report_id,
+                    team_id=input.team_id,
+                )
+                sandbox_env_id = await _resolve_env()
+                result = await select_repository_for_report(
+                    team_id=input.team_id,
+                    user_id=user_id,
+                    signals=input.signals,
+                    signal_report_id=input.report_id,
+                    sandbox_environment_id=sandbox_env_id,
+                )
             logger.info(
                 "signals repo selection completed",
                 report_id=input.report_id,
