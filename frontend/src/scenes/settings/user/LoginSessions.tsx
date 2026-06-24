@@ -85,7 +85,7 @@ export function LoginSessions(): JSX.Element {
                         render: (_, session) => session.login_method || <span className="text-muted">—</span>,
                     },
                     {
-                        title: 'Started',
+                        title: 'Started at',
                         dataIndex: 'created_at',
                         render: (_, session) =>
                             session.created_at ? (
