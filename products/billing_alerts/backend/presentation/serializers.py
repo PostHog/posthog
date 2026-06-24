@@ -13,14 +13,10 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from products.billing_alerts.backend.alert_destinations import DESTINATION_TYPE_BY_TEMPLATE_ID
 from products.billing_alerts.backend.models import BillingAlertConfiguration, BillingAlertDelivery, BillingAlertEvent
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
-_DESTINATION_TYPE_BY_TEMPLATE = {
-    "template-slack": "slack",
-    "template-webhook": "webhook",
-    "template-microsoft-teams": "teams",
-}
 _DESTINATION_TYPES_CACHE_KEY = "_billing_alert_destination_types_by_alert_id"
 
 
@@ -278,11 +274,11 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
         hog_functions = HogFunction.objects.filter(
             team_id__in=team_ids,
             deleted=False,
-            template_id__in=list(_DESTINATION_TYPE_BY_TEMPLATE),
+            template_id__in=list(DESTINATION_TYPE_BY_TEMPLATE_ID),
         ).values_list("template_id", "filters")
 
         for template_id, filters in hog_functions:
-            destination_type = _DESTINATION_TYPE_BY_TEMPLATE.get(template_id)
+            destination_type = DESTINATION_TYPE_BY_TEMPLATE_ID.get(template_id)
             if destination_type is None or not isinstance(filters, dict):
                 continue
 

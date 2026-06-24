@@ -35,7 +35,6 @@ export type BillingAlertConfiguration = GeneratedBillingAlertConfigurationApi & 
 export enum BillingAlertCreationView {
     None = 'none',
     Wizard = 'wizard',
-    Traditional = 'traditional',
 }
 
 export enum BillingAlertWizardStep {

@@ -29,6 +29,14 @@ BILLING_ALERT_BATCH_SIZE = 50
 MAX_DUE_BILLING_ALERTS_PER_TICK = 500
 
 
+def _billing_error_response(error: Exception) -> dict[str, Any]:
+    return {
+        "status": "error",
+        "code": error.__class__.__name__,
+        "detail": str(error) or repr(error),
+    }
+
+
 def _group_key(alert: BillingAlertConfiguration) -> tuple[Any, ...]:
     return (
         str(alert.organization_id),
@@ -82,12 +90,13 @@ async def evaluate_billing_alert_batch_activity(inputs: EvaluateBillingAlertBatc
             try:
                 organization = Organization.objects.get(id=first_alert.organization_id)
                 billing_response, query_duration_ms = fetch_billing_data(first_alert, organization, now=now)
-            except Exception:
+            except Exception as error:
                 logger.exception(
                     "Failed to fetch billing data for billing alert group",
                     organization_id=str(first_alert.organization_id),
                     metric=first_alert.metric,
                 )
+                billing_response = _billing_error_response(error)
 
             for alert in alert_group:
                 event = evaluate_and_record_billing_alert(

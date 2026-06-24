@@ -17,13 +17,7 @@ from posthog.event_usage import report_user_action
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.billing_alerts.backend.alert_destinations import (
-    EVENT_KINDS,
-    EventKind,
-    build_slack_config,
-    build_teams_config,
-    build_webhook_config,
-)
+from products.billing_alerts.backend.alert_destinations import EVENT_KINDS, EventKind, build_destination_config
 from products.billing_alerts.backend.logic.notifications import dispatch_billing_alert_event
 from products.billing_alerts.backend.logic.state_machine import evaluate_and_record_billing_alert, event_should_dispatch
 from products.billing_alerts.backend.models import BillingAlertConfiguration, BillingAlertEvent
@@ -121,7 +115,8 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         data = serializer.validated_data
 
         with transaction.atomic():
-            hog_functions = [self._build_and_create_hog_function(alert, data, kind) for kind in EVENT_KINDS]
+            team = Team.objects.get(id=alert.execution_team_id)
+            hog_functions = [self._build_and_create_hog_function(alert, team, data, kind) for kind in EVENT_KINDS]
 
         report_user_action(
             request.user,
@@ -164,24 +159,11 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def _build_and_create_hog_function(
         self,
         alert: BillingAlertConfiguration,
+        team: Team,
         data: dict,
         kind: EventKind,
     ) -> HogFunction:
-        team = Team.objects.get(id=alert.execution_team_id)
-        if data["type"] == "slack":
-            config = build_slack_config(
-                alert,
-                team,
-                kind,
-                slack_workspace_id=data["slack_workspace_id"],
-                slack_channel_id=data["slack_channel_id"],
-                slack_channel_name=data.get("slack_channel_name"),
-            )
-        elif data["type"] == "teams":
-            config = build_teams_config(alert, team, kind, webhook_url=data["webhook_url"])
-        else:
-            config = build_webhook_config(alert, team, kind, webhook_url=data["webhook_url"])
-
+        config = build_destination_config(alert, team, kind, data)
         team = config.pop("team")
         serializer = HogFunctionSerializer(
             data=config,

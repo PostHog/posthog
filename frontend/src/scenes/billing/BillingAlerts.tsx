@@ -30,7 +30,7 @@ import {
     BillingAlertWizardStep,
     billingAlertsLogic,
 } from './billingAlertsLogic'
-import type { BillingAlertConfiguration, BillingAlertDestinationKey } from './billingAlertsLogic'
+import type { BillingAlertConfiguration, BillingAlertDestinationKey, BillingAlertForm } from './billingAlertsLogic'
 
 const BILLING_ALERT_WIZARD_STEPS: AlertingWizardStep<BillingAlertWizardStep>[] = [
     { key: BillingAlertWizardStep.Destination, label: 'Destination' },
@@ -69,6 +69,27 @@ const BILLING_ALERT_DESTINATION_SELECT_OPTIONS = BILLING_ALERT_DESTINATIONS.map(
     label: destination.name,
     icon: <img src={destination.icon} alt="" className="h-5 w-5 object-contain" />,
 }))
+
+type BillingAlertNumericFormKey =
+    | 'minimum_value'
+    | 'baseline_window_days'
+    | 'evaluation_delay_hours'
+    | 'check_interval_hours'
+    | 'cooldown_hours'
+
+const BILLING_ALERT_NUMBER_FIELDS: {
+    key: BillingAlertNumericFormKey
+    label: string
+    min: number
+    suffix?: string
+    prefixSpend?: boolean
+}[] = [
+    { key: 'minimum_value', label: 'Minimum current value', min: 0, prefixSpend: true },
+    { key: 'baseline_window_days', label: 'Baseline window', min: 1, suffix: 'days' },
+    { key: 'evaluation_delay_hours', label: 'Evaluation delay', min: 0, suffix: 'hours' },
+    { key: 'check_interval_hours', label: 'Check interval', min: 1, suffix: 'hours' },
+    { key: 'cooldown_hours', label: 'Cooldown', min: 0, suffix: 'hours' },
+]
 
 function metricLabel(metric: MetricEnumApi | undefined): string {
     return metric === 'usage' ? 'Usage' : 'Spend'
@@ -283,10 +304,6 @@ export function BillingAlerts(): JSX.Element {
         return <BillingAlertWizard />
     }
 
-    if (creationView === BillingAlertCreationView.Traditional) {
-        return <BillingAlertTraditionalEditor />
-    }
-
     return (
         <div className="flex flex-col gap-4" data-attr="billing-alerts-view">
             <AlertingListToolbar
@@ -352,7 +369,7 @@ export function BillingAlerts(): JSX.Element {
 
 function BillingAlertWizard(): JSX.Element {
     const { wizardStep } = useValues(billingAlertsLogic)
-    const { setWizardStep, resetCreation, setCreationView } = useActions(billingAlertsLogic)
+    const { setWizardStep, resetCreation } = useActions(billingAlertsLogic)
 
     return (
         <AlertingWizardLayout
@@ -360,7 +377,6 @@ function BillingAlertWizard(): JSX.Element {
             currentStep={wizardStep}
             onStepClick={setWizardStep}
             onCancel={resetCreation}
-            onSwitchToTraditional={() => setCreationView(BillingAlertCreationView.Traditional)}
         >
             {wizardStep === BillingAlertWizardStep.Destination && <BillingAlertDestinationStep />}
             {wizardStep === BillingAlertWizardStep.Trigger && <BillingAlertTriggerStep />}
@@ -430,7 +446,10 @@ function BillingAlertConfigureStep(): JSX.Element {
                 <h2 className="text-xl font-semibold mb-1">Configure your alert</h2>
                 <p className="text-secondary text-sm">Set the threshold and notification details.</p>
             </div>
-            <BillingAlertFormFields includeDestination />
+            <div className="deprecated-space-y-4">
+                <BillingAlertThresholdFields />
+                <BillingAlertDestinationFields />
+            </div>
             <div className="flex justify-end gap-2">
                 <LemonButton
                     type="primary"
@@ -442,47 +461,6 @@ function BillingAlertConfigureStep(): JSX.Element {
                     Create alert
                 </LemonButton>
             </div>
-        </div>
-    )
-}
-
-function BillingAlertTraditionalEditor(): JSX.Element {
-    const { canSubmit, saving } = useValues(billingAlertsLogic)
-    const { createAlert, resetCreation } = useActions(billingAlertsLogic)
-
-    return (
-        <div className="max-w-3xl mx-auto w-full deprecated-space-y-4" data-attr="billing-alert-traditional-editor">
-            <div className="flex items-center justify-between gap-2">
-                <div>
-                    <h2 className="mb-1">New billing alert</h2>
-                    <p className="text-secondary mb-0">Configure the alert directly.</p>
-                </div>
-                <LemonButton type="secondary" size="small" onClick={resetCreation}>
-                    Cancel
-                </LemonButton>
-            </div>
-            <BillingAlertFormFields includeDestination />
-            <div className="flex justify-end">
-                <LemonButton
-                    type="primary"
-                    onClick={createAlert}
-                    loading={saving}
-                    disabledReason={!canSubmit ? 'Name, threshold, and destination details are required.' : undefined}
-                    data-attr="create-billing-alert"
-                >
-                    Create alert
-                </LemonButton>
-            </div>
-        </div>
-    )
-}
-
-function BillingAlertFormFields({ includeDestination }: { includeDestination: boolean }): JSX.Element {
-    return (
-        <div className="deprecated-space-y-4">
-            <BillingAlertThresholdFields />
-
-            {includeDestination ? <BillingAlertDestinationFields /> : null}
         </div>
     )
 }
@@ -544,62 +522,41 @@ function BillingAlertThresholdFields(): JSX.Element {
                         <LemonInput
                             type="number"
                             value={form.threshold_value}
-                            onChange={(thresholdValue) => setFormValue('threshold_value', thresholdValue)}
+                            onChange={(thresholdValue) => setFormValue('threshold_value', thresholdValue ?? undefined)}
                             prefix={form.metric === 'spend' ? <span>$</span> : undefined}
                             min={0}
                             data-attr="billing-alert-threshold-value"
                         />
                     </LemonField.Pure>
                 )}
-                <LemonField.Pure label="Minimum current value">
-                    <LemonInput
-                        type="number"
-                        value={form.minimum_value}
-                        onChange={(minimumValue) => setFormValue('minimum_value', minimumValue ?? 0)}
-                        prefix={form.metric === 'spend' ? <span>$</span> : undefined}
-                        min={0}
-                    />
-                </LemonField.Pure>
-                <LemonField.Pure label="Baseline window">
-                    <LemonInput
-                        type="number"
-                        value={form.baseline_window_days}
-                        onChange={(baselineWindowDays) => setFormValue('baseline_window_days', baselineWindowDays ?? 1)}
-                        suffix={<span>days</span>}
-                        min={1}
-                    />
-                </LemonField.Pure>
-                <LemonField.Pure label="Evaluation delay">
-                    <LemonInput
-                        type="number"
-                        value={form.evaluation_delay_hours}
-                        onChange={(evaluationDelayHours) =>
-                            setFormValue('evaluation_delay_hours', evaluationDelayHours ?? 0)
-                        }
-                        suffix={<span>hours</span>}
-                        min={0}
-                    />
-                </LemonField.Pure>
-                <LemonField.Pure label="Check interval">
-                    <LemonInput
-                        type="number"
-                        value={form.check_interval_hours}
-                        onChange={(checkIntervalHours) => setFormValue('check_interval_hours', checkIntervalHours ?? 1)}
-                        suffix={<span>hours</span>}
-                        min={1}
-                    />
-                </LemonField.Pure>
-                <LemonField.Pure label="Cooldown">
-                    <LemonInput
-                        type="number"
-                        value={form.cooldown_hours}
-                        onChange={(cooldownHours) => setFormValue('cooldown_hours', cooldownHours ?? 0)}
-                        suffix={<span>hours</span>}
-                        min={0}
-                    />
-                </LemonField.Pure>
+                {BILLING_ALERT_NUMBER_FIELDS.map((field) => (
+                    <BillingAlertNumberField key={field.key} field={field} form={form} setFormValue={setFormValue} />
+                ))}
             </div>
         </>
+    )
+}
+
+function BillingAlertNumberField({
+    field,
+    form,
+    setFormValue,
+}: {
+    field: (typeof BILLING_ALERT_NUMBER_FIELDS)[number]
+    form: BillingAlertForm
+    setFormValue: (key: keyof BillingAlertForm, value: BillingAlertForm[keyof BillingAlertForm]) => void
+}): JSX.Element {
+    return (
+        <LemonField.Pure label={field.label}>
+            <LemonInput
+                type="number"
+                value={form[field.key]}
+                onChange={(value) => setFormValue(field.key, value ?? field.min)}
+                prefix={field.prefixSpend && form.metric === 'spend' ? <span>$</span> : undefined}
+                suffix={field.suffix ? <span>{field.suffix}</span> : undefined}
+                min={field.min}
+            />
+        </LemonField.Pure>
     )
 }
 

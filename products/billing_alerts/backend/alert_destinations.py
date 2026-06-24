@@ -8,6 +8,16 @@ from posthog.models import Team
 from products.billing_alerts.backend.models import BillingAlertConfiguration
 
 EventKind = Literal["firing", "resolved", "errored", "broken"]
+DestinationType = Literal["slack", "webhook", "teams"]
+
+TEMPLATE_ID_BY_DESTINATION_TYPE: dict[DestinationType, str] = {
+    "slack": "template-slack",
+    "webhook": "template-webhook",
+    "teams": "template-microsoft-teams",
+}
+DESTINATION_TYPE_BY_TEMPLATE_ID = {
+    template_id: destination_type for destination_type, template_id in TEMPLATE_ID_BY_DESTINATION_TYPE.items()
+}
 
 
 @dataclass(frozen=True)
@@ -180,73 +190,71 @@ def _teams_text(spec: EventKindSpec) -> str:
     return f"**{spec.header}**\n\n{details}\n\n[{spec.button_label}]({spec.button_url})"
 
 
-def build_slack_config(
+def _hog_function_config(
     alert: BillingAlertConfiguration,
     team: Team,
     kind: EventKind,
-    slack_workspace_id: int,
-    slack_channel_id: str,
-    slack_channel_name: str | None,
+    *,
+    template_id: str,
+    name_suffix: str,
+    inputs: dict[str, Any],
 ) -> dict[str, Any]:
     spec = EVENT_KIND_CONFIG[kind]
-    channel_display = slack_channel_name or "channel"
     return {
         "team": team,
         "type": "internal_destination",
         "enabled": True,
         "filters": _filter_for(alert, kind),
-        "name": _clip_name(f"Billing alert - {alert.name} ({spec.display_kind}) -> Slack #{channel_display}"),
+        "name": _clip_name(f"Billing alert - {alert.name} ({spec.display_kind}) -> {name_suffix}"),
         "description": spec.destination_description(alert.name),
-        "template_id": "template-slack",
-        "inputs": {
-            "blocks": {"value": _slack_blocks(spec)},
-            "text": {"value": spec.header},
-            "slack_workspace": {"value": slack_workspace_id},
-            "channel": {"value": slack_channel_id},
-        },
+        "template_id": template_id,
+        "inputs": inputs,
     }
 
 
-def build_webhook_config(
+def build_destination_config(
     alert: BillingAlertConfiguration,
     team: Team,
     kind: EventKind,
-    webhook_url: str,
+    data: dict[str, Any],
 ) -> dict[str, Any]:
     spec = EVENT_KIND_CONFIG[kind]
-    return {
-        "team": team,
-        "type": "internal_destination",
-        "enabled": True,
-        "filters": _filter_for(alert, kind),
-        "name": _clip_name(f"Billing alert - {alert.name} ({spec.display_kind}) -> Webhook {webhook_url}"),
-        "description": spec.destination_description(alert.name),
-        "template_id": "template-webhook",
-        "inputs": {
+    if data["type"] == "slack":
+        channel_display = data.get("slack_channel_name") or "channel"
+        return _hog_function_config(
+            alert,
+            team,
+            kind,
+            template_id=TEMPLATE_ID_BY_DESTINATION_TYPE["slack"],
+            name_suffix=f"Slack #{channel_display}",
+            inputs={
+                "blocks": {"value": _slack_blocks(spec)},
+                "text": {"value": spec.header},
+                "slack_workspace": {"value": data["slack_workspace_id"]},
+                "channel": {"value": data["slack_channel_id"]},
+            },
+        )
+    if data["type"] == "teams":
+        return _hog_function_config(
+            alert,
+            team,
+            kind,
+            template_id=TEMPLATE_ID_BY_DESTINATION_TYPE["teams"],
+            name_suffix="Microsoft Teams",
+            inputs={
+                "webhookUrl": {"value": data["webhook_url"]},
+                "text": {"value": _teams_text(spec)},
+            },
+        )
+    return _hog_function_config(
+        alert,
+        team,
+        kind,
+        template_id=TEMPLATE_ID_BY_DESTINATION_TYPE["webhook"],
+        name_suffix=f"Webhook {data['webhook_url']}",
+        inputs={
             "body": {"value": spec.webhook_body},
-            "url": {"value": webhook_url},
+            "url": {"value": data["webhook_url"]},
             "headers": {"value": {"Content-Type": "application/json", "X-PostHog-Webhook-Version": "1"}},
         },
-    }
-
-
-def build_teams_config(
-    alert: BillingAlertConfiguration,
-    team: Team,
-    kind: EventKind,
-    webhook_url: str,
-) -> dict[str, Any]:
-    spec = EVENT_KIND_CONFIG[kind]
-    return {
-        "team": team,
-        "type": "internal_destination",
-        "enabled": True,
-        "filters": _filter_for(alert, kind),
-        "name": _clip_name(f"Billing alert - {alert.name} ({spec.display_kind}) -> Microsoft Teams"),
-        "description": spec.destination_description(alert.name),
-        "template_id": "template-microsoft-teams",
-        "inputs": {
-            "webhookUrl": {"value": webhook_url},
-            "text": {"value": _teams_text(spec)},
-        },
-    }
+    )

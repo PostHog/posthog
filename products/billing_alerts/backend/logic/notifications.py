@@ -10,25 +10,11 @@ import structlog
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.exceptions_capture import capture_exception
 
-from products.billing_alerts.backend.alert_destinations import EVENT_KIND_CONFIG
+from products.billing_alerts.backend.alert_destinations import DESTINATION_TYPE_BY_TEMPLATE_ID, EVENT_KIND_CONFIG
 from products.billing_alerts.backend.models import BillingAlertDelivery, BillingAlertEvent
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 logger = structlog.get_logger(__name__)
-
-
-_EVENT_NAME_BY_KIND = {
-    BillingAlertEvent.Kind.FIRING: "$billing_alert_firing",
-    BillingAlertEvent.Kind.RESOLVED: "$billing_alert_resolved",
-    BillingAlertEvent.Kind.ERRORED: "$billing_alert_errored",
-    BillingAlertEvent.Kind.BROKEN_CONFIG: "$billing_alert_auto_disabled",
-}
-
-_DESTINATION_TYPE_BY_TEMPLATE = {
-    "template-slack": BillingAlertDelivery.DestinationType.SLACK,
-    "template-webhook": BillingAlertDelivery.DestinationType.WEBHOOK,
-    "template-microsoft-teams": BillingAlertDelivery.DestinationType.TEAMS,
-}
 
 
 def _kind_for_event(event: BillingAlertEvent) -> str | None:
@@ -75,7 +61,7 @@ def _destination_hog_functions(event: BillingAlertEvent) -> list[HogFunction]:
         HogFunction.objects.filter(
             team_id=alert.execution_team_id,
             deleted=False,
-            template_id__in=list(_DESTINATION_TYPE_BY_TEMPLATE.keys()),
+            template_id__in=list(DESTINATION_TYPE_BY_TEMPLATE_ID),
             filters__events__contains=[{"id": event_id, "type": "events"}],
             filters__properties__contains=[{"key": "alert_id", "value": str(alert.id)}],
         ).only("id", "template_id")
@@ -84,9 +70,10 @@ def _destination_hog_functions(event: BillingAlertEvent) -> list[HogFunction]:
 
 def dispatch_billing_alert_event(event: BillingAlertEvent, now: datetime | None = None) -> int:
     event = BillingAlertEvent.objects.select_related("alert").get(id=event.id)
-    event_name = _EVENT_NAME_BY_KIND.get(event.kind)
-    if event_name is None:
+    kind = _kind_for_event(event)
+    if kind is None:
         return 0
+    event_name = EVENT_KIND_CONFIG[kind].event_id
 
     now = now or timezone.now()
     destinations = _destination_hog_functions(event)
@@ -109,7 +96,7 @@ def dispatch_billing_alert_event(event: BillingAlertEvent, now: datetime | None 
 
     with transaction.atomic():
         for destination in destinations:
-            destination_type = _DESTINATION_TYPE_BY_TEMPLATE.get(destination.template_id)
+            destination_type = DESTINATION_TYPE_BY_TEMPLATE_ID.get(destination.template_id)
             if destination_type is None:
                 continue
             BillingAlertDelivery.objects.get_or_create(
