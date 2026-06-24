@@ -713,7 +713,10 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @ALLOW_URL
     @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
-    @patch("products.mcp_store.backend.presentation.views.register_dcr_client", return_value=("dcr-client-id", None))
+    @patch(
+        "products.mcp_store.backend.presentation.views.register_dcr_client",
+        return_value=("dcr-client-id", None, "none"),
+    )
     def test_install_custom_populates_created_by(self, _mock_dcr, mock_discover, _allow):
         """install_custom path must stamp created_by on the MCPOAuthState row."""
         mock_discover.return_value = {
@@ -784,7 +787,7 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
             "token_endpoint": "https://auth.legit.com/token",
             "registration_endpoint": "https://auth.legit.com/register",
         }
-        mock_dcr.return_value = ("per-user-dcr-client", None)
+        mock_dcr.return_value = ("per-user-dcr-client", None, "none")
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
@@ -797,6 +800,7 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
         installation = MCPServerInstallation.objects.get(url="https://mcp.legit.com/mcp", user=self.user)
         assert installation.oauth_metadata["authorization_endpoint"] == "https://auth.legit.com/authorize"
         assert installation.sensitive_configuration["dcr_client_id"] == "per-user-dcr-client"
+        assert installation.sensitive_configuration["dcr_token_endpoint_auth_method"] == "none"
         # EncryptedJSONField stringifies leaf values on round-trip; accept either bool or str.
         assert installation.sensitive_configuration["dcr_is_user_provided"] in (False, "False")
 
@@ -817,7 +821,7 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
             "token_endpoint": "https://auth.legit.com/token",
             "registration_endpoint": "https://auth.legit.com/register",
         }
-        mock_dcr.return_value = ("dcr-minted-client", "dcr-minted-secret")
+        mock_dcr.return_value = ("dcr-minted-client", "dcr-minted-secret", "client_secret_post")
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
@@ -830,6 +834,7 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
         sensitive = installation.sensitive_configuration
         assert sensitive["dcr_client_id"] == "dcr-minted-client"
         assert sensitive["dcr_client_secret"] == "dcr-minted-secret"
+        assert sensitive["dcr_token_endpoint_auth_method"] == "client_secret_post"
         assert sensitive["dcr_is_user_provided"] in (False, "False")
 
     @ALLOW_URL
@@ -862,6 +867,7 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
         sensitive = installation.sensitive_configuration
         assert sensitive["dcr_client_id"] == "user-supplied-client-id"
         assert sensitive["dcr_client_secret"] == "user-supplied-secret"
+        assert sensitive["dcr_token_endpoint_auth_method"] == "client_secret_post"
         # EncryptedJSONField stringifies leaf values on round-trip; accept either bool or str.
         assert sensitive["dcr_is_user_provided"] in (True, "True")
 
@@ -883,7 +889,7 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
             "token_endpoint": "https://auth.legit.com/token",
             "registration_endpoint": "https://auth.legit.com/register",
         }
-        mock_dcr.return_value = ("dcr-minted-client", None)
+        mock_dcr.return_value = ("dcr-minted-client", None, "none")
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
@@ -902,12 +908,13 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
         sensitive = installation.sensitive_configuration
         assert sensitive["dcr_client_id"] == "dcr-minted-client"
         assert "dcr_client_secret" not in sensitive
+        assert sensitive["dcr_token_endpoint_auth_method"] == "none"
         assert sensitive["dcr_is_user_provided"] in (False, "False")
 
     @ALLOW_URL
     @patch(
         "products.mcp_store.backend.presentation.views.register_dcr_client",
-        return_value=("new-dcr-client", None),
+        return_value=("new-dcr-client", None, "none"),
     )
     @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
     def test_reinstall_clears_stale_tokens_and_flags_reauth(self, mock_discover, _mock_dcr, _allow):
@@ -955,6 +962,7 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
         installation.refresh_from_db()
         sensitive = installation.sensitive_configuration
         assert sensitive["dcr_client_id"] == "new-dcr-client"
+        assert sensitive["dcr_token_endpoint_auth_method"] == "none"
         assert sensitive["needs_reauth"] in (True, "True")
         for stale_key in ("access_token", "refresh_token", "token_retrieved_at", "expires_in"):
             assert stale_key not in sensitive, f"{stale_key} should have been cleared on re-install"
@@ -973,6 +981,9 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
             oauth_metadata={
                 "authorization_endpoint": "https://auth.example.com/authorize",
                 "token_endpoint": "https://auth.example.com/token",
+                "resource": "https://mcp.example.com/",
+                "scopes_supported": ["admin", "read"],
+                "resource_scopes_supported": ["read"],
             },
             sensitive_configuration={"dcr_client_id": "existing-client-id", "dcr_is_user_provided": False},
         )
@@ -987,6 +998,8 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
         mock_discover.assert_not_called()
         params = parse_qs(urlparse(response["Location"]).query)
         assert params["client_id"][0] == "existing-client-id"
+        assert params["resource"][0] == "https://mcp.example.com/"
+        assert params["scope"][0] == "read"
 
     @ALLOW_URL
     def test_authorize_uses_opaque_state_token(self, _allow):
@@ -1134,7 +1147,7 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
 
     @patch(
         "products.mcp_store.backend.presentation.views.register_dcr_client",
-        return_value=("minted-per-user-client", None),
+        return_value=("minted-per-user-client", None, "none"),
     )
     @patch(
         "products.mcp_store.backend.presentation.views.discover_oauth_metadata",
@@ -1169,6 +1182,7 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         installation = MCPServerInstallation.objects.get(url=template.url, user=self.user)
         sensitive = installation.sensitive_configuration or {}
         assert sensitive["dcr_client_id"] == "minted-per-user-client"
+        assert sensitive["dcr_token_endpoint_auth_method"] == "none"
         # Discovered metadata is cached on the installation, not written back to the template.
         assert installation.oauth_metadata["token_endpoint"] == "https://auth.discovered.example.com/token"
         template.refresh_from_db()
