@@ -2,8 +2,17 @@ import uuid as uuid_lib
 
 import pytest
 
+from asgiref.sync import sync_to_async
+
 from posthog.personhog_client.fake_client import fake_personhog_client
-from posthog.temporal.delete_persons.delete_persons_workflow import DeletePersonsActivityInputs, delete_persons_activity
+from posthog.temporal.delete_persons.delete_persons_workflow import (
+    DeletePersonsActivityInputs,
+    PrecleanCohortMembersActivityInputs,
+    delete_persons_activity,
+    preclean_cohort_members_activity,
+)
+
+from products.cohorts.backend.models.cohort import Cohort
 
 pytestmark = pytest.mark.django_db
 
@@ -51,3 +60,32 @@ class TestDeletePersonsActivity:
         assert should_continue is True  # deleted == batch_size, so a batch may still remain
         # whole-team mode never resolves ids; it deletes straight through the team-batch RPC
         fake.assert_called("delete_persons_batch_for_team")
+
+
+# transaction=True so the Cohort committed below is visible to the activity's threaded ORM read
+# (asyncio.to_thread gets a fresh connection that can't see a rolled-back test transaction).
+@pytest.mark.django_db(transaction=True)
+class TestPrecleanCohortMembersActivity:
+    async def test_clears_team_cohort_memberships(self, activity_environment, ateam):
+        cohort = await sync_to_async(Cohort.objects.create)(team=ateam, name="preclean-test")
+        with fake_personhog_client(gate_enabled=True) as fake:
+            fake.add_cohort_membership(person_id=5, cohort_id=cohort.id)
+
+            await activity_environment.run(
+                preclean_cohort_members_activity,
+                PrecleanCohortMembersActivityInputs(team_id=ateam.id),
+            )
+
+        # Whole-team preclean resolves the team's cohorts and clears their members via the bulk RPC.
+        fake.assert_called("delete_cohort_members_bulk")
+        assert (cohort.id, 5) not in fake._cohort_members
+
+    async def test_noop_when_team_has_no_cohorts(self, activity_environment, ateam):
+        with fake_personhog_client(gate_enabled=True) as fake:
+            await activity_environment.run(
+                preclean_cohort_members_activity,
+                PrecleanCohortMembersActivityInputs(team_id=ateam.id),
+            )
+
+        # With no cohorts to resolve, the bulk delete RPC is never invoked.
+        fake.assert_not_called("delete_cohort_members_bulk")
