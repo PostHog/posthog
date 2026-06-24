@@ -1291,6 +1291,7 @@ class SupportReplyWorkflow:
                             "ticket_type": ticket_type,
                             "needs_diagnostics": needs_diagnostics,
                             "diagnostics_allowed": ctx_output.diagnostics_allowed,
+                            "confidence": validate_output.confidence,
                             "attempts": attempt + 1,
                         }
                         return "blocked_unsafe_reply"
@@ -1347,6 +1348,7 @@ class SupportReplyWorkflow:
                         "ticket_type": ticket_type,
                         "needs_diagnostics": needs_diagnostics,
                         "diagnostics_allowed": ctx_output.diagnostics_allowed,
+                        "confidence": best_confidence,
                         "attempts": MAX_ATTEMPTS,
                     }
                     return "blocked_unsafe_reply"
