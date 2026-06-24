@@ -4,6 +4,7 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from unittest import mock
 
+import requests
 from tenacity import Future, RetryCallState
 
 from posthog.temporal.data_imports.sources.cloudflare.cloudflare import (
@@ -44,6 +45,16 @@ def _retry_state(exc: BaseException) -> RetryCallState:
     state = RetryCallState(retry_object=mock.MagicMock(), fn=None, args=(), kwargs={})
     state.outcome = Future.construct(1, exc, has_exception=True)
     return state
+
+
+def _error_response(status_code: int) -> mock.MagicMock:
+    resp = mock.MagicMock()
+    resp.status_code = status_code
+    resp.ok = False
+    resp.raise_for_status.side_effect = requests.HTTPError(
+        f"{status_code} Client Error for url: https://api.cloudflare.com", response=resp
+    )
+    return resp
 
 
 class TestValidateCredentials:
@@ -110,6 +121,43 @@ class TestGetRows:
         urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
         assert urlparse(urls[1]).path == "/client/v4/zones/z1/dns_records"
         assert urlparse(urls[2]).path == "/client/v4/zones/z2/dns_records"
+
+    @pytest.mark.parametrize("status_code", [403, 404])
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_dns_records_skips_inaccessible_zone_and_continues(self, mock_session, status_code):
+        # A token can list every zone but lack DNS access on a subset; one
+        # forbidden zone must not abort the whole stream.
+        mock_session.return_value.get.side_effect = [
+            _response([{"id": "z1"}, {"id": "z2"}], total_pages=1),
+            _error_response(status_code),
+            _response([{"id": "r2"}], total_pages=1),
+        ]
+        logger = mock.MagicMock()
+
+        batches = list(get_rows("token", "dns_records", logger))
+
+        flat = [item for batch in batches for item in batch]
+        assert [(r["id"], r["_zone_id"]) for r in flat] == [("r2", "z2")]
+        logger.warning.assert_called_once()
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_dns_records_reraises_unexpected_zone_error(self, mock_session):
+        mock_session.return_value.get.side_effect = [
+            _response([{"id": "z1"}], total_pages=1),
+            _error_response(400),
+        ]
+
+        with pytest.raises(requests.HTTPError):
+            list(get_rows("token", "dns_records", mock.MagicMock()))
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_forbidden_zone_listing_propagates(self, mock_session):
+        # No zone access at all (the top-level listing) must still fail loudly
+        # so the schema is flagged non-retryable rather than silently emptied.
+        mock_session.return_value.get.side_effect = [_error_response(403)]
+
+        with pytest.raises(requests.HTTPError):
+            list(get_rows("token", "dns_records", mock.MagicMock()))
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_full_page_without_result_info_continues(self, mock_session):

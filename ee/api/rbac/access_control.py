@@ -393,6 +393,8 @@ class AccessControlViewSetMixin(_GenericViewSet):
         if params["access_level"] is None:
             if instance:
                 instance.delete()
+                # Drop the preloaded access-control snapshot so later reads this request are fresh.
+                self.user_access_control._clear_cache()  # type: ignore[attr-defined]
             return Response(status=status.HTTP_204_NO_CONTENT)
 
         # Perform the upsert
@@ -404,6 +406,8 @@ class AccessControlViewSetMixin(_GenericViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.validated_data["team"] = team
         serializer.save()
+        # Drop the preloaded access-control snapshot so later reads this request are fresh.
+        self.user_access_control._clear_cache()  # type: ignore[attr-defined]
 
         return Response(serializer.data, status=status.HTTP_200_OK)
 

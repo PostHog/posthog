@@ -1,6 +1,7 @@
 import { api } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import { HttpResponse } from 'msw'
 
 import { processAllSnapshots, SourceKey, ViewportResolution } from '@posthog/replay-shared'
 
@@ -253,8 +254,8 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
             // response used to leave fullyLoaded false with nothing left to re-trigger the report
             overrideSessionRecordingMocks({
                 postMocks: {
-                    '/api/environments/:team_id/query/:kind': async (req) => {
-                        const body = await req.json()
+                    '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
                         const query = body.query?.query || ''
                         if (query.includes('uuid in')) {
                             await new Promise((resolve) => setTimeout(resolve, 100))
@@ -300,10 +301,10 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
             snapshotLogic?.unmount()
             setupSessionRecordingTest({
                 getMocks: {
-                    '/api/environments/:team_id/session_recordings/:id/snapshots': async (req, res, ctx) => {
-                        const sourceParam = req.url.searchParams.get('source')
+                    '/api/environments/:team_id/session_recordings/:id/snapshots': async ({ request }) => {
+                        const sourceParam = new URL(request.url).searchParams.get('source')
                         if (sourceParam === 'blob_v2' || sourceParam === 'blob') {
-                            return res(ctx.text(jsonLines))
+                            return new HttpResponse(jsonLines)
                         }
                         return [200, { sources: [BLOB_SOURCE_V2] }]
                     },

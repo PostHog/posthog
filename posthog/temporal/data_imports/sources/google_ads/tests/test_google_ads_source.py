@@ -1,9 +1,27 @@
+from types import SimpleNamespace
+
 import pytest
 from unittest import mock
 
+import grpc
+from google.ads.googleads.errors import GoogleAdsException
+from google.ads.googleads.v23.enums import types as ga_enums
+from google.ads.googleads.v23.errors.types.errors import ErrorCode, GoogleAdsError, GoogleAdsFailure
+from google.ads.googleads.v23.errors.types.request_error import RequestErrorEnum
+from google.api_core import exceptions as google_api_exceptions
+from google.auth import exceptions as google_auth_exceptions
+
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
-from posthog.temporal.data_imports.sources.google_ads.configs import clean_customer_id
+from posthog.temporal.data_imports.sources.google_ads.configs import GoogleAdsResumeConfig, clean_customer_id
+from posthog.temporal.data_imports.sources.google_ads.google_ads import (
+    GoogleAdsColumn,
+    GoogleAdsTable,
+    _is_invalid_page_token_error,
+    _is_transient_grpc_unavailable,
+    _load_client_with_transient_retry,
+    _search_as_arrow_tables,
+)
 from posthog.temporal.data_imports.sources.google_ads.source import GoogleAdsSource
 
 _CUSTOMER_ID_ERROR = "valid Google Ads customer ID"
@@ -154,6 +172,28 @@ class TestGoogleAdsNonRetryableErrors:
         assert friendly is not None
         assert "reconnect" in friendly.lower()
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # `str(google.api_core.exceptions.Unauthenticated)` as it propagates from
+            # `GoogleAdsService.search` — gapic wraps the transport-level UNAUTHENTICATED as
+            # "401 {message}", so it carries the human message but not the bare status token.
+            (
+                "401 Request is missing required authentication credential. Expected OAuth 2 access "
+                "token, login cookie or other valid authentication credential. See "
+                "https://developers.google.com/identity/sign-in/web/devconsole-project."
+            ),
+        ],
+    )
+    def test_missing_auth_credential_is_non_retryable(self, error_msg):
+        is_non_retryable = any(pattern in error_msg for pattern in self.non_retryable.keys())
+        assert is_non_retryable, f"Expected error to be non-retryable: {error_msg}"
+
+    def test_missing_auth_credential_has_friendly_message(self):
+        friendly = self.non_retryable["Request is missing required authentication credential"]
+        assert friendly is not None
+        assert "reconnect" in friendly.lower()
+
     def test_other_model_does_not_exist_is_not_swallowed(self):
         # The pattern is model-specific so an unrelated model's DoesNotExist — which may be a real
         # bug — is not silently treated as non-retryable.
@@ -188,6 +228,7 @@ class TestGoogleAdsNonRetryableErrors:
             "REQUESTED_METRICS_FOR_MANAGER",
             "invalid_grant",
             "access_not_configured",
+            "Request is missing required authentication credential",
         ],
     )
     def test_documented_patterns_present(self, pattern):
@@ -270,3 +311,338 @@ class TestValidateCredentials:
 
         assert ok is False
         assert "reconnect your Google Ads account" in (message or "")
+
+
+def _google_ads_exception(request_error: int) -> GoogleAdsException:
+    failure = GoogleAdsFailure(
+        errors=[
+            GoogleAdsError(
+                error_code=ErrorCode(request_error=request_error),
+                message="Page token is invalid."
+                if request_error == RequestErrorEnum.RequestError.INVALID_PAGE_TOKEN
+                else "boom",
+            )
+        ]
+    )
+    return GoogleAdsException(error=None, call=None, failure=failure, request_id="req-1")
+
+
+def _string_column(qualified_name: str) -> GoogleAdsColumn:
+    return GoogleAdsColumn(
+        qualified_name=qualified_name,
+        data_type=ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.STRING,  # type: ignore[arg-type]
+        is_repeatable=False,
+        type_url="",
+    )
+
+
+def _single_row_table() -> GoogleAdsTable:
+    return GoogleAdsTable(
+        name="campaign",
+        alias="campaign",
+        columns=[_string_column("campaign.name")],
+        parents=None,
+        requires_filter=False,
+        primary_key=[],
+        should_sync_default=True,
+        description=None,
+    )
+
+
+def _single_page() -> SimpleNamespace:
+    return SimpleNamespace(
+        field_mask=SimpleNamespace(paths=["campaign.name"]),
+        results=[SimpleNamespace(campaign=SimpleNamespace(name="Acme"))],
+        next_page_token="",
+    )
+
+
+class _FakeService:
+    """Raises INVALID_PAGE_TOKEN for any non-empty token, succeeds on the first page."""
+
+    def __init__(self, page: SimpleNamespace, error_on_token: GoogleAdsException | None = None):
+        self.page = page
+        self.error_on_token = error_on_token or _google_ads_exception(RequestErrorEnum.RequestError.INVALID_PAGE_TOKEN)
+        self.calls: list[str] = []
+
+    def search(self, request: dict):
+        self.calls.append(request["page_token"])
+        if request["page_token"]:
+            raise self.error_on_token
+        return SimpleNamespace(pages=iter([self.page]))
+
+
+class _FakeResumableManager:
+    def __init__(self, saved_token: str | None):
+        self._saved = saved_token
+        self.saved_states: list[str] = []
+
+    def can_resume(self) -> bool:
+        return self._saved is not None
+
+    def load_state(self) -> GoogleAdsResumeConfig | None:
+        return GoogleAdsResumeConfig(page_token=self._saved) if self._saved is not None else None
+
+    def save_state(self, data: GoogleAdsResumeConfig) -> None:
+        self.saved_states.append(data.page_token)
+
+
+class TestInvalidPageTokenDetection:
+    @pytest.mark.parametrize(
+        "exc, expected",
+        [
+            (_google_ads_exception(RequestErrorEnum.RequestError.INVALID_PAGE_TOKEN), True),
+            (_google_ads_exception(RequestErrorEnum.RequestError.RESOURCE_NAME_MISSING), False),
+            # A non-``GoogleAdsException`` shape (no ``failure``) must not match.
+            (SimpleNamespace(failure=None), False),
+        ],
+    )
+    def test_is_invalid_page_token_error(self, exc, expected):
+        assert _is_invalid_page_token_error(exc) is expected
+
+
+class TestSearchPageTokenResumption:
+    def test_restarts_pagination_when_saved_page_token_expired(self):
+        service = _FakeService(_single_page())
+        manager = _FakeResumableManager(saved_token="STALE_TOKEN")
+
+        tables = list(
+            _search_as_arrow_tables(
+                service=service,  # type: ignore[arg-type]
+                customer_id="1234567890",
+                query="SELECT campaign.name FROM campaign",
+                table=_single_row_table(),
+                resumable_source_manager=manager,  # type: ignore[arg-type]
+            )
+        )
+
+        # The stale token was tried, rejected, then pagination restarted from the first page.
+        assert service.calls == ["STALE_TOKEN", ""]
+        # The stale token is cleared from saved state so a later resume won't reuse it.
+        assert manager.saved_states == [""]
+        # Rows are still yielded — the data was never lost.
+        assert [t.to_pylist() for t in tables] == [[{"campaign_name": "Acme"}]]
+
+    def test_other_google_ads_errors_propagate(self):
+        service = _FakeService(
+            _single_page(),
+            error_on_token=_google_ads_exception(RequestErrorEnum.RequestError.RESOURCE_NAME_MISSING),
+        )
+        manager = _FakeResumableManager(saved_token="STALE_TOKEN")
+
+        with pytest.raises(GoogleAdsException):
+            list(
+                _search_as_arrow_tables(
+                    service=service,  # type: ignore[arg-type]
+                    customer_id="1234567890",
+                    query="SELECT campaign.name FROM campaign",
+                    table=_single_row_table(),
+                    resumable_source_manager=manager,  # type: ignore[arg-type]
+                )
+            )
+
+        # No restart attempt — the token was never reset.
+        assert manager.saved_states == []
+
+    def test_invalid_page_token_without_saved_state_does_not_loop(self):
+        # Guards against an infinite restart loop: with no resumable token, an
+        # INVALID_PAGE_TOKEN on the first (empty-token) request must propagate.
+        always_failing = SimpleNamespace(
+            calls=[],
+        )
+
+        def _always_raise(request: dict):
+            always_failing.calls.append(request["page_token"])
+            raise _google_ads_exception(RequestErrorEnum.RequestError.INVALID_PAGE_TOKEN)
+
+        always_failing.search = _always_raise
+        manager = _FakeResumableManager(saved_token=None)
+
+        with pytest.raises(GoogleAdsException):
+            list(
+                _search_as_arrow_tables(
+                    service=always_failing,  # type: ignore[arg-type]
+                    customer_id="1234567890",
+                    query="SELECT campaign.name FROM campaign",
+                    table=_single_row_table(),
+                    resumable_source_manager=manager,  # type: ignore[arg-type]
+                )
+            )
+
+        assert always_failing.calls == [""]
+        assert manager.saved_states == []
+
+
+_CLIENT_PATH = "posthog.temporal.data_imports.sources.google_ads.google_ads.GoogleAdsClient"
+_SLEEP_PATH = "posthog.temporal.data_imports.sources.google_ads.google_ads.time.sleep"
+
+
+class TestLoadClientTransientRetry:
+    def test_retries_transport_error_then_succeeds(self):
+        client = object()
+        load = mock.Mock(
+            side_effect=[
+                google_auth_exceptions.TransportError("timed out"),
+                google_auth_exceptions.TransportError("timed out"),
+                client,
+            ]
+        )
+
+        with mock.patch(_CLIENT_PATH) as ga_client, mock.patch(_SLEEP_PATH) as sleep:
+            ga_client.load_from_dict = load
+            result = _load_client_with_transient_retry({"refresh_token": "x"})
+
+        assert result is client
+        assert load.call_count == 3
+        # Backoff grows per attempt per `min(2 * attempt, 30)`: 2s after the 1st failure, 4s after the 2nd.
+        assert sleep.call_args_list == [mock.call(2), mock.call(4)]
+
+    def test_reraises_after_exhausting_attempts(self):
+        load = mock.Mock(side_effect=google_auth_exceptions.TransportError("timed out"))
+
+        with mock.patch(_CLIENT_PATH) as ga_client, mock.patch(_SLEEP_PATH) as sleep:
+            ga_client.load_from_dict = load
+            with pytest.raises(google_auth_exceptions.TransportError):
+                _load_client_with_transient_retry({"refresh_token": "x"}, max_attempts=3)
+
+        assert load.call_count == 3
+        # One sleep fewer than attempts — no backoff after the final failure.
+        assert sleep.call_args_list == [mock.call(2), mock.call(4)]
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            # A revoked/expired credential surfaces as RefreshError, not TransportError — it must
+            # not be retried as if it were transient (it's handled as non-retryable elsewhere).
+            google_auth_exceptions.RefreshError("invalid_grant"),
+            ValueError("boom"),
+        ],
+    )
+    def test_non_transient_error_is_not_retried(self, error):
+        load = mock.Mock(side_effect=error)
+
+        with mock.patch(_CLIENT_PATH) as ga_client, mock.patch(_SLEEP_PATH) as sleep:
+            ga_client.load_from_dict = load
+            with pytest.raises(type(error)):
+                _load_client_with_transient_retry({"refresh_token": "x"})
+
+        assert load.call_count == 1
+        assert sleep.call_args_list == []
+
+
+class _UnavailableRpcError(grpc.RpcError):
+    """A raw gRPC error whose ``code()`` reports ``UNAVAILABLE`` (502:Bad Gateway shape)."""
+
+    def code(self) -> grpc.StatusCode:
+        return grpc.StatusCode.UNAVAILABLE
+
+
+def _grpc_unavailable_error() -> grpc.RpcError:
+    return _UnavailableRpcError()
+
+
+class TestTransientGrpcUnavailableDetection:
+    @pytest.mark.parametrize(
+        "exc, expected",
+        [
+            (google_api_exceptions.ServiceUnavailable("502:Bad Gateway"), True),
+            (_grpc_unavailable_error(), True),
+            # A different gapic error must not be treated as transient-unavailable.
+            (google_api_exceptions.PermissionDenied("PERMISSION_DENIED"), False),
+            # Google Ads API errors carry no UNAVAILABLE gRPC status — they route through
+            # the existing GoogleAdsException handling, not the transient retry.
+            (_google_ads_exception(RequestErrorEnum.RequestError.INVALID_PAGE_TOKEN), False),
+            (ValueError("boom"), False),
+        ],
+    )
+    def test_is_transient_grpc_unavailable(self, exc, expected):
+        assert _is_transient_grpc_unavailable(exc) is expected
+
+
+class _FlakyService:
+    """Raises a transient error for the first ``fail_times`` calls, then serves one page."""
+
+    def __init__(self, page: SimpleNamespace, error: BaseException, fail_times: int):
+        self.page = page
+        self.error = error
+        self.fail_times = fail_times
+        self.calls = 0
+
+    def search(self, request: dict):
+        self.calls += 1
+        if self.calls <= self.fail_times:
+            raise self.error
+        return SimpleNamespace(pages=iter([self.page]))
+
+
+class TestSearchTransientRetry:
+    @pytest.mark.parametrize(
+        "error",
+        [
+            google_api_exceptions.ServiceUnavailable("502:Bad Gateway"),
+            _grpc_unavailable_error(),
+        ],
+    )
+    def test_rides_out_transient_unavailable(self, error):
+        service = _FlakyService(_single_page(), error=error, fail_times=2)
+        manager = _FakeResumableManager(saved_token=None)
+
+        with mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.time.sleep") as sleep:
+            tables = list(
+                _search_as_arrow_tables(
+                    service=service,  # type: ignore[arg-type]
+                    customer_id="1234567890",
+                    query="SELECT campaign.name FROM campaign",
+                    table=_single_row_table(),
+                    resumable_source_manager=manager,  # type: ignore[arg-type]
+                )
+            )
+
+        # Two transient failures were retried, then the page was served — no data lost.
+        assert service.calls == 3
+        # Backoff grows per attempt per `min(2 * attempt, 30)`: 2s after the 1st failure, 4s after the 2nd.
+        assert sleep.call_args_list == [mock.call(2), mock.call(4)]
+        assert [t.to_pylist() for t in tables] == [[{"campaign_name": "Acme"}]]
+
+    def test_persistent_unavailable_is_reraised_for_temporal_to_retry(self):
+        service = _FlakyService(
+            _single_page(), error=google_api_exceptions.ServiceUnavailable("502:Bad Gateway"), fail_times=99
+        )
+        manager = _FakeResumableManager(saved_token=None)
+
+        with mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.time.sleep") as sleep:
+            with pytest.raises(google_api_exceptions.ServiceUnavailable):
+                list(
+                    _search_as_arrow_tables(
+                        service=service,  # type: ignore[arg-type]
+                        customer_id="1234567890",
+                        query="SELECT campaign.name FROM campaign",
+                        table=_single_row_table(),
+                        resumable_source_manager=manager,  # type: ignore[arg-type]
+                    )
+                )
+
+        # Bounded attempts: it gives up rather than looping forever, leaving Temporal to retry.
+        assert service.calls == 4
+        # Backed off between each attempt (2s, 4s, 6s) but not after the final attempt that re-raises.
+        assert sleep.call_args_list == [mock.call(2), mock.call(4), mock.call(6)]
+
+    def test_non_transient_error_is_not_retried(self):
+        service = _FlakyService(_single_page(), error=ValueError("boom"), fail_times=99)
+        manager = _FakeResumableManager(saved_token=None)
+
+        with mock.patch("posthog.temporal.data_imports.sources.google_ads.google_ads.time.sleep") as sleep:
+            with pytest.raises(ValueError):
+                list(
+                    _search_as_arrow_tables(
+                        service=service,  # type: ignore[arg-type]
+                        customer_id="1234567890",
+                        query="SELECT campaign.name FROM campaign",
+                        table=_single_row_table(),
+                        resumable_source_manager=manager,  # type: ignore[arg-type]
+                    )
+                )
+
+        # First call raises and propagates immediately — no retry, no backoff.
+        assert service.calls == 1
+        assert sleep.call_count == 0

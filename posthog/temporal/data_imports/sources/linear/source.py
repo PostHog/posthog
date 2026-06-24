@@ -3,6 +3,7 @@ from typing import Optional, cast
 from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldOauthConfig,
 )
@@ -10,6 +11,7 @@ from posthog.schema import (
 from posthog.models.integration import OauthIntegration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -37,7 +39,7 @@ class LinearSource(ResumableSource[LinearSourceConfig, LinearResumeConfig], OAut
             name=SchemaExternalDataSourceType.LINEAR,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Linear",
-            releaseStatus="beta",
+            releaseStatus=ReleaseStatus.GA,
             caption="Connect your Linear workspace to sync issues, projects, teams, and more.",
             iconPath="/static/services/linear.png",
             fields=cast(
@@ -53,6 +55,11 @@ class LinearSource(ResumableSource[LinearSourceConfig, LinearResumeConfig], OAut
             ),
         )
 
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.linear.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error": "Invalid Linear credentials. Please reconnect your account.",
@@ -61,6 +68,9 @@ class LinearSource(ResumableSource[LinearSourceConfig, LinearResumeConfig], OAut
             # Retrying can never resolve this — the integration won't reappear — so stop and
             # ask the user to reconnect. Matched as a substring; the trailing integration id varies.
             "Integration not found": "The linked Linear integration no longer exists. Please reconnect your Linear account.",
+            # The Linear OAuth app isn't configured on this PostHog instance (missing client id/secret),
+            # so the source can't refresh its access token. Deterministic — retrying never resolves it.
+            "Linear app not configured": "The Linear app is not configured on this PostHog instance. Please contact support.",
         }
 
     def _get_access_token(self, config: LinearSourceConfig, team_id: int) -> str:

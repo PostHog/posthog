@@ -52,9 +52,10 @@ function getShortcutIcon(shortcut: AppShortcutType): JSX.Element | null {
 interface RenderKeybindProps {
     keybind: string[][]
     className?: string
+    minimal?: boolean
 }
 
-export function RenderKeybind({ keybind, className }: RenderKeybindProps): JSX.Element {
+export function RenderKeybind({ keybind, className, minimal }: RenderKeybindProps): JSX.Element {
     return (
         <span className={cn('inline-flex items-center gap-1', className)}>
             {keybind.map((keybindOption, index) => {
@@ -79,6 +80,7 @@ export function RenderKeybind({ keybind, className }: RenderKeybindProps): JSX.E
                         <KeyboardShortcut
                             {...Object.fromEntries(keybindOption.map((key: string) => [key, true]))}
                             className="text-xs"
+                            minimal={minimal}
                         />
                     </React.Fragment>
                 )
@@ -91,13 +93,13 @@ export function AppShortcutMenu(): JSX.Element | null {
     const { appShortcutMenuOpen, disabledShortcutNames } = useValues(appShortcutLogic)
     const { setAppShortcutMenuOpen, toggleShortcutDisabled } = useActions(appShortcutLogic)
     const { registeredAppShortcuts } = useValues(appShortcutLogic)
-    const { activeTab } = useValues(sceneLogic)
+    const { sceneId } = useValues(sceneLogic)
     const comboboxRef = useRef<ListBoxHandle>(null)
 
     // Group shortcuts by scope, with scene-specific first and global last
     const groupedShortcuts = useMemo(() => {
         const groups: Record<string, AppShortcutType[]> = {}
-        const currentScene = activeTab?.sceneId
+        const currentScene = sceneId
 
         registeredAppShortcuts.forEach((shortcut) => {
             const scope = shortcut.scope || 'global'
@@ -140,7 +142,7 @@ export function AppShortcutMenu(): JSX.Element | null {
             title: titleForKey(key),
             shortcuts: groups[key],
         }))
-    }, [registeredAppShortcuts, activeTab])
+    }, [registeredAppShortcuts, sceneId])
 
     const handleClose = useCallback(() => {
         setAppShortcutMenuOpen(false)

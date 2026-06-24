@@ -14,6 +14,7 @@ from posthog.schema import (
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import VitallySourceConfig
@@ -37,6 +38,11 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.VITALLY
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.vitally.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
 
     def get_schemas(
         self,
@@ -67,7 +73,12 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
                     config.secret_token, config.region.selection, config.region.subdomain
                 )
             except Exception as e:
-                capture_exception(e)
+                # A 401/403 here is a customer credential problem (invalid/revoked token), not a bug
+                # we can fix — the per-schema sync path already surfaces it and disables the source.
+                # Skip capturing those to avoid spamming error tracking on every discovery run, but
+                # still capture genuinely unexpected discovery failures.
+                if not any(pattern in str(e) for pattern in self.get_non_retryable_errors()):
+                    capture_exception(e)
                 definitions = []
 
             for definition in definitions:

@@ -5,7 +5,7 @@ import { LemonDivider } from '@posthog/lemon-ui'
 
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { humanList } from 'lib/utils'
+import { humanList } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Properties } from '~/legacy-plugin-scaffold'

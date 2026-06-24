@@ -17,6 +17,7 @@ from posthog.temporal.data_imports.sources.common.base import (
     FieldType,
     ResumableSource,
 )
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -34,6 +35,11 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.BINGADS
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.bing_ads.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         # Match only on auth/permission failures that retrying cannot recover from.
@@ -64,20 +70,51 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
             "invalid_grant": auth_friendly,
             "invalid_client": auth_friendly,
             "unauthorized_client": auth_friendly,
-            # Bing Ads service-level auth error codes surfaced via suds.WebFault details.
+            # Bing Ads service-level auth error codes surfaced via suds.WebFault details
+            # (see BingAdsClient.get_customer_id / extract_webfault_detail).
             "AuthenticationTokenExpired": auth_friendly,
             "AuthenticationFailed": auth_friendly,
             "InvalidCredentials": auth_friendly,
             "OAuthTokenExpired": auth_friendly,
+            # Bing returns the generic SOAP fault "Invalid client data. Check the SOAP fault details for
+            # more information. TrackingId: <uuid>." for two distinct deterministic conditions, neither of
+            # which retrying can recover:
+            #   - the request is rejected as invalid *after* auth succeeds — the configured Account ID is
+            #     wrong, or the connected Microsoft Advertising user can't access it — raised by the SDK as
+            #     `suds.WebFault("Server raised fault: 'Invalid client data...'")`;
+            #   - CustomerManagementService.GetUser can't use the connected account (revoked/expired
+            #     credentials, a work/school identity instead of a personal Microsoft account —
+            #     WorkIdentityNotAvailable — or no access). GetUser takes no request parameters, so this is
+            #     never a malformed-request bug on our side.
+            # Match the stable phrase only; the TrackingId is volatile. This does not catch transient Bing
+            # faults like "Server raised fault: 'Internal Error'".
+            "Invalid client data": (
+                "PostHog could not use the connected Bing Ads account (Microsoft returned 'Invalid client data'). "
+                "This usually means the configured Account ID is incorrect, the connected account's credentials are "
+                "no longer valid, or it does not have access to the Microsoft Advertising account. Please check the "
+                "Account ID in your source settings and reconnect your Bing Ads integration, making sure the "
+                "signed-in account can access the account in Microsoft Advertising."
+            ),
             # Integration row was deleted/disconnected while a scheduled job still references it.
             # Raised by OAuthMixin.get_oauth_integration as `ValueError("Integration not found: <id>")`;
             # the id is volatile, so match only the stable prefix. Retrying can't recreate the row —
             # the customer has to reconnect.
             "Integration not found": "The linked Bing Ads integration no longer exists. Please reconnect your Bing Ads integration.",
+            # Non-numeric Account ID — the user entered their alphanumeric Account Number instead
+            # of the numeric Account ID. Retrying can't fix a bad config value, so flag it and surface
+            # actionable guidance. The matched phrase is stable and precedes the volatile id in the
+            # raised message (see bing_ads_source.get_rows), keeping false positives at zero.
+            "Bing Ads Account ID must be numeric": (
+                "Bing Ads Account ID must be numeric. You may have entered your alphanumeric Account Number "
+                "instead. Update the Account ID in the source settings and try again."
+            ),
             # Deterministic credential/config errors raised in source_for_pipeline.
             "Bing Ads access token not found": "Bing Ads OAuth access token is missing. Please reconnect your Bing Ads integration.",
             "Bing Ads refresh token not found": "Bing Ads OAuth refresh token is missing. Please reconnect your Bing Ads integration.",
             "Bing Ads developer token not configured": None,
+            # PostHog's Bing Ads OAuth application credentials aren't configured — an empty client_id makes
+            # Microsoft reject the token request with AADSTS900144. Internal config, not customer-actionable.
+            "Bing Ads OAuth application credentials not configured": None,
         }
 
     @property
@@ -138,6 +175,11 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
             self.get_oauth_integration(config.bing_ads_integration_id, team_id)
             return True, None
         except Exception as e:
+            if isinstance(e, ValueError) and "Integration not found" in str(e):
+                # The integration was deleted/disconnected while the source still references it —
+                # an expected user state, not an error worth reporting (get_oauth_integration raises
+                # ValueError("Integration not found: <id>")).
+                return False, "Bing Ads integration not found. Please reconnect your Bing Ads integration."
             capture_exception(e)
             return False, f"Failed to validate Bing Ads credentials: {str(e)}"
 

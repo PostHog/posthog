@@ -63,6 +63,7 @@ from posthog.temporal.data_imports.row_tracking import get_rows
 from posthog.temporal.data_imports.settings import ACTIVITIES
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient as PostHogRESTClient
+from posthog.temporal.data_imports.sources.postgres.postgres import XminBounds
 from posthog.temporal.data_imports.sources.stripe.constants import (
     BALANCE_TRANSACTION_RESOURCE_NAME as STRIPE_BALANCE_TRANSACTION_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
@@ -3360,50 +3361,71 @@ async def test_v3_delta_commit_metadata_and_idempotency_fallback(team, stripe_cu
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_non_retryable_error_short_circuiting(team, stripe_customer, mock_stripe_client):
-    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.get_rows") as mock_get_rows:
-        mock_get_rows.side_effect = Exception("Some error that doesn't retry")
+@pytest.mark.parametrize("pipeline_mode", ["non_dlt"], indirect=True)
+async def test_non_retryable_error_short_circuiting(team, stripe_customer, mock_stripe_client, pipeline_mode):
+    # The retry/short-circuit behaviour lives in the workflow + activity layer, upstream of the
+    # v3/non_dlt split, so running a single pipeline mode is enough — running both just doubles the
+    # cost. Each attempt re-executes the whole import activity, so we also shrink the retry budgets
+    # to keep the test fast: cap resumable retries at 3 and make the non-retryable path give up after
+    # 2 attempts. The contrast (3 retryable attempts vs 2 non-retryable attempts) is what proves the
+    # short-circuit; the prod caps (15 / 3) are just larger values of the same mechanism.
+    resumable_retry_cap = 3
+    non_retryable_attempts = 2
 
-        with pytest.raises(Exception):
-            await _run(
-                team=team,
-                schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
-                table_name="stripe_customer",
-                source_type="Stripe",
-                job_inputs={
-                    "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-                    "stripe_account_id": "acct_id",
-                },
-                mock_data_response=stripe_customer["data"],
-                ignore_assertions=True,
-            )
+    with (
+        mock.patch(
+            "posthog.temporal.data_imports.external_data_job.MAX_RESUMABLE_SOURCE_RETRIES",
+            resumable_retry_cap,
+        ),
+        mock.patch(
+            "posthog.temporal.data_imports.pipelines.common.extract.NON_RETRYABLE_ERROR_RETRY_LIMIT",
+            non_retryable_attempts - 1,
+        ),
+    ):
+        with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.get_rows") as mock_get_rows:
+            mock_get_rows.side_effect = Exception("Some error that doesn't retry")
 
-    # Resumable source syncs retry up to 15 times
-    assert mock_get_rows.call_count == 15
+            with pytest.raises(Exception):
+                await _run(
+                    team=team,
+                    schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
+                    table_name="stripe_customer",
+                    source_type="Stripe",
+                    job_inputs={
+                        "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                        "stripe_account_id": "acct_id",
+                    },
+                    mock_data_response=stripe_customer["data"],
+                    ignore_assertions=True,
+                )
 
-    source_cls = SourceRegistry.get_source(ExternalDataSourceType.STRIPE)
-    non_retryable_errors = source_cls.get_non_retryable_errors()
-    non_retryable_error = next(iter(non_retryable_errors.keys()))
+        # Resumable source syncs retry up to the configured cap
+        assert mock_get_rows.call_count == resumable_retry_cap
 
-    with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.get_rows") as mock_get_rows:
-        mock_get_rows.side_effect = Exception(non_retryable_error)
+        source_cls = SourceRegistry.get_source(ExternalDataSourceType.STRIPE)
+        non_retryable_errors = source_cls.get_non_retryable_errors()
+        non_retryable_error = next(iter(non_retryable_errors.keys()))
 
-        with pytest.raises(Exception):
-            await _run(
-                team=team,
-                schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
-                table_name="stripe_customer",
-                source_type="Stripe",
-                job_inputs={
-                    "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
-                    "stripe_account_id": "acct_id",
-                },
-                mock_data_response=stripe_customer["data"],
-                ignore_assertions=True,
-            )
+        with mock.patch("posthog.temporal.data_imports.sources.stripe.stripe.get_rows") as mock_get_rows:
+            mock_get_rows.side_effect = Exception(non_retryable_error)
 
-    # Non-retryable errors are retried up to 3 times before giving up (4 total attempts)
-    assert mock_get_rows.call_count == 4
+            with pytest.raises(Exception):
+                await _run(
+                    team=team,
+                    schema_name=STRIPE_CUSTOMER_RESOURCE_NAME,
+                    table_name="stripe_customer",
+                    source_type="Stripe",
+                    job_inputs={
+                        "auth_method": {"selection": "api_key", "stripe_secret_key": "test-key"},
+                        "stripe_account_id": "acct_id",
+                    },
+                    mock_data_response=stripe_customer["data"],
+                    ignore_assertions=True,
+                )
+
+        # Non-retryable errors short-circuit before reaching the resumable cap
+        assert mock_get_rows.call_count == non_retryable_attempts
+        assert non_retryable_attempts < resumable_retry_cap
 
 
 @pytest.mark.django_db(transaction=True)
@@ -3542,6 +3564,7 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
     assert str(uuid.UUID(data["event_id"])) == data["event_id"]
     assert {key: value for key, value in data.items() if key != "event_id"} == {
         "team_id": team.id,
+        "table_name": "stripe.customer",
         "properties": expected_properties,
     }
 
@@ -4136,3 +4159,185 @@ async def test_mysql_decimal_and_unsigned_types(team, mysql_config, mysql_connec
     assert str(rows[0][1]) == "123.45"
     # Unsigned BIGINT > signed-int64 max — must come back intact.
     assert int(rows[0][2]) == 9_000_000_000_000_000_000
+
+
+def _postgres_job_inputs(postgres_config: dict) -> dict[str, str | dict[str, str]]:
+    return {
+        "host": postgres_config["host"],
+        "port": postgres_config["port"],
+        "database": postgres_config["database"],
+        "user": postgres_config["user"],
+        "password": postgres_config["password"],
+        "schema": postgres_config["schema"],
+        "ssh_tunnel_enabled": "False",
+    }
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_postgres_xmin_sync(team, postgres_config, postgres_connection):
+    """End-to-end xmin replication: initial snapshot, incremental delta on insert/update,
+    persisted ceiling state, and hard-delete invisibility."""
+    schema_name = postgres_config["schema"]
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.xmin_table (id integer PRIMARY KEY, name text)".format(schema=schema_name)
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.xmin_table (id, name) VALUES (1, 'a')".format(schema=schema_name)
+    )
+    await postgres_connection.commit()
+
+    # Initial snapshot captures the committed row (`_run` asserts exactly one row landed).
+    _workflow_id, inputs = await _run(
+        team=team,
+        schema_name="xmin_table",
+        table_name="postgres_xmin_table",
+        source_type="Postgres",
+        job_inputs=_postgres_job_inputs(postgres_config),
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.XMIN,
+        sync_type_config={},
+    )
+
+    res = await sync_to_async(execute_hogql_query)("SELECT id, name FROM postgres_xmin_table ORDER BY id", team)
+    assert [(r[0], r[1]) for r in res.results] == [(1, "a")]
+
+    # Ceiling state persisted at job completion (next run's lower bound + durable cursor + epoch).
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.xmin_last_value is not None
+    assert schema.xmin_ceiling is not None
+    assert schema.xmin_num_wraparound is not None
+    first_ceiling = schema.xmin_last_value
+
+    # Mutate: update the existing row and insert a new one. Both get a fresh xmin above the ceiling.
+    await postgres_connection.execute(
+        "UPDATE {schema}.xmin_table SET name = 'a2' WHERE id = 1".format(schema=schema_name)
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.xmin_table (id, name) VALUES (2, 'b')".format(schema=schema_name)
+    )
+    await postgres_connection.commit()
+
+    await _execute_run(str(uuid.uuid4()), inputs, [])
+    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    # Only the delta is read, upserted by primary key: row 1 reflects the update, row 2 is new.
+    res = await sync_to_async(execute_hogql_query)("SELECT id, name FROM postgres_xmin_table ORDER BY id", team)
+    assert [(r[0], r[1]) for r in res.results] == [(1, "a2"), (2, "b")]
+
+    # Ceiling advanced strictly past the first run's value — the delta committed new transactions.
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.xmin_last_value is not None
+    assert schema.xmin_last_value > first_ceiling
+
+    # Hard deletes are invisible to xmin — a vacuumed tuple leaves nothing to read.
+    await postgres_connection.execute("DELETE FROM {schema}.xmin_table WHERE id = 2".format(schema=schema_name))
+    await postgres_connection.commit()
+
+    await _execute_run(str(uuid.uuid4()), inputs, [])
+    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    res = await sync_to_async(execute_hogql_query)("SELECT id, name FROM postgres_xmin_table ORDER BY id", team)
+    assert [(r[0], r[1]) for r in res.results] == [(1, "a2"), (2, "b")]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_postgres_xmin_wraparound_or_range(team, postgres_config, postgres_connection):
+    """The single-wrap `>= lower OR < upper` predicate executes against real Postgres and reads rows.
+    A mocked ceiling forces the wraparound branch (the exact SQL is covered by unit tests)."""
+    schema_name = postgres_config["schema"]
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.xmin_wrap (id integer PRIMARY KEY, name text)".format(schema=schema_name)
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.xmin_wrap (id, name) VALUES (1, 'a')".format(schema=schema_name)
+    )
+    await postgres_connection.commit()
+
+    # Force the OR-range branch with a huge `upper` so the `< upper` side matches every real
+    # (small) tuple xmin — exercising the wraparound predicate end-to-end.
+    wraparound_bounds = XminBounds(
+        lower=4_000_000_000,
+        upper=4_294_967_295,
+        ceiling_xid8=(1 << 32) | 4_294_967_295,
+        num_wraparound=1,
+        wraparound_or_range=True,
+    )
+
+    with mock.patch(
+        "posthog.temporal.data_imports.sources.postgres.postgres._capture_xmin_ceiling",
+        return_value=wraparound_bounds,
+    ) as mock_capture:
+        await _run(
+            team=team,
+            schema_name="xmin_wrap",
+            table_name="postgres_xmin_wrap",
+            source_type="Postgres",
+            job_inputs=_postgres_job_inputs(postgres_config),
+            mock_data_response=[],
+            sync_type=ExternalDataSchema.SyncType.XMIN,
+            sync_type_config={},
+        )
+
+    mock_capture.assert_called_once()
+
+    res = await sync_to_async(execute_hogql_query)("SELECT id, name FROM postgres_xmin_wrap ORDER BY id", team)
+    assert [(r[0], r[1]) for r in res.results] == [(1, "a")]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_postgres_switch_to_xmin_rebuilds_table(team, postgres_config, postgres_connection):
+    """Switching an already-synced table to xmin rebuilds the Delta table. Without the resync the
+    write fails: the old physical schema lacks the non-nullable `_ph_xmin` control column."""
+    schema_name = postgres_config["schema"]
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.switch_tbl (id integer PRIMARY KEY, name text)".format(schema=schema_name)
+    )
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.switch_tbl (id, name) VALUES (1, 'a')".format(schema=schema_name)
+    )
+    await postgres_connection.commit()
+
+    # First sync as incremental — the Delta table is created without `_ph_xmin`.
+    _workflow_id, inputs = await _run(
+        team=team,
+        schema_name="switch_tbl",
+        table_name="postgres_switch_tbl",
+        source_type="Postgres",
+        job_inputs=_postgres_job_inputs(postgres_config),
+        mock_data_response=[],
+        sync_type=ExternalDataSchema.SyncType.INCREMENTAL,
+        sync_type_config={"incremental_field": "id", "incremental_field_type": "integer"},
+    )
+
+    res = await sync_to_async(execute_hogql_query)("SELECT id, name FROM postgres_switch_tbl ORDER BY id", team)
+    assert [(r[0], r[1]) for r in res.results] == [(1, "a")]
+
+    # Switch to xmin with reset_pipeline — what the serializer sets when crossing the xmin boundary.
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    schema.sync_type = ExternalDataSchema.SyncType.XMIN
+    schema.sync_type_config = {"primary_key_columns": ["id"], "reset_pipeline": True}
+    await sync_to_async(schema.save)()
+
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.switch_tbl (id, name) VALUES (2, 'b')".format(schema=schema_name)
+    )
+    await postgres_connection.commit()
+
+    await _execute_run(str(uuid.uuid4()), inputs, [])
+    await _replay_v3_consumer(team_id=team.pk, schema_id=inputs.external_data_schema_id)
+
+    # The table was rebuilt from scratch under xmin (first xmin run reads everything below the
+    # ceiling), so both rows land and the `_ph_xmin` column is present.
+    res = await sync_to_async(execute_hogql_query)(
+        "SELECT id, name, _ph_xmin FROM postgres_switch_tbl ORDER BY id", team
+    )
+    assert [(r[0], r[1]) for r in res.results] == [(1, "a"), (2, "b")]
+    assert all(r[2] is not None for r in res.results)
+
+    # Reset consumed: xmin state seeded fresh, reset_pipeline cleared.
+    schema = await ExternalDataSchema.objects.aget(id=inputs.external_data_schema_id)
+    assert schema.sync_type_config.get("reset_pipeline") is None
+    assert schema.xmin_last_value is not None

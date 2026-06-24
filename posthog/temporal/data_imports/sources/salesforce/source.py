@@ -9,6 +9,7 @@ from posthog.schema import (
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -27,6 +28,11 @@ class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeC
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SALESFORCE
 
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.salesforce.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "invalid_session_id": "Your Salesforce session has expired. Please reconnect the source.",
@@ -37,6 +43,10 @@ class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeC
             # user that authorized the connection has been deactivated. Retrying can't fix it —
             # the user must be reactivated in Salesforce or the source reconnected with an active user.
             "inactive user": "The Salesforce user for this connection is inactive. Reactivate it in Salesforce or reconnect the source with an active user.",
+            # OAuthMixin.get_oauth_integration raises "Integration not found: <id>" when the
+            # linked Salesforce integration has been deleted/disconnected. The source still
+            # references the stale id, so retrying never recovers — reconnecting is the only fix.
+            "Integration not found": "The linked Salesforce integration no longer exists. Please reconnect the source.",
             # SalesforceAuthRequestError.raise_from_response formats token-refresh failures as
             # "<code> Client Error: <reason>: <error_description>", so the "... for url" patterns
             # above never match it. Key off the stable error_description returned by Salesforce

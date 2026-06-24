@@ -10,7 +10,10 @@ def query_kind_label(query: dict | None) -> str:
 ENDPOINT_EXECUTION_TOTAL = Counter(
     "posthog_endpoint_execution_total",
     "Endpoint executions that reached query execution (excludes concurrency rejections; see posthog_endpoint_concurrency_rejected_total). "
-    "status is success, user_error (invalid query/variables in the user's endpoint, returned as 4xx), or error (unexpected system failure)",
+    "status is success; user_error (invalid query/variables in the user's endpoint, returned as 4xx); "
+    "query_performance (the query hit a ClickHouse cost guardrail — timeout/memory/size/estimated-too-slow — returned as 400); "
+    "capacity (shared ClickHouse pool momentarily saturated, returned as 503); "
+    'or error (unexpected system failure). Only error is a system fault — alert on status="error"',
     labelnames=["execution_type", "query_kind", "status"],
 )
 
@@ -41,6 +44,7 @@ ENDPOINT_RATE_LIMITED_TOTAL = Counter(
 ENDPOINT_CONCURRENCY_REJECTED_TOTAL = Counter(
     "posthog_endpoint_concurrency_rejected_total",
     "Endpoint executions rejected because the concurrency limit was exceeded",
+    # team_id is safe cardinality here: only teams actually hitting concurrency limits appear
     labelnames=["team_id"],
 )
 

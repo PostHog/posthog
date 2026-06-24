@@ -3,11 +3,14 @@ from typing import Any, cast
 import pytest
 from unittest.mock import MagicMock, Mock, patch
 
+from requests import HTTPError
+
 from posthog.temporal.data_imports.sources.vitally.settings import CUSTOM_OBJECT_SCHEMA_PREFIX
 from posthog.temporal.data_imports.sources.vitally.source import VitallySource
 from posthog.temporal.data_imports.sources.vitally.vitally import (
     VitallyPaginator,
     get_custom_object_records_resource,
+    get_messages,
     list_custom_object_definitions,
     vitally_source,
 )
@@ -117,6 +120,27 @@ class TestListCustomObjectDefinitions:
 
         with pytest.raises(RuntimeError, match="401 Unauthorized"):
             list_custom_object_definitions("secret", "EU", None)
+
+
+class TestGetMessages:
+    @patch("posthog.temporal.data_imports.sources.vitally.vitally.make_tracked_session")
+    def test_raises_http_error_instead_of_keyerror_when_conversations_request_fails(self, mock_session_factory):
+        # A non-2xx conversations list response carries an error body with no "results" key.
+        # Previously get_messages indexed json["results"] directly, surfacing a misleading
+        # KeyError('results'); now raise_for_status lets the real HTTP error through.
+        bad = _make_response({"message": "Unauthorized"}, status_code=401)
+        bad.raise_for_status.side_effect = HTTPError("401 Client Error: Unauthorized", response=bad)
+        mock_session_factory.return_value = _make_session([bad])
+
+        with pytest.raises(HTTPError, match="401"):
+            list(get_messages("secret", "EU", None, None, False, MagicMock()))
+
+    @patch("posthog.temporal.data_imports.sources.vitally.vitally.make_tracked_session")
+    def test_handles_missing_results_key_without_keyerror(self, mock_session_factory):
+        # Defensive: a 200 response that omits "results" must end pagination cleanly, not KeyError.
+        mock_session_factory.return_value = _make_session([_make_response({"next": None})])
+
+        assert list(get_messages("secret", "EU", None, None, False, MagicMock())) == []
 
 
 class TestGetCustomObjectRecordsResource:
@@ -259,8 +283,9 @@ class TestVitallySourceGetSchemas:
         mock_list.assert_not_called()
         assert {s.name for s in schemas} == {"Accounts", "Conversations"}
 
+    @patch("posthog.temporal.data_imports.sources.vitally.source.capture_exception")
     @patch("posthog.temporal.data_imports.sources.vitally.source.list_custom_object_definitions")
-    def test_static_schemas_survive_discovery_failure(self, mock_list):
+    def test_static_schemas_survive_discovery_failure(self, mock_list, mock_capture):
         mock_list.side_effect = RuntimeError("Vitally API unavailable")
 
         schemas = VitallySource().get_schemas(self._make_config(), team_id=1)
@@ -268,6 +293,29 @@ class TestVitallySourceGetSchemas:
         names = {s.name for s in schemas}
         assert {"Accounts", "Conversations", "Custom_Objects", "Messages"} <= names
         assert not any(s.name.startswith(CUSTOM_OBJECT_SCHEMA_PREFIX) for s in schemas)
+        # Unexpected discovery failures are still captured for triage.
+        mock_capture.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "error_message",
+        [
+            "401 Client Error: Unauthorized for url: https://firstignite.rest.vitally.io/resources/customObjects?limit=100",
+            "403 Client Error: Forbidden for url: https://rest.vitally-eu.io/resources/customObjects?limit=100",
+        ],
+    )
+    @patch("posthog.temporal.data_imports.sources.vitally.source.capture_exception")
+    @patch("posthog.temporal.data_imports.sources.vitally.source.list_custom_object_definitions")
+    def test_credential_errors_do_not_spam_error_tracking(self, mock_list, mock_capture, error_message):
+        # A revoked/invalid token surfaces as a 401/403 during custom object discovery. Static
+        # endpoints must still survive, and we must not capture the credential error to error tracking.
+        mock_list.side_effect = RuntimeError(error_message)
+
+        schemas = VitallySource().get_schemas(self._make_config(), team_id=1)
+
+        names = {s.name for s in schemas}
+        assert {"Accounts", "Conversations", "Custom_Objects", "Messages"} <= names
+        assert not any(s.name.startswith(CUSTOM_OBJECT_SCHEMA_PREFIX) for s in schemas)
+        mock_capture.assert_not_called()
 
 
 class TestVitallyNonRetryableErrors:

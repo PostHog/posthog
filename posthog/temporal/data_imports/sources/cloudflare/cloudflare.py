@@ -22,6 +22,10 @@ MAX_RETRY_ATTEMPTS = 5
 MAX_RETRY_AFTER_SECONDS = 120
 # Stateless backoff used when a retryable error carries no Retry-After hint.
 _FALLBACK_WAIT = wait_exponential_jitter(initial=1, max=60)
+# A token can list zones (account-level Zone:Read) without holding DNS:Read on
+# every one of them. Per-zone 403/404s mean "this zone is inaccessible/gone" —
+# skip it and keep syncing the rest rather than failing the whole stream.
+ZONE_SKIP_STATUS_CODES = frozenset({403, 404})
 
 
 class CloudflareRetryableError(Exception):
@@ -121,8 +125,18 @@ def get_rows(
     zone_ids = [zone["id"] for page in iterate_pages("/zones") for zone in page if zone.get("id")]
     for zone_id in zone_ids:
         path = config.path.replace("{zone_id}", quote(zone_id))
-        for page_items in iterate_pages(path):
-            yield [{**item, config.parent_key: zone_id} for item in page_items]
+        try:
+            for page_items in iterate_pages(path):
+                yield [{**item, config.parent_key: zone_id} for item in page_items]
+        except requests.HTTPError as e:
+            status_code = e.response.status_code if e.response is not None else None
+            if status_code in ZONE_SKIP_STATUS_CODES:
+                logger.warning(
+                    f"Skipping Cloudflare zone {zone_id} for endpoint '{endpoint}': "
+                    f"token lacks access (status={status_code})"
+                )
+                continue
+            raise
 
 
 def cloudflare_source(

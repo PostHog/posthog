@@ -22,7 +22,12 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.event_usage import report_user_action
 
-from products.metrics.backend.facade.api import list_metric_names, run_metric_query, team_has_metrics
+from products.metrics.backend.facade.api import (
+    characterize_metric_anomaly,
+    list_metric_names,
+    run_metric_query,
+    team_has_metrics,
+)
 from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy, MetricQueryClause, MetricQueryRequest
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricAggregation
 
@@ -62,15 +67,58 @@ class _MetricGroupBySerializer(serializers.Serializer):
     )
 
 
+class _MetricClauseSerializer(serializers.Serializer):
+    name = serializers.CharField(
+        max_length=64,
+        help_text="Clause name a formula refers to (e.g. 'a').",
+    )
+    metricName = serializers.CharField(
+        max_length=255,
+        help_text="Exact metric name this clause queries.",
+    )
+    aggregation = serializers.ChoiceField(
+        choices=["sum", "avg", "count", "p95", "rate", "increase", "histogram_quantile"],
+        default="sum",
+        help_text="Aggregation applied per time bucket; same semantics as the top-level aggregation.",
+    )
+    quantile = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        min_value=0.0,
+        max_value=1.0,
+        help_text="Quantile in (0, 1) for 'histogram_quantile'.",
+    )
+    filters = _MetricFilterSerializer(
+        many=True,
+        required=False,
+        default=list,
+        help_text="Label predicates ANDed together for this clause.",
+    )
+    groupBy = _MetricGroupBySerializer(
+        many=True,
+        required=False,
+        default=list,
+        help_text="Labels to split this clause into separate series by.",
+    )
+
+
 class _MetricQueryBodySerializer(serializers.Serializer):
     metricName = serializers.CharField(
         max_length=255,
-        help_text="Exact metric name to query (e.g. 'http.server.duration').",
+        required=False,
+        help_text="Exact metric name to query (e.g. 'http.server.duration'). Single-clause shorthand — mutually exclusive with 'clauses'.",
     )
     aggregation = serializers.ChoiceField(
-        choices=["sum", "avg", "count", "p95", "rate", "increase"],
+        choices=["sum", "avg", "count", "p95", "rate", "increase", "histogram_quantile"],
         default="sum",
-        help_text="Aggregation applied per time bucket. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is).",
+        help_text="Aggregation applied per time bucket. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'.",
+    )
+    quantile = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        min_value=0.0,
+        max_value=1.0,
+        help_text="Quantile in (0, 1) for 'histogram_quantile' (e.g. 0.95). Ignored for other aggregations.",
     )
     filters = _MetricFilterSerializer(
         many=True,
@@ -90,6 +138,17 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         allow_null=True,
         help_text="Bucket size for the shared time grid. Omit to auto-pick (~60 buckets across the range).",
     )
+    clauses = _MetricClauseSerializer(
+        many=True,
+        required=False,
+        help_text="Full multi-clause form: each clause is an independent metric selection sharing the request's time grid. Mutually exclusive with 'metricName'.",
+    )
+    formula = serializers.CharField(
+        required=False,
+        allow_null=True,
+        max_length=512,
+        help_text="Arithmetic over clause names evaluated server-side per grid point, e.g. '(a - b) / a'. Supports + - * / and parentheses; division by zero yields 0. When set, only the formula result series are returned.",
+    )
     dateFrom = serializers.DateTimeField(
         help_text="Lower bound (inclusive) for the query range. ISO 8601.",
     )
@@ -98,9 +157,46 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         help_text="Upper bound (exclusive) for the query range. Defaults to now if omitted.",
     )
 
+    def validate(self, attrs: dict) -> dict:
+        has_single = bool(attrs.get("metricName"))
+        has_clauses = bool(attrs.get("clauses"))
+        if has_single == has_clauses:
+            raise serializers.ValidationError("Provide exactly one of 'metricName' or 'clauses'.")
+        if attrs.get("formula") and not has_clauses:
+            raise serializers.ValidationError("'formula' requires 'clauses'.")
+        return attrs
+
 
 class _MetricQueryRequestSerializer(serializers.Serializer):
     query = _MetricQueryBodySerializer(help_text="The metric query to execute.")
+
+
+def _build_clause(data: dict, *, name: str) -> MetricQueryClause:
+    """Validated wire clause (or single-clause shorthand body) → contract.
+
+    The wire aggregation "p95" is contract QUANTILE(0.95)."""
+    aggregation_raw: str = data["aggregation"]
+    quantile: float | None = None
+    if aggregation_raw == "p95":
+        aggregation, quantile = MetricAggregation.QUANTILE, 0.95
+    elif aggregation_raw == "histogram_quantile":
+        aggregation, quantile = MetricAggregation.HISTOGRAM_QUANTILE, data.get("quantile")
+    else:
+        aggregation = MetricAggregation(aggregation_raw)
+
+    return MetricQueryClause(
+        name=name,
+        metric_name=data["metricName"],
+        aggregation=aggregation,
+        quantile=quantile,
+        filters=tuple(
+            MetricFilter(key=f["key"], op=FilterOp(f["op"]), value=f["value"], scope=AttributeScope(f["scope"]))
+            for f in data.get("filters") or []
+        ),
+        group_by=tuple(
+            MetricGroupBy(key=g["key"], scope=AttributeScope(g["scope"])) for g in data.get("groupBy") or []
+        ),
+    )
 
 
 class _MetricQueryPointSerializer(serializers.Serializer):
@@ -130,6 +226,99 @@ class _MetricQueryResponseSerializer(serializers.Serializer):
     results = _MetricSeriesSerializer(
         many=True,
         help_text="One series per (clause, label-set). A single ungrouped query returns exactly one series with empty labels.",
+    )
+
+
+class _MetricAnomalyBodySerializer(serializers.Serializer):
+    metricName = serializers.CharField(
+        max_length=255,
+        help_text="Exact metric name to characterize (e.g. 'metrics_rate_limiter_message_lag_seconds').",
+    )
+    anomalyFrom = serializers.DateTimeField(
+        help_text="Start of the suspicious window (inclusive). ISO 8601 — e.g. when the alert fired or the graph started looking wrong.",
+    )
+    anomalyTo = serializers.DateTimeField(
+        required=False,
+        help_text="End of the suspicious window (exclusive). Defaults to now.",
+    )
+    baselineFrom = serializers.DateTimeField(
+        required=False,
+        help_text="Start of the healthy comparison window. Defaults to one anomaly-window-length before baselineTo.",
+    )
+    baselineTo = serializers.DateTimeField(
+        required=False,
+        help_text="End of the healthy comparison window. Defaults to anomalyFrom. Must not extend past anomalyFrom.",
+    )
+    aggregation = serializers.ChoiceField(
+        choices=["sum", "avg", "count", "p95", "rate", "increase", "histogram_quantile"],
+        required=False,
+        allow_null=True,
+        help_text="Aggregation to characterize. Omit to auto-pick from the metric's OTel type (counter -> rate, gauge -> avg, histogram -> histogram_quantile 0.95).",
+    )
+    quantile = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        min_value=0.0,
+        max_value=1.0,
+        help_text="Quantile for histogram_quantile. Defaults to 0.95.",
+    )
+    filters = _MetricFilterSerializer(
+        many=True,
+        required=False,
+        default=list,
+        help_text="Label predicates narrowing which series are characterized.",
+    )
+    candidateKeys = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        required=False,
+        help_text="Label keys to drill into when finding which label values moved. Omit to auto-discover the most common keys on this metric (plus service_name). Max 4 are used.",
+    )
+
+
+class _MetricAnomalyRequestSerializer(serializers.Serializer):
+    query = _MetricAnomalyBodySerializer(help_text="The anomaly characterization to run.")
+
+
+class _MetricAnomalyDimensionSerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="Label key that was drilled into.")
+    # the name shadows rest_framework Field.label as far as mypy can tell;
+    # DRF itself handles declared fields named `label` fine
+    label = serializers.CharField(help_text="Label value this row describes.")  # type: ignore[assignment]
+    baseline_value = serializers.FloatField(help_text="Mean value over the baseline window for this label value.")
+    anomaly_value = serializers.FloatField(help_text="Mean value over the anomaly window for this label value.")
+    change_ratio = serializers.FloatField(
+        help_text="anomaly_value / baseline_value. A zero baseline yields the anomaly value itself (new traffic)."
+    )
+
+
+class _MetricAnomalyReportSerializer(serializers.Serializer):
+    metric_name = serializers.CharField(help_text="Metric that was characterized.")
+    aggregation = serializers.CharField(help_text="Aggregation used (auto-picked when not specified).")
+    interval = serializers.CharField(help_text="Bucket size of the analysis grid.")
+    baseline_from = serializers.CharField(help_text="Baseline window start, ISO 8601.")
+    baseline_to = serializers.CharField(help_text="Baseline window end, ISO 8601.")
+    anomaly_from = serializers.CharField(help_text="Anomaly window start, ISO 8601.")
+    anomaly_to = serializers.CharField(help_text="Anomaly window end, ISO 8601.")
+    baseline_mean = serializers.FloatField(help_text="Mean over the baseline window.")
+    baseline_stddev = serializers.FloatField(help_text="Population stddev over the baseline window.")
+    anomaly_mean = serializers.FloatField(help_text="Mean over the anomaly window.")
+    anomaly_peak = serializers.FloatField(help_text="Maximum bucket value in the anomaly window.")
+    change_ratio = serializers.FloatField(
+        help_text="anomaly_mean / baseline_mean. A zero baseline yields anomaly_mean itself."
+    )
+    direction = serializers.ChoiceField(
+        choices=["up", "down", "flat"], help_text="Which way the metric moved versus the baseline."
+    )
+    onset_time = serializers.CharField(
+        allow_null=True,
+        help_text="First bucket clearly outside the baseline range (3 stddevs or 50% relative change), or null if no clear onset.",
+    )
+    top_movers = _MetricAnomalyDimensionSerializer(
+        many=True,
+        help_text="Label values whose behavior changed the most between windows, largest change first. Empty when nothing moved or the metric has no labels.",
+    )
+    series = _MetricSeriesSerializer(
+        help_text="The metric across baseline + anomaly windows on one grid, for plotting or further inspection."
     )
 
 
@@ -210,43 +399,18 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         body.is_valid(raise_exception=True)
         query_data = body.validated_data["query"]
 
-        # The wire aggregation "p95" is contract QUANTILE(0.95); the richer
-        # request fields (filters, group_by, formula) arrive in later PRs.
-        aggregation_raw: str = query_data["aggregation"]
-        if aggregation_raw == "p95":
-            aggregation, quantile = MetricAggregation.QUANTILE, 0.95
-        else:
-            aggregation, quantile = MetricAggregation(aggregation_raw), None
-
-        filters = tuple(
-            MetricFilter(
-                key=f["key"],
-                op=FilterOp(f["op"]),
-                value=f["value"],
-                scope=AttributeScope(f["scope"]),
-            )
-            for f in query_data.get("filters") or []
-        )
-        group_by = tuple(
-            MetricGroupBy(key=g["key"], scope=AttributeScope(g["scope"])) for g in query_data.get("groupBy") or []
-        )
-
         date_to: dt.datetime = query_data.get("dateTo") or timezone.now()
         try:
+            if query_data.get("clauses"):
+                clauses = tuple(_build_clause(c, name=c["name"]) for c in query_data["clauses"])
+            else:
+                clauses = (_build_clause(query_data, name="a"),)
             metric_request = MetricQueryRequest(
-                clauses=(
-                    MetricQueryClause(
-                        name="a",
-                        metric_name=query_data["metricName"],
-                        aggregation=aggregation,
-                        quantile=quantile,
-                        filters=filters,
-                        group_by=group_by,
-                    ),
-                ),
+                clauses=clauses,
                 date_from=query_data["dateFrom"],
                 date_to=date_to,
                 interval=query_data.get("interval"),
+                formula=query_data.get("formula"),
             )
             series = run_metric_query(team=self.team, request=metric_request)
         except ValueError as exc:
@@ -256,7 +420,9 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             request.user,
             "metrics query ran",
             {
-                "aggregation": query_data["aggregation"],
+                "aggregations": sorted({c.aggregation.value for c in clauses}),
+                "clause_count": len(clauses),
+                "has_formula": metric_request.formula is not None,
                 "series_count": len(series),
                 "result_count": sum(len(s.points) for s in series),
             },
@@ -265,3 +431,48 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
 
         return Response({"results": [asdict(s) for s in series]}, status=status.HTTP_200_OK)
+
+    @extend_schema(request=_MetricAnomalyRequestSerializer, responses={200: _MetricAnomalyReportSerializer})
+    @action(detail=False, methods=["POST"], required_scopes=["metrics:read"])
+    def characterize(self, request: Request, *args, **kwargs) -> Response:
+        """Characterize a metric anomaly: compare an anomaly window against a
+        baseline, find the onset, and rank which label values moved."""
+        tag_queries(product=Product.METRICS, feature=Feature.QUERY)
+
+        body = _MetricAnomalyRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        query_data = body.validated_data["query"]
+
+        filters = tuple(
+            MetricFilter(key=f["key"], op=FilterOp(f["op"]), value=f["value"], scope=AttributeScope(f["scope"]))
+            for f in query_data.get("filters") or []
+        )
+        try:
+            report = characterize_metric_anomaly(
+                team=self.team,
+                metric_name=query_data["metricName"],
+                anomaly_from=query_data["anomalyFrom"],
+                anomaly_to=query_data.get("anomalyTo") or timezone.now(),
+                baseline_from=query_data.get("baselineFrom"),
+                baseline_to=query_data.get("baselineTo"),
+                aggregation=query_data.get("aggregation"),
+                quantile=query_data.get("quantile"),
+                filters=filters,
+                candidate_keys=tuple(query_data["candidateKeys"]) if query_data.get("candidateKeys") else None,
+            )
+        except ValueError as exc:
+            raise ParseError(str(exc))
+
+        report_user_action(
+            request.user,
+            "metrics anomaly characterized",
+            {
+                "aggregation": report.aggregation,
+                "direction": report.direction,
+                "mover_count": len(report.top_movers),
+            },
+            team=self.team,
+            request=request,
+        )
+
+        return Response(asdict(report), status=status.HTTP_200_OK)

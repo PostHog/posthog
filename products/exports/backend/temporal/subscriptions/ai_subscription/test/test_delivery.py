@@ -3,6 +3,8 @@ import uuid
 import pytest
 from unittest.mock import MagicMock, patch
 
+from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
+
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     SLACK_MRKDWN_SECTION_LIMIT,
     _build_ai_slack_message,
@@ -200,6 +202,42 @@ class TestBuildAISlackMessage:
         for thread_msg in message.thread_messages:
             for block in thread_msg["blocks"]:
                 assert block["text"]["text"].strip(), "thread section text must be non-empty"
+
+
+def _mock_integration(scopes: frozenset[str]) -> MagicMock:
+    integration = MagicMock()
+    integration.kind = "slack"
+    integration.id = 7
+    integration.config = {"scope": ",".join(sorted(scopes))}
+    integration.sensitive_config = {"access_token": "xoxb-test"}
+    return integration
+
+
+def _hint_texts(message: SlackMessageData) -> list[str]:
+    return [el["text"] for block in message.blocks if block.get("type") == "context" for el in block["elements"]]
+
+
+def _ai_message(*, integration: MagicMock | None = None) -> SlackMessageData:
+    return _build_ai_slack_message(
+        _mock_subscription(),
+        "A short report.",
+        delivery_id=_DELIVERY_ID,
+        integration=integration,
+    )
+
+
+class TestAIExploreHint:
+    def test_no_hint_without_integration(self) -> None:
+        assert not any("@PostHog" in t for t in _hint_texts(_ai_message()))
+
+    def test_bot_ready_hint_nudges_mention(self) -> None:
+        message = _ai_message(integration=_mock_integration(REQUIRED_SLACK_SCOPES))
+        assert any("@PostHog" in t and "docs/slack-app" not in t for t in _hint_texts(message))
+
+    def test_bot_not_ready_hint_links_docs(self) -> None:
+        texts = _hint_texts(_ai_message(integration=_mock_integration(frozenset({"chat:write"}))))
+        assert any("docs/slack-app" in t for t in texts)
+        assert not any("Reply in this thread" in t for t in texts)
 
 
 def _feedback_url(feedback: str, source: str) -> str:

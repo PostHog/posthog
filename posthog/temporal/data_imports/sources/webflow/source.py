@@ -13,6 +13,7 @@ from posthog.schema import (
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -36,10 +37,20 @@ class WebflowSource(ResumableSource[WebflowSourceConfig, WebflowResumeConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.WEBFLOW
 
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.webflow.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error": "Your Webflow API token is invalid or expired. Please generate a new token and reconnect.",
             "403 Client Error": "Your Webflow API token is missing a required scope. Grant the read scopes for the resources you want to sync and reconnect.",
+            # Webflow returns 409 Conflict on the Products/Orders list endpoints when the
+            # connected site does not have ecommerce enabled, and on other resources when
+            # the site has unpublished changes. Both are deterministic state/config issues
+            # that retrying can't resolve, so stop retrying and tell the user how to fix it.
+            "409 Client Error: Conflict": "Webflow returned a 409 Conflict. For the Products and Orders tables this means the connected site does not have ecommerce enabled — enable ecommerce in Webflow or remove those tables from the sync. For other resources it can mean the site has unpublished changes; publish your Webflow site, then try again.",
         }
 
     def get_schemas(

@@ -1,4 +1,4 @@
-import React, { type ReactNode } from 'react'
+import { type ReactNode } from 'react'
 
 import { LemonCheckbox, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 
@@ -203,58 +203,32 @@ const JSONLINES_COMPRESSION_OPTIONS = [
     { value: null, label: 'No compression' },
 ]
 
-// Compression select that adapts its options to the currently-selected file format and self-corrects
-// invalid combinations. Used by S3 and AzureBlob, which share file_format/compression semantics.
-export function CompressionField({
-    fileFormat,
-    isNew,
-    configurationChanged,
-}: {
-    fileFormat: string | undefined
-    isNew: boolean
-    configurationChanged: boolean
-}): JSX.Element {
+export function isSelectedCompressionOptionValid(fileFormat: string | undefined, value: string | null): boolean {
+    if (fileFormat === 'Parquet') {
+        return PARQUET_COMPRESSION_OPTIONS.some((option) => option.value === value)
+    } else if (fileFormat === 'JSONLines') {
+        return JSONLINES_COMPRESSION_OPTIONS.some((option) => option.value === value)
+    }
+    return false
+}
+
+// Compression select whose options adapt to the currently-selected file format. Used by S3 and
+// AzureBlob, which share file_format/compression semantics. The form logic resets compression to a
+// valid value when file_format changes (see batchExportConfigFormLogic's setConfigurationValue).
+export function CompressionField({ fileFormat }: { fileFormat: string | undefined }): JSX.Element {
+    const compressionOptions =
+        fileFormat === 'Parquet'
+            ? PARQUET_COMPRESSION_OPTIONS
+            : fileFormat === 'JSONLines'
+              ? JSONLINES_COMPRESSION_OPTIONS
+              : []
+
     return (
         <LemonField name="compression" label="Compression" className="flex-1">
-            {({ value, onChange }) => {
-                const compressionOptions =
-                    fileFormat === 'Parquet'
-                        ? PARQUET_COMPRESSION_OPTIONS
-                        : fileFormat === 'JSONLines'
-                          ? JSONLINES_COMPRESSION_OPTIONS
-                          : []
-
-                const isSelectedCompressionOptionValid = (val: string | null): boolean => {
-                    if (fileFormat === 'Parquet') {
-                        return PARQUET_COMPRESSION_OPTIONS.some((option) => option.value === val)
-                    } else if (fileFormat === 'JSONLines') {
-                        return JSONLINES_COMPRESSION_OPTIONS.some((option) => option.value === val)
-                    }
-                    return false
-                }
-
-                React.useEffect(() => {
-                    if (!configurationChanged) {
-                        return
-                    }
-                    if (isNew && fileFormat === 'JSONLines') {
-                        onChange(null)
-                    } else if (isNew && fileFormat === 'Parquet') {
-                        onChange('zstd')
-                    } else if (!isSelectedCompressionOptionValid(value)) {
-                        onChange(null)
-                    }
-                }, [configurationChanged, fileFormat, isNew]) // oxlint-disable-line react-hooks/exhaustive-deps
-
-                return (
-                    <LemonSelect
-                        options={compressionOptions}
-                        value={value}
-                        onChange={onChange}
-                        placeholder={!fileFormat ? 'Select file format first' : undefined}
-                    />
-                )
-            }}
+            <LemonSelect
+                options={compressionOptions}
+                placeholder={!fileFormat ? 'Select file format first' : undefined}
+            />
         </LemonField>
     )
 }
@@ -314,7 +288,6 @@ export const S3_FAMILY_EVENT_TABLE_EXTRA_FIELDS: Record<string, DatabaseSchemaFi
 export function S3FamilyFields({
     isNew,
     formValues,
-    configurationChanged,
     regionOptions,
     awsBranded,
     allowCustomRegion = false,
@@ -326,7 +299,6 @@ export function S3FamilyFields({
 }: {
     isNew: boolean
     formValues: Record<string, any>
-    configurationChanged: boolean
     regionOptions: { value: string; label: string }[]
     // Prefix the credential labels with "AWS" — only true for AWS S3, not the S3-compatible catch-all.
     awsBranded: boolean
@@ -388,11 +360,7 @@ export function S3FamilyFields({
             </div>
 
             <div className="flex gap-4">
-                <CompressionField
-                    fileFormat={formValues.file_format}
-                    isNew={isNew}
-                    configurationChanged={configurationChanged}
-                />
+                <CompressionField fileFormat={formValues.file_format} />
 
                 {showEncryption && (
                     <LemonField name="encryption" label="Encryption" className="flex-1">

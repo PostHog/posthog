@@ -16,14 +16,16 @@ import {
     LemonTable,
     LemonTableColumns,
     LemonTag,
+    Spinner,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
 import { useBulkSelection } from 'lib/lemon-ui/LemonTable/useBulkSelection'
+import { stripMarkdown } from 'lib/utils/markdown'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { stripMarkdown } from 'lib/utils/stripMarkdown'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -52,6 +54,9 @@ import {
     type TicketSlaState,
     type TicketStatus,
     type TicketTagsMatch,
+    aiTriageResultLabel,
+    aiTriageResultTagType,
+    aiTriageTicketTypeLabel,
     channelOptions,
     priorityMultiselectOptions,
     slaOptions,
@@ -259,9 +264,14 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
     const { tickets, ticketsLoading, currentPage, totalCount, sorting, selectedTicketIds } = useValues(logic)
     const { setCurrentPage, setSorting, setSelectedTicketIds } = useActions(logic)
     const { push } = useActions(router)
+    const { currentTeam } = useValues(teamLogic)
+    const aiEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
 
     const getKey = useMemo(() => (t: Ticket) => t.id, [])
     const bulk = useBulkSelection<Ticket, string>({ pageRecords: tickets, getKey })
+    // `bulk` is a fresh object every render, but its members are individually stable
+    // (callbacks/useState/useMemo or primitives). Destructure so hook deps reference the
+    // stable members instead of the unstable wrapper object.
     const {
         selectedKeys,
         clearSelection,
@@ -311,11 +321,51 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
                 />
             ),
         }
-        const base = embedded
+        const aiCol: LemonTableColumns<Ticket>[number] = {
+            title: 'AI status',
+            key: 'ai_triage',
+            render: (_, ticket: Ticket) => {
+                const triage = ticket.ai_triage
+                if (!triage || !triage.status) {
+                    return <span className="text-muted-alt text-xs">—</span>
+                }
+                if (triage.status === 'in_progress') {
+                    return (
+                        <span className="flex items-center gap-1 text-xs">
+                            <Spinner className="text-sm" />
+                            Processing
+                        </span>
+                    )
+                }
+                if (triage.result) {
+                    const tooltipContent = [
+                        triage.ticket_type &&
+                            `Type: ${aiTriageTicketTypeLabel[triage.ticket_type] ?? triage.ticket_type}`,
+                        triage.confidence != null && `Confidence: ${(triage.confidence * 100).toFixed(0)}%`,
+                        triage.attempts != null && `Attempts: ${triage.attempts}`,
+                    ]
+                        .filter(Boolean)
+                        .join(' · ')
+                    return (
+                        <Tooltip title={tooltipContent || undefined}>
+                            <LemonTag type={aiTriageResultTagType(triage.result)}>
+                                {aiTriageResultLabel[triage.result]}
+                            </LemonTag>
+                        </Tooltip>
+                    )
+                }
+                return <span className="text-muted-alt text-xs">—</span>
+            },
+        }
+        let base = embedded
             ? SUPPORT_TICKETS_TABLE_COLUMNS.filter((col) => 'key' in col && col.key !== 'customer')
             : SUPPORT_TICKETS_TABLE_COLUMNS
+        if (aiEnabled) {
+            const createdIdx = base.findIndex((col) => 'key' in col && col.key === 'priority')
+            base = [...base.slice(0, createdIdx), aiCol, ...base.slice(createdIdx)]
+        }
         return [checkboxCol, ...base]
-    }, [embedded, isSomeOnPageSelected, isAllOnPageSelected, toggleAllOnPage, selectedKeysSet, toggleRow])
+    }, [embedded, aiEnabled, isSomeOnPageSelected, isAllOnPageSelected, toggleAllOnPage, selectedKeysSet, toggleRow])
 
     return (
         <LemonTable<Ticket>

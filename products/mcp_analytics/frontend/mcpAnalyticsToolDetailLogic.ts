@@ -101,7 +101,7 @@ function escapeHogQLString(value: string): string {
     return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
 }
 
-// Standard "this tool, new-SDK only" filter shared by the mcp_tool_call queries.
+// Standard "this tool, new-SDK only" filter shared by the $mcp_tool_call queries.
 function buildToolFilter(toolName: string): string {
     return `${EFFECTIVE_TOOL_HOGQL} = '${escapeHogQLString(toolName)}' AND ${NEW_SDK_FILTER}`
 }
@@ -121,7 +121,7 @@ WITH tool_calls AS (
         timestamp,
         ${EFFECTIVE_TOOL_HOGQL} AS tool
     FROM events
-    WHERE event = 'mcp_tool_call'
+    WHERE event = '$mcp_tool_call'
         AND timestamp >= now() - INTERVAL 7 DAY
         AND ${NEW_SDK_FILTER}
         AND notEmpty(coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id)))
@@ -162,7 +162,7 @@ SELECT
     uniq(distinct_id) AS users,
     uniq(coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id))) AS conversations
 FROM events
-WHERE event = 'mcp_tool_call'
+WHERE event = '$mcp_tool_call'
     AND timestamp >= now() - INTERVAL 7 DAY
     AND ${toolFilter}
 `,
@@ -194,7 +194,7 @@ SELECT
     toString(properties.$mcp_tool_description) AS description,
     toString(max(timestamp)) AS last_seen
 FROM events
-WHERE event = 'mcp_tool_call'
+WHERE event = '$mcp_tool_call'
     AND timestamp >= now() - INTERVAL 30 DAY
     AND ${toolFilter}
     AND notEmpty(toString(properties.$mcp_tool_description))
@@ -222,7 +222,7 @@ SELECT
     countIf(notEmpty(toString(properties.$mcp_intent)) AND toString(properties.$mcp_intent) != '{}') AS with_intent,
     count() AS total
 FROM events
-WHERE event = 'mcp_tool_call'
+WHERE event = '$mcp_tool_call'
     AND timestamp >= now() - INTERVAL 7 DAY
     AND ${toolFilter}
 `,
@@ -252,7 +252,7 @@ SELECT
     uniq(distinct_id) AS users,
     uniq(coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id))) AS sessions
 FROM events
-WHERE event = 'mcp_tool_call'
+WHERE event = '$mcp_tool_call'
     AND timestamp >= now() - INTERVAL 30 DAY
     AND ${toolFilter}
 GROUP BY day
@@ -283,7 +283,7 @@ SELECT
     arrayStringConcat(arraySort(arrayDistinct(groupArray(toString(properties.$mcp_client_name)))), ', ') AS harnesses
 FROM events
 -- $exception events don't carry the new-SDK markers ($mcp_source / $mcp_exec_tool_call_name), so
--- unlike the mcp_tool_call queries this matches the raw $mcp_tool_name without EFFECTIVE_TOOL_HOGQL/NEW_SDK_FILTER.
+-- unlike the $mcp_tool_call queries this matches the raw $mcp_tool_name without EFFECTIVE_TOOL_HOGQL/NEW_SDK_FILTER.
 WHERE event = '$exception'
     AND timestamp >= now() - INTERVAL 7 DAY
     AND toString(properties.$mcp_tool_name) = '${escapeHogQLString(props.toolName)}'
@@ -305,7 +305,7 @@ SELECT
     toString(properties.$mcp_intent_source) AS source,
     toString(properties.$mcp_client_name) AS harness
 FROM events
-WHERE event = 'mcp_tool_call'
+WHERE event = '$mcp_tool_call'
     AND timestamp >= now() - INTERVAL 7 DAY
     AND ${buildToolFilter(props.toolName)}
     AND notEmpty(toString(properties.$mcp_intent))
@@ -341,7 +341,7 @@ SELECT
     round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct,
     uniq(distinct_id) AS users
 FROM events
-WHERE event = 'mcp_tool_call'
+WHERE event = '$mcp_tool_call'
     AND timestamp >= now() - INTERVAL 7 DAY
     AND ${buildToolFilter(props.toolName)}
     AND notEmpty(toString(properties.$mcp_client_name))
@@ -364,7 +364,7 @@ SELECT
     arrayStringConcat(arraySort(arrayDistinct(groupArray(toString(properties.$mcp_client_name)))), ', ') AS harnesses,
     max(timestamp) AS last_seen
 FROM events
-WHERE event = 'mcp_tool_call'
+WHERE event = '$mcp_tool_call'
     AND timestamp >= now() - INTERVAL 7 DAY
     AND ${buildToolFilter(props.toolName)}
 GROUP BY distinct_id

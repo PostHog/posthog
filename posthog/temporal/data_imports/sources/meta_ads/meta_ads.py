@@ -19,9 +19,23 @@ from posthog.temporal.data_imports.sources.meta_ads.schemas import RESOURCE_SCHE
 
 from products.data_warehouse.backend.types import IncrementalFieldType
 
-# Meta Ads API only supports data from the last 3 years
+# Meta Ads API only supports data from the last 3 years. Meta's insights endpoints
+# reject a `time_range` whose start is beyond ~37 months from today with error code
+# 3018 ("The start date of the time range cannot be beyond 37 months from the current
+# date"); 3 * 365 days stays comfortably inside that window.
 META_ADS_MAX_HISTORY_DAYS = 3 * 365
 DEFAULT_SYNC_LOOKBACK_DAYS = 90
+
+
+def _earliest_supported_since(today: dt.date) -> dt.date:
+    """Earliest ``since`` date Meta will accept for an insights ``time_range``.
+
+    Meta rejects insights queries whose start is beyond ~37 months from today with
+    error code 3018. We clamp to ``META_ADS_MAX_HISTORY_DAYS`` (kept safely under that
+    limit) so a `since` derived from an aged incremental cursor — or from a dormant
+    account whose latest activity sits near the boundary — never trips it.
+    """
+    return today - dt.timedelta(days=META_ADS_MAX_HISTORY_DAYS)
 
 
 @dataclass
@@ -170,6 +184,15 @@ TIME_RANGE_CHUNK_SIZES = [30, 7, 1]
 # ``limit`` as a query param on cursor URLs.
 PAGE_LIMIT_FALLBACK_SIZES = [500, 100, 50]
 
+# Meta's Graph API intermittently returns HTTP 200 with a truncated/partial JSON
+# body — a server-side serialization hiccup under load — so ``response.json()``
+# raises ``JSONDecodeError``. The body is fully received but unparseable, so the
+# only recovery is to re-issue the same request; a couple of immediate retries
+# almost always returns a complete body. If it stays malformed we let the error
+# propagate (it remains retryable, so Temporal re-runs the activity from saved
+# resume state) rather than silently dropping the page.
+MALFORMED_JSON_MAX_ATTEMPTS = 3
+
 
 def _override_limit(url: str, limit: int) -> str:
     """Return ``url`` with its ``limit`` query parameter overridden.
@@ -307,6 +330,7 @@ def _iter_simple_pagination(
         return make_tracked_session().get(initial_url, params=params)
 
     response = _issue()
+    malformed_json_attempts = 0
 
     while True:
         if response.status_code != 200:
@@ -321,7 +345,19 @@ def _iter_simple_pagination(
                     continue
             _raise_meta_api_error(response)
 
-        response_payload = response.json()
+        try:
+            response_payload = response.json()
+        except json.JSONDecodeError:
+            # Truncated 200 body — re-issue the same request. Re-fetching is safe
+            # (the initial request has yielded nothing yet, and a cursor points at
+            # the start of the next not-yet-yielded page).
+            malformed_json_attempts += 1
+            if malformed_json_attempts >= MALFORMED_JSON_MAX_ATTEMPTS:
+                raise
+            response = _issue()
+            continue
+        malformed_json_attempts = 0
+
         yield response_payload.get("data", [])
 
         next_url = response_payload.get("paging", {}).get("next")
@@ -401,6 +437,9 @@ def _iter_time_range_pagination(
         # The most recent cursor URL we tried (without a limit override applied),
         # used to retry-with-smaller-limit if a mid-chunk request times out.
         last_paging_url: str | None = None
+        # Params of the initial chunk request, kept so a truncated 200 body can be
+        # re-fetched. Only set on the non-resume path; unused once we're on a cursor.
+        chunk_params: dict | None = None
 
         if pending_next_url:
             # Mid-chunk resume: re-attach a fresh access_token at request time
@@ -426,6 +465,7 @@ def _iter_time_range_pagination(
                         continue
                 _raise_meta_api_error(response)
 
+        malformed_json_attempts = 0
         while True:
             if response.status_code != 200:
                 # Mid-chunk timeout: retry the same cursor URL with a smaller
@@ -440,7 +480,26 @@ def _iter_time_range_pagination(
                         continue
                 _raise_meta_api_error(response)
 
-            response_payload = response.json()
+            try:
+                response_payload = response.json()
+            except json.JSONDecodeError:
+                # Truncated 200 body — re-issue whichever request produced it. A
+                # cursor points at the start of the not-yet-yielded page and the
+                # initial chunk request has yielded nothing, so no rows are re-emitted.
+                malformed_json_attempts += 1
+                if malformed_json_attempts >= MALFORMED_JSON_MAX_ATTEMPTS:
+                    raise
+                if last_paging_url is not None:
+                    response = _fetch_paging_url(_override_limit(last_paging_url, current_limit), access_token)
+                elif chunk_params is not None:
+                    response = make_tracked_session().get(url, params=chunk_params)
+                else:
+                    # Unreachable: on the non-resume path chunk_params is always
+                    # set, and on the resume path last_paging_url is always set.
+                    raise RuntimeError("Cannot retry truncated JSON: no cursor and no initial chunk params")
+                continue
+            malformed_json_attempts = 0
+
             yield response_payload.get("data", [])
 
             next_url = response_payload.get("paging", {}).get("next")
@@ -513,6 +572,11 @@ def meta_ads_source(
             raise ValueError("Access token is required for Meta Ads integration")
 
         # Determine date range for incremental sync
+        today = dt.date.today()
+        # Never request data older than Meta will serve, otherwise it returns a hard
+        # 400 (code 3018) and the whole sync fails instead of importing the supported
+        # window. Data beyond this point is unavailable from Meta regardless.
+        earliest_since = _earliest_supported_since(today)
         time_range = None
 
         if should_use_incremental_field:
@@ -520,21 +584,22 @@ def meta_ads_source(
                 raise ValueError("incremental_field and incremental_field_type can't be None")
 
             if db_incremental_field_last_value is None:
-                last_value: dt.date = dt.date.today() - dt.timedelta(days=sync_lookback_days)
+                last_value: dt.date = today - dt.timedelta(days=sync_lookback_days)
             else:
                 last_value = db_incremental_field_last_value
 
-            start_date = last_value.strftime("%Y-%m-%d")
-            # Meta Ads API is day based so only import if the day is complete
-            end_date = dt.date.today().strftime("%Y-%m-%d")
+            since = last_value.date() if isinstance(last_value, dt.datetime) else last_value
+            since = max(since, earliest_since)
             time_range = {
-                "since": start_date,
-                "until": end_date,
+                "since": since.strftime("%Y-%m-%d"),
+                # Meta Ads API is day based so only import if the day is complete
+                "until": today.strftime("%Y-%m-%d"),
             }
         elif schema.is_stats:
+            since = max(today - dt.timedelta(days=sync_lookback_days), earliest_since)
             time_range = {
-                "since": (dt.date.today() - dt.timedelta(days=sync_lookback_days)).strftime("%Y-%m-%d"),
-                "until": dt.date.today().strftime("%Y-%m-%d"),
+                "since": since.strftime("%Y-%m-%d"),
+                "until": today.strftime("%Y-%m-%d"),
             }
 
         formatted_url = schema.url.format(

@@ -11,6 +11,7 @@ from posthog.schema import (
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -20,6 +21,8 @@ from posthog.temporal.data_imports.sources.shopify.settings import ENDPOINT_CONF
 from posthog.temporal.data_imports.sources.shopify.shopify import (
     SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
     SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR,
+    SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH,
+    SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE,
     ShopifyPermissionError,
     ShopifyResumeConfig,
     shopify_source,
@@ -35,6 +38,11 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SHOPIFY
 
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.shopify.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             # 4xx from Shopify's OAuth token endpoint — invalid/revoked app credentials.
@@ -47,6 +55,9 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
                 "Your Shopify access token is missing the permissions required to read some of your data. "
                 "Please reconnect your Shopify integration and grant the requested access scopes."
             ),
+            # 402 Payment Required from the Admin API — the store is frozen for an unpaid
+            # bill. Retrying cannot recover; the shop owner must settle their Shopify balance.
+            SHOPIFY_PAYMENT_REQUIRED_ERROR_MATCH: SHOPIFY_PAYMENT_REQUIRED_ERROR_MESSAGE,
         }
 
     @property

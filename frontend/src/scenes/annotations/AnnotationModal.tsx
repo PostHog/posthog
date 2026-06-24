@@ -15,7 +15,7 @@ import {
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown'
-import { shortTimeZone } from 'lib/utils'
+import { shortTimeZone } from 'lib/utils/timezones'
 import { urls } from 'scenes/urls'
 
 import { AnnotationScope, AnnotationType } from '~/types'

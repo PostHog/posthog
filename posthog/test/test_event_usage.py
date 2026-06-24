@@ -256,6 +256,7 @@ class TestGetEventSource(BaseTest):
     @parameterized.expand(
         [
             ("terraform", "posthog/terraform-provider 1.0", EventSource.TERRAFORM),
+            ("cli_exact", "posthog-cli", EventSource.CLI),
             ("wizard", "posthog/wizard 1.0", EventSource.WIZARD),
             ("posthog_code", "posthog/code 1.2.3", EventSource.POSTHOG_CODE),
             ("hog_dev_subdomain", "posthog/desktop.hog.dev 0.1.0", EventSource.POSTHOG_CODE),
@@ -291,6 +292,21 @@ class TestGetEventSource(BaseTest):
         factory = APIRequestFactory()
         request = factory.get("/fake", HTTP_X_POSTHOG_CLIENT="mcp")
         assert get_event_source(request) == EventSource.MCP
+
+    @parameterized.expand(
+        [
+            ("posthog_cli_consumer_is_cli", "posthog-cli", EventSource.CLI),
+            ("other_consumer_stays_mcp", "slack", EventSource.MCP),
+        ]
+    )
+    def test_mcp_consumer_header_source(self, _name, consumer, expected):
+        factory = APIRequestFactory()
+        request = factory.get(
+            "/fake",
+            HTTP_USER_AGENT="posthog/mcp-server; version: 1.0.0",
+            HTTP_X_POSTHOG_MCP_CONSUMER=consumer,
+        )
+        assert get_event_source(request) == expected
 
     @parameterized.expand(
         [

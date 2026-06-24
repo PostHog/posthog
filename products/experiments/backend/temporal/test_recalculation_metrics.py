@@ -24,17 +24,6 @@ def test_registered_on_general_purpose_queue():
     assert is_task_queue_supported(settings.GENERAL_PURPOSE_TASK_QUEUE, ExperimentsRecalculationMetricsInterceptor)
 
 
-def test_metric_names_defined():
-    assert (
-        "experiment_metrics_recalculation_activity_execution_latency"
-        in EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_METRICS
-    )
-    assert (
-        "experiment_metrics_recalculation_workflow_execution_latency"
-        in EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_METRICS
-    )
-
-
 def test_buckets_sorted_ascending_and_floats():
     buckets = EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS
     assert buckets == sorted(buckets)
@@ -99,7 +88,9 @@ def test_increment_workflow_finished_emits_status_attribute(name: str, status: s
     ):
         increment_workflow_finished(status)
 
-    mock_meter.with_additional_attributes.assert_called_once_with({"status": status})
+    mock_meter.with_additional_attributes.assert_called_once_with(
+        {"status": status, "workflow_type": "experiment-metrics-recalculation-workflow"}
+    )
     mock_meter_with_attrs.create_counter.assert_called_once()
     assert (
         mock_meter_with_attrs.create_counter.call_args.args[0] == "experiment_metrics_recalculation_workflow_finished"

@@ -1,0 +1,189 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "The workflow (HogFlow) id to edit. Draft only — active workflows are read-only via MCP.",
+            "type": "string"
+        },
+        "operations": {
+            "description": "Ordered graph edits applied atomically: the stored graph is read, ops are applied in order, the result is fully validated, and it is saved only if valid — otherwise the workflow is left unchanged. Reference nodes/edges by id so you never resend the whole graph. The full updated workflow is returned.",
+            "items": {
+                "oneOf": [
+                    {
+                        "properties": {
+                            "id": {
+                                "description": "Id of the action to update.",
+                                "type": "string"
+                            },
+                            "op": {
+                                "const": "update_action",
+                                "type": "string"
+                            },
+                            "patch": {
+                                "additionalProperties": {},
+                                "description": "Partial action fields, deep-merged into the existing action; a null leaf deletes that key. e.g. {config: {inputs: {subject: {value: \"Hi\"}}}} changes only that one input.",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "type": "object"
+                            }
+                        },
+                        "required": ["op", "id", "patch"],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "action": {
+                                "additionalProperties": {},
+                                "description": "A full action node {id, name, type, config, ...}; same shape as entries in the workflow actions array.",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "type": "object"
+                            },
+                            "op": {
+                                "const": "add_action",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["op", "action"],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "id": {
+                                "description": "Id of the action to remove. Its incoming edges reconnect to its first outgoer.",
+                                "type": "string"
+                            },
+                            "op": {
+                                "const": "remove_action",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["op", "id"],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "edge": {
+                                "description": "The edge to add.",
+                                "properties": {
+                                    "from": {
+                                        "description": "Source action id.",
+                                        "type": "string"
+                                    },
+                                    "index": {
+                                        "description": "Required for type=branch: which condition/cohort slot this branch matches (0-based).",
+                                        "maximum": 9007199254740991,
+                                        "minimum": -9007199254740991,
+                                        "type": "integer"
+                                    },
+                                    "to": {
+                                        "description": "Target action id.",
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "description": "'continue' = fall-through (sequential or no-match path); 'branch' = a condition/cohort branch (needs index).",
+                                        "enum": ["continue", "branch"],
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["from", "to", "type"],
+                                "type": "object"
+                            },
+                            "op": {
+                                "const": "add_edge",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["op", "edge"],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "edge": {
+                                "description": "The edge to remove (matched on from/to/type/index).",
+                                "properties": {
+                                    "from": {
+                                        "description": "Source action id.",
+                                        "type": "string"
+                                    },
+                                    "index": {
+                                        "description": "Required for type=branch: which condition/cohort slot this branch matches (0-based).",
+                                        "maximum": 9007199254740991,
+                                        "minimum": -9007199254740991,
+                                        "type": "integer"
+                                    },
+                                    "to": {
+                                        "description": "Target action id.",
+                                        "type": "string"
+                                    },
+                                    "type": {
+                                        "description": "'continue' = fall-through (sequential or no-match path); 'branch' = a condition/cohort branch (needs index).",
+                                        "enum": ["continue", "branch"],
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["from", "to", "type"],
+                                "type": "object"
+                            },
+                            "op": {
+                                "const": "remove_edge",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["op", "edge"],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "edges": {
+                                "description": "The complete set of the action's outgoing edges; incoming edges are preserved.",
+                                "items": {
+                                    "properties": {
+                                        "from": {
+                                            "description": "Source action id.",
+                                            "type": "string"
+                                        },
+                                        "index": {
+                                            "description": "Required for type=branch: which condition/cohort slot this branch matches (0-based).",
+                                            "maximum": 9007199254740991,
+                                            "minimum": -9007199254740991,
+                                            "type": "integer"
+                                        },
+                                        "to": {
+                                            "description": "Target action id.",
+                                            "type": "string"
+                                        },
+                                        "type": {
+                                            "description": "'continue' = fall-through (sequential or no-match path); 'branch' = a condition/cohort branch (needs index).",
+                                            "enum": ["continue", "branch"],
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": ["from", "to", "type"],
+                                    "type": "object"
+                                },
+                                "type": "array"
+                            },
+                            "id": {
+                                "description": "Action id whose outgoing edges are being replaced.",
+                                "type": "string"
+                            },
+                            "op": {
+                                "const": "replace_action_edges",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["op", "id", "edges"],
+                        "type": "object"
+                    }
+                ]
+            },
+            "minItems": 1,
+            "type": "array"
+        }
+    },
+    "required": ["id", "operations"],
+    "type": "object"
+}

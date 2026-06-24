@@ -34,6 +34,32 @@ _MONGO_UNREACHABLE_MESSAGE = (
     "IP addresses are allowlisted in your database's network access settings."
 )
 
+_MONGO_UNESCAPED_CREDENTIALS_MESSAGE = (
+    "Your MongoDB connection string is invalid: the username and password must be percent-encoded "
+    "per RFC 3986. Escape any reserved characters (e.g. : / ? # [ ] @ %) in your credentials — for "
+    "example with urllib.parse.quote_plus — and update the connection string."
+)
+
+_MONGO_ATLAS_SQL_MESSAGE = (
+    "This connection string points at a MongoDB Atlas SQL / Data Federation endpoint "
+    "(its host ends in .query.mongodb.net), which PostHog can't import from — those endpoints "
+    "are served by a query proxy for the Atlas SQL ODBC/JDBC drivers, not the standard MongoDB "
+    "driver. Use your regular cluster connection string (e.g. mongodb+srv://...mongodb.net) instead."
+)
+
+_MONGO_HOST_UNRESOLVED_MESSAGE = (
+    "The MongoDB host could not be resolved. Check that the cluster address in your connection "
+    "string is spelled correctly."
+)
+
+# Substrings pymongo embeds in ServerSelectionTimeoutError when the OS can't resolve the host.
+_DNS_RESOLUTION_FAILURE_MARKERS = (
+    "No address associated with hostname",
+    "nodename nor servname provided",
+    "Name or service not known",
+    "Temporary failure in name resolution",
+)
+
 
 @SourceRegistry.register
 class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin):
@@ -45,13 +71,36 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         auth_failed_msg = "MongoDB authentication failed. Please check the username and password for this source."
         return {
             "The DNS query name does not exist": None,
+            # pymongo raises InvalidURI("Username and password must be escaped according to RFC 3986,
+            # use urllib.parse.quote_plus") before any network call when the credentials in the
+            # connection string contain unescaped reserved characters (e.g. ':', '/', '@', '%' in the
+            # password). The same RFC-3986 hint also appears on the "Port contains non-digit characters"
+            # variant, which is the same unescaped-credential mistake. This is a malformed connection
+            # string the user must fix — we can't safely percent-encode it ourselves because the
+            # reserved characters are ambiguous with the URI's own delimiters — so retrying never
+            # recovers. Match the stable RFC-3986 fragment, not the volatile surrounding text.
+            "must be escaped according to RFC 3986": _MONGO_UNESCAPED_CREDENTIALS_MESSAGE,
             # pymongo raises OperationFailure with codeName 'AuthenticationFailed' (code 18) and
             # errmsg 'Authentication failed.' when the credentials are wrong. Non-retryable error
             # matching is case-sensitive, so the previous lowercase "authentication failed" never
             # matched the real message — key off the stable codeName and the capitalised message.
             "AuthenticationFailed": auth_failed_msg,
             "Authentication failed": auth_failed_msg,
+            # MongoDB Atlas reports bad credentials differently from self-hosted MongoDB: instead of
+            # codeName 'AuthenticationFailed' (code 18) it raises OperationFailure with errmsg
+            # 'bad auth : authentication failed' and codeName 'AtlasError' (code 8000). The lowercase
+            # 'authentication failed' here doesn't match the capitalised entries above (matching is
+            # case-sensitive), so key off the stable Atlas-specific 'bad auth' prefix.
+            "bad auth": auth_failed_msg,
             "SSL handshake failed": None,
+            # Atlas SQL / Data Federation endpoints live under *.query.mongodb.net and are served by
+            # a query proxy the standard MongoDB driver can't drive: the handshake is closed, the
+            # topology never leaves Unknown, and server selection times out (ServerSelectionTimeoutError,
+            # frequently "connection closed"). This is a wrong-endpoint misconfiguration — the importer
+            # needs a regular cluster connection string — so retrying never recovers. The host suffix
+            # is the stable signal here, and it must be matched before the generic "Topology Description:"
+            # entry below so Atlas SQL users get the wrong-endpoint message rather than the allowlist one.
+            "query.mongodb.net": _MONGO_ATLAS_SQL_MESSAGE,
             # pymongo raises ServerSelectionTimeoutError when it can't select a usable cluster node
             # for the whole selection timeout. The reason varies — "No servers found yet" / "No
             # replica set members found yet" when nothing was ever discovered, or a per-server
@@ -114,7 +163,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
     def validate_credentials(
         self, config: MongoDBSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        from pymongo.errors import OperationFailure
+        from pymongo.errors import OperationFailure, ServerSelectionTimeoutError
 
         try:
             connection_params = _parse_connection_string(config.connection_string, config.database_name)
@@ -141,6 +190,15 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
         except OperationFailure as e:
             capture_exception(e)
             return False, f"MongoDB authentication failed: {str(e)}"
+        except ServerSelectionTimeoutError as e:
+            # pymongo dumps a verbose topology description into str(e); surface a concise,
+            # actionable message instead. A DNS failure means the host doesn't resolve at all,
+            # which is distinct from an allowlist/reachability problem.
+            capture_exception(e)
+            message = str(e)
+            if any(marker in message for marker in _DNS_RESOLUTION_FAILURE_MARKERS):
+                return False, _MONGO_HOST_UNRESOLVED_MESSAGE
+            return False, _MONGO_UNREACHABLE_MESSAGE
         except Exception as e:
             capture_exception(e)
             return False, f"Failed to connect to MongoDB database: {str(e)}"

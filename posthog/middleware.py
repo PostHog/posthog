@@ -23,7 +23,7 @@ from django.shortcuts import redirect
 from django.urls import Resolver404, resolve
 from django.utils.cache import add_never_cache_headers
 from django.utils.deprecation import MiddlewareMixin
-from django.utils.http import http_date
+from django.utils.http import http_date, url_has_allowed_host_and_scheme
 
 import structlog
 import posthoganalytics
@@ -1442,12 +1442,18 @@ class ImpersonationBlockedPathsMiddleware:
 
 def impersonated_session_logout(request: HttpRequest) -> HttpResponse:
     """
-    Log out of an impersonated session and redirect back to the
+    Log out of an impersonated session. Redirects to a safe `next` target when
+    provided (e.g. `/` to return to the PostHog app), otherwise back to the
     impersonated user's admin change page.
     """
+    next_url = request.GET.get("next")
+    safe_next = (
+        next_url if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}) else None
+    )
+
     if not is_impersonated_session(request):
-        return redirect("/admin/")
+        return redirect(safe_next or "/admin/")
 
     impersonated_user_pk = request.user.pk
     restore_original_login(request)
-    return redirect(f"/admin/posthog/user/{impersonated_user_pk}/change/")
+    return redirect(safe_next or f"/admin/posthog/user/{impersonated_user_pk}/change/")

@@ -1,6 +1,8 @@
 import pytest
 from unittest import mock
 
+from requests.exceptions import SSLError
+
 from posthog.temporal.data_imports.sources.shopify.shopify import (
     SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
     _get_shopify_access_token,
@@ -55,6 +57,38 @@ def test_get_access_token_success_returns_token():
         assert _get_shopify_access_token("store", "client-id", "client-secret") == "tok"
 
 
+@mock.patch("tenacity.nap.time.sleep")
+def test_get_access_token_retries_ssl_error_then_succeeds(_mock_sleep):
+    # A transient TLS drop on the token endpoint surfaces from `post` as SSLError (a
+    # ConnectionError); it's transient, so reissue the request rather than failing the import.
+    post = mock.MagicMock(
+        side_effect=[
+            SSLError("[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol"),
+            _mock_response(200, ok=True, json_data={"access_token": "tok"}),
+        ]
+    )
+    with mock.patch(
+        "posthog.temporal.data_imports.sources.shopify.shopify.make_tracked_session",
+        return_value=mock.MagicMock(post=post),
+    ):
+        assert _get_shopify_access_token("store", "client-id", "client-secret") == "tok"
+    assert post.call_count == 2
+
+
+@mock.patch("tenacity.nap.time.sleep")
+def test_get_access_token_reraises_after_persistent_ssl_error(_mock_sleep):
+    # A persistent connection failure must exhaust the retry budget and re-raise the original
+    # error rather than being swallowed, so the import still fails (and Temporal retries it).
+    post = mock.MagicMock(side_effect=SSLError("[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred"))
+    with mock.patch(
+        "posthog.temporal.data_imports.sources.shopify.shopify.make_tracked_session",
+        return_value=mock.MagicMock(post=post),
+    ):
+        with pytest.raises(SSLError):
+            _get_shopify_access_token("store", "client-id", "client-secret")
+    assert post.call_count == 5
+
+
 @pytest.mark.parametrize(
     "error_message",
     [
@@ -73,9 +107,24 @@ def test_graphql_access_denied_is_non_retryable(error_message):
 @pytest.mark.parametrize(
     "error_message",
     [
+        "402 Client Error: Payment Required for url: https://my-store.myshopify.com/admin/api/2025-10/graphql.json",
+        "402 Client Error: Payment Required for url: https://another-store.myshopify.com/admin/api/2024-01/graphql.json",
+    ],
+)
+def test_payment_required_is_non_retryable(error_message):
+    patterns = ShopifySource().get_non_retryable_errors()
+    assert any(pattern in error_message for pattern in patterns), (
+        f"402 Payment Required error '{error_message}' should match a non-retryable pattern"
+    )
+
+
+@pytest.mark.parametrize(
+    "error_message",
+    [
         "Shopify: rate limit exceeded...",
         "Shopify: internal error from request 503 Service Unavailable",
         "Unexpected graphql response format in Shopify rows read. Keys: ['extensions']",
+        "429 Client Error: Too Many Requests for url: https://my-store.myshopify.com/admin/api/2025-10/graphql.json",
     ],
 )
 def test_transient_graphql_errors_stay_retryable(error_message):

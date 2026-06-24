@@ -374,6 +374,9 @@ const dashboardUpdate = (): ToolBase<typeof DashboardUpdateSchema, WithPostHogUr
         if (params.pinned !== undefined) {
             body['pinned'] = params.pinned
         }
+        if (params.filters !== undefined) {
+            body['filters'] = params.filters
+        }
         if (params.breakdown_colors !== undefined) {
             body['breakdown_colors'] = params.breakdown_colors
         }
@@ -565,6 +568,7 @@ const dashboardsGetAll = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/`,
             query: {
+                folder: params.folder,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,

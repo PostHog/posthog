@@ -7,6 +7,10 @@ from typing import Any, Optional
 
 from requests import Request, Response, Session
 from requests.auth import AuthBase
+from requests.exceptions import (
+    ChunkedEncodingError,
+    JSONDecodeError as RequestsJSONDecodeError,
+)
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt
 
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
@@ -141,11 +145,11 @@ class RESTClient:
 
         while True:
             try:
-                response = self._send_request(request, hooks)
+                response, body = self._send_request(request, hooks)
             except IgnoreResponseException:
                 break
 
-            data = self._extract_response(response, data_selector)
+            data = self._extract_response(body, data_selector)
 
             if paginator is not None:
                 paginator.update_state(response, data)
@@ -165,9 +169,14 @@ class RESTClient:
         wait=_retry_wait_seconds,
         reraise=True,
     )
-    def _send_request(self, request: Request, hooks: Hooks) -> Response:
+    def _send_request(self, request: Request, hooks: Hooks) -> tuple[Response, Any]:
         prepared = self.session.prepare_request(request)
-        response = self.session.send(prepared)
+        # `send` reads the body eagerly (stream=False), so a connection dropped mid-stream
+        # surfaces here as ChunkedEncodingError. Reissue it like a truncated/partial body below.
+        try:
+            response = self.session.send(prepared)
+        except ChunkedEncodingError as e:
+            raise RESTClientRetryableError(f"Connection broken while reading response: {e}") from e
 
         if response.status_code == 429 or response.status_code >= 500:
             raise RESTClientRetryableError(
@@ -182,11 +191,16 @@ class RESTClient:
         else:
             response.raise_for_status()
 
-        return response
+        # Parse inside the retry so a truncated/partial body is reissued like a 429/5xx
+        # instead of bubbling up uncaught and failing the import.
+        try:
+            body = response.json()
+        except RequestsJSONDecodeError as e:
+            raise RESTClientRetryableError(f"Malformed JSON response from {response.url}: {e}") from e
 
-    def _extract_response(self, response: Response, data_selector: Optional[TJsonPath]) -> list[Any]:
-        body = response.json()
+        return response, body
 
+    def _extract_response(self, body: Any, data_selector: Optional[TJsonPath]) -> list[Any]:
         if data_selector:
             data: Any = find_values(data_selector, body)
             # unwrap single-item list from jsonpath

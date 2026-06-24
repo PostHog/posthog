@@ -1,7 +1,7 @@
 import os
 import re
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any, Literal, Optional, Union, cast, get_args, get_type_hints
 
 import orjson
@@ -54,10 +54,38 @@ LOGGER = get_logger(__name__)
 DEFAULT_LIMIT = 100
 
 
+class _RateLimitRetryingRequestsClient(RequestsClient):
+    """Stripe's SDK retries 409/5xx (and whatever ``Stripe-Should-Retry`` advises) but never
+    retries 429s on its own — ``_should_retry`` excludes them. A rate limit during a large sync,
+    most often while ``auto_paging_iter`` lazily fetches the next page, therefore propagates
+    straight out of ``get_rows`` and fails the whole import activity.
+
+    Opt 429 into the SDK's existing ``Retry-After``-aware exponential backoff so transient rate
+    limits are absorbed in-process (bounded by ``max_network_retries``) instead of crashing the
+    run. Our Stripe reads are list/GET calls, so retrying them is idempotent."""
+
+    def _should_retry(
+        self,
+        response: Optional[tuple[Any, int, Optional[Mapping[str, str]]]],
+        api_connection_error: Optional[stripe_lib.APIConnectionError],
+        num_retries: int,
+        max_network_retries: Optional[int],
+    ) -> bool:
+        if super()._should_retry(response, api_connection_error, num_retries, max_network_retries):
+            return True
+        # The base logic already enforced the retry budget and declined; the only retryable case
+        # it leaves on the table is a 429, which the SDK omits but which is safe to retry here.
+        if num_retries >= (max_network_retries or 0):
+            return False
+        return response is not None and response[1] == 429
+
+
 def _tracked_stripe_http_client() -> RequestsClient:
     """Wrap a tracked `requests.Session` in Stripe's `RequestsClient` so every
-    Stripe SDK call participates in our HTTP logging, metrics, and sample capture."""
-    return RequestsClient(session=make_tracked_session())
+    Stripe SDK call participates in our HTTP logging, metrics, and sample capture.
+
+    Uses a subclass that additionally retries 429 rate limits via the SDK's built-in backoff."""
+    return _RateLimitRetryingRequestsClient(session=make_tracked_session())
 
 
 def _clean_stripe_error_message(msg: str) -> str:
@@ -87,6 +115,13 @@ def _call_stripe(method: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         e._message = cleaned
         e.args = (cleaned,)
         raise
+
+
+def _is_stripe_resource_missing_error(error: stripe_lib.StripeError) -> bool:
+    """True for Stripe's ``resource_missing`` 404 — e.g. a customer deleted between when we
+    listed it and when we fetched its nested resources. The object is genuinely gone, so the
+    caller can skip it instead of failing the whole sync."""
+    return getattr(error, "code", None) == "resource_missing"
 
 
 def _stripe_base_addresses() -> BaseAddresses:
@@ -239,25 +274,34 @@ def get_rows(
                 params={**default_params, **resource.parent.params, **resume_params},
             )
             for obj in stripe_parent_objects.auto_paging_iter():
-                stripe_nested_objects = _call_stripe(
-                    resource.method,
-                    **{resource.nested_parent_param: obj[resource.parent_id]},
-                    params={**default_params, **resource.params},
-                )
-                for nested_obj in stripe_nested_objects.auto_paging_iter():  # noqa: UP028
-                    batcher.batch(
-                        {
-                            **nested_obj,
-                            **{resource.nested_parent_param: obj[resource.parent_id]},
-                        }
+                parent_obj_id = obj[resource.parent_id]
+                try:
+                    stripe_nested_objects = _call_stripe(
+                        resource.method,
+                        **{resource.nested_parent_param: parent_obj_id},
+                        params={**default_params, **resource.params},
                     )
+                    for nested_obj in stripe_nested_objects.auto_paging_iter():
+                        batcher.batch(
+                            {
+                                **nested_obj,
+                                **{resource.nested_parent_param: parent_obj_id},
+                            }
+                        )
 
-                    if batcher.should_yield():
-                        py_table = batcher.get_table()
-                        yield py_table
+                        if batcher.should_yield():
+                            py_table = batcher.get_table()
+                            yield py_table
 
-                        last_cur = py_table.column(resource.nested_parent_param)[-1].as_py()
-                        resumable_source_manager.save_state(StripeResumeConfig(starting_after=last_cur))
+                            last_cur = py_table.column(resource.nested_parent_param)[-1].as_py()
+                            resumable_source_manager.save_state(StripeResumeConfig(starting_after=last_cur))
+                except stripe_lib.InvalidRequestError as e:
+                    # The parent was deleted between listing it and fetching its nested resources,
+                    # so Stripe 404s the nested call. Skip the now-gone parent and keep syncing the
+                    # rest rather than failing the whole import.
+                    if not _is_stripe_resource_missing_error(e):
+                        raise
+                    logger.debug(f"Stripe: skipping {resource.nested_parent_param}={parent_obj_id}, no longer exists")
         else:
             stripe_objects = _call_stripe(
                 resource.method, params={**default_params, **resource.params, **resume_params}

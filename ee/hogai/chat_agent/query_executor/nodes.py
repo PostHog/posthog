@@ -59,6 +59,9 @@ class QueryExecutorNode(AssistantNode):
         if isinstance(last_message, FailureMessage):
             return None  # Exit early - something failed earlier
 
+        if isinstance(last_message, AssistantToolCallMessage):
+            return None  # Exit early - a generator already produced a terminal tool response (e.g. graceful failure)
+
         if not isinstance(last_message, ArtifactRefMessage):
             raise ValueError(f"Expected an ArtifactRefMessage, found {type(last_message)}")
 

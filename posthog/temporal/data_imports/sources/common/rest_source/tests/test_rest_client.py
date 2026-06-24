@@ -6,6 +6,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from requests import Response
+from requests.exceptions import ChunkedEncodingError
 
 from posthog.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
 from posthog.temporal.data_imports.sources.common.rest_source.exceptions import IgnoreResponseException
@@ -23,6 +24,17 @@ def _make_response(json_body: Any, status_code: int = 200) -> Response:
     resp.status_code = status_code
     resp._content = json.dumps(json_body).encode()
     resp.headers["Content-Type"] = "application/json"
+    return resp
+
+
+def _make_truncated_response(status_code: int = 200) -> Response:
+    # Simulates a body cut off mid-stream — `response.json()` raises a JSONDecodeError
+    # ("Unterminated string"), the same shape we see when an upstream truncates a large page.
+    resp = Response()
+    resp.status_code = status_code
+    resp._content = b'{"results": [{"id": 1, "name": "unterminated'
+    resp.headers["Content-Type"] = "application/json"
+    resp.url = "https://api.example.com/items"
     return resp
 
 
@@ -239,18 +251,75 @@ class TestRESTClient:
         prepared_request = mock_session.prepare_request.call_args.args[0]
         assert prepared_request.params == {"limit": 100, "name": "alice"}
 
+    @pytest.mark.parametrize(
+        "make_error",
+        [
+            pytest.param(lambda: _make_response({"error": "rate limited"}, status_code=429), id="429"),
+            pytest.param(lambda: _make_response({"error": "internal"}, status_code=500), id="500"),
+            pytest.param(_make_truncated_response, id="truncated_json"),
+        ],
+    )
     @patch("tenacity.nap.time.sleep")
     @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
-    def test_send_request_retries_on_429(self, MockSession, mock_sleep) -> None:
+    def test_send_request_retries_transient_error_then_succeeds(self, MockSession, mock_sleep, make_error) -> None:
+        # A 429, a 5xx, and a truncated body are all transient: retry, then succeed.
         mock_session = MockSession.return_value
         mock_session.headers = {}
         mock_session.prepare_request.return_value = MagicMock()
 
-        rate_limited = _make_response({"error": "rate limited"}, status_code=429)
-        rate_limited.url = "https://api.example.com/items"
+        error = make_error()
+        error.url = "https://api.example.com/items"
         ok = _make_response({"results": [{"id": 1}]})
 
-        mock_session.send.side_effect = [rate_limited, ok]
+        mock_session.send.side_effect = [error, ok]
+
+        client = RESTClient(base_url="https://api.example.com")
+        pages = list(client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator()))
+
+        assert pages == [[{"id": 1}]]
+        assert mock_session.send.call_count == 2
+
+    @pytest.mark.parametrize(
+        "make_error",
+        [
+            pytest.param(lambda: _make_response({"error": "rate limited"}, status_code=429), id="429"),
+            pytest.param(_make_truncated_response, id="truncated_json"),
+        ],
+    )
+    @patch("tenacity.nap.time.sleep")
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
+    def test_send_request_raises_retryable_after_persistent_transient_error(
+        self, MockSession, mock_sleep, make_error
+    ) -> None:
+        # A persistent transient failure retries to the cap and re-raises as retryable.
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+
+        error = make_error()
+        error.url = "https://api.example.com/items"
+        mock_session.send.return_value = error
+
+        client = RESTClient(base_url="https://api.example.com")
+        with pytest.raises(RESTClientRetryableError):
+            list(client.paginate(path="/items", paginator=SinglePagePaginator()))
+
+        assert mock_session.send.call_count == 5
+
+    @patch("tenacity.nap.time.sleep")
+    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
+    def test_send_request_retries_chunked_encoding_error_then_succeeds(self, MockSession, mock_sleep) -> None:
+        # A connection dropped mid-stream surfaces from `send` as ChunkedEncodingError; it's
+        # transient, so reissue the request rather than letting it fail the import.
+        mock_session = MockSession.return_value
+        mock_session.headers = {}
+        mock_session.prepare_request.return_value = MagicMock()
+
+        ok = _make_response({"results": [{"id": 1}]})
+        mock_session.send.side_effect = [
+            ChunkedEncodingError("Connection broken: InvalidChunkLength(got length b'', 0 bytes read)"),
+            ok,
+        ]
 
         client = RESTClient(base_url="https://api.example.com")
         pages = list(client.paginate(path="/items", data_selector="results", paginator=SinglePagePaginator()))
@@ -260,37 +329,22 @@ class TestRESTClient:
 
     @patch("tenacity.nap.time.sleep")
     @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
-    def test_send_request_retries_on_500(self, MockSession, mock_sleep) -> None:
+    def test_send_request_raises_retryable_after_persistent_chunked_encoding_error(
+        self, MockSession, mock_sleep
+    ) -> None:
         mock_session = MockSession.return_value
         mock_session.headers = {}
         mock_session.prepare_request.return_value = MagicMock()
 
-        server_error = _make_response({"error": "internal"}, status_code=500)
-        server_error.url = "https://api.example.com/items"
-        ok = _make_response([{"id": 1}])
-
-        mock_session.send.side_effect = [server_error, ok]
-
-        client = RESTClient(base_url="https://api.example.com")
-        pages = list(client.paginate(path="/items", paginator=SinglePagePaginator()))
-
-        assert pages == [[{"id": 1}]]
-        assert mock_session.send.call_count == 2
-
-    @patch("tenacity.nap.time.sleep")
-    @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")
-    def test_send_request_raises_after_max_retries(self, MockSession, mock_sleep) -> None:
-        mock_session = MockSession.return_value
-        mock_session.headers = {}
-        mock_session.prepare_request.return_value = MagicMock()
-
-        error = _make_response({"error": "rate limited"}, status_code=429)
-        error.url = "https://api.example.com/items"
-        mock_session.send.return_value = error
+        mock_session.send.side_effect = ChunkedEncodingError(
+            "Connection broken: InvalidChunkLength(got length b'', 0 bytes read)"
+        )
 
         client = RESTClient(base_url="https://api.example.com")
         with pytest.raises(RESTClientRetryableError):
             list(client.paginate(path="/items", paginator=SinglePagePaginator()))
+
+        assert mock_session.send.call_count == 5
 
     @patch("tenacity.nap.time.sleep")
     @patch("posthog.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session")

@@ -58,8 +58,8 @@ describe('QuickSurveyForm API payloads', () => {
         let capturedRequest: any
         useMocks({
             post: {
-                '/api/projects/:team_id/surveys': async (req) => {
-                    capturedRequest = await req.json()
+                '/api/projects/:team_id/surveys': async ({ request }) => {
+                    capturedRequest = await request.json()
                     return [200, { id: 'new-survey' }]
                 },
             },
@@ -83,8 +83,8 @@ describe('QuickSurveyForm API payloads', () => {
         let capturedRequest: any
         useMocks({
             post: {
-                '/api/projects/:team_id/surveys': async (req) => {
-                    capturedRequest = await req.json()
+                '/api/projects/:team_id/surveys': async ({ request }) => {
+                    capturedRequest = await request.json()
                     return [200, { id: 'new-survey' }]
                 },
             },
