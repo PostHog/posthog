@@ -3813,3 +3813,67 @@ class TestGoogleSearchConsoleSitesEndpoint:
         response = client.get(self._url(integration.id))
 
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR, response.content
+
+
+class TestAccountEnumerationActionsRequireAdmin(APIBaseTest):
+    def _bing_integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="bing-ads",
+            config={},
+            sensitive_config={"access_token": "token", "refresh_token": "refresh"},
+            integration_id="bing_test",
+            created_by=self.user,
+        )
+
+    def _gsc_integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="google-search-console",
+            config={},
+            sensitive_config={"access_token": "ya29.test"},
+            integration_id="gsc_test",
+            created_by=self.user,
+        )
+
+    def _url(self, integration_id: int, action: str) -> str:
+        return f"/api/environments/{self.team.pk}/integrations/{integration_id}/{action}/"
+
+    @parameterized.expand(
+        [
+            ("bing_ads_accounts",),
+            ("google_search_console_sites",),
+        ]
+    )
+    def test_regular_member_is_forbidden(self, action):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        integration = self._bing_integration() if action == "bing_ads_accounts" else self._gsc_integration()
+
+        response = self.client.get(self._url(integration.id, action))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+
+    def test_admin_passes_permission_bing(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        integration = self._bing_integration()
+
+        with patch(
+            "posthog.temporal.data_imports.sources.bing_ads.client.BingAdsClient.list_accounts", return_value=[]
+        ):
+            response = self.client.get(self._url(integration.id, "bing_ads_accounts"))
+
+        # The permission passed; the body may still 400 (e.g. unconfigured token), but never 403.
+        assert response.status_code != status.HTTP_403_FORBIDDEN, response.content
+
+    def test_admin_passes_permission_gsc(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        integration = self._gsc_integration()
+
+        gsc = "posthog.temporal.data_imports.sources.google_search_console.google_search_console"
+        with patch(f"{gsc}.google_search_console_session"), patch(f"{gsc}.list_sites", return_value=[]):
+            response = self.client.get(self._url(integration.id, "google_search_console_sites"))
+
+        assert response.status_code != status.HTTP_403_FORBIDDEN, response.content

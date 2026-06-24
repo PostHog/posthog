@@ -72,6 +72,7 @@ from posthog.permissions import (
     AccessControlPermission,
     APIScopePermission,
     TeamMemberAccessPermission,
+    TeamMemberAdminManagementPermission,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
 )
@@ -739,6 +740,8 @@ class IntegrationViewSet(
         "bing_ads_accounts",
     ]
     permission_classes = [TeamMemberStrictManagementPermission]
+    # These GET actions enumerate the connected provider's accounts/sites, so require admin even for reads.
+    account_enumeration_actions = ["bing_ads_accounts", "google_search_console_sites"]
     queryset = defer_repository_cache_fields(Integration.objects.all())
     serializer_class = IntegrationSerializer
     filter_backends = [DjangoFilterBackend]
@@ -760,6 +763,14 @@ class IntegrationViewSet(
                 APIScopePermission(),
                 AccessControlPermission(),
                 TeamMemberAccessPermission(),
+            ]
+        if self.action in self.account_enumeration_actions:
+            return [
+                IsAuthenticated(),
+                APIScopePermission(),
+                AccessControlPermission(),
+                TeamMemberAccessPermission(),
+                TeamMemberAdminManagementPermission(),
             ]
         raise NotImplementedError()
 
