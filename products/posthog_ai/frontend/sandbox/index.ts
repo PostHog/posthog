@@ -21,6 +21,9 @@ export { SandboxThreadView } from './components/SandboxThreadView'
 export { sandboxStreamLogic, isTerminalRunStatus, SANDBOX_INITIAL_PERMISSION_MODE } from './sandboxStreamLogic'
 export type { SandboxStreamLogicProps, SandboxSseStatus, SandboxRunStatus } from './sandboxStreamLogic'
 
+export { taskRunInteractionLogic } from './taskRunInteractionLogic'
+export type { TaskRunInteractionLogicProps, QueuedMessage } from './taskRunInteractionLogic'
+
 export { SandboxPermissionInput } from './components/SandboxPermissionInput'
 export { SandboxQuestionInput } from './components/SandboxQuestionInput'
 export { SandboxResourcesBar } from './components/SandboxResourcesBar'

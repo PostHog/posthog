@@ -6,7 +6,9 @@ import { Spinner } from '@posthog/lemon-ui'
 import { cn } from 'lib/utils/css-classes'
 
 import { isTerminalRunStatus, sandboxStreamLogic } from '../sandboxStreamLogic'
+import type { QueuedMessage } from '../taskRunInteractionLogic'
 import { Composer } from './composer/Composer'
+import { QueuedMessageList } from './QueuedMessageList'
 import { SandboxContextUsage } from './SandboxContextUsage'
 import { SandboxPermissionInput } from './SandboxPermissionInput'
 import { SandboxQuestionInput } from './SandboxQuestionInput'
@@ -38,6 +40,13 @@ export interface SandboxRunViewerProps {
     onComposerSubmit?: () => void
     composerLoading?: boolean
     composerPlaceholder?: string
+    /**
+     * Editable "Up next" queue — live mode only, rendered above the composer when non-empty. Provide all
+     * three to surface staged follow-ups; the consumer owns the queue (this module never mutates it).
+     */
+    queuedMessages?: QueuedMessage[]
+    onUpdateQueuedMessage?: (id: string, content: string) => void
+    onRemoveQueuedMessage?: (id: string) => void
 }
 
 /**
@@ -59,6 +68,9 @@ export function SandboxRunViewer({
     onComposerSubmit,
     composerLoading,
     composerPlaceholder,
+    queuedMessages,
+    onUpdateQueuedMessage,
+    onRemoveQueuedMessage,
 }: SandboxRunViewerProps): JSX.Element {
     const replayOnly = interaction !== 'live'
     return (
@@ -74,6 +86,9 @@ export function SandboxRunViewer({
                 onComposerSubmit={onComposerSubmit}
                 composerLoading={composerLoading}
                 composerPlaceholder={composerPlaceholder}
+                queuedMessages={queuedMessages}
+                onUpdateQueuedMessage={onUpdateQueuedMessage}
+                onRemoveQueuedMessage={onRemoveQueuedMessage}
             />
         </BindLogic>
     )
@@ -92,6 +107,9 @@ interface SandboxRunViewerContentProps {
     onComposerSubmit?: () => void
     composerLoading?: boolean
     composerPlaceholder?: string
+    queuedMessages?: QueuedMessage[]
+    onUpdateQueuedMessage?: (id: string, content: string) => void
+    onRemoveQueuedMessage?: (id: string) => void
 }
 
 function SandboxRunViewerContent({
@@ -105,6 +123,9 @@ function SandboxRunViewerContent({
     onComposerSubmit,
     composerLoading,
     composerPlaceholder,
+    queuedMessages,
+    onUpdateQueuedMessage,
+    onRemoveQueuedMessage,
 }: SandboxRunViewerContentProps): JSX.Element {
     const { bootstrapLoading, threadItems, pendingPermissionRequest, currentRunStatus } = useValues(sandboxStreamLogic)
     const { bootstrapRun, reset } = useActions(sandboxStreamLogic)
@@ -172,6 +193,15 @@ function SandboxRunViewerContent({
                         onSubmit={onComposerSubmit!}
                         loading={composerLoading}
                     >
+                        {queuedMessages && queuedMessages.length > 0 && (
+                            <Composer.Banner>
+                                <QueuedMessageList
+                                    messages={queuedMessages}
+                                    onUpdate={onUpdateQueuedMessage!}
+                                    onRemove={onRemoveQueuedMessage!}
+                                />
+                            </Composer.Banner>
+                        )}
                         <Composer.Frame>
                             <Composer.Field>
                                 <Composer.Placeholder>
