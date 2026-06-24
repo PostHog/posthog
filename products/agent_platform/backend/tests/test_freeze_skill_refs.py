@@ -45,6 +45,7 @@ class TestFreezeResolvesSkillRefs(APIBaseTest):
     def test_freeze_materializes_skill_and_stamps_provenance(self, mock_janitor: MagicMock) -> None:
         client = mock_janitor.return_value
         client.put_skill = MagicMock(return_value={"ok": True})
+        client.manifest.return_value = {"files": [{"path": "agent.md"}]}
         client.freeze.return_value = {
             "bundle_sha256": "a" * 64,
             "derived_spec": {
@@ -86,6 +87,25 @@ class TestFreezeResolvesSkillRefs(APIBaseTest):
         mock_janitor.return_value.freeze.assert_not_called()
         self.revision.refresh_from_db()
         self.assertEqual(self.revision.state, "draft")
+
+    @patch("products.agent_platform.backend.presentation.views._janitor")
+    def test_freeze_sweeps_stale_skill_aliases(self, mock_janitor: MagicMock) -> None:
+        client = mock_janitor.return_value
+        client.put_skill = MagicMock(return_value={"ok": True})
+        client.delete_skill = MagicMock(return_value={"ok": True})
+        # A prior freeze attempt left `skills/old/` in the bundle; the current
+        # ref set is just `triage`, so `old` must be swept.
+        client.manifest.return_value = {
+            "files": [{"path": "agent.md"}, {"path": "skills/old/SKILL.md"}, {"path": "skills/triage/SKILL.md"}]
+        }
+        client.freeze.return_value = {
+            "bundle_sha256": "a" * 64,
+            "derived_spec": {"model": "x", "triggers": [], "skills": [], "tools": []},
+        }
+
+        res = self.client.post(self.url)
+        self.assertEqual(res.status_code, 200, res.content)
+        client.delete_skill.assert_called_once_with(str(self.revision.id), "old")
 
     @property
     def _skill_refs_url(self) -> str:

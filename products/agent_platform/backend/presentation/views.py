@@ -2221,9 +2221,21 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # (Custom-tool template pinning stays disabled pending a registry rethink
         # — see the commented-out template routes in routes.py.)
         resolved_skills = [resolve_skill_ref(self.team, ref) for ref in (revision.skill_refs or [])]
-        aliases = [r.alias for r in resolved_skills]
-        if len(set(aliases)) != len(aliases):
+        aliases = {r.alias for r in resolved_skills}
+        if len(aliases) != len(resolved_skills):
             raise ValidationError("Each skill reference must resolve to a unique 'alias'.")
+        # Skills are store-only — nothing else writes `skills/` — so the frozen
+        # bundle must hold exactly the current refs. Drop any skill folder left
+        # by a prior freeze attempt whose alias is no longer referenced. (Each
+        # surviving alias is then cleanly re-materialized by put_skill below.)
+        manifest = self._call(janitor_client.manifest, str(revision.id))
+        bundle_aliases = {
+            parts[1]
+            for f in manifest.get("files", [])
+            if len(parts := f["path"].split("/")) > 1 and parts[0] == "skills"
+        }
+        for stale in bundle_aliases - aliases:
+            self._call(janitor_client.delete_skill, str(revision.id), stale)
         provenance_by_alias: dict[str, dict] = {}
         for resolved in resolved_skills:
             self._call(janitor_client.put_skill, str(revision.id), resolved.alias, resolved.put_skill_payload())
