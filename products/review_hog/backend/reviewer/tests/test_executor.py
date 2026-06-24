@@ -6,15 +6,17 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from pydantic import BaseModel
 
+from products.review_hog.backend.reviewer.sandbox import executor
 from products.review_hog.backend.reviewer.sandbox.executor import run_sandbox_review
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 _DUMMY_CONTEXT = CustomPromptSandboxContext(team_id=1, user_id=1, repository="test/repo")
-_MOCK_RESOLVE_CTX = AsyncMock(return_value=_DUMMY_CONTEXT)
+# _sandbox_context_for is sync (it reads the run-scoped identity contextvar), so a plain Mock stands in.
+_MOCK_SANDBOX_CTX = Mock(return_value=_DUMMY_CONTEXT)
 _EXECUTOR_PREFIX = "products.review_hog.backend.reviewer.sandbox.executor"
 
 
@@ -32,7 +34,7 @@ class TestRunSandboxReview:
 
         with (
             patch(f"{_EXECUTOR_PREFIX}._run_prompt", mock_run),
-            patch(f"{_EXECUTOR_PREFIX}.resolve_sandbox_context", _MOCK_RESOLVE_CTX),
+            patch(f"{_EXECUTOR_PREFIX}._sandbox_context_for", _MOCK_SANDBOX_CTX),
         ):
             result = await run_sandbox_review(
                 prompt="user prompt",
@@ -61,7 +63,7 @@ class TestRunSandboxReview:
 
         with (
             patch(f"{_EXECUTOR_PREFIX}._run_prompt", mock_run),
-            patch(f"{_EXECUTOR_PREFIX}.resolve_sandbox_context", _MOCK_RESOLVE_CTX),
+            patch(f"{_EXECUTOR_PREFIX}._sandbox_context_for", _MOCK_SANDBOX_CTX),
         ):
             result = await run_sandbox_review(
                 prompt="p",
@@ -82,7 +84,7 @@ class TestRunSandboxReview:
 
         with (
             patch(f"{_EXECUTOR_PREFIX}._run_prompt", mock_run),
-            patch(f"{_EXECUTOR_PREFIX}.resolve_sandbox_context", _MOCK_RESOLVE_CTX),
+            patch(f"{_EXECUTOR_PREFIX}._sandbox_context_for", _MOCK_SANDBOX_CTX),
         ):
             result = await run_sandbox_review(
                 prompt="p",
@@ -102,7 +104,7 @@ class TestRunSandboxReview:
 
         with (
             patch(f"{_EXECUTOR_PREFIX}._run_prompt", mock_run),
-            patch(f"{_EXECUTOR_PREFIX}.resolve_sandbox_context", _MOCK_RESOLVE_CTX),
+            patch(f"{_EXECUTOR_PREFIX}._sandbox_context_for", _MOCK_SANDBOX_CTX),
         ):
             result = await run_sandbox_review(
                 prompt="p",
@@ -127,7 +129,7 @@ class TestRunSandboxReview:
 
         with (
             patch(f"{_EXECUTOR_PREFIX}._run_prompt", mock_run),
-            patch(f"{_EXECUTOR_PREFIX}.resolve_sandbox_context", _MOCK_RESOLVE_CTX),
+            patch(f"{_EXECUTOR_PREFIX}._sandbox_context_for", _MOCK_SANDBOX_CTX),
         ):
             result = await run_sandbox_review(
                 prompt="p",
@@ -139,6 +141,21 @@ class TestRunSandboxReview:
             )
 
         assert result is False
+
+
+class TestSandboxIdentity:
+    """The run-scoped identity binds (team_id, user_id) for every sandbox call in a run."""
+
+    @pytest.mark.asyncio
+    async def test_context_reflects_bound_identity(self) -> None:
+        # _sandbox_context_for assembles the context from the bound identity + the call's repo —
+        # a team_id/user_id swap or a dropped repo would surface here.
+        token = executor._sandbox_identity.set((7, 9))
+        try:
+            ctx = executor._sandbox_context_for("acme/app")
+        finally:
+            executor._sandbox_identity.reset(token)
+        assert (ctx.team_id, ctx.user_id, ctx.repository) == (7, 9, "acme/app")
 
 
 class TestSemaphore:
@@ -160,7 +177,7 @@ class TestSemaphore:
         with (
             patch(f"{_EXECUTOR_PREFIX}._run_prompt", side_effect=tracked_run),
             patch(f"{_EXECUTOR_PREFIX}._sandbox_semaphore", asyncio.Semaphore(2)),
-            patch(f"{_EXECUTOR_PREFIX}.resolve_sandbox_context", _MOCK_RESOLVE_CTX),
+            patch(f"{_EXECUTOR_PREFIX}._sandbox_context_for", _MOCK_SANDBOX_CTX),
         ):
             tasks = []
             for i in range(5):
@@ -194,7 +211,7 @@ class TestSemaphore:
         with (
             patch(f"{_EXECUTOR_PREFIX}._run_prompt", side_effect=failing_then_succeeding),
             patch(f"{_EXECUTOR_PREFIX}._sandbox_semaphore", asyncio.Semaphore(1)),
-            patch(f"{_EXECUTOR_PREFIX}.resolve_sandbox_context", _MOCK_RESOLVE_CTX),
+            patch(f"{_EXECUTOR_PREFIX}._sandbox_context_for", _MOCK_SANDBOX_CTX),
         ):
             # First call fails
             result1 = await run_sandbox_review(

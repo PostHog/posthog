@@ -177,12 +177,12 @@ state + cloud persistence is its own effort — now **Stage 3** below.
 
 ### 🔭 Stage 3 — durable persistence & the loop-y review (cloud)
 
-> **Status: foundation + persist-after-success built (steps 1–5); steps 6–7 not yet started.**
+> **Status: foundation + persist-after-success + explicit team/user identity built (steps 1–6); step 7 not yet started.**
 > The two tables, the artefact funnel/registry, the Signals leaf move, the tach block, the `0001`
-> migration, and now the persistence layer (`reviewer/persistence.py`, wired into `run.py`) are in place
-> and green (lint + tach + 131 ReviewHog backend tests pass). What remains is threading a real
-> `team_id`/`user_id` from a cloud trigger (step 6) and routing large blobs to object storage (step 7) —
-> see the checklist below.
+> migration, the persistence layer (`reviewer/persistence.py`), and now explicit `team_id`/`user_id`
+> threading (`run_review` CLI → `main` → a run-scoped sandbox identity) are in place and green
+> (lint + tach + 134 ReviewHog backend tests pass). What remains is routing large blobs to object
+> storage (step 7) — see the checklist below.
 
 **Why.** Today every run writes Pydantic-serialized JSON/MD to a gitignored `reviews/<pr_number>/` tree — no
 DB, no `team_id`, no run identity (a "run" is just the PR-number directory). That blocks two things: running
@@ -326,8 +326,15 @@ stays on sandbox disk.
    `issue_key`. **Deferred (data not yet plumbed):** the `task_run` / `commit` / `note` work-log artefacts and
    the `head_sha` / `last_seen_comment_id` watermark — they need per-call task ids, commit SHAs, and comment ids
    that the current pipeline doesn't surface; they land with the loop-y turn tracking.
-6. **team/user:** thread a real `team_id` / `user_id` (replacing the hardcoded `_CLOUD_TEAM_ID=2` /
-   `_CLOUD_USER_ID` in `executor.py`) from the trigger; pass explicitly until the cloud trigger exists.
+6. ✅ **team/user:** `team_id` / `user_id` are now **required `--team-id` / `--user-id` CLI args** on
+   `run_review`, threaded `run_review → main(pr_url, *, team_id, user_id)`. The hardcoded `_CLOUD_TEAM_ID` /
+   `_CLOUD_USER_ID`, `_resolve_context_for_local_dev`, and the `settings.DEBUG` branch are **deleted**. The
+   executor now holds a **run-scoped `contextvars.ContextVar` identity**: `main` calls
+   `bind_sandbox_identity(team_id, user_id)` once (it validates the team's `kind="github"` integration via
+   `aexists()`, then `.set()`s the identity in the orchestrator's task context, so the `asyncio.gather`
+   fan-out inherits it); every sandbox call builds its context via `_sandbox_context_for(repository)`, which
+   reads the identity. The 5 review tools are unchanged — they still thread only `repository`. (The Temporal
+   trigger will later supply the PR's author + their team; for now the CLI does.)
 7. **Large blobs:** route diffs / large prompts to `object_storage` by key (or re-fetch via `get_diff`).
 
 ##### Cloud host, Temporal & GitHub (assumed / later)
@@ -344,7 +351,23 @@ stays on sandbox disk.
 - **Shared abstract artefact base.** If a second consumer proves it out (nest-then-promote), extract an abstract
   `AttributedArtefact` (funnel + fields, with `task` / `report` FKs declared per-subclass to avoid a core→tasks
   FK) into a shared home; Signals would converge onto it via a **mixin only** (no table change). Not now.
-- **Temporal parent workflow** for the orchestrator (the `run.py` `TODO`).
+- **Everything on Temporal.** The whole orchestrator (`run.py main()`, the `TODO: Make it a parent workflow`)
+  moves onto Temporal: a **parent workflow** with each pipeline stage (chunk → analyze → parallel lenses →
+  combine/clean → dedupe → validate → persist → publish) as a **child workflow / activity**, so retries,
+  visibility, and the global sandbox throttle are durable rather than in-process. The **loop-y re-check** (after
+  a turn, re-poll the PR for new commits/comments and take another turn until nothing significant changes) is
+  modeled as a **long-running workflow** — timer-driven, `continue-as-new` per turn to bound history — keyed by
+  the `ReviewReport` and advanced via its `head_sha` / `last_seen_comment_id` watermark. The **trigger** (a
+  Temporal schedule or a signal from a GitHub webhook) supplies `team_id` / `user_id` = the PR's author and
+  their team, replacing the CLI args. Large artifacts are persisted **inside** the activity and passed **by
+  reference** (row id / S3 key) to respect the ~2 MiB payload cap. (See _Cloud host, Temporal & GitHub_ above.)
+- **Lenses as LLMA skills, not jinja.** Today the three review lenses are static jinja focus templates
+  (`prompts/issues_review/pass_contexts/pass{1,2,3}_focus.jinja`). The direction is to author each lens as an
+  **LLMA skill** — the same mechanism **Signals Scouts** use (the `signals-scout-*` skills) — so a lens becomes
+  a first-class, independently authored / versioned / discoverable unit instead of a hardcoded prompt fragment.
+  A run would **select and load** the relevant lens skills (potentially per-repo or per-team) rather than always
+  running the fixed three, and new lenses ship as new skills with no pipeline change. Replicate the Scouts
+  pattern (skill registry + selection) rather than reinventing it.
 - **API viewset + frontend** to browse reviews (`/improving-drf-endpoints`).
 - **Emit into the Signals inbox.** Like `replay_vision`, ReviewHog could emit notable findings into Signals via
   the facade `emit_signal` so they surface in the inbox — a product feature, separate from this storage work.
@@ -457,14 +480,13 @@ deduplication, validation) call it with a prompt, the Pydantic model to validate
    agents run at once **per process** (in-memory; not cross-worker).
 2. Concatenates `full_prompt = f"{system_prompt}\n\n{prompt}"` — there is no separate system role; the agent
    receives one combined prompt.
-3. Resolves a `CustomPromptSandboxContext` via the public `resolve_sandbox_context()` (the orchestrator
-   in `run.py` also calls it to get the `team_id` it persists under, so a review's rows and its sandboxes
-   share one team):
-   - **Local dev** (`settings.DEBUG`): `_resolve_context_for_local_dev("sortafreel/posthog")` picks the first
-     `Team` and first org membership's user from the DB and requires a `kind="github"` `Integration`
-     (raising with setup guidance if absent). _(Inlined in `executor.py`; the Tasks facade also re-exports
-     `resolve_sandbox_context_for_local_dev`, so Stage 2 can switch to it.)_
-   - **Cloud** (`DEBUG=False`): hardcoded `team_id=2, user_id=196695`, with the PR's own `repository`.
+3. Builds a `CustomPromptSandboxContext` via `_sandbox_context_for(repository)`, which combines the PR's
+   `repository` with the run-scoped identity bound once at the start of the run by
+   `bind_sandbox_identity(team_id, user_id)` (a `contextvars.ContextVar`; the `asyncio.gather` fan-out
+   inherits it). The `team_id` / `user_id` are explicit inputs threaded from the entry point — the
+   `run_review` `--team-id` / `--user-id` CLI args today, the Temporal trigger (the PR's author + their team)
+   later. There is no `settings.DEBUG` branch or hardcoded fallback; `bind_sandbox_identity` validates the
+   team's `kind="github"` `Integration` up front (raising with setup guidance if absent).
 4. Spawns the agent via `_run_prompt(...)` → **`MultiTurnSession.start_raw(prompt, context, branch, step_name)`**
    (imported from the Tasks facade `products.tasks.backend.facade.agents`; the implementation lives at
    `products.tasks.backend.logic.services.custom_prompt_multi_turn_runner`), then **always `session.end()`s**
@@ -552,6 +574,8 @@ content". Most begin with `{{ CLAUDE_CODE_CONTEXT | safe }}` (the `@path#L…` r
     injection/authz, validation, schema/migration alignment).
   - `issues_review/pass_contexts/pass3_focus.jinja` — **Performance & Reliability** (N+1/indexes/memory,
     error handling, scalability, operational readiness; defines a severity rubric).
+  - _Future:_ these three lens focuses are slated to move out of jinja into **LLMA skills** (the Signals
+    Scouts pattern), so lenses become independently authored/selected units — see _Deferred / future_ above.
 - `issue_deduplicator/prompt.jinja` — mark duplicates (same file + overlapping lines + similar root cause)
   and issues matching prior review comments; keep the single most comprehensive representative. →
   `IssueDeduplication`.
@@ -582,8 +606,9 @@ entry `reviews/`). Per-run files:
 
 ## Entry point, commands & configuration
 
-- **Run a review:** `python manage.py run_review --pr-url <github_pr_url>`
-  (`backend/management/commands/run_review.py` → `asyncio.run(main(pr_url=…))`).
+- **Run a review:** `python manage.py run_review --pr-url <github_pr_url> --team-id <id> --user-id <id>`
+  (`backend/management/commands/run_review.py` → `asyncio.run(main(pr_url=…, team_id=…, user_id=…))`). All
+  three are required.
 - **Lint:** `ruff check products/review_hog/ --fix && ruff format products/review_hog/`
 - **Tests:** `pytest products/review_hog/backend/reviewer/tests/` (sandbox calls are mocked; fixtures under
   `tests/fixtures/`).
@@ -592,9 +617,10 @@ entry `reviews/`). Per-run files:
 
 - `GITHUB_TOKEN` (env) — required to fetch the PR and to publish the review. `split_pr_into_chunks.py` calls
   `load_dotenv()`, so a `.env` works.
-- `settings.DEBUG` — selects local-dev vs cloud sandbox context.
-- Hardcoded in `executor.py`: cloud `team_id=2`, `user_id=196695`, `repository="posthog/posthog"`; local
-  default repo `sortafreel/posthog`. _(Stage 2 candidate: de-hardcode.)_
+- `--team-id` / `--user-id` (CLI, required) — the team the review runs and persists under, and the user the
+  sandbox tasks run as. `bind_sandbox_identity` binds them as a run-scoped identity (`contextvars`) after
+  validating the team's `kind="github"` `Integration`. No `settings.DEBUG` branch or hardcoded ids remain.
+  The sandbox `repository` is the PR's own `owner/repo`, derived from the PR URL.
 
 ---
 

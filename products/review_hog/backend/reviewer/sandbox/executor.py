@@ -1,16 +1,12 @@
 import json
 import asyncio
 import logging
+import contextvars
 from pathlib import Path
 
-from django.conf import settings
-
-from asgiref.sync import sync_to_async
 from pydantic import BaseModel
 
 from posthog.models.integration import Integration
-from posthog.models.organization import OrganizationMembership
-from posthog.models.team.team import Team
 
 from products.review_hog.backend.reviewer.constants import MAX_CONCURRENT_SANDBOXES
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession, extract_json_from_text
@@ -19,52 +15,42 @@ logger = logging.getLogger(__name__)
 
 _sandbox_semaphore = asyncio.Semaphore(MAX_CONCURRENT_SANDBOXES)
 
-# Cloud defaults (used when DEBUG=False)
-_CLOUD_TEAM_ID = 2
-_CLOUD_USER_ID = 196695
+# Run-scoped sandbox identity (team_id, user_id), bound once per review by `bind_sandbox_identity`
+# and read by every sandbox call to build its context. The ids are an explicit input from the entry
+# point (the `run_review` CLI today; the Temporal trigger — the PR's author and their team — later),
+# so there is no environment-switched or hardcoded fallback.
+_sandbox_identity: contextvars.ContextVar[tuple[int, int]] = contextvars.ContextVar("review_hog_sandbox_identity")
 
 
-def _resolve_context_for_local_dev(repository: str) -> CustomPromptSandboxContext:
-    """Build a sandbox context from the first team/user in the local database.
+async def bind_sandbox_identity(*, team_id: int, user_id: int) -> None:
+    """Validate the team's GitHub integration and bind ``(team_id, user_id)`` for this run's sandboxes.
 
-    Requires a GitHub integration for the team (Task.create_and_run resolves it).
+    Called once at the start of a review in the orchestrator's own task context, so the value
+    propagates into the `asyncio.gather` fan-out (tasks copy the context at creation).
+    ``Task.create_and_run`` needs a ``kind="github"`` integration for the team, so we fail fast with
+    setup guidance if it's missing.
     """
-    team = Team.objects.select_related("organization").first()
-    if not team:
-        raise RuntimeError("No team found in local database")
-
-    membership = OrganizationMembership.objects.filter(organization=team.organization).order_by("id").first()
-    if not membership:
-        raise RuntimeError(f"No users in organization '{team.organization.name}' (team {team.id})")
-    user = membership.user
-
-    # Validate the integration exists upfront so we fail early with a clear message.
-    gh = Integration.objects.filter(team=team, kind="github").first()
-    if not gh:
+    if not await Integration.objects.filter(team_id=team_id, kind="github").aexists():
         raise RuntimeError(
-            f"No GitHub integration found for team {team.id}. "
-            "Set up a GitHub App installation first: "
-            "go to /settings/integrations in your local PostHog."
+            f"No GitHub integration found for team {team_id}. "
+            "Set up a GitHub App installation first (Settings → Integrations)."
         )
+    _sandbox_identity.set((team_id, user_id))
 
-    return CustomPromptSandboxContext(team_id=team.id, user_id=user.id, repository=repository)
 
+def _sandbox_context_for(repository: str) -> CustomPromptSandboxContext:
+    """Build the sandbox context for ``repository`` from the run's bound identity.
 
-async def resolve_sandbox_context(repository: str) -> CustomPromptSandboxContext:
-    """Return sandbox context based on environment (cloud vs local dev).
-
-    The sandbox clones ``repository`` (the PR's own ``owner/repo``) and checks out the
-    PR branch, so reviews run against the real repo — same as Signals report research.
-    The orchestrator also calls this to resolve the ``team_id`` it persists under, so the
-    review's rows and its sandboxes share one team.
+    The sandbox clones ``repository`` (the PR's own ``owner/repo``) and checks out the PR branch, so
+    reviews run against the real repo — same as Signals report research.
     """
-    if settings.DEBUG:
-        return await sync_to_async(_resolve_context_for_local_dev)(repository)
-    return CustomPromptSandboxContext(
-        team_id=_CLOUD_TEAM_ID,
-        user_id=_CLOUD_USER_ID,
-        repository=repository,
-    )
+    try:
+        team_id, user_id = _sandbox_identity.get()
+    except LookupError:
+        raise RuntimeError(
+            "Sandbox identity not bound — call bind_sandbox_identity() at the start of the run"
+        ) from None
+    return CustomPromptSandboxContext(team_id=team_id, user_id=user_id, repository=repository)
 
 
 async def _run_prompt(
@@ -114,7 +100,7 @@ async def run_sandbox_review(
         logger.info(f"Acquired sandbox semaphore (limit={MAX_CONCURRENT_SANDBOXES})")
 
         full_prompt = f"{system_prompt}\n\n{prompt}"
-        context = await resolve_sandbox_context(repository)
+        context = _sandbox_context_for(repository)
 
         try:
             last_message = await _run_prompt(prompt=full_prompt, context=context, branch=branch, step_name=step_name)

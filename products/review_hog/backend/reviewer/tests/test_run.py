@@ -37,7 +37,7 @@ def mock_tool_functions(tmp_path: Path) -> Generator[dict[str, Mock]]:
         patch(f"{_RUN}._REVIEW_HOG_DIR", tmp_path),
         # Persistence behavior is exercised by test_persistence.py; these orchestration tests stub it
         # out so they stay DB-free, but keep the mocks addressable to pin the run.py wiring.
-        patch(f"{_RUN}.resolve_sandbox_context", AsyncMock(return_value=Mock(team_id=1))) as mock_resolve_ctx,
+        patch(f"{_RUN}.bind_sandbox_identity", AsyncMock(return_value=None)) as mock_bind,
         patch(f"{_RUN}.upsert_review_report", Mock(return_value="report-1")) as mock_upsert,
         patch(f"{_RUN}.persist_findings", Mock(return_value=0)) as mock_persist_findings,
         patch(f"{_RUN}.persist_verdicts", Mock(return_value=0)) as mock_persist_verdicts,
@@ -56,7 +56,7 @@ def mock_tool_functions(tmp_path: Path) -> Generator[dict[str, Mock]]:
             "validate": mock_validate,
             "prepare_validation": mock_prepare_validation,
             "publish": mock_publish,
-            "resolve_ctx": mock_resolve_ctx,
+            "bind": mock_bind,
             "upsert": mock_upsert,
             "persist_findings": mock_persist_findings,
             "persist_verdicts": mock_persist_verdicts,
@@ -97,7 +97,7 @@ class TestArgumentParsing:
         mock_tool_functions["parser_class"].return_value = mock_parser
 
         with pytest.raises(ValueError, match="Invalid GitHub PR URL format"):
-            await main("not-a-valid-url")
+            await main("not-a-valid-url", team_id=1, user_id=1)
 
 
 class TestMainWorkflow:
@@ -124,7 +124,7 @@ class TestMainWorkflow:
 
         mock_tool_functions["split"].side_effect = mock_split_func
 
-        await main("https://github.com/owner/repo/pull/456")
+        await main("https://github.com/owner/repo/pull/456", team_id=1, user_id=1)
 
         review_dir = tmp_path / "reviews" / "456"
         assert review_dir.exists()
@@ -144,7 +144,7 @@ class TestMainWorkflow:
         mock_tool_functions["fetcher_class"].return_value = mock_fetcher
 
         with pytest.raises(Exception, match="GitHub API error"):
-            await main("https://github.com/owner/repo/pull/123")
+            await main("https://github.com/owner/repo/pull/123", team_id=1, user_id=1)
 
     @pytest.mark.asyncio
     async def test_chunks_file_loading_and_validation(
@@ -166,7 +166,7 @@ class TestMainWorkflow:
         with (review_dir / "chunks.json").open("w") as f:
             f.write(expected_chunks.model_dump_json())
 
-        await main("https://github.com/owner/repo/pull/123")
+        await main("https://github.com/owner/repo/pull/123", team_id=1, user_id=1)
 
         # Verify chunks were loaded correctly for analyze_chunks
         analyze_call_args = mock_tool_functions["analyze"].call_args
@@ -200,7 +200,7 @@ class TestMainWorkflow:
             f.write(expected_chunks.model_dump_json())
 
         with pytest.raises(RuntimeError, match="Review failed"):
-            await main("https://github.com/owner/repo/pull/123")
+            await main("https://github.com/owner/repo/pull/123", team_id=1, user_id=1)
 
     @pytest.mark.asyncio
     async def test_invalid_chunks_json_validation(
@@ -219,7 +219,7 @@ class TestMainWorkflow:
             f.write('{"invalid": "json structure"}')
 
         with pytest.raises(ValidationError):
-            await main("https://github.com/owner/repo/pull/123")
+            await main("https://github.com/owner/repo/pull/123", team_id=1, user_id=1)
 
 
 class TestIntegrationScenarios:
@@ -245,7 +245,7 @@ class TestIntegrationScenarios:
         with (review_dir / "chunks.json").open("w") as f:
             f.write(expected_chunks.model_dump_json())
 
-        await main("https://github.com/owner/repo/pull/123")
+        await main("https://github.com/owner/repo/pull/123", team_id=1, user_id=1)
 
         assert mock_tool_functions["parser_class"].call_count == 1
         assert mock_tool_functions["fetcher_class"].call_count == 1
@@ -271,7 +271,7 @@ class TestIntegrationScenarios:
         mock_tool_functions["split"].side_effect = RuntimeError("Split failed")
 
         with pytest.raises(RuntimeError, match="Split failed"):
-            await main("https://github.com/owner/repo/pull/123")
+            await main("https://github.com/owner/repo/pull/123", team_id=1, user_id=1)
 
         mock_tool_functions["analyze"].assert_not_called()
         mock_tool_functions["review"].assert_not_called()
@@ -325,7 +325,7 @@ class TestIntegrationScenarios:
         for key in ["analyze", "deduplicate", "validate", "prepare_validation"]:
             mock_tool_functions[key].return_value = None
 
-        await main("https://github.com/test-owner/test-repo/pull/999")
+        await main("https://github.com/test-owner/test-repo/pull/999", team_id=1, user_id=1)
 
         assert mock_tool_functions["parser_class"].call_count == 1
         assert mock_tool_functions["fetcher_class"].call_count == 1
@@ -360,7 +360,7 @@ class TestIntegrationScenarios:
         with (review_dir / "chunks.json").open("w") as f:
             f.write(expected_chunks.model_dump_json())
 
-        await main("https://github.com/owner/repo/pull/123")
+        await main("https://github.com/owner/repo/pull/123", team_id=1, user_id=1)
 
         assert mock_tool_functions["combine"].call_count == 1
         assert mock_tool_functions["clean"].call_count == 1
@@ -383,7 +383,7 @@ class TestIntegrationScenarios:
         mock_tool_functions["split"].side_effect = mock_split_func
 
         with pytest.raises(FileNotFoundError):
-            await main("https://github.com/owner/repo/pull/123")
+            await main("https://github.com/owner/repo/pull/123", team_id=1, user_id=1)
 
     @pytest.mark.asyncio
     async def test_persistence_wiring(
@@ -406,8 +406,10 @@ class TestIntegrationScenarios:
         with (review_dir / "chunks.json").open("w") as f:
             f.write(expected_chunks.model_dump_json())
 
-        await main("https://github.com/owner/repo/pull/123")
+        await main("https://github.com/owner/repo/pull/123", team_id=1, user_id=1)
 
+        # Both explicit ids reach the sandbox identity; team_id also reaches the report upsert.
+        mock_tool_functions["bind"].assert_awaited_once_with(team_id=1, user_id=1)
         mock_tool_functions["upsert"].assert_called_once()
         upsert_kwargs = mock_tool_functions["upsert"].call_args.kwargs
         assert upsert_kwargs["team_id"] == 1
@@ -440,7 +442,7 @@ class TestIntegrationScenarios:
         with (review_dir / "chunks.json").open("w") as f:
             f.write(expected_chunks.model_dump_json())
 
-        await main("https://github.com/owner/repo/pull/123")
+        await main("https://github.com/owner/repo/pull/123", team_id=1, user_id=1)
 
         expected_branch = pr_metadata.head_branch
         for key in ["split", "analyze", "review", "deduplicate", "validate"]:

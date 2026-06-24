@@ -13,7 +13,7 @@ from products.review_hog.backend.reviewer.persistence import (
     persist_verdicts,
     upsert_review_report,
 )
-from products.review_hog.backend.reviewer.sandbox.executor import resolve_sandbox_context
+from products.review_hog.backend.reviewer.sandbox.executor import bind_sandbox_identity
 from products.review_hog.backend.reviewer.tools.chunk_analysis import analyze_chunks
 from products.review_hog.backend.reviewer.tools.github_meta import PRFetcher, PRParser
 from products.review_hog.backend.reviewer.tools.issue_cleaner import clean_issues
@@ -51,8 +51,13 @@ def _stage(number: int, label: str) -> None:
 
 
 # TODO: Make it a parent workflow and spawn steps as child workflows for better visualization
-async def main(pr_url: str) -> None:
-    """Main entry point for running PR review tools."""
+async def main(pr_url: str, *, team_id: int, user_id: int) -> None:
+    """Main entry point for running PR review tools.
+
+    ``team_id`` / ``user_id`` are explicit inputs from the trigger (the `run_review` CLI today, the
+    Temporal trigger later): the team the review runs and persists under, and the user the sandbox
+    tasks run as.
+    """
 
     # 1. Parse PR URL into PR metadata
     try:
@@ -82,10 +87,10 @@ async def main(pr_url: str) -> None:
 
     branch = pr_metadata.head_branch
 
-    # Resolve the team this review persists under (same team its sandboxes run under) and open the
-    # living report for this PR. A re-run reuses the report keyed by (team, repository, pr_number).
-    sandbox_context = await resolve_sandbox_context(repository)
-    team_id = sandbox_context.team_id
+    # Bind the explicit team/user for this run's sandboxes (validates the team's GitHub integration),
+    # then open the living report for this PR. A re-run reuses the report keyed by
+    # (team, repository, pr_number).
+    await bind_sandbox_identity(team_id=team_id, user_id=user_id)
     report_id = await sync_to_async(upsert_review_report)(
         team_id=team_id, repository=repository, pr_url=pr_url, pr_metadata=pr_metadata
     )
