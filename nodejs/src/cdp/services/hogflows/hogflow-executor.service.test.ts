@@ -1955,7 +1955,11 @@ describe('Hogflow Executor', () => {
                             selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
                         },
                         { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
-                        new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
+                        new HogInputsService(
+                            hub.integrationManager,
+                            new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
+                            hub.encryptedFields
+                        ),
                         new EmailService(
                             {
                                 sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
@@ -1969,7 +1973,8 @@ describe('Hogflow Executor', () => {
                             hub.SITE_URL,
                             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
                         ),
-                        new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+                        new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
+                        undefined as any
                     )
                 ),
                 new RecipientPreferencesService(new RecipientsManagerService(hub.postgres))
@@ -2155,7 +2160,11 @@ describe('Hogflow Executor', () => {
                             selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
                         },
                         { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
-                        new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
+                        new HogInputsService(
+                            hub.integrationManager,
+                            new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
+                            hub.encryptedFields
+                        ),
                         new EmailService(
                             {
                                 sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
@@ -2169,7 +2178,8 @@ describe('Hogflow Executor', () => {
                             hub.SITE_URL,
                             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
                         ),
-                        new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+                        new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
+                        undefined as any
                     )
                 ),
                 new RecipientPreferencesService(new RecipientsManagerService(hub.postgres))
@@ -2191,7 +2201,11 @@ describe('Hogflow Executor', () => {
                             selfLoopGuardMode: hub.CDP_SELF_LOOP_GUARD_MODE,
                         },
                         { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
-                        new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
+                        new HogInputsService(
+                            hub.integrationManager,
+                            new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
+                            hub.encryptedFields
+                        ),
                         new EmailService(
                             {
                                 sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
@@ -2205,7 +2219,8 @@ describe('Hogflow Executor', () => {
                             hub.SITE_URL,
                             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
                         ),
-                        new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+                        new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
+                        undefined as any
                     )
                 ),
                 new RecipientPreferencesService(new RecipientsManagerService(hub.postgres))

@@ -9,7 +9,7 @@ import {
     PushNotificationPayloadType,
 } from '../../../schema/cyclotron'
 import { parseJSON } from '../../../utils/json-parse'
-import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, IntegrationType } from '../../types'
+import type { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, IntegrationType } from '../../types'
 import { createAddLogFunction } from '../../utils'
 import { EncryptedFields } from '../../utils/encryption-utils'
 import { createInvocationResult } from '../../utils/invocation-utils'

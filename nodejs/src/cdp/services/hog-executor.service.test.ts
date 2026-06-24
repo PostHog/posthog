@@ -2185,10 +2185,11 @@ describe('Hog Executor', () => {
         }
 
         const createExecutorWithRouting = (emailQueueRouting: string): HogExecutorService => {
+            const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
             const hogInputsService = new HogInputsService(
                 hub.integrationManager,
-                hub.ENCRYPTION_SALT_KEYS,
-                hub.SITE_URL
+                recipientTokensService,
+                hub.encryptedFields
             )
             const emailService = new EmailService(
                 {
@@ -2203,7 +2204,6 @@ describe('Hog Executor', () => {
                 hub.SITE_URL,
                 new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
             )
-            const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
             return new HogExecutorService(
                 {
                     hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
@@ -2217,7 +2217,8 @@ describe('Hog Executor', () => {
                 { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
                 hogInputsService,
                 emailService,
-                recipientTokensService
+                recipientTokensService,
+                undefined as any
             )
         }
 
