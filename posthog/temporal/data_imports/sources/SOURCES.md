@@ -97,6 +97,7 @@ the row lists both.
 | dixa              | HTTP                        | requests                                                        | ✅                          |
 | doit              | HTTP                        | requests                                                        | ✅                          |
 | drip              | HTTP                        | requests                                                        | ✅                          |
+| easypost          | HTTP                        | requests                                                        | ✅                          |
 | freshdesk         | HTTP                        | requests                                                        | ✅                          |
 | freshsales        | HTTP                        | requests                                                        | ✅                          |
 | elasticemail      | HTTP                        | requests                                                        | ✅                          |
@@ -367,7 +368,6 @@ doesn't conflict with concurrent PRs.
 - dynamics365
 - dynamodb
 - e_conomic
-- easypost
 - easypromos
 - ebay
 - eloqua

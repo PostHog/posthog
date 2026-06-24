@@ -997,7 +997,7 @@ class EZOfficeInventorySourceConfig(config.Config):
 
 @config.config
 class EasypostSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
