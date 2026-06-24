@@ -179,6 +179,17 @@ class MemCredStore implements IdentityCredentialStore {
     async removeAgentScoped(applicationId: string, provider: string): Promise<void> {
         this.agentRows.delete(this.key(applicationId, provider))
     }
+    async markNeedsRelink(): Promise<void> {}
+    async markAgentScopedNeedsRelink(applicationId: string, provider: string): Promise<void> {
+        const r = this.agentRows.get(this.key(applicationId, provider))
+        if (r) {
+            r.state = 'needs_relink'
+        }
+    }
+    async withRefreshLock<T>(_lockKey: string, fn: () => Promise<T>): Promise<T> {
+        // In-process tests are single-threaded; no real lock needed.
+        return fn()
+    }
 }
 
 const initiateArgs = {

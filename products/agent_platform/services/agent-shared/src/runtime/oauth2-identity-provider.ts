@@ -9,7 +9,7 @@ import { createHash, randomBytes } from 'node:crypto'
 
 import type { Credential } from './credential-broker'
 import type { HttpFetcher } from './http-client'
-import type { IdentityCredentialStore, LinkedCredential, StoredCredential } from './identity-credential-store'
+import type { IdentityCredentialStore, StoredCredential } from './identity-credential-store'
 import type { IdentityLinkStateStore } from './identity-link-state-store'
 import type {
     IdentityCompleteInput,
@@ -88,13 +88,6 @@ export class Oauth2AuthProvider implements IdentityProvider {
     // Typed `boolean` (not the literal `false`) so an identity-establishing
     // subclass can override it to `true`.
     readonly establishesIdentity: boolean = false
-
-    // Per-pod single-flight gate for token refresh, keyed by the row a refresh
-    // would write. For `binding: 'agent'` every asker shares one row, so without
-    // this N concurrent sessions would all fire `refresh_token` at the skew
-    // window — single-use rotated tokens break and IdP rate limits trip. One
-    // in-flight refresh per key; the rest await its result.
-    private readonly inflightRefresh = new Map<string, Promise<StoredCredential>>()
 
     // `protected` (not `private`) so an identity-establishing subclass
     // (PostHogAuthProvider) can reach the config + http to derive a subject.
@@ -237,34 +230,20 @@ export class Oauth2AuthProvider implements IdentityProvider {
         if (!linked) {
             return null
         }
-        let stored = linked.credential
         // Host-rebinding guard: refuse a credential whose connect-time endpoint
         // hosts no longer match the live provider config. An editor can keep a
         // provider id but repoint token/userinfo at a host they control on a new
         // revision; without this the stored bearer would be sent there. Legacy
         // credentials (no recorded bound_hosts) skip the check.
-        if (stored.bound_hosts && !hostsMatch(stored.bound_hosts, this.allowedHosts())) {
+        if (linked.credential.bound_hosts && !hostsMatch(linked.credential.bound_hosts, this.allowedHosts())) {
             throw new Error('oauth_provider_host_rebound')
         }
-        const now = (this.deps.now ?? Date.now)()
-        const skew = this.deps.refreshSkewMs ?? 60_000
-        if (stored.expires_at && stored.expires_at - skew <= now && stored.refresh_token) {
-            try {
-                stored = await this.refreshSingleFlight(input, linked, stored.refresh_token)
-            } catch (err) {
-                if (err instanceof OauthInvalidGrantError) {
-                    // Dead refresh token: flip the row out of `active` so subsequent
-                    // resolves short-circuit to "not connected" instead of every
-                    // asker re-hammering the IdP with the same doomed refresh.
-                    if (isAgent) {
-                        await this.deps.credentials.revokeAgentScoped(input.applicationId, this.id)
-                    } else {
-                        await this.deps.credentials.revoke(input.agentUserId as string, this.id)
-                    }
-                    return null
-                }
-                throw err
-            }
+        // Fresh enough → use as-is. Stale → refresh under a cluster-wide lock
+        // (which may return a sibling pod's already-rotated token, or null if the
+        // token is dead / the row was retired).
+        const stored = this.needsRefresh(linked.credential) ? await this.refreshUnderLock(input) : linked.credential
+        if (!stored) {
+            return null
         }
         return {
             kind: 'oauth_bearer',
@@ -275,53 +254,78 @@ export class Oauth2AuthProvider implements IdentityProvider {
         }
     }
 
+    private needsRefresh(c: StoredCredential): boolean {
+        const now = (this.deps.now ?? Date.now)()
+        const skew = this.deps.refreshSkewMs ?? 60_000
+        return Boolean(c.expires_at && c.expires_at - skew <= now && c.refresh_token)
+    }
+
     /**
-     * Refresh the access token, persisting it back to the same row shape it came
-     * from, under a per-key single-flight gate. Concurrent resolves for the same
-     * credential row share one IdP refresh + one write rather than racing.
+     * Refresh the access token under a cluster-wide lock, with a double-checked
+     * re-read. Holding the lock across the IdP call means only ONE pod refreshes a
+     * given row: every other pod, after acquiring the lock, re-reads and finds the
+     * rotated token already written, so it reuses that instead of replaying the
+     * single-use refresh token (which would fail `invalid_grant` and — for a
+     * shared agent row — spuriously break the credential for every asker).
+     *
+     * Returns null when the row was retired (revoked / needs_relink) while we
+     * waited, or when our own refresh hit a terminal `invalid_grant` (genuinely
+     * dead token — safe to conclude here because we held the lock, so no
+     * concurrent refresh could have healed it). Non-`invalid_grant` errors
+     * (network, 5xx) propagate so the gate reports `unavailable` and we retry.
      */
-    private async refreshSingleFlight(
-        input: IdentityResolveInput,
-        linked: LinkedCredential,
-        refreshToken: string
-    ): Promise<StoredCredential> {
+    private async refreshUnderLock(input: IdentityResolveInput): Promise<StoredCredential | null> {
         const isAgent = this.binding === 'agent'
-        const key = isAgent ? `agent:${input.applicationId}:${this.id}` : `principal:${input.agentUserId}:${this.id}`
-        const existing = this.inflightRefresh.get(key)
-        if (existing) {
-            return existing
-        }
-        const p = (async (): Promise<StoredCredential> => {
-            const token = await this.tokenRequest({ grant_type: 'refresh_token', refresh_token: refreshToken })
-            const refreshed = this.toStored(token, refreshToken)
-            // Preserve the connect-time host pin across refreshes (toStored omits it).
-            refreshed.bound_hosts = linked.credential.bound_hosts
-            if (isAgent) {
-                await this.deps.credentials.putAgentScoped({
-                    teamId: input.teamId,
-                    applicationId: input.applicationId,
-                    provider: this.id,
-                    credential: refreshed,
-                    scopes: linked.scopes,
-                })
-            } else {
-                await this.deps.credentials.put({
-                    teamId: input.teamId,
-                    applicationId: input.applicationId,
-                    agentUserId: input.agentUserId as string,
-                    provider: this.id,
-                    credential: refreshed,
-                    scopes: linked.scopes,
-                })
+        const lockKey = isAgent
+            ? `id-refresh:agent:${input.applicationId}:${this.id}`
+            : `id-refresh:principal:${input.agentUserId}:${this.id}`
+        return this.deps.credentials.withRefreshLock(lockKey, async () => {
+            const current = isAgent
+                ? await this.deps.credentials.getAgentScoped(input.applicationId, this.id)
+                : await this.deps.credentials.get(input.agentUserId as string, this.id)
+            if (!current) {
+                return null // retired (revoked / needs_relink) while we waited
             }
-            return refreshed
-        })()
-        this.inflightRefresh.set(key, p)
-        try {
-            return await p
-        } finally {
-            this.inflightRefresh.delete(key)
-        }
+            if (!this.needsRefresh(current.credential)) {
+                return current.credential // a sibling already refreshed — reuse it, don't replay the token
+            }
+            const refreshToken = current.credential.refresh_token as string
+            try {
+                const token = await this.tokenRequest({ grant_type: 'refresh_token', refresh_token: refreshToken })
+                const refreshed = this.toStored(token, refreshToken)
+                // Preserve the connect-time host pin across refreshes (toStored omits it).
+                refreshed.bound_hosts = current.credential.bound_hosts
+                if (isAgent) {
+                    await this.deps.credentials.putAgentScoped({
+                        teamId: input.teamId,
+                        applicationId: input.applicationId,
+                        provider: this.id,
+                        credential: refreshed,
+                        scopes: current.scopes,
+                    })
+                } else {
+                    await this.deps.credentials.put({
+                        teamId: input.teamId,
+                        applicationId: input.applicationId,
+                        agentUserId: input.agentUserId as string,
+                        provider: this.id,
+                        credential: refreshed,
+                        scopes: current.scopes,
+                    })
+                }
+                return refreshed
+            } catch (err) {
+                if (err instanceof OauthInvalidGrantError) {
+                    if (isAgent) {
+                        await this.deps.credentials.markAgentScopedNeedsRelink(input.applicationId, this.id)
+                    } else {
+                        await this.deps.credentials.markNeedsRelink(input.agentUserId as string, this.id)
+                    }
+                    return null
+                }
+                throw err
+            }
+        })
     }
 
     private toStored(t: TokenResponse, fallbackRefresh?: string): StoredCredential {

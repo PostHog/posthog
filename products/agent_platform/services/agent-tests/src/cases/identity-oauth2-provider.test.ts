@@ -394,4 +394,110 @@ maybeDescribe('Oauth2AuthProvider × dogs IdP (real PG + real HTTP)', () => {
             await dog.close()
         }
     })
+
+    it('two concurrent pods refreshing one shared agent credential refresh exactly once (no rotation race)', async () => {
+        if (!reachable) {
+            return
+        }
+        dog = await startDogServer()
+        try {
+            const credentials = new PgIdentityCredentialStore(pool, { encryptionSaltKeys: KEY })
+            const applicationId = randomUUID()
+
+            // Seed the shared credential with a real, single-use dog refresh token.
+            const linker = buildProvider()
+            const owner = randomUUID()
+            const { authorizeUrl, stateId } = await linker.initiate({
+                agentUserId: owner,
+                teamId: 1,
+                applicationId,
+                scopes: ['read:dog'],
+                redirectUri: REDIRECT,
+            })
+            const { code } = await visitAuthorize(authorizeUrl)
+            await linker.complete({ stateId, query: { code } })
+            const linked = await credentials.get(owner, 'dogs')
+            if (!linked) {
+                throw new Error('expected a linked credential to seed from')
+            }
+            await credentials.putAgentScoped({
+                teamId: 1,
+                applicationId,
+                provider: 'dogs',
+                credential: linked.credential,
+                scopes: linked.scopes,
+            })
+
+            // Two independent providers (≙ two runner pods, separate store instances
+            // on the same DB), both seeing the token as expired, resolve at once.
+            // The dog IdP single-uses refresh tokens, so without cross-pod
+            // serialization the loser would replay the rotated token, get
+            // invalid_grant, and break the shared credential for everyone.
+            const future = (): number => Date.now() + 10 * 60 * 60 * 1000
+            const podA = buildProvider({ binding: 'agent', now: future })
+            const podB = buildProvider({ binding: 'agent', now: future })
+            const [a, b] = await Promise.all([
+                podA.resolve({ agentUserId: null, teamId: 1, applicationId, scopes: [] }),
+                podB.resolve({ agentUserId: null, teamId: 1, applicationId, scopes: [] }),
+            ])
+
+            const tokenA = a?.kind === 'oauth_bearer' ? a.token : ''
+            const tokenB = b?.kind === 'oauth_bearer' ? b.token : ''
+            // Both got a bearer, and the SAME one — proving a single refresh
+            // happened and the waiter reused it (two refreshes would yield two
+            // distinct access tokens).
+            expect(tokenA).not.toBe('')
+            expect(tokenB).toBe(tokenA)
+
+            // The credential is still active (not spuriously revoked / needs_relink)
+            // and resolves to the one rotated token.
+            const after = await credentials.getAgentScoped(applicationId, 'dogs')
+            expect(after?.credential.access_token).toBe(tokenA)
+            const api = await fetch(dog.apiUrl, { headers: { Authorization: `Bearer ${tokenA}` } })
+            expect(api.status).toBe(200)
+        } finally {
+            await dog.close()
+        }
+    })
+
+    it('a dead refresh token flips the shared credential to needs_relink (resolve → unavailable, not retried)', async () => {
+        if (!reachable) {
+            return
+        }
+        dog = await startDogServer()
+        try {
+            const credentials = new PgIdentityCredentialStore(pool, { encryptionSaltKeys: KEY })
+            const applicationId = randomUUID()
+            // Expired access token + a refresh token the IdP doesn't know → the
+            // refresh returns invalid_grant. No bound_hosts → host check skipped.
+            await credentials.putAgentScoped({
+                teamId: 1,
+                applicationId,
+                provider: 'dogs',
+                credential: {
+                    access_token: 'stale',
+                    refresh_token: 'dog-rt-does-not-exist',
+                    expires_at: Date.now() - 1000,
+                },
+                scopes: ['read:dog'],
+            })
+
+            const provider = buildProvider({ binding: 'agent' })
+            // resolve returns null (no usable credential) rather than throwing.
+            expect(await provider.resolve({ agentUserId: null, teamId: 1, applicationId, scopes: [] })).toBeNull()
+
+            // The row is parked in needs_relink (a non-active state distinct from an
+            // owner revoke), so getAgentScoped now short-circuits without another
+            // IdP round-trip.
+            expect(await credentials.getAgentScoped(applicationId, 'dogs')).toBeNull()
+            const raw = await pool.query(
+                `SELECT state FROM agent_identity_credential
+                  WHERE application_id = $1 AND provider = $2 AND agent_user_id IS NULL`,
+                [applicationId, 'dogs']
+            )
+            expect(raw.rows[0]?.state).toBe('needs_relink')
+        } finally {
+            await dog.close()
+        }
+    })
 })

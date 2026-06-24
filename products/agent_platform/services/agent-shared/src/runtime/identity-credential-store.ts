@@ -118,6 +118,23 @@ export interface IdentityCredentialStore {
     revokeAgentScoped(applicationId: string, provider: string): Promise<void>
     /** Hard-delete the agent-scoped link. Idempotent. */
     removeAgentScoped(applicationId: string, provider: string): Promise<void>
+    /**
+     * Mark a link `needs_relink` — the IdP rejected our refresh token
+     * (`invalid_grant`). Distinct from `revoke` (owner action) so the owner can
+     * tell "the connection broke, reconnect" from "I disconnected it". Like
+     * `revoked` it's a non-`active` state, so `get`/`getAgentScoped` skip it.
+     */
+    markNeedsRelink(agentUserId: string, provider: string): Promise<void>
+    markAgentScopedNeedsRelink(applicationId: string, provider: string): Promise<void>
+    /**
+     * Run `fn` while holding a cluster-wide lock for `lockKey`. Used to serialize
+     * token refresh for a single credential row across every runner pod: the
+     * winner refreshes once and writes the rotated token; everyone else waits,
+     * then re-reads (inside `fn`) and reuses it instead of replaying a single-use
+     * refresh token at the IdP. The lock is advisory (not a row lock / open
+     * transaction), so holding it across the IdP round-trip is safe.
+     */
+    withRefreshLock<T>(lockKey: string, fn: () => Promise<T>): Promise<T>
 }
 
 interface CredentialRow {
@@ -291,5 +308,42 @@ export class PgIdentityCredentialStore implements IdentityCredentialStore {
               WHERE application_id = $1 AND provider = $2 AND agent_user_id IS NULL`,
             [applicationId, provider]
         )
+    }
+
+    async markNeedsRelink(agentUserId: string, provider: string): Promise<void> {
+        await this.pool.query(
+            `UPDATE agent_identity_credential
+                SET state = 'needs_relink', updated_at = NOW()
+              WHERE agent_user_id = $1 AND provider = $2 AND state = 'active'`,
+            [agentUserId, provider]
+        )
+    }
+
+    async markAgentScopedNeedsRelink(applicationId: string, provider: string): Promise<void> {
+        await this.pool.query(
+            `UPDATE agent_identity_credential
+                SET state = 'needs_relink', updated_at = NOW()
+              WHERE application_id = $1 AND provider = $2 AND agent_user_id IS NULL AND state = 'active'`,
+            [applicationId, provider]
+        )
+    }
+
+    async withRefreshLock<T>(lockKey: string, fn: () => Promise<T>): Promise<T> {
+        // Session-level advisory lock on a dedicated connection. Cluster-wide, so
+        // it serializes refresh across pods; not tied to a row or open
+        // transaction, so holding it across the IdP round-trip in `fn` is safe.
+        // Must lock + unlock on the SAME connection — `fn`'s own queries run on
+        // other pool connections, which is fine (the lock is a pure mutex).
+        const client = await this.pool.connect()
+        try {
+            await client.query('SELECT pg_advisory_lock(hashtext($1)::bigint)', [lockKey])
+            try {
+                return await fn()
+            } finally {
+                await client.query('SELECT pg_advisory_unlock(hashtext($1)::bigint)', [lockKey])
+            }
+        } finally {
+            client.release()
+        }
     }
 }
