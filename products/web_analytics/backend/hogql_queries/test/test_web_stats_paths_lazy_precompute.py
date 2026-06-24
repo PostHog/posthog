@@ -25,14 +25,24 @@ from posthog.schema import (
     WebStatsTableQuery,
 )
 
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+
 from posthog.models.utils import uuid7
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    SESSION_FORWARD_PAD_MINUTES,
+    host_filter_expr,
+    test_account_filter_expr,
+)
 from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import (
+    INSERT_QUERY_TEMPLATE_CAPPED,
     _breakdown_value_expr,
     _entry_breakdown_value_expr,
+    _events_session_id_expr,
     _top_k_ranking_expr,
 )
 
@@ -422,6 +432,32 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert views_hashes, "expected views-sorted run to create at least one job"
         assert visitors_hashes.isdisjoint(views_hashes), (
             f"different sort keys must produce distinct capped jobs, got overlap: {visitors_hashes & views_hashes}"
+        )
+
+    def test_capped_insert_top_level_columns_are_aliased(self):
+        # Regression: the framework's `_build_manual_insert_sql` builds the INSERT
+        # column list from top-level aliases — bare columns raise, silently failing
+        # the capped insert so the tile falls back to raw. Parse the capped template
+        # (the path every descending sort takes) and assert all columns are aliased.
+        runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query())
+        placeholders: dict = {
+            "events_session_id": _events_session_id_expr(runner),
+            "breakdown_value_expr": _breakdown_value_expr(runner),
+            "entry_breakdown_value_expr": _entry_breakdown_value_expr(runner),
+            "event_type_filter": runner.event_type_expr,
+            "user_filter": host_filter_expr(runner.query.properties or [], team=runner.team),
+            "test_account_filter": test_account_filter_expr(
+                test_account_filters=runner._test_account_filters, team=runner.team
+            ),
+            "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
+            "top_k_metric": _top_k_ranking_expr(runner),
+            "time_window_min": ast.Constant(value="__MIN__"),
+            "time_window_max": ast.Constant(value="__MAX__"),
+        }
+        parsed = parse_select(INSERT_QUERY_TEMPLATE_CAPPED, placeholders=placeholders)
+        assert isinstance(parsed, ast.SelectQuery)
+        assert parsed.select and all(isinstance(e, ast.Alias) for e in parsed.select), (
+            "capped insert top-level columns must all be aliased for _build_manual_insert_sql"
         )
 
     @freeze_time("2024-01-15T12:00:00Z")

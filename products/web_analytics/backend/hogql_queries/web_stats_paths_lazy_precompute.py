@@ -325,10 +325,18 @@ INSERT_QUERY_TEMPLATE_CAPPED = (
     "WITH per_window AS ("
     + _PER_WINDOW_AGG_SQL
     + """)
-SELECT time_window_start, breakdown_value, uniq_users_state, sum_pageviews_state, avg_bounce_state
+SELECT
+    time_window_start AS time_window_start,
+    breakdown_value AS breakdown_value,
+    uniq_users_state AS uniq_users_state,
+    sum_pageviews_state AS sum_pageviews_state,
+    avg_bounce_state AS avg_bounce_state
 FROM per_window
 WHERE breakdown_value IN (
-    SELECT breakdown_value FROM per_window GROUP BY breakdown_value ORDER BY {top_k_metric} DESC LIMIT """
+    SELECT breakdown_value FROM per_window
+    GROUP BY breakdown_value
+    ORDER BY {top_k_metric} DESC, breakdown_value ASC
+    LIMIT """
     + str(PATHS_TOP_K)
     + "\n)"
 )
