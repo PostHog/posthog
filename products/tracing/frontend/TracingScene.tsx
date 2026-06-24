@@ -4,7 +4,6 @@ import posthog from 'posthog-js'
 import { LemonBanner, LemonButton, LemonModal, LemonTabs, Link } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
 import { IconFeedback } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -81,7 +80,6 @@ function TracingSceneContents(): JSX.Element {
         activeTracingTab,
     } = useValues(tracingSceneLogic())
     const { featureFlags } = useValues(featureFlagLogic)
-    const { utcDateRange } = useValues(tracingFiltersLogic())
     const {
         openTrace,
         closeTrace,
@@ -102,13 +100,9 @@ function TracingSceneContents(): JSX.Element {
     const operationsViewEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_OPERATIONS_VIEW]
 
     // Resolved aggregation window (ms) — turns span counts into a request rate.
-    const operationsWindowMs = Math.max(
-        1,
-        (utcDateRange.date_to ? dayjs(utcDateRange.date_to) : dayjs()).diff(
-            dayjs(utcDateRange.date_from),
-            'millisecond'
-        )
-    )
+    // Use sparklineWindowMs which correctly resolves relative date strings (e.g. '-1h').
+    const { sparklineWindowMs } = useValues(tracingFiltersLogic())
+    const operationsWindowMs = sparklineWindowMs.endMs - sparklineWindowMs.startMs
 
     const onDocsLinkClick = (): void => {
         addProductIntent({
