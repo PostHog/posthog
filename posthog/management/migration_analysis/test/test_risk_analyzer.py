@@ -2364,6 +2364,39 @@ class TestHotTableAlterPolicy:
         risk = self._analyze_product([op])
         assert not any("SHARE ROW EXCLUSIVE" in v for v in risk.policy_violations)
 
+    def test_add_field_m2m_to_hot_table_blocked(self):
+        """A M2M to a hot table auto-creates a through table with FK constraints to the parent."""
+        op = create_mock_operation(
+            migrations.AddField,
+            model_name="datawarehousetable",
+            name="teams",
+            field=models.ManyToManyField("posthog.team"),
+        )
+        risk = self._analyze_product([op])
+        assert any("SHARE ROW EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_add_field_m2m_to_hot_table_db_constraint_false_not_flagged(self):
+        """db_constraint=False propagates to the through FKs - the same escape hatch as a plain FK."""
+        op = create_mock_operation(
+            migrations.AddField,
+            model_name="datawarehousetable",
+            name="teams",
+            field=models.ManyToManyField("posthog.team", db_constraint=False),
+        )
+        risk = self._analyze_product([op])
+        assert not any("SHARE ROW EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_add_field_m2m_with_explicit_through_not_flagged(self):
+        """An explicit through model defines its own FKs, analyzed when its CreateModel runs."""
+        op = create_mock_operation(
+            migrations.AddField,
+            model_name="datawarehousetable",
+            name="teams",
+            field=models.ManyToManyField("posthog.team", through="some_product.TableTeam"),
+        )
+        risk = self._analyze_product([op])
+        assert not any("SHARE ROW EXCLUSIVE" in v for v in risk.policy_violations)
+
     def test_create_model_with_swappable_user_fk_blocked(self):
         """settings.AUTH_USER_MODEL desugars to posthog.user, a hot table."""
         op = create_mock_operation(

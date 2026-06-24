@@ -568,6 +568,17 @@ class HotTableAlterPolicy(MigrationPolicy):
         return None
 
     def _fk_field_hot_table(self, field) -> str | None:
+        # A ManyToManyField with an auto-created through table emits FK constraints to the
+        # target, taking the same SHARE ROW EXCLUSIVE lock on the parent. An explicit
+        # `through=` model defines its own FK fields, which get analyzed when that model's
+        # CreateModel runs - skip it here so it isn't double-counted. db_constraint=False on
+        # the M2M propagates to the through FKs, so it's the same escape hatch as a plain FK.
+        if isinstance(field, models.ManyToManyField):
+            if getattr(field.remote_field, "through", None) is not None:
+                return None
+            if getattr(field.remote_field, "db_constraint", True) is False:
+                return None
+            return self._resolve_fk_target_table(field.remote_field.model)
         if not isinstance(field, models.ForeignKey):
             return None
         if getattr(field, "db_constraint", True) is False:
