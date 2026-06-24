@@ -12,6 +12,7 @@ class DuckLakeBackfillAdmin(admin.ModelAdmin):
         "team_id",
         "enabled",
         "table_suffix",
+        "earliest_event_date",
         "created_by",
         "created_at",
         "updated_at",
@@ -21,7 +22,9 @@ class DuckLakeBackfillAdmin(admin.ModelAdmin):
     # `table_suffix` is write-once: it names a team's warehouse tables/schema, so changing it after
     # data is written moves the target and orphans the old tables. It's set only through the
     # validated enable flow (`enable_team_backfill`), never edited here.
-    readonly_fields = ("id", "table_suffix", "created_at", "updated_at")
+    # `earliest_event_date` is the sensor's cached backfill floor — shown for visibility but
+    # not hand-edited (the sensor owns it; it resolves+caches it from ClickHouse once).
+    readonly_fields = ("id", "table_suffix", "earliest_event_date", "created_at", "updated_at")
     raw_id_fields = ("team", "created_by")
     actions = ("make_enabled", "make_disabled")
 

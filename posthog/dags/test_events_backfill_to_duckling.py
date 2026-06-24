@@ -678,6 +678,7 @@ class TestFullBackfillSensorEarliestDate:
 
         backfill = MagicMock()
         backfill.team_id = 1
+        backfill.earliest_event_date = None  # unresolved → sensor resolves + caches it
         mock_backfill_cls.objects.filter.return_value.order_by.return_value = [backfill]
 
         instance = DagsterInstance.ephemeral()
@@ -689,6 +690,10 @@ class TestFullBackfillSensorEarliestDate:
         assert len(result.run_requests) > 0
         first_key = result.run_requests[0].partition_key
         assert first_key == f"1_{expected_first_month}"
+        # Round-robin order is oldest-month-first for a single team.
+        assert result.run_requests[0].run_key == first_key
+        # Earliest date is cached on the row so later ticks never re-query ClickHouse.
+        assert backfill.earliest_event_date == max(earliest_dt, datetime(2015, 1, 1)).date()
 
     @patch("posthog.dags.events_backfill_to_duckling.get_earliest_event_date_for_team")
     @patch("posthog.dags.events_backfill_to_duckling.DuckLakeBackfill")
@@ -701,6 +706,7 @@ class TestFullBackfillSensorEarliestDate:
 
         backfill = MagicMock()
         backfill.team_id = 1
+        backfill.earliest_event_date = None
         mock_backfill_cls.objects.filter.return_value.order_by.return_value = [backfill]
 
         instance = DagsterInstance.ephemeral()
@@ -710,9 +716,107 @@ class TestFullBackfillSensorEarliestDate:
         assert result.run_requests is not None
 
         assert len(result.run_requests) == 0
+        # No events → cache the sentinel so the team isn't re-queried every tick.
+        from posthog.dags.events_backfill_to_duckling import _NO_HISTORY_SENTINEL
+
+        assert backfill.earliest_event_date == _NO_HISTORY_SENTINEL
 
     def test_earliest_backfill_date_is_2015(self):
         assert EARLIEST_BACKFILL_DATE == datetime(2015, 1, 1)
+
+    @staticmethod
+    def _bf(team_id: int, earliest=None):
+        m = MagicMock()
+        m.team_id = team_id
+        m.earliest_event_date = earliest
+        return m
+
+    def _run_full_sensor(self, backfills, *, now, get_earliest, existing=None, get_runs=None):
+        """Drive duckling_events_full_backfill_sensor against mocked backfills + an ephemeral instance."""
+        from dagster import DagsterInstance, build_sensor_context
+
+        with (
+            patch("posthog.dags.events_backfill_to_duckling.timezone") as mock_tz,
+            patch("posthog.dags.events_backfill_to_duckling.DuckLakeBackfill") as mock_cls,
+            patch("posthog.dags.events_backfill_to_duckling.get_earliest_event_date_for_team") as mock_ge,
+        ):
+            mock_tz.now.return_value = now
+            mock_cls.objects.filter.return_value.order_by.return_value = backfills
+            if isinstance(get_earliest, list):
+                mock_ge.side_effect = get_earliest
+            else:
+                mock_ge.return_value = get_earliest
+
+            instance = DagsterInstance.ephemeral()
+            if existing:
+                instance.add_dynamic_partitions("duckling_events_backfill", list(existing))
+            if get_runs is not None:
+                instance.get_runs = MagicMock(return_value=get_runs)  # type: ignore[method-assign]
+
+            context = build_sensor_context(instance=instance)
+            result = duckling_events_full_backfill_sensor(context)
+            return result, mock_ge
+
+    def test_round_robin_interleaves_teams(self):
+        # Two teams with the same range → emission alternates team by month index, so the
+        # FIFO queue drains both fairly rather than finishing team 1's whole history first.
+        backfills = [self._bf(1), self._bf(2)]
+        result, _ = self._run_full_sensor(
+            backfills, now=datetime(2020, 3, 10, 12, 0, 0), get_earliest=datetime(2020, 1, 1)
+        )
+        keys = [rr.partition_key for rr in result.run_requests]
+        assert keys == ["1_2020-01", "2_2020-01", "1_2020-02", "2_2020-02", "1_2020-03", "2_2020-03"]
+
+    def test_skips_existing_partitions(self):
+        result, _ = self._run_full_sensor(
+            [self._bf(1, earliest=date(2020, 1, 1))],
+            now=datetime(2020, 3, 10, 12, 0, 0),
+            get_earliest=None,  # earliest already cached → no lookup
+            existing=["1_2020-01"],
+        )
+        keys = [rr.partition_key for rr in result.run_requests]
+        assert "1_2020-01" not in keys
+        assert keys == ["1_2020-02", "1_2020-03"]
+
+    def test_does_not_requery_cached_earliest(self):
+        result, mock_ge = self._run_full_sensor(
+            [self._bf(1, earliest=date(2020, 1, 1))],
+            now=datetime(2020, 2, 10, 12, 0, 0),
+            get_earliest=None,
+        )
+        mock_ge.assert_not_called()
+        assert [rr.partition_key for rr in result.run_requests] == ["1_2020-01", "1_2020-02"]
+
+    def test_caps_earliest_lookups_per_tick(self):
+        # 7 unresolved teams, cap is 5 → only 5 ClickHouse lookups this tick; the other two
+        # stay unresolved and contribute no partitions until a later tick.
+        backfills = [self._bf(t) for t in range(1, 8)]
+        result, mock_ge = self._run_full_sensor(
+            backfills, now=datetime(2020, 2, 10, 12, 0, 0), get_earliest=datetime(2020, 1, 1)
+        )
+        assert mock_ge.call_count == 5
+        teams_emitted = {rr.partition_key.split("_")[0] for rr in result.run_requests}
+        assert teams_emitted == {"1", "2", "3", "4", "5"}
+        assert backfills[5].earliest_event_date is None and backfills[6].earliest_event_date is None
+
+    def test_top_up_only_fills_to_target_depth(self):
+        # 98 runs already in flight against the depth-100 target → only 2 slots free this tick.
+        result, _ = self._run_full_sensor(
+            [self._bf(1, earliest=date(2015, 1, 1))],
+            now=datetime(2020, 3, 10, 12, 0, 0),
+            get_earliest=None,
+            get_runs=[MagicMock()] * 98,
+        )
+        assert len(result.run_requests) == 2
+
+    def test_top_up_emits_nothing_when_queue_full(self):
+        result, _ = self._run_full_sensor(
+            [self._bf(1, earliest=date(2015, 1, 1))],
+            now=datetime(2020, 3, 10, 12, 0, 0),
+            get_earliest=None,
+            get_runs=[MagicMock()] * 100,
+        )
+        assert len(result.run_requests) == 0
 
 
 class TestGetClusterRetry:
