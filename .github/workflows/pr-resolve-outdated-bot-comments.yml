@@ -31,66 +31,52 @@ jobs:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   REPO: ${{ github.repository }}
+                  BOTS: copilot-pull-request-reviewer greptile-apps chatgpt-codex-connector graphite-app cursor claude claude-code-action claude-review
               run: |
-                  # $owner/$repo/$cursor/$id below are GraphQL variables, not shell expansions.
-                  # shellcheck disable=SC2016
                   set -euo pipefail
-
-                  BOTS="copilot-pull-request-reviewer greptile-apps chatgpt-codex-connector graphite-app cursor claude claude-code-action claude-review"
 
                   OWNER="${REPO%/*}"
                   REPO_NAME="${REPO#*/}"
 
-                  QUERY='
-                    query($owner: String!, $repo: String!, $pr: Int!, $cursor: String) {
-                      repository(owner: $owner, name: $repo) {
-                        pullRequest(number: $pr) {
-                          reviewThreads(first: 100, after: $cursor) {
-                            pageInfo { hasNextPage endCursor }
-                            nodes {
-                              id
-                              isOutdated
-                              isResolved
-                              comments(first: 1) {
-                                totalCount
-                                nodes { author { login } }
+                  # Collect every outdated, unresolved, single-comment thread authored by a known bot.
+                  # gh --paginate follows the GraphQL cursor (needs the $endCursor variable + pageInfo),
+                  # so PRs with more than 100 review threads are fully covered. A fetch or filter error
+                  # fails the pipeline (pipefail) rather than masquerading as "nothing to resolve".
+                  ids=$(gh api graphql --paginate \
+                      -f query='
+                        query($owner: String!, $repo: String!, $pr: Int!, $endCursor: String) {
+                          repository(owner: $owner, name: $repo) {
+                            pullRequest(number: $pr) {
+                              reviewThreads(first: 100, after: $endCursor) {
+                                pageInfo { hasNextPage endCursor }
+                                nodes {
+                                  id
+                                  isOutdated
+                                  isResolved
+                                  comments(first: 1) {
+                                    totalCount
+                                    nodes { author { login } }
+                                  }
+                                }
                               }
                             }
                           }
-                        }
-                      }
-                    }'
+                        }' -f owner="$OWNER" -f repo="$REPO_NAME" -F pr="$PR_NUMBER" \
+                      | jq -r --arg bots "$BOTS" '
+                          .data.repository.pullRequest.reviewThreads.nodes[]
+                          | select(.isOutdated == true and .isResolved == false and .comments.totalCount == 1)
+                          | select(.comments.nodes[0].author.login as $author | ($bots | split(" ") | any(. == $author)))
+                          | .id')
 
-                  # Collect every outdated, unresolved, single-comment thread authored by a known bot.
-                  # Paginate so PRs with more than 100 review threads are still fully covered.
-                  thread_ids=()
-                  cursor=""
-                  while :; do
-                    if [ -z "$cursor" ]; then
-                      page=$(gh api graphql -f query="$QUERY" -f owner="$OWNER" -f repo="$REPO_NAME" -F pr="$PR_NUMBER")
-                    else
-                      page=$(gh api graphql -f query="$QUERY" -f owner="$OWNER" -f repo="$REPO_NAME" -F pr="$PR_NUMBER" -f cursor="$cursor")
-                    fi
-
-                    while IFS= read -r id; do
-                      [ -n "$id" ] && thread_ids+=("$id")
-                    done < <(echo "$page" | jq -r --arg bots "$BOTS" '
-                      .data.repository.pullRequest.reviewThreads.nodes[]
-                      | select(.isOutdated == true and .isResolved == false and .comments.totalCount == 1)
-                      | select(.comments.nodes[0].author.login as $author | ($bots | split(" ") | any(. == $author)))
-                      | .id
-                    ')
-
-                    [ "$(echo "$page" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.hasNextPage')" = "true" ] || break
-                    cursor=$(echo "$page" | jq -r '.data.repository.pullRequest.reviewThreads.pageInfo.endCursor')
-                  done
-
-                  if [ "${#thread_ids[@]}" -eq 0 ]; then
+                  if [ -z "$ids" ]; then
                     echo "No outdated bot threads to resolve"
                     exit 0
                   fi
 
+                  mapfile -t thread_ids <<< "$ids"
                   echo "Resolving ${#thread_ids[@]} outdated bot thread(s)"
+
+                  # Resolve best-effort: a single failed mutation must not skip the remaining threads.
                   for thread_id in "${thread_ids[@]}"; do
                     echo "Resolving thread $thread_id"
                     gh api graphql -f query='
@@ -98,5 +84,5 @@ jobs:
                         resolveReviewThread(input: { threadId: $id }) {
                           thread { isResolved }
                         }
-                      }' -f id="$thread_id"
+                      }' -f id="$thread_id" || echo "::warning::failed to resolve thread $thread_id"
                   done
