@@ -6,12 +6,12 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { LemonTree, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { DropdownMenuGroup } from 'lib/ui/DropdownMenu/DropdownMenu'
 
-import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { joinPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardBasicType } from '~/types'
 
 import { dashboardsFileSystemLogic } from './dashboardsFileSystemLogic'
-import { FolderTreeNode } from './dashboardsFileSystemUtils'
+import { dashboardParentSegments, FolderTreeNode, UNFILED_DASHBOARDS_FOLDER } from './dashboardsFileSystemUtils'
 import { DashboardsTable } from './DashboardsTable'
 import { DashboardsTreeFolderMenu } from './DashboardsTreeFolderMenu'
 
@@ -76,9 +76,10 @@ export function DashboardsTree(): JSX.Element {
     const allExpanded = expandablePaths.length > 0 && expandablePaths.every((id) => expandedFolders[id])
 
     const folderForDashboard = (dashboard: DashboardBasicType): string => {
-        const entry = entryByRef[String(dashboard.id)]
-        const segments = entry?.path ? splitPath(entry.path).slice(0, -1) : []
-        return segments.length > 0 ? joinPath(segments) : 'Unfiled'
+        // Match the tree's bucketing exactly: entry-less dashboards live under Unfiled/Dashboards there,
+        // so label them the same here rather than a bare "Unfiled".
+        const segments = dashboardParentSegments(entryByRef[String(dashboard.id)])
+        return segments.length > 0 ? joinPath(segments) : UNFILED_DASHBOARDS_FOLDER
     }
 
     return (

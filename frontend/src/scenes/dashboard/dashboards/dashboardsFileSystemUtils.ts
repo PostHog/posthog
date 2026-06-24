@@ -6,6 +6,13 @@ import { DashboardBasicType } from '~/types'
 export const UNFILED_DASHBOARDS_FOLDER = 'Unfiled/Dashboards'
 const UNFILED_SEGMENTS = splitPath(UNFILED_DASHBOARDS_FOLDER)
 
+// The path segments of a dashboard's containing folder (its FileSystem entry's path minus the last
+// segment); empty when the dashboard has no entry. Callers decide how to treat the empty case (the tree
+// groups those under Unfiled; the Folder column labels them "Unfiled").
+export function dashboardParentSegments(entry: FileSystemEntry | undefined): string[] {
+    return entry?.path ? splitPath(entry.path).slice(0, -1) : []
+}
+
 export interface FolderTreeNode {
     // Full folder path, e.g. 'Marketing/Q1'.
     path: string
@@ -42,8 +49,7 @@ export function buildFolderTree(
         }
     }
     for (const dashboard of dashboards ?? []) {
-        const entry = entryByRef[String(dashboard.id)]
-        const parentSegments = entry?.path ? splitPath(entry.path).slice(0, -1) : []
+        const parentSegments = dashboardParentSegments(entryByRef[String(dashboard.id)])
         addWithAncestors(parentSegments.length > 0 ? parentSegments : UNFILED_SEGMENTS)
     }
     for (const folderPath of folderPaths) {
@@ -80,8 +86,7 @@ export function buildFolderDashboardCounts(
 ): Record<string, number> {
     const counts: Record<string, number> = {}
     for (const dashboard of dashboards ?? []) {
-        const entry = entryByRef[String(dashboard.id)]
-        const parentSegments = entry?.path ? splitPath(entry.path).slice(0, -1) : []
+        const parentSegments = dashboardParentSegments(entryByRef[String(dashboard.id)])
         const segments = parentSegments.length > 0 ? parentSegments : UNFILED_SEGMENTS
         counts[''] = (counts[''] ?? 0) + 1
         for (let i = 1; i <= segments.length; i++) {

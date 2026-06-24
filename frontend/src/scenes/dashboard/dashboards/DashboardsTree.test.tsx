@@ -158,8 +158,9 @@ describe('DashboardsTree', () => {
             entryByRef: { '1': { path: 'Marketing/Q1/Revenue' } },
         })
         render(<DashboardsTree />)
-        // A filed dashboard shows its parent folder; one with no FileSystem entry shows Unfiled.
+        // A filed dashboard shows its parent folder; one with no FileSystem entry shows the Unfiled bucket
+        // (Unfiled/Dashboards) — the same bucket the tree groups it under.
         expect(screen.getByText('Revenue @ Marketing/Q1')).toBeInTheDocument()
-        expect(screen.getByText('Loose @ Unfiled')).toBeInTheDocument()
+        expect(screen.getByText('Loose @ Unfiled/Dashboards')).toBeInTheDocument()
     })
 })
