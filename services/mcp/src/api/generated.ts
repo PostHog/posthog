@@ -31,6 +31,18 @@ export namespace Schemas {
       AiGenerationClusters: '$ai_generation_clusters',
     } as const;
 
+    export type AccessControlLevel = typeof AccessControlLevel[keyof typeof AccessControlLevel];
+
+
+    export const AccessControlLevel = {
+      None: 'none',
+      Member: 'member',
+      Admin: 'admin',
+      Viewer: 'viewer',
+      Editor: 'editor',
+      Manager: 'manager',
+    } as const;
+
     /**
      * * `read_write` - read_write
      * * `read` - read
@@ -20498,6 +20510,9 @@ export namespace Schemas {
       ExitOnlyAtEnd: 'exit_only_at_end',
     } as const;
 
+    /**
+     * A holdout group — a stable slice of users excluded from experiment exposure.
+     */
     export interface ExperimentHoldout {
       readonly id: number;
       /** @maxLength 400 */
@@ -20511,6 +20526,11 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     export interface ExperimentVariant {
@@ -20927,6 +20947,8 @@ export namespace Schemas {
       id: number;
       name: string;
       updated_at?: string | null;
+      /** Read-only, server-computed effective access level; absent on a not-yet-created holdout. */
+      user_access_level?: AccessControlLevel | null;
     }
 
     export type SampleRatioMismatchExpected = {[key: string]: number};
@@ -36049,6 +36071,9 @@ export namespace Schemas {
       readonly user_access_level?: string | null;
     }
 
+    /**
+     * A holdout group — a stable slice of users excluded from experiment exposure.
+     */
     export interface PatchedExperimentHoldout {
       readonly id?: number;
       /** @maxLength 400 */
@@ -36062,6 +36087,11 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
       readonly created_at?: string;
       readonly updated_at?: string;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level?: string | null;
     }
 
     /**

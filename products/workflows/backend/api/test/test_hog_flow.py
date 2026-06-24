@@ -2181,6 +2181,7 @@ class TestHogFlowAPI(APIBaseTest):
         assert "delay" in action_types  # Delay is present
         assert action_types.count("function") == 2  # Two function actions
 
+    @override_settings(HOGFLOW_BATCH_TRIGGER_LIMIT=5000, HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set())
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
@@ -2198,6 +2199,27 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.json()["variables"] == batch_job_data["variables"]
         assert response.json()["status"] == "queued"
         mock_create_invocation.assert_called_once()
+        # The per-team audience cap must ride on the invocation so the consumer enforces the team's limit.
+        assert mock_create_invocation.call_args.kwargs["max_audience_size"] == 5000
+
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_post_hog_flow_batch_jobs_passes_elevated_audience_size(self, mock_create_invocation):
+        flow_id = self._create_active_hog_flow()
+
+        with override_settings(
+            HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED=50000,
+            HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS={self.team.id},
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs",
+                {"variables": [{"key": "first_name", "value": "Test"}]},
+            )
+
+        assert response.status_code == 200, response.json()
+        mock_create_invocation.assert_called_once()
+        assert mock_create_invocation.call_args.kwargs["max_audience_size"] == 50000
 
     def test_post_hog_flow_batch_jobs_endpoint_rejects_non_active_workflow(self):
         # A batch run is gated on an enabled workflow — a draft (or archived) one can't start a broadcast.
