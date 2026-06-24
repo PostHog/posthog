@@ -1,0 +1,117 @@
+from __future__ import annotations
+
+from collections import defaultdict
+from datetime import UTC, datetime
+from typing import Any
+
+from django.db.models import F, Q
+
+import structlog
+import temporalio.activity
+
+from posthog.models import Organization
+from posthog.sync import database_sync_to_async
+from posthog.temporal.billing_alerts.types import (
+    BillingAlertInfo,
+    EvaluateBillingAlertBatchActivityInputs,
+    NotifyBillingAlertEventsActivityInputs,
+)
+from posthog.temporal.common.heartbeat import Heartbeater
+
+from products.billing_alerts.backend.logic.evaluator import fetch_billing_data
+from products.billing_alerts.backend.logic.notifications import dispatch_billing_alert_event
+from products.billing_alerts.backend.logic.state_machine import evaluate_and_record_billing_alert, event_should_dispatch
+from products.billing_alerts.backend.models import BillingAlertConfiguration, BillingAlertEvent
+
+logger = structlog.get_logger(__name__)
+
+BILLING_ALERT_BATCH_SIZE = 50
+MAX_DUE_BILLING_ALERTS_PER_TICK = 500
+
+
+def _group_key(alert: BillingAlertConfiguration) -> tuple[Any, ...]:
+    return (
+        str(alert.organization_id),
+        alert.metric,
+        tuple(alert.usage_types or []),
+        tuple(alert.team_ids or []),
+        alert.baseline_window_days,
+        alert.evaluation_delay_hours,
+    )
+
+
+@temporalio.activity.defn
+async def discover_due_billing_alerts_activity() -> list[BillingAlertInfo]:
+    @database_sync_to_async(thread_sensitive=False)
+    def get_due_alerts() -> list[BillingAlertInfo]:
+        now = datetime.now(UTC)
+        alerts = (
+            BillingAlertConfiguration.objects.filter(
+                Q(enabled=True, next_check_at__lte=now) | Q(enabled=True, next_check_at__isnull=True)
+            )
+            .filter(Q(snooze_until__isnull=True) | Q(snooze_until__lte=now))
+            .exclude(state=BillingAlertConfiguration.State.BROKEN)
+            .order_by(F("next_check_at").asc(nulls_first=True))
+            .values_list("id", flat=True)[:MAX_DUE_BILLING_ALERTS_PER_TICK]
+        )
+        return [BillingAlertInfo(alert_id=str(alert_id)) for alert_id in alerts]
+
+    async with Heartbeater():
+        return await get_due_alerts()
+
+
+@temporalio.activity.defn
+async def evaluate_billing_alert_batch_activity(inputs: EvaluateBillingAlertBatchActivityInputs) -> list[str]:
+    @database_sync_to_async(thread_sensitive=False)
+    def evaluate_alerts() -> list[str]:
+        now = datetime.now(UTC)
+        alerts = list(
+            BillingAlertConfiguration.objects.filter(id__in=inputs.alert_ids, enabled=True)
+            .exclude(state=BillingAlertConfiguration.State.BROKEN)
+            .order_by("organization_id", "metric", "id")
+        )
+        grouped: dict[tuple[Any, ...], list[BillingAlertConfiguration]] = defaultdict(list)
+        for alert in alerts:
+            grouped[_group_key(alert)].append(alert)
+
+        dispatch_event_ids: list[str] = []
+        for alert_group in grouped.values():
+            first_alert = alert_group[0]
+            billing_response = None
+            query_duration_ms = None
+            try:
+                organization = Organization.objects.get(id=first_alert.organization_id)
+                billing_response, query_duration_ms = fetch_billing_data(first_alert, organization, now=now)
+            except Exception:
+                logger.exception(
+                    "Failed to fetch billing data for billing alert group",
+                    organization_id=str(first_alert.organization_id),
+                    metric=first_alert.metric,
+                )
+
+            for alert in alert_group:
+                event = evaluate_and_record_billing_alert(
+                    alert,
+                    now=now,
+                    billing_response=billing_response,
+                    query_duration_ms=query_duration_ms,
+                )
+                if event_should_dispatch(event):
+                    dispatch_event_ids.append(str(event.id))
+        return dispatch_event_ids
+
+    async with Heartbeater():
+        return await evaluate_alerts()
+
+
+@temporalio.activity.defn
+async def notify_billing_alert_events_activity(inputs: NotifyBillingAlertEventsActivityInputs) -> int:
+    @database_sync_to_async(thread_sensitive=False)
+    def notify_events() -> int:
+        dispatched = 0
+        for event in BillingAlertEvent.objects.filter(id__in=inputs.event_ids).select_related("alert"):
+            dispatched += dispatch_billing_alert_event(event)
+        return dispatched
+
+    async with Heartbeater():
+        return await notify_events()

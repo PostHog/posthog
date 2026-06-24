@@ -1,0 +1,644 @@
+import { useActions, useValues } from 'kea'
+
+import { IconBell, IconCreditCard, IconPlay, IconPlus } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+
+import { AlertingChoiceCard, AlertingListToolbar, AlertingTable, AlertingWizardLayout } from 'lib/components/Alerting'
+import type { AlertingWizardStep } from 'lib/components/Alerting'
+import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
+import { dayjs } from 'lib/dayjs'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
+import { IconSlack } from 'lib/lemon-ui/icons'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import type { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { createdByColumn, updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+
+import type {
+    BillingAlertConfigurationStateEnumApi,
+    BillingAlertEventApi,
+    MetricEnumApi,
+    ThresholdTypeEnumApi,
+} from '~/generated/core/api.schemas'
+import type { IntegrationType } from '~/types'
+
+import {
+    BILLING_ALERT_TRIGGERS,
+    BillingAlertCreationView,
+    BillingAlertWizardStep,
+    billingAlertsLogic,
+} from './billingAlertsLogic'
+import type { BillingAlertConfiguration } from './billingAlertsLogic'
+
+const BILLING_ALERT_WIZARD_STEPS: AlertingWizardStep<BillingAlertWizardStep>[] = [
+    { key: BillingAlertWizardStep.Destination, label: 'Destination' },
+    { key: BillingAlertWizardStep.Trigger, label: 'Trigger' },
+    { key: BillingAlertWizardStep.Configure, label: 'Configure' },
+]
+
+function metricLabel(metric: MetricEnumApi | undefined): string {
+    return metric === 'usage' ? 'Usage' : 'Spend'
+}
+
+function formatValue(value: string | null | undefined, metric: MetricEnumApi | undefined): string {
+    if (value === null || value === undefined) {
+        return '-'
+    }
+    const numeric = Number(value)
+    if (!Number.isFinite(numeric)) {
+        return value
+    }
+    if (metric === 'spend') {
+        return `$${numeric.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+    }
+    return numeric.toLocaleString(undefined, { maximumFractionDigits: 0 })
+}
+
+function thresholdDescription(alert: BillingAlertConfiguration): string {
+    const thresholdType = alert.threshold_type ?? 'relative_increase'
+    if (thresholdType === 'relative_increase') {
+        return `${alert.threshold_percentage}% over ${alert.baseline_window_days}d baseline`
+    }
+    return `${formatValue(alert.threshold_value, alert.metric)} ${thresholdType.replaceAll('_', ' ')}`
+}
+
+function stateTagType(
+    state: BillingAlertConfigurationStateEnumApi,
+    enabled: boolean | undefined
+): 'success' | 'danger' | 'warning' | 'muted' {
+    if (!enabled) {
+        return 'muted'
+    }
+    if (state === 'firing' || state === 'broken') {
+        return 'danger'
+    }
+    if (state === 'errored' || state === 'snoozed') {
+        return 'warning'
+    }
+    return 'success'
+}
+
+function stateLabel(state: BillingAlertConfigurationStateEnumApi, enabled: boolean | undefined): string {
+    if (!enabled) {
+        return 'Paused'
+    }
+    return state.replaceAll('_', ' ')
+}
+
+function BillingAlertEvents({ events }: { events: BillingAlertEventApi[] | undefined }): JSX.Element {
+    if (!events) {
+        return <Spinner />
+    }
+    if (events.length === 0) {
+        return <div className="p-2 text-secondary">No checks recorded yet.</div>
+    }
+    return (
+        <div className="deprecated-space-y-2">
+            {events.map((event) => (
+                <div key={event.id} className="flex flex-col gap-1 border-b pb-2 last:border-b-0">
+                    <div className="flex gap-2 items-center">
+                        <LemonTag type={event.threshold_breached ? 'danger' : 'success'}>{event.kind}</LemonTag>
+                        <span className="text-secondary text-xs">
+                            {dayjs(event.created_at).format('YYYY-MM-DD HH:mm')}
+                        </span>
+                    </div>
+                    <span className="text-sm">{event.reason}</span>
+                </div>
+            ))}
+        </div>
+    )
+}
+
+export function BillingAlerts(): JSX.Element {
+    const {
+        alerts,
+        alertsLoading,
+        filteredAlerts,
+        hiddenAlertCount,
+        filters,
+        creationView,
+        eventsByAlert,
+        canAccessBilling,
+        checkingAlertId,
+        updatingAlertIds,
+    } = useValues(billingAlertsLogic)
+    const {
+        setFilters,
+        resetFilters,
+        setCreationView,
+        updateAlert,
+        deleteAlert,
+        checkNow,
+        loadEvents,
+        setDestinationAlertId,
+        setSlackChannel,
+    } = useActions(billingAlertsLogic)
+
+    const columns: LemonTableColumns<BillingAlertConfiguration> = [
+        {
+            title: '',
+            width: 0,
+            render: function RenderIcon() {
+                return <IconCreditCard className="text-2xl text-muted" />
+            },
+        },
+        {
+            title: 'Name',
+            sticky: true,
+            sorter: (a, b) =>
+                (a.name ?? '').localeCompare(b.name ?? '', undefined, { sensitivity: 'base', numeric: true }),
+            key: 'name',
+            dataIndex: 'name',
+            render: function RenderName(_, alert) {
+                return (
+                    <LemonTableLink
+                        title={
+                            <>
+                                <span>{alert.name}</span>
+                                <LemonTag size="small" type="muted" icon={<IconBell />}>
+                                    Billing
+                                </LemonTag>
+                            </>
+                        }
+                        description={`${metricLabel(alert.metric)} alert: ${thresholdDescription(alert)}`}
+                    />
+                )
+            },
+        },
+        createdByColumn() as LemonTableColumn<BillingAlertConfiguration, any>,
+        updatedAtColumn() as LemonTableColumn<BillingAlertConfiguration, any>,
+        {
+            title: 'Last checked',
+            width: 0,
+            render: function RenderLastChecked(_, alert) {
+                return alert.last_checked_at ? dayjs(alert.last_checked_at).fromNow() : 'N/A'
+            },
+        },
+        {
+            title: 'Status',
+            key: 'enabled',
+            sorter: (alert) => (alert.enabled ? 1 : -1),
+            width: 0,
+            render: function RenderStatus(_, alert) {
+                return (
+                    <LemonTag type={stateTagType(alert.state, alert.enabled)}>
+                        {stateLabel(alert.state, alert.enabled)}
+                    </LemonTag>
+                )
+            },
+        },
+        {
+            width: 0,
+            render: function RenderActions(_, alert) {
+                const updating = updatingAlertIds.has(alert.id)
+                return (
+                    <More
+                        overlay={
+                            <LemonMenuOverlay
+                                items={[
+                                    {
+                                        label: alert.enabled ? 'Pause' : 'Unpause',
+                                        disabledReason: updating ? 'Saving' : undefined,
+                                        onClick: () => updateAlert(alert, { enabled: !alert.enabled }),
+                                    },
+                                    {
+                                        label: 'Check now',
+                                        icon: <IconPlay />,
+                                        disabledReason: checkingAlertId ? 'Another alert is checking' : undefined,
+                                        onClick: () => checkNow(alert),
+                                    },
+                                    {
+                                        label: 'Add Slack destination',
+                                        icon: <IconPlus />,
+                                        onClick: () => {
+                                            setDestinationAlertId(alert.id)
+                                            setSlackChannel(null)
+                                        },
+                                    },
+                                    {
+                                        label: 'Delete',
+                                        status: 'danger' as const,
+                                        disabledReason: updating ? 'Deleting' : undefined,
+                                        onClick: () => deleteAlert(alert),
+                                    },
+                                ]}
+                            />
+                        }
+                    />
+                )
+            },
+        },
+    ]
+
+    if (!canAccessBilling) {
+        return <div className="deprecated-space-y-4">You need billing access to manage billing alerts.</div>
+    }
+
+    if (creationView === BillingAlertCreationView.Wizard) {
+        return <BillingAlertWizard />
+    }
+
+    if (creationView === BillingAlertCreationView.Traditional) {
+        return <BillingAlertTraditionalEditor />
+    }
+
+    return (
+        <div className="flex flex-col gap-4" data-attr="billing-alerts-view">
+            <AlertingListToolbar
+                searchValue={filters.search}
+                onSearchChange={(search) => setFilters({ search })}
+                createdByValue={filters.createdBy}
+                onCreatedByChange={(user) => setFilters({ createdBy: user?.id ?? null })}
+                showPaused={filters.showPaused}
+                onShowPausedChange={(showPaused) => setFilters({ showPaused: !!showPaused })}
+                extraControls={
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        onClick={() => setCreationView(BillingAlertCreationView.Wizard)}
+                    >
+                        New notification
+                    </LemonButton>
+                }
+            />
+
+            <AlertingTable
+                dataSource={filteredAlerts}
+                columns={columns}
+                rowKey="id"
+                nouns={['billing alert', 'billing alerts']}
+                loading={alertsLoading}
+                emptyState={
+                    alerts.length === 0 && !alertsLoading ? (
+                        'No billing alerts found'
+                    ) : (
+                        <>
+                            No billing alerts matching filters. <Link onClick={resetFilters}>Clear filters</Link>
+                        </>
+                    )
+                }
+                footer={
+                    hiddenAlertCount > 0 ? (
+                        <div className="p-3 text-secondary">
+                            {hiddenAlertCount} hidden.{' '}
+                            <Link
+                                onClick={() => {
+                                    resetFilters()
+                                    setFilters({ showPaused: true })
+                                }}
+                            >
+                                Show all
+                            </Link>
+                        </div>
+                    ) : null
+                }
+                data-attr="billing-alerts-table"
+                pagination={{ pageSize: 30 }}
+                expandable={{
+                    expandedRowRender: (alert) => <BillingAlertEvents events={eventsByAlert[alert.id]} />,
+                    onRowExpand: (alert) => loadEvents(alert.id),
+                }}
+            />
+
+            <BillingAlertSlackDestinationPanel />
+        </div>
+    )
+}
+
+function BillingAlertWizard(): JSX.Element {
+    const { wizardStep } = useValues(billingAlertsLogic)
+    const { setWizardStep, resetCreation, setCreationView } = useActions(billingAlertsLogic)
+
+    return (
+        <AlertingWizardLayout
+            steps={BILLING_ALERT_WIZARD_STEPS}
+            currentStep={wizardStep}
+            onStepClick={setWizardStep}
+            onCancel={resetCreation}
+            onSwitchToTraditional={() => setCreationView(BillingAlertCreationView.Traditional)}
+        >
+            {wizardStep === BillingAlertWizardStep.Destination && <BillingAlertDestinationStep />}
+            {wizardStep === BillingAlertWizardStep.Trigger && <BillingAlertTriggerStep />}
+            {wizardStep === BillingAlertWizardStep.Configure && <BillingAlertConfigureStep />}
+        </AlertingWizardLayout>
+    )
+}
+
+function BillingAlertDestinationStep(): JSX.Element {
+    const { selectedDestinationKey } = useValues(billingAlertsLogic)
+    const { setSelectedDestinationKey } = useActions(billingAlertsLogic)
+
+    return (
+        <div className="space-y-4">
+            <div>
+                <h2 className="text-xl font-semibold mb-1">Where should PostHog send it?</h2>
+                <p className="text-secondary text-sm">Choose the first notification destination for this alert.</p>
+            </div>
+            <div className="space-y-3">
+                <AlertingChoiceCard
+                    icon={<IconSlack className="text-2xl" />}
+                    name="Slack"
+                    description="Post to a Slack channel when the billing alert fires, resolves, or errors."
+                    selected={selectedDestinationKey === 'slack'}
+                    onClick={() => setSelectedDestinationKey('slack')}
+                />
+            </div>
+        </div>
+    )
+}
+
+function BillingAlertTriggerStep(): JSX.Element {
+    const { selectedTriggerKey } = useValues(billingAlertsLogic)
+    const { selectTrigger } = useActions(billingAlertsLogic)
+
+    return (
+        <div className="space-y-4">
+            <div>
+                <h2 className="text-xl font-semibold mb-1">What should trigger the alert?</h2>
+                <p className="text-secondary text-sm">Choose the billing condition to monitor.</p>
+            </div>
+            <div className="space-y-3">
+                {BILLING_ALERT_TRIGGERS.map((trigger) => (
+                    <AlertingChoiceCard
+                        key={trigger.key}
+                        name={trigger.name}
+                        description={trigger.description}
+                        selected={selectedTriggerKey === trigger.key}
+                        onClick={() => selectTrigger(trigger.key)}
+                    />
+                ))}
+            </div>
+        </div>
+    )
+}
+
+function BillingAlertConfigureStep(): JSX.Element {
+    const { canSubmit, saving } = useValues(billingAlertsLogic)
+    const { createAlert } = useActions(billingAlertsLogic)
+
+    return (
+        <div className="space-y-4">
+            <div>
+                <h2 className="text-xl font-semibold mb-1">Configure your alert</h2>
+                <p className="text-secondary text-sm">Set the threshold and notification details.</p>
+            </div>
+            <BillingAlertFormFields includeDestination />
+            <div className="flex justify-end gap-2">
+                <LemonButton
+                    type="primary"
+                    onClick={createAlert}
+                    loading={saving}
+                    disabledReason={
+                        !canSubmit ? 'Name, threshold, Slack connection, and channel are required.' : undefined
+                    }
+                    data-attr="create-billing-alert"
+                >
+                    Create alert
+                </LemonButton>
+            </div>
+        </div>
+    )
+}
+
+function BillingAlertTraditionalEditor(): JSX.Element {
+    const { canSubmit, saving } = useValues(billingAlertsLogic)
+    const { createAlert, resetCreation } = useActions(billingAlertsLogic)
+
+    return (
+        <div className="max-w-3xl mx-auto w-full deprecated-space-y-4" data-attr="billing-alert-traditional-editor">
+            <div className="flex items-center justify-between gap-2">
+                <div>
+                    <h2 className="mb-1">New billing alert</h2>
+                    <p className="text-secondary mb-0">Configure the alert directly.</p>
+                </div>
+                <LemonButton type="secondary" size="small" onClick={resetCreation}>
+                    Cancel
+                </LemonButton>
+            </div>
+            <BillingAlertFormFields includeDestination />
+            <div className="flex justify-end">
+                <LemonButton
+                    type="primary"
+                    onClick={createAlert}
+                    loading={saving}
+                    disabledReason={
+                        !canSubmit ? 'Name, threshold, Slack connection, and channel are required.' : undefined
+                    }
+                    data-attr="create-billing-alert"
+                >
+                    Create alert
+                </LemonButton>
+            </div>
+        </div>
+    )
+}
+
+function BillingAlertFormFields({ includeDestination }: { includeDestination: boolean }): JSX.Element {
+    const { form, slackIntegrationId, slackChannel } = useValues(billingAlertsLogic)
+    const { setFormValue, setSlackIntegrationId, setSlackChannel } = useActions(billingAlertsLogic)
+    const { integrations, integrationsLoading } = useValues(integrationsLogic)
+
+    const slackIntegrations = integrations?.filter((integration) => integration.kind === 'slack') ?? []
+    const selectedSlackIntegration = integrations?.find((integration) => integration.id === slackIntegrationId)
+
+    return (
+        <div className="deprecated-space-y-4">
+            <LemonField.Pure label="Name">
+                <LemonInput
+                    value={form.name}
+                    onChange={(name) => setFormValue('name', name)}
+                    placeholder="Alert name"
+                    data-attr="billing-alert-name"
+                />
+            </LemonField.Pure>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <LemonField.Pure label="Metric">
+                    <LemonSelect
+                        value={form.metric}
+                        onChange={(metric) => setFormValue('metric', metric as MetricEnumApi)}
+                        options={[
+                            { value: 'spend', label: 'Spend' },
+                            { value: 'usage', label: 'Usage' },
+                        ]}
+                    />
+                </LemonField.Pure>
+                <LemonField.Pure label="Threshold type">
+                    <LemonSelect
+                        value={form.threshold_type}
+                        onChange={(thresholdType) =>
+                            setFormValue('threshold_type', thresholdType as ThresholdTypeEnumApi)
+                        }
+                        options={[
+                            { value: 'relative_increase', label: 'Relative increase' },
+                            { value: 'absolute_value', label: 'Absolute value' },
+                            { value: 'absolute_increase', label: 'Absolute increase' },
+                        ]}
+                    />
+                </LemonField.Pure>
+                {form.threshold_type === 'relative_increase' ? (
+                    <LemonField.Pure label="Increase">
+                        <LemonInput
+                            type="number"
+                            value={form.threshold_percentage}
+                            onChange={(thresholdPercentage) =>
+                                setFormValue('threshold_percentage', thresholdPercentage ?? 0)
+                            }
+                            suffix={<span>%</span>}
+                            min={0}
+                            data-attr="billing-alert-threshold-percentage"
+                        />
+                    </LemonField.Pure>
+                ) : (
+                    <LemonField.Pure label={form.metric === 'spend' ? 'Amount' : 'Value'}>
+                        <LemonInput
+                            type="number"
+                            value={form.threshold_value}
+                            onChange={(thresholdValue) => setFormValue('threshold_value', thresholdValue)}
+                            prefix={form.metric === 'spend' ? <span>$</span> : undefined}
+                            min={0}
+                            data-attr="billing-alert-threshold-value"
+                        />
+                    </LemonField.Pure>
+                )}
+                <LemonField.Pure label="Minimum current value">
+                    <LemonInput
+                        type="number"
+                        value={form.minimum_value}
+                        onChange={(minimumValue) => setFormValue('minimum_value', minimumValue ?? 0)}
+                        prefix={form.metric === 'spend' ? <span>$</span> : undefined}
+                        min={0}
+                    />
+                </LemonField.Pure>
+                <LemonField.Pure label="Baseline window">
+                    <LemonInput
+                        type="number"
+                        value={form.baseline_window_days}
+                        onChange={(baselineWindowDays) => setFormValue('baseline_window_days', baselineWindowDays ?? 1)}
+                        suffix={<span>days</span>}
+                        min={1}
+                    />
+                </LemonField.Pure>
+                <LemonField.Pure label="Evaluation delay">
+                    <LemonInput
+                        type="number"
+                        value={form.evaluation_delay_hours}
+                        onChange={(evaluationDelayHours) =>
+                            setFormValue('evaluation_delay_hours', evaluationDelayHours ?? 0)
+                        }
+                        suffix={<span>hours</span>}
+                        min={0}
+                    />
+                </LemonField.Pure>
+                <LemonField.Pure label="Check interval">
+                    <LemonInput
+                        type="number"
+                        value={form.check_interval_hours}
+                        onChange={(checkIntervalHours) => setFormValue('check_interval_hours', checkIntervalHours ?? 1)}
+                        suffix={<span>hours</span>}
+                        min={1}
+                    />
+                </LemonField.Pure>
+                <LemonField.Pure label="Cooldown">
+                    <LemonInput
+                        type="number"
+                        value={form.cooldown_hours}
+                        onChange={(cooldownHours) => setFormValue('cooldown_hours', cooldownHours ?? 0)}
+                        suffix={<span>hours</span>}
+                        min={0}
+                    />
+                </LemonField.Pure>
+            </div>
+
+            {includeDestination ? (
+                <div className="deprecated-space-y-3">
+                    <h3 className="mb-0">Slack destination</h3>
+                    {integrationsLoading ? (
+                        <Spinner />
+                    ) : !slackIntegrations.length ? (
+                        <SlackNotConfiguredBanner />
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <IntegrationChoice
+                                integration="slack"
+                                value={slackIntegrationId ?? undefined}
+                                onChange={(integrationId) => setSlackIntegrationId(integrationId)}
+                            />
+                            {selectedSlackIntegration ? (
+                                <SlackChannelPicker
+                                    integration={selectedSlackIntegration as IntegrationType}
+                                    value={slackChannel ?? undefined}
+                                    onChange={setSlackChannel}
+                                />
+                            ) : null}
+                        </div>
+                    )}
+                </div>
+            ) : null}
+        </div>
+    )
+}
+
+function BillingAlertSlackDestinationPanel(): JSX.Element | null {
+    const { destinationAlertId, slackIntegrationId, slackChannel, destinationSaving } = useValues(billingAlertsLogic)
+    const { setDestinationAlertId, setSlackIntegrationId, setSlackChannel, createSlackDestination } =
+        useActions(billingAlertsLogic)
+    const { integrations, integrationsLoading } = useValues(integrationsLogic)
+
+    const slackIntegrations = integrations?.filter((integration) => integration.kind === 'slack') ?? []
+    const selectedSlackIntegration = integrations?.find((integration) => integration.id === slackIntegrationId)
+
+    if (!destinationAlertId) {
+        return null
+    }
+
+    return (
+        <LemonModal
+            isOpen
+            onClose={() => setDestinationAlertId(null)}
+            title="Slack destination"
+            width={600}
+            data-attr="billing-alert-slack-destination"
+        >
+            {integrationsLoading ? (
+                <Spinner />
+            ) : !slackIntegrations.length ? (
+                <SlackNotConfiguredBanner />
+            ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <IntegrationChoice
+                        integration="slack"
+                        value={slackIntegrationId ?? undefined}
+                        onChange={(integrationId) => setSlackIntegrationId(integrationId)}
+                    />
+                    {selectedSlackIntegration ? (
+                        <SlackChannelPicker
+                            integration={selectedSlackIntegration as IntegrationType}
+                            value={slackChannel ?? undefined}
+                            onChange={setSlackChannel}
+                        />
+                    ) : null}
+                    <div className="md:col-span-2 flex justify-end">
+                        <LemonButton
+                            type="primary"
+                            icon={<IconPlus />}
+                            onClick={createSlackDestination}
+                            loading={destinationSaving}
+                            disabledReason={
+                                !slackIntegrationId || !slackChannel
+                                    ? 'Slack connection and channel are required.'
+                                    : undefined
+                            }
+                            data-attr="create-billing-alert-slack-destination"
+                        >
+                            Add Slack destination
+                        </LemonButton>
+                    </div>
+                </div>
+            )}
+        </LemonModal>
+    )
+}

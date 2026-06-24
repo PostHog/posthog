@@ -1,0 +1,108 @@
+from datetime import UTC, datetime
+from decimal import Decimal
+
+from posthog.test.base import BaseTest
+
+from products.billing_alerts.backend.logic.evaluator import evaluate_billing_alert
+from products.billing_alerts.backend.logic.state_machine import evaluate_and_record_billing_alert, event_should_dispatch
+from products.billing_alerts.backend.models import BillingAlertConfiguration, BillingAlertEvent
+
+NOW = datetime(2026, 6, 23, 12, 0, tzinfo=UTC)
+
+
+def _billing_response(values: list[int]) -> dict:
+    return {
+        "status": "ok",
+        "results": [
+            {
+                "id": 1,
+                "label": "Total",
+                "dates": ["2026-06-20", "2026-06-21", "2026-06-22"],
+                "data": values,
+            }
+        ],
+    }
+
+
+class TestBillingAlertEvaluator(BaseTest):
+    def _alert(self, **overrides) -> BillingAlertConfiguration:
+        defaults = {
+            "organization_id": self.organization.id,
+            "execution_team_id": self.team.id,
+            "created_by_id": self.user.id,
+            "name": "Daily spend spike",
+            "metric": BillingAlertConfiguration.Metric.SPEND,
+            "threshold_type": BillingAlertConfiguration.ThresholdType.RELATIVE_INCREASE,
+            "threshold_percentage": Decimal("50"),
+            "minimum_value": Decimal("0"),
+            "baseline_window_days": 2,
+            "evaluation_delay_hours": 6,
+        }
+        defaults.update(overrides)
+        return BillingAlertConfiguration.objects.create(**defaults)
+
+    def test_relative_increase_breaches_expected_billing_day(self) -> None:
+        alert = self._alert()
+
+        evaluation = evaluate_billing_alert(alert, now=NOW, billing_response=_billing_response([60, 60, 100]))
+
+        assert evaluation.evaluation_date.isoformat() == "2026-06-22"
+        assert evaluation.current_value == Decimal("100")
+        assert evaluation.baseline_value == Decimal("60")
+        assert evaluation.threshold_breached is True
+        assert evaluation.payload["expected_evaluation_date"] == "2026-06-22"
+
+    def test_missing_expected_billing_day_does_not_fall_back_to_older_data(self) -> None:
+        alert = self._alert()
+        response = {
+            "status": "ok",
+            "results": [{"id": 1, "label": "Total", "dates": ["2026-06-20", "2026-06-21"], "data": [60, 60]}],
+        }
+
+        evaluation = evaluate_billing_alert(alert, now=NOW, billing_response=response)
+
+        assert evaluation.evaluation_date.isoformat() == "2026-06-22"
+        assert evaluation.current_value is None
+        assert evaluation.threshold_breached is False
+        assert "not available yet" in evaluation.reason
+
+    def test_billing_service_error_records_dispatchable_error_event(self) -> None:
+        alert = self._alert()
+
+        event = evaluate_and_record_billing_alert(
+            alert,
+            now=NOW,
+            billing_response={
+                "type": "authentication_error",
+                "code": "authentication_failed",
+                "detail": "Authorization is invalid: Signature verification failed",
+            },
+        )
+        alert.refresh_from_db()
+
+        assert event.kind == BillingAlertEvent.Kind.ERRORED
+        assert event.error_code == "BillingAlertEvaluationError"
+        assert "authentication_failed" in (event.error_message or "")
+        assert event_should_dispatch(event) is True
+        assert alert.state == BillingAlertConfiguration.State.ERRORED
+
+    def test_state_machine_records_firing_and_resolved_events(self) -> None:
+        alert = self._alert()
+
+        firing = evaluate_and_record_billing_alert(alert, now=NOW, billing_response=_billing_response([60, 60, 100]))
+        alert.refresh_from_db()
+
+        assert firing.kind == BillingAlertEvent.Kind.FIRING
+        assert firing.threshold_breached is True
+        assert alert.state == BillingAlertConfiguration.State.FIRING
+
+        resolved = evaluate_and_record_billing_alert(
+            alert,
+            now=NOW.replace(hour=13),
+            billing_response=_billing_response([60, 60, 70]),
+        )
+        alert.refresh_from_db()
+
+        assert resolved.kind == BillingAlertEvent.Kind.RESOLVED
+        assert resolved.threshold_breached is False
+        assert alert.state == BillingAlertConfiguration.State.NOT_FIRING

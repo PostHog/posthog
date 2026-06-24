@@ -1,0 +1,270 @@
+# Generated manually for additive billing alert tables.
+
+from decimal import Decimal
+
+import django.db.models.deletion
+from django.db import migrations, models
+
+import posthog.models.utils
+
+
+class Migration(migrations.Migration):
+    initial = True
+
+    dependencies = []
+
+    operations = [
+        migrations.CreateModel(
+            name="BillingAlertConfiguration",
+            fields=[
+                (
+                    "id",
+                    models.UUIDField(
+                        default=posthog.models.utils.uuid7,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
+                    ),
+                ),
+                ("organization_id", models.UUIDField(db_index=True)),
+                ("execution_team_id", models.BigIntegerField(db_index=True)),
+                ("created_by_id", models.BigIntegerField(blank=True, null=True)),
+                ("updated_by_id", models.BigIntegerField(blank=True, null=True)),
+                ("name", models.CharField(max_length=160)),
+                ("description", models.TextField(blank=True)),
+                ("enabled", models.BooleanField(default=True)),
+                (
+                    "metric",
+                    models.CharField(choices=[("spend", "Spend"), ("usage", "Usage")], default="spend", max_length=20),
+                ),
+                ("currency", models.CharField(default="USD", max_length=3)),
+                ("usage_types", models.JSONField(default=list)),
+                ("team_ids", models.JSONField(default=list)),
+                (
+                    "group_by",
+                    models.CharField(
+                        choices=[
+                            ("total", "Total"),
+                            ("usage_type", "Usage type"),
+                            ("team", "Team"),
+                            ("usage_type_team", "Usage type and team"),
+                        ],
+                        default="total",
+                        max_length=32,
+                    ),
+                ),
+                (
+                    "threshold_type",
+                    models.CharField(
+                        choices=[
+                            ("relative_increase", "Relative increase"),
+                            ("absolute_value", "Absolute value"),
+                            ("absolute_increase", "Absolute increase"),
+                        ],
+                        default="relative_increase",
+                        max_length=32,
+                    ),
+                ),
+                ("threshold_percentage", models.DecimalField(blank=True, decimal_places=2, max_digits=8, null=True)),
+                ("threshold_value", models.DecimalField(blank=True, decimal_places=6, max_digits=20, null=True)),
+                ("minimum_value", models.DecimalField(decimal_places=6, default=Decimal("0"), max_digits=20)),
+                ("baseline_window_days", models.PositiveSmallIntegerField(default=7)),
+                ("evaluation_delay_hours", models.PositiveSmallIntegerField(default=6)),
+                (
+                    "state",
+                    models.CharField(
+                        choices=[
+                            ("not_firing", "Not firing"),
+                            ("firing", "Firing"),
+                            ("errored", "Errored"),
+                            ("snoozed", "Snoozed"),
+                            ("broken", "Broken"),
+                        ],
+                        default="not_firing",
+                        max_length=20,
+                    ),
+                ),
+                ("check_interval_hours", models.PositiveSmallIntegerField(default=24)),
+                ("cooldown_hours", models.PositiveSmallIntegerField(default=24)),
+                ("snooze_until", models.DateTimeField(blank=True, null=True)),
+                ("next_check_at", models.DateTimeField(blank=True, null=True)),
+                ("last_checked_at", models.DateTimeField(blank=True, null=True)),
+                ("last_notified_at", models.DateTimeField(blank=True, null=True)),
+                ("consecutive_failures", models.PositiveIntegerField(default=0)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True, blank=True, null=True)),
+            ],
+            options={
+                "db_table": "billing_alerts_configuration",
+                "indexes": [
+                    models.Index(fields=["organization_id", "-created_at"], name="billing_alert_org_created_idx"),
+                    models.Index(fields=["enabled", "next_check_at"], name="billing_alert_scheduler_idx"),
+                    models.Index(fields=["organization_id", "enabled", "state"], name="billing_alert_org_state_idx"),
+                ],
+            },
+        ),
+        migrations.CreateModel(
+            name="BillingAlertEvent",
+            fields=[
+                (
+                    "id",
+                    models.UUIDField(
+                        default=posthog.models.utils.uuid7,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
+                    ),
+                ),
+                (
+                    "kind",
+                    models.CharField(
+                        choices=[
+                            ("check", "Check"),
+                            ("firing", "Firing"),
+                            ("resolved", "Resolved"),
+                            ("errored", "Errored"),
+                            ("snoozed", "Snoozed"),
+                            ("unsnoozed", "Unsnoozed"),
+                            ("enabled", "Enabled"),
+                            ("disabled", "Disabled"),
+                            ("threshold_changed", "Threshold changed"),
+                            ("broken_config", "Broken config"),
+                        ],
+                        default="check",
+                        max_length=32,
+                    ),
+                ),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("evaluation_date", models.DateField(blank=True, null=True)),
+                ("period_start", models.DateTimeField(blank=True, null=True)),
+                ("period_end", models.DateTimeField(blank=True, null=True)),
+                (
+                    "metric",
+                    models.CharField(choices=[("spend", "Spend"), ("usage", "Usage")], max_length=20),
+                ),
+                ("current_value", models.DecimalField(blank=True, decimal_places=6, max_digits=20, null=True)),
+                ("baseline_value", models.DecimalField(blank=True, decimal_places=6, max_digits=20, null=True)),
+                ("absolute_delta", models.DecimalField(blank=True, decimal_places=6, max_digits=20, null=True)),
+                (
+                    "relative_delta_percentage",
+                    models.DecimalField(blank=True, decimal_places=6, max_digits=12, null=True),
+                ),
+                (
+                    "threshold_value_snapshot",
+                    models.DecimalField(blank=True, decimal_places=6, max_digits=20, null=True),
+                ),
+                (
+                    "threshold_percentage_snapshot",
+                    models.DecimalField(blank=True, decimal_places=2, max_digits=8, null=True),
+                ),
+                (
+                    "minimum_value_snapshot",
+                    models.DecimalField(blank=True, decimal_places=6, max_digits=20, null=True),
+                ),
+                ("threshold_breached", models.BooleanField(default=False)),
+                ("state_before", models.CharField(blank=True, max_length=20, null=True)),
+                ("state_after", models.CharField(blank=True, max_length=20, null=True)),
+                ("notification_sent_at", models.DateTimeField(blank=True, null=True)),
+                ("query_duration_ms", models.PositiveIntegerField(blank=True, null=True)),
+                ("error_code", models.CharField(blank=True, max_length=80, null=True)),
+                ("error_message", models.TextField(blank=True, null=True)),
+                ("is_transient_error", models.BooleanField(default=False)),
+                ("reason", models.TextField(blank=True)),
+                ("payload", models.JSONField(default=dict)),
+                (
+                    "alert",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="events",
+                        to="billing_alerts.billingalertconfiguration",
+                    ),
+                ),
+            ],
+            options={
+                "db_table": "billing_alerts_event",
+                "indexes": [
+                    models.Index(fields=["alert", "-created_at"], name="billing_event_alert_ts_idx"),
+                    models.Index(fields=["alert", "evaluation_date"], name="billing_event_alert_date_idx"),
+                    models.Index(fields=["kind", "-created_at"], name="billing_event_kind_ts_idx"),
+                ],
+            },
+        ),
+        migrations.CreateModel(
+            name="BillingAlertDelivery",
+            fields=[
+                (
+                    "id",
+                    models.UUIDField(
+                        default=posthog.models.utils.uuid7,
+                        editable=False,
+                        primary_key=True,
+                        serialize=False,
+                    ),
+                ),
+                (
+                    "destination_type",
+                    models.CharField(
+                        choices=[
+                            ("slack", "Slack"),
+                            ("webhook", "Webhook"),
+                            ("teams", "Microsoft Teams"),
+                            ("email", "Email"),
+                            ("in_app", "In-app"),
+                        ],
+                        max_length=32,
+                    ),
+                ),
+                ("destination_key", models.CharField(max_length=255)),
+                ("hog_function_id", models.UUIDField(blank=True, null=True)),
+                ("idempotency_key", models.CharField(max_length=255, unique=True)),
+                (
+                    "status",
+                    models.CharField(
+                        choices=[
+                            ("queued", "Queued"),
+                            ("sent", "Sent"),
+                            ("failed", "Failed"),
+                            ("skipped", "Skipped"),
+                        ],
+                        default="queued",
+                        max_length=20,
+                    ),
+                ),
+                ("recipient_results", models.JSONField(default=dict)),
+                ("error_message", models.TextField(blank=True, null=True)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
+                ("updated_at", models.DateTimeField(auto_now=True, blank=True, null=True)),
+                ("sent_at", models.DateTimeField(blank=True, null=True)),
+                (
+                    "event",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="deliveries",
+                        to="billing_alerts.billingalertevent",
+                    ),
+                ),
+            ],
+            options={
+                "db_table": "billing_alerts_delivery",
+                "indexes": [
+                    models.Index(fields=["event", "destination_type"], name="bill_deliv_event_type_idx"),
+                    models.Index(fields=["status", "-created_at"], name="bill_deliv_status_ts_idx"),
+                ],
+            },
+        ),
+        migrations.AddConstraint(
+            model_name="billingalertevent",
+            constraint=models.UniqueConstraint(
+                condition=models.Q(evaluation_date__isnull=False),
+                fields=("alert", "kind", "evaluation_date"),
+                name="unique_billing_alert_event_date",
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="billingalertdelivery",
+            constraint=models.UniqueConstraint(
+                fields=("event", "destination_type", "destination_key"),
+                name="unique_billing_delivery_destination",
+            ),
+        ),
+    ]
