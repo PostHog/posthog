@@ -5,7 +5,7 @@
   SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'group'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___group,
-            tupleElement(argMax(tuple(person.team_id), person.version), 1) AS team_id,
+            argMax(person.team_id, person.version) AS team_id,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -13,7 +13,7 @@
                                                     FROM person AS where_optimization
                                                     WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.team_id, 99999), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), tuple('0', '1', '2', '3'))))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE and(equals(persons.team_id, 99999), in(persons.properties___group, tuple('0', '1', '2', '3')))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -46,7 +46,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT groups.key) AS `count(DISTINCT groups.key)`
   FROM
-    (SELECT tupleElement(argMax(tuple(groups.team_id), toTimeZone(groups._timestamp, 'UTC')), 1) AS team_id,
+    (SELECT argMax(groups.team_id, toTimeZone(groups._timestamp, 'UTC')) AS team_id,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -82,7 +82,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT groups.key) AS `count(DISTINCT groups.key)`
   FROM
-    (SELECT tupleElement(argMax(tuple(groups.team_id), toTimeZone(groups._timestamp, 'UTC')), 1) AS team_id,
+    (SELECT argMax(groups.team_id, toTimeZone(groups._timestamp, 'UTC')) AS team_id,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -110,7 +110,7 @@
   SELECT count(DISTINCT groups.key) AS `count(DISTINCT groups.key)`
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
-            tupleElement(argMax(tuple(groups.team_id), toTimeZone(groups._timestamp, 'UTC')), 1) AS team_id,
+            argMax(groups.team_id, toTimeZone(groups._timestamp, 'UTC')) AS team_id,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -147,7 +147,7 @@
   SELECT count(DISTINCT groups.key) AS `count(DISTINCT groups.key)`
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
-            tupleElement(argMax(tuple(groups.team_id), toTimeZone(groups._timestamp, 'UTC')), 1) AS team_id,
+            argMax(groups.team_id, toTimeZone(groups._timestamp, 'UTC')) AS team_id,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -203,7 +203,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
   FROM
-    (SELECT tupleElement(argMax(tuple(person.team_id), person.version), 1) AS team_id,
+    (SELECT argMax(person.team_id, person.version) AS team_id,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -217,7 +217,7 @@
                                                                                                                                                                                                                                                                                           FROM cohortpeople
                                                                                                                                                                                                                                                                                           WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE and(equals(persons.team_id, 99999), and(in(persons.id,
                                                      (SELECT cohortpeople.person_id AS person_id
                                                       FROM cohortpeople
@@ -257,7 +257,7 @@
   SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'group'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___group,
-            tupleElement(argMax(tuple(person.team_id), person.version), 1) AS team_id,
+            argMax(person.team_id, person.version) AS team_id,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -268,7 +268,7 @@
                                                                                                                                                           FROM person_static_cohort
                                                                                                                                                           WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), tuple('1', '2', '4', '5', '6'))))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE and(equals(persons.team_id, 99999), and(in(persons.id,
                                                      (SELECT person_static_cohort.person_id AS person_id
                                                       FROM person_static_cohort
@@ -314,7 +314,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
   FROM
-    (SELECT tupleElement(argMax(tuple(person.team_id), person.version), 1) AS team_id,
+    (SELECT argMax(person.team_id, person.version) AS team_id,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -328,7 +328,7 @@
                                                                                                                                                                                                                                                                          FROM cohortpeople
                                                                                                                                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE and(equals(persons.team_id, 99999), and(in(persons.id,
                                                      (SELECT person_static_cohort.person_id AS person_id
                                                       FROM person_static_cohort
@@ -356,7 +356,7 @@
   SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'group'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___group,
-            tupleElement(argMax(tuple(person.team_id), person.version), 1) AS team_id,
+            argMax(person.team_id, person.version) AS team_id,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -364,7 +364,7 @@
                                                     FROM person AS where_optimization
                                                     WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.team_id, 99999), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), 'none'), 0), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), tuple('1', '2', '3')))))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE and(equals(persons.team_id, 99999), or(ifNull(equals(persons.properties___group, 'none'), 0), in(persons.properties___group, tuple('1', '2', '3'))))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -407,7 +407,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
   FROM
-    (SELECT tupleElement(argMax(tuple(person.team_id), person.version), 1) AS team_id,
+    (SELECT argMax(person.team_id, person.version) AS team_id,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -418,7 +418,7 @@
                                                                                                                                                           FROM cohortpeople
                                                                                                                                                           WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE and(equals(persons.team_id, 99999), in(persons.id,
                                                  (SELECT cohortpeople.person_id AS person_id
                                                   FROM cohortpeople

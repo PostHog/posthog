@@ -109,8 +109,38 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         db_default=[],
         blank=True,
         null=False,
-        help_text=("Scope ceiling — strings tokens issued for this app may carry. Empty list means no per-app cap."),
+        help_text=(
+            "Required scope ceiling — strings tokens issued for this app may carry, all required and "
+            "locked on the consent screen. Empty list means a broad/deferred request (the user picks freely)."
+        ),
     )
+
+    optional_scopes: ArrayField = ArrayField(
+        models.CharField(max_length=100),
+        default=list,
+        db_default=[],
+        blank=True,
+        null=False,
+        help_text=(
+            "Additive declinable scopes layered on top of the required `scopes` base — the user may "
+            "decline these at consent. Requires a non-empty `scopes` (an app with optional extras must "
+            "have a required base)."
+        ),
+    )
+
+    @property
+    def ceiling_scopes(self) -> list[str]:
+        """The full grantable set: `scopes` plus `optional_scopes`, deduplicated."""
+        return list(dict.fromkeys([*self.scopes, *self.optional_scopes]))
+
+    @property
+    def required_scopes(self) -> list[str]:
+        # Everything in the explicit ceiling is required and locked at consent; optional_scopes
+        # are additive declinable extras. An empty `scopes` is a broad/deferred request
+        # (MCP / `*` / empty) so nothing is required and the user picks freely. Self-registered
+        # (DCR / CIMD) ceilings are already filtered to grantable scopes and shown as locked rows
+        # the user can decline by cancelling, so they carry the same required floor as any other app.
+        return list(self.scopes)
 
     # Generation marker for app-wide session revocation. A refresh presenting a token issued
     # before this timestamp is rejected at mint time, so a refresh racing revoke_application_sessions
@@ -256,6 +286,24 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
 
     def clean(self):
         super().clean()
+
+        if self.optional_scopes:
+            if not self.scopes:
+                raise ValidationError(
+                    {"optional_scopes": "Declaring optional scopes requires a non-empty required set in `scopes`."}
+                )
+            for field, values in (("scopes", self.scopes), ("optional_scopes", self.optional_scopes)):
+                non_resource = [scope for scope in values if ":" not in scope]
+                if non_resource:
+                    # `*` or identity scopes in a required set either brick /authorize
+                    # (explicit ceilings reject `*`) or 400 every consent the client
+                    # didn't request them on, with no UI recourse.
+                    raise ValidationError(
+                        {
+                            field: f"With optional scopes declared, every entry must be a resource scope "
+                            f"(object:action); invalid: {', '.join(non_resource)}"
+                        }
+                    )
 
         for uri in self.redirect_uris.split(" "):
             if not uri:

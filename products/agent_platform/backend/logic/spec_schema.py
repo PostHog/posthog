@@ -347,7 +347,6 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                     "auth": {
                         "type": "object",
                         "properties": {
-                            "integration": {"type": "string"},
                             "provider": {"type": "string"},
                         },
                         "additionalProperties": False,
@@ -418,7 +417,6 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                 "additionalProperties": False,
             },
         },
-        "integrations": {"default": [], "type": "array", "items": {"type": "string"}},
         # Identity providers users can link against. Mirror IdentityProviderConfigSchema
         # in services/agent-shared/src/spec/spec.ts.
         "identity_providers": {
@@ -580,7 +578,6 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
         "tools",
         "mcps",
         "skills",
-        "integrations",
         "secrets",
         "limits",
         "entrypoint",

@@ -94,6 +94,7 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "account": "customer_analytics",
     "customer_journey": "customer_analytics",
     "experiment_saved_metric": "experiment",
+    "experiment_holdout": "experiment",
     "dashboard_template": "dashboard",
     # Marketing analytics doesn't have its own RBAC resource yet — inherit from
     # web_analytics so the existing per-team controls actually gate it (matches
@@ -297,6 +298,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "session_recording_playlist"
     if name == "experimentsavedmetric":
         return "experiment_saved_metric"
+    if name == "experimentholdout":
+        return "experiment_holdout"
     if name == "endpointversion":
         return "endpoint"
     if name == "externaldatasource":

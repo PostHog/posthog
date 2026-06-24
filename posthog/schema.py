@@ -10,6 +10,7 @@ from typing import Annotated, Any, Literal
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel, confloat, conint
 
 from posthog.schema_enums import (
+    AccessControlLevel as AccessControlLevel,
     Action as Action,
     Action1 as Action1,
     AgentMode as AgentMode,
@@ -3104,6 +3105,8 @@ class AggregatedSpanRow(BaseModel):
     name: str
     p50_duration_nano: float
     p95_duration_nano: float
+    p999_duration_nano: float
+    p99_duration_nano: float
     service_name: str
     total_duration_nano: float
 
@@ -5512,6 +5515,10 @@ class LifecycleFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    legendPosition: LegendPosition | None = Field(
+        default=LegendPosition.BOTTOM,
+        description=("Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend."),
+    )
     showLegend: bool | None = False
     showPercentagesOnSeries: bool | None = Field(
         default=None,
@@ -6989,6 +6996,8 @@ class SpanTreeNode(BaseModel):
     name: str
     p50_duration_nano: float
     p95_duration_nano: float
+    p999_duration_nano: float
+    p99_duration_nano: float
     parent_name: str
     parent_service: str
     service_name: str
@@ -7010,6 +7019,10 @@ class StickinessFilter(BaseModel):
     computedAs: StickinessComputationMode | None = None
     display: ChartDisplayType | None = None
     hiddenLegendIndexes: list[int] | None = None
+    legendPosition: LegendPosition | None = Field(
+        default=LegendPosition.BOTTOM,
+        description=("Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend."),
+    )
     resultCustomizationBy: ResultCustomizationBy | None = Field(
         default=ResultCustomizationBy.VALUE,
         description=("Whether result datasets are associated by their values or by their order."),
@@ -22183,6 +22196,10 @@ class ExperimentHoldoutType(BaseModel):
     id: int
     name: str
     updated_at: str | None = None
+    user_access_level: AccessControlLevel | None = Field(
+        default=None,
+        description=("Read-only, server-computed effective access level; absent on a not-yet-created holdout."),
+    )
 
 
 class FunnelsFilter(BaseModel):
@@ -22225,6 +22242,10 @@ class FunnelsFilter(BaseModel):
         ),
     )
     layout: FunnelLayout | None = FunnelLayout.VERTICAL
+    legendPosition: LegendPosition | None = Field(
+        default=LegendPosition.BOTTOM,
+        description=("Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend."),
+    )
     resultCustomizations: dict[str, ResultCustomizationByValue] | None = Field(
         default=None,
         description="Customizations for the appearance of result datasets.",
