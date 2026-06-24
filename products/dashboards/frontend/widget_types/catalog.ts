@@ -1,6 +1,6 @@
 import type { ComponentType } from 'react'
 
-import { IconFlask, IconLive, IconRewindPlay, IconWarning } from '@posthog/icons'
+import { IconFlask, IconList, IconLive, IconRewindPlay, IconWarning } from '@posthog/icons'
 
 import { urls } from 'scenes/urls'
 
@@ -94,6 +94,7 @@ export const DASHBOARD_WIDGET_GROUP_ICONS = {
     error_tracking: IconWarning,
     session_replay: IconRewindPlay,
     experiments: IconFlask,
+    logs: IconList,
 } as const satisfies Record<keyof typeof DASHBOARD_WIDGET_GROUP_LABELS, ComponentType<{ className?: string }>>
 
 export function getDashboardWidgetGroupIcon(groupId: string): ComponentType<{ className?: string }> | undefined {
