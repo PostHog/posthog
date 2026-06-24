@@ -205,6 +205,8 @@ rules:
                               |ReplayScanner
                               |Repo
                               |RepoRoutingRule
+                              |ReviewReport
+                              |ReviewReportArtefact
                               |SandboxEnvironment
                               |ScoreDefinition
                               |SavedHeatmap
@@ -465,6 +467,8 @@ rules:
                         |ReplayScanner
                         |Repo
                         |RepoRoutingRule
+                        |ReviewReport
+                        |ReviewReportArtefact
                         |SandboxEnvironment
                         |ScoreDefinition
                         |SavedHeatmap

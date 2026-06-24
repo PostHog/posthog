@@ -177,8 +177,11 @@ state + cloud persistence is its own effort — now **Stage 3** below.
 
 ### 🔭 Stage 3 — durable persistence & the loop-y review (cloud)
 
-> **Status: designed, not built.** This is the agreed direction for taking ReviewHog off local files and into
-> the cloud. Captured here so the next session starts from the decision, not a blank page.
+> **Status: DB foundation built (steps 1–4 + model tests); persistence wiring (steps 5–7) not yet started.**
+> The two new tables, the artefact funnel/registry, the Signals leaf move, the tach block, and the `0001`
+> migration are in place and green (lint + tach + makemigrations + 5 model tests pass). What remains is wiring
+> the live `reviews/<pr>/` pipeline onto the rows (step 5), threading a real `team_id`/`user_id` (step 6), and
+> routing large blobs to object storage (step 7) — see the checklist below.
 
 **Why.** Today every run writes Pydantic-serialized JSON/MD to a gitignored `reviews/<pr_number>/` tree — no
 DB, no `team_id`, no run identity (a "run" is just the PR-number directory). That blocks two things: running
@@ -202,15 +205,22 @@ the "not a SignalReport", and the "reuse the leaf, own the model" calls are made
   Modeling reviews as SignalReports would mean faking embeddings/weight, defeating the promotion gate, and
   polluting the Status enum. So: **separate parent entities, shared substrate only.**
 - **Reuse path = "peer + reuse the leaf"** (chosen over extracting a shared abstract base). Import mechanics
-  decided it: Signals' `artefact_schemas.py` is a genuine dependency-light **leaf** (pydantic only — pulls no
-  Django/core/temporal), so ReviewHog imports it cheaply. The Django artefact _model_ (funnel + fields + a
-  `tasks.Task` FK) is the entangled part — hoisting it into core would invert the dependency (core→product FK)
-  and force re-parenting migrations, and the repo rule is **nest-then-promote** (don't pre-build shared infra).
-  So ReviewHog **reuses the leaf and owns its own model**; a shared abstract base is deferred (see below).
+  decided it: Signals' `artefact_schemas.py` is dependency-light (pydantic + one tasks-facade DTO,
+  `RepoSelectionResult` — no Django/core/temporal), so ReviewHog imports the content models from it cheaply.
+  The Django artefact _model_ (funnel + fields + a `tasks.Task` FK) is the entangled part — hoisting it into
+  core would invert the dependency (core→product FK) and force re-parenting migrations, and the repo rule is
+  **nest-then-promote** (don't pre-build shared infra). So ReviewHog **reuses the leaf models and owns its own
+  model**; a shared abstract base is deferred (see below).
+  - **Correction from the build:** the registry _helpers_ `artefact_type_for` / `parse_artefact_content` are
+    **not reusable** — they close over Signals' module-global `ARTEFACT_CONTENT_SCHEMAS` and take no registry
+    argument, so they can't see ReviewHog's types. ReviewHog therefore defines its **own ~6-line copies** over
+    its own registry (`reviewer/artefact_content.py`). Only the content _models_ + `ArtefactContentValidationError`
+    are imported from the leaf. (Cleaner anyway — zero shared mutable state.)
 - **Signals stays untouched at the table & behavior level.** The only Signals change is a **pure code move**:
-  relocate the `ArtefactAttribution` dataclass from `products/signals/backend/models.py` into the leaf
-  (`artefact_schemas.py`, or a new `artefact_attribution.py`) and re-export it from `models.py` for existing
-  importers — no migration, no table change — so ReviewHog can import it without dragging the heavy models module.
+  `ArtefactAttribution` was relocated from `products/signals/backend/models.py` into a new **zero-dependency**
+  leaf `products/signals/backend/artefact_attribution.py` (stdlib only — leaner than `artefact_schemas.py`,
+  which drags the tasks facade) and re-exported from `models.py` for the 9 existing importers — no migration,
+  no table change. ReviewHog imports attribution from that module with no transitive weight.
 
 ##### What ReviewHog reuses vs owns
 
@@ -246,13 +256,22 @@ gives the fail-closed `TeamScopedManager` + canonical-team `save()`; the subclas
     `content` TextField (JSON via `model_dump_json()`); `created_at`; `updated_at` (null); `created_by` FK →
     `posthog.User` (SET_NULL, null); `task` FK → `tasks.Task` (SET_NULL, null).
   - `ArtefactType`: `issue_finding`, `validation_verdict`, `task_run`, `commit`, `code_reference`, `note`.
-  - **Funnel** (adapted from `SignalReportArtefact`): `_create` (derives `type` from the content-model class via
-    `artefact_type_for`, serializes `content.model_dump_json()`, maps `ArtefactAttribution` →
-    `created_by_id`/`task_id`), plus `append` / `add_log` / `append_finding`. **No** Signals auto-start hook.
-  - **Registry:** a ReviewHog-local `ARTEFACT_CONTENT_SCHEMAS` mapping its type strings → content models (reused
-    `Commit`/`CodeReference`/`TaskRunArtefact`/`NoteArtefact` + own `ReviewIssueFinding`/`ValidationVerdict`),
-    passed into the shared `artefact_type_for` / `parse_artefact_content` helpers.
+  - **Funnel** (adapted from `SignalReportArtefact`): `_create` derives `type` from the content-model class via
+    `artefact_type_for`, serializes `content.model_dump_json()`, and maps `ArtefactAttribution` →
+    `created_by_id`/`task_id`; public appenders are `append_finding` / `append_verdict` / `add_log` (no generic
+    `append`/status routing — ReviewHog has no status types). **No** Signals auto-start hook.
+    - **Fail-closed divergence:** unlike `SignalReportArtefact` (plain `UUIDModel`), `ReviewReportArtefact` is
+      fail-closed, so `_create` writes via `cls.objects.for_team(team_id).create(...)` — the cloud/Temporal
+      orchestrator has no ambient team scope and the bare manager would raise `TeamScopeError`. `for_team` is the
+      CLAUDE.md-blessed out-of-request write path; `team_id` is still passed explicitly (queryset filters don't
+      propagate into row creation).
+  - **Registry + helpers:** a ReviewHog-local `ARTEFACT_CONTENT_SCHEMAS` mapping its type strings → content models
+    (reused `Commit`/`CodeReference`/`TaskRunArtefact`/`NoteArtefact` + own `ReviewIssueFinding`/`ValidationVerdict`),
+    plus ReviewHog's own `artefact_type_for` / `parse_artefact_content` over that registry (the Signals helpers
+    can't take a foreign registry — see the correction above). A test asserts the registry keys equal the
+    `ArtefactType` enum exactly.
   - Indexes mirroring Signals: `(report)`, `(report, type)`, `(report, type, -created_at)` for latest-wins seeks.
+    Index names are kept ≤30 chars (Django `E034`) and `reviewhog_*`-prefixed to avoid colliding with Signals'.
 
 Content schemas (`products/review_hog/backend/reviewer/artefact_content.py`, pydantic):
 
@@ -276,16 +295,20 @@ stays on sandbox disk.
 
 ##### Implementation steps (ordered)
 
-1. **Signals leaf move (no migration):** relocate `ArtefactAttribution` into `artefact_schemas.py` (or a new
-   `artefact_attribution.py`), re-export from `models.py`; confirm no behavior/table change.
-2. **tach:** add a `[[modules]] path = "products.review_hog"` block with
-   `depends_on = ["products.signals", "products.tasks", "posthog", "ee"]`; `tach check --dependencies
---interfaces` clean. (Signals isn't interface-gated, so the leaf import is permitted — keep imports to the
-   leaf, never `signals.backend.models`.)
-3. **Models:** add `products/review_hog/backend/models.py` (the two models + funnel + registry) and
-   `reviewer/artefact_content.py` (content schemas). Both models fail-closed via `TeamScopedRootMixin`.
-4. **Migration (`/django-migrations`):** `DEBUG=1 ./manage.py makemigrations review_hog` (new additive tables);
-   verify with `./manage.py sqlmigrate review_hog 0001`; confirm the IDOR/fail-closed baseline passes.
+1. ✅ **Signals leaf move (no migration):** `ArtefactAttribution` moved to the new zero-dep
+   `products/signals/backend/artefact_attribution.py`, re-exported from `models.py` (the now-unused `dataclass` /
+   `Literal` imports were dropped from `models.py`). No behavior/table change; the re-export keeps all 9
+   importers working (verified by import smoke + green Signals suite).
+2. ✅ **tach:** added the `[[modules]] path = "products.review_hog"` block with
+   `depends_on = ["ee", "posthog", "products.signals", "products.tasks"]`; `tach check --dependencies --interfaces`
+   is clean. (Signals isn't interface-gated; the tasks-facade import in `executor.py` satisfies the `backend.facade.*`
+   interface — no `[[interfaces]]` entry needed.)
+3. ✅ **Models:** added `products/review_hog/backend/models.py` (`ReviewReport` + `ReviewReportArtefact` + funnel)
+   and `reviewer/artefact_content.py` (content schemas + local registry/helpers). Both fail-closed via
+   `TeamScopedRootMixin`. Tests in `backend/tests/test_models.py` (5, green).
+4. ✅ **Migration:** `0001_initial` generated via `makemigrations review_hog` (two additive `CREATE TABLE`s + indexes
+   - the `(team, repository, pr_number)` unique constraint); `sqlmigrate` clean, drift check clean, `max_migration.txt`
+     pinned. Fail-closed by birth via `TeamScopedRootMixin` (nothing added to `baseline_unmigrated.txt`).
 5. **Persist-after-success:** swap the `reviews/<pr>/` filesystem writes for row writes — upsert `ReviewReport`
    by `(team, repository, pr_number)`, append `ReviewReportArtefact`s in a narrow `transaction.atomic()` after
    each sandbox stage/turn succeeds (mirror Signals' `run_agentic_report_activity`). Scratch stays on disk.
@@ -314,9 +337,12 @@ stays on sandbox disk.
 
 **Reuse ledger:** _reuse directly_ — `MultiTurnSession` (Tasks facade), `object_storage`,
 `GitHubIntegration.get_diff`; _reuse from the Signals leaf_ — `Commit` / `CodeReference` / `TaskRunArtefact` /
-`NoteArtefact`, the type registry, `ArtefactAttribution`; _ReviewHog-owned_ — `ReviewReport` +
-`ReviewReportArtefact`, the funnel, and the `ReviewIssueFinding` / `ValidationVerdict` schemas. The on-disk
-`reviews/<pr>/` tree degrades to sandbox-only scratch.
+`NoteArtefact` content models + `ArtefactContentValidationError` (from `artefact_schemas`), and
+`ArtefactAttribution` (from the new `artefact_attribution` leaf); _ReviewHog-owned_ — `ReviewReport` +
+`ReviewReportArtefact`, the funnel, **its own registry + `artefact_type_for` / `parse_artefact_content` helpers**
+(the Signals helpers close over Signals' module-global registry and can't take ours), and the
+`ReviewIssueFinding` / `ValidationVerdict` schemas. The on-disk `reviews/<pr>/` tree degrades to sandbox-only
+scratch.
 
 ---
 

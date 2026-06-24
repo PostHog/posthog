@@ -537,6 +537,16 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.review_hog"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.signals",
+    "products.tasks",
+]
+layer = "modules"
+
+[[modules]]
 path = "products.signals"
 depends_on = [
     "ee",
