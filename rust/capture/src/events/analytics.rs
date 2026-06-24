@@ -23,7 +23,7 @@ use crate::{
     global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter},
     prometheus::{report_clock_skew, report_dropped_events},
     router, sinks,
-    utils::{now_unix_millis, uuid_v7},
+    utils::uuid_v7_from_event_timestamp,
     v0_request::{
         DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata, ProcessingContext,
     },
@@ -181,12 +181,10 @@ pub fn process_single_event(
     }
 
     let event = CapturedEvent {
-        // Seed the UUIDv7 from the event timestamp, not ingestion time, so its embedded time tracks events.timestamp. Pre-1970 timestamps can't fit the unsigned field, so fall back to now.
-        uuid: event.uuid.unwrap_or_else(|| {
-            let millis = u64::try_from(parsed_timestamp.timestamp.timestamp_millis())
-                .unwrap_or_else(|_| now_unix_millis());
-            uuid_v7(millis)
-        }),
+        // Seed the UUIDv7 from the event timestamp, not ingestion time, so its embedded time tracks events.timestamp.
+        uuid: event
+            .uuid
+            .unwrap_or_else(|| uuid_v7_from_event_timestamp(parsed_timestamp.timestamp)),
         distinct_id: event
             .extract_distinct_id()
             .ok_or(CaptureError::MissingDistinctId)?,
@@ -407,6 +405,7 @@ pub async fn process_events(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::{now_unix_millis, uuid_v7};
     use crate::v0_request::{OverflowReason, ProcessingContext};
     use chrono::{DateTime, TimeZone, Utc};
     use common_types::RawEvent;

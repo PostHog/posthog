@@ -1,5 +1,6 @@
 use axum::http::HeaderMap;
 use base64::Engine;
+use chrono::{DateTime, Utc};
 use common_types::RawEvent;
 use rand::RngCore;
 use std::collections::HashSet;
@@ -67,6 +68,11 @@ pub fn now_unix_millis() -> u64 {
 pub fn uuid_v7(unix_millis: u64) -> Uuid {
     let bytes = random_bytes();
     encode_unix_timestamp_millis(unix_millis, &bytes)
+}
+
+/// Builds a server-assigned UUIDv7 seeded from an event's resolved timestamp, so its embedded time tracks the event rather than ingestion. Pre-1970 timestamps are floored to the epoch, since the unsigned time field can't represent negatives.
+pub fn uuid_v7_from_event_timestamp(timestamp: DateTime<Utc>) -> Uuid {
+    uuid_v7(timestamp.timestamp_millis().max(0) as u64)
 }
 
 pub fn extract_lib_version(form: &EventFormData, params: &EventQuery) -> Option<String> {
@@ -260,5 +266,33 @@ pub fn extract_token(events: &[RawEvent]) -> Result<String, CaptureError> {
             _ => Err(CaptureError::NoTokenError),
         },
         _ => Err(CaptureError::MultipleTokensError),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The high 48 bits of a UUIDv7 hold the Unix-millisecond timestamp.
+    fn uuid_time_millis(uuid: Uuid) -> u128 {
+        uuid.as_u128() >> 80
+    }
+
+    #[test]
+    fn uuid_v7_from_event_timestamp_encodes_event_time() {
+        let ts = DateTime::parse_from_rfc3339("2020-06-15T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let uuid = uuid_v7_from_event_timestamp(ts);
+        assert_eq!(uuid_time_millis(uuid), ts.timestamp_millis() as u128);
+        assert_eq!(uuid.get_version_num(), 7);
+    }
+
+    #[test]
+    fn uuid_v7_from_event_timestamp_floors_pre_epoch_to_zero() {
+        let ts = DateTime::parse_from_rfc3339("1969-06-15T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        assert_eq!(uuid_time_millis(uuid_v7_from_event_timestamp(ts)), 0);
     }
 }
