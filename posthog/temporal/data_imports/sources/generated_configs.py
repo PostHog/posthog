@@ -2158,7 +2158,7 @@ class OracleSourceConfig(config.Config):
 
 @config.config
 class OrbSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
