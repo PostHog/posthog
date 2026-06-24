@@ -1156,6 +1156,8 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="linear_teams")
     def linear_teams(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        if instance.kind != "linear":
+            raise ValidationError("linear_teams endpoint is only supported for Linear integrations")
         _ensure_oauth_token_valid(instance)
         linear = LinearIntegration(instance)
         return Response({"teams": linear.list_teams()})
@@ -1420,6 +1422,8 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="jira_projects")
     def jira_projects(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        if instance.kind != "jira":
+            raise ValidationError("jira_projects endpoint is only supported for Jira integrations")
         _ensure_oauth_token_valid(instance)
         jira = JiraIntegration(instance)
         return Response({"projects": jira.list_projects()})

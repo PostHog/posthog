@@ -692,14 +692,18 @@ class TestIntegrationAPIKeyAccess:
         assert "sensitive_config" not in body
 
     @pytest.mark.parametrize(
-        "url_suffix,method",
+        "url_suffix,method,expected_provider",
         [
-            ("github_repos/", "get"),
-            ("github_repos/refresh/", "post"),
-            ("github_branches/?repo=org/repo", "get"),
+            ("github_repos/", "get", "GitHub"),
+            ("github_repos/refresh/", "post", "GitHub"),
+            ("github_branches/?repo=org/repo", "get", "GitHub"),
+            ("jira_projects/", "get", "Jira"),
+            ("linear_teams/", "get", "Linear"),
         ],
     )
-    def test_github_actions_on_non_github_integration_return_400(self, url_suffix, method, client: HttpClient):
+    def test_provider_lookup_actions_on_wrong_integration_return_400(
+        self, url_suffix, method, expected_provider, client: HttpClient
+    ):
         key_value = "test_key_non_github"
         PersonalAPIKey.objects.create(
             label="Test Key",
@@ -714,7 +718,7 @@ class TestIntegrationAPIKeyAccess:
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "GitHub" in response.json()["detail"]
+        assert expected_provider in response.json()["detail"]
 
     @patch("posthog.models.integration.GitHubIntegration.list_cached_repositories")
     def test_github_repos_with_scope_succeeds(self, mock_list_repos, client: HttpClient):
