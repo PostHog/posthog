@@ -1,3 +1,4 @@
+import re
 from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import Any
@@ -5,6 +6,8 @@ from typing import Any
 import pytest
 from pytest import MonkeyPatch
 from unittest.mock import MagicMock, patch
+
+from jinja2 import Environment
 
 from products.review_hog.backend.reviewer.models.chunk_analysis import ChunkAnalysis, ChunkMeta
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
@@ -14,7 +17,7 @@ from products.review_hog.backend.reviewer.tools.chunk_analysis import analyze_ch
 
 
 @pytest.fixture
-def mock_run_claude_code_chunk_analysis_failure() -> Callable[[Any], Coroutine[Any, Any, bool]]:
+def mock_run_claude_code_chunk_analysis_failure() -> Callable[..., Coroutine[Any, Any, bool]]:
     """Create a mock for run_sandbox_review that fails."""
 
     async def mock_func(**kwargs: Any) -> bool:
@@ -97,7 +100,6 @@ class TestGeneratePrompts:
         monkeypatch: MonkeyPatch,
     ) -> None:
         """Test error handling when template is missing."""
-        from jinja2 import Environment
 
         def mock_get_template(self: Environment, name: str) -> MagicMock:  # noqa: ARG001
             if "prompt.jinja" in name:
@@ -143,6 +145,7 @@ class TestProcessChunk:
                 prompt_path=prompt_path,
                 output_path=output_path,
                 branch="test-branch",
+                repository="test/repo",
             )
 
         assert result is True
@@ -165,13 +168,14 @@ class TestProcessChunk:
                 prompt_path=prompt_path,
                 output_path=output_path,
                 branch="test-branch",
+                repository="test/repo",
             )
 
     @pytest.mark.asyncio
     async def test_process_chunk_llm_failure(
         self,
         temp_review_dir: Path,
-        mock_run_claude_code_chunk_analysis_failure: Callable[[Any], Coroutine[Any, Any, bool]],
+        mock_run_claude_code_chunk_analysis_failure: Callable[..., Coroutine[Any, Any, bool]],
     ) -> None:
         """Test handling of LLM failure."""
         prompt_path = temp_review_dir / "chunk-1-prompt.md"
@@ -188,6 +192,7 @@ class TestProcessChunk:
                 prompt_path=prompt_path,
                 output_path=output_path,
                 branch="test-branch",
+                repository="test/repo",
             )
 
         assert result is False
@@ -221,6 +226,7 @@ class TestAnalyzeChunks:
                 pr_files=pr_files,
                 review_dir=temp_review_dir,
                 branch="test-branch",
+                repository="test/repo",
             )
 
         # Verify directories created
@@ -259,6 +265,7 @@ class TestAnalyzeChunks:
                 pr_files=pr_files,
                 review_dir=temp_review_dir,
                 branch="test-branch",
+                repository="test/repo",
             )
 
         # Should not call run_sandbox_review for chunk 1
@@ -291,6 +298,7 @@ class TestAnalyzeChunks:
                 pr_files=pr_files,
                 review_dir=temp_review_dir,
                 branch="test-branch",
+                repository="test/repo",
             )
 
         # Verify all chunks have results
@@ -340,8 +348,6 @@ class TestEndToEnd:
             output_path_str = str(output_path)
 
             # Determine chunk number from output path
-            import re
-
             match = re.search(r"chunk-(\d+)-analysis\.json", output_path_str)
             if match:
                 chunk_id = int(match.group(1))
@@ -362,6 +368,7 @@ class TestEndToEnd:
                 pr_files=pr_files,
                 review_dir=temp_review_dir,
                 branch="test-branch",
+                repository="test/repo",
             )
 
         # Verify all chunks have analysis results

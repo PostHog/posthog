@@ -6,6 +6,8 @@ import pytest
 from pytest import MonkeyPatch
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from jinja2 import Environment
+
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import (
     Issue,
@@ -27,7 +29,7 @@ from products.review_hog.backend.reviewer.tools.issues_review import (
 
 
 @pytest.fixture
-def mock_run_claude_code_issues_review_failure() -> Callable[[Any], Coroutine[Any, Any, bool]]:
+def mock_run_claude_code_issues_review_failure() -> Callable[..., Coroutine[Any, Any, bool]]:
     """Create a mock for run_sandbox_review that fails."""
 
     async def mock_func(**kwargs: Any) -> bool:
@@ -242,7 +244,6 @@ class TestGeneratePrompts:
         monkeypatch: MonkeyPatch,
     ) -> None:
         """Test error handling when template is missing."""
-        from jinja2 import Environment
 
         def mock_get_template(self: Environment, name: str) -> MagicMock:  # noqa: ARG001
             if "pass1_focus" in name:
@@ -290,6 +291,7 @@ class TestProcessChunk:
                 prompt_path=prompt_path,
                 output_path=output_path,
                 branch="test-branch",
+                repository="test/repo",
             )
 
         assert result is True
@@ -314,13 +316,14 @@ class TestProcessChunk:
                 prompt_path=prompt_path,
                 output_path=output_path,
                 branch="test-branch",
+                repository="test/repo",
             )
 
     @pytest.mark.asyncio
     async def test_process_chunk_llm_failure(
         self,
         temp_review_dir: Path,
-        mock_run_claude_code_issues_review_failure: Callable[[Any], Coroutine[Any, Any, bool]],
+        mock_run_claude_code_issues_review_failure: Callable[..., Coroutine[Any, Any, bool]],
     ) -> None:
         """Test handling of LLM failure."""
         prompt_path = temp_review_dir / "chunk-1-code-prompt.md"
@@ -337,6 +340,7 @@ class TestProcessChunk:
                 prompt_path=prompt_path,
                 output_path=output_path,
                 branch="test-branch",
+                repository="test/repo",
             )
 
         assert result is False
@@ -370,6 +374,7 @@ class TestReviewChunksPass:
                 pr_files=pr_files,
                 review_dir=temp_review_dir,
                 branch="test-branch",
+                repository="test/repo",
                 pass_number=1,
                 previous_passes_context=[],
             )
@@ -412,6 +417,7 @@ class TestReviewChunksPass:
                 pr_files=pr_files,
                 review_dir=temp_review_dir,
                 branch="test-branch",
+                repository="test/repo",
                 pass_number=1,
                 previous_passes_context=[],
             )
@@ -443,6 +449,7 @@ class TestReviewChunksPass:
                 pr_files=pr_files,
                 review_dir=temp_review_dir,
                 branch="test-branch",
+                repository="test/repo",
                 pass_number=99,
                 previous_passes_context=[],
             )
@@ -472,6 +479,7 @@ class TestReviewChunksPass:
                 pr_files=pr_files,
                 review_dir=temp_review_dir,
                 branch="test-branch",
+                repository="test/repo",
                 pass_number=2,
                 previous_passes_context=[pass1_context],
             )
@@ -508,6 +516,7 @@ class TestReviewChunks:
                 pr_files=pr_files,
                 review_dir=temp_review_dir,
                 branch="test-branch",
+                repository="test/repo",
             )
 
         # Verify all passes completed
@@ -537,6 +546,7 @@ class TestReviewChunks:
                     pr_files=pr_files,
                     review_dir=temp_review_dir,
                     branch="test-branch",
+                    repository="test/repo",
                 )
 
             # Only pass 1 directory should be created
@@ -631,6 +641,7 @@ class TestEndToEnd:
                 pr_files=pr_files,
                 review_dir=temp_review_dir,
                 branch="test-branch",
+                repository="test/repo",
             )
 
         # Verify all passes completed with correct data

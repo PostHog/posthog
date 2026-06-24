@@ -29,6 +29,7 @@ async def review_chunks(
     pr_files: list[PRFile],
     review_dir: Path,
     branch: str,
+    repository: str,
 ) -> None:
     passes_count = len(PASS_ENUM_MAP)
     for i in range(passes_count):
@@ -46,6 +47,7 @@ async def review_chunks(
             pr_files=pr_files,
             review_dir=review_dir,
             branch=branch,
+            repository=repository,
             pass_number=pass_number,
             previous_passes_context=previous_passes_context,
         )
@@ -59,6 +61,7 @@ async def review_chunks_pass(
     pr_files: list[PRFile],
     review_dir: Path,
     branch: str,
+    repository: str,
     pass_number: int,
     previous_passes_context: list[PassContext],
 ) -> None:
@@ -113,6 +116,7 @@ async def review_chunks_pass(
             prompt_path=prompt_path,
             output_path=results_dir / f"chunk-{chunk_id}-issues-review.json",
             branch=branch,
+            repository=repository,
         )
         tasks.append(task)
         chunks_to_process.append(chunk_id)
@@ -264,6 +268,7 @@ async def process_chunk(
     prompt_path: Path,
     output_path: Path,
     branch: str,
+    repository: str,
 ) -> bool:
     """Process a single chunk through a sandbox agent."""
     # Read prompt content
@@ -287,6 +292,7 @@ async def process_chunk(
             prompt=prompt,
             system_prompt=system_prompt,
             branch=branch,
+            repository=repository,
             output_path=str(output_path),
             model_to_validate=IssuesReview,
             step_name=f"issues-review-{chunk_id}",

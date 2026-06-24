@@ -1,6 +1,7 @@
 import logging
 from pathlib import Path
 
+from products.review_hog.backend.reviewer.constants import PUBLISH_REVIEW_ENABLED
 from products.review_hog.backend.reviewer.models import generate_all_schemas
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
 from products.review_hog.backend.reviewer.tools.chunk_analysis import analyze_chunks
@@ -51,6 +52,7 @@ async def main(pr_url: str) -> None:
         raise
 
     branch = pr_metadata.head_branch
+    repository = f"{owner}/{repo}"
 
     # 4. Generate schemas
     logger.info("Generating schemas...")
@@ -64,6 +66,7 @@ async def main(pr_url: str) -> None:
         pr_files=pr_files,
         review_dir=review_dir,
         branch=branch,
+        repository=repository,
     )
 
     # 6. Load chunks
@@ -80,6 +83,7 @@ async def main(pr_url: str) -> None:
         pr_files=pr_files,
         review_dir=review_dir,
         branch=branch,
+        repository=repository,
     )
 
     # 8. Find issues in each chunk in multiple passes
@@ -91,6 +95,7 @@ async def main(pr_url: str) -> None:
         pr_files=pr_files,
         review_dir=review_dir,
         branch=branch,
+        repository=repository,
     )
     logger.info("Issues review completed successfully!")
 
@@ -108,6 +113,7 @@ async def main(pr_url: str) -> None:
         pr_metadata=pr_metadata,
         review_dir=review_dir,
         branch=branch,
+        repository=repository,
     )
     logger.info("Issue deduplication completed successfully!")
 
@@ -119,6 +125,7 @@ async def main(pr_url: str) -> None:
         pr_files=pr_files,
         review_dir=review_dir,
         branch=branch,
+        repository=repository,
     )
     logger.info("Issue validation completed successfully!")
 
@@ -132,11 +139,14 @@ async def main(pr_url: str) -> None:
     logger.info("Validation markdown preparation completed successfully!")
 
     # 14. Publish review to GitHub
-    logger.info("Publishing review to GitHub...")
-    publish_review(
-        owner=owner,
-        repo=repo,
-        pr_number=pr_number,
-        review_dir=review_dir,
-    )
-    logger.info("Review published successfully!")
+    if PUBLISH_REVIEW_ENABLED:
+        logger.info("Publishing review to GitHub...")
+        publish_review(
+            owner=owner,
+            repo=repo,
+            pr_number=pr_number,
+            review_dir=review_dir,
+        )
+        logger.info("Review published successfully!")
+    else:
+        logger.info(f"Publishing disabled (PUBLISH_REVIEW_ENABLED=False); report at {review_dir / 'review_report.md'}")

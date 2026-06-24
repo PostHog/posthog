@@ -22,8 +22,6 @@ _sandbox_semaphore = asyncio.Semaphore(MAX_CONCURRENT_SANDBOXES)
 # Cloud defaults (used when DEBUG=False)
 _CLOUD_TEAM_ID = 2
 _CLOUD_USER_ID = 196695
-_CLOUD_REPOSITORY = "posthog/posthog"
-_LOCAL_REPOSITORY = "sortafreel/posthog"
 
 
 def _resolve_context_for_local_dev(repository: str) -> CustomPromptSandboxContext:
@@ -52,14 +50,18 @@ def _resolve_context_for_local_dev(repository: str) -> CustomPromptSandboxContex
     return CustomPromptSandboxContext(team_id=team.id, user_id=user.id, repository=repository)
 
 
-async def _resolve_context() -> CustomPromptSandboxContext:
-    """Return sandbox context based on environment (cloud vs local dev)."""
+async def _resolve_context(repository: str) -> CustomPromptSandboxContext:
+    """Return sandbox context based on environment (cloud vs local dev).
+
+    The sandbox clones ``repository`` (the PR's own ``owner/repo``) and checks out the
+    PR branch, so reviews run against the real repo — same as Signals report research.
+    """
     if settings.DEBUG:
-        return await sync_to_async(_resolve_context_for_local_dev)(_LOCAL_REPOSITORY)
+        return await sync_to_async(_resolve_context_for_local_dev)(repository)
     return CustomPromptSandboxContext(
         team_id=_CLOUD_TEAM_ID,
         user_id=_CLOUD_USER_ID,
-        repository=_CLOUD_REPOSITORY,
+        repository=repository,
     )
 
 
@@ -94,6 +96,7 @@ async def run_sandbox_review(
     prompt: str,
     system_prompt: str,
     branch: str,
+    repository: str,
     output_path: str,
     model_to_validate: type[BaseModel],
     step_name: str = "",
@@ -109,7 +112,7 @@ async def run_sandbox_review(
         logger.info(f"Acquired sandbox semaphore (limit={MAX_CONCURRENT_SANDBOXES})")
 
         full_prompt = f"{system_prompt}\n\n{prompt}"
-        context = await _resolve_context()
+        context = await _resolve_context(repository)
 
         try:
             last_message = await _run_prompt(prompt=full_prompt, context=context, branch=branch, step_name=step_name)

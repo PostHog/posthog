@@ -5,7 +5,7 @@ from typing import Any, Literal
 import pytest
 from unittest.mock import patch
 
-from jinja2 import select_autoescape
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_combination import IssueCombination
@@ -132,8 +132,6 @@ class TestCreateValidationTask:
         with (prompts_dir / "schema.json").open() as f:
             schema = f.read()
 
-        from jinja2 import Environment, FileSystemLoader
-
         env = Environment(loader=FileSystemLoader(prompts_dir), autoescape=select_autoescape())
         template = env.get_template("prompt.jinja")
 
@@ -156,6 +154,7 @@ class TestCreateValidationTask:
                 chunk_data=sample_chunks_list.chunks[0].model_dump(),
                 pr_files=pr_files,
                 branch="test-branch",
+                repository="test/repo",
             )
 
             assert result is True
@@ -197,8 +196,6 @@ class TestCreateValidationTask:
         with (prompts_dir / "schema.json").open() as f:
             schema = f.read()
 
-        from jinja2 import Environment, FileSystemLoader
-
         env = Environment(loader=FileSystemLoader(prompts_dir), autoescape=select_autoescape())
         template = env.get_template("prompt.jinja")
 
@@ -215,6 +212,7 @@ class TestCreateValidationTask:
                 chunk_data=sample_chunks_list.chunks[0].model_dump(),
                 pr_files=pr_files,
                 branch="test-branch",
+                repository="test/repo",
             )
 
             assert result is None  # Should return None for existing validation
@@ -251,8 +249,6 @@ class TestCreateValidationTask:
         with (prompts_dir / "schema.json").open() as f:
             schema = f.read()
 
-        from jinja2 import Environment, FileSystemLoader
-
         env = Environment(loader=FileSystemLoader(prompts_dir), autoescape=select_autoescape())
         template = env.get_template("prompt.jinja")
 
@@ -269,6 +265,7 @@ class TestCreateValidationTask:
                 chunk_data=sample_chunks_list.chunks[0].model_dump(),
                 pr_files=pr_files,
                 branch="test-branch",
+                repository="test/repo",
             )
 
             assert result is True
@@ -304,6 +301,7 @@ class TestRunValidation:
                 prompt=prompt,
                 output_path=output_path,
                 branch="test-branch",
+                repository="test/repo",
                 chunk_index=1,
                 issue_index=1,
             )
@@ -337,6 +335,7 @@ class TestRunValidation:
                 prompt=prompt,
                 output_path=output_path,
                 branch="test-branch",
+                repository="test/repo",
                 chunk_index=1,
                 issue_index=1,
             )
@@ -357,6 +356,7 @@ class TestRunValidation:
                 prompt=prompt,
                 output_path=output_path,
                 branch="test-branch",
+                repository="test/repo",
                 chunk_index=1,
                 issue_index=1,
             )
@@ -394,6 +394,7 @@ class TestValidateIssues:
                 pr_files=pr_files,
                 review_dir=setup_review_dir_with_issues_found,
                 branch="test-branch",
+                repository="test/repo",
             )
 
             # Check validation output files were created for different passes
@@ -431,6 +432,7 @@ class TestValidateIssues:
                 pr_files=pr_files,
                 review_dir=temp_review_dir,
                 branch="test-branch",
+                repository="test/repo",
             )
 
     @pytest.mark.asyncio
@@ -453,6 +455,7 @@ class TestValidateIssues:
             pr_files=pr_files,
             review_dir=temp_review_dir,
             branch="test-branch",
+            repository="test/repo",
         )
 
         # Should complete without errors, check if any actual validation files were created
@@ -527,6 +530,7 @@ class TestValidateIssues:
                 pr_files=pr_files,
                 review_dir=temp_review_dir,
                 branch="test-branch",
+                repository="test/repo",
             )
 
             # Should have processed all 15 issues (5 chunks * 3 issues)
@@ -675,6 +679,7 @@ class TestValidateIssuesEndToEnd:
                 pr_files=pr_files,
                 review_dir=temp_review_dir,
                 branch="test-branch",
+                repository="test/repo",
             )
 
         # Verify all expected validations were created

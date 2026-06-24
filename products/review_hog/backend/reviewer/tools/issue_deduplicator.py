@@ -42,6 +42,7 @@ async def deduplicate_issues(
     pr_metadata: PRMetadata,
     review_dir: Path,
     branch: str,
+    repository: str,
 ) -> None:
     """Deduplicate issues found across all passes."""
     # Load issues from cleaning step (was combination step)
@@ -114,6 +115,7 @@ async def deduplicate_issues(
         prompt=prompt,
         output_path=str(deduplicator_file),
         branch=branch,
+        repository=repository,
     )
 
     if not success:
@@ -145,6 +147,7 @@ async def run_deduplication(
     prompt: str,
     output_path: str,
     branch: str,
+    repository: str,
 ) -> bool:
     """Run deduplication for issues using a sandbox agent."""
     try:
@@ -160,6 +163,7 @@ IMPORTANT: Return ONLY valid JSON output that conforms to the provided schema.""
             prompt=prompt,
             system_prompt=system_prompt,
             branch=branch,
+            repository=repository,
             output_path=output_path,
             model_to_validate=IssueDeduplication,
             step_name="dedup",

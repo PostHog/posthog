@@ -96,6 +96,7 @@ class TestIssueDeduplicator:
                 pr_metadata=pr_metadata,
                 review_dir=review_dir,
                 branch="test-branch",
+                repository="test/repo",
             )
 
         # Verify deduplicator.json was created
@@ -139,6 +140,7 @@ class TestIssueDeduplicator:
             pr_metadata=pr_metadata,
             review_dir=review_dir,
             branch="test-branch",
+            repository="test/repo",
         )
 
         # Verify empty results
@@ -191,6 +193,7 @@ class TestIssueDeduplicator:
                 pr_metadata=pr_metadata,
                 review_dir=review_dir,
                 branch="test-branch",
+                repository="test/repo",
             )
 
             # Verify sandbox was not called
@@ -212,6 +215,7 @@ class TestIssueDeduplicator:
                 pr_metadata=pr_metadata,
                 review_dir=review_dir,
                 branch="test-branch",
+                repository="test/repo",
             )
 
     @pytest.mark.asyncio
@@ -242,6 +246,7 @@ class TestIssueDeduplicator:
                 pr_metadata=pr_metadata,
                 review_dir=review_dir,
                 branch="test-branch",
+                repository="test/repo",
             )
 
     def test_duplicate_issue_model(self) -> None:
@@ -296,6 +301,7 @@ class TestIssueDeduplicator:
                 pr_metadata=pr_metadata,
                 review_dir=review_dir,
                 branch="test-branch",
+                repository="test/repo",
             )
 
         # Verify the complete workflow
@@ -359,6 +365,7 @@ class TestIssueDeduplicator:
                 pr_metadata=pr_metadata,
                 review_dir=review_dir,
                 branch="test-branch",
+                repository="test/repo",
             )
 
         # Verify the prompt includes previous issues
@@ -411,6 +418,7 @@ class TestIssueDeduplicator:
                 pr_metadata=pr_metadata,
                 review_dir=review_dir,
                 branch="test-branch",
+                repository="test/repo",
             )
 
         # Verify the prompt has empty previous issues

@@ -6,6 +6,8 @@ import pytest
 from pytest import MonkeyPatch
 from unittest.mock import patch
 
+from jinja2 import Environment
+
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
 from products.review_hog.backend.reviewer.tests.conftest import create_mock_run_sandbox_review
 from products.review_hog.backend.reviewer.tools.github_meta import PRComment, PRFile, PRMetadata
@@ -63,9 +65,7 @@ class TestGenerateChunkingPrompt:
             return self._old_exists()  # type: ignore
 
         with monkeypatch.context() as m:
-            from pathlib import Path as OrigPath
-
-            OrigPath._old_exists = OrigPath.exists  # type: ignore
+            Path._old_exists = Path.exists  # type: ignore
             m.setattr(Path, "exists", mock_exists)
 
             with pytest.raises(FileNotFoundError, match="Schema file not found"):
@@ -85,7 +85,6 @@ class TestGenerateChunkingPrompt:
         monkeypatch: MonkeyPatch,
     ) -> None:
         """Test prompt generation fails when template is missing."""
-        from jinja2 import Environment
 
         def mock_get_template(self: Environment, name: str) -> None:  # noqa: ARG001
             raise Exception("Template not found")
@@ -130,6 +129,7 @@ class TestSplitPrIntoChunks:
                     pr_files=pr_files,
                     review_dir=temp_review_dir,
                     branch="test-branch",
+                    repository="test/repo",
                 )
 
                 chunks_file: Path = temp_review_dir / "chunks.json"
@@ -168,6 +168,7 @@ class TestSplitPrIntoChunks:
                 pr_files=pr_files,
                 review_dir=temp_review_dir,
                 branch="test-branch",
+                repository="test/repo",
             )
 
             mock_prompt.assert_not_called()
@@ -205,6 +206,7 @@ class TestSplitPrIntoChunks:
                     pr_files=pr_files,
                     review_dir=temp_review_dir,
                     branch="test-branch",
+                    repository="test/repo",
                 )
 
                 mock_prompt.assert_called_once()
@@ -244,6 +246,7 @@ class TestSplitPrIntoChunks:
                     pr_files=pr_files,
                     review_dir=temp_review_dir,
                     branch="test-branch",
+                    repository="test/repo",
                 )
 
     @pytest.mark.asyncio
@@ -267,6 +270,7 @@ class TestSplitPrIntoChunks:
                     pr_files=pr_files,
                     review_dir=temp_review_dir,
                     branch="test-branch",
+                    repository="test/repo",
                 )
 
 
@@ -304,6 +308,7 @@ class TestSplitPrIntoChunksEndToEnd:
                 pr_files=pr_files,
                 review_dir=temp_review_dir,
                 branch="test-branch",
+                repository="test/repo",
             )
 
             chunks_file: Path = temp_review_dir / "chunks.json"

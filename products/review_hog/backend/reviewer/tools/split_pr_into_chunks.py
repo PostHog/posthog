@@ -53,6 +53,7 @@ async def split_pr_into_chunks(
     pr_files: list[PRFile],
     review_dir: Path,
     branch: str,
+    repository: str,
 ) -> None:
     """Split a GitHub PR into logical chunks for review."""
     # Define output path for chunks.json
@@ -88,6 +89,7 @@ IMPORTANT: Return ONLY valid JSON output without any markdown formatting or expl
         prompt=prompt,
         system_prompt=system_prompt,
         branch=branch,
+        repository=repository,
         output_path=str(output_path),
         model_to_validate=ChunksList,
         step_name="chunking",

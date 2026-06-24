@@ -22,6 +22,7 @@ async def validate_issues(
     pr_files: list[PRFile],
     review_dir: Path,
     branch: str,
+    repository: str,
 ) -> None:
     """Validate issues found in all passes."""
     # Create a mapping of chunk_id to chunk data for easy access
@@ -64,6 +65,7 @@ async def validate_issues(
             pr_files=pr_files,
             chunk_data=chunk_data.model_dump(),
             branch=branch,
+            repository=repository,
         )
         if task:
             all_validation_tasks.append(task)
@@ -100,6 +102,7 @@ async def create_validation_task(
     chunk_data: dict,
     pr_files: list[PRFile],
     branch: str,
+    repository: str,
 ) -> bool | None:
     """Create a validation task for an issue."""
     # Generate the prompt first
@@ -139,6 +142,7 @@ async def create_validation_task(
         prompt=prompt,
         output_path=output_path,
         branch=branch,
+        repository=repository,
         chunk_index=chunk_index,
         issue_index=issue_index,
     )
@@ -148,6 +152,7 @@ async def run_validation(
     prompt: str,
     output_path: Path,
     branch: str,
+    repository: str,
     chunk_index: int,
     issue_index: int,
 ) -> bool:
@@ -166,6 +171,7 @@ IMPORTANT: Return ONLY valid JSON output that conforms to the provided schema.""
             prompt=prompt,
             system_prompt=system_prompt,
             branch=branch,
+            repository=repository,
             output_path=str(output_path),
             model_to_validate=IssueValidation,
             step_name=f"validation-c{chunk_index}-i{issue_index}",

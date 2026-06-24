@@ -38,6 +38,7 @@ class TestRunSandboxReview:
                 prompt="user prompt",
                 system_prompt="system prompt",
                 branch="test-branch",
+                repository="test/repo",
                 output_path=str(output_path),
                 model_to_validate=DummyModel,
             )
@@ -66,6 +67,7 @@ class TestRunSandboxReview:
                 prompt="p",
                 system_prompt="s",
                 branch="b",
+                repository="test/repo",
                 output_path=str(output_path),
                 model_to_validate=DummyModel,
             )
@@ -86,6 +88,7 @@ class TestRunSandboxReview:
                 prompt="p",
                 system_prompt="s",
                 branch="b",
+                repository="test/repo",
                 output_path=str(output_path),
                 model_to_validate=DummyModel,
             )
@@ -105,6 +108,7 @@ class TestRunSandboxReview:
                 prompt="p",
                 system_prompt="s",
                 branch="b",
+                repository="test/repo",
                 output_path=str(output_path),
                 model_to_validate=DummyModel,
             )
@@ -129,6 +133,7 @@ class TestRunSandboxReview:
                 prompt="p",
                 system_prompt="s",
                 branch="b",
+                repository="test/repo",
                 output_path=str(output_path),
                 model_to_validate=DummyModel,
             )
@@ -164,6 +169,7 @@ class TestSemaphore:
                     prompt="p",
                     system_prompt="s",
                     branch="b",
+                    repository="test/repo",
                     output_path=str(output_path),
                     model_to_validate=DummyModel,
                 )
@@ -195,6 +201,7 @@ class TestSemaphore:
                 prompt="p",
                 system_prompt="s",
                 branch="b",
+                repository="test/repo",
                 output_path=str(tmp_path / "out1.json"),
                 model_to_validate=DummyModel,
             )
@@ -205,6 +212,7 @@ class TestSemaphore:
                 prompt="p",
                 system_prompt="s",
                 branch="b",
+                repository="test/repo",
                 output_path=str(tmp_path / "out2.json"),
                 model_to_validate=DummyModel,
             )

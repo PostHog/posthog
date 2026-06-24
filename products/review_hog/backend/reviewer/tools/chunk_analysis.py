@@ -22,6 +22,7 @@ async def analyze_chunks(
     pr_files: list[PRFile],
     review_dir: Path,
     branch: str,
+    repository: str,
 ) -> None:
     """Analyze all chunks to understand their purpose and architecture."""
     pr_id = str(pr_metadata.number)
@@ -59,6 +60,7 @@ async def analyze_chunks(
             prompt_path=prompt_path,
             output_path=result_path,
             branch=branch,
+            repository=repository,
         )
         tasks.append(task)
         chunks_to_process.append(chunk_id)
@@ -150,6 +152,7 @@ async def process_chunk(
     prompt_path: Path,
     output_path: Path,
     branch: str,
+    repository: str,
 ) -> bool:
     """Process a single chunk through a sandbox agent."""
     # Read prompt content
@@ -170,6 +173,7 @@ IMPORTANT: Return ONLY valid JSON output without any markdown formatting or expl
             prompt=prompt,
             system_prompt=system_prompt,
             branch=branch,
+            repository=repository,
             output_path=str(output_path),
             model_to_validate=ChunkAnalysis,
             step_name=f"chunk-analysis-{chunk_id}",
