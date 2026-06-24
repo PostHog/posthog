@@ -1,3 +1,4 @@
+import re
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, datetime
@@ -75,6 +76,15 @@ def _build_url(path: str, params: dict[str, Any]) -> str:
     return f"{OPENWEATHER_BASE_URL}{path}?{urlencode(params)}"
 
 
+# The API key is passed as the `appid` query param, so it ends up in `response.url`. `raise_for_status()`
+# embeds that URL in its message, which would otherwise leak the key into the sync's stored error and logs.
+_APPID_RE = re.compile(r"(appid=)[^&\s]+", re.IGNORECASE)
+
+
+def _redact_appid(text: str) -> str:
+    return _APPID_RE.sub(r"\1REDACTED", text)
+
+
 @retry(
     retry=retry_if_exception_type((OpenWeatherRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
@@ -90,7 +100,12 @@ def _fetch(session: requests.Session, url: str, logger: FilteringBoundLogger) ->
 
     if not response.ok:
         logger.error(f"OpenWeather API error: status={response.status_code}, body={response.text}")
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as exc:
+            # Re-raise with the `appid` redacted so the key never reaches stored errors / logs, keeping the
+            # `... for url: https://api.openweathermap.org` prefix intact for `get_non_retryable_errors()`.
+            raise requests.HTTPError(_redact_appid(str(exc)), response=exc.response) from None
 
     return response.json()
 

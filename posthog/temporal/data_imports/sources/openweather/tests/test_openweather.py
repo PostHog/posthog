@@ -15,6 +15,7 @@ from posthog.temporal.data_imports.sources.openweather.openweather import (
     _dt_to_iso,
     _fetch,
     _normalize_rows,
+    _redact_appid,
     get_rows,
     openweather_source,
     parse_locations,
@@ -83,6 +84,20 @@ class TestDtToIso:
     )
     def test_dt_to_iso(self, dt, expected):
         assert _dt_to_iso(dt) == expected
+
+
+class TestRedactAppid:
+    @pytest.mark.parametrize(
+        "text, expected",
+        [
+            ("https://x/?lat=1&appid=secret", "https://x/?lat=1&appid=REDACTED"),
+            ("https://x/?appid=secret&lat=1", "https://x/?appid=REDACTED&lat=1"),
+            ("APPID=secret", "APPID=REDACTED"),  # case-insensitive
+            ("no key here", "no key here"),
+        ],
+    )
+    def test_redact(self, text, expected):
+        assert _redact_appid(text) == expected
 
 
 class TestBuildUrl:
@@ -161,6 +176,29 @@ class TestFetch:
 
         with pytest.raises(requests.HTTPError):
             _fetch_once(session, "https://example.com", structlog.get_logger())
+
+    def test_error_message_redacts_appid(self):
+        # The API key is passed as `appid`, so the raise_for_status URL must not leak it into the error.
+        resp = mock.MagicMock()
+        resp.status_code = 401
+        resp.ok = False
+        resp.text = '{"cod":401,"message":"Invalid API key."}'
+        resp.raise_for_status.side_effect = requests.HTTPError(
+            "401 Client Error: Unauthorized for url: "
+            "https://api.openweathermap.org/data/2.5/weather?lat=51.5&lon=-0.12&appid=SUPERSECRETKEY",
+            response=requests.Response(),
+        )
+        session = mock.MagicMock()
+        session.get.return_value = resp
+
+        with pytest.raises(requests.HTTPError) as exc_info:
+            _fetch_once(session, "https://example.com", structlog.get_logger())
+
+        message = str(exc_info.value)
+        assert "SUPERSECRETKEY" not in message
+        assert "appid=REDACTED" in message
+        # The host prefix is preserved so non-retryable-error matching still works.
+        assert "for url: https://api.openweathermap.org" in message
 
 
 class TestValidateCredentials:
