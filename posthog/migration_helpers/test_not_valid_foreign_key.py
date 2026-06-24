@@ -9,7 +9,7 @@ import uuid
 
 import pytest
 
-from django.db import connection, models
+from django.db import connection, models, transaction
 from django.db.migrations.state import ModelState, ProjectState
 from django.db.utils import IntegrityError
 
@@ -54,7 +54,6 @@ def _add_op(name, parent):
         column="parent_id",
         to_table=parent,
         to_column="id",
-        on_delete="CASCADE",
     )
 
 
@@ -116,6 +115,22 @@ def test_add_foreign_key_not_valid_skips_existing_rows_but_enforces_new_rows(tem
 
     with pytest.raises(IntegrityError):
         _insert_child(child, 888)  # new orphan is rejected
+
+
+@pytest.mark.django_db(transaction=True)
+def test_add_foreign_key_not_valid_is_deferrable(temp_tables):
+    """DEFERRABLE INITIALLY DEFERRED: a child can be inserted before its parent within one
+    transaction, with the FK checked at commit - matching Django's FK semantics. Without
+    deferrability the child insert would raise immediately."""
+    child, parent, state = temp_tables
+    name = f"{child}_parent_fk"
+    _apply_forwards(_add_op(name, parent), state)
+
+    with transaction.atomic(), connection.cursor() as cursor:
+        cursor.execute(f'INSERT INTO "{child}" (parent_id) VALUES (4242)')  # parent 4242 not inserted yet
+        cursor.execute(f'INSERT INTO "{parent}" (id) VALUES (4242)')  # added before commit
+
+    assert _convalidated(name) is False  # commit succeeded; the deferred check passed
 
 
 @pytest.mark.django_db(transaction=True)
@@ -215,22 +230,19 @@ def test_add_foreign_key_not_valid_keeps_lock_timeout():
     """ADD CONSTRAINT ... NOT VALID takes a brief SHARE ROW EXCLUSIVE lock on the parent,
     so it must keep the default lock_timeout and fail fast on contention rather than queue
     the lock behind in-flight writes on the parent."""
-    op = AddForeignKeyNotValid(
-        model_name=MODEL_NAME, name="tfk", column="parent_id", to_table="some_parent", on_delete="CASCADE"
-    )
+    op = AddForeignKeyNotValid(model_name=MODEL_NAME, name="tfk", column="parent_id", to_table="some_parent")
     collected = _collected_forward_sql(op, "test_fk_child_collect")
 
     assert "SET lock_timeout = 0" not in collected
     assert "SET statement_timeout = 0" not in collected
     assert "ADD CONSTRAINT" in collected.upper()
     assert "NOT VALID" in collected.upper()
-    assert "ON DELETE CASCADE" in collected.upper()
+    assert "DEFERRABLE INITIALLY DEFERRED" in collected.upper()  # matches Django's FK DDL
+    assert "ON DELETE" not in collected.upper()  # Django handles cascade in Python, not the DB
 
 
 def test_deconstruct_round_trips():
-    op = AddForeignKeyNotValid(
-        model_name=MODEL_NAME, name="tfk", column="parent_id", to_table="some_parent", on_delete="CASCADE"
-    )
+    op = AddForeignKeyNotValid(model_name=MODEL_NAME, name="tfk", column="parent_id", to_table="some_parent")
     name, args, kwargs = op.deconstruct()
 
     assert name == "AddForeignKeyNotValid"
@@ -246,17 +258,3 @@ def test_validate_foreign_key_deconstructs_under_own_name():
 
     assert name == "ValidateForeignKey"
     assert ValidateForeignKey(**kwargs).deconstruct() == op.deconstruct()
-
-
-def test_deconstruct_omits_empty_on_delete():
-    op = AddForeignKeyNotValid(model_name=MODEL_NAME, name="tfk", column="parent_id", to_table="some_parent")
-    _, _, kwargs = op.deconstruct()
-
-    assert "on_delete" not in kwargs
-
-
-def test_invalid_on_delete_rejected():
-    with pytest.raises(ValueError, match="not a valid ON DELETE action"):
-        AddForeignKeyNotValid(
-            model_name=MODEL_NAME, name="tfk", column="parent_id", to_table="some_parent", on_delete="CASADE"
-        )

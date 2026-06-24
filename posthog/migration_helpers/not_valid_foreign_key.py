@@ -30,7 +30,8 @@ lock-free:
 The intended author workflow for a hot-table FK is:
 
     # model: declare the FK with db_constraint=False so CREATE TABLE / AddField emit
-    # no parent lock at all
+    # no parent lock at all. on_delete stays a Django/Python concern - the collector
+    # handles cascades and signals; Django never emits a DB-level ON DELETE action.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
 
     # 00xx_add_fk_not_valid.py  (brief SHARE ROW EXCLUSIVE on the parent)
@@ -41,7 +42,6 @@ The intended author workflow for a hot-table FK is:
             column="team_id",
             to_table="posthog_team",
             to_column="id",
-            on_delete="CASCADE",
         ),
     ]
 
@@ -92,11 +92,17 @@ class ValidateForeignKey(ValidateConstraint):
 class AddForeignKeyNotValid(Operation):
     """Phase 1: add a FOREIGN KEY constraint with NOT VALID (no child-row scan).
 
-    Emits `ALTER TABLE ... ADD CONSTRAINT ... FOREIGN KEY (column) REFERENCES
-    to_table (to_column) ... NOT VALID`. This takes a brief SHARE ROW EXCLUSIVE lock on
-    the *referenced parent* table for the catalog metadata add - it is NOT lock-free, but
-    it skips validating existing child rows under that lock. Follow up with
+    Emits the same FK DDL Django would, minus the row scan: `ALTER TABLE ... ADD
+    CONSTRAINT ... FOREIGN KEY (column) REFERENCES to_table (to_column) DEFERRABLE
+    INITIALLY DEFERRED NOT VALID`. This takes a brief SHARE ROW EXCLUSIVE lock on the
+    *referenced parent* table for the catalog metadata add - it is NOT lock-free, but it
+    skips validating existing child rows under that lock. Follow up with
     `ValidateForeignKey` in a separate migration.
+
+    The constraint is DEFERRABLE INITIALLY DEFERRED to match Django's Postgres FKs (so
+    child-before-parent inserts inside one transaction still pass), and carries no ON
+    DELETE action - exactly like a Django FK, whose cascades are handled by the Python
+    collector, not the database. This keeps it a true drop-in for the model's FK.
 
     This op tracks no Django model state: the relationship is expected to already be in
     state from a `ForeignKey(..., db_constraint=False)` on the model (whose CreateModel /
@@ -109,13 +115,9 @@ class AddForeignKeyNotValid(Operation):
         column: the child FK column, e.g. `"team_id"`.
         to_table: the referenced parent table, e.g. `"posthog_team"`.
         to_column: the referenced parent column. Defaults to `"id"`.
-        on_delete: optional `ON DELETE` action, e.g. `"CASCADE"` or `"SET NULL"`.
-            Omitted (Postgres default `NO ACTION`) when empty.
     """
 
     reversible = True
-
-    _ON_DELETE_ACTIONS = frozenset({"CASCADE", "SET NULL", "SET DEFAULT", "RESTRICT", "NO ACTION"})
 
     def __init__(
         self,
@@ -124,19 +126,12 @@ class AddForeignKeyNotValid(Operation):
         column: str,
         to_table: str,
         to_column: str = "id",
-        on_delete: str = "",
     ) -> None:
-        if on_delete and on_delete.upper() not in self._ON_DELETE_ACTIONS:
-            raise ValueError(
-                f"on_delete={on_delete!r} is not a valid ON DELETE action; "
-                f"expected one of {sorted(self._ON_DELETE_ACTIONS)} or '' for the Postgres default"
-            )
         self.model_name = model_name
         self.name = name
         self.column = column
         self.to_table = to_table
         self.to_column = to_column
-        self.on_delete = on_delete
 
     def state_forwards(self, app_label, state) -> None:
         pass  # the relationship is already tracked by the model's db_constraint=False FK
@@ -156,10 +151,13 @@ class AddForeignKeyNotValid(Operation):
         column = schema_editor.quote_name(self.column)
         to_table = schema_editor.quote_name(self.to_table)
         to_column = schema_editor.quote_name(self.to_column)
-        on_delete = f" ON DELETE {self.on_delete}" if self.on_delete else ""
+        # DEFERRABLE INITIALLY DEFERRED on Postgres - matches what Django emits for a FK,
+        # so this stays a drop-in (deferred constraint checks survive child-before-parent
+        # inserts within a transaction).
+        deferrable = schema_editor.connection.ops.deferrable_sql()
         schema_editor.execute(
             f"ALTER TABLE {table} ADD CONSTRAINT {name} "
-            f"FOREIGN KEY ({column}) REFERENCES {to_table} ({to_column}){on_delete} NOT VALID"
+            f"FOREIGN KEY ({column}) REFERENCES {to_table} ({to_column}){deferrable} NOT VALID"
         )
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state) -> None:
@@ -178,8 +176,6 @@ class AddForeignKeyNotValid(Operation):
             "to_table": self.to_table,
             "to_column": self.to_column,
         }
-        if self.on_delete:
-            kwargs["on_delete"] = self.on_delete
         return (self.__class__.__qualname__, [], kwargs)
 
     def describe(self) -> str:

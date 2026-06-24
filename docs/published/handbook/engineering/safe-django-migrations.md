@@ -75,7 +75,6 @@ operations = [
         column="team_id",
         to_table="posthog_team",
         to_column="id",
-        on_delete="CASCADE",
     ),
 ]
 
