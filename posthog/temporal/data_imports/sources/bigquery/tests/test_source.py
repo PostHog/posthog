@@ -840,6 +840,65 @@ def test_bigquery_resolve_region_trims_and_treats_whitespace_as_unset():
     assert _resolve_region(config) is None
 
 
+# Regression: credentials validate with a region-agnostic `list_tables`, but a discovery query
+# job created without a location defaults to the US multi-region — so a dataset in another region
+# passed validation yet failed schema discovery with "... was not found in location US". `connect`
+# auto-resolves the dataset's real location so discovery runs where the data lives.
+
+
+def _patch_bigquery_client(fake_bq):
+    client_cm = mock.MagicMock()
+    client_cm.__enter__.return_value = fake_bq
+    return mock.patch(
+        "posthog.temporal.data_imports.sources.bigquery.bigquery.bigquery_client",
+        return_value=client_cm,
+    )
+
+
+def test_connect_auto_detects_dataset_region_when_unset():
+    """No custom region configured: connect must pin the discovery client to the dataset's real
+    location (read via the region-agnostic `get_dataset`) instead of defaulting to US."""
+    fake_bq = mock.MagicMock()
+    fake_bq.get_dataset.return_value.location = "europe-west1"
+
+    with _patch_bigquery_client(fake_bq) as mock_client:
+        with BigQueryImplementation().connect(_make_config()) as conn:
+            assert conn is fake_bq
+
+    # The region must come from an actual dataset-location lookup, not a hardcoded default.
+    fake_bq.get_dataset.assert_called_once()
+    # The last client built is the one discovery queries run on; its location is positional arg 1.
+    assert mock_client.call_args_list[-1][0][1] == "europe-west1"
+
+
+def test_connect_uses_configured_region_without_probing():
+    """A configured custom region is used as-is — no dataset-location probe is performed."""
+    config = _make_config()
+    config.use_custom_region = BigQueryUseCustomRegionConfig(region="us-east1", enabled=True)
+    fake_bq = mock.MagicMock()
+
+    with _patch_bigquery_client(fake_bq) as mock_client:
+        with BigQueryImplementation().connect(config):
+            pass
+
+    fake_bq.get_dataset.assert_not_called()
+    assert mock_client.call_count == 1
+    assert mock_client.call_args_list[-1][0][1] == "us-east1"
+
+
+def test_connect_falls_back_to_unset_location_when_detection_fails():
+    """If the dataset-location probe fails (e.g. the dataset really doesn't exist), connect leaves
+    the location unset so `get_columns` still surfaces the actionable not-found error."""
+    fake_bq = mock.MagicMock()
+    fake_bq.get_dataset.side_effect = NotFound("Not found: Dataset prj:ds")
+
+    with _patch_bigquery_client(fake_bq) as mock_client:
+        with BigQueryImplementation().connect(_make_config()):
+            pass
+
+    assert mock_client.call_args_list[-1][0][1] is None
+
+
 def test_bigquery_resolve_dataset_project_id_trims_and_treats_whitespace_as_unset():
     config = _make_config(
         dataset_project=BigQueryDatasetProjectConfig(dataset_project_id="  other-project ", enabled=True)
