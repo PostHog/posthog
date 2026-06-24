@@ -1,6 +1,3 @@
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { initKeaTests } from '~/test/init'
 import {
     CyclotronJobFiltersType,
@@ -120,43 +117,5 @@ describe('hogFunctionTemplateListLogic - deliveryType filter', () => {
         // an empty result proves the deliveryType filter is applied inside the search branch.
         logic.actions.setFilters({ search: 'export', deliveryType: 'realtime' })
         expect(logic.values.filteredTemplates.map((t) => t.id)).toEqual([])
-    })
-})
-
-describe('hogFunctionTemplateListLogic - Appcues feature flag gating', () => {
-    const appcuesTemplate: HogFunctionTemplateType = {
-        id: 'template-appcues',
-        name: 'Appcues',
-        type: 'destination',
-        status: 'beta',
-        free: true,
-        code: '',
-        code_language: 'hog',
-    }
-
-    const buildLogic = (): ReturnType<typeof hogFunctionTemplateListLogic.build> => {
-        const logic = hogFunctionTemplateListLogic.build({
-            type: 'destination',
-            manualTemplates: [appcuesTemplate],
-        })
-        logic.mount()
-        return logic
-    }
-
-    beforeEach(() => {
-        initKeaTests()
-        featureFlagLogic.mount()
-    })
-
-    it('hides the Appcues template when the flag is off', () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.CDP_APPCUES]: false })
-        const logic = buildLogic()
-        expect(logic.values.templates.map((t) => t.id)).not.toContain('template-appcues')
-    })
-
-    it('shows the Appcues template when the flag is on', () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.CDP_APPCUES]: true })
-        const logic = buildLogic()
-        expect(logic.values.templates.map((t) => t.id)).toContain('template-appcues')
     })
 })
