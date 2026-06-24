@@ -1,8 +1,12 @@
+from typing import Any, cast
+
 import pytest
 from unittest import mock
 from unittest.mock import MagicMock, patch
 
 import stripe as stripe_lib
+
+from stripe import ListObject
 
 from posthog.temporal.data_imports.sources.generated_configs import StripeAuthMethodConfig, StripeSourceConfig
 from posthog.temporal.data_imports.sources.stripe import stripe as stripe_module
@@ -58,7 +62,7 @@ class TestStripeGetRowsIncrementalCursor:
             {"id": "ch_2", "created": 1700000100},
             {"id": "ch_1", "created": 1700000040},
         ]
-        resource = StripeResource(method=lambda params: _FakeStripeList(objects))
+        resource = StripeResource(method=lambda params: cast(ListObject[Any], _FakeStripeList(objects)))
         resumable_source_manager = mock.MagicMock()
         resumable_source_manager.can_resume.return_value = False
 
