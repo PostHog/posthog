@@ -1,7 +1,7 @@
 import asyncio
 
 from parameterized import parameterized
-from temporalio.exceptions import ActivityError, ApplicationError, CancelledError, RetryState
+from temporalio.exceptions import ActivityError, ApplicationError, CancelledError
 
 from posthog.temporal.common.posthog_client import _is_already_captured_or_cancellation
 
@@ -14,7 +14,7 @@ def _activity_error(message: str = "boom") -> ActivityError:
         identity="test",
         activity_type="export_event_clickhouse_rows",
         activity_id="3",
-        retry_state=RetryState.MAXIMUM_ATTEMPTS_EXCEEDED,
+        retry_state=None,
     )
 
 
