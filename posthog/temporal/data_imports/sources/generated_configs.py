@@ -2960,7 +2960,7 @@ class SquareSourceConfig(config.Config):
 
 @config.config
 class SquarespaceSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
