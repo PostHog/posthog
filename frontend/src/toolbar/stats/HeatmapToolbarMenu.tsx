@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import React from 'react'
 
 import { IconMagicWand } from '@posthog/icons'
-import { LemonButton, LemonSwitch, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInputSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { HeatmapsSettings } from 'lib/components/heatmaps/HeatMapsSettings'
@@ -20,6 +20,7 @@ import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
+import { useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
 import { joinWithUiHost } from '~/toolbar/utils'
 
 import { toolbarConfigLogic } from '../toolbarConfigLogic'
@@ -100,6 +101,9 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         samplingFactor,
         elementsLoading,
         processingProgress,
+        eventFilterNames,
+        eventFilterOptions,
+        eventFilterDefinitionsLoading,
     } = useValues(heatmapToolbarMenuLogic)
     const {
         setCommonFilters,
@@ -110,8 +114,12 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         setHeatmapFixedPositionMode,
         setHeatmapColorPalette,
         setSamplingFactor,
+        searchEventFilterDefinitions,
+        setEventFilters,
     } = useActions(heatmapToolbarMenuLogic)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
+
+    const eventFilterEnabled = useToolbarFeatureFlag('heatmaps-event-filter')
 
     return (
         <ToolbarMenu>
@@ -162,11 +170,27 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                         dateFrom={commonFilters.date_from}
                         dateTo={commonFilters.date_to}
                         onChange={(fromDate, toDate) => {
-                            setCommonFilters({ date_from: fromDate, date_to: toDate })
+                            setCommonFilters({ ...commonFilters, date_from: fromDate, date_to: toDate })
                         }}
                         dateOptions={heatmapDateOptions}
                     />
                 </div>
+                {eventFilterEnabled && (
+                    <div className="flex flex-col gap-1 py-2 border-b">
+                        <LemonLabel className="text-xs">Filter by event</LemonLabel>
+                        <LemonInputSelect
+                            mode="multiple"
+                            allowCustomValues
+                            size="small"
+                            placeholder="Any event"
+                            value={eventFilterNames}
+                            options={eventFilterOptions}
+                            loading={eventFilterDefinitionsLoading}
+                            onInputChange={(query) => searchEventFilterDefinitions({ query })}
+                            onChange={(names) => setEventFilters(names)}
+                        />
+                    </div>
+                )}
             </ToolbarMenu.Header>
             <ToolbarMenu.Body>
                 <div className="border-b p-2">

@@ -18,7 +18,7 @@ import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
 import { elementIsVisible, invalidateZoomCache, trimElement } from '~/toolbar/utils'
-import { PropertyFilterType, PropertyOperator } from '~/types'
+import { EventDefinition, FilterType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { heatmapToolbarMenuLogicType } from './heatmapToolbarMenuLogicType'
 
@@ -139,6 +139,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         setProcessedElements: (elements: CountedHTMLElement[]) => ({ elements }),
         setElementsLoading: (loading: boolean) => ({ loading }),
         setProcessingProgress: (processed: number, total: number) => ({ processed, total }),
+        setEventFilters: (eventNames: string[]) => ({ eventNames }),
     }),
     windowValues(() => ({
         windowWidth: (window: Window) => window.innerWidth,
@@ -292,6 +293,25 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 },
             },
         ],
+        eventFilterDefinitions: [
+            [] as EventDefinition[],
+            {
+                searchEventFilterDefinitions: async ({ query }: { query: string }, breakpoint) => {
+                    await breakpoint(300)
+                    // null event_type so both custom and PostHog events are searchable for filtering
+                    const result = await toolbarApi.eventDefinitions.search(
+                        query,
+                        { context: 'heatmap_event_filter_search', reauthenticateOnForbidden: true },
+                        null
+                    )
+                    breakpoint()
+                    if (!result.ok) {
+                        return []
+                    }
+                    return result.data.results ?? []
+                },
+            },
+        ],
     })),
     selectors(() => ({
         countedElements: [
@@ -304,6 +324,25 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             },
         ],
         elementCount: [(s) => [s.countedElements], (countedElements) => countedElements.length],
+        eventFilterNames: [
+            (s) => [s.commonFilters],
+            (commonFilters): string[] =>
+                (commonFilters.events ?? []).map((event) => String(event.id)).filter((id) => id.length > 0),
+        ],
+        eventFilterOptions: [
+            (s) => [s.eventFilterDefinitions, s.eventFilterNames],
+            (eventFilterDefinitions: EventDefinition[], eventFilterNames: string[]) => {
+                const options = eventFilterDefinitions.map((definition) => ({
+                    key: definition.name,
+                    label: definition.name,
+                }))
+                // keep already-selected events as options so their snacks render even when not in the latest search
+                const missing = eventFilterNames
+                    .filter((name) => !options.some((option) => option.key === name))
+                    .map((name) => ({ key: name, label: name }))
+                return [...missing, ...options]
+            },
+        ],
         clickCount: [
             (s) => [s.countedElements],
             (countedElements) => (countedElements ? countedElements.map((e) => e.count).reduce((a, b) => a + b, 0) : 0),
@@ -482,6 +521,10 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         },
         setCommonFilters: () => {
             actions.loadAllEnabled()
+        },
+        setEventFilters: ({ eventNames }) => {
+            const events: FilterType['events'] = eventNames.map((name) => ({ id: name, type: 'events', name }))
+            actions.setCommonFilters({ ...values.commonFilters, events })
         },
         setSamplingFactor: () => {
             actions.maybeLoadClickmap()

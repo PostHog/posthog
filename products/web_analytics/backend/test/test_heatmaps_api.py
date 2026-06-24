@@ -6,6 +6,7 @@ from posthog.test.base import (
     _create_event,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -648,6 +649,129 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "pointer_y": 16,
             },
         ]
+
+    @freezegun.freeze_time("2025-03-31")
+    def test_can_filter_by_events(self) -> None:
+        self._create_heatmap_event("session_1", "click", "2023-03-08T08:00:00", viewport_width=100, x=5, y=10)
+        self._create_heatmap_event("session_2", "click", "2023-03-08T08:00:00", viewport_width=100, x=5, y=10)
+        self._create_heatmap_event("session_3", "click", "2023-03-08T08:01:00", viewport_width=100, x=100, y=10)
+
+        # a purchase only happened in sessions 1 and 2
+        self.create_event(session_id="session_1", timestamp="2023-03-08T08:00:00", event_name="purchase")
+        self.create_event(session_id="session_2", timestamp="2023-03-08T08:00:00", event_name="purchase")
+        self.create_event(session_id="session_3", timestamp="2023-03-08T08:01:00", event_name="$pageview")
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.get(
+                "/api/heatmap/",
+                data={"date_from": "2023-03-08", "events": '[{"id": "purchase", "type": "events"}]'},
+            )
+        assert response.status_code == status.HTTP_200_OK, response.data
+
+        # only sessions 1 and 2 (both at relative_x 0.0) remain; session 3 is filtered out
+        assert response.data["results"] == [
+            {"count": 2, "pointer_relative_x": 0.0, "pointer_target_fixed": True, "pointer_y": 16},
+        ]
+
+    @freezegun.freeze_time("2025-03-31")
+    def test_can_filter_by_event_with_property(self) -> None:
+        self._create_heatmap_event("session_1", "click", "2023-03-08T08:00:00", viewport_width=100, x=5, y=10)
+        self._create_heatmap_event("session_2", "click", "2023-03-08T08:00:00", viewport_width=100, x=100, y=10)
+
+        # both sessions purchased, but only session 1 was on the pro plan
+        self.create_event(
+            session_id="session_1", timestamp="2023-03-08T08:00:00", event_name="purchase", properties={"plan": "pro"}
+        )
+        self.create_event(
+            session_id="session_2", timestamp="2023-03-08T08:00:00", event_name="purchase", properties={"plan": "free"}
+        )
+
+        events_param = (
+            '[{"id": "purchase", "type": "events", '
+            '"properties": [{"key": "plan", "value": "pro", "operator": "exact", "type": "event"}]}]'
+        )
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.get("/api/heatmap/", data={"date_from": "2023-03-08", "events": events_param})
+        assert response.status_code == status.HTTP_200_OK, response.data
+
+        assert response.data["results"] == [
+            {"count": 1, "pointer_relative_x": 0.0, "pointer_target_fixed": True, "pointer_y": 16},
+        ]
+
+    @freezegun.freeze_time("2025-03-31")
+    def test_event_filter_combines_with_test_accounts(self) -> None:
+        self.team.test_account_filters = [
+            {"key": "$host", "value": "127.0.0.1", "operator": "not_icontains", "type": "event"}
+        ]
+        self.team.save()
+
+        self._create_heatmap_event("session_1", "click", "2023-03-08T08:00:00", viewport_width=100, x=5, y=10)
+        self._create_heatmap_event("session_2", "click", "2023-03-08T08:00:00", viewport_width=100, x=50, y=10)
+        self._create_heatmap_event("session_3", "click", "2023-03-08T08:00:00", viewport_width=100, x=100, y=10)
+
+        # session 1: purchase from a real host -> kept; session 2: purchase but a test host -> dropped;
+        # session 3: real host but no purchase -> dropped
+        self.create_event(
+            session_id="session_1",
+            timestamp="2023-03-08T08:00:00",
+            event_name="purchase",
+            properties={"$host": "posthog.com"},
+        )
+        self.create_event(
+            session_id="session_2",
+            timestamp="2023-03-08T08:00:00",
+            event_name="purchase",
+            properties={"$host": "127.0.0.1"},
+        )
+        self.create_event(
+            session_id="session_3",
+            timestamp="2023-03-08T08:00:00",
+            event_name="$pageview",
+            properties={"$host": "posthog.com"},
+        )
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.get(
+                "/api/heatmap/",
+                data={
+                    "date_from": "2023-03-08",
+                    "filter_test_accounts": True,
+                    "events": '[{"id": "purchase", "type": "events"}]',
+                },
+            )
+        assert response.status_code == status.HTTP_200_OK, response.data
+
+        assert response.data["results"] == [
+            {"count": 1, "pointer_relative_x": 0.0, "pointer_target_fixed": True, "pointer_y": 16},
+        ]
+
+    @freezegun.freeze_time("2025-03-31")
+    def test_event_filter_ignored_without_flag(self) -> None:
+        self._create_heatmap_event("session_1", "click", "2023-03-08T08:00:00", viewport_width=100, x=5, y=10)
+        self._create_heatmap_event("session_2", "click", "2023-03-08T08:00:00", viewport_width=100, x=100, y=10)
+
+        # only session 1 purchased; without the flag the event filter must be ignored, so both remain
+        self.create_event(session_id="session_1", timestamp="2023-03-08T08:00:00", event_name="purchase")
+
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            response = self.client.get(
+                "/api/heatmap/",
+                data={"date_from": "2023-03-08", "events": '[{"id": "purchase", "type": "events"}]'},
+            )
+        assert response.status_code == status.HTTP_200_OK, response.data
+
+        assert len(response.data["results"]) == 2
+
+    @parameterized.expand(
+        [
+            ("not_json", "not-json"),
+            ("not_a_list", '{"id": "purchase"}'),
+            ("id_not_a_string", '[{"id": 123, "type": "events"}]'),
+        ]
+    )
+    def test_event_filter_rejects_invalid_events(self, _name: str, events_param: str) -> None:
+        response = self.client.get("/api/heatmap/", data={"date_from": "2023-03-08", "events": events_param})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.data
 
     @freezegun.freeze_time("2025-03-31")
     @snapshot_clickhouse_queries

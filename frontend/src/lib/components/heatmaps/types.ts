@@ -1,8 +1,13 @@
+import { FilterType } from '~/types'
+
 export type CommonFilters = {
     date_from?: string | null
     date_to?: string | null
     filter_test_accounts?: boolean
     cohort_ids?: number[]
+    // Restrict heatmap data to sessions in which any of these events occurred. Each entry is an event entity
+    // ({ id, type: 'events', properties? }), matching what the ActionFilter component produces.
+    events?: FilterType['events']
 }
 
 export type HeatmapKind = 'click' | 'rageclick' | 'mousemove' | 'scrolldepth'

@@ -359,11 +359,12 @@ export const toolbarApi = {
     eventDefinitions: {
         search: (
             query: string,
-            options: ToolbarApiOptions
+            options: ToolbarApiOptions,
+            eventType: string | null = 'event_custom'
         ): Promise<ToolbarApiResult<{ results?: EventDefinition[] }>> =>
             apiGet(
                 `${PROJECT}/event_definitions/${encodeParams(
-                    { search: query, limit: 20, event_type: 'event_custom' },
+                    { search: query, limit: 20, ...(eventType ? { event_type: eventType } : {}) },
                     '?'
                 )}`,
                 options

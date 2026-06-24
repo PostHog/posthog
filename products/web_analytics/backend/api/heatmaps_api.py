@@ -22,6 +22,7 @@ from posthog.hogql.constants import MAX_SELECT_HEATMAPS_LIMIT, LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -49,6 +50,7 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import generate_hea
 STALE_PROCESSING_THRESHOLD = timedelta(minutes=10)
 
 HEATMAPS_COHORT_FILTER_FLAG = "heatmaps-cohort-filter"
+HEATMAPS_EVENT_FILTER_FLAG = "heatmaps-event-filter"
 
 logger = structlog.get_logger(__name__)
 
@@ -59,14 +61,14 @@ HEATMAP_CONTENT_REQUESTS = Counter(
 )
 
 
-def _heatmaps_cohort_filter_enabled(user: User, team: Team) -> bool:
+def _heatmaps_feature_flag_enabled(flag_key: str, user: User, team: Team) -> bool:
     distinct_id = getattr(user, "distinct_id", None)
     if not distinct_id:
         return False
     try:
         return bool(
             posthoganalytics.feature_enabled(
-                HEATMAPS_COHORT_FILTER_FLAG,
+                flag_key,
                 str(distinct_id),
                 groups={"organization": str(team.organization_id), "project": str(team.id)},
                 group_properties={
@@ -78,6 +80,14 @@ def _heatmaps_cohort_filter_enabled(user: User, team: Team) -> bool:
         )
     except Exception:
         return False
+
+
+def _heatmaps_cohort_filter_enabled(user: User, team: Team) -> bool:
+    return _heatmaps_feature_flag_enabled(HEATMAPS_COHORT_FILTER_FLAG, user, team)
+
+
+def _heatmaps_event_filter_enabled(user: User, team: Team) -> bool:
+    return _heatmaps_feature_flag_enabled(HEATMAPS_EVENT_FILTER_FLAG, user, team)
 
 
 DEFAULT_QUERY = """
@@ -223,6 +233,15 @@ class HeatmapsRequestSerializer(serializers.Serializer):
         help_text="JSON array of cohort IDs (e.g. '[123, 456]') to restrict results to people in those cohorts. "
         "Feature-flagged; ignored when the cohort filter is not enabled for the caller.",
     )
+    events = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="JSON array of event entities to restrict results to sessions in which any of these events "
+        'occurred, e.g. \'[{"id": "$pageview", "type": "events", "properties": []}]\'. Each entity needs a string '
+        '"id" (the event name) and may include a "properties" array of property filters applied to that event. '
+        "Feature-flagged; ignored when the event filter is not enabled for the caller.",
+    )
     limit = serializers.IntegerField(
         required=False,
         default=500,
@@ -263,6 +282,19 @@ class HeatmapsRequestSerializer(serializers.Serializer):
         if missing:
             raise serializers.ValidationError(f"Cohort(s) not found or deleted: {missing}")
         return cohort_ids
+
+    def validate_events(self, value: str | None) -> list[dict[str, Any]]:
+        if value is None or value == "":
+            return []
+        try:
+            events = loads(value)
+        except JSONDecodeError:
+            raise serializers.ValidationError("events must be valid JSON")
+        if not isinstance(events, list) or not all(isinstance(event, dict) for event in events):
+            raise serializers.ValidationError("events must be a JSON array of event objects")
+        if any(not isinstance(event.get("id"), str) for event in events):
+            raise serializers.ValidationError("each event must have a string 'id'")
+        return events
 
     def validate_date(self, value, label: Literal["date_from", "date_to"]) -> date:
         try:
@@ -452,6 +484,10 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             cast(User, request.user), self.team
         ):
             request_serializer.validated_data.pop("cohort_ids")
+        if request_serializer.validated_data.get("events") and not _heatmaps_event_filter_enabled(
+            cast(User, request.user), self.team
+        ):
+            request_serializer.validated_data.pop("events")
         placeholders = self._build_placeholders(request_serializer.validated_data)
         is_scrolldepth_query = placeholders.get("type", None) == Constant(value="scrolldepth")
 
@@ -463,10 +499,18 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if hide_zero_coordinates and not is_scrolldepth_query:
             exprs.append(parse_expr("NOT (x = 0 AND y = 0)"))
 
-        if request_serializer.validated_data.get("filter_test_accounts") is True:
+        events_filter = request_serializer.validated_data.get("events")
+        if request_serializer.validated_data.get("filter_test_accounts") is True or events_filter:
             date_from: date = request_serializer.validated_data["date_from"]
             date_to: date | None = request_serializer.validated_data.get("date_to", None)
-            exprs.append(self._build_test_accounts_filter(date_from, date_to))
+            exprs.append(
+                self._build_events_session_filter(
+                    date_from,
+                    date_to,
+                    filter_test_accounts=request_serializer.validated_data.get("filter_test_accounts") is True,
+                    events=events_filter,
+                )
+            )
 
         unbounded = limit == 0
         query_placeholders: dict[str, Expr] = {
@@ -509,25 +553,59 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         aggregation_count = parse_expr(aggregation_value)
         return aggregation_count
 
-    def _build_test_accounts_filter(self, date_from: date, date_to: date | None) -> ast.CompareOperation:
+    def _build_events_session_filter(
+        self,
+        date_from: date,
+        date_to: date | None,
+        *,
+        filter_test_accounts: bool,
+        events: list[dict[str, Any]] | None,
+    ) -> ast.CompareOperation:
+        # Both the test-account exclusion and the event filter narrow heatmap rows to sessions that appear in the
+        # events table, so we resolve them with a single `session_id IN (SELECT $session_id FROM events ...)`
+        # subquery rather than stacking two — heatmaps is not ordered by session_id, so every extra IN is a scan.
+        #
         # The heatmap predicate treats date_to as an inclusive day via `timestamp <= {date_to} + interval 1 day`.
         # HogQLFilters instead emits a strict `timestamp < date_to`, so when date_from and date_to land on the same
         # day this events subquery collapses to an impossible range and returns no sessions. Add a day so the
         # events subquery covers the same date window as the main heatmap query.
         events_date_to = (date_to or date.today()) + timedelta(days=1)
-        events_select = replace_filters(
-            parse_select(
-                "SELECT distinct $session_id FROM events where notEmpty($session_id) AND {filters}", placeholders={}
-            ),
-            HogQLFilters(
-                filterTestAccounts=True,
-                dateRange=DateRange(
-                    date_from=date_from.strftime("%Y-%m-%d"),
-                    date_to=events_date_to.strftime("%Y-%m-%d"),
+        events_select = cast(
+            ast.SelectQuery,
+            replace_filters(
+                parse_select(
+                    "SELECT distinct $session_id FROM events where notEmpty($session_id) AND {filters}",
+                    placeholders={},
                 ),
+                HogQLFilters(
+                    filterTestAccounts=filter_test_accounts,
+                    dateRange=DateRange(
+                        date_from=date_from.strftime("%Y-%m-%d"),
+                        date_to=events_date_to.strftime("%Y-%m-%d"),
+                    ),
+                ),
+                self.team,
             ),
-            self.team,
         )
+
+        if events:
+            # Mirror entity_to_expr: a session qualifies if any selected event occurred (optionally matching that
+            # event's property filters). OR the per-event predicates together and AND them into the subquery WHERE.
+            entity_exprs: list[ast.Expr] = []
+            for entity in events:
+                event_expr: ast.Expr = parse_expr("event = {event}", {"event": Constant(value=entity["id"])})
+                entity_properties = entity.get("properties")
+                if entity_properties:
+                    event_expr = ast.And(
+                        exprs=[event_expr, property_to_expr(entity_properties, self.team, scope="event")]
+                    )
+                entity_exprs.append(event_expr)
+            events_predicate = entity_exprs[0] if len(entity_exprs) == 1 else ast.Or(exprs=entity_exprs)
+            existing_where = events_select.where
+            events_select.where = (
+                ast.And(exprs=[existing_where, events_predicate]) if existing_where else events_predicate
+            )
+
         return ast.CompareOperation(
             op=ast.CompareOperationOp.In,
             left=ast.Field(chain=["session_id"]),
@@ -541,6 +619,9 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if key == "cohort_ids":
                 if value:
                     placeholders[key] = ast.Array(exprs=[Constant(value=cid) for cid in value])
+                continue
+            if key == "events":
+                # Handled separately via the events session subquery, not as a heatmaps-table predicate.
                 continue
             placeholders[key] = Constant(value=value)
         placeholders.setdefault("date_to", Constant(value=date.today().strftime("%Y-%m-%d")))
@@ -648,6 +729,8 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             cast(User, request.user), self.team
         ):
             validated_data.pop("cohort_ids")
+        if validated_data.get("events") and not _heatmaps_event_filter_enabled(cast(User, request.user), self.team):
+            validated_data.pop("events")
 
         placeholders = self._build_placeholders(validated_data)
 
@@ -675,10 +758,18 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         else:
             exprs.append(ast.Or(exprs=point_conditions))
 
-        if validated_data.get("filter_test_accounts") is True:
+        events_filter = validated_data.get("events")
+        if validated_data.get("filter_test_accounts") is True or events_filter:
             date_from: date = validated_data["date_from"]
             date_to: date | None = validated_data.get("date_to", None)
-            exprs.append(self._build_test_accounts_filter(date_from, date_to))
+            exprs.append(
+                self._build_events_session_filter(
+                    date_from,
+                    date_to,
+                    filter_test_accounts=validated_data.get("filter_test_accounts") is True,
+                    events=events_filter,
+                )
+            )
 
         # First get total count
         count_stmt = parse_select(

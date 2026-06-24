@@ -16,9 +16,18 @@ import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from 'scenes/feature-flags/cohortPickerProps'
+import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 
-import { AnyPropertyFilter, CohortPropertyFilter, HeatmapType, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    AnyPropertyFilter,
+    CohortPropertyFilter,
+    FilterType,
+    HeatmapType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 const cohortIdsToPropertyFilters = (ids: number[]): AnyPropertyFilter[] =>
     ids.map((id) => ({
@@ -141,6 +150,7 @@ export function FilterPanel({
     )
 
     const cohortFilterEnabled = useFeatureFlag('HEATMAPS_COHORT_FILTER')
+    const eventFilterEnabled = useFeatureFlag('HEATMAPS_EVENT_FILTER')
 
     const debouncedLoading = useDebounceLoading(rawHeatmapLoading ?? false)
 
@@ -181,6 +191,23 @@ export function FilterPanel({
                                 addText="Add cohort filter"
                                 buttonSize="small"
                                 {...COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS}
+                            />
+                        </div>
+                    )}
+                    {eventFilterEnabled && (
+                        <div className="mt-2 md:mt-0">
+                            <ActionFilter
+                                filters={{ events: commonFilters?.events ?? [], actions: [] }}
+                                setFilters={(payload: FilterType) =>
+                                    setCommonFilters?.({ ...commonFilters, events: payload.events ?? [] })
+                                }
+                                typeKey="heatmap-events"
+                                mathAvailability={MathAvailability.None}
+                                actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                                buttonCopy="Filter by event"
+                                hideRename
+                                hideDuplicate
+                                bordered
                             />
                         </div>
                     )}
