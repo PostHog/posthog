@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from posthog.hogql.observability import HogQLTypeObservability
     from posthog.hogql.transforms.property_types import PropertySwapper
 
+    from posthog.clickhouse.client.execute import ClickHouseExternalTable
     from posthog.models import Team, User
     from posthog.rbac.user_access_control import UserAccessControl
 
@@ -60,10 +61,10 @@ class HogQLContext:
     direct_postgres_connection_metadata: dict[str, Any] | None = None
     # If set, will save string constants to this dict. Inlines strings into the query if None.
     values: dict = field(default_factory=dict)
-    # Query-scoped ClickHouse external data tables accumulated during printing (keyed by table name,
-    # value is clickhouse_driver's `{"structure", "data"}`). Lets `system.information_schema` ship its
-    # rows out-of-band instead of inlining them; read by the executor and passed to `sync_execute`.
-    external_tables: dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
+    # Query-scoped ClickHouse external data tables accumulated during printing (keyed by table name).
+    # Lets `system.information_schema` ship its rows out-of-band instead of inlining them; read by the
+    # executor and passed to `sync_execute`.
+    external_tables: dict[str, "ClickHouseExternalTable"] = field(default_factory=dict, compare=False, repr=False)
     # Are we small part of a non-HogQL query? If so, use custom syntax for accessed person properties.
     within_non_hogql_query: bool = False
     # Temporary (June 2026 MaxMind incident): the geoip dict fallback decision, evaluated exactly once per query in
