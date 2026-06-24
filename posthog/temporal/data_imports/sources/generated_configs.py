@@ -2915,7 +2915,8 @@ class SonarCloudSourceConfig(config.Config):
 
 @config.config
 class SparkPostSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config

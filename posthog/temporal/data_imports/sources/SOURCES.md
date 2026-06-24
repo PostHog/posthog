@@ -182,6 +182,7 @@ the row lists both.
 | smartsheet        | HTTP                        | requests                                                        | ✅                          |
 | snapchat_ads      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | snowflake         | DB protocol                 | snowflake-connector-python                                      | ➖                          |
+| sparkpost         | HTTP                        | requests                                                        | ✅                          |
 | square            | HTTP                        | requests                                                        | ✅                          |
 | statuspage        | HTTP                        | requests                                                        | ✅                          |
 | stripe            | HTTP (vendor SDK) + Webhook | stripe (StripeClient + RequestsClient) + `WebhookSourceManager` | ✅ (pull) / ➖ (webhook)    |
@@ -631,7 +632,6 @@ doesn't conflict with concurrent PRs.
 - smartwaiver
 - solarwinds_service_desk
 - sonar_cloud
-- sparkpost
 - split_io
 - spotify_ads
 - spotlercrm
