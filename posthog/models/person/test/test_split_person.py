@@ -7,6 +7,7 @@ from posthog.models import Person
 from posthog.models.person import PersonDistinctId
 from posthog.models.person.missing_person import uuidFromDistinctId
 from posthog.personhog_client.fake_client import FakePersonHogClient, fake_personhog_client
+from posthog.test.persons import create_person
 
 
 @patch("posthog.models.person.util.create_person")
@@ -28,7 +29,7 @@ class TestSplitPerson(BaseTest):
         properties: dict | None = None,
         version: int = 0,
     ) -> Person:
-        person = Person.objects.create(
+        person = create_person(
             team=self.team,
             properties=properties or {},
             version=version,

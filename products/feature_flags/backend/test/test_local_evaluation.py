@@ -15,6 +15,7 @@ from posthog.models.group_type_mapping import (
 from posthog.models.project import Project
 from posthog.models.tag import Tag
 from posthog.models.team.team import Team
+from posthog.test.persons import create_group_type_mapping
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import safe_cache_delete
 
@@ -1611,7 +1612,7 @@ class TestVerifyFlagDefinitions(BaseTest):
         assert len(cohorts_diff) == 1
 
     def test_verify_returns_mismatch_when_group_type_mapping_changed(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping(
             team=self.team,
             project_id=self.team.project_id,
             group_type="company",

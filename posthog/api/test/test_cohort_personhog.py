@@ -5,16 +5,16 @@ from posthog.test.base import APIBaseTest, BaseTest
 
 from rest_framework import status
 
-from posthog.models.person import Person
 from posthog.models.person.util import validate_person_uuids_exist
 from posthog.test.personhog_fake import get_active_fake
+from posthog.test.persons import create_person
 
 from products.cohorts.backend.models.cohort import Cohort
 
 
 class TestValidatePersonUuidsExist(BaseTest):
     def _create_person_with_uuid(self, *, team, uuid, distinct_ids):
-        return Person.objects.create(team=team, uuid=uuid, distinct_ids=distinct_ids)
+        return create_person(team=team, uuid=uuid, distinct_ids=distinct_ids)
 
     def test_returns_matching_uuids(self):
         uuid_a = "550e8400-e29b-41d4-a716-446655440000"
@@ -69,7 +69,7 @@ UUID_NONEXISTENT = "550e8400-e29b-41d4-a716-446655440099"
 
 class TestRemovePersonFromStaticCohort(APIBaseTest):
     def test_removes_person_and_routes_through_personhog(self):
-        person = Person.objects.create(team=self.team, distinct_ids=["d1"], properties={"email": "test@test.com"})
+        person = create_person(team=self.team, distinct_ids=["d1"], properties={"email": "test@test.com"})
         cohort = Cohort.objects.create(team=self.team, name="static", is_static=True)
         cohort.insert_users_by_list(["d1"])
 

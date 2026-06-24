@@ -4,8 +4,9 @@ via the personhog path."""
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from posthog.models import Person, Team
+from posthog.models import Team
 from posthog.test.personhog_fake import get_active_fake
+from posthog.test.persons import add_cohort_members, create_person
 
 from products.cohorts.backend.models.cohort import Cohort, CohortPeople
 
@@ -17,8 +18,8 @@ class TestGetPersonUuidsByDistinctIds(BaseTest):
         return get_person_uuids_by_distinct_ids(self.team.pk, distinct_ids)
 
     def test_returns_uuids_for_matching_distinct_ids(self):
-        p1 = Person.objects.create(team=self.team, distinct_ids=["d1", "d2"])
-        p2 = Person.objects.create(team=self.team, distinct_ids=["d3"])
+        p1 = create_person(team=self.team, distinct_ids=["d1", "d2"])
+        p2 = create_person(team=self.team, distinct_ids=["d3"])
 
         result = self._get_uuids(["d1", "d3"])
 
@@ -38,28 +39,28 @@ class TestGetPersonUuidsByDistinctIds(BaseTest):
 
     def test_cross_team_isolation(self):
         other_team = self.organization.teams.create(name="Other Team")
-        Person.objects.create(team=other_team, distinct_ids=["d1"])
+        create_person(team=other_team, distinct_ids=["d1"])
 
         result = self._get_uuids(["d1"])
 
         assert result == []
 
     def test_deduplicates_persons_with_multiple_distinct_ids(self):
-        p = Person.objects.create(team=self.team, distinct_ids=["d1", "d2", "d3"])
+        p = create_person(team=self.team, distinct_ids=["d1", "d2", "d3"])
 
         result = self._get_uuids(["d1", "d2", "d3"])
 
         assert result == [str(p.uuid)]
 
     def test_handles_mix_of_found_and_missing_distinct_ids(self):
-        p = Person.objects.create(team=self.team, distinct_ids=["exists"])
+        p = create_person(team=self.team, distinct_ids=["exists"])
 
         result = self._get_uuids(["exists", "missing1", "missing2"])
 
         assert result == [str(p.uuid)]
 
     def test_multiple_persons_each_with_single_distinct_id(self):
-        persons = [Person.objects.create(team=self.team, distinct_ids=[f"d{i}"]) for i in range(5)]
+        persons = [create_person(team=self.team, distinct_ids=[f"d{i}"]) for i in range(5)]
 
         result = self._get_uuids([f"d{i}" for i in range(5)])
 
@@ -72,7 +73,7 @@ class TestGetPersonUuidsByDistinctIdsFieldMask(BaseTest):
     def test_sends_uuid_only_field_mask(self):
         from posthog.models.person.util import get_person_uuids_by_distinct_ids
 
-        Person.objects.create(team=self.team, distinct_ids=["d1"])
+        create_person(team=self.team, distinct_ids=["d1"])
 
         get_person_uuids_by_distinct_ids(self.team.pk, ["d1"])
 
@@ -94,10 +95,9 @@ class TestRemoveUserByUuid(BaseTest):
     @patch("products.cohorts.backend.models.util.remove_person_from_static_cohort")
     @patch("products.cohorts.backend.models.util.get_static_cohort_size", return_value=0)
     def test_removes_existing_cohort_member(self, mock_get_size, mock_remove_ch):
-        person = Person.objects.create(team=self.team, distinct_ids=["d1"])
+        person = create_person(team=self.team, distinct_ids=["d1"])
         cohort = self._create_static_cohort()
-        CohortPeople.objects.create(cohort=cohort, person=person)
-        get_active_fake().add_cohort_membership(person_id=person.id, cohort_id=cohort.id, is_member=True)
+        add_cohort_members(cohort, [person])
 
         result = cohort.remove_user_by_uuid(str(person.uuid), team_id=self.team.id)
 
@@ -113,7 +113,7 @@ class TestRemoveUserByUuid(BaseTest):
     @patch("products.cohorts.backend.models.util.remove_person_from_static_cohort")
     @patch("products.cohorts.backend.models.util.get_static_cohort_size", return_value=0)
     def test_returns_true_for_person_not_in_cohort(self, mock_get_size, mock_remove_ch):
-        person = Person.objects.create(team=self.team, distinct_ids=["d1"])
+        person = create_person(team=self.team, distinct_ids=["d1"])
         cohort = self._create_static_cohort()
 
         result = cohort.remove_user_by_uuid(str(person.uuid), team_id=self.team.id)
@@ -132,7 +132,7 @@ class TestRemoveUserByUuid(BaseTest):
     @patch("products.cohorts.backend.models.util.get_static_cohort_size", return_value=0)
     def test_cross_team_isolation(self, mock_get_size, mock_remove_ch):
         other_team = Team.objects.create(organization=self.organization)
-        person = Person.objects.create(team=other_team, distinct_ids=["d1"])
+        person = create_person(team=other_team, distinct_ids=["d1"])
         cohort = self._create_static_cohort()
 
         result = cohort.remove_user_by_uuid(str(person.uuid), team_id=self.team.id)
@@ -146,10 +146,9 @@ class TestRemoveUserByUuid(BaseTest):
         """Calling remove_user_by_uuid with a team_id that does not own the
         cohort must not touch CohortPeople rows for that cohort."""
         other_team = Team.objects.create(organization=self.organization)
-        person = Person.objects.create(team=other_team, distinct_ids=["d1"])
+        person = create_person(team=other_team, distinct_ids=["d1"])
         other_team_cohort = Cohort.objects.create(team=other_team, groups=[], is_static=True, name="other")
-        CohortPeople.objects.create(cohort=other_team_cohort, person=person)
-        get_active_fake().add_cohort_membership(person_id=person.id, cohort_id=other_team_cohort.id, is_member=True)
+        add_cohort_members(other_team_cohort, [person])
 
         result = other_team_cohort.remove_user_by_uuid(str(person.uuid), team_id=self.team.id)
 
@@ -160,10 +159,9 @@ class TestRemoveUserByUuid(BaseTest):
     @patch("products.cohorts.backend.models.util.remove_person_from_static_cohort")
     @patch("products.cohorts.backend.models.util.get_static_cohort_size", return_value=5)
     def test_updates_cohort_count_after_removal(self, mock_get_size, mock_remove_ch):
-        person = Person.objects.create(team=self.team, distinct_ids=["d1"])
+        person = create_person(team=self.team, distinct_ids=["d1"])
         cohort = self._create_static_cohort()
-        CohortPeople.objects.create(cohort=cohort, person=person)
-        get_active_fake().add_cohort_membership(person_id=person.id, cohort_id=cohort.id, is_member=True)
+        add_cohort_members(cohort, [person])
 
         cohort.remove_user_by_uuid(str(person.uuid), team_id=self.team.id)
 
@@ -173,10 +171,9 @@ class TestRemoveUserByUuid(BaseTest):
     @patch("products.cohorts.backend.models.util.remove_person_from_static_cohort")
     @patch("products.cohorts.backend.models.util.get_static_cohort_size", side_effect=Exception("count failed"))
     def test_count_error_does_not_prevent_removal(self, mock_get_size, mock_remove_ch):
-        person = Person.objects.create(team=self.team, distinct_ids=["d1"])
+        person = create_person(team=self.team, distinct_ids=["d1"])
         cohort = self._create_static_cohort()
-        CohortPeople.objects.create(cohort=cohort, person=person)
-        get_active_fake().add_cohort_membership(person_id=person.id, cohort_id=cohort.id, is_member=True)
+        add_cohort_members(cohort, [person])
 
         result = cohort.remove_user_by_uuid(str(person.uuid), team_id=self.team.id)
 
@@ -187,7 +184,7 @@ class TestRemoveUserByUuid(BaseTest):
     @patch("products.cohorts.backend.models.util.remove_person_from_static_cohort")
     @patch("products.cohorts.backend.models.util.get_static_cohort_size", return_value=0)
     def test_personhog_resolves_person_for_removal(self, mock_get_size, mock_remove_ch):
-        person = Person.objects.create(team=self.team, distinct_ids=["d1"])
+        person = create_person(team=self.team, distinct_ids=["d1"])
         cohort = self._create_static_cohort()
 
         cohort.remove_user_by_uuid(str(person.uuid), team_id=self.team.id)
@@ -199,10 +196,9 @@ class TestCheckCohortMembership(BaseTest):
     def test_returns_true_for_member(self):
         from products.cohorts.backend.models.util import check_cohort_membership, is_person_in_cohort
 
-        person = Person.objects.create(team=self.team, distinct_ids=["d1"])
+        person = create_person(team=self.team, distinct_ids=["d1"])
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
-        CohortPeople.objects.create(cohort=cohort, person=person)
-        get_active_fake().add_cohort_membership(person_id=person.id, cohort_id=cohort.id, is_member=True)
+        add_cohort_members(cohort, [person])
 
         assert is_person_in_cohort(team_id=self.team.id, person_id=person.id, cohort_id=cohort.id) is True
         assert check_cohort_membership(self.team.id, person.id, [cohort.id]) == {cohort.id: True}
@@ -211,7 +207,7 @@ class TestCheckCohortMembership(BaseTest):
     def test_returns_false_for_non_member(self):
         from products.cohorts.backend.models.util import is_person_in_cohort
 
-        person = Person.objects.create(team=self.team, distinct_ids=["d1"])
+        person = create_person(team=self.team, distinct_ids=["d1"])
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
 
         assert is_person_in_cohort(team_id=self.team.id, person_id=person.id, cohort_id=cohort.id) is False
@@ -219,7 +215,7 @@ class TestCheckCohortMembership(BaseTest):
     def test_returns_empty_dict_for_empty_cohort_ids(self):
         from products.cohorts.backend.models.util import check_cohort_membership
 
-        person = Person.objects.create(team=self.team, distinct_ids=["d1"])
+        person = create_person(team=self.team, distinct_ids=["d1"])
 
         assert check_cohort_membership(self.team.id, person.id, []) == {}
         get_active_fake().assert_not_called("check_cohort_membership")
@@ -227,14 +223,12 @@ class TestCheckCohortMembership(BaseTest):
     def test_mixed_membership(self):
         from products.cohorts.backend.models.util import check_cohort_membership
 
-        person = Person.objects.create(team=self.team, distinct_ids=["d1"])
+        person = create_person(team=self.team, distinct_ids=["d1"])
         c1 = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
         c2 = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c2")
         c3 = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c3")
-        CohortPeople.objects.create(cohort=c1, person=person)
-        CohortPeople.objects.create(cohort=c3, person=person)
-        get_active_fake().add_cohort_membership(person_id=person.id, cohort_id=c1.id, is_member=True)
-        get_active_fake().add_cohort_membership(person_id=person.id, cohort_id=c3.id, is_member=True)
+        add_cohort_members(c1, [person])
+        add_cohort_members(c3, [person])
 
         result = check_cohort_membership(self.team.id, person.id, [c1.id, c2.id, c3.id])
 
@@ -248,10 +242,9 @@ class TestCheckCohortMembership(BaseTest):
         from products.cohorts.backend.models.util import check_cohort_membership
 
         other_team = Team.objects.create(organization=self.organization)
-        person = Person.objects.create(team=self.team, distinct_ids=["d1"])
+        person = create_person(team=self.team, distinct_ids=["d1"])
         other_team_cohort = Cohort.objects.create(team=other_team, groups=[], is_static=True, name="other")
-        CohortPeople.objects.create(cohort=other_team_cohort, person=person)
-        get_active_fake().add_cohort_membership(person_id=person.id, cohort_id=other_team_cohort.id, is_member=True)
+        add_cohort_members(other_team_cohort, [person])
 
         result = check_cohort_membership(self.team.id, person.id, [other_team_cohort.id])
 
@@ -265,13 +258,11 @@ class TestCheckCohortMembership(BaseTest):
         from products.cohorts.backend.models.util import check_cohort_membership
 
         other_team = Team.objects.create(organization=self.organization)
-        person = Person.objects.create(team=self.team, distinct_ids=["d1"])
+        person = create_person(team=self.team, distinct_ids=["d1"])
         in_team_cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="in")
         other_team_cohort = Cohort.objects.create(team=other_team, groups=[], is_static=True, name="out")
-        CohortPeople.objects.create(cohort=in_team_cohort, person=person)
-        CohortPeople.objects.create(cohort=other_team_cohort, person=person)
-        get_active_fake().add_cohort_membership(person_id=person.id, cohort_id=in_team_cohort.id, is_member=True)
-        get_active_fake().add_cohort_membership(person_id=person.id, cohort_id=other_team_cohort.id, is_member=True)
+        add_cohort_members(in_team_cohort, [person])
+        add_cohort_members(other_team_cohort, [person])
 
         result = check_cohort_membership(self.team.id, person.id, [in_team_cohort.id, other_team_cohort.id])
 
@@ -282,13 +273,10 @@ class TestListCohortMemberIds(BaseTest):
     def test_returns_member_ids(self):
         from products.cohorts.backend.models.util import list_cohort_member_ids
 
-        p1 = Person.objects.create(team=self.team, distinct_ids=["d1"])
-        p2 = Person.objects.create(team=self.team, distinct_ids=["d2"])
+        p1 = create_person(team=self.team, distinct_ids=["d1"])
+        p2 = create_person(team=self.team, distinct_ids=["d2"])
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
-        CohortPeople.objects.create(cohort=cohort, person=p1)
-        CohortPeople.objects.create(cohort=cohort, person=p2)
-        get_active_fake().add_cohort_membership(person_id=p1.id, cohort_id=cohort.id, is_member=True)
-        get_active_fake().add_cohort_membership(person_id=p2.id, cohort_id=cohort.id, is_member=True)
+        add_cohort_members(cohort, [p1, p2])
 
         result = list_cohort_member_ids(team_id=self.team.id, cohort_id=cohort.id)
 
@@ -307,14 +295,12 @@ class TestListCohortMemberIds(BaseTest):
     def test_excludes_non_members(self):
         from products.cohorts.backend.models.util import list_cohort_member_ids
 
-        p1 = Person.objects.create(team=self.team, distinct_ids=["d1"])
-        p2 = Person.objects.create(team=self.team, distinct_ids=["d2"])
+        p1 = create_person(team=self.team, distinct_ids=["d1"])
+        p2 = create_person(team=self.team, distinct_ids=["d2"])
         c1 = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
         c2 = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c2")
-        CohortPeople.objects.create(cohort=c1, person=p1)
-        CohortPeople.objects.create(cohort=c2, person=p2)
-        get_active_fake().add_cohort_membership(person_id=p1.id, cohort_id=c1.id, is_member=True)
-        get_active_fake().add_cohort_membership(person_id=p2.id, cohort_id=c2.id, is_member=True)
+        add_cohort_members(c1, [p1])
+        add_cohort_members(c2, [p2])
 
         result = list_cohort_member_ids(team_id=self.team.id, cohort_id=c1.id)
 
@@ -324,10 +310,9 @@ class TestListCohortMemberIds(BaseTest):
         from products.cohorts.backend.models.util import list_cohort_member_ids
 
         other_team = Team.objects.create(organization=self.organization)
-        person = Person.objects.create(team=other_team, distinct_ids=["d1"])
+        person = create_person(team=other_team, distinct_ids=["d1"])
         other_team_cohort = Cohort.objects.create(team=other_team, groups=[], is_static=True, name="other")
-        CohortPeople.objects.create(cohort=other_team_cohort, person=person)
-        get_active_fake().add_cohort_membership(person_id=person.id, cohort_id=other_team_cohort.id, is_member=True)
+        add_cohort_members(other_team_cohort, [person])
 
         result = list_cohort_member_ids(team_id=self.team.id, cohort_id=other_team_cohort.id)
 
@@ -344,8 +329,8 @@ class TestInsertCohortMembers(BaseTest):
     def test_inserts_members(self):
         from products.cohorts.backend.models.util import insert_cohort_members
 
-        p1 = Person.objects.create(team=self.team, distinct_ids=["d1"])
-        p2 = Person.objects.create(team=self.team, distinct_ids=["d2"])
+        p1 = create_person(team=self.team, distinct_ids=["d1"])
+        p2 = create_person(team=self.team, distinct_ids=["d2"])
         cohort = self._create_static_cohort()
 
         inserted = insert_cohort_members(self.team.id, cohort.id, [p1.id, p2.id], version=1)
@@ -358,10 +343,9 @@ class TestInsertCohortMembers(BaseTest):
     def test_deduplicates_existing_members(self):
         from products.cohorts.backend.models.util import insert_cohort_members
 
-        person = Person.objects.create(team=self.team, distinct_ids=["d1"])
+        person = create_person(team=self.team, distinct_ids=["d1"])
         cohort = self._create_static_cohort()
-        CohortPeople.objects.create(cohort=cohort, person=person)
-        get_active_fake().add_cohort_membership(person_id=person.id, cohort_id=cohort.id, is_member=True)
+        add_cohort_members(cohort, [person])
 
         inserted = insert_cohort_members(self.team.id, cohort.id, [person.id], version=1)
 
@@ -379,7 +363,7 @@ class TestInsertCohortMembers(BaseTest):
         from products.cohorts.backend.models.util import insert_cohort_members
 
         other_team = Team.objects.create(organization=self.organization)
-        person = Person.objects.create(team=self.team, distinct_ids=["d1"])
+        person = create_person(team=self.team, distinct_ids=["d1"])
         other_cohort = Cohort.objects.create(team=other_team, groups=[], is_static=True, name="other")
 
         inserted = insert_cohort_members(self.team.id, other_cohort.id, [person.id], version=1)
@@ -392,7 +376,7 @@ class TestInsertCohortMembers(BaseTest):
         from products.cohorts.backend.models.util import insert_cohort_members
 
         other_team = Team.objects.create(organization=self.organization)
-        person = Person.objects.create(team=self.team, distinct_ids=["d1"])
+        person = create_person(team=self.team, distinct_ids=["d1"])
         cohort = Cohort.objects.create(team=other_team, groups=[], is_static=True, name="other")
         get_active_fake().add_cohort_membership(person_id=person.id, cohort_id=cohort.id, is_member=False)
 
@@ -411,10 +395,9 @@ class TestDeleteCohortMember(BaseTest):
     def test_deletes_existing_member(self):
         from products.cohorts.backend.models.util import delete_cohort_member
 
-        person = Person.objects.create(team=self.team, distinct_ids=["d1"])
+        person = create_person(team=self.team, distinct_ids=["d1"])
         cohort = self._create_static_cohort()
-        CohortPeople.objects.create(cohort=cohort, person=person)
-        get_active_fake().add_cohort_membership(person_id=person.id, cohort_id=cohort.id, is_member=True)
+        add_cohort_members(cohort, [person])
 
         result = delete_cohort_member(self.team.id, cohort.id, person.id)
 
@@ -424,7 +407,7 @@ class TestDeleteCohortMember(BaseTest):
     def test_returns_false_for_non_member(self):
         from products.cohorts.backend.models.util import delete_cohort_member
 
-        person = Person.objects.create(team=self.team, distinct_ids=["d1"])
+        person = create_person(team=self.team, distinct_ids=["d1"])
         cohort = self._create_static_cohort()
 
         result = delete_cohort_member(self.team.id, cohort.id, person.id)
@@ -435,10 +418,9 @@ class TestDeleteCohortMember(BaseTest):
         from products.cohorts.backend.models.util import delete_cohort_member
 
         other_team = Team.objects.create(organization=self.organization)
-        person = Person.objects.create(team=other_team, distinct_ids=["d1"])
+        person = create_person(team=other_team, distinct_ids=["d1"])
         other_cohort = Cohort.objects.create(team=other_team, groups=[], is_static=True, name="other")
-        CohortPeople.objects.create(cohort=other_cohort, person=person)
-        get_active_fake().add_cohort_membership(person_id=person.id, cohort_id=other_cohort.id, is_member=True)
+        add_cohort_members(other_cohort, [person])
 
         result = delete_cohort_member(self.team.id, other_cohort.id, person.id)
 
@@ -453,14 +435,12 @@ class TestDeleteCohortMembersBulk(BaseTest):
     def test_deletes_all_members_for_cohorts(self):
         from products.cohorts.backend.models.util import delete_cohort_members_bulk
 
-        p1 = Person.objects.create(team=self.team, distinct_ids=["d1"])
-        p2 = Person.objects.create(team=self.team, distinct_ids=["d2"])
+        p1 = create_person(team=self.team, distinct_ids=["d1"])
+        p2 = create_person(team=self.team, distinct_ids=["d2"])
         c1 = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
         c2 = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c2")
-        CohortPeople.objects.create(cohort=c1, person=p1)
-        CohortPeople.objects.create(cohort=c2, person=p2)
-        get_active_fake().add_cohort_membership(person_id=p1.id, cohort_id=c1.id, is_member=True)
-        get_active_fake().add_cohort_membership(person_id=p2.id, cohort_id=c2.id, is_member=True)
+        add_cohort_members(c1, [p1])
+        add_cohort_members(c2, [p2])
 
         deleted = delete_cohort_members_bulk(self.team.id, [c1.id, c2.id])
 
@@ -500,13 +480,10 @@ class TestCountCohortMembers(BaseTest):
     def test_returns_count(self):
         from products.cohorts.backend.models.util import count_cohort_members
 
-        p1 = Person.objects.create(team=self.team, distinct_ids=["d1"])
-        p2 = Person.objects.create(team=self.team, distinct_ids=["d2"])
+        p1 = create_person(team=self.team, distinct_ids=["d1"])
+        p2 = create_person(team=self.team, distinct_ids=["d2"])
         cohort = Cohort.objects.create(team=self.team, groups=[], is_static=True, name="c1")
-        CohortPeople.objects.create(cohort=cohort, person=p1)
-        CohortPeople.objects.create(cohort=cohort, person=p2)
-        get_active_fake().add_cohort_membership(person_id=p1.id, cohort_id=cohort.id, is_member=True)
-        get_active_fake().add_cohort_membership(person_id=p2.id, cohort_id=cohort.id, is_member=True)
+        add_cohort_members(cohort, [p1, p2])
 
         assert count_cohort_members(self.team.id, cohort.id) == 2
         get_active_fake().assert_called("count_cohort_members")
@@ -522,10 +499,9 @@ class TestCountCohortMembers(BaseTest):
         from products.cohorts.backend.models.util import count_cohort_members
 
         other_team = Team.objects.create(organization=self.organization)
-        person = Person.objects.create(team=other_team, distinct_ids=["d1"])
+        person = create_person(team=other_team, distinct_ids=["d1"])
         other_cohort = Cohort.objects.create(team=other_team, groups=[], is_static=True, name="other")
-        CohortPeople.objects.create(cohort=other_cohort, person=person)
-        get_active_fake().add_cohort_membership(person_id=person.id, cohort_id=other_cohort.id, is_member=True)
+        add_cohort_members(other_cohort, [person])
 
         assert count_cohort_members(self.team.id, other_cohort.id) == 0
         get_active_fake().assert_not_called("count_cohort_members")
@@ -539,8 +515,8 @@ class TestInsertUsersListWithBatchingPersonhog(BaseTest):
 
     @patch("products.cohorts.backend.models.util.insert_static_cohort")
     def test_insert_users_by_uuid(self, mock_insert_ch):
-        p1 = Person.objects.create(team=self.team, distinct_ids=["d1"])
-        p2 = Person.objects.create(team=self.team, distinct_ids=["d2"])
+        p1 = create_person(team=self.team, distinct_ids=["d1"])
+        p2 = create_person(team=self.team, distinct_ids=["d2"])
         cohort = self._create_static_cohort()
 
         cohort.insert_users_list_by_uuid([str(p1.uuid), str(p2.uuid)], team_id=self.team.id)
@@ -549,8 +525,8 @@ class TestInsertUsersListWithBatchingPersonhog(BaseTest):
 
     @patch("products.cohorts.backend.models.util.insert_static_cohort")
     def test_insert_users_by_distinct_id(self, mock_insert_ch):
-        Person.objects.create(team=self.team, distinct_ids=["d1"])
-        Person.objects.create(team=self.team, distinct_ids=["d2"])
+        create_person(team=self.team, distinct_ids=["d1"])
+        create_person(team=self.team, distinct_ids=["d2"])
         cohort = self._create_static_cohort()
 
         cohort.insert_users_by_list(["d1", "d2"], team_id=self.team.id)
@@ -559,7 +535,7 @@ class TestInsertUsersListWithBatchingPersonhog(BaseTest):
 
     @patch("products.cohorts.backend.models.util.insert_static_cohort")
     def test_insert_idempotent(self, mock_insert_ch):
-        person = Person.objects.create(team=self.team, distinct_ids=["d1"])
+        person = create_person(team=self.team, distinct_ids=["d1"])
         cohort = self._create_static_cohort()
 
         cohort.insert_users_list_by_uuid([str(person.uuid)], team_id=self.team.id)

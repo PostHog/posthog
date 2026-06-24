@@ -26,7 +26,7 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import ActivityLog, Comment, Organization, Tag, User
-from posthog.models.person import Person
+from posthog.test.persons import create_person
 
 from products.conversations.backend.api.tickets import TicketReplyRequestSerializer
 from products.conversations.backend.models import Ticket, TicketAssignment
@@ -687,7 +687,7 @@ class TestTicketAPI(APIBaseTest):
                 distinct_id=f"user-{i}",
             )
             # Create person for this ticket
-            Person.objects.create(
+            create_person(
                 team=self.team,
                 distinct_ids=[f"user-{i}"],
                 properties={"email": f"user{i}@example.com"},
@@ -1312,7 +1312,7 @@ class TestTicketPersonData(APIBaseTest):
         )
 
     def test_retrieve_ticket_includes_person_data(self, mock_on_commit):
-        person = Person.objects.create(
+        person = create_person(
             team=self.team,
             distinct_ids=["user-123", "user@example.com", "another-id"],
             properties={"email": "test@example.com", "name": "Test User"},
@@ -1334,7 +1334,7 @@ class TestTicketPersonData(APIBaseTest):
         assert response.json()["person"] is None
 
     def test_list_tickets_includes_person_data(self, mock_on_commit):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["user-123", "user@example.com"],
             properties={"email": "test@example.com"},
@@ -1358,7 +1358,7 @@ class TestTicketPersonData(APIBaseTest):
 
     def test_person_data_scoped_to_team(self, mock_on_commit):
         other_team = self.organization.teams.create(name="Other Team")
-        Person.objects.create(
+        create_person(
             team=other_team,
             distinct_ids=["user-123"],
             properties={"email": "other@example.com"},

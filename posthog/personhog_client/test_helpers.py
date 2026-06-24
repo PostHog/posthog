@@ -37,12 +37,9 @@ class PersonhogTestMixin:
         properties: dict | None = None,
         **_fake_overrides: Any,
     ) -> Person:
-        """Create a person in the DB.
+        from posthog.test.persons import create_person
 
-        The global signal receiver automatically mirrors the ORM write into the
-        active fake, so no manual seeding is needed.
-        """
-        return Person.objects.create(
+        return create_person(
             team=team,
             distinct_ids=distinct_ids,
             properties=properties or {},

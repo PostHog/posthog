@@ -16,6 +16,7 @@ from posthog.models.person import Person, PersonDistinctId
 from posthog.models.person.util import delete_persons_from_postgres
 from posthog.models.team.util import _delete_persons_for_teams
 from posthog.personhog_client.fake_client import fake_personhog_client
+from posthog.test.persons import create_person
 
 # ── Routing tests for delete_persons_from_postgres ─────��────────────
 
@@ -163,7 +164,7 @@ class TestDeletePersonsForTeamsRouting(SimpleTestCase):
 
 class TestDeletePersonsFromPostgresIntegration(BaseTest):
     def test_orm_path_deletes_person_and_distinct_ids(self):
-        person = Person.objects.create(
+        person = create_person(
             team=self.team,
             distinct_ids=["did-1", "did-2"],
             properties={"email": "test@example.com"},
@@ -176,7 +177,7 @@ class TestDeletePersonsFromPostgresIntegration(BaseTest):
         assert PersonDistinctId.objects.filter(team_id=self.team.pk, person_id=person.pk).count() == 0
 
     def test_personhog_path_calls_rpc_with_correct_args(self):
-        person = Person.objects.create(
+        person = create_person(
             team=self.team,
             distinct_ids=["did-1", "did-2"],
             properties={"email": "test@example.com"},
@@ -191,7 +192,7 @@ class TestDeletePersonsFromPostgresIntegration(BaseTest):
             assert list(req.person_uuids) == [str(person.uuid)]
 
     def test_personhog_path_fallback_deletes_from_db(self):
-        person = Person.objects.create(
+        person = create_person(
             team=self.team,
             distinct_ids=["did-1"],
         )
@@ -204,8 +205,8 @@ class TestDeletePersonsFromPostgresIntegration(BaseTest):
         assert PersonDistinctId.objects.filter(team_id=self.team.pk, person_id=person.pk).count() == 0
 
     def test_multiple_persons_deleted(self):
-        p1 = Person.objects.create(team=self.team, distinct_ids=["a"])
-        p2 = Person.objects.create(team=self.team, distinct_ids=["b"])
+        p1 = create_person(team=self.team, distinct_ids=["a"])
+        p2 = create_person(team=self.team, distinct_ids=["b"])
 
         with fake_personhog_client(gate_enabled=False):
             delete_persons_from_postgres(self.team.pk, [p1, p2])
@@ -216,8 +217,8 @@ class TestDeletePersonsFromPostgresIntegration(BaseTest):
 
 class TestDeletePersonsForTeamsIntegration(BaseTest):
     def test_orm_fallback_deletes_persons_and_distinct_ids(self):
-        Person.objects.create(team=self.team, distinct_ids=["did-1", "did-2"])
-        Person.objects.create(team=self.team, distinct_ids=["did-3"])
+        create_person(team=self.team, distinct_ids=["did-1", "did-2"])
+        create_person(team=self.team, distinct_ids=["did-3"])
 
         assert Person.objects.filter(team_id=self.team.pk).count() == 2
         assert PersonDistinctId.objects.filter(team_id=self.team.pk).count() == 3
@@ -230,8 +231,8 @@ class TestDeletePersonsForTeamsIntegration(BaseTest):
 
     def test_personhog_path_calls_batch_rpc_per_team(self):
         other_team = self.organization.teams.create(name="Other Team")
-        p1 = Person.objects.create(team=self.team, distinct_ids=["a"])
-        p2 = Person.objects.create(team=other_team, distinct_ids=["b"])
+        p1 = create_person(team=self.team, distinct_ids=["a"])
+        p2 = create_person(team=other_team, distinct_ids=["b"])
 
         with fake_personhog_client(gate_enabled=True) as fake:
             fake.add_person(team_id=self.team.pk, person_id=p1.pk, uuid=str(p1.uuid), distinct_ids=["a"])
@@ -245,8 +246,8 @@ class TestDeletePersonsForTeamsIntegration(BaseTest):
             assert other_team.pk in team_ids_called
 
     def test_personhog_batch_rpc_loops_until_done(self):
-        p1 = Person.objects.create(team=self.team, distinct_ids=["a"])
-        p2 = Person.objects.create(team=self.team, distinct_ids=["b"])
+        p1 = create_person(team=self.team, distinct_ids=["a"])
+        p2 = create_person(team=self.team, distinct_ids=["b"])
 
         with fake_personhog_client(gate_enabled=True) as fake:
             fake.add_person(team_id=self.team.pk, person_id=p1.pk, uuid=str(p1.uuid), distinct_ids=["a"])
@@ -261,7 +262,7 @@ class TestDeletePersonsForTeamsIntegration(BaseTest):
             assert calls[-1].response.deleted_count == 0
 
     def test_personhog_fallback_on_error_deletes_via_orm(self):
-        Person.objects.create(team=self.team, distinct_ids=["did-1"])
+        create_person(team=self.team, distinct_ids=["did-1"])
 
         with fake_personhog_client(gate_enabled=True) as fake:
             fake.delete_persons_batch_for_team = MagicMock(side_effect=RuntimeError("grpc timeout"))
@@ -272,8 +273,8 @@ class TestDeletePersonsForTeamsIntegration(BaseTest):
 
     def test_cross_team_isolation(self):
         other_team = self.organization.teams.create(name="Other Team")
-        Person.objects.create(team=self.team, distinct_ids=["a"])
-        Person.objects.create(team=other_team, distinct_ids=["b"])
+        create_person(team=self.team, distinct_ids=["a"])
+        create_person(team=other_team, distinct_ids=["b"])
 
         with fake_personhog_client(gate_enabled=False):
             _delete_persons_for_teams([self.team.pk])

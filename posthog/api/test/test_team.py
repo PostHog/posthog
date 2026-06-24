@@ -567,13 +567,13 @@ def team_api_test_factory():
 
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
             # from posthog.models.insight_caching_state import InsightCachingState
-            from posthog.models.person import Person
+            from posthog.test.persons import add_cohort_members, create_person
 
-            from products.cohorts.backend.models.cohort import Cohort, CohortPeople
+            from products.cohorts.backend.models.cohort import Cohort
             from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagHashKeyOverride
 
             cohort = Cohort.objects.create(team=team, created_by=self.user, name="test")
-            person = Person.objects.create(
+            person = create_person(
                 team=team,
                 distinct_ids=["example_id"],
                 properties={"email": "tim@posthog.com", "team": "posthog"},
@@ -591,7 +591,7 @@ def team_api_test_factory():
                 feature_flag_key=flag.key,
                 hash_key="test",
             )
-            CohortPeople.objects.create(cohort_id=cohort.pk, person_id=person.pk)
+            add_cohort_members(cohort, [person])
             EarlyAccessFeature.objects.create(
                 team=team,
                 name="Test flag",

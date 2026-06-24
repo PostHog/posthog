@@ -851,13 +851,14 @@ class TestFlatten(TestCase):
 
 
 def create_group_type_mapping_without_created_at(**kwargs) -> "GroupTypeMapping":
-    instance = GroupTypeMapping.objects.create(**kwargs)
+    from posthog.test.persons import create_group_type_mapping  # noqa: PLC0415
+
+    instance = create_group_type_mapping(**kwargs)
     GroupTypeMapping.objects.filter(id=instance.id).update(created_at=None)
     instance.refresh_from_db()
-    # The bare .update() above doesn't fire post_save, so the personhog test mirror still holds
-    # the created_at set on create(). Re-save (created_at is now None and _state.adding is False,
-    # so save() won't repopulate it) to re-fire the mirror and seed created_at=None into the fake.
-    instance.save()
+    from posthog.test.persons import _seed_group_type_mapping_into_fake  # noqa: PLC0415
+
+    _seed_group_type_mapping_into_fake(instance)
     return instance
 
 

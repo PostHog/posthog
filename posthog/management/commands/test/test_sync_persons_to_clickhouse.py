@@ -25,6 +25,10 @@ from posthog.models.person.sql import (
 )
 from posthog.models.person.util import create_person, create_person_distinct_id
 from posthog.models.signals import mute_selected_signals
+from posthog.test.persons import (
+    create_group as create_test_group,
+    create_person as create_test_person,
+)
 
 
 @pytest.mark.ee
@@ -42,8 +46,8 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
 
     def test_persons_sync(self):
         with mute_selected_signals():  # without creating/updating in clickhouse
-            person = Person.objects.create(
-                team_id=self.team.pk,
+            person = create_test_person(
+                team=self.team,
                 properties={"a": 1234},
                 is_identified=True,
                 version=4,
@@ -62,8 +66,8 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
 
     def test_persons_sync_with_null_version(self):
         with mute_selected_signals():  # without creating/updating in clickhouse
-            person = Person.objects.create(
-                team_id=self.team.pk,
+            person = create_test_person(
+                team=self.team,
                 properties={"a": 1234},
                 is_identified=True,
                 version=None,
@@ -100,7 +104,7 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
 
     def test_distinct_ids_sync(self):
         with mute_selected_signals():  # without creating/updating in clickhouse
-            person = Person.objects.create(team_id=self.team.pk, version=0, uuid=uuid4())
+            person = create_test_person(team=self.team, version=0, uuid=uuid4())
             PersonDistinctId.objects.create(team=self.team, person=person, distinct_id="test-id", version=4)
 
         run_distinct_id_sync(self.team.pk, live_run=True, deletes=False)
@@ -115,7 +119,7 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
 
     def test_distinct_ids_sync_with_null_version(self):
         with mute_selected_signals():  # without creating/updating in clickhouse
-            person = Person.objects.create(team_id=self.team.pk, version=0, uuid=uuid4())
+            person = create_test_person(team=self.team, version=0, uuid=uuid4())
             PersonDistinctId.objects.create(team=self.team, person=person, distinct_id="test-id", version=None)
 
         run_distinct_id_sync(self.team.pk, live_run=True, deletes=False)
@@ -156,8 +160,8 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
     )
     def test_group_sync(self, mocked_ch_call):
         ts = datetime.now(UTC)
-        Group.objects.create(
-            team_id=self.team.pk,
+        create_test_group(
+            team=self.team,
             group_type_index=2,
             group_key="group-key",
             group_properties={"a": 1234},
@@ -238,24 +242,24 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
     )
     def test_group_sync_multiple_entries(self, mocked_ch_call):
         ts = datetime.now(UTC)
-        Group.objects.create(
-            team_id=self.team.pk,
+        create_test_group(
+            team=self.team,
             group_type_index=2,
             group_key="group-key",
             group_properties={"a": 1234},
             created_at=ts,
             version=5,
         )
-        Group.objects.create(
-            team_id=self.team.pk,
+        create_test_group(
+            team=self.team,
             group_type_index=2,
             group_key="group-key-2",
             group_properties={"a": 12345},
             created_at=ts,
             version=6,
         )
-        Group.objects.create(
-            team_id=self.team.pk,
+        create_test_group(
+            team=self.team,
             group_type_index=1,
             group_key="group-key",
             group_properties={"a": 123456},
@@ -295,37 +299,35 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
 
     def everything_test_run(self, live_run):
         # 2 persons who shouldn't be changed
-        person_not_changed_1 = Person.objects.create(
-            team_id=self.team.pk, properties={"abcdef": 1111}, version=0, uuid=uuid4()
-        )
-        person_not_changed_2 = Person.objects.create(
-            team_id=self.team.pk, properties={"abcdefg": 11112}, version=1, uuid=uuid4()
+        person_not_changed_1 = create_test_person(team=self.team, properties={"abcdef": 1111}, version=0, uuid=uuid4())
+        person_not_changed_2 = create_test_person(
+            team=self.team, properties={"abcdefg": 11112}, version=1, uuid=uuid4()
         )
 
         # 2 persons who should be created
         with mute_selected_signals():  # without creating/updating in clickhouse
-            person_should_be_created_1 = Person.objects.create(
-                team_id=self.team.pk,
+            person_should_be_created_1 = create_test_person(
+                team=self.team,
                 properties={"abcde": 12553633},
                 version=2,
                 uuid=uuid4(),
             )
-            person_should_be_created_2 = Person.objects.create(
-                team_id=self.team.pk,
+            person_should_be_created_2 = create_test_person(
+                team=self.team,
                 properties={"abcdeit34": 12553633},
                 version=3,
                 uuid=uuid4(),
             )
 
             # 2 persons who have updates
-            person_should_update_1 = Person.objects.create(
-                team_id=self.team.pk,
+            person_should_update_1 = create_test_person(
+                team=self.team,
                 properties={"abcde": 12553},
                 version=5,
                 uuid=uuid4(),
             )
-            person_should_update_2 = Person.objects.create(
-                team_id=self.team.pk, properties={"abc": 125}, version=7, uuid=uuid4()
+            person_should_update_2 = create_test_person(
+                team=self.team, properties={"abc": 125}, version=7, uuid=uuid4()
             )
         create_person(
             uuid=str(person_should_update_1.uuid),
@@ -429,8 +431,8 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
             version=18,
         )
 
-        Group.objects.create(
-            team_id=self.team.pk,
+        create_test_group(
+            team=self.team,
             group_type_index=2,
             group_key="group-key",
             group_properties={"a": 1234},

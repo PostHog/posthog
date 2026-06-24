@@ -11,12 +11,12 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
-from posthog.models.person import Person
 from posthog.models.person.point_in_time_properties import (
     build_person_properties_at_time,
     get_person_and_distinct_ids_for_identifier,
 )
 from posthog.personhog_client.fake_client import fake_personhog_client
+from posthog.test.persons import create_person
 
 
 def _prop_row(
@@ -301,7 +301,7 @@ class TestGetPersonAndDistinctIdsForIdentifierPersonhog(SimpleTestCase):
 
 class TestGetPersonAndDistinctIdsForIdentifierIntegration(BaseTest):
     def test_lookup_by_distinct_id(self):
-        person = Person.objects.create(
+        person = create_person(
             team=self.team,
             distinct_ids=["d1", "d2"],
             properties={"email": "test@example.com"},
@@ -315,7 +315,7 @@ class TestGetPersonAndDistinctIdsForIdentifierIntegration(BaseTest):
         assert set(result_dids) == {"d1", "d2"}
 
     def test_lookup_by_person_id(self):
-        person = Person.objects.create(
+        person = create_person(
             team=self.team,
             distinct_ids=["d1"],
             properties={"name": "Test"},
@@ -337,7 +337,7 @@ class TestGetPersonAndDistinctIdsForIdentifierIntegration(BaseTest):
 
     def test_cross_team_isolation(self):
         other_team = self.organization.teams.create(name="Other Team")
-        Person.objects.create(team=other_team, distinct_ids=["shared_did"])
+        create_person(team=other_team, distinct_ids=["shared_did"])
 
         result_person, result_dids = get_person_and_distinct_ids_for_identifier(self.team.pk, distinct_id="shared_did")
 

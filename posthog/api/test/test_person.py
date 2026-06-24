@@ -30,8 +30,12 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import PersonDistinctId
 from posthog.models.person.missing_person import uuidFromDistinctId
 from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE
-from posthog.models.person.util import create_person, create_person_distinct_id
+from posthog.models.person.util import (
+    create_person as create_person_in_ch,
+    create_person_distinct_id,
+)
 from posthog.personhog_client.fake_client import fake_personhog_client
+from posthog.test.persons import add_distinct_id, create_person
 
 from products.cohorts.backend.models.cohort import Cohort
 
@@ -1467,7 +1471,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Create person A with UUID derived from the distinct_id (same UUID that split will use)
         person_a_uuid = uuidFromDistinctId(self.team.pk, "deleted_user")
-        person_a = Person.objects.create(
+        person_a = create_person(
             team=self.team,
             uuid=person_a_uuid,
             version=0,
@@ -1478,7 +1482,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             distinct_id="deleted_user",
             version=0,
         )
-        create_person(
+        create_person_in_ch(
             team_id=self.team.pk,
             uuid=str(person_a.uuid),
             version=0,
@@ -1649,7 +1653,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         for index in range(0, 19):
             created_ids.append(str(index + 100))
-            Person.objects.create(  # creating without _create_person to guarentee created_at ordering
+            create_person(  # creating without _create_person to guarentee created_at ordering
                 team=self.team,
                 distinct_ids=[str(index + 100)],
                 properties={"$browser": "whatever", "$os": "Windows"},
@@ -1659,7 +1663,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # In this case Clickhouse will return a user that then doesn't get returned by postgres.
         # We would return an empty "next" url.
         # Now we just return 9 people instead
-        create_person(team_id=self.team.pk, version=0)
+        create_person_in_ch(team_id=self.team.pk, version=0)
 
         returned_ids = []
         with self.assertNumQueries(9):
@@ -1678,7 +1682,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response_include_total["count"], 20)  #  With `include_total`, the total count is returned too
 
     def test_retrieve_person(self):
-        person = Person.objects.create(  # creating without _create_person to guarentee created_at ordering
+        person = create_person(  # creating without _create_person to guarentee created_at ordering
             team=self.team, distinct_ids=["123456789"]
         )
 
@@ -1689,7 +1693,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response["distinct_ids"] == ["123456789"]
 
     def test_retrieve_person_by_uuid(self):
-        person = Person.objects.create(  # creating without _create_person to guarentee created_at ordering
+        person = create_person(  # creating without _create_person to guarentee created_at ordering
             team=self.team, distinct_ids=["123456789"]
         )
 
@@ -1778,7 +1782,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         shared_uuid = str(uuid4())
 
         # Phase 1: Person and distinct_id exist in CH as deleted
-        create_person(
+        create_person_in_ch(
             uuid=shared_uuid,
             team_id=self.team.pk,
             is_deleted=True,
@@ -1795,13 +1799,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Phase 2: New event reuses the distinct_id, creating a new person in PG
         # with the same deterministic UUID. The signal writes to CH with version=0,
         # which is ignored because 0 < 105.
-        person = Person.objects.create(team_id=self.team.pk, properties={"abcdefg": 11112}, version=0, uuid=shared_uuid)
-        PersonDistinctId.objects.create(
-            team_id=self.team.pk,
-            person=person,
-            distinct_id="distinct_id",
-            version=0,
-        )
+        person = create_person(team=self.team, properties={"abcdefg": 11112}, version=0, uuid=shared_uuid)
+        add_distinct_id(person=person, distinct_id="distinct_id", version=0)
 
         # Phase 3: Reset
         response = self.client.post(
@@ -1851,9 +1850,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     @pytest.mark.flaky(reruns=2)
     def test_reset_person_distinct_id_not_found(self, mocked_ch_call):
         # person who shouldn't be changed
-        person_not_changed_1 = Person.objects.create(
-            team_id=self.team.pk, properties={"abcdef": 1111}, version=0, uuid=uuid4()
-        )
+        person_not_changed_1 = create_person(team=self.team, properties={"abcdef": 1111}, version=0, uuid=uuid4())
 
         # distinct id no update
         PersonDistinctId.objects.create(
@@ -1864,9 +1861,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         # deleted person not re-used
-        person_deleted_1 = Person.objects.create(
-            team_id=self.team.pk, properties={"abcdef": 1111}, version=0, uuid=uuid4()
-        )
+        person_deleted_1 = create_person(team=self.team, properties={"abcdef": 1111}, version=0, uuid=uuid4())
         PersonDistinctId.objects.create(
             team_id=self.team.pk,
             person=person_deleted_1,
@@ -2075,7 +2070,7 @@ class TestPersonFromClickhouse(TestPerson):
 
         for index in range(0, 19):
             created_ids.append(str(index + 100))
-            Person.objects.create(  # creating without _create_person to guarentee created_at ordering
+            create_person(  # creating without _create_person to guarentee created_at ordering
                 team=self.team,
                 distinct_ids=[str(index + 100)],
                 properties={"$browser": "whatever", "$os": "Windows"},

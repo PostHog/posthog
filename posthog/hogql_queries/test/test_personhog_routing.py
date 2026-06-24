@@ -11,7 +11,7 @@ from posthog.hogql import ast
 
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.hogql_queries.sessions_query_runner import SessionsQueryRunner
-from posthog.models.person import Person
+from posthog.test.persons import create_person
 
 UUID_NONEXISTENT = "550e8400-e29b-41d4-a716-446655440000"
 
@@ -52,7 +52,7 @@ def _extract_distinct_id_field_chain(where: Optional[ast.Expr]) -> list[str | in
 
 class TestEventsQueryRunnerPersonRouting(BaseTest):
     def test_uuid_person_id_expands_distinct_ids(self):
-        person = Person.objects.create(team=self.team, distinct_ids=["id1", "id2"])
+        person = create_person(team=self.team, distinct_ids=["id1", "id2"])
 
         query = EventsQuery(kind="EventsQuery", select=["*"], personId=str(person.uuid), orderBy=[])
         query_ast = EventsQueryRunner(query=query, team=self.team).to_query()
@@ -68,7 +68,7 @@ class TestEventsQueryRunnerPersonRouting(BaseTest):
         assert ids == []
 
     def test_integer_person_id_expands_distinct_ids(self):
-        person = Person.objects.create(team=self.team, distinct_ids=["id1", "id2"])
+        person = create_person(team=self.team, distinct_ids=["id1", "id2"])
 
         query = EventsQuery(kind="EventsQuery", select=["*"], personId=str(person.pk), orderBy=[])
         query_ast = EventsQueryRunner(query=query, team=self.team).to_query()
@@ -86,7 +86,7 @@ class TestEventsQueryRunnerPersonRouting(BaseTest):
 
 class TestSessionsQueryRunnerPersonRouting(BaseTest):
     def test_uuid_person_id_expands_distinct_ids(self):
-        person = Person.objects.create(team=self.team, distinct_ids=["id1", "id2"])
+        person = create_person(team=self.team, distinct_ids=["id1", "id2"])
 
         query = SessionsQuery(kind="SessionsQuery", select=["session_id"], personId=str(person.uuid))
         query_ast = SessionsQueryRunner(query=query, team=self.team).to_query()
@@ -102,7 +102,7 @@ class TestSessionsQueryRunnerPersonRouting(BaseTest):
         assert ids == []
 
     def test_integer_person_id_expands_distinct_ids(self):
-        person = Person.objects.create(team=self.team, distinct_ids=["id1", "id2"])
+        person = create_person(team=self.team, distinct_ids=["id1", "id2"])
 
         query = SessionsQuery(kind="SessionsQuery", select=["session_id"], personId=str(person.pk))
         query_ast = SessionsQueryRunner(query=query, team=self.team).to_query()
@@ -118,14 +118,14 @@ class TestSessionsQueryRunnerPersonRouting(BaseTest):
         assert ids == []
 
     def test_person_join_qualifies_distinct_id_chain(self):
-        person = Person.objects.create(team=self.team, distinct_ids=["id1"])
+        person = create_person(team=self.team, distinct_ids=["id1"])
 
         query_without_join = SessionsQuery(kind="SessionsQuery", select=["session_id"], personId=str(person.uuid))
         ast_without = SessionsQueryRunner(query=query_without_join, team=self.team).to_query()
         assert _extract_distinct_id_field_chain(ast_without.where) == ["distinct_id"]
 
     def test_person_join_qualifies_distinct_id_chain_with_person_select(self):
-        person = Person.objects.create(team=self.team, distinct_ids=["id1"])
+        person = create_person(team=self.team, distinct_ids=["id1"])
 
         query_with_join = SessionsQuery(
             kind="SessionsQuery", select=["session_id", "person_display_name"], personId=str(person.uuid)

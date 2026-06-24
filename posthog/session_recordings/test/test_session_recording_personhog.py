@@ -13,6 +13,7 @@ from parameterized import parameterized
 
 from posthog.models.person import Person
 from posthog.session_recordings.models.session_recording import SessionRecording
+from posthog.test.persons import create_person
 
 
 class TestLoadPersonRouting(SimpleTestCase):
@@ -76,8 +77,6 @@ class TestLoadPersonRouting(SimpleTestCase):
         else:
             mock_fetch_personhog.return_value = None
 
-        from posthog.models.person import Person
-
         mock_orm_person = MagicMock()
         if person_found:
             mock_person_objects.db_manager.return_value.get.return_value = mock_orm_person
@@ -116,9 +115,7 @@ class TestLoadPersonRouting(SimpleTestCase):
 
 class TestLoadPersonIntegration(BaseTest):
     def test_person_found(self):
-        person = Person.objects.create(
-            team=self.team, distinct_ids=["test_user"], properties={"email": "test@example.com"}
-        )
+        person = create_person(team=self.team, distinct_ids=["test_user"], properties={"email": "test@example.com"})
 
         recording = SessionRecording(team=self.team, session_id="test_session", distinct_id="test_user")
         recording.load_person()
@@ -135,7 +132,7 @@ class TestLoadPersonIntegration(BaseTest):
 
     def test_cross_team_isolation(self):
         other_team = self.organization.teams.create(name="Other Team")
-        Person.objects.create(team=other_team, distinct_ids=["shared_did"], properties={"email": "b@example.com"})
+        create_person(team=other_team, distinct_ids=["shared_did"], properties={"email": "b@example.com"})
 
         recording = SessionRecording(team=self.team, session_id="test_session", distinct_id="shared_did")
         recording.load_person()

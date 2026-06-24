@@ -20,11 +20,12 @@ from posthog.email import CUSTOMER_IO_TEMPLATE_ID_MAP, EmailMessage, _send_email
 from posthog.models import Organization, Person, Team, User
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.messaging import MessagingRecord, get_email_hash, get_email_hashes
+from posthog.test.persons import create_person as create_test_person
 
 
 class TestEmail(BaseTest):
     def create_person(self, team: Team, base_distinct_id: str = "") -> Person:
-        person = Person.objects.create(team=team)
+        person = create_test_person(team=team)
         person.add_distinct_id(base_distinct_id)
         return person
 

@@ -28,6 +28,7 @@ from posthog.models.group_type_mapping import (
     update_group_type_mapping_fields,
 )
 from posthog.personhog_client.fake_client import FakePersonHogClient
+from posthog.test.persons import create_group_type_mapping
 from posthog.utils import get_safe_cache, safe_cache_delete, safe_cache_set
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -1392,7 +1393,7 @@ class TestGroupTypesForProjectPathParity(BaseTest):
         created_at = datetime(2023, 11, 14, 22, 13, 20, tzinfo=UTC)
         dashboard = Dashboard.objects.create(team=self.team, name="orgs")
 
-        GroupTypeMapping.objects.create(  # nosemgrep: no-direct-persons-db-orm
+        create_group_type_mapping(
             team=self.team,
             project_id=self.team.project_id,
             group_type="organization",
@@ -1403,7 +1404,7 @@ class TestGroupTypesForProjectPathParity(BaseTest):
             detail_dashboard=dashboard,
             created_at=created_at,
         )
-        minimal = GroupTypeMapping.objects.create(  # nosemgrep: no-direct-persons-db-orm
+        minimal = create_group_type_mapping(
             team=self.team,
             project_id=self.team.project_id,
             group_type="company",

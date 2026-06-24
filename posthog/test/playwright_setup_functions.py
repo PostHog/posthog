@@ -444,10 +444,11 @@ def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -
 
     import uuid as uuid_module
 
-    from posthog.models import Person, PersonDistinctId
+    from posthog.models import PersonDistinctId
     from posthog.models.event.util import create_event
     from posthog.models.person.util import create_person, create_person_distinct_id
     from posthog.models.utils import UUIDT
+    from posthog.test.persons import create_person as create_test_person
 
     person_uuids: dict[str, str] = {}
 
@@ -457,7 +458,7 @@ def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -
             person_uuid = str(UUIDT())
             props = person_spec.properties or {}
             create_person(team_id=team.pk, version=0, uuid=person_uuid, properties=props)
-            pg_person = Person.objects.create(team=team, uuid=person_uuid, properties=props)
+            pg_person = create_test_person(team=team, uuid=person_uuid, properties=props)
             for distinct_id in person_spec.distinct_ids:
                 create_person_distinct_id(team_id=team.pk, distinct_id=distinct_id, person_id=person_uuid)
                 PersonDistinctId.objects.create(team=team, person=pg_person, distinct_id=distinct_id)
@@ -482,7 +483,7 @@ def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -
         props = person_props.get(distinct_id, {})
         create_person(team_id=team.pk, version=0, uuid=person_uuid, properties=props)
         create_person_distinct_id(team_id=team.pk, distinct_id=distinct_id, person_id=person_uuid)
-        pg_person = Person.objects.create(team=team, uuid=person_uuid, properties=props)
+        pg_person = create_test_person(team=team, uuid=person_uuid, properties=props)
         PersonDistinctId.objects.create(team=team, person=pg_person, distinct_id=distinct_id)
 
     baseline_count = _count_events_in_clickhouse(team.pk)
