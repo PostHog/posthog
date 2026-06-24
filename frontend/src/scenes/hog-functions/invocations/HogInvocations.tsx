@@ -327,7 +327,7 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
                 }
                 return row.event_uuid ? (
                     <Link
-                        to={urls.event(row.event_uuid, row.scheduled_at)}
+                        to={urls.event(row.event_uuid, row.first_scheduled_at)}
                         className="font-mono text-xs"
                         title={row.event_uuid}
                     >
@@ -827,7 +827,9 @@ function RerunModal({
                     <LemonInputSelect
                         mode="multiple"
                         value={status}
-                        options={STATUS_OPTIONS.map((o) => ({
+                        // 'running' is omitted: in-flight invocations are skipped by the rerun worker's
+                        // exactly-once guard, so offering it here would queue a rerun that re-fires nothing.
+                        options={STATUS_OPTIONS.filter((o) => o.value !== 'running').map((o) => ({
                             key: o.value,
                             label: o.label,
                         }))}
