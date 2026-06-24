@@ -722,6 +722,56 @@ class CSVStreamTransformer:
         return buffer.getvalue()
 
 
+class SerializedStreamTransformer:
+    """A transformer to serialize record batches into Parquet."""
+
+    def __init__(
+        self,
+        include_inserted_at: bool = False,
+        max_file_size_bytes: int = 0,
+    ):
+        self.include_inserted_at = include_inserted_at
+        self.max_file_size_bytes = max_file_size_bytes
+
+    async def iter(
+        self, record_batches: collections.abc.AsyncIterable[pa.RecordBatch]
+    ) -> collections.abc.AsyncIterator[Chunk]:
+        """Iterate over record batches transforming them into chunks."""
+        current_file_size = 0
+
+        async for record_batch in record_batches:
+            self.schema = record_batch.schema
+
+            with ExecutionTimeRecorder(
+                "serialized_transformer_record_batch_transform_duration",
+                description="Duration to serialize a record batch.",
+                log_message=(
+                    "Serialized record batch with %(num_records)d records."
+                    " Record batch size: %(mb_processed).2f MB, process time:"
+                    " %(duration_seconds)d seconds, speed: %(mb_per_second).2f MB/s"
+                ),
+                log_attributes={"num_records": record_batch.num_rows},
+            ) as recorder:
+                recorder.add_bytes_processed(record_batch.nbytes)
+                # The entire Arrow C++ call is not GIL-free, but enough of it
+                # seems to be for it to be worth to spawn a thread here, based
+                # on tests with 64MiB batches.
+                buf = await asyncio.to_thread(record_batch.serialize)
+                chunk = buf.to_pybytes()  # We need bytes downstream
+                del buf  # Free buf on the next gc run
+
+                yield Chunk(chunk, False)
+
+                if self.max_file_size_bytes and current_file_size + len(chunk) > self.max_file_size_bytes:
+                    yield Chunk(b"", True)
+                    current_file_size = 0
+
+                else:
+                    current_file_size += len(chunk)
+
+        yield Chunk(b"", True)
+
+
 class IncompatibleTypesError(TypeError):
     """Exception for incompatible types between source and destination.
 
