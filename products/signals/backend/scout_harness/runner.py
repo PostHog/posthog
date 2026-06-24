@@ -698,22 +698,26 @@ def _capture_run_finished(
     logs — the bulk of scout failures fail in this layer before the `process-task` workflow's
     own `task_run_failed` event ever fires, so this is the only event that carries their reason.
     """
+    properties: dict[str, Any] = {
+        "skill_name": skill.name,
+        "skill_version": skill.version,
+        "scout_config_id": str(config.id),
+        "run_id": str(run_id),
+        "task_run_id": task_run_id,
+        "status": status,
+        "runtime_seconds": round(runtime_s, 1),
+        "emitted_count": emitted_count,
+    }
+    # Only attach failure context on failed runs — keeps successful / cancelled events clean
+    # rather than carrying explicit-null error fields on every event.
+    if error_type is not None:
+        properties["error_type"] = error_type
+        properties["error_message"] = error_message
     try:
         posthoganalytics.capture(
             event="signals_scout_run_finished",
             distinct_id=str(team.uuid),
-            properties={
-                "skill_name": skill.name,
-                "skill_version": skill.version,
-                "scout_config_id": str(config.id),
-                "run_id": str(run_id),
-                "task_run_id": task_run_id,
-                "status": status,
-                "runtime_seconds": round(runtime_s, 1),
-                "emitted_count": emitted_count,
-                "error_type": error_type,
-                "error_message": error_message,
-            },
+            properties=properties,
             groups=groups(team.organization, team),
         )
     except Exception:
