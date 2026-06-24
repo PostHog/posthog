@@ -41,6 +41,54 @@ export function lastAssistantTextPreview(
     return null
 }
 
+/** Cap for the persisted `search_text` digest — bounds the column + the scan. */
+export const SEARCH_TEXT_MAX = 10_000
+
+/**
+ * Plain-text digest of a conversation (user + assistant text, in order,
+ * whitespace-collapsed and truncated): the value persisted to `search_text` so
+ * search + the list preview never touch the full JSONB transcript. Tool results
+ * and thinking are skipped — noisy and unbounded.
+ */
+export function buildSearchText(conversation: ConversationMessage[], max: number = SEARCH_TEXT_MAX): string {
+    const parts: string[] = []
+    for (const m of conversation) {
+        if (m.role === 'user') {
+            if (typeof m.content === 'string') {
+                parts.push(m.content)
+            } else {
+                for (const c of m.content) {
+                    if (c.type === 'text') {
+                        parts.push(c.text)
+                    }
+                }
+            }
+        } else if (m.role === 'assistant') {
+            for (const c of m.content) {
+                if (c.type === 'text') {
+                    parts.push(c.text)
+                }
+            }
+        }
+    }
+    const collapsed = parts.join(' ').replace(/\s+/g, ' ').trim()
+    const chars = Array.from(collapsed)
+    return chars.length > max ? chars.slice(0, max).join('') : collapsed
+}
+
+/** Trim a stored `search_text` to a list-row preview (code-point-safe). */
+export function previewText(searchText: string | null, max: number = PREVIEW_MAX): string | null {
+    if (!searchText) {
+        return null
+    }
+    const collapsed = searchText.replace(/\s+/g, ' ').trim()
+    if (!collapsed) {
+        return null
+    }
+    const chars = Array.from(collapsed)
+    return chars.length > max ? `${chars.slice(0, max - 1).join('')}…` : collapsed
+}
+
 /**
  * Aggregate token + cost numbers across every assistant message in the
  * conversation. Returns all-zeroes when no assistant has run yet (or when the

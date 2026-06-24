@@ -18,6 +18,7 @@ import {
     SessionAclEntry,
     SessionUsageTotal,
 } from '../spec/spec'
+import { buildSearchText, SEARCH_TEXT_MAX } from '../spec/summarize-conversation'
 import {
     AggregateStats,
     DecideElevationInput,
@@ -25,6 +26,7 @@ import {
     LIVE_SESSION_STATES,
     ListSessionsOpts,
     SessionQueue,
+    SessionSummary,
 } from './queue'
 
 const SELECT_COLS = `id, application_id, revision_id, team_id, external_key,
@@ -32,6 +34,14 @@ const SELECT_COLS = `id, application_id, revision_id, team_id, external_key,
                      conversation, pending_inputs, principal, retry_count,
                      usage_total, acl, pending_elevation_requests, is_preview,
                      created_at, updated_at`
+
+// List view: every summary column except the heavy conversation/JSONB blobs.
+// `turn_count` + `search_text` stand in for the transcript so a page never
+// detoasts it.
+const SUMMARY_COLS = `id, application_id, revision_id, team_id, external_key,
+                      idempotency_key, trigger_metadata, state, principal,
+                      usage_total, retry_count, is_preview, turn_count, search_text,
+                      created_at, updated_at`
 
 export class PgSessionQueue implements SessionQueue {
     constructor(private readonly pool: Pool) {}
@@ -48,9 +58,10 @@ export class PgSessionQueue implements SessionQueue {
                  idempotency_key, trigger_metadata, state,
                  conversation, pending_inputs, principal, retry_count,
                  usage_total, acl, pending_elevation_requests, is_preview,
+                 search_text, turn_count,
                  created_at, updated_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9::jsonb, $10::jsonb,
-                     $11::jsonb, $12, $13::jsonb, $14::jsonb, $15::jsonb, $16, $17, $18)
+                     $11::jsonb, $12, $13::jsonb, $14::jsonb, $15::jsonb, $16, $17, $18, $19, $20)
              ON CONFLICT (id) DO UPDATE SET
                 state = EXCLUDED.state,
                 conversation = EXCLUDED.conversation,
@@ -58,6 +69,8 @@ export class PgSessionQueue implements SessionQueue {
                 usage_total = EXCLUDED.usage_total,
                 acl = EXCLUDED.acl,
                 pending_elevation_requests = EXCLUDED.pending_elevation_requests,
+                search_text = EXCLUDED.search_text,
+                turn_count = EXCLUDED.turn_count,
                 updated_at = EXCLUDED.updated_at`,
             [
                 session.id,
@@ -76,6 +89,8 @@ export class PgSessionQueue implements SessionQueue {
                 JSON.stringify(session.acl ?? []),
                 JSON.stringify(session.pending_elevation_requests ?? []),
                 session.is_preview,
+                buildSearchText(session.conversation),
+                session.conversation.length,
                 session.created_at,
                 session.updated_at,
             ]
@@ -150,6 +165,10 @@ export class PgSessionQueue implements SessionQueue {
         if (patch.conversation !== undefined) {
             sets.push(`conversation = $${i++}::jsonb`)
             params.push(JSON.stringify(patch.conversation))
+            sets.push(`search_text = $${i++}`)
+            params.push(buildSearchText(patch.conversation))
+            sets.push(`turn_count = $${i++}`)
+            params.push(patch.conversation.length)
         }
         if (patch.pending_inputs !== undefined) {
             sets.push(`pending_inputs = $${i++}::jsonb`)
@@ -226,12 +245,22 @@ export class PgSessionQueue implements SessionQueue {
     }
 
     async appendConversation(sessionId: string, msg: ConversationMessage): Promise<void> {
+        // Keep turn_count + search_text current without re-reading the whole
+        // transcript: bump the count and append this message's text (capped).
+        const text = buildSearchText([msg])
         await this.pool.query(
             `UPDATE agent_session
              SET conversation = conversation || $2::jsonb,
+                 turn_count = turn_count + 1,
+                 search_text = LEFT(
+                     CASE
+                         WHEN $3 = '' THEN COALESCE(search_text, '')
+                         WHEN COALESCE(search_text, '') = '' THEN $3
+                         ELSE search_text || ' ' || $3
+                     END, $4),
                  updated_at = NOW()
              WHERE id = $1`,
-            [sessionId, JSON.stringify([msg])]
+            [sessionId, JSON.stringify([msg]), text, SEARCH_TEXT_MAX]
         )
     }
 
@@ -440,6 +469,30 @@ export class PgSessionQueue implements SessionQueue {
         return Number(r.rows[0]?.count ?? 0)
     }
 
+    async listSummariesByApplication(applicationId: string, opts: ListSessionsOpts = {}): Promise<SessionSummary[]> {
+        const limit = Math.max(1, Math.min(opts.limit ?? 100, 500))
+        const offset = Math.max(0, opts.offset ?? 0)
+        const { where, params } = buildSessionFilter(applicationId, opts)
+        params.push(limit, offset)
+        const r = await this.pool.query<SummaryDbRow>(
+            `SELECT ${SUMMARY_COLS}
+             FROM agent_session
+             WHERE ${where.join(' AND ')}
+             ORDER BY created_at DESC
+             LIMIT $${params.length - 1} OFFSET $${params.length}`,
+            params
+        )
+        return r.rows.map(rowToSummary)
+    }
+
+    async setSearchSummary(sessionId: string, searchText: string, turnCount: number): Promise<void> {
+        await this.pool.query(`UPDATE agent_session SET search_text = $2, turn_count = $3 WHERE id = $1`, [
+            sessionId,
+            searchText,
+            turnCount,
+        ])
+    }
+
     async listIdleCompleted(floorMaxAgeMs: number, limit = 200): Promise<AgentSession[]> {
         const r = await this.pool.query<DbRow>(
             `SELECT ${SELECT_COLS}
@@ -611,13 +664,12 @@ function buildSessionFilter(
         where.push(`created_at <= $${params.length}`)
     }
     if (opts.search?.trim()) {
-        // id + external_key only — transcript search would scan/detoast every
-        // session's JSONB; it lands on a persisted, indexed column instead.
-        // LIKE wildcards escaped so the term matches literally.
+        // id + external_key + the conversation digest (search_text) — never the
+        // raw conversation JSONB. LIKE wildcards escaped so the term is literal.
         const term = `%${opts.search.trim().replace(/[\\%_]/g, '\\$&')}%`
         params.push(term)
         const idx = params.length
-        where.push(`(id::text ILIKE $${idx} OR external_key ILIKE $${idx})`)
+        where.push(`(id::text ILIKE $${idx} OR external_key ILIKE $${idx} OR search_text ILIKE $${idx})`)
     }
     return { where, params }
 }
@@ -657,4 +709,47 @@ function parseUsageTotal(raw: unknown): SessionUsageTotal {
         return { ...EMPTY_USAGE_TOTAL }
     }
     return { ...EMPTY_USAGE_TOTAL, ...(raw as Partial<SessionUsageTotal>) }
+}
+
+interface SummaryDbRow {
+    id: string
+    application_id: string
+    revision_id: string
+    team_id: number
+    external_key: string | null
+    idempotency_key: string | null
+    trigger_metadata: unknown
+    state: string
+    principal: unknown
+    usage_total: unknown
+    retry_count: number
+    is_preview: boolean
+    turn_count: number | null
+    search_text: string | null
+    created_at: Date
+    updated_at: Date
+}
+
+function rowToSummary(row: SummaryDbRow): SessionSummary {
+    return {
+        id: row.id,
+        application_id: row.application_id,
+        revision_id: row.revision_id,
+        team_id: row.team_id,
+        external_key: row.external_key,
+        idempotency_key: row.idempotency_key,
+        trigger_metadata:
+            row.trigger_metadata && typeof row.trigger_metadata === 'object'
+                ? (row.trigger_metadata as Record<string, unknown>)
+                : null,
+        state: row.state as AgentSession['state'],
+        principal: (row.principal as AgentSession['principal']) ?? null,
+        usage_total: parseUsageTotal(row.usage_total),
+        retry_count: row.retry_count,
+        is_preview: row.is_preview === true,
+        turns: row.turn_count ?? 0,
+        search_text: row.search_text ?? null,
+        created_at: row.created_at.toISOString(),
+        updated_at: row.updated_at.toISOString(),
+    }
 }

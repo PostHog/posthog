@@ -1,5 +1,11 @@
-import { AssistantMessageRecord, ConversationMessage, EMPTY_USAGE_TOTAL, UserMessage } from './spec'
-import { accumulateUsage, lastAssistantTextPreview, totalConversationUsage } from './summarize-conversation'
+import { AssistantMessageRecord, ConversationMessage, EMPTY_USAGE_TOTAL, ToolResultMessage, UserMessage } from './spec'
+import {
+    accumulateUsage,
+    buildSearchText,
+    lastAssistantTextPreview,
+    previewText,
+    totalConversationUsage,
+} from './summarize-conversation'
 
 function user(content: string): UserMessage {
     return { role: 'user', content, timestamp: Date.now() }
@@ -81,6 +87,57 @@ describe('lastAssistantTextPreview', () => {
             { ...assistant({}), content: [] },
         ]
         expect(lastAssistantTextPreview(c)).toBe('visible reply')
+    })
+})
+
+describe('buildSearchText', () => {
+    function toolResult(text: string): ToolResultMessage {
+        return {
+            role: 'toolResult',
+            toolCallId: 'tc1',
+            toolName: 'bash',
+            content: [{ type: 'text', text }],
+            isError: false,
+            timestamp: Date.now(),
+        }
+    }
+
+    it('joins user + assistant text in order, collapsing whitespace', () => {
+        const c: ConversationMessage[] = [user('deploy the  widget'), assistant({ text: 'on\n  it' }), user('thanks')]
+        expect(buildSearchText(c)).toBe('deploy the widget on it thanks')
+    })
+
+    it('skips tool results and text-less assistant turns', () => {
+        const c: ConversationMessage[] = [
+            user('run it'),
+            toolResult('SECRET_TOKEN=abc noise that should not be searchable'),
+            { ...assistant({}), content: [] },
+            assistant({ text: 'done' }),
+        ]
+        expect(buildSearchText(c)).toBe('run it done')
+    })
+
+    it('truncates to the max code points without an ellipsis', () => {
+        const out = buildSearchText([user('a'.repeat(50))], 10)
+        expect(out).toBe('a'.repeat(10))
+    })
+
+    it('handles array-form user content', () => {
+        const c: ConversationMessage[] = [
+            { role: 'user', content: [{ type: 'text', text: 'hello' }], timestamp: Date.now() },
+        ]
+        expect(buildSearchText(c)).toBe('hello')
+    })
+})
+
+describe('previewText', () => {
+    it('returns null for null/empty', () => {
+        expect(previewText(null)).toBeNull()
+        expect(previewText('   ')).toBeNull()
+    })
+
+    it('collapses and truncates with an ellipsis', () => {
+        expect(previewText('hi   there', 4)).toBe('hi …')
     })
 })
 

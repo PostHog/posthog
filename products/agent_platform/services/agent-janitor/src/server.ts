@@ -49,6 +49,7 @@ import {
     AgentRevision,
     AgentRevisionRaw,
     AgentSession,
+    buildSearchText,
     AgentSpec,
     AgentSpecSchema,
     ApprovalRequest,
@@ -69,6 +70,7 @@ import {
     lastAssistantTextPreview,
     MemoryStore,
     PgIdentityAdminStore,
+    previewText,
     readTypedBundle,
     RevisionStore,
     SessionQueue,
@@ -287,6 +289,13 @@ const BackfillUsageBodySchema = z.object({
     limit: z.coerce.number().int().positive().max(5000).default(500),
 })
 
+const BackfillSearchTextBodySchema = z.object({
+    /** Per-application, like backfill_usage — call repeatedly across apps. */
+    application_id: z.string().min(1, 'missing_application_id'),
+    dry_run: z.boolean().default(true),
+    limit: z.coerce.number().int().positive().max(5000).default(500),
+})
+
 const CronFireBodySchema = z.object({
     /** Cron `name` from `spec.triggers[].config.name`. */
     cron_name: z.string().min(1),
@@ -405,12 +414,15 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 search: q.search,
             }
             const [sessions, count] = await Promise.all([
-                opts.queue.listByApplication(q.application_id, { ...filter, limit: q.limit, offset: q.offset }),
+                opts.queue.listSummariesByApplication(q.application_id, {
+                    ...filter,
+                    limit: q.limit,
+                    offset: q.offset,
+                }),
                 opts.queue.countByApplication(q.application_id, filter),
             ])
-            // Conversation can be large; strip it from the list view but derive a
-            // preview so a single tool call still tells you what the agent said.
-            // usage_total reads off the persisted column — no JSONB walk.
+            // `turns` + `preview` come off the persisted `turn_count` /
+            // `search_text` columns, so listing never detoasts a transcript.
             const summaries = sessions.map((s) => ({
                 id: s.id,
                 application_id: s.application_id,
@@ -420,8 +432,8 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 idempotency_key: s.idempotency_key,
                 trigger_metadata: s.trigger_metadata,
                 principal: s.principal,
-                turns: s.conversation.length,
-                preview: lastAssistantTextPreview(s.conversation),
+                turns: s.turns,
+                preview: previewText(s.search_text),
                 usage_total: s.usage_total,
                 retry_count: s.retry_count,
                 is_preview: s.is_preview,
@@ -564,6 +576,26 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 updated++
                 if (!body.dry_run) {
                     await opts.queue.update(s.id, { usage_total: recomputed })
+                }
+            }
+            res.json({ scanned, updated, dry_run: body.dry_run })
+        })
+    )
+
+    // Backfill `search_text` + `turn_count` for sessions created before the
+    // columns existed, so transcript search + the list preview cover them.
+    app.post(
+        '/sessions/backfill_search_text',
+        asyncHandler(async (req, res) => {
+            const body = BackfillSearchTextBodySchema.parse(req.body)
+            const sessions = await opts.queue.listByApplication(body.application_id, { limit: body.limit })
+            let scanned = 0
+            let updated = 0
+            for (const s of sessions) {
+                scanned++
+                updated++
+                if (!body.dry_run) {
+                    await opts.queue.setSearchSummary(s.id, buildSearchText(s.conversation), s.conversation.length)
                 }
             }
             res.json({ scanned, updated, dry_run: body.dry_run })
