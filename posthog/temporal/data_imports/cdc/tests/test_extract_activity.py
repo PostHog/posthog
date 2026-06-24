@@ -97,6 +97,36 @@ def _make_schema(
     return schema
 
 
+def _fake_update_schema_sync_type_config(schema, *, updates=None, removes=None, mutate=None, extra_model_fields=None):
+    """Stand-in for CDCExtractActivity._update_schema_sync_type_config that merges onto the
+    in-memory mock schema. The real helper re-reads the row from Postgres under a lock, which these
+    mock-only tests don't have; this mirrors its merge order (updates, then removes, then mutate)
+    and its post-merge application of `extra_model_fields` onto the schema."""
+    config = schema.sync_type_config or {}
+    if updates:
+        config.update(updates)
+    if removes:
+        for key in removes:
+            config.pop(key, None)
+    if mutate is not None:
+        mutate(config)
+    schema.sync_type_config = config
+    if extra_model_fields:
+        for field, value in extra_model_fields.items():
+            setattr(schema, field, value)
+
+
+@pytest.fixture(autouse=True)
+def _stub_sync_type_config_merge():
+    """Route every activity sync_type_config write onto the in-memory mock schema (no DB)."""
+    with patch.object(
+        CDCExtractActivity,
+        "_update_schema_sync_type_config",
+        side_effect=_fake_update_schema_sync_type_config,
+    ):
+        yield
+
+
 # Shared patch decorator for CDC activity tests
 _CDC_ACTIVITY_PATCHES = [
     "posthog.temporal.data_imports.cdc.activities.close_old_connections",
@@ -288,7 +318,6 @@ class TestFlushDeferredRuns:
         mock_producer.flush.assert_called_once()
 
         assert schema.sync_type_config["cdc_deferred_runs"] == []
-        schema.save.assert_called()
 
     @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
     def test_no_op_when_no_deferred_runs(self, MockProducer):
