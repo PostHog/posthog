@@ -18,8 +18,13 @@ from posthog.scopes import (
     PRIVILEGED_SCOPES,
     UNPRIVILEGED_SCOPES,
     downgrade_scopes_to_read_only,
+    effective_ceiling,
+    filter_to_unprivileged_scopes,
     get_oauth_scopes_supported,
     get_scope_descriptions,
+    narrow_scopes_to_ceiling,
+    scopes_outside_ceiling,
+    scopes_within_ceiling,
 )
 
 
@@ -227,3 +232,172 @@ class TestGetScopeDescriptions(SimpleTestCase):
                 continue
             for action in ("read", "write"):
                 assert f"{obj}:{action}" in descriptions
+
+
+class TestScopesWithinCeiling(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("subset_of_explicit_ceiling", ["query:read"], ["query:read", "insight:read"], True),
+            ("outside_explicit_ceiling", ["insight:write"], ["query:read"], False),
+            ("empty_request_always_allowed", [], ["query:read"], True),
+            ("privileged_rejected_without_ceiling", ["llm_gateway:read"], [], False),
+            ("privileged_allowed_when_in_ceiling", ["llm_gateway:read"], ["llm_gateway:read"], True),
+            ("wildcard_rejected_under_explicit_ceiling", ["*"], ["query:read"], False),
+            # Provisioning never grandfathered `*`; an unseeded ceiling must not grant it.
+            ("wildcard_rejected_under_empty_ceiling", ["*"], [], False),
+            ("unprivileged_allowed_under_empty_ceiling", ["query:read", "insight:write"], [], True),
+            # `@default` sentinel: the unprivileged default plus the other listed scopes.
+            ("default_sentinel_grants_unprivileged", ["query:read", "insight:write"], ["@default"], True),
+            (
+                "default_sentinel_grants_listed_privileged_extra",
+                ["llm_gateway:read", "query:read"],
+                ["@default", "llm_gateway:read"],
+                True,
+            ),
+            (
+                "default_sentinel_rejects_unlisted_privileged",
+                ["llm_gateway:write"],
+                ["@default", "llm_gateway:read"],
+                False,
+            ),
+            ("wildcard_rejected_under_default_sentinel", ["*"], ["@default"], False),
+            ("sentinel_itself_not_grantable", ["@default"], ["@default"], False),
+            ("default_sentinel_tolerates_whitespace", ["query:read", "insight:write"], [" @default "], True),
+        ]
+    )
+    def test_resolution(self, _name: str, requested: list[str], app_scopes: list[str], expected: bool) -> None:
+        assert scopes_within_ceiling(requested, app_scopes) is expected
+
+    @parameterized.expand(
+        [
+            ("openid_and_introspection", ["openid", "introspection"], ["query:read"]),
+            ("email_under_empty_ceiling", ["email"], []),
+        ]
+    )
+    def test_oidc_and_introspection_always_allowed(
+        self, _name: str, requested: list[str], app_scopes: list[str]
+    ) -> None:
+        assert scopes_within_ceiling(requested, app_scopes) is True
+
+    def test_wildcard_under_empty_ceiling_gated_by_flag(self) -> None:
+        # The one resolution difference between callers: /authorize grandfathers `*`
+        # under an empty ceiling, provisioning (default) does not.
+        assert scopes_within_ceiling(["*"], [], allow_wildcard_under_empty_ceiling=True) is True
+        assert scopes_within_ceiling(["*"], [], allow_wildcard_under_empty_ceiling=False) is False
+
+    @parameterized.expand(
+        [
+            ("empty_falls_back_to_unprivileged", [], UNPRIVILEGED_SCOPES),
+            ("explicit_list_is_exhaustive", ["query:read", "insight:read"], frozenset({"query:read", "insight:read"})),
+            (
+                "default_sentinel_expands_to_unprivileged_plus_extras",
+                ["@default", "llm_gateway:read"],
+                UNPRIVILEGED_SCOPES | {"llm_gateway:read"},
+            ),
+            (
+                "sentinel_and_extras_tolerate_whitespace",
+                [" @default ", "llm_gateway:read "],
+                UNPRIVILEGED_SCOPES | {"llm_gateway:read"},
+            ),
+        ]
+    )
+    def test_effective_ceiling(self, _name: str, app_scopes: list[str], expected: frozenset[str]) -> None:
+        assert effective_ceiling(app_scopes) == expected
+
+
+class TestScopesOutsideCeiling(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("subset_within_ceiling_none_rejected", ["query:read"], ["query:read", "insight:read"], []),
+            ("isolates_offender_from_grantable", ["query:read", "insight:write"], ["query:read"], ["insight:write"]),
+            ("privileged_rejected_without_ceiling", ["llm_gateway:read"], [], ["llm_gateway:read"]),
+            ("wildcard_rejected_under_explicit_ceiling", ["query:read", "*"], ["query:read"], ["*"]),
+            ("oidc_never_rejected", ["openid", "insight:write"], ["query:read"], ["insight:write"]),
+            (
+                "default_sentinel_isolates_unlisted_privileged",
+                ["llm_gateway:write", "query:read"],
+                ["@default", "llm_gateway:read"],
+                ["llm_gateway:write"],
+            ),
+        ]
+    )
+    def test_resolution(self, _name: str, requested: list[str], app_scopes: list[str], expected: list[str]) -> None:
+        assert scopes_outside_ceiling(requested, app_scopes) == expected
+
+    def test_inverse_of_within_ceiling(self) -> None:
+        # The two helpers must never disagree: empty offender list iff within ceiling.
+        cases = [
+            (["query:read", "insight:write"], ["query:read"]),
+            (["query:read"], []),
+            (["*"], []),
+            (["llm_gateway:write", "query:read"], ["@default", "llm_gateway:read"]),
+        ]
+        for requested, app_scopes in cases:
+            within = scopes_within_ceiling(requested, app_scopes, allow_wildcard_under_empty_ceiling=True)
+            outside = scopes_outside_ceiling(requested, app_scopes, allow_wildcard_under_empty_ceiling=True)
+            assert within is (outside == [])
+
+
+class TestNarrowScopesToCeiling(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("empty_ceiling_is_noop", ["query:read", "insight:write"], [], ["query:read", "insight:write"]),
+            ("narrows_to_tightened_ceiling", ["query:read", "insight:write"], ["query:read"], ["query:read"]),
+            ("no_overlap_returns_none", ["insight:write"], ["query:read"], None),
+            ("wildcard_left_untouched", ["*"], ["query:read"], ["*"]),
+            (
+                "always_allowed_survive_narrowing",
+                ["openid", "query:read", "insight:write"],
+                ["query:read"],
+                ["openid", "query:read"],
+            ),
+            # OIDC alone keeps the token alive even when every resource scope falls
+            # outside the ceiling — mirrors OAuthValidator.get_original_scopes.
+            (
+                "only_always_allowed_survive_when_resource_scopes_drop",
+                ["openid", "insight:write"],
+                ["query:read"],
+                ["openid"],
+            ),
+            # `@default` ceiling narrows to the unprivileged default plus listed extras,
+            # dropping a hidden scope (`wizard_session:read`) the default doesn't cover.
+            (
+                "default_sentinel_keeps_unprivileged_and_extras",
+                ["query:read", "llm_gateway:read", "wizard_session:read"],
+                ["@default", "llm_gateway:read"],
+                ["llm_gateway:read", "query:read"],
+            ),
+        ]
+    )
+    def test_resolution(
+        self, _name: str, requested: list[str], app_scopes: list[str], expected: list[str] | None
+    ) -> None:
+        assert narrow_scopes_to_ceiling(requested, app_scopes) == expected
+
+
+class TestFilterToUnprivilegedScopes(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("keeps_unprivileged", ["insight:read", "dashboard:write"], ["insight:read", "dashboard:write"]),
+            ("drops_privileged", ["llm_gateway:read", "insight:read"], ["insight:read"]),
+            ("drops_unknown_string", ["not_a_real_scope:write", "query:read"], ["query:read"]),
+            (
+                "dedupes_preserving_order",
+                ["insight:read", "query:read", "insight:read"],
+                ["insight:read", "query:read"],
+            ),
+            ("empty_in_empty_out", [], []),
+            ("all_dropped_yields_empty", ["llm_gateway:read", "garbage"], []),
+            # A self-registering app can't inject the ceiling sentinel to widen itself.
+            ("drops_default_sentinel", ["@default", "insight:read"], ["insight:read"]),
+        ]
+    )
+    def test_resolution(self, _name: str, given: list[str], expected: list[str]) -> None:
+        assert filter_to_unprivileged_scopes(given) == expected
+
+    def test_non_string_entries_dropped(self) -> None:
+        # Callers pass raw partner JSON (CIMD `com.posthog.scopes`), which may hold non-strings.
+        assert filter_to_unprivileged_scopes(["insight:read", 123, None, {"x": 1}, "query:read"]) == [
+            "insight:read",
+            "query:read",
+        ]

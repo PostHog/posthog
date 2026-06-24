@@ -2,18 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { type ColumnDef } from '@tanstack/react-table'
 import * as React from 'react'
 
-import { FolderPlus } from 'lucide-react'
-
-import {
-    Badge,
-    Button,
-    Empty as QuillEmpty,
-    EmptyContent,
-    EmptyDescription,
-    EmptyHeader,
-    EmptyMedia,
-    EmptyTitle,
-} from '@posthog/quill-primitives'
+import { Badge } from '@posthog/quill-primitives'
 
 import { DataTable } from './data-table'
 
@@ -53,6 +42,8 @@ const columns: ColumnDef<Person>[] = [
     {
         accessorKey: 'signups',
         header: 'Signups',
+        // `meta.align` aligns the header and every body cell on the same axis.
+        meta: { align: 'right' },
         cell: (info) => <span className="tabular-nums">{info.getValue<number>()}</span>,
     },
     {
@@ -76,8 +67,7 @@ export const Default: Story = {
     render: () => (
         <>
             <p className="mb-4 text-sm text-muted-foreground">
-                Built with{' '}
-                {/* eslint-disable-next-line react/forbid-elements -- plain link in a storybook demo */}
+                Built with {/* eslint-disable-next-line react/forbid-elements -- plain link in a storybook demo */}
                 <a
                     className="text-primary underline"
                     href="https://tanstack.com/table/latest/docs/framework/react/guides/getting-started"
@@ -113,35 +103,75 @@ export const StickyHeader: Story = {
     ),
 }
 
-// Default empty state — minimal and generic.
-export const Empty: Story = {
-    render: () => (
-        <DataTable columns={columns} data={[]} className="max-w-2xl rounded-md border border-[var(--border)]" />
-    ),
-}
+// Full-width table: `fullWidth` stretches it to the container and the Name
+// column (marked `meta: { expand: true }`) absorbs the slack while the rest stay
+// content-sized.
+const fullWidthColumns: ColumnDef<Person>[] = [
+    {
+        accessorKey: 'name',
+        header: 'Name',
+        meta: { expand: true },
+        cell: (info) => (
+            <div className="flex min-w-0 flex-col">
+                <span className="truncate font-medium">{info.getValue<string>()}</span>
+                <span className="truncate text-muted-foreground">{info.row.original.email}</span>
+            </div>
+        ),
+    },
+    { accessorKey: 'role', header: 'Role' },
+    {
+        accessorKey: 'signups',
+        header: 'Signups',
+        meta: { align: 'right' },
+        cell: (info) => <span className="tabular-nums">{info.getValue<number>()}</span>,
+    },
+    {
+        accessorKey: 'status',
+        header: 'Status',
+        enableSorting: false,
+        meta: { align: 'center' },
+        cell: (info) => <StatusBadge status={info.getValue<string>()} />,
+    },
+]
 
-// Override the empty slot with app-specific copy and actions.
-export const EmptyCustom: Story = {
+export const FullWidth: Story = {
     render: () => (
         <DataTable
-            columns={columns}
-            data={[]}
-            className="max-w-2xl rounded-md border border-[var(--border)]"
-            empty={
-                <QuillEmpty>
-                    <EmptyHeader>
-                        <EmptyMedia variant="icon">
-                            <FolderPlus />
-                        </EmptyMedia>
-                        <EmptyTitle>No projects yet</EmptyTitle>
-                        <EmptyDescription>Get started by creating or importing a project.</EmptyDescription>
-                    </EmptyHeader>
-                    <EmptyContent className="flex-row justify-center gap-2">
-                        <Button variant="primary">Create project</Button>
-                        <Button variant="outline">Import</Button>
-                    </EmptyContent>
-                </QuillEmpty>
-            }
+            columns={fullWidthColumns}
+            data={people}
+            fullWidth
+            className="rounded-md border border-[var(--border)]"
         />
     ),
 }
+
+// Client-side pagination — pass `pageSize` to page the data and render a pager
+// below the table. `pageSizeOptions` adds a rows-per-page selector.
+export const Paginated: Story = {
+    render: () => (
+        <DataTable
+            columns={columns}
+            data={manyPeople}
+            pageSize={10}
+            pageSizeOptions={[10, 25, 50]}
+            className="max-w-2xl rounded-md border border-[var(--border)]"
+        />
+    ),
+}
+
+// Full width + pagination together — the table fills the container and the pager
+// spans the same width below it (row range and page-size selector on the left,
+// page controls on the right).
+export const FullWidthPaginated: Story = {
+    render: () => (
+        <DataTable
+            columns={fullWidthColumns}
+            data={manyPeople}
+            fullWidth
+            pageSize={10}
+            pageSizeOptions={[10, 25, 50]}
+            className="rounded-md border border-[var(--border)]"
+        />
+    ),
+}
+

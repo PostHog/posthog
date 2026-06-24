@@ -3,6 +3,7 @@ from uuid import uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Project, Team, User
@@ -111,6 +112,166 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
         self.assertEqual(Evaluation.objects.filter(name="Will Rollback").count(), 0)
         self.assertEqual(EvaluationReport.objects.count(), 0)
+
+    def test_can_create_sentiment_evaluation_without_default_report(self):
+        with patch(
+            "products.ai_observability.backend.feature_flags.posthoganalytics.feature_enabled", return_value=True
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/evaluations/",
+                {
+                    "name": "Sentiment Evaluation",
+                    "enabled": True,
+                    "evaluation_type": "sentiment",
+                    "evaluation_config": {},
+                    "output_type": "sentiment",
+                    "output_config": {},
+                    "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        evaluation = Evaluation.objects.get(id=response.data["id"])
+        self.assertEqual(evaluation.evaluation_type, "sentiment")
+        self.assertEqual(evaluation.evaluation_config, {"source": "user_messages"})
+        self.assertEqual(evaluation.output_type, "sentiment")
+        self.assertEqual(evaluation.output_config, {})
+        self.assertEqual(EvaluationReport.objects.filter(evaluation=evaluation).count(), 0)
+
+    def test_create_sentiment_evaluation_requires_feature_flag(self):
+        with patch(
+            "products.ai_observability.backend.feature_flags.posthoganalytics.feature_enabled", return_value=False
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/evaluations/",
+                {
+                    "name": "Sentiment Evaluation",
+                    "enabled": True,
+                    "evaluation_type": "sentiment",
+                    "evaluation_config": {},
+                    "output_type": "sentiment",
+                    "output_config": {},
+                    "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["attr"], "evaluation_type")
+        self.assertEqual(Evaluation.objects.count(), 0)
+
+    def test_re_enable_sentiment_evaluation_requires_feature_flag(self):
+        evaluation = Evaluation.objects.create(
+            name="Sentiment Evaluation",
+            enabled=False,
+            evaluation_type="sentiment",
+            evaluation_config={},
+            output_type="sentiment",
+            output_config={},
+            conditions=[{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
+            team=self.team,
+            created_by=self.user,
+        )
+
+        with patch(
+            "products.ai_observability.backend.feature_flags.posthoganalytics.feature_enabled", return_value=False
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/evaluations/{evaluation.id}/",
+                {"enabled": True},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["attr"], "evaluation_type")
+        evaluation.refresh_from_db()
+        self.assertFalse(evaluation.enabled)
+
+    def test_update_existing_sentiment_evaluation_allows_unchanged_type_when_feature_flag_off(self):
+        evaluation = Evaluation.objects.create(
+            name="Sentiment Evaluation",
+            enabled=True,
+            evaluation_type="sentiment",
+            evaluation_config={},
+            output_type="sentiment",
+            output_config={},
+            conditions=[{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
+            team=self.team,
+            created_by=self.user,
+        )
+
+        with patch(
+            "products.ai_observability.backend.feature_flags.posthoganalytics.feature_enabled", return_value=False
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/evaluations/{evaluation.id}/",
+                {
+                    "name": "Updated Sentiment Evaluation",
+                    "evaluation_type": "sentiment",
+                    "output_type": "sentiment",
+                    "evaluation_config": {"source": "user_messages"},
+                    "output_config": {},
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        evaluation.refresh_from_db()
+        self.assertEqual(evaluation.name, "Updated Sentiment Evaluation")
+
+    def test_sentiment_evaluation_rejects_model_configuration(self):
+        with patch(
+            "products.ai_observability.backend.feature_flags.posthoganalytics.feature_enabled", return_value=True
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/evaluations/",
+                {
+                    "name": "Sentiment Evaluation",
+                    "enabled": True,
+                    "evaluation_type": "sentiment",
+                    "evaluation_config": {},
+                    "output_type": "sentiment",
+                    "output_config": {},
+                    "model_configuration": {
+                        "provider": "openai",
+                        "model": "gpt-5-mini",
+                        "provider_key_id": None,
+                    },
+                    "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["attr"], "model_configuration")
+
+    @parameterized.expand(
+        [
+            ("sentiment_boolean", "sentiment", "boolean", {}, {}),
+            ("llm_judge_sentiment", "llm_judge", "sentiment", {"prompt": "Test prompt"}, {}),
+        ]
+    )
+    def test_rejects_unsupported_evaluation_output_type_combinations(
+        self, _name, evaluation_type, output_type, evaluation_config, output_config
+    ):
+        with patch(
+            "products.ai_observability.backend.feature_flags.posthoganalytics.feature_enabled", return_value=True
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/evaluations/",
+                {
+                    "name": "Unsupported Evaluation",
+                    "enabled": True,
+                    "evaluation_type": evaluation_type,
+                    "evaluation_config": evaluation_config,
+                    "output_type": output_type,
+                    "output_config": output_config,
+                    "conditions": [{"id": "test-condition", "rollout_percentage": 50, "properties": []}],
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["attr"], "config")
+        self.assertEqual(Evaluation.objects.count(), 0)
 
     def test_can_retrieve_list_of_evaluation_configs(self):
         Evaluation.objects.create(
@@ -376,6 +537,24 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data["attr"], "config")
 
+    def test_invalid_hog_source_returns_400_not_500(self):
+        # Malformed Hog source passes serializer config validation (non-empty source) but fails
+        # to compile in the model's save(). The compile failure must surface as a 400 validation
+        # error, not an unhandled 500 — `|` is the exact character that triggered this in production.
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Bad Hog Eval",
+                "evaluation_type": "hog",
+                "evaluation_config": {"source": "return |"},
+                "output_type": "boolean",
+                "output_config": {},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["attr"], "evaluation_config")
+        self.assertEqual(Evaluation.objects.count(), 0)
+
     def test_deleted_evaluation_configs_not_returned(self):
         evaluation_config = Evaluation.objects.create(
             name="Deleted Evaluation",
@@ -429,6 +608,67 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(response.data["conditions"][0]["rollout_percentage"], 50)
         self.assertEqual(len(response.data["conditions"][0]["properties"]), 1)
         self.assertEqual(response.data["conditions"][0]["properties"][0]["key"], "$ai_model_name")
+
+    def test_unknown_condition_keys_are_dropped_and_rollout_percentage_defaults_to_100(self):
+        # Regression: callers (notably MCP) previously sent `sampling_rate` instead of
+        # `rollout_percentage` and the unstructured JSONField silently persisted it. The
+        # dispatcher reads `rollout_percentage`, so the eval looked configured on the
+        # API surface (GET echoed `sampling_rate`) but never fired.
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Typo eval",
+                "evaluation_type": "llm_judge",
+                "evaluation_config": {"prompt": "Evaluate"},
+                "output_type": "boolean",
+                "output_config": {},
+                "conditions": [{"id": "cond-1", "sampling_rate": 100, "properties": []}],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        condition = response.data["conditions"][0]
+        self.assertNotIn("sampling_rate", condition)
+        self.assertEqual(condition["rollout_percentage"], 100)
+
+        stored = Evaluation.objects.get(id=response.data["id"])
+        self.assertEqual(stored.conditions[0]["rollout_percentage"], 100)
+        self.assertNotIn("sampling_rate", stored.conditions[0])
+
+        get_response = self.client.get(f"/api/environments/{self.team.id}/evaluations/{response.data['id']}/")
+        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+        self.assertNotIn("sampling_rate", get_response.data["conditions"][0])
+        self.assertEqual(get_response.data["conditions"][0]["rollout_percentage"], 100)
+
+    @parameterized.expand([(-1,), (101,), (150,)])
+    def test_rollout_percentage_out_of_range_rejected(self, rollout_percentage):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Out of range",
+                "evaluation_type": "llm_judge",
+                "evaluation_config": {"prompt": "Evaluate"},
+                "output_type": "boolean",
+                "output_config": {},
+                "conditions": [{"id": "cond-1", "rollout_percentage": rollout_percentage, "properties": []}],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @parameterized.expand([(0,), (100,)])
+    def test_rollout_percentage_boundaries_accepted(self, rollout_percentage):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/evaluations/",
+            {
+                "name": "Boundary",
+                "evaluation_type": "llm_judge",
+                "evaluation_config": {"prompt": "Evaluate"},
+                "output_type": "boolean",
+                "output_config": {},
+                "conditions": [{"id": "cond-1", "rollout_percentage": rollout_percentage, "properties": []}],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertEqual(response.data["conditions"][0]["rollout_percentage"], rollout_percentage)
 
 
 class TestTestHogEndpoint(APIBaseTest):

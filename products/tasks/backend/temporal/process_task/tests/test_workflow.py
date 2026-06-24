@@ -1,4 +1,5 @@
 import os
+import json
 import uuid
 import random
 import asyncio
@@ -16,8 +17,9 @@ from temporalio.exceptions import ActivityError, RetryState
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxStatus, SandboxTemplate
 from products.tasks.backend.models import SandboxSnapshot
-from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxStatus, SandboxTemplate
+from products.tasks.backend.temporal.constants import INACTIVITY_TIMEOUT_USER_SECONDS, WARM_IDLE_TIMEOUT
 from products.tasks.backend.temporal.process_task import workflow as process_task_workflow_module
 from products.tasks.backend.temporal.process_task.activities import (
     CreateSandboxForRepositoryOutput,
@@ -335,6 +337,21 @@ class TestProcessTaskWorkflowUnit:
         )
 
         assert workflow._should_forward_pending_user_message() is expected
+
+    @pytest.mark.parametrize(
+        "payload, expected_prewarmed",
+        [
+            ({"run_id": "r1"}, False),
+            ({"run_id": "r1", "prewarmed": False}, False),
+            ({"run_id": "r1", "prewarmed": True}, True),
+        ],
+    )
+    def test_parse_inputs_reads_prewarmed(self, payload: dict, expected_prewarmed: bool):
+        parsed = ProcessTaskWorkflow.parse_inputs([json.dumps(payload)])
+        assert parsed.prewarmed is expected_prewarmed
+
+    def test_warm_idle_timeout_is_shorter_than_active_inactivity(self):
+        assert WARM_IDLE_TIMEOUT < timedelta(seconds=INACTIVITY_TIMEOUT_USER_SECONDS)
 
     async def test_run_cleans_up_sandbox_when_provisioning_fails_after_creation(self, monkeypatch):
         workflow = ProcessTaskWorkflow()

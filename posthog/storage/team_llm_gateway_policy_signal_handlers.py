@@ -22,7 +22,6 @@ import structlog
 from posthog.models.team import Team
 from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
 from posthog.storage.team_llm_gateway_policy_cache import clear_team_llm_gateway_policy_cache
-from posthog.tasks.team_llm_gateway_policy import update_team_llm_gateway_policy_cache_task
 
 logger = structlog.get_logger(__name__)
 
@@ -106,7 +105,7 @@ def _value_changed(instance: Team, snapshot_attr: str, field_name: str) -> bool:
 
 
 def _update_cache_on_save(sender: type[Team], instance: Team, created: bool, **kwargs: Any) -> None:
-    if not settings.FLAGS_REDIS_URL:
+    if not settings.AI_GATEWAY_REDIS_URL:
         return
 
     old_api_token: str | None = instance.__dict__.get(_LOADED_API_TOKEN_ATTR)
@@ -126,6 +125,10 @@ def _update_cache_on_save(sender: type[Team], instance: Team, created: bool, **k
         instance.__dict__[_LOADED_REVOKED_AT_ATTR] = new_revoked_at
 
     def enqueue_task() -> None:
+        # posthog.tasks.__init__ eagerly imports every task module (celery autoimport);
+        # this signal module is wired at django.setup(), so import the task lazily.
+        from posthog.tasks.team_llm_gateway_policy import update_team_llm_gateway_policy_cache_task  # noqa: PLC0415
+
         try:
             update_team_llm_gateway_policy_cache_task.delay(instance.id)
             kinds = ["redis"] if settings.TEST else None
@@ -141,7 +144,10 @@ def _update_cache_on_save(sender: type[Team], instance: Team, created: bool, **k
                 clear_team_llm_gateway_policy_cache(instance, kinds=kinds)
         except Exception as e:
             HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
-                namespace="team_llm_gateway_policy", operation="enqueue", result="failure"
+                namespace="team_metadata",
+                cache_name="llm_gateway_policy",
+                operation="enqueue",
+                result="failure",
             ).inc()
             logger.exception(
                 "Failed to enqueue llm-gateway policy cache update",
@@ -153,7 +159,7 @@ def _update_cache_on_save(sender: type[Team], instance: Team, created: bool, **k
 
 
 def _clear_cache_on_delete(sender: type[Team], instance: Team, **kwargs: Any) -> None:
-    if not settings.FLAGS_REDIS_URL:
+    if not settings.AI_GATEWAY_REDIS_URL:
         return
 
     kinds = ["redis"] if settings.TEST else None

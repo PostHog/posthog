@@ -4,10 +4,11 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import api, { getCookie } from 'lib/api'
+import api, { ApiConfig, getCookie } from 'lib/api'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 // eslint-disable-next-line import/no-cycle
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { clearSession, isOAuthMode, setOAuthContextIds } from 'lib/oauth/oauthClient'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -150,15 +151,11 @@ export const userLogic = kea<userLogicType>([
                     if (!values.user) {
                         throw new Error('Current user has not been loaded yet, so it cannot be updated!')
                     }
-                    try {
-                        const response = await api.update<UserType>('api/users/@me/', user)
-                        successCallback?.()
-                        return response
-                    } catch (error: any) {
-                        console.error(error)
-                        actions.updateUserFailure(error.message)
-                        return values.user
-                    }
+                    // Let failures throw so kea-loaders dispatches `updateUserFailure` — returning the old
+                    // user here would be treated as a success, silently masking backend errors.
+                    const response = await api.update<UserType>('api/users/@me/', user)
+                    successCallback?.()
+                    return response
                 },
                 cancelEmailChangeRequest: async () => {
                     if (!values.user) {
@@ -264,6 +261,14 @@ export const userLogic = kea<userLogicType>([
             cache.loggingOut = true
             posthog.reset()
 
+            // OAuth mode: there's no local Django session to end — just drop the stored cloud
+            // token and return to the local login. (A cross-origin /logout POST would do nothing.)
+            if (isOAuthMode()) {
+                clearSession()
+                window.location.href = '/login'
+                return
+            }
+
             const form = document.createElement('form')
             form.method = 'POST'
             form.action = '/logout'
@@ -289,6 +294,27 @@ export const userLogic = kea<userLogicType>([
         },
         loadUserSuccess: ({ user }) => {
             if (user && user.uuid) {
+                // OAuth mode has no server-rendered app context, so seed the current ids from the
+                // freshly loaded remote user. This makes them available synchronously before the first
+                // project-scoped URL is built, avoiding "Project ID is not known." (and the sibling
+                // user/org id errors) on bootstrap. The API layer reads default project/team-id params
+                // from ApiConfig; getAppContext's synchronous getters read the pushed ids (it stays a
+                // leaf module — importing ApiConfig there would create a module-init cycle).
+                if (isOAuthMode()) {
+                    if (user.team) {
+                        ApiConfig.setCurrentTeamId(user.team.id)
+                        ApiConfig.setCurrentProjectId(user.team.project_id)
+                    }
+                    if (user.organization) {
+                        ApiConfig.setCurrentOrganizationId(user.organization.id)
+                    }
+                    setOAuthContextIds({
+                        teamId: user.team?.id,
+                        organizationId: user.organization?.id,
+                        userId: user.uuid,
+                    })
+                }
+
                 if (posthog) {
                     posthog.identify(user.distinct_id)
                     posthog.people.set({
@@ -351,8 +377,9 @@ export const userLogic = kea<userLogicType>([
                 toastId: 'updateUser',
             })
         },
-        updateUserFailure: () => {
-            lemonToast.error(`Error saving preferences`, {
+        updateUserFailure: ({ errorObject }) => {
+            lemonToast.dismiss('updateUser')
+            lemonToast.error(errorObject?.detail || 'Error saving preferences', {
                 toastId: 'updateUser',
             })
         },

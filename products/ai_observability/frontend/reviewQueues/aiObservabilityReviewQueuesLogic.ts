@@ -1,16 +1,16 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import { Sorting } from 'lib/lemon-ui/LemonTable'
+import { objectsEqual } from 'lib/utils/objects'
+import { pluralize } from 'lib/utils/strings'
 
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
-import { tabAwareActionToUrl } from '~/lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from '~/lib/logic/scenes/tabAwareUrlToAction'
-import { objectsEqual, pluralize } from '~/lib/utils'
+import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
 import { urls } from '~/scenes/urls'
 
 import type {
@@ -40,9 +40,7 @@ export interface ReviewQueueItemFilters {
 
 export type ReviewQueueEditorMode = 'create' | 'rename'
 
-export interface AIObservabilityReviewQueuesLogicProps {
-    tabId?: string
-}
+export type AIObservabilityReviewQueuesLogicProps = Record<string, never>
 
 const EMPTY_QUEUE_LIST: PaginatedReviewQueueListApi = {
     count: 0,
@@ -77,29 +75,48 @@ function findQueueById(queues: PaginatedReviewQueueListApi, queueId: string | nu
 }
 
 function cleanQueueFilters(values: Record<string, unknown>): ReviewQueueFilters {
-    const orderByValue = values.queue_order_by ?? values.order_by
+    const orderByValue = values.order_by
     const orderBy =
         typeof orderByValue === 'string' && ALLOWED_QUEUE_ORDER_BY_VALUES.has(orderByValue) ? orderByValue : 'name'
 
     return {
-        page: parseInt(String(values.queue_page ?? values.page)) || 1,
-        search: String(values.queue_search ?? values.search ?? ''),
+        page: parseInt(String(values.page)) || 1,
+        search: String(values.search ?? ''),
         order_by: orderBy,
     }
 }
 
 function cleanQueueItemFilters(values: Record<string, unknown>): ReviewQueueItemFilters {
-    const orderByValue = values.queue_item_order_by ?? values.order_by
+    const orderByValue = values.order_by
     const orderBy =
         typeof orderByValue === 'string' && ALLOWED_QUEUE_ITEM_ORDER_BY_VALUES.has(orderByValue)
             ? orderByValue
             : 'created_at'
 
     return {
-        page: parseInt(String(values.queue_item_page ?? values.page)) || 1,
-        search: String(values.queue_item_search ?? values.search ?? ''),
+        page: parseInt(String(values.page)) || 1,
+        search: String(values.search ?? ''),
         order_by: orderBy,
     }
+}
+
+// Only read the namespaced queue_* / queue_item_* params — the bare names on this
+// shared URL belong to the Scorers sub-tab, so reading them would leak Scorers
+// state into the queue filters. Matches the reviews logic.
+function queueFiltersFromUrl(searchParams: Record<string, unknown>): ReviewQueueFilters {
+    return cleanQueueFilters({
+        page: searchParams.queue_page,
+        search: searchParams.queue_search,
+        order_by: searchParams.queue_order_by,
+    })
+}
+
+function queueItemFiltersFromUrl(searchParams: Record<string, unknown>): ReviewQueueItemFilters {
+    return cleanQueueItemFilters({
+        page: searchParams.queue_item_page,
+        search: searchParams.queue_item_search,
+        order_by: searchParams.queue_item_order_by,
+    })
 }
 
 function cleanSelectedQueueId(values: Record<string, unknown>): string | null {
@@ -138,7 +155,6 @@ function getQueueUrlState(
 export const aiObservabilityReviewQueuesLogic = kea<aiObservabilityReviewQueuesLogicType>([
     path(['products', 'ai_observability', 'frontend', 'reviewQueues', 'aiObservabilityReviewQueuesLogic']),
     props({} as AIObservabilityReviewQueuesLogicProps),
-    key((props) => props.tabId ?? 'default'),
 
     actions({
         setQueueFilters: (filters: Partial<ReviewQueueFilters>, merge: boolean = true, debounce: boolean = true) => ({
@@ -179,7 +195,7 @@ export const aiObservabilityReviewQueuesLogic = kea<aiObservabilityReviewQueuesL
                     cleanQueueFilters({
                         ...(merge ? state || {} : {}),
                         ...filters,
-                        ...('page' in filters ? {} : { queue_page: 1 }),
+                        ...('page' in filters ? {} : { page: 1 }),
                     }),
             },
         ],
@@ -205,7 +221,7 @@ export const aiObservabilityReviewQueuesLogic = kea<aiObservabilityReviewQueuesL
                     cleanQueueItemFilters({
                         ...(merge ? state || {} : {}),
                         ...filters,
-                        ...('page' in filters ? {} : { queue_item_page: 1 }),
+                        ...('page' in filters ? {} : { page: 1 }),
                     }),
             },
         ],
@@ -588,53 +604,71 @@ export const aiObservabilityReviewQueuesLogic = kea<aiObservabilityReviewQueuesL
         },
     })),
 
-    tabAwareActionToUrl(({ values }) => ({
+    trackedActionToUrl(({ values }) => ({
         setQueueFilters: () => {
             const nextValues = getQueueUrlState(values.queueFilters, values.selectedQueueId, values.queueItemFilters)
             const urlValues = getQueueUrlState(
-                cleanQueueFilters(router.values.searchParams),
+                queueFiltersFromUrl(router.values.searchParams),
                 cleanSelectedQueueId(router.values.searchParams),
-                cleanQueueItemFilters(router.values.searchParams)
+                queueItemFiltersFromUrl(router.values.searchParams)
             )
 
             if (!objectsEqual(nextValues, urlValues)) {
-                return [urls.aiObservabilityReviews(), nextValues, {}, { replace: true }]
+                // This logic only owns the queue_* params — pass everyone else's through
+                return [
+                    urls.aiObservabilityReviews(),
+                    { ...router.values.searchParams, ...nextValues },
+                    {},
+                    { replace: true },
+                ]
             }
         },
         selectQueue: () => {
             const nextValues = getQueueUrlState(values.queueFilters, values.selectedQueueId, values.queueItemFilters)
             const urlValues = getQueueUrlState(
-                cleanQueueFilters(router.values.searchParams),
+                queueFiltersFromUrl(router.values.searchParams),
                 cleanSelectedQueueId(router.values.searchParams),
-                cleanQueueItemFilters(router.values.searchParams)
+                queueItemFiltersFromUrl(router.values.searchParams)
             )
 
             if (!objectsEqual(nextValues, urlValues)) {
-                return [urls.aiObservabilityReviews(), nextValues, {}, { replace: true }]
+                // This logic only owns the queue_* params — pass everyone else's through
+                return [
+                    urls.aiObservabilityReviews(),
+                    { ...router.values.searchParams, ...nextValues },
+                    {},
+                    { replace: true },
+                ]
             }
         },
         setQueueItemFilters: () => {
             const nextValues = getQueueUrlState(values.queueFilters, values.selectedQueueId, values.queueItemFilters)
             const urlValues = getQueueUrlState(
-                cleanQueueFilters(router.values.searchParams),
+                queueFiltersFromUrl(router.values.searchParams),
                 cleanSelectedQueueId(router.values.searchParams),
-                cleanQueueItemFilters(router.values.searchParams)
+                queueItemFiltersFromUrl(router.values.searchParams)
             )
 
             if (!objectsEqual(nextValues, urlValues)) {
-                return [urls.aiObservabilityReviews(), nextValues, {}, { replace: true }]
+                // This logic only owns the queue_* params — pass everyone else's through
+                return [
+                    urls.aiObservabilityReviews(),
+                    { ...router.values.searchParams, ...nextValues },
+                    {},
+                    { replace: true },
+                ]
             }
         },
     })),
 
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.aiObservabilityReviews()]: (_, searchParams, __, { method }) => {
             if (searchParams.human_reviews_tab === 'reviews' || searchParams.human_reviews_tab === 'scorers') {
                 return
             }
 
-            const newQueueFilters = cleanQueueFilters(searchParams)
-            const newQueueItemFilters = cleanQueueItemFilters(searchParams)
+            const newQueueFilters = queueFiltersFromUrl(searchParams)
+            const newQueueItemFilters = queueItemFiltersFromUrl(searchParams)
             const newSelectedQueueId = cleanSelectedQueueId(searchParams)
 
             const hasQueueFilterChanges = !objectsEqual(values.queueFilters, newQueueFilters)

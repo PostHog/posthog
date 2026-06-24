@@ -1,0 +1,590 @@
+# serializer version: 1
+# name: TestSlopeGraphTrendsQueryRunner.test_active_users_math_keeps_its_trailing_window
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-05-14 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT counts AS total,
+               toStartOfDay(timestamp) AS day_start
+        FROM
+          (SELECT d.timestamp AS timestamp,
+                  count(DISTINCT e.actor_id) AS counts
+           FROM
+             (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
+                     if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id
+              FROM events AS e
+              LEFT OUTER JOIN
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                        person_distinct_id_overrides.distinct_id AS distinct_id
+                 FROM person_distinct_id_overrides
+                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                 GROUP BY person_distinct_id_overrides.distinct_id
+                 HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              WHERE and(equals(e.team_id, 99999), equals(e.event, '$pageview'), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(7))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-05-14 23:59:59', 'UTC'))))
+              GROUP BY timestamp, actor_id) AS e
+           CROSS JOIN
+             (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2024-05-14 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
+              FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(7)), assumeNotNull(toDateTime('2024-05-14 23:59:59', 'UTC')))) AS numbers) AS d
+           WHERE and(lessOrEquals(e.timestamp, d.timestamp), greater(e.timestamp, minus(d.timestamp, toIntervalDay(7))))
+           GROUP BY d.timestamp
+           ORDER BY d.timestamp ASC)
+        WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-05-14 23:59:59', 'UTC')))))
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_breakdown_produces_one_two_point_line_per_value
+  '''
+  SELECT groupArray(1)(date)[1] AS date,
+                      arrayFold((acc, x) -> arrayMap(i -> plus(acc[i], x[i]), range(1, plus(length(date), 1))), groupArray(ifNull(total, 0)), arrayWithConstant(length(date), reinterpretAsFloat64(0))) AS total,
+                      if(ifNull(greaterOrEquals(row_number, 25), 0), '$$_posthog_breakdown_other_$$', breakdown_value) AS breakdown_value
+  FROM
+    (SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-05-10 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+            arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                      and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total,
+            breakdown_value AS breakdown_value,
+            rowNumberInAllBlocks() AS row_number
+     FROM
+       (SELECT sum(total) AS count,
+               day_start AS day_start,
+               breakdown_value AS breakdown_value
+        FROM
+          (SELECT count() AS total,
+                  toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
+                  ifNull(nullIf(leftUTF8(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'plan'), ''), 'null'), '^"|"$', '')), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+           FROM events AS e
+           WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-05-10 23:59:59', 'UTC'))), equals(e.event, '$pageview'), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-02 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 23:59:59', 6, 'UTC')))))
+           GROUP BY day_start,
+                    breakdown_value)
+        GROUP BY day_start,
+                 breakdown_value
+        ORDER BY day_start ASC,
+                 breakdown_value ASC)
+     GROUP BY breakdown_value
+     ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC)
+  WHERE isNotNull(breakdown_value)
+  GROUP BY breakdown_value
+  ORDER BY if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_other_$$'), 0), 2, if(ifNull(equals(breakdown_value, '$$_posthog_breakdown_null_$$'), 0), 1, 0)) ASC, arraySum(total) DESC, breakdown_value ASC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_formula_series
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-05-10 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT count() AS total,
+               toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
+        FROM events AS e
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-05-10 23:59:59', 'UTC'))), equals(e.event, '$pageview'), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-02 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 23:59:59', 6, 'UTC')))))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_groups_by_month_returning_first_and_last_month
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC')), toIntervalMonth(1)), toIntervalMonth(number)), range(0, plus(coalesce(dateDiff('month', toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC')), toIntervalMonth(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-03-31 23:59:59', 'UTC')), toIntervalMonth(1)))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT count() AS total,
+               toStartOfMonth(toTimeZone(e.timestamp, 'UTC')) AS day_start
+        FROM events AS e
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC')), toIntervalMonth(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-03-31 23:59:59', 'UTC'))), equals(e.event, '$pageview'), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-01-01 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-02-01 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-03-01 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-03-31 23:59:59', 6, 'UTC')))))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_hour_interval_first_and_last_hour
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-06-14 00:00:00', 'UTC')), toIntervalHour(1)), toIntervalHour(number)), range(0, plus(coalesce(dateDiff('hour', toStartOfInterval(assumeNotNull(toDateTime('2024-06-14 00:00:00', 'UTC')), toIntervalHour(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-06-14 04:30:00', 'UTC')), toIntervalHour(1)))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT count() AS total,
+               toStartOfHour(toTimeZone(e.timestamp, 'UTC')) AS day_start
+        FROM events AS e
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-06-14 00:00:00', 'UTC')), toIntervalHour(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-06-14 04:30:00', 'UTC'))), equals(e.event, '$pageview'), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-06-14 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-06-14 01:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-06-14 04:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-06-14 04:30:00', 6, 'UTC')))))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_keeps_the_query_property_filter_alongside_the_bucket_restriction
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-05-10 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT count() AS total,
+               toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
+        FROM events AS e
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-05-10 23:59:59', 'UTC'))), equals(e.event, '$pageview'), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'plan'), ''), 'null'), '^"|"$', ''), 'paid'), 0), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-02 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 23:59:59', 6, 'UTC'))))))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_last_bucket_is_the_current_partial_period_not_trimmed
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-04-01 00:00:00', 'UTC')), toIntervalMonth(1)), toIntervalMonth(number)), range(0, plus(coalesce(dateDiff('month', toStartOfInterval(assumeNotNull(toDateTime('2024-04-01 00:00:00', 'UTC')), toIntervalMonth(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-06-15 23:59:59', 'UTC')), toIntervalMonth(1)))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT count() AS total,
+               toStartOfMonth(toTimeZone(e.timestamp, 'UTC')) AS day_start
+        FROM events AS e
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-04-01 00:00:00', 'UTC')), toIntervalMonth(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-06-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-04-01 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-06-01 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-06-15 23:59:59', 6, 'UTC')))))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_monthly_active_math_keeps_its_trailing_window
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-04-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-04-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-05-13 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT counts AS total,
+               toStartOfDay(timestamp) AS day_start
+        FROM
+          (SELECT d.timestamp AS timestamp,
+                  count(DISTINCT e.actor_id) AS counts
+           FROM
+             (SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS timestamp,
+                     if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id
+              FROM events AS e
+              LEFT OUTER JOIN
+                (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                        person_distinct_id_overrides.distinct_id AS distinct_id
+                 FROM person_distinct_id_overrides
+                 WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                 GROUP BY person_distinct_id_overrides.distinct_id
+                 HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+              WHERE and(equals(e.team_id, 99999), equals(e.event, '$pageview'), greaterOrEquals(timestamp, minus(assumeNotNull(toDateTime('2024-04-01 00:00:00', 'UTC')), toIntervalDay(30))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-05-13 23:59:59', 'UTC'))))
+              GROUP BY timestamp, actor_id) AS e
+           CROSS JOIN
+             (SELECT minus(toStartOfInterval(assumeNotNull(toDateTime('2024-05-13 23:59:59', 'UTC')), toIntervalDay(1)), toIntervalDay(numbers.number)) AS timestamp
+              FROM numbers(dateDiff('day', minus(toStartOfInterval(assumeNotNull(toDateTime('2024-04-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(30)), assumeNotNull(toDateTime('2024-05-13 23:59:59', 'UTC')))) AS numbers) AS d
+           WHERE and(lessOrEquals(e.timestamp, d.timestamp), greater(e.timestamp, minus(d.timestamp, toIntervalDay(30))))
+           GROUP BY d.timestamp
+           ORDER BY d.timestamp ASC)
+        WHERE and(greaterOrEquals(timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-04-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-05-13 23:59:59', 'UTC')))))
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_no_events_yields_zero_endpoints
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-05-10 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT count() AS total,
+               toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
+        FROM events AS e
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-05-10 23:59:59', 'UTC'))), equals(e.event, '$pageview'), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-02 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 23:59:59', 6, 'UTC')))))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_non_utc_team_timezone
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'US/Pacific')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'US/Pacific')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-05-10 23:59:59', 'US/Pacific')), toIntervalDay(1)))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT count() AS total,
+               toStartOfDay(toTimeZone(e.timestamp, 'US/Pacific')) AS day_start
+        FROM events AS e
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'US/Pacific')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-05-10 23:59:59', 'US/Pacific'))), equals(e.event, '$pageview'), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'US/Pacific')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-02 00:00:00', 6, 'US/Pacific'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 00:00:00', 6, 'US/Pacific')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 23:59:59', 6, 'US/Pacific')))))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_preserves_a_property_group_filter
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-05-10 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT count() AS total,
+               toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
+        FROM events AS e
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-05-10 23:59:59', 'UTC'))), equals(e.event, '$pageview'), and(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'plan'), ''), 'null'), '^"|"$', ''), 'paid'), 0), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-02 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 23:59:59', 6, 'UTC'))))))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_relative_date_range
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-06-08 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-06-08 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-06-15 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT count() AS total,
+               toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
+        FROM events AS e
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-06-08 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-06-15 23:59:59', 'UTC'))), equals(e.event, '$pageview'), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-06-08 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-06-09 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-06-15 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-06-15 23:59:59', 6, 'UTC')))))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_returns_first_and_last_day_buckets_ignoring_the_middle
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-05-10 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT count() AS total,
+               toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
+        FROM events AS e
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-05-10 23:59:59', 'UTC'))), equals(e.event, '$pageview'), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-02 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 23:59:59', 6, 'UTC')))))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_single_bucket_range_yields_a_one_point_series
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalMonth(1)), toIntervalMonth(number)), range(0, plus(coalesce(dateDiff('month', toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalMonth(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-05-31 23:59:59', 'UTC')), toIntervalMonth(1)))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT count() AS total,
+               toStartOfMonth(toTimeZone(e.timestamp, 'UTC')) AS day_start
+        FROM events AS e
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalMonth(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-05-31 23:59:59', 'UTC'))), equals(e.event, '$pageview'), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-06-01 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-31 23:59:59', 6, 'UTC')))))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_smoothing_does_not_starve_the_last_point
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-05-10 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT count() AS total,
+               toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
+        FROM events AS e
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-05-10 23:59:59', 'UTC'))), equals(e.event, '$pageview'), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-02 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 23:59:59', 6, 'UTC')))))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_unique_users_math_is_per_bucket
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2024-05-10 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT count(DISTINCT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id)) AS total,
+               toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start
+        FROM events AS e
+        LEFT OUTER JOIN
+          (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+                  person_distinct_id_overrides.distinct_id AS distinct_id
+           FROM person_distinct_id_overrides
+           WHERE equals(person_distinct_id_overrides.team_id, 99999)
+           GROUP BY person_distinct_id_overrides.distinct_id
+           HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-05-10 23:59:59', 'UTC'))), equals(e.event, '$pageview'), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-01 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-02 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-10 23:59:59', 6, 'UTC')))))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---
+# name: TestSlopeGraphTrendsQueryRunner.test_week_interval_scan_filter_aligns_with_the_buckets
+  '''
+  SELECT arrayMap(number -> plus(toStartOfWeek(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), 0), toIntervalWeek(number)), range(0, plus(coalesce(dateDiff('week', toStartOfWeek(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), 0), toStartOfWeek(assumeNotNull(toDateTime('2024-05-28 23:59:59', 'UTC')), 0))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT count() AS total,
+               toStartOfWeek(toTimeZone(e.timestamp, 'UTC'), 0) AS day_start
+        FROM events AS e
+        WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toStartOfInterval(assumeNotNull(toDateTime('2024-05-01 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2024-05-28 23:59:59', 'UTC'))), equals(e.event, '$pageview'), or(and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-04-28 00:00:00', 6, 'UTC')), less(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-05 00:00:00', 6, 'UTC'))), and(greaterOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-26 00:00:00', 6, 'UTC')), lessOrEquals(e.timestamp, parseDateTime64BestEffortOrNull('2024-05-28 23:59:59', 6, 'UTC')))))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       optimize_rewrite_aggregate_function_with_if=0,
+                       optimize_min_inequality_conjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1,
+                       use_hive_partitioning=0
+  '''
+# ---

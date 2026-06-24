@@ -17,6 +17,7 @@ import type {
     EndpointRunResponseApi,
     EndpointVersionResponseApi,
     EndpointsListParams,
+    EndpointsLogsRetrieveParams,
     EndpointsOpenapiSpecRetrieveParams,
     EndpointsVersionsListParams,
     MaterializationPreviewRequestApi,
@@ -31,7 +32,7 @@ export const getEndpointsListUrl = (projectId: string, params?: EndpointsListPar
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -150,6 +151,34 @@ export const endpointsDestroy = async (projectId: string, name: string, options?
     })
 }
 
+export const getEndpointsLogsRetrieveUrl = (projectId: string, name: string, params?: EndpointsLogsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/endpoints/${name}/logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/endpoints/${name}/logs/`
+}
+
+export const endpointsLogsRetrieve = async (
+    projectId: string,
+    name: string,
+    params?: EndpointsLogsRetrieveParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getEndpointsLogsRetrieveUrl(projectId, name, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getEndpointsMaterializationPreviewCreateUrl = (projectId: string, name: string) => {
     return `/api/projects/${projectId}/endpoints/${name}/materialization_preview/`
 }
@@ -198,7 +227,7 @@ export const getEndpointsOpenapiSpecRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -268,7 +297,7 @@ export const getEndpointsVersionsListUrl = (projectId: string, name: string, par
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -299,7 +328,7 @@ export const getEndpointsLastExecutionTimesCreateUrl = (projectId: string) => {
 }
 
 /**
- * Get the last execution times in the past 6 months for multiple endpoints.
+ * Get the most recent execution time per endpoint (endpoint-level). Timestamps are recorded by the run path for personal-API-key calls. For per-version usage, query the query_log table directly.
  */
 export const endpointsLastExecutionTimesCreate = async (
     projectId: string,

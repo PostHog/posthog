@@ -34,7 +34,7 @@ Batch exports define recurring data export jobs that send events, persons, or se
 - Filter with `deleted = 0` to exclude soft-deleted exports
 - Filter with `paused = 0` to find actively running exports
 - Destination details (type, connection config) are not in this table; use the `batch-export-get` MCP tool instead
-- Run history is not directly queryable via SQL; use the `batch-export-runs-list` MCP tool
+- Run history is not directly queryable via SQL; `batch-export-get` returns the 10 most recent runs in `latest_runs` — for older runs use the PostHog UI (the runs endpoints are not exposed as MCP tools)
 
 ---
 

@@ -34,9 +34,14 @@ def final_github_redirect(connect_from: str | None, *, error: str | None = None)
     app_base_urls: dict[str, str] = {
         "posthog_mobile": MOBILE_GITHUB_CALLBACK_URL,
         "posthog_code": ACCOUNT_CONNECTED_GITHUB_INTEGRATION_PATH,
+        # Slack lands on the same web page; the ``connect_from`` marker tells it to bounce back
+        # to the Slack app (deep link) rather than the desktop app.
+        "slack": ACCOUNT_CONNECTED_GITHUB_INTEGRATION_PATH,
     }
     if connect_from in app_base_urls:
         params = {"provider": "github"}
+        if connect_from == "slack":
+            params["connect_from"] = "slack"
         if error:
             params["error"] = error
         return AppDeepLinkRedirect(f"{app_base_urls[connect_from]}?{urlencode(params)}")

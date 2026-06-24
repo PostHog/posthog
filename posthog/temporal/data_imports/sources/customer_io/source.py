@@ -6,6 +6,7 @@ import pyarrow as pa
 from asgiref.sync import async_to_sync
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -25,6 +26,7 @@ from posthog.temporal.data_imports.sources.common.base import (
     WebhookDeletionResult,
     WebhookSource,
 )
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
@@ -96,6 +98,7 @@ class CustomerIOSource(
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CUSTOMER_IO,
+            category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             caption=(
                 "Connect your Customer.io workspace using an "
                 f"[App API Key]({CIO_APP_API_KEY_URL}). PostHog uses the key to pull "
@@ -180,6 +183,11 @@ class CustomerIOSource(
             ),
         }
 
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.customer_io.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
+
     def get_schemas(
         self,
         config: CustomerIOSourceConfig,
@@ -198,6 +206,7 @@ class CustomerIOSource(
                 supports_incremental=False,
                 supports_append=False,
                 supports_webhooks=True,
+                webhook_only=True,
                 incremental_fields=[],
             )
             for name in CIO_WEBHOOK_SCHEMA_NAMES

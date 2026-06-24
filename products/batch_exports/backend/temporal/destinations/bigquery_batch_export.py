@@ -743,7 +743,7 @@ class BigQueryClient:
         not_found_ok: bool = True,
         delete: bool = True,
         create: bool = True,
-    ) -> collections.abc.AsyncGenerator[BigQueryTable, None]:
+    ) -> collections.abc.AsyncGenerator[BigQueryTable]:
         """Manage a table in BigQuery by ensuring it exists while in context."""
         if create is True:
             managed_table = await self.create_table(table, exists_ok)
@@ -1479,6 +1479,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                         consumer=consumer,
                         transformer=transformer,
                         json_columns=(),
+                        records_total=inputs.records_total,
                     )
 
                 else:

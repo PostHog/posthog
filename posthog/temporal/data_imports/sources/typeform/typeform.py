@@ -1,11 +1,12 @@
 from collections.abc import Iterable
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from typing import Any, Optional, cast
 
 from requests import Request, Response
 from requests.exceptions import RequestException
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.sources.common.datetime_utils import coerce_datetime_to_utc
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
 from posthog.temporal.data_imports.sources.common.rest_source.fanout import build_dependent_resource
@@ -37,20 +38,8 @@ def _validated_api_base_url(api_base_url: str | None) -> str:
     return normalized_url
 
 
-def _coerce_datetime_to_utc(value: Any) -> datetime | None:
-    if isinstance(value, date) and not isinstance(value, datetime):
-        value = datetime.combine(value, datetime.min.time())
-
-    if not isinstance(value, datetime):
-        return None
-
-    if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
-    return value.astimezone(UTC)
-
-
 def _start_param_for_typeform(value: Any) -> str:
-    normalized_value = _coerce_datetime_to_utc(value)
+    normalized_value = coerce_datetime_to_utc(value)
     if normalized_value is None:
         return str(value)
 
@@ -101,9 +90,19 @@ class TypeformFormsPaginator(BasePaginator):
 
 
 class TypeformResponsesPaginator(BasePaginator):
-    def __init__(self) -> None:
+    """Token-cursor paginator for /forms/{form_id}/responses.
+
+    Typeform rejects mixing `before` token pagination with the `since`/`until` datetime
+    window, so only the first page is windowed; later pages walk back through history via
+    `before`. Without a stop condition that walk re-fetches a form's entire response
+    history on every incremental sync, so when a watermark is known we stop as soon as a
+    whole page is older than it.
+    """
+
+    def __init__(self, stop_when_older_than: str | None = None) -> None:
         super().__init__()
         self._cursor: str | None = None
+        self._stop_when_older_than = stop_when_older_than
 
     def init_request(self, request: Request) -> None:
         self._cursor = None
@@ -122,6 +121,17 @@ class TypeformResponsesPaginator(BasePaginator):
         else:
             self._cursor = None
         self._has_next_page = self._cursor is not None
+
+        # Responses arrive newest-first; once an entire page predates the incremental
+        # watermark, everything further back has already been synced. Timestamps are
+        # RFC3339 UTC strings, so lexicographic comparison is chronological.
+        if self._has_next_page and self._stop_when_older_than is not None:
+            newest_in_page = max(
+                (item.get("submitted_at") or "" for item in data if isinstance(item, dict)),
+                default="",
+            )
+            if newest_in_page < self._stop_when_older_than:
+                self._has_next_page = False
 
     def update_request(self, request: Request) -> None:
         if self._cursor:
@@ -278,6 +288,14 @@ def typeform_source(
     endpoint_config = TYPEFORM_ENDPOINTS[endpoint]
     base_api_url = _validated_api_base_url(api_base_url)
 
+    incremental_watermark: str | None = None
+    if (
+        should_use_incremental_field
+        and db_incremental_field_last_value is not None
+        and (incremental_field or endpoint_config.default_incremental_field) == "submitted_at"
+    ):
+        incremental_watermark = _start_param_for_typeform(db_incremental_field_last_value)
+
     if endpoint_config.fanout:
         dependent_resource = cast(
             Iterable[Any],
@@ -299,7 +317,7 @@ def typeform_source(
                     "data_selector": "items",
                 },
                 child_endpoint_extra={
-                    "paginator": TypeformResponsesPaginator(),
+                    "paginator": TypeformResponsesPaginator(stop_when_older_than=incremental_watermark),
                     "data_selector": "items",
                 },
             ),

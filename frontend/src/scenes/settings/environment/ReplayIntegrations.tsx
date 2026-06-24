@@ -1,6 +1,10 @@
+import {
+    GithubIntegration,
+    GitLabIntegration,
+    JiraIntegration,
+    LinearIntegration,
+} from 'scenes/integrations/components/Integrations'
 import { urls } from 'scenes/urls'
-
-import { GithubIntegration, GitLabIntegration, JiraIntegration, LinearIntegration } from './Integrations'
 
 const NEXT_URL = urls.replaySettings('replay-integrations')
 

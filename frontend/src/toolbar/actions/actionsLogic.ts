@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
-import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import { toolbarApi } from '~/toolbar/toolbarApi'
 import { ActionType } from '~/types'
 
 import type { actionsLogicType } from './actionsLogicType'
@@ -20,21 +20,16 @@ export const actionsLogic = kea<actionsLogicType>([
             {
                 // oxlint-disable-next-line @typescript-eslint/no-unused-vars
                 getActions: async (_ = null, breakpoint: () => void) => {
-                    const response = await toolbarFetch('/api/projects/@current/actions/')
-                    const results = await response.json()
-
-                    if (response.status === 403) {
-                        toolbarConfigLogic.actions.authenticate()
-                        return []
-                    }
-
+                    const result = await toolbarApi.actions.list({
+                        context: 'load_actions',
+                        reauthenticateOnForbidden: true,
+                    })
                     breakpoint()
 
-                    if (!Array.isArray(results?.results)) {
-                        throw new Error('Error loading actions!')
+                    if (!result.ok || !Array.isArray(result.data.results)) {
+                        return values.allActions
                     }
-
-                    return results.results
+                    return result.data.results
                 },
                 updateAction: ({ action }: { action: ActionType }) => {
                     return values.allActions.filter((r) => r.id !== action.id).concat([action])

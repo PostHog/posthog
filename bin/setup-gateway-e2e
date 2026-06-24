@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+# Provision a real local ai-gateway e2e (resolver mode, not open/anonymous).
+#
+# Wires the full credential path end to end:
+#   1. enable the gateway on the main local team
+#   2. mint a deterministic phs_ project-secret key (llm_gateway:read)
+#   3. publish its credential blob to the SAME Valkey the Go gateway reads
+#      (localhost:6381) — Django's hypercache and the gateway must share one
+#      Redis or the resolver 401s
+#   4. fund that team's ledger in the gateway's Postgres (admission needs it)
+#   5. set the sibling gateway to AI_GATEWAY_AUTH_MODE=resolver
+#
+# The runner uses the gateway by default in dev (config dev defaults) and Django
+# defaults AI_GATEWAY_REDIS_URL to :6381 in dev — so no .env.local is needed.
+# Idempotent. The gateway itself runs from the sibling repo:
+#   cd ~/Development/ai-gateway && bin/start gateway   (or: just dev)
+#
+# Usage: bin/setup-gateway-e2e
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+AI_GATEWAY_REPO="${AI_GATEWAY_REPO:-$HOME/Development/ai-gateway}"
+# The Go gateway reads credentials from its Valkey (sibling compose, host
+# port 6381). Django must publish there too — same instance, or no match.
+GATEWAY_REDIS_URL="${AI_GATEWAY_REDIS_URL:-redis://localhost:6381}"
+# Deterministic so reruns + DB resets stay idempotent and the published blob's
+# hash matches the runner's dev-default POSTHOG_AI_GATEWAY_KEY (config.ts).
+DEV_PHS="${DEV_GATEWAY_PHS:-phs_localgatewaye2elocalgatewaye2e0001}"
+TOPUP_USD="${AI_GATEWAY_DEV_TOPUP_USD:-100.00}"
+
+# Pin the sibling gateway's compose project to its own name. PostHog's dev env
+# exports COMPOSE_PROJECT_NAME=posthog, which outranks the sibling compose's
+# `name: ai-gateway` and would scope the gateway's postgres/valkey under the
+# posthog project (wrong, and collides with the posthog stack).
+export COMPOSE_PROJECT_NAME=ai-gateway
+
+log() { printf '[setup-gateway-e2e] %s\n' "$*"; }
+
+if [ ! -d "$AI_GATEWAY_REPO" ]; then
+    cat >&2 <<EOF
+[setup-gateway-e2e] No sibling clone at $AI_GATEWAY_REPO.
+  git clone git@github.com:PostHog/ai-gateway.git "$AI_GATEWAY_REPO"
+  (or set AI_GATEWAY_REPO=/path/to/clone)
+EOF
+    exit 1
+fi
+
+if ! docker version --format '{{.Server.Version}}' >/dev/null 2>&1; then
+    echo "[setup-gateway-e2e] Docker daemon is not running. Start Docker Desktop and retry." >&2
+    exit 1
+fi
+
+# Upsert KEY=VALUE into a dotenv-style file (replace any existing line).
+upsert_env() {
+    local file="$1" key="$2" value="$3"
+    touch "$file"
+    # Drop any existing assignment, then append the fresh one. grep -v exits 0
+    # (lines kept) or 1 (none kept — file empty or only this key); both are fine.
+    # Exit >=2 is a real grep error — don't overwrite the original with a possibly
+    # truncated temp; leave the file intact and just append below.
+    local rc=0
+    grep -vE "^${key}=" "$file" >"${file}.tmp" 2>/dev/null || rc=$?
+    if [ "$rc" -le 1 ]; then
+        mv "${file}.tmp" "$file"
+    else
+        rm -f "${file}.tmp"
+    fi
+    printf '%s=%s\n' "$key" "$value" >>"$file"
+}
+
+# 1. Sibling deps (postgres :5435 + valkey :6381). --remove-orphans clears the
+#    stale gateway/billing containers from the old `--profile full` era (the
+#    gateway runs on the host now, not as a container).
+log "bringing up sibling gateway deps (postgres + valkey)"
+(cd "$AI_GATEWAY_REPO" && docker compose up -d --wait --remove-orphans >/dev/null)
+
+# 2-3. Enable the team, mint the phs_, publish the blob to the gateway's Valkey
+#      — all in the testable `setup_local_gateway_credential` management command
+#      (was an inline `manage.py shell` heredoc). AI_GATEWAY_REDIS_URL points the
+#      dedicated hypercache alias at :6381 so the write lands where the gateway
+#      reads (posthog:1:cache/...).
+log "provisioning phs_ + publishing credential blob to $GATEWAY_REDIS_URL"
+provision_out="$(
+    DEBUG="${DEBUG:-1}" AI_GATEWAY_REDIS_URL="$GATEWAY_REDIS_URL" \
+        python "$REPO_ROOT/manage.py" setup_local_gateway_credential --phs "$DEV_PHS" 2>&1
+)" || true
+TEAM_ID="$(printf '%s\n' "$provision_out" | sed -n 's/^__GATEWAY_E2E_TEAM_ID__=//p')"
+if [ -z "${TEAM_ID:-}" ]; then
+    echo "[setup-gateway-e2e] failed to provision the credential. Django output:" >&2
+    printf '%s\n' "$provision_out" >&2
+    exit 1
+fi
+log "team $TEAM_ID enabled; phs_ minted + blob published"
+
+# 4. Fund that team's ledger in the gateway's Postgres (admission gate). The
+#    gateway creates the ledger schema on its first boot, so this is best-effort
+#    on a fresh stack — if `ledger_entries` doesn't exist yet, fund on the next
+#    run (after the gateway has come up once). The INSERT is guarded so reruns
+#    (start-ai-gateway re-invokes this script on every gateway boot) don't keep
+#    stacking +$100 topups onto the same team.
+log "funding team $TEAM_ID gateway ledger (+${TOPUP_USD} USD if not already funded)"
+# Capture stderr (discard stdout) so a real SQL error — e.g. a sibling renames a
+# ledger_entries column — is surfaced instead of being silently indistinguishable
+# from the expected "schema not created yet" on a fresh stack.
+fund_rc=0
+fund_err="$(
+    cd "$AI_GATEWAY_REPO" && docker compose exec -T postgres psql -U postgres -d ai_gateway -v ON_ERROR_STOP=1 -c \
+        "INSERT INTO ledger_entries (team_id, transaction_type, source, destination, amount_usd) SELECT ${TEAM_ID}, 'topup', 'funding', 'prepaid', ${TOPUP_USD} WHERE NOT EXISTS (SELECT 1 FROM ledger_entries WHERE team_id = ${TEAM_ID} AND transaction_type = 'topup' AND source = 'funding');" 2>&1 >/dev/null
+)" || fund_rc=$?
+if [ "$fund_rc" -eq 0 ]; then
+    log "ledger funded (or already funded — no-op)"
+elif printf '%s' "$fund_err" | grep -qiE "does not exist"; then
+    log "ledger not funded — gateway hasn't created the schema yet; start the gateway, then re-run this to fund"
+else
+    log "ledger funding failed unexpectedly (not a missing-schema case) — psql said:"
+    printf '%s\n' "$fund_err" >&2
+fi
+
+# 5. Switch the sibling gateway to resolver mode (validate phs_ vs the blob).
+SIBLING_ENV="$AI_GATEWAY_REPO/.env"
+if [ ! -f "$SIBLING_ENV" ] && [ -f "$AI_GATEWAY_REPO/.env.example" ]; then
+    cp "$AI_GATEWAY_REPO/.env.example" "$SIBLING_ENV"
+fi
+upsert_env "$SIBLING_ENV" "AI_GATEWAY_AUTH_MODE" "resolver"
+log "set AI_GATEWAY_AUTH_MODE=resolver in $SIBLING_ENV"
+
+cat <<EOF
+
+[setup-gateway-e2e] done. The runner already defaults to the gateway in dev. Next:
+  1. Run the gateway (resolver mode picked up from its .env):
+       cd $AI_GATEWAY_REPO && bin/start gateway
+     Make sure its .env also has provider keys:
+       AI_GATEWAY_ANTHROPIC_API_KEY=sk-ant-...   AI_GATEWAY_OPENAI_API_KEY=sk-proj-...
+  2. (Re)start the agent-runner.
+  3. Smoke it:
+       curl -sS http://localhost:8080/v1/messages -H "Authorization: Bearer $DEV_PHS" \\
+         -H 'content-type: application/json' \\
+         -d '{"model":"claude-sonnet-4-5","max_tokens":16,"messages":[{"role":"user","content":"hi"}]}'
+EOF

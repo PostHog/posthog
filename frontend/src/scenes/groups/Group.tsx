@@ -14,7 +14,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner, SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { GroupLogicProps, groupLogic } from 'scenes/groups/groupLogic'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
@@ -60,10 +60,7 @@ export const scene: SceneExport<GroupLogicProps> = {
     }),
 }
 
-export function Group({ tabId }: { tabId?: string }): JSX.Element {
-    if (!tabId) {
-        throw new Error('GroupScene rendered with no tabId')
-    }
+export function Group(): JSX.Element {
     const mountedGroupLogic = useMountedLogic(groupLogic)
     const {
         logicProps,
@@ -129,13 +126,7 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
                               {
                                   key: GroupsTabType.PROFILE,
                                   label: <span data-attr="groups-profile-tab">Profile</span>,
-                                  content: (
-                                      <GroupProfileCanvas
-                                          group={groupData}
-                                          tabId={tabId}
-                                          attachTo={mountedGroupLogic}
-                                      />
-                                  ),
+                                  content: <GroupProfileCanvas group={groupData} attachTo={mountedGroupLogic} />,
                               },
                           ]
                         : []),

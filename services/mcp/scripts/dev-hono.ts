@@ -6,11 +6,23 @@ import { context, type Plugin } from 'esbuild'
 import { existsSync } from 'fs'
 import { resolve } from 'path'
 
+import { copyInstructions } from './copy-instructions'
 import { honoEsbuildOptions, honoOutfile } from './hono-esbuild-config'
 
-if (existsSync(resolve(process.cwd(), '.env'))) {
-    process.loadEnvFile(resolve(process.cwd(), '.env'))
+// Load the same local-dev config the Workers (wrangler) runtime uses, so
+// hono and wrangler boot with the same env. Wrangler reads `.dev.vars`
+// natively; in hono mode we have to load it ourselves. `.env` (if present)
+// still wins because it's the more conventional override slot.
+const dotDevVars = resolve(process.cwd(), '.dev.vars')
+if (existsSync(dotDevVars)) {
+    process.loadEnvFile(dotDevVars)
 }
+const dotEnv = resolve(process.cwd(), '.env')
+if (existsSync(dotEnv)) {
+    process.loadEnvFile(dotEnv)
+}
+
+copyInstructions()
 
 // flox sets SSL_CERT_FILE; Node's TLS layer only reads NODE_EXTRA_CA_CERTS.
 if (!process.env.NODE_EXTRA_CA_CERTS && process.env.SSL_CERT_FILE) {

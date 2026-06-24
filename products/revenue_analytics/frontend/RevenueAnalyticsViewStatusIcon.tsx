@@ -5,7 +5,7 @@ import { IconCheckCircle, IconClock, IconInfo, IconRefresh, IconWarning } from '
 import { LemonButton, LemonTable, Link, Popover } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { urls } from 'scenes/urls'
 
 import { DataWarehouseSavedQuery } from '~/types'

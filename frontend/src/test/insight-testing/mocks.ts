@@ -1,5 +1,3 @@
-import { RestRequest } from 'msw'
-
 import { useMocks } from '~/mocks/jest'
 import { ActorsQueryResponse, NodeKind, TrendsQueryResponse } from '~/queries/schema/schema-general'
 import { EventDefinition, PropertyDefinition, RawAnnotationType } from '~/types'
@@ -27,7 +25,17 @@ export interface QueryBody {
         breakdowns?: Array<{ property?: string }>
         breakdown?: string
     }
+    trendsFilter?: {
+        formula?: string
+        formulas?: string[]
+        formulaNodes?: unknown[]
+    }
     [key: string]: unknown
+}
+
+function hasFormula(query: QueryBody): boolean {
+    const tf = query.trendsFilter
+    return !!(tf?.formula || tf?.formulas?.length || tf?.formulaNodes?.length)
 }
 
 interface FunnelsQueryResponseLike {
@@ -66,27 +74,35 @@ export function buildActorsResponse(
     } as ActorsQueryResponse
 }
 
-function buildTrendsResponse(series: SeriesData[]): TrendsQueryResponse {
+// `isFormula` only models the single-formula shape: the real runner combines series per
+// formula (`action: null`, `order` = formula index). This mock doesn't combine series, so
+// it stamps `order: 0` on every row, which works for a single formula. A future multi-formula
+// test would need this to derive the formula index per row (0 for A, 1 for B, …).
+function buildTrendsResponse(series: SeriesData[], opts: { isFormula?: boolean } = {}): TrendsQueryResponse {
     return {
-        results: series.map((s, i) => ({
-            action: {
-                id: `$${s.label.toLowerCase().replace(/\s+/g, '_')}`,
-                type: 'events',
-                name: s.label,
-                // Breakdown rows of a single series share the series' order (as the real query
-                // runner does); only distinct series get distinct orders.
-                order: s.compare || s.breakdown_value != null ? 0 : i,
-            },
-            label: s.label,
-            count: s.data.reduce((a, b) => a + b, 0),
-            aggregated_value: s.data.reduce((a, b) => a + b, 0),
-            data: s.data,
-            labels: s.labels ?? s.data.map((_, j) => `Day ${j + 1}`),
-            days: s.days ?? s.data.map((_, j) => `2024-01-0${j + 1}`),
-            breakdown_value: s.breakdown_value,
-            compare: s.compare,
-            compare_label: s.compare_label,
-        })),
+        results: series.map((s, i) => {
+            const seriesOrder = s.compare || s.breakdown_value != null ? 0 : i
+            return {
+                action: opts.isFormula
+                    ? null
+                    : {
+                          id: `$${s.label.toLowerCase().replace(/\s+/g, '_')}`,
+                          type: 'events',
+                          name: s.label,
+                          order: seriesOrder,
+                      },
+                order: opts.isFormula ? 0 : seriesOrder,
+                label: s.label,
+                count: s.data.reduce((a, b) => a + b, 0),
+                aggregated_value: s.data.reduce((a, b) => a + b, 0),
+                data: s.data,
+                labels: s.labels ?? s.data.map((_, j) => `Day ${j + 1}`),
+                days: s.days ?? s.data.map((_, j) => `2024-01-0${j + 1}`),
+                breakdown_value: s.breakdown_value,
+                compare: s.compare,
+                compare_label: s.compare_label,
+            }
+        }),
     } as TrendsQueryResponse
 }
 
@@ -97,12 +113,14 @@ function buildStickinessResponse(series: SeriesData[]): TrendsQueryResponse {
     return {
         results: series.map((s, i) => {
             const buckets = s.data.length
+            // Compare current/previous share one series identity (order 0), mirroring the real runner.
+            const seriesOrder = s.compare || s.breakdown_value != null ? 0 : i
             return {
                 action: {
                     id: `$${s.label.toLowerCase().replace(/\s+/g, '_')}`,
                     type: 'events',
                     name: s.label,
-                    order: i,
+                    order: seriesOrder,
                 },
                 label: s.label,
                 count: s.data.reduce((a, b) => a + b, 0),
@@ -111,6 +129,8 @@ function buildStickinessResponse(series: SeriesData[]): TrendsQueryResponse {
                 labels: Array.from({ length: buckets }, (_, j) => `${j + 1} day${j === 0 ? '' : 's'}`),
                 days: Array.from({ length: buckets }, (_, j) => j + 1),
                 breakdown_value: s.breakdown_value,
+                compare: s.compare,
+                compare_label: s.compare_label,
             }
         }),
     } as TrendsQueryResponse
@@ -138,6 +158,10 @@ function resolveActors(query: QueryBody): Array<{ email: string }> {
 /** Funnels in trends-viz mode return a flat `FunnelStep[]` — one entry per series, or per breakdown value. */
 function buildFunnelsResponse(query: QueryBody): FunnelsQueryResponseLike {
     const breakdownProp = query.breakdownFilter?.breakdowns?.[0]?.property ?? query.breakdownFilter?.breakdown
+    const isCompare = !!(query as { compareFilter?: { compare?: boolean } }).compareFilter?.compare
+    if (isCompare && breakdownProp && funnelTrendsSteps.compareByBreakdown[breakdownProp]) {
+        return { results: funnelTrendsSteps.compareByBreakdown[breakdownProp] }
+    }
     if (breakdownProp && funnelTrendsSteps.byBreakdown[breakdownProp]) {
         return { results: funnelTrendsSteps.byBreakdown[breakdownProp] }
     }
@@ -217,7 +241,7 @@ export function setupInsightMocks({
     const defaults: MockResponse[] = [
         {
             match: (query) => query.kind === NodeKind.TrendsQuery,
-            response: (query) => buildTrendsResponse(resolveSeriesData(query)),
+            response: (query) => buildTrendsResponse(resolveSeriesData(query), { isFormula: hasFormula(query) }),
         },
         {
             match: (query) => query.kind === NodeKind.StickinessQuery,
@@ -241,21 +265,21 @@ export function setupInsightMocks({
 
     useMocks({
         get: {
-            '/api/projects/:team/event_definitions': (req: RestRequest) => {
-                const search = req.url.searchParams.get('search') ?? ''
+            '/api/projects/:team/event_definitions': ({ request }) => {
+                const search = new URL(request.url).searchParams.get('search') ?? ''
                 const results = filterBySearch(eventDefs, search)
                 return [200, { results, count: results.length }]
             },
-            '/api/projects/:team/property_definitions': (req: RestRequest) => {
-                const search = req.url.searchParams.get('search') ?? ''
+            '/api/projects/:team/property_definitions': ({ request }) => {
+                const search = new URL(request.url).searchParams.get('search') ?? ''
                 const results = filterBySearch(propDefs, search)
                 return [200, { results, count: results.length }]
             },
             '/api/projects/:team/actions': { results: actionDefinitions },
             '/api/environments/:team/persons/properties': personProperties,
             '/api/environments/:team/sessions/property_definitions': { results: sessionPropertyDefinitions },
-            '/api/environments/:team/events/values': (req: RestRequest) => {
-                const key = req.url.searchParams.get('key') ?? ''
+            '/api/environments/:team/events/values': ({ request }) => {
+                const key = new URL(request.url).searchParams.get('key') ?? ''
                 const values = (propValues[key] ?? []).map((name) => ({ name }))
                 return [200, values]
             },
@@ -273,8 +297,8 @@ export function setupInsightMocks({
             },
         },
         post: {
-            '/api/environments/:team_id/query/:kind': (req: RestRequest) => {
-                const queryBody = extractQueryBody(req.body)
+            '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                const queryBody = extractQueryBody(await request.json())
 
                 for (const mock of responses) {
                     if (mock.match(queryBody)) {

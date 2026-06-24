@@ -621,9 +621,10 @@ def _create_tile_for_widget(
     )
 
     normalized_widget_type, validated_config = prepare_widget_tile_create(
-        team_id=dashboard.team_id,
+        team=dashboard.team,
         widget_type=widget_type,
         config=config,
+        user=user,
         user_access_control=user_access_control,
     )
     with team_scope(dashboard.team_id):
@@ -682,7 +683,9 @@ def create_dashboard_from_template(
         return DASHBOARD_TEMPLATES[template_key](dashboard)
 
     template = DashboardTemplate.objects.filter(
-        Q(team_id=dashboard.team_id) | Q(scope=DashboardTemplate.Scope.GLOBAL),
+        Q(team_id=dashboard.team_id)
+        | Q(scope=DashboardTemplate.Scope.GLOBAL)
+        | Q(scope=DashboardTemplate.Scope.ORGANIZATION, team__organization_id=dashboard.team.organization_id),
         template_name=template_key,
     ).first()
     if not template:

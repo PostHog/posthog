@@ -1,10 +1,11 @@
 import { useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
-import { ChartLegend, TimeSeriesBarChart, legendItemsFromSeries } from '@posthog/quill-charts'
-import type { PointClickData, TimeSeriesBarChartConfig, TooltipContext } from '@posthog/quill-charts'
+import { TimeSeriesBarChart } from '@posthog/quill-charts'
+import type { ChartLegendConfig, PointClickData, TooltipContext } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
+import { getBarColorFromStatus } from 'lib/colors'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -16,8 +17,10 @@ import type { IndexedTrendResult } from 'scenes/trends/types'
 
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+import type { LifecycleToggle } from '~/types'
 
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
+import { buildBaseLegendConfig } from '../shared/buildBaseLegendConfig'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import {
     handleTrendsChartClick,
@@ -26,7 +29,7 @@ import {
 } from '../shared/handleTrendsChartClick'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'
-import { buildTrendsLifecycleConfig, buildTrendsLifecycleSeries } from './trendsLifecycleChartTransforms'
+import { buildLifecycleChartModel, buildLifecycleValueLabelFormatter } from './trendsLifecycleChartTransforms'
 
 interface TrendsLifecycleChartProps {
     context?: QueryContext<InsightVizNode>
@@ -46,7 +49,7 @@ const renderLifecycleSeriesLabel = (datum: SeriesDatum): React.ReactNode => datu
 
 export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLifecycleChartProps): JSX.Element | null {
     const theme = useMemo(() => buildTheme(), [])
-    const { insightProps, insight } = useValues(insightLogic)
+    const { insightProps, insight, canEditInsight } = useValues(insightLogic)
 
     const {
         indexedResults,
@@ -61,9 +64,19 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
         hasPersonsModal,
         querySource,
         showValuesOnSeries,
+        showPercentagesOnSeries,
         showLegend,
+        legendPosition,
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
+
+    // Lifecycle statuses all share the same resultCustomizationKey (same action.order), so
+    // useInsightsLegendConfig can't distinguish them — build the config inline and let the
+    // chart manage toggle state internally.
+    const legendConfig = useMemo<ChartLegendConfig>(
+        () => buildBaseLegendConfig({ show: !!showLegend, legendPosition, canEditInsight, inSharedMode }),
+        [showLegend, legendPosition, canEditInsight, inSharedMode]
+    )
 
     const isStacked = lifecycleFilter?.stacked ?? true
 
@@ -72,43 +85,51 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
         !!indexedResults[0].data &&
         indexedResults.some((r: IndexedTrendResult) => r.count !== 0)
 
-    const { series, labels } = useMemo(() => {
-        const lifecycleSeries = buildTrendsLifecycleSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
-            buildMeta: buildTrendsSeriesMeta,
-        })
-        return { series: lifecycleSeries, labels: currentPeriodResult?.labels ?? EMPTY_LABELS }
-    }, [indexedResults, currentPeriodResult?.labels])
-
-    const legendItems = useMemo(() => legendItemsFromSeries(series, theme), [series, theme])
-
-    const valueLabelFormatter = useCallback(
+    const formatValue = useCallback(
         (value: number) => formatAggregationAxisValue(trendsFilter, value, baseCurrency),
         [trendsFilter, baseCurrency]
     )
 
-    const timeSeriesConfig: TimeSeriesBarChartConfig = useMemo(
+    const valueLabelFormatter = useMemo(
         () =>
-            buildTrendsLifecycleConfig({
+            buildLifecycleValueLabelFormatter(formatValue, {
+                showValues: !!showValuesOnSeries,
+                showPercentages: !!showPercentagesOnSeries,
+            }),
+        [formatValue, showValuesOnSeries, showPercentagesOnSeries]
+    )
+
+    const { series, labels, config } = useMemo(
+        () =>
+            buildLifecycleChartModel<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
+                getColor: (status) => getBarColorFromStatus((status ?? 'new') as LifecycleToggle),
+                buildMeta: buildTrendsSeriesMeta,
+                labels: currentPeriodResult?.labels ?? EMPTY_LABELS,
+                isStacked,
                 trendsFilter,
                 baseCurrency,
-                isStacked,
                 yAxisScaleType,
                 interval,
                 timezone,
                 allDays: currentPeriodResult?.days ?? [],
-                valueLabels: showValuesOnSeries ? { formatter: valueLabelFormatter } : false,
+                valueLabels: showValuesOnSeries || showPercentagesOnSeries ? { formatter: valueLabelFormatter } : false,
                 tooltip: LIFECYCLE_TOOLTIP_CONFIG,
+                legend: legendConfig,
             }),
         [
+            indexedResults,
+            currentPeriodResult?.labels,
+            currentPeriodResult?.days,
+            isStacked,
             trendsFilter,
             baseCurrency,
-            isStacked,
             yAxisScaleType,
             interval,
             timezone,
-            currentPeriodResult?.days,
             showValuesOnSeries,
+            showPercentagesOnSeries,
             valueLabelFormatter,
+            legendConfig,
         ]
     )
 
@@ -195,22 +216,18 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
     const annotationsDates = currentPeriodResult?.days ?? []
 
     return (
-        <ChartLegend show={!!showLegend} items={legendItems} position="top" legendDataAttr="trend-lifecycle-legend">
-            <TimeSeriesBarChart<TrendsSeriesMeta>
-                series={series}
-                labels={labels}
-                config={timeSeriesConfig}
-                theme={theme}
-                tooltip={renderTooltip}
-                onPointClick={canHandleClick ? onPointClick : undefined}
-                className="BarGraph"
-                dataAttr="trend-lifecycle-graph"
-                onError={handleChartError}
-            >
-                {showAnnotations && (
-                    <AnnotationsLayer insightNumericId={insight.id || 'new'} dates={annotationsDates} />
-                )}
-            </TimeSeriesBarChart>
-        </ChartLegend>
+        <TimeSeriesBarChart<TrendsSeriesMeta>
+            series={series}
+            labels={labels}
+            config={config}
+            theme={theme}
+            tooltip={renderTooltip}
+            onPointClick={canHandleClick ? onPointClick : undefined}
+            className="BarGraph"
+            dataAttr="trend-lifecycle-graph"
+            onError={handleChartError}
+        >
+            {showAnnotations && <AnnotationsLayer insightNumericId={insight.id || 'new'} dates={annotationsDates} />}
+        </TimeSeriesBarChart>
     )
 }

@@ -12,14 +12,17 @@ from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.models.data_deletion_request import (
+    VERIFIABLE_STATUSES,
     DataDeletionRequest,
     ExecutionMode,
     RequestStatus,
     RequestType,
-    compile_hogql_predicate,
+    cached_compile_hogql_predicate,
     event_match_params,
     event_match_sql_fragment,
+    invalidate_compiled_predicate_cache,
     jsonhas_expr,
+    verify_queued_request,
 )
 
 CRITERIA_FIELDS = {
@@ -211,7 +214,7 @@ class DataDeletionRequestForm(forms.ModelForm):
 
 def _append_hogql_predicate(fragment: str, params: dict, obj) -> tuple[str, dict]:
     """Append the compiled HogQL predicate (if any) to ``fragment`` and merge params."""
-    hogql_sql, hogql_values = compile_hogql_predicate(obj)
+    hogql_sql, hogql_values = cached_compile_hogql_predicate(obj)
     if not hogql_sql:
         return fragment, params
     combined = f"{fragment} AND ({hogql_sql})".strip() if fragment else f"AND ({hogql_sql})"
@@ -550,6 +553,9 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         readonly = super().get_readonly_fields(request, obj)
         if self._is_locked(obj):
             return tuple(readonly) + EDITABLE_FIELDS
+        if obj is not None:
+            # team_id is immutable once the request exists — a request belongs to one team.
+            return (*tuple(readonly), "team_id")
         return readonly
 
     def save_model(self, request, obj, form, change):
@@ -559,6 +565,8 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
         elif form.changed_data and CRITERIA_FIELDS & set(form.changed_data):
             obj.criteria_updated_by = request.user
             obj.criteria_updated_at = timezone.now()
+            # Criteria changed — the cached compiled predicate (used by stats/preview) is stale.
+            invalidate_compiled_predicate_cache(obj.pk)
             obj.count = None
             obj.part_count = None
             obj.parts_size = None
@@ -629,6 +637,15 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                 obj.status == RequestStatus.FAILED and request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists()
             )
             extra_context["retry_url"] = reverse("admin:posthog_datadeletionrequest_retry", args=[obj.pk])
+            # Verify works for QUEUED (the normal deferred path) and FAILED (a job that errored
+            # after the events were already deleted). Both rely on counting matching events, which
+            # is only meaningful for event_removal requests.
+            extra_context["can_verify"] = (
+                obj.status in VERIFIABLE_STATUSES
+                and obj.request_type == RequestType.EVENT_REMOVAL
+                and request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists()
+            )
+            extra_context["verify_url"] = reverse("admin:posthog_datadeletionrequest_verify", args=[obj.pk])
 
             # ClickHouse stats are calculated from this page (works for any status).
             extra_context["fetch_stats_url"] = reverse("admin:posthog_datadeletionrequest_fetch_stats", args=[obj.pk])
@@ -681,6 +698,11 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
                 "<path:object_id>/retry/",
                 self.admin_site.admin_view(self.retry_view),
                 name="posthog_datadeletionrequest_retry",
+            ),
+            path(
+                "<path:object_id>/verify/",
+                self.admin_site.admin_view(self.verify_view),
+                name="posthog_datadeletionrequest_verify",
             ),
         ]
         return custom_urls + urls
@@ -966,4 +988,38 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             request,
             "Request requeued. The pickup sensor will launch a new run on its next tick.",
         )
+        return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+    def verify_view(self, request, object_id):
+        obj = self.get_object(request, object_id)
+        if not obj:
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_changelist"))
+
+        if request.method != "POST":
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+        if not request.user.groups.filter(name=CLICKHOUSE_TEAM_GROUP).exists():
+            messages.error(request, "Only ClickHouse Team members can verify deletion requests.")
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+        if obj.request_type != RequestType.EVENT_REMOVAL:
+            messages.error(request, "Only event removal requests can be verified.")
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+        if obj.status not in VERIFIABLE_STATUSES:
+            messages.error(request, "Only queued or failed requests can be verified.")
+            return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))
+
+        prior_status = obj.status
+        outcome = verify_queued_request(obj)
+        if outcome.promoted:
+            obj.refresh_from_db()
+            self.log_change(request, obj, f"Verified: 0 matching events remain, status {prior_status} → completed.")
+            messages.success(request, "Verified — no matching events remain. Marked completed.")
+        else:
+            messages.warning(
+                request,
+                f"{outcome.remaining} matching event(s) still present in ClickHouse. "
+                f"Left {obj.status} — re-run after the next scheduled deletion.",
+            )
         return HttpResponseRedirect(reverse("admin:posthog_datadeletionrequest_change", args=[obj.pk]))

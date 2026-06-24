@@ -1,6 +1,11 @@
+import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
+
 import { NodeKind } from '~/queries/schema/schema-general'
+import { initKeaTests } from '~/test/init'
 
 import {
+    accountsOverviewTilesLogic,
     AccountsOverviewTile,
     isNumericColumnType,
     isTileClickable,
@@ -11,6 +16,12 @@ import {
     tileMetricExpression,
     tileToRowFilter,
 } from './accountsOverviewTilesLogic'
+import {
+    ACCOUNTS_OVERVIEW_LEGACY_TILES_PREFIX,
+    AccountsEvents,
+    DEFAULT_TILES,
+    MAX_ACCOUNTS_OVERVIEW_TILES,
+} from './constants'
 
 describe('stripHogqlAlias', () => {
     it('strips a trailing AS alias', () => {
@@ -178,5 +189,84 @@ describe('parseTileValues', () => {
         expect(parseTileValues(null, tiles)).toEqual({ a: null, b: null })
         expect(parseTileValues(responseWith(undefined), tiles)).toEqual({ a: null, b: null })
         expect(parseTileValues(responseWith([null, null]), tiles)).toEqual({ a: null, b: null })
+    })
+})
+
+describe('addTile limit', () => {
+    let logic: ReturnType<typeof accountsOverviewTilesLogic.build>
+
+    beforeEach(() => {
+        initKeaTests()
+        logic = accountsOverviewTilesLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+    })
+
+    // addTile is a pure reducer — assert synchronously. toFinishAllListeners() would
+    // wait on the connected logics' on-mount loaders (a global pending-promise map),
+    // which made this flaky whenever those XHRs were slow to settle.
+    it(`stops adding tiles once ${MAX_ACCOUNTS_OVERVIEW_TILES} exist`, () => {
+        for (let i = 0; i < MAX_ACCOUNTS_OVERVIEW_TILES + 2; i++) {
+            logic.actions.addTile({ label: `Tile ${i}`, metric: { type: 'count' } })
+        }
+        expect(logic.values.tiles).toHaveLength(MAX_ACCOUNTS_OVERVIEW_TILES)
+    })
+})
+
+describe('accountsOverviewTilesLogic setTiles', () => {
+    beforeEach(() => {
+        initKeaTests()
+    })
+
+    it('replaces the entire tile set', async () => {
+        const logic = accountsOverviewTilesLogic()
+        logic.mount()
+        const tiles = [
+            { id: 'a', label: 'A', metric: { type: 'count' as const } },
+            { id: 'b', label: 'B', metric: { type: 'count' as const } },
+        ]
+        await expectLogic(logic, () => logic.actions.setTiles(tiles)).toMatchValues({ tiles })
+    })
+})
+
+describe('accountsOverviewTilesLogic legacy localStorage tiles (read-only + tombstone)', () => {
+    const LEGACY_KEY = `${ACCOUNTS_OVERVIEW_LEGACY_TILES_PREFIX}.scenes.customerAnalytics.accounts.accountsOverviewTilesLogic.tiles`
+    const customTiles: AccountsOverviewTile[] = [{ id: 'legacy', label: 'Legacy', metric: { type: 'count' as const } }]
+
+    beforeEach(() => {
+        localStorage.clear()
+        initKeaTests()
+        jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+    })
+
+    afterEach(() => {
+        localStorage.clear()
+        jest.restoreAllMocks()
+    })
+
+    it('reads a pre-existing custom value on mount, emits a tombstone, and never writes it back', async () => {
+        localStorage.setItem(LEGACY_KEY, JSON.stringify(customTiles))
+        const logic = accountsOverviewTilesLogic()
+        logic.mount()
+        await expectLogic(logic).toMatchValues({ tiles: customTiles })
+        expect(posthog.capture).toHaveBeenCalledWith(AccountsEvents.OverviewTilesLocalStorageRead, { tile_count: 1 })
+
+        // never writes: changing tiles must not update or recreate the legacy key
+        logic.actions.setTiles([{ id: 'x', label: 'X', metric: { type: 'count' as const } }])
+        expect(JSON.parse(localStorage.getItem(LEGACY_KEY) as string)).toEqual(customTiles)
+    })
+
+    it('ignores a default-valued legacy key — no seed, no tombstone', async () => {
+        localStorage.setItem(LEGACY_KEY, JSON.stringify(DEFAULT_TILES))
+        const logic = accountsOverviewTilesLogic()
+        logic.mount()
+        await expectLogic(logic).toMatchValues({ tiles: DEFAULT_TILES })
+        expect(posthog.capture).not.toHaveBeenCalledWith(
+            AccountsEvents.OverviewTilesLocalStorageRead,
+            expect.anything()
+        )
     })
 })

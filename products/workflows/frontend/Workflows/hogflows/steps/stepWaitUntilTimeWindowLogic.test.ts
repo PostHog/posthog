@@ -1,7 +1,7 @@
 import { resetContext } from 'kea'
 import { expectLogic, partial, testUtilsPlugin } from 'kea-test-utils'
 
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 
 import { initKeaTests } from '~/test/init'
 import { WeekdayType } from '~/types'
@@ -21,7 +21,7 @@ describe('stepWaitUntilTimeWindowLogic', () => {
             plugins: [testUtilsPlugin],
         })
 
-        wfLogic = workflowLogic({ id: 'new', tabId: 'default' })
+        wfLogic = workflowLogic({ id: 'new' })
         wfLogic.mount()
 
         logic = stepWaitUntilTimeWindowLogic({ workflowLogicProps: wfLogic.props })

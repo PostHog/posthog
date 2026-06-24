@@ -20,9 +20,9 @@ const meta: Meta = {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/annotations/': annotations,
-                '/api/projects/:team_id/annotations/:annotationId/': (req) => [
+                '/api/projects/:team_id/annotations/:annotationId/': ({ params }) => [
                     200,
-                    annotations.results.find((r) => r.id === Number(req.params['annotationId'])),
+                    annotations.results.find((r) => r.id === Number(params['annotationId'])),
                 ],
             },
         }),
@@ -31,4 +31,6 @@ const meta: Meta = {
 export default meta
 
 type Story = StoryObj<{}>
+// The table renders the emoji next to the content for annotations that have one (see the fixture),
+// giving visual-regression coverage of the emoji display.
 export const Annotations: Story = {}

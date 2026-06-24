@@ -3,14 +3,16 @@ use serde::ser::{Serialize, Serializer};
 
 pub trait IngestableEvent: serde::de::DeserializeOwned + Send + Sync + 'static {
     fn team_id(&self) -> i64;
+
+    fn decode(payload: &[u8]) -> Result<Self, serde_json::Error> {
+        serde_json::from_slice(payload)
+    }
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct Event {
     pub team_id: i64,
 
-    #[serde(default)]
-    pub event: Option<String>,
     #[serde(default)]
     pub properties: Option<String>,
     #[serde(default)]
@@ -43,10 +45,6 @@ pub struct TupleKey {
     pub property_type: PropertyType,
     pub property_key: String,
     pub property_value: String,
-    // Source event name for event-type values, used to scope value lookups to a
-    // specific event. Empty for person/group (not event-scoped) and for event
-    // values until STAMP_EVENT_NAME is enabled.
-    pub event_name: String,
 }
 
 #[derive(Debug, Clone, Copy, Hash, Eq, PartialEq)]
@@ -101,12 +99,19 @@ pub struct PropertyValueMessage {
     pub property_key: String,
     pub property_value: String,
     pub property_count: u64,
-    #[serde(default)]
-    pub event_name: String,
 }
 
 impl IngestableEvent for PropertyValueMessage {
     fn team_id(&self) -> i64 {
         self.team_id
+    }
+
+    // Intermediate-topic records may be compact binary (magic-prefixed) or
+    // JSON, depending on the producer's configured wire format.
+    fn decode(payload: &[u8]) -> Result<Self, serde_json::Error> {
+        if payload.starts_with(&crate::wire::MAGIC) {
+            return crate::wire::decode(payload).map_err(de::Error::custom);
+        }
+        serde_json::from_slice(payload)
     }
 }

@@ -14,7 +14,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 
 import { ExternalDataSourceSyncSchema } from '~/types'
 
@@ -22,7 +22,8 @@ import { SyncTypeLabelMap } from 'products/data_warehouse/frontend/utils'
 
 import { sourceWizardLogic } from '../../../scenes/NewSourceScene/sourceWizardLogic'
 import { ColumnSelectionPicker } from '../../../scenes/SourceScene/tabs/ColumnSelectionModal'
-import { splitDirectQueryTableName } from './directQuerySchemaUtils'
+import { RowFilterEditor } from '../../../scenes/SourceScene/tabs/RowFilterEditor'
+import { splitQualifiedTableName } from './schemaGroupingUtils'
 import { SyncMethodForm } from './SyncMethodForm'
 
 export function getDirectQuerySelectionDescription(selectedSchema?: string | null): string {
@@ -55,10 +56,11 @@ export default function SchemaForm(): JSX.Element {
         toggleSchemaShouldSync,
         toggleAllTables,
         openSyncMethodModal,
-        toggleDirectQuerySchemaGroup,
-        setExpandedDirectQuerySchemaKeys,
+        toggleSchemaGroup,
+        setExpandedSchemaGroupKeys,
         setSchemaNameFilter,
         setSchemaSyncedColumns,
+        setSchemaRowFilters,
     } = useActions(sourceWizardLogic)
     const [columnSelectionSchema, setColumnSelectionSchema] = useState<ExternalDataSourceSyncSchema | null>(null)
     const {
@@ -70,8 +72,8 @@ export default function SchemaForm(): JSX.Element {
         tablesAllToggledOn,
         source,
         selectedConnector,
-        groupedDirectQueryDatabaseSchema,
-        expandedDirectQuerySchemaKeys,
+        groupedDatabaseSchema,
+        expandedSchemaGroupKeys,
     } = useValues(sourceWizardLogic)
 
     const onClickCheckbox = (schema: ExternalDataSourceSyncSchema, checked: boolean): void => {
@@ -154,6 +156,14 @@ export default function SchemaForm(): JSX.Element {
                             <Tooltip title={tooltip} placement="top">
                                 <LemonTag type="primary" className="cursor-help">
                                     Suggested
+                                </LemonTag>
+                            </Tooltip>
+                        )}
+                        {schema.rls_warning && (
+                            <Tooltip title={schema.rls_warning} placement="top">
+                                <LemonTag type="warning" className="cursor-help">
+                                    <IconWarning className="mr-1" />
+                                    RLS may hide rows
                                 </LemonTag>
                             </Tooltip>
                         )}
@@ -378,20 +388,18 @@ export default function SchemaForm(): JSX.Element {
                 )}
                 <div className="flex-1 min-h-0 overflow-y-auto">
                     {isDirectQueryMode ? (
-                        groupedDirectQueryDatabaseSchema.length > 0 ? (
+                        groupedDatabaseSchema.length > 0 ? (
                             <div className="border rounded bg-bg-light">
                                 <LemonCollapse
                                     multiple
                                     embedded
                                     activeKeys={
-                                        groupedDirectQueryDatabaseSchema.length === 1
-                                            ? groupedDirectQueryDatabaseSchema.map(
-                                                  (g: { schemaName: string }) => g.schemaName
-                                              )
-                                            : expandedDirectQuerySchemaKeys
+                                        groupedDatabaseSchema.length === 1
+                                            ? groupedDatabaseSchema.map((g: { schemaName: string }) => g.schemaName)
+                                            : expandedSchemaGroupKeys
                                     }
-                                    onChange={setExpandedDirectQuerySchemaKeys}
-                                    panels={groupedDirectQueryDatabaseSchema.map(({ schemaName, tables }) => {
+                                    onChange={setExpandedSchemaGroupKeys}
+                                    panels={groupedDatabaseSchema.map(({ schemaName, tables }) => {
                                         const selectedTablesCount = tables.filter((table) => table.should_sync).length
 
                                         return {
@@ -403,7 +411,7 @@ export default function SchemaForm(): JSX.Element {
                                                             checked={getSchemaSelectionState(tables)}
                                                             stopPropagation
                                                             onChange={(checked) =>
-                                                                toggleDirectQuerySchemaGroup(schemaName, checked)
+                                                                toggleSchemaGroup(schemaName, checked)
                                                             }
                                                         />
                                                         <span className="font-semibold truncate">{schemaName}</span>
@@ -422,7 +430,7 @@ export default function SchemaForm(): JSX.Element {
                                                             const tooltip =
                                                                 suggestedTablesMap[schema.table] ??
                                                                 'This table is suggested to be enabled for this source'
-                                                            const { tableName } = splitDirectQueryTableName(
+                                                            const { tableName } = splitQualifiedTableName(
                                                                 schema.table,
                                                                 source.payload.schema
                                                             )
@@ -520,14 +528,14 @@ export default function SchemaForm(): JSX.Element {
                         ) : (
                             <div className="border rounded px-4 py-8 text-center text-muted-alt">No tables found</div>
                         )
-                    ) : groupedDirectQueryDatabaseSchema.length > 1 ? (
+                    ) : groupedDatabaseSchema.length > 1 ? (
                         <div className="border rounded bg-bg-light">
                             <LemonCollapse
                                 multiple
                                 embedded
-                                activeKeys={expandedDirectQuerySchemaKeys}
-                                onChange={setExpandedDirectQuerySchemaKeys}
-                                panels={groupedDirectQueryDatabaseSchema.map(
+                                activeKeys={expandedSchemaGroupKeys}
+                                onChange={setExpandedSchemaGroupKeys}
+                                panels={groupedDatabaseSchema.map(
                                     ({
                                         schemaName,
                                         tables,
@@ -542,9 +550,7 @@ export default function SchemaForm(): JSX.Element {
                                                     <LemonCheckbox
                                                         checked={getSchemaSelectionState(tables)}
                                                         stopPropagation
-                                                        onChange={(checked) =>
-                                                            toggleDirectQuerySchemaGroup(schemaName, checked)
-                                                        }
+                                                        onChange={(checked) => toggleSchemaGroup(schemaName, checked)}
                                                     />
                                                     <span className="font-semibold truncate">{schemaName}</span>
                                                 </div>
@@ -602,40 +608,74 @@ export default function SchemaForm(): JSX.Element {
                 title={
                     columnSelectionSchema ? (
                         <>
-                            Select columns for <span className="font-mono">{columnSelectionSchema.table}</span>
+                            Columns and row filters for <span className="font-mono">{columnSelectionSchema.table}</span>
                         </>
                     ) : null
                 }
-                description="Primary-key and incremental columns are always synced and cannot be unchecked."
+                description="Choose which columns to sync and add row filters to sync only matching rows. Primary-key and incremental columns are always synced."
                 isOpen={columnSelectionSchema !== null}
                 onClose={() => setColumnSelectionSchema(null)}
+                footer={
+                    <LemonButton type="primary" onClick={() => setColumnSelectionSchema(null)}>
+                        Done
+                    </LemonButton>
+                }
             >
-                <div className="min-w-[420px]">
-                    <ColumnSelectionPicker
-                        schema={
-                            columnSelectionSchema
-                                ? {
-                                      id: columnSelectionSchema.table,
-                                      name: columnSelectionSchema.table,
-                                      enabled_columns: columnSelectionSchema.enabled_columns,
-                                      primary_key_columns: columnSelectionSchema.primary_key_columns,
-                                      incremental_field: columnSelectionSchema.incremental_field,
-                                      available_columns: columnSelectionSchema.available_columns.map((c) => ({
-                                          name: c.field,
-                                          data_type: c.type,
-                                          is_nullable: c.nullable,
-                                      })),
-                                  }
-                                : null
-                        }
-                        onSave={(enabledColumns) => {
-                            if (columnSelectionSchema) {
-                                setSchemaSyncedColumns(columnSelectionSchema, enabledColumns)
+                <div className="min-w-[420px] flex flex-col gap-6">
+                    <div className="flex flex-col gap-2">
+                        <h4 className="font-semibold mb-0">Columns to sync</h4>
+                        <ColumnSelectionPicker
+                            hideActions
+                            schema={
+                                columnSelectionSchema
+                                    ? {
+                                          id: columnSelectionSchema.table,
+                                          name: columnSelectionSchema.table,
+                                          enabled_columns: columnSelectionSchema.enabled_columns,
+                                          primary_key_columns: columnSelectionSchema.primary_key_columns,
+                                          incremental_field: columnSelectionSchema.incremental_field,
+                                          available_columns: columnSelectionSchema.available_columns.map((c) => ({
+                                              name: c.field,
+                                              data_type: c.type,
+                                              is_nullable: c.nullable,
+                                          })),
+                                      }
+                                    : null
                             }
-                            setColumnSelectionSchema(null)
-                        }}
-                        onCancel={() => setColumnSelectionSchema(null)}
-                    />
+                            onChange={(enabledColumns) => {
+                                if (columnSelectionSchema) {
+                                    setSchemaSyncedColumns(columnSelectionSchema, enabledColumns)
+                                }
+                            }}
+                        />
+                    </div>
+                    {columnSelectionSchema?.sync_type !== 'cdc' && (
+                        <div className="flex flex-col gap-2">
+                            <h4 className="font-semibold mb-0">Row filters</h4>
+                            <RowFilterEditor
+                                hideActions
+                                schema={
+                                    columnSelectionSchema
+                                        ? {
+                                              id: columnSelectionSchema.table,
+                                              name: columnSelectionSchema.table,
+                                              row_filters: columnSelectionSchema.row_filters,
+                                              available_columns: columnSelectionSchema.available_columns.map((c) => ({
+                                                  name: c.field,
+                                                  data_type: c.type,
+                                                  is_nullable: c.nullable,
+                                              })),
+                                          }
+                                        : null
+                                }
+                                onChange={(rowFilters) => {
+                                    if (columnSelectionSchema) {
+                                        setSchemaRowFilters(columnSelectionSchema, rowFilters)
+                                    }
+                                }}
+                            />
+                        </div>
+                    )}
                 </div>
             </LemonModal>
         </>
@@ -664,14 +704,23 @@ const SyncMethodModal = (): JSX.Element => {
                 schema={currentSyncMethodModalSchema}
                 onClose={cancelSyncMethodModal}
                 isNewSource
-                onSave={(syncType, incrementalField, incrementalFieldType, primaryKeyColumns, cdcTableMode) => {
+                onSave={(
+                    syncType,
+                    incrementalField,
+                    incrementalFieldType,
+                    primaryKeyColumns,
+                    cdcTableMode,
+                    incrementalFieldLookbackSeconds
+                ) => {
                     if (syncType === 'incremental' || syncType === 'append') {
                         updateSchemaSyncType(
                             currentSyncMethodModalSchema,
                             syncType,
                             incrementalField,
                             incrementalFieldType,
-                            primaryKeyColumns
+                            primaryKeyColumns,
+                            undefined,
+                            syncType === 'incremental' ? incrementalFieldLookbackSeconds : null
                         )
                     } else if (syncType === 'cdc') {
                         updateSchemaSyncType(currentSyncMethodModalSchema, syncType, null, null, null, cdcTableMode)

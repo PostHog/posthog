@@ -33,8 +33,8 @@ import {
     TooltipContent,
     TooltipTrigger,
 } from 'lib/ui/quill'
-import { inStorybookTestRunner } from 'lib/utils'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { inStorybookTestRunner } from 'lib/utils/dom'
 import { urls } from 'scenes/urls'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
@@ -67,7 +67,6 @@ export function Settings({
         selectedSectionId,
         selectedLevel,
         selectedSettingId,
-        selectedSetting,
         settings,
         isCompactNavigationOpen,
         searchTerm,
@@ -111,7 +110,15 @@ export function Settings({
     // in normal flow instead, so it sits beside the content rather than overlapping.
     const isFullScene = props.logicKey === 'settingsScene'
 
-    const settingsInSidebar = props.sectionId && !!selectedSetting
+    // When embedded in a specific section (replay, logs, error tracking, etc. — anything that
+    // passes a `sectionId`), the nav always lists that section's settings as in-context sub-tabs.
+    // It must NOT depend on `selectedSetting` resolving: that value is derived from asynchronously
+    // loaded feature flags / team config, so on a cold load it is briefly null. Folding it in here
+    // made the nav fall back to the full multi-level settings map, whose items link out to
+    // `/settings/...` — which is why clicking a replay settings sub-tab would occasionally bounce
+    // the user to the top-level settings page. The standalone settings scene passes no `sectionId`
+    // and keeps the full map. (Content single-vs-stacked is decided separately in SettingsRenderer.)
+    const settingsInSidebar = !!props.sectionId
 
     const searchItems: SearchResult[] = React.useMemo(
         () => searchResults.flatMap((group) => group.results),
@@ -459,7 +466,7 @@ const OptionGroup = ({ options, depth = 0 }: { options: SettingOption[]; depth?:
                             variant="folder"
                         >
                             <CollapsibleTrigger
-                                render={<Button left className="w-full" />}
+                                render={<Button left className="w-full text-[13px]" />}
                                 className={cn(depth !== 0 && '-ml-2 w-[calc(100%+var(--spacing)*2)]')}
                             >
                                 <span className="flex-1 truncate text-left font-semibold">
@@ -508,7 +515,7 @@ const OptionButton = ({
     const button = (
         <Button
             left
-            className="w-full font-normal"
+            className="w-full font-normal text-[13px]"
             disabled={isDisabled}
             aria-selected={active || undefined}
             data-attr={dataAttr}

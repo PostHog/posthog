@@ -2,7 +2,7 @@ import './TaxonomicPropertyFilter.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useId } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonDropdown, Link } from '@posthog/lemon-ui'
@@ -17,6 +17,7 @@ import {
     sanitizePropertyFilter,
 } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { taxonomicTriggerWrapperClassName } from 'lib/components/TaxonomicFilter/menu/triggerLayout'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import {
     TaxonomicFilterGroup,
@@ -29,7 +30,8 @@ import { TaxonomicMenuToggle } from 'lib/components/TaxonomicPopover/TaxonomicMe
 import { TaxonomicPopoverMenu } from 'lib/components/TaxonomicPopover/TaxonomicPopoverMenu'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isOperatorMulti, isOperatorRegex, toParams } from 'lib/utils'
+import { isOperatorMulti, isOperatorRegex } from 'lib/utils/operators'
+import { toParams } from 'lib/utils/url'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -47,7 +49,6 @@ import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joins
 import { OperandTag } from './OperandTag'
 import { taxonomicPropertyFilterLogic } from './taxonomicPropertyFilterLogic'
 
-let uniqueMemoizedIndex = 0
 export const DEFAULT_TAXONOMIC_GROUP_TYPES = [
     TaxonomicFilterGroupType.EventProperties,
     TaxonomicFilterGroupType.PersonProperties,
@@ -86,8 +87,10 @@ export function TaxonomicPropertyFilter({
     operatorAllowlist,
     endpointFilters,
     hogQLGlobals,
+    triggerVariant = 'button',
 }: PropertyFilterInternalProps): JSX.Element {
-    const pageKey = useMemo(() => pageKeyInput || `filter-${uniqueMemoizedIndex++}`, [pageKeyInput])
+    const generatedKey = useId()
+    const pageKey = pageKeyInput || `filter-${generatedKey}`
     const baseGroupTypes = taxonomicGroupTypes || DEFAULT_TAXONOMIC_GROUP_TYPES
     const groupTypes = [TaxonomicFilterGroupType.SuggestedFilters, ...baseGroupTypes]
     const taxonomicOnChange: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void = (
@@ -185,6 +188,7 @@ export function TaxonomicPropertyFilter({
             excludedOperators={excludedOperators}
             selectingKeyOnly={selectingKeyOnly}
             enableKeywordShortcuts
+            collapseUrlsToContainsRow
         />
     )
 
@@ -323,16 +327,18 @@ export function TaxonomicPropertyFilter({
             endpointFilters={endpointFilters}
             hogQLGlobals={hogQLGlobals}
             enableKeywordShortcuts
+            triggerVariant={triggerVariant}
             triggerButtonProps={{
                 type: 'secondary',
                 size,
                 truncate: true,
                 sideIcon: null,
+                fullWidth: triggerVariant === 'input',
                 icon: !valuePresent ? <IconPlusSmall /> : undefined,
             }}
         />
     ) : (
-        <span className="relative inline-flex max-w-full min-w-0">
+        <span className={taxonomicTriggerWrapperClassName()}>
             {legacyDropdown}
             <TaxonomicMenuToggle />
         </span>

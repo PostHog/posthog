@@ -23,6 +23,7 @@ from zoneinfo import ZoneInfo
 
 from posthog.schema import (
     AggregatedSpanRow,
+    AttributeBreakdownRow,
     CachedTraceSpansAggregationQueryResponse,
     CachedTraceSpansTreeQueryResponse,
     DateRange,
@@ -35,6 +36,7 @@ from posthog.schema import (
     SpanTreeNode,
     TraceSpansAggregationQuery,
     TraceSpansAggregationQueryResponse,
+    TraceSpansAttributeBreakdownQuery,
     TraceSpansTreeQuery,
     TraceSpansTreeQueryResponse,
 )
@@ -53,7 +55,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models.filters.mixins.utils import cached_property
 
-from .logic import TIME_BUCKET_DATE_RANGE_WHERE, translate_span_filter
+from .logic import TIME_BUCKET_DATE_RANGE_WHERE, translate_span_filter, with_span_attribute_type_suffix
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -78,7 +80,7 @@ class _SpanAggregationMixin:
     # with the narrower concrete type; the runtime attribute values come from `QueryRunner`
     # initialization on the concrete class, not from this mixin.
     if TYPE_CHECKING:
-        query: TraceSpansAggregationQuery | TraceSpansTreeQuery
+        query: TraceSpansAggregationQuery | TraceSpansTreeQuery | TraceSpansAttributeBreakdownQuery
         team: "Team"
         modifiers: HogQLQueryModifiers
         timings: HogQLTimings
@@ -88,14 +90,6 @@ class _SpanAggregationMixin:
         # Replicates the filter extraction the per-trace runner mixin does. We can't reuse
         # that mixin directly: it validates against TraceSpansQuery and wires a paginator
         # that does not apply here.
-        def get_property_type(value: str | float | bool) -> str:
-            try:
-                float(value)
-                return "float"
-            except (ValueError, TypeError):
-                pass
-            return "str"
-
         self.span_filters: list[SpanPropertyFilter] = []
         self.span_attribute_filters: list[SpanPropertyFilter] = []
         self.resource_attribute_filters: list[SpanPropertyFilter] = []
@@ -111,18 +105,8 @@ class _SpanAggregationMixin:
                 elif prop_type == SpanPropertyFilterType.SPAN:
                     self.span_filters.append(cast(SpanPropertyFilter, prop))
                 elif prop_type == SpanPropertyFilterType.SPAN_ATTRIBUTE:
-                    if isinstance(prop, SpanPropertyFilter) and prop.value:
-                        property_type = "str"
-                        if isinstance(prop.value, list):
-                            property_types = {get_property_type(v) for v in prop.value}
-                            if len(property_types) == 1:
-                                property_type = property_types.pop()
-                        else:
-                            property_type = get_property_type(prop.value)
-
-                        prop = prop.model_copy(deep=True)
-                        prop.key = f"{prop.key}__{property_type}"
-
+                    if isinstance(prop, SpanPropertyFilter):
+                        prop = with_span_attribute_type_suffix(prop)
                     self.span_attribute_filters.append(cast(SpanPropertyFilter, prop))
 
     def validate_query_runner_access(self, user: "User") -> bool:
@@ -254,7 +238,7 @@ class _SpanAggregationMixin:
     def _build_query(self, query_date_range: QueryDateRange) -> ast.SelectQuery:
         raise NotImplementedError
 
-    def _row_from_clickhouse(self, row: list) -> AggregatedSpanRow | SpanTreeNode:
+    def _row_from_clickhouse(self, row: list) -> AggregatedSpanRow | SpanTreeNode | AttributeBreakdownRow:
         raise NotImplementedError
 
 
@@ -282,8 +266,7 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
                 count() AS count,
                 sum(duration_nano) AS total_duration_nano,
                 avg(duration_nano) AS avg_duration_nano,
-                quantile(0.5)(duration_nano) AS p50_duration_nano,
-                quantile(0.95)(duration_nano) AS p95_duration_nano,
+                quantiles(0.5, 0.95, 0.99, 0.999)(duration_nano) AS duration_quantiles,
                 countIf(status_code = 2) AS error_count
             FROM posthog.trace_spans
             WHERE {where}
@@ -306,21 +289,46 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
         return query
 
     def _row_from_clickhouse(self, row: list) -> AggregatedSpanRow:
+        p50, p95, p99, p999 = row[5] or (0.0, 0.0, 0.0, 0.0)
         return AggregatedSpanRow(
             service_name=row[0] or "",
             name=row[1] or "",
             count=row[2],
             total_duration_nano=float(row[3] or 0),
             avg_duration_nano=float(row[4] or 0),
-            p50_duration_nano=float(row[5] or 0),
-            p95_duration_nano=float(row[6] or 0),
-            error_count=row[7] or 0,
+            p50_duration_nano=float(p50 or 0),
+            p95_duration_nano=float(p95 or 0),
+            p99_duration_nano=float(p99 or 0),
+            p999_duration_nano=float(p999 or 0),
+            error_count=row[6] or 0,
         )
 
     def run(self, *args, **kwargs) -> TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse:
         response = super().run(*args, **kwargs)
         assert isinstance(response, TraceSpansAggregationQueryResponse | CachedTraceSpansAggregationQueryResponse)
         return response
+
+
+def _annotate_calls_per_parent_invocation(rows: list[SpanTreeNode]) -> None:
+    """Set each edge's child-calls-per-parent-invocation ratio, in place.
+
+    A parent's invocation count is the sum of edge counts where it appears as the child
+    (it may appear under several grandparents). Root edges have no parent invocation to
+    ratio against, so they stay None.
+
+    The denominator is reconstructed from the returned rows, so when the tree hits the
+    `_ROW_LIMIT` cap a parent's child edges can be split across the cut, understating the
+    denominator and overstating the ratio. That only happens with very high span-name
+    cardinality in one service; the prompt doc flags the ratio as approximate at the cap.
+    """
+    invocations: dict[tuple[str, str], int] = {}
+    for node in rows:
+        key = (node.service_name, node.name)
+        invocations[key] = invocations.get(key, 0) + node.count
+    for node in rows:
+        parent_total = invocations.get((node.parent_service, node.parent_name))
+        if parent_total:
+            node.calls_per_parent_invocation = node.count / parent_total
 
 
 class TraceSpansTreeQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunner[TraceSpansTreeQueryResponse]):
@@ -335,6 +343,9 @@ class TraceSpansTreeQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunner[Trac
 
     def _calculate(self) -> TraceSpansTreeQueryResponse:
         current_rows, previous_rows = self._run_with_compare()
+        _annotate_calls_per_parent_invocation(current_rows)
+        if previous_rows is not None:
+            _annotate_calls_per_parent_invocation(previous_rows)
         return TraceSpansTreeQueryResponse(results=current_rows, compare=previous_rows)
 
     def _build_query(self, query_date_range: QueryDateRange) -> ast.SelectQuery:
@@ -378,14 +389,16 @@ class TraceSpansTreeQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunner[Trac
                 count() AS count,
                 sum(s.duration_nano) AS total_duration_nano,
                 avg(s.duration_nano) AS avg_duration_nano,
-                quantile(0.5)(s.duration_nano) AS p50_duration_nano,
-                quantile(0.95)(s.duration_nano) AS p95_duration_nano,
+                quantiles(0.5, 0.95, 0.99, 0.999)(s.duration_nano) AS duration_quantiles,
                 countIf(s.status_code = 2) AS error_count,
                 avg(
                     if(
                         empty(s.parent_span_id) OR isNull(p.timestamp),
                         toFloat(0),
-                        toFloat(s.timestamp) - toFloat(p.timestamp)
+                        -- microsecond diff * 1000 → nanoseconds, mirroring how duration_nano is
+                        -- materialized on this table. toFloat(s.timestamp) - toFloat(p.timestamp)
+                        -- would give Unix *seconds* (the column is DateTime64), not nanos.
+                        toFloat(dateDiff('microsecond', p.timestamp, s.timestamp) * 1000)
                     )
                 ) AS avg_start_offset_nano
             FROM spans AS s
@@ -407,6 +420,7 @@ class TraceSpansTreeQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunner[Trac
         return query
 
     def _row_from_clickhouse(self, row: list) -> SpanTreeNode:
+        p50, p95, p99, p999 = row[7] or (0.0, 0.0, 0.0, 0.0)
         return SpanTreeNode(
             parent_service=row[0] or "",
             parent_name=row[1] or "<ROOT>",
@@ -415,10 +429,12 @@ class TraceSpansTreeQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunner[Trac
             count=row[4],
             total_duration_nano=float(row[5] or 0),
             avg_duration_nano=float(row[6] or 0),
-            p50_duration_nano=float(row[7] or 0),
-            p95_duration_nano=float(row[8] or 0),
-            error_count=row[9] or 0,
-            avg_start_offset_nano=float(row[10] or 0),
+            p50_duration_nano=float(p50 or 0),
+            p95_duration_nano=float(p95 or 0),
+            p99_duration_nano=float(p99 or 0),
+            p999_duration_nano=float(p999 or 0),
+            error_count=row[8] or 0,
+            avg_start_offset_nano=float(row[9] or 0),
         )
 
     def run(self, *args, **kwargs) -> TraceSpansTreeQueryResponse | CachedTraceSpansTreeQueryResponse:

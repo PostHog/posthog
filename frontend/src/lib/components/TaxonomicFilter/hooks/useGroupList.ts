@@ -16,12 +16,15 @@
  *
  * Open follow-ups (not implemented in v1):
  *   - DataWarehouse pinned-row detail-pane state
- *   - performance instrumentation (`captureTimeToSeeData`)
+ *   - search-latency telemetry (legacy emits `taxonomic filter search latency`
+ *     from the list-results handler; the rebuild emits its own menu events)
  *   - the GroupNamesPrefix clickhouse fast path (still goes through generic
  *     endpoint fetcher; behaviour identical, just slower for large groups)
  */
 import { useMemo, useState } from 'react'
 
+import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
+import { hasRecentContext } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import {
     isQuickFilterItem,
     ListStorage,
@@ -55,6 +58,9 @@ export interface UseGroupListInput {
      *  numeric-only items locally for DataWarehousePersonProperties. */
     showNumericalPropsOnly?: boolean
     hideBehavioralCohorts?: boolean
+    /** Exclude event definitions not seen within the staleness window (event /
+     *  custom-event endpoints only). Mirrors legacy's default-on `exclude_stale`. */
+    excludeStale?: boolean
     /** Override per-group minSearchQueryLength. */
     minSearchQueryLength?: number
     /** Pagination page size. */
@@ -109,6 +115,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         optionsFromProp,
         showNumericalPropsOnly = false,
         hideBehavioralCohorts = false,
+        excludeStale = false,
         minSearchQueryLength: minSearchOverride,
         limit = DEFAULT_LIMIT,
         allowNonCapturedEvents = false,
@@ -153,7 +160,11 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
         const haystack = filteredLocalItems.map((item) => {
             const name = group.getName?.(item) ?? ('name' in item ? (item as { name?: string }).name : '') ?? ''
             const posthogName = getCoreFilterDefinition(name, group.type)?.label
-            return { name, posthogName, recentLabel: undefined, item }
+            const recentLabel =
+                hasRecentContext(item) && item._recentContext.propertyFilter
+                    ? formatPropertyLabel(item._recentContext.propertyFilter, {})
+                    : undefined
+            return { name, posthogName, recentLabel, item }
         })
         return createFuse(haystack, { keys: ['name', 'posthogName', 'recentLabel'], ignoreLocation: true })
     }, [filteredLocalItems, group])
@@ -200,6 +211,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
             limit,
             showNumericalPropsOnly,
             hideBehavioralCohorts,
+            excludeStale,
         ],
         [
             group.type,
@@ -210,6 +222,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
             limit,
             showNumericalPropsOnly,
             hideBehavioralCohorts,
+            excludeStale,
         ]
     )
 
@@ -224,6 +237,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
                 isExpanded,
                 showNumericalPropsOnly,
                 hideBehavioralCohorts,
+                excludeStale,
                 signal,
             }),
         // Long staleTime for client-filtered groups — the cached first page
@@ -260,6 +274,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
             limit,
             showNumericalPropsOnly,
             hideBehavioralCohorts,
+            excludeStale,
         ],
         [
             group.type,
@@ -270,6 +285,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
             limit,
             showNumericalPropsOnly,
             hideBehavioralCohorts,
+            excludeStale,
         ]
     )
 
@@ -284,6 +300,7 @@ export function useGroupList(input: UseGroupListInput): UseGroupListResult {
                 isExpanded,
                 showNumericalPropsOnly,
                 hideBehavioralCohorts,
+                excludeStale,
                 signal,
             }),
         { enabled: serverSearchEnabled, staleTime: 60_000, keepPreviousData: true }

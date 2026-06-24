@@ -1,8 +1,8 @@
 import { connect, kea, listeners, path, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import { capitalizeFirstLetter } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { Scene } from 'scenes/sceneTypes'
 import type { Params } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -97,6 +97,11 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
                         activity_scope: ActivityScope.PERSONAL_API_KEY,
                     }
                 }
+                if (selectedSectionId === 'user-connected-apps') {
+                    return {
+                        activity_scope: ActivityScope.OAUTH_APPLICATION,
+                    }
+                }
                 return null
             },
         ],
@@ -136,6 +141,16 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
                 // Redirect level-only URLs to the first section at that level
                 const level = section as SettingLevelId
                 const effectiveLevel = level === 'environment' ? 'project' : level
+
+                // If a section at this level is already selected (e.g. the user clicked the
+                // "Settings" nav link while already viewing a settings page here), don't redirect.
+                // Otherwise the level-only URL bounces straight back to the section, a no-op URL
+                // rewrite that flickers and makes the link feel broken.
+                const selectedSectionLevel = values.sections.find((s) => s.id === values.selectedSectionId)?.level
+                if (values.selectedSectionId && selectedSectionLevel === effectiveLevel) {
+                    return
+                }
+
                 const firstSection = values.sections.find((s) => s.level === effectiveLevel)
                 if (firstSection) {
                     router.actions.replace(urls.settings(firstSection.id))

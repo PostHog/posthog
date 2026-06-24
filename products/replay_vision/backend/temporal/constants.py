@@ -4,6 +4,17 @@ from uuid import UUID
 APPLY_SCANNER_WORKFLOW_NAME = "replay-vision-apply-scanner"
 SWEEP_SCANNER_WORKFLOW_NAME = "replay-vision-sweep-scanner"
 
+# Per-action vision-action child, fire-and-forgot by the sweep. Name + timeout live here (not in the
+# workflow-def module) so the sweep can start it without cross-importing another @wf.defn module.
+PROCESS_VISION_ACTION_WORKFLOW_NAME = "process-vision-action"
+PROCESS_VISION_ACTION_EXECUTION_TIMEOUT = dt.timedelta(hours=1)
+
+
+def build_process_vision_action_workflow_id(vision_action_id: UUID) -> str:
+    """Deterministic id: a still-running action is skipped (WorkflowAlreadyStartedError), not double-fired."""
+    return f"{PROCESS_VISION_ACTION_WORKFLOW_NAME}-{vision_action_id}"
+
+
 SCANNER_SCHEDULE_INTERVAL = dt.timedelta(minutes=5)
 
 # Children are ABANDONed and don't count against this budget.
@@ -42,6 +53,37 @@ MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S = 10
 
 # Sessions with more than 1 hour of active interaction take too long to analyze well.
 MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S = 3600
+
+
+# Signals source identity — must match the registered (SourceProduct, SourceType) pair and schema variant.
+# Prefixed so it stays unambiguous when imported alongside other products' signal-source constants.
+VISION_SIGNALS_SOURCE_PRODUCT = "replay_vision"
+VISION_SIGNALS_SOURCE_TYPE = "scanner_finding"
+
+
+# Hard ceiling on a single scanner's concurrently-running apply-scanner workflows. Bounds one bad config
+# (broad filter on a high-volume team) from monopolising the shared rasterizer queue + provider concurrency.
+MAX_IN_FLIGHT_APPLIES_PER_SCANNER = 50
+COUNT_IN_FLIGHT_APPLIES_TIMEOUT = dt.timedelta(seconds=30)
+
+
+ESTIMATES_WORKFLOW_NAME = "replay-vision-refresh-scanner-estimates"
+ESTIMATES_WORKFLOW_ID = "replay-vision-estimate-refresher"
+ESTIMATES_SCHEDULE_ID = "replay-vision-estimate-refresher-schedule"
+
+# Quarter-hourly checks against a 24h staleness target keep estimates at most ~24h15m old.
+ESTIMATES_REFRESH_INTERVAL = dt.timedelta(minutes=15)
+# Covers the worst-case batch (MAX_PER_RUN / CONCURRENCY × the 60s activity timeout = 100 min) with margin;
+# overlap SKIP means a slow run absorbs later ticks instead of being cancelled mid-batch.
+ESTIMATES_EXECUTION_TIMEOUT = dt.timedelta(hours=2)
+
+# Each refresh is a ClickHouse count; bound the batch and parallelism so one run stays cheap.
+ESTIMATES_MAX_PER_RUN = 400
+ESTIMATE_REFRESH_CONCURRENCY = 4
+
+LIST_STALE_ESTIMATES_TIMEOUT = dt.timedelta(seconds=60)
+# Covers the estimate query's 30s ClickHouse cap plus the Postgres staleness check.
+REFRESH_SCANNER_ESTIMATE_TIMEOUT = dt.timedelta(seconds=60)
 
 
 def build_apply_scanner_workflow_id(scanner_id: UUID, session_id: str) -> str:

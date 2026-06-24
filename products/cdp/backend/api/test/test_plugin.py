@@ -875,6 +875,17 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             [plugin_no_configs.id, plugin_only_disabled.id],
         )
 
+    def test_plugin_unused_does_not_leak_other_orgs(self, mock_get, mock_reload):
+        own_unused = Plugin.objects.create(organization=self.organization)
+        other_org = Organization.objects.create(name="Other Org")
+        other_org_unused = Plugin.objects.create(organization=other_org)
+
+        response = self.client.get("/api/organizations/@current/plugins/unused/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(own_unused.id, response.json())
+        self.assertNotIn(other_org_unused.id, response.json())
+
     def test_install_plugin_on_multiple_orgs(self, mock_get, mock_reload):
         # Expectation: since plugins are url-unique, installing the same plugin on a second orgs should
         # return a 400 response, as the plugin is already installed on the first org
@@ -942,22 +953,22 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     def test_listing_plugins_is_not_nplus1(self, _mock_get, _mock_reload) -> None:
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(9):
             self._assert_number_of_when_listed_plugins(0)
 
         Plugin.objects.create(organization=self.organization)
 
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(9):
             self._assert_number_of_when_listed_plugins(1)
 
         Plugin.objects.create(organization=self.organization)
 
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(9):
             self._assert_number_of_when_listed_plugins(2)
 
         Plugin.objects.create(organization=self.organization)
 
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(9):
             self._assert_number_of_when_listed_plugins(3)
 
     def _assert_number_of_when_listed_plugins(self, expected_plugins_count: int) -> None:

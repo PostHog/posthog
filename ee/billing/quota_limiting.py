@@ -37,6 +37,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_recording_count_in_period,
     get_teams_with_rows_exported_in_period,
     get_teams_with_rows_synced_in_period,
+    get_teams_with_signals_credits_used_in_period,
     get_teams_with_survey_responses_count_in_period,
     get_teams_with_workflow_billable_invocations_in_period,
     get_teams_with_workflow_emails_sent_in_period,
@@ -82,6 +83,7 @@ class QuotaResource(Enum):
     CDP_TRIGGER_EVENTS = "cdp_trigger_events"
     ROWS_EXPORTED = "rows_exported"
     AI_CREDITS = "ai_credits"
+    SIGNALS_CREDITS = "signals_credits"
     WORKFLOW_EMAILS = "workflow_emails"
     WORKFLOW_DESTINATIONS = "workflow_destinations_dispatched"
     LOGS_MB_INGESTED = "logs_mb_ingested"
@@ -104,6 +106,7 @@ OVERAGE_BUFFER = {
     QuotaResource.CDP_TRIGGER_EVENTS: 0,
     QuotaResource.ROWS_EXPORTED: 0,
     QuotaResource.AI_CREDITS: 0,
+    QuotaResource.SIGNALS_CREDITS: 0,
     QuotaResource.WORKFLOW_EMAILS: 0,
     QuotaResource.WORKFLOW_DESTINATIONS: 0,
     QuotaResource.LOGS_MB_INGESTED: 0,
@@ -112,6 +115,7 @@ OVERAGE_BUFFER = {
 # These resources are exempt from any grace periods, whether trust-based or never_drop_data
 GRACE_PERIOD_EXEMPT_RESOURCES: set[QuotaResource] = {
     QuotaResource.AI_CREDITS,
+    QuotaResource.SIGNALS_CREDITS,
 }
 
 
@@ -128,6 +132,7 @@ class UsageCounters(TypedDict):
     cdp_trigger_events: int
     rows_exported: int
     ai_credits: int
+    signals_credits: int
     workflow_emails: int
     workflow_destinations_dispatched: int
     logs_mb_ingested: int
@@ -224,6 +229,13 @@ def dispatch_recordings_remote_config_sync(team_ids: Iterable[int]) -> None:
             )
         except Exception as e:
             capture_exception(e, {"team_id": team_id})
+
+
+def is_team_over_ai_credit_budget(team_api_token: str) -> bool:
+    """Single AI-credit quota signal for LLM-spending paths to share — one resource + cache-key
+    pair. On a cache miss this issues a synchronous Redis read, so async callers must wrap it in
+    sync_to_async."""
+    return is_team_limited(team_api_token, QuotaResource.AI_CREDITS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
 
 
 # -------------------------------------------------------------------------------------------------
@@ -878,6 +890,9 @@ def update_all_orgs_billing_quotas(
         "teams_with_ai_credits_used_in_period": convert_team_usage_rows_to_dict(
             _timed_query("ai_credits", get_teams_with_ai_credits_used_in_period, period_start, period_end)
         ),
+        "teams_with_signals_credits_used_in_period": convert_team_usage_rows_to_dict(
+            _timed_query("signals_credits", get_teams_with_signals_credits_used_in_period, period_start, period_end)
+        ),
         "teams_with_workflow_emails_sent_in_period": convert_team_usage_rows_to_dict(
             _timed_query("workflow_emails", get_teams_with_workflow_emails_sent_in_period, period_start, period_end)
         ),
@@ -940,6 +955,7 @@ def update_all_orgs_billing_quotas(
             survey_responses=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
             llm_events=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
             ai_credits=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
+            signals_credits=all_data["teams_with_signals_credits_used_in_period"].get(team.id, 0),
             cdp_trigger_events=all_data["teams_with_cdp_trigger_events_metrics"].get(team.id, 0),
             rows_exported=all_data["teams_with_rows_exported_in_period"].get(team.id, 0),
             workflow_emails=all_data["teams_with_workflow_emails_sent_in_period"].get(team.id, 0),

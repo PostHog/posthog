@@ -9,11 +9,11 @@ import { groupsModel } from '~/models/groupsModel'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
+import { buildAiObservabilityStorageConfig } from '../preferenceStorage'
 import { LLM_TRACES_PAGE_SIZE } from '../utils'
 import type { aiObservabilityTracesTabLogicType } from './aiObservabilityTracesTabLogicType'
 
 export interface AIObservabilityTracesTabLogicProps {
-    tabId?: string
     personId?: string
     group?: {
         groupKey: string
@@ -23,15 +23,11 @@ export interface AIObservabilityTracesTabLogicProps {
 
 export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicType>([
     path(['products', 'ai_observability', 'frontend', 'tabs', 'aiObservabilityTracesTabLogic']),
-    key((props: AIObservabilityTracesTabLogicProps) =>
-        props?.tabId
-            ? `${props.tabId}::${props?.personId || 'aiObservabilityScene'}`
-            : props?.personId || 'aiObservabilityScene'
-    ),
+    key((props: AIObservabilityTracesTabLogicProps) => props?.personId || 'aiObservabilityScene'),
     props({} as AIObservabilityTracesTabLogicProps),
     connect((props: AIObservabilityTracesTabLogicProps) => ({
         values: [
-            aiObservabilitySharedLogic({ tabId: props.tabId, personId: props.personId, group: props.group }),
+            aiObservabilitySharedLogic({ personId: props.personId, group: props.group }),
             ['dateFilter', 'shouldFilterTestAccounts', 'shouldFilterSupportTraces', 'propertyFilters'],
             groupsModel,
             ['groupsTaxonomicTypes'],
@@ -48,7 +44,7 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
         setShowSentimentColumn: (show: boolean) => ({ show }),
     }),
 
-    reducers({
+    reducers(() => ({
         tracesQueryOverride: [
             null as DataTableNode | null,
             {
@@ -57,19 +53,19 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
         ],
         showInputOutputColumns: [
             true as boolean,
-            { persist: true },
+            buildAiObservabilityStorageConfig('traces.showInputOutputColumns'),
             {
                 setShowInputOutputColumns: (_, { show }) => show,
             },
         ],
         showSentimentColumn: [
             true as boolean,
-            { persist: true },
+            buildAiObservabilityStorageConfig('traces.showSentimentColumn'),
             {
                 setShowSentimentColumn: (_, { show }) => show,
             },
         ],
-    }),
+    })),
 
     selectors({
         tracesQuery: [
@@ -131,22 +127,20 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
                             ? ['inputState', 'outputState']
                             : []),
                         'person',
-                        ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT] && showSentimentColumn
-                            ? ['__llm_sentiment']
-                            : []),
-                        ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB] ? ['__llm_tools'] : []),
+                        ...(showSentimentColumn ? ['__llm_sentiment'] : []),
+                        '__llm_tools',
                         'errorCount',
                         'totalLatency',
                         'usage',
                         'totalCost',
-                        ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_REVIEW] ? ['review'] : []),
+                        'review',
                         'createdAt',
                     ],
                     showDateRange: true,
                     showReload: true,
                     showSearch: true,
                     showTestAccountFilters: true,
-                    showExport: true,
+                    showExport: false,
                     showOpenEditorButton: false,
                     showColumnConfigurator: false,
                     showPropertyFilter: [

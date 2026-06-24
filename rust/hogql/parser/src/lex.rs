@@ -84,6 +84,7 @@ pub enum TokenKind {
     LtEq,
     Gt,
     GtEq,
+    NullSafeEq, // `<=>` (MySQL null-safe equality, sugar for IS NOT DISTINCT FROM)
 
     // ---- Regex --------------------------------------------------------
     RegexSingle,  // `~`
@@ -398,6 +399,14 @@ const KEYWORDS: &[(&str, Kw)] = &[
 pub struct Lexer<'a> {
     src: &'a [u8],
     pos: usize,
+    /// Mirrors cpp's `HOGQLX_TAG_OPEN` / `HOGQLX_TAG_CLOSE` lexer modes
+    /// for the one trivia rule that differs there: `HASH_COMMENT` is
+    /// default-mode-only, so a `#` between tag attributes must stay a
+    /// `Hash` token (which the tag parser rejects, matching the
+    /// grammar's `TAG_UNEXPECTED` catch-all) instead of starting a
+    /// comment. Toggled by the HogQLX tag parser; see
+    /// `parse_hogqlx_tag_element`.
+    in_hogqlx_tag: bool,
 }
 
 impl<'a> Lexer<'a> {
@@ -410,11 +419,20 @@ impl<'a> Lexer<'a> {
         Self {
             src: src.as_bytes(),
             pos,
+            in_hogqlx_tag: false,
         }
     }
 
     pub fn pos(&self) -> usize {
         self.pos
+    }
+
+    pub fn in_hogqlx_tag(&self) -> bool {
+        self.in_hogqlx_tag
+    }
+
+    pub fn set_in_hogqlx_tag(&mut self, on: bool) {
+        self.in_hogqlx_tag = on;
     }
 
     pub fn next_token(&mut self) -> Result<Token, ParseError> {
@@ -457,10 +475,29 @@ impl<'a> Lexer<'a> {
                 self.pos += 1;
                 TokenKind::Semicolon
             }
-            b'#' => {
-                self.pos += 1;
-                TokenKind::Hash
-            }
+            b'#' => match self.peek_byte(1) {
+                // `#` immediately followed by a digit is the positional-ref
+                // HASH token (`#1`); the grammar's HASH_COMMENT rule
+                // explicitly excludes a leading digit so those keep lexing.
+                Some(b'0'..=b'9') => {
+                    self.pos += 1;
+                    TokenKind::Hash
+                }
+                // Anything else (including EOL / EOF right after the `#`)
+                // is a MySQL-style `#` line comment, skipped like `--`.
+                // skip_trivia caught most of these already; this catches a
+                // `#` that follows a non-trivia token mid-expression.
+                _ if !self.in_hogqlx_tag => {
+                    self.skip_line_comment();
+                    return self.next_token();
+                }
+                // Inside a HogQLX tag there is no HASH_COMMENT rule; emit
+                // Hash and let the tag parser reject it (TAG_UNEXPECTED).
+                _ => {
+                    self.pos += 1;
+                    TokenKind::Hash
+                }
+            },
 
             // Always emit a single dot. `.5` style literals are assembled
             // at parse time via the grammar's `floatingLiteral` (DOT then
@@ -610,6 +647,12 @@ impl<'a> Lexer<'a> {
             },
 
             b'<' => match self.peek_byte(1) {
+                // `<=>` must win over `<=` (longest match, mirroring the
+                // grammar's NULL_SAFE_EQ-before-LT_EQ declaration order).
+                Some(b'=') if self.peek_byte(2) == Some(b'>') => {
+                    self.pos += 3;
+                    TokenKind::NullSafeEq
+                }
                 Some(b'=') => {
                     self.pos += 2;
                     TokenKind::LtEq
@@ -742,6 +785,20 @@ impl<'a> Lexer<'a> {
             // `--` or `//` line comment (HogQL accepts both forms).
             if (self.peek_byte(0) == Some(b'-') && self.peek_byte(1) == Some(b'-'))
                 || (self.peek_byte(0) == Some(b'/') && self.peek_byte(1) == Some(b'/'))
+            {
+                self.skip_line_comment();
+                continue;
+            }
+            // MySQL-style `#` line comment (the grammar's HASH_COMMENT;
+            // default mode only — HogQLX tag modes reject `#` instead).
+            // `#` immediately followed by a digit is NOT a comment — it
+            // stays a HASH token so positional references (`#1`) keep
+            // lexing. Everything else after `#` (including EOL / EOF) is
+            // comment: the ANTLR rule's tail matches '\n' | '\r' | EOF, so
+            // a bare `#` at end of line is skipped too.
+            if !self.in_hogqlx_tag
+                && self.peek_byte(0) == Some(b'#')
+                && !matches!(self.peek_byte(1), Some(b'0'..=b'9'))
             {
                 self.skip_line_comment();
                 continue;
@@ -1252,6 +1309,53 @@ mod tests {
         assert_eq!(
             lex_all("1 /* nope */ + 2"),
             vec![TokenKind::Number, TokenKind::Plus, TokenKind::Number]
+        );
+    }
+
+    #[test]
+    fn hash_comment_skipped() {
+        assert_eq!(
+            lex_all("1 # the answer\n+ 2"),
+            vec![TokenKind::Number, TokenKind::Plus, TokenKind::Number]
+        );
+        // A bare `#` at EOF / EOL is a comment too (the ANTLR rule's
+        // tail admits '\n' | '\r' | EOF directly after the `#`).
+        assert_eq!(lex_all("1 #"), vec![TokenKind::Number]);
+        assert_eq!(lex_all("#\n1"), vec![TokenKind::Number]);
+        assert_eq!(lex_all("# only a comment"), vec![]);
+    }
+
+    #[test]
+    fn hash_before_digit_stays_positional_ref() {
+        assert_eq!(lex_all("#1"), vec![TokenKind::Hash, TokenKind::Number]);
+        assert_eq!(
+            lex_all("select #2"),
+            vec![
+                TokenKind::Keyword(Kw::Select),
+                TokenKind::Hash,
+                TokenKind::Number
+            ],
+        );
+    }
+
+    #[test]
+    fn null_safe_eq_wins_over_lt_eq() {
+        assert_eq!(
+            lex_all("1 <=> 2"),
+            vec![TokenKind::Number, TokenKind::NullSafeEq, TokenKind::Number]
+        );
+        assert_eq!(
+            lex_all("1 <= 2"),
+            vec![TokenKind::Number, TokenKind::LtEq, TokenKind::Number]
+        );
+        assert_eq!(
+            lex_all("1 <= > 2"),
+            vec![
+                TokenKind::Number,
+                TokenKind::LtEq,
+                TokenKind::Gt,
+                TokenKind::Number
+            ],
         );
     }
 

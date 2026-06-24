@@ -3,14 +3,12 @@ from datetime import timedelta
 
 from freezegun import freeze_time
 
-from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.models import Organization, User
 from posthog.models.oauth import (
     OAuthAccessToken,
@@ -18,16 +16,11 @@ from posthog.models.oauth import (
     OAuthGrant,
     OAuthIDToken,
     OAuthRefreshToken,
+    revoke_application_sessions,
     revoke_oauth_session,
 )
 
 
-@override_settings(
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    }
-)
 class TestOAuthModels(TestCase):
     def setUp(self):
         self.organization = Organization.objects.create(name="Test Org")
@@ -75,6 +68,52 @@ class TestOAuthModels(TestCase):
         )
         app.refresh_from_db()
         self.assertEqual(app.scopes, ["insight:read", "llm_gateway:read"])
+
+    @parameterized.expand(
+        [
+            ("empty_scopes_broad", [], [], [], []),
+            ("explicit_no_optional_all_required", ["insight:read"], [], ["insight:read"], ["insight:read"]),
+            ("split", ["insight:read"], ["dashboard:read"], ["insight:read", "dashboard:read"], ["insight:read"]),
+            (
+                "overlap_deduped",
+                ["insight:read", "dashboard:write"],
+                ["dashboard:write", "experiment:read"],
+                ["insight:read", "dashboard:write", "experiment:read"],
+                ["insight:read", "dashboard:write"],
+            ),
+        ]
+    )
+    def test_ceiling_and_required_scope_properties(self, _name, scopes, optional, expected_ceiling, expected_required):
+        app = self._make_app(f"Split {_name}", f"split_{_name}_client", scopes=scopes, optional_scopes=optional)
+        self.assertEqual(app.ceiling_scopes, expected_ceiling)
+        self.assertEqual(app.required_scopes, expected_required)
+
+    @parameterized.expand(
+        [
+            ("optional_without_required", [], ["dashboard:read"], "optional_scopes"),
+            ("wildcard_in_required", ["*"], ["dashboard:read"], "scopes"),
+            ("identity_scope_in_required", ["openid", "insight:read"], ["dashboard:read"], "scopes"),
+            ("identity_scope_in_optional", ["insight:read"], ["openid"], "optional_scopes"),
+        ]
+    )
+    def test_scope_split_validation_rejects_invalid_configs(self, _name, scopes, optional, error_field):
+        with self.assertRaises(ValidationError) as ctx:
+            self._make_app(f"Invalid {_name}", f"invalid_{_name}_client", scopes=scopes, optional_scopes=optional)
+        self.assertIn(error_field, ctx.exception.message_dict)
+
+    def test_cimd_application_can_declare_optional_scopes(self):
+        # CIMD partners declare the required/optional split in their metadata; both fields are
+        # refreshed together, so the split is a first-class CIMD feature, not a forbidden one.
+        app = self._make_app(
+            "CIMD Split",
+            "cimd_split_client",
+            is_cimd_client=True,
+            cimd_metadata_url="https://example.com/oauth-client",
+            scopes=["insight:read"],
+            optional_scopes=["dashboard:read"],
+        )
+        self.assertEqual(app.required_scopes, ["insight:read"])
+        self.assertEqual(app.ceiling_scopes, ["insight:read", "dashboard:read"])
 
     def test_oauth_access_token_label_defaults_to_empty_string(self):
         app = self._make_app("Token Label Default", "token_label_default_client")
@@ -639,3 +678,48 @@ class TestOAuthModels(TestCase):
         revoke_oauth_session(access_token=access_token)
 
         self.assertFalse(OAuthAccessToken.objects.filter(id=token_id).exists())
+
+    @freeze_time("2026-01-01 00:00:00")
+    def test_revoke_application_sessions_revokes_across_all_users_and_leaves_other_apps(self):
+        app = self._make_app("Narrowed App", "narrowed_client_id")
+        other_app = self._make_app("Other App", "other_client_id")
+        other_user = User.objects.create(email="other@example.com")
+
+        for owner, suffix in [(self.user, "a"), (other_user, "b")]:
+            access_token = OAuthAccessToken.objects.create(
+                application=app, user=owner, token=f"at_{suffix}", expires=timezone.now() + timedelta(minutes=5)
+            )
+            OAuthRefreshToken.objects.create(
+                application=app, user=owner, token=f"rt_{suffix}", access_token=access_token
+            )
+            OAuthGrant.objects.create(
+                application=app,
+                user=owner,
+                code=f"grant_{suffix}",
+                code_challenge="challenge",
+                code_challenge_method="S256",
+                expires=timezone.now() + timedelta(minutes=5),
+            )
+
+        survivor = OAuthAccessToken.objects.create(
+            application=other_app, user=self.user, token="at_survivor", expires=timezone.now() + timedelta(minutes=5)
+        )
+
+        revoke_application_sessions(app)
+
+        self.assertEqual(OAuthAccessToken.objects.filter(application=app).count(), 0)
+        self.assertEqual(OAuthGrant.objects.filter(application=app).count(), 0)
+        self.assertEqual(OAuthRefreshToken.objects.filter(application=app, revoked__isnull=True).count(), 0)
+        self.assertTrue(OAuthAccessToken.objects.filter(id=survivor.id).exists())
+
+    @freeze_time("2026-01-01 00:00:00")
+    def test_revoke_application_sessions_stamps_sessions_revoked_at(self):
+        app = self._make_app("Stamped App", "stamped_client_id")
+        other_app = self._make_app("Untouched App", "untouched_client_id")
+
+        revoke_application_sessions(app)
+
+        app.refresh_from_db()
+        other_app.refresh_from_db()
+        self.assertEqual(app.sessions_revoked_at, timezone.now())
+        self.assertIsNone(other_app.sessions_revoked_at)

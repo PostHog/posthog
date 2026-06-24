@@ -142,9 +142,10 @@ class InsightsGraph(BaseAssistantGraph[AssistantState, PartialAssistantState]):
 
     def add_query_creation_flow(self, next_node: AssistantNodeName = AssistantNodeName.QUERY_EXECUTOR):
         """Add all nodes and edges EXCEPT query execution."""
+        # Semantic actions search (RAG context) is disabled — go straight to the query planner.
+        self.add_edge(AssistantNodeName.START, AssistantNodeName.QUERY_PLANNER)
         return (
-            self.add_rag_context()
-            .add_query_planner()
+            self.add_query_planner()
             .add_trends_generator(next_node=next_node)
             .add_funnel_generator(next_node=next_node)
             .add_retention_generator(next_node=next_node)

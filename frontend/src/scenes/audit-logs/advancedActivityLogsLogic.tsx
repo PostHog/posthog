@@ -3,12 +3,14 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
+import { ensureActivityDescribersLoaded } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { ADVANCED_ACTIVITY_PAGE_SIZE, OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { dateStringToDayJs, objectClean } from 'lib/utils'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
+import { objectClean } from 'lib/utils/objects'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -278,7 +280,10 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     params.append('page', (values.filters.page || 1).toString())
                     params.append('page_size', ADVANCED_ACTIVITY_PAGE_SIZE.toString())
 
-                    const response = await api.get(`${values.advancedActivityLogsBaseUrl}/?${params}`)
+                    const [response] = await Promise.all([
+                        api.get(`${values.advancedActivityLogsBaseUrl}/?${params}`),
+                        ensureActivityDescribersLoaded(),
+                    ])
                     return response
                 },
             },

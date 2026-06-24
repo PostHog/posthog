@@ -1,9 +1,10 @@
-from typing import Optional, cast
+from typing import TYPE_CHECKING, Optional, cast
 
 from clickhouse_connect.driver.exceptions import ClickHouseError, DatabaseError, OperationalError
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -29,9 +30,13 @@ from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleS
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.common.sql.base import reconcile_source_schema_metadata
 from posthog.temporal.data_imports.sources.generated_configs import ClickHouseSourceConfig
 
 from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField
+
+if TYPE_CHECKING:
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 # Error message → user-friendly translation. Matched as a substring of the
 # exception string. Patterns are lowercase-matched.
@@ -52,6 +57,10 @@ ClickHouseErrors: dict[str, str] = {
 
 @SourceRegistry.register
 class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+    # Lets users pick which columns to sync (and, in the wizard, surfaces the
+    # row-filter editor that shares the same column-selection modal).
+    supports_column_selection: bool = True
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CLICKHOUSE
@@ -60,6 +69,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CLICK_HOUSE,
+            category=DataWarehouseSourceCategory.DATABASES,
             releaseStatus="beta",
             caption="Enter your ClickHouse connection details to pull data into the PostHog Data warehouse. ClickHouse databases can be very large — we stream the data in Arrow batches to keep memory bounded.",
             iconPath="/static/services/clickhouse.png",
@@ -157,12 +167,36 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             "No route to host": None,
             "certificate verify failed": None,
             "SSL: WRONG_VERSION_NUMBER": None,
-            # Raised from the shared `_evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
+            # clickhouse-connect's HTTP driver got a 404 back while opening the
+            # connection ("HTTPDriver for <url> returned response code 404").
+            # The host responded but isn't serving the ClickHouse HTTP interface
+            # on that path — typically a tunnel/proxy pointing at the wrong
+            # service or an offline endpoint. A real ClickHouse server never
+            # answers queries with 404, so retrying can't recover. We match only
+            # 404, not transient gateway codes (502/503/504), which stay retryable.
+            "returned response code 404": "We reached your ClickHouse host but it returned a 404, so it isn't serving the ClickHouse HTTP interface on that host/port. Please check the host, port, and HTTPS setting (and any tunnel or proxy in front of it).",
+            # MEMORY_LIMIT_EXCEEDED — the source ClickHouse server (per-query
+            # `max_memory_usage` budget or a server-wide OvercommitTracker kill)
+            # ran out of memory running our extraction query. We already stream
+            # in bounded Arrow blocks, so there's nothing to change our side:
+            # the customer's database can't satisfy the query as configured.
+            # Retrying just re-loads an already memory-pressured server, so stop
+            # and tell them to act.
+            "Code: 241": "Your ClickHouse server ran out of memory while we were reading a table. This usually means the database is too small for the table being synced. Try scaling up your ClickHouse service (or raising its memory limit), or sync a smaller table or use an incremental sync, then resume.",
+            # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
             # when an integer column's source type was widened (e.g. `Int32` → `Int64`) after
             # the destination table was created with the narrower type. Delta Lake can't widen
             # an existing column in place, so retrying won't help — the table must be reset and
             # fully re-synced to adopt the new type.
             "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
+            # Raised from `_get_table` when `system.columns` returns no columns for the
+            # configured table — the table no longer exists in the source database at sync
+            # time. It was dropped or renamed, or (commonly) the schema points at a
+            # materialized view's auto-generated `.inner_id.<uuid>` inner table whose UUID
+            # changed when the view was recreated. Either way the table is gone and retrying
+            # replays the identical failure, so stop and tell the customer to fix the schema.
+            # We match the stable suffix, not the volatile `<database>.<table>` prefix.
+            "not found or has no columns": "We couldn't find this table in your ClickHouse database — it may have been dropped or renamed. If you were syncing a materialized view, sync it by its own name rather than its internal `.inner_id.<uuid>` table (those names change whenever the view is recreated). Remove or re-point this table in your source, then resync.",
         }
 
     def get_schemas(
@@ -322,4 +356,17 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             incremental_field_type=inputs.incremental_field_type,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
             chunk_size_override=schema.chunk_size_override,
+            row_filters=inputs.row_filters,
+            enabled_columns=inputs.enabled_columns,
         )
+
+    def reconcile_schema_metadata(
+        self,
+        source: "ExternalDataSource",
+        source_schemas: list[SourceSchema],
+        team_id: int,
+    ) -> list[str]:
+        """Persist per-schema column metadata so row filters validate and the
+        column picker populates. ClickHouse isn't a `SQLSource`, but the
+        reconcile step is driver-agnostic, so we reuse the shared helper."""
+        return reconcile_source_schema_metadata(source, source_schemas, team_id)

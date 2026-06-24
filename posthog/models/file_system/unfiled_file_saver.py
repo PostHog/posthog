@@ -4,8 +4,7 @@ from typing import Optional
 
 from django.utils import timezone
 
-from posthog.models.cohort import Cohort
-from posthog.models.file_system.constants import DEFAULT_SURFACE
+from posthog.models.file_system.constants import DEFAULT_SURFACE, DESKTOP_SURFACE
 from posthog.models.file_system.file_system import FileSystem, escape_path, split_path
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.team import Team
@@ -14,6 +13,7 @@ from posthog.session_recordings.models.session_recording_playlist import Session
 
 from products.actions.backend.models.action import Action
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
@@ -22,6 +22,7 @@ from products.links.backend.models import Link
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.models.insight import Insight
 from products.surveys.backend.models import Survey
+from products.tasks.backend.facade.file_system import Task
 
 MIXIN_MODELS: dict[str, type[FileSystemSyncMixin]] = {
     "action": Action,
@@ -38,10 +39,15 @@ MIXIN_MODELS: dict[str, type[FileSystemSyncMixin]] = {
     "survey": Survey,
 }
 
+DESKTOP_MIXIN_MODELS: dict[str, type[FileSystemSyncMixin]] = {
+    "task": Task,
+}
+
 # Which models feed each surface's tree. New product surfaces register their own models here so
 # they are never swept into the default ("web") tree, and vice versa.
 MIXIN_MODELS_BY_SURFACE: dict[str, dict[str, type[FileSystemSyncMixin]]] = {
     DEFAULT_SURFACE: MIXIN_MODELS,
+    DESKTOP_SURFACE: DESKTOP_MIXIN_MODELS,
 }
 
 

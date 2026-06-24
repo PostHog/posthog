@@ -1,4 +1,4 @@
-import { CLICK_TARGETS, elementToSelector, matchesDataAttribute } from 'lib/actionUtils'
+import { CLICK_TARGETS, elementToSelector, matchesDataAttribute } from 'lib/utils/actions'
 
 import { ActionStepType, ElementType, PropertyFilterType, PropertyOperator } from '~/types'
 
