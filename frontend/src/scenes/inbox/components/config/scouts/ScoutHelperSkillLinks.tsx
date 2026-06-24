@@ -1,10 +1,16 @@
 import { Link } from '@posthog/lemon-ui'
 
 // Desktop opens these two scout helper skills in its in-app Skills view; cloud has
-// no in-app Skills surface, so they link out to the equivalent PostHog docs.
+// no in-app Skills surface, so they link out to the skill source on GitHub.
 const HELPER_SKILLS = [
-    { label: 'authoring scouts', url: 'https://posthog.com/docs/signals' },
-    { label: 'exploring scouts', url: 'https://posthog.com/docs/signals' },
+    {
+        label: 'authoring scouts',
+        url: 'https://github.com/PostHog/ai-plugin/blob/main/skills/authoring-signals-scouts/SKILL.md',
+    },
+    {
+        label: 'exploring scouts',
+        url: 'https://github.com/PostHog/ai-plugin/blob/main/skills/exploring-signals-scouts/SKILL.md',
+    },
 ]
 
 /** One-line pointer to the two official scout helper skills. */
