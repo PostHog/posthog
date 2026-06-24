@@ -138,9 +138,10 @@ Django must be up at that moment.
 ## Step 3 — backend credentials and `SITE_URL`
 
 PostHog Code reuses the regular Slack notifications app, so set the standard
-`SLACK_APP_*` credentials in `.env` and restart the `django` +
-`temporal-django-worker` processes so it reloads. These are dynamic settings
-seeded from the env on boot (`posthog/settings/dynamic_settings.py`):
+`SLACK_APP_*` credentials in `.env` and restart the `backend` +
+`temporal-worker` processes (the dev-stack process names in `hogli start` /
+mprocs) so they reload. These are dynamic settings seeded from the env on boot
+(`posthog/settings/dynamic_settings.py`):
 
 ```bash
 SLACK_APP_CLIENT_ID=<client id>

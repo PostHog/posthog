@@ -52,7 +52,13 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
 
 from products.slack_app.backend import inbox_channel, onboarding
-from products.slack_app.backend.home_tab import publish_home_tab
+from products.slack_app.backend.home_tab import (
+    FILTER_ORG_ACTION_ID,
+    FILTER_REPO_ACTION_ID,
+    FILTER_STATUS_ACTION_ID,
+    HOME_ACTION_IDS,
+    publish_home_tab,
+)
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
 from products.slack_app.backend.services import inbox_interactivity
 from products.slack_app.backend.services.integration_resolver import (
@@ -1603,9 +1609,9 @@ def _route_app_home_opened(
         return ROUTE_HANDLED_LOCALLY
 
     probe = result.integration if result.integration in result.candidates else result.candidates[0]
-    # Kill-switch: stay dark when the coding-agent surface is disabled for this workspace.
-    if not _assistant_enabled(probe.team):
-        return ROUTE_HANDLED_LOCALLY
+    # Not gated on the DM-assistant flag: the Home tab mirrors tasks created by the
+    # (ungated) mention webhook. Authorization is enforced below by user resolution
+    # and the participant + accessible-team scoping in gather_involved_tasks.
 
     resolution = resolve_user_for_workspace(
         workspace_result=result,
@@ -3214,6 +3220,14 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         ).exists()
+    elif slack_team_id and _has_home_action(payload):
+        # Home tab controls (refresh / filters): claim the workspace locally. The
+        # republish below re-runs user resolution + accessible-team scoping, so it
+        # only ever shows the clicker their own involved tasks.
+        local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+            kind=SLACK_INTEGRATION_KIND,
+            integration_id=slack_team_id,
+        ).exists()
 
     proxied = _was_proxied(request)
     incoming_host = request.get_host()
@@ -3309,5 +3323,65 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return inbox_interactivity.handle_inbox_sources(payload)
             if action.get("action_id") == onboarding.INBOX_AI_APPROVAL_ACTION_ID:
                 return inbox_interactivity.handle_inbox_ai_approval(payload)
+            if action.get("action_id") in HOME_ACTION_IDS:
+                return _republish_home(payload)
 
+    return HttpResponse(status=200)
+
+
+def _has_home_action(payload: dict) -> bool:
+    return payload.get("type") == "block_actions" and any(
+        a.get("action_id") in HOME_ACTION_IDS for a in payload.get("actions", [])
+    )
+
+
+def _extract_home_filters(payload: dict) -> dict[str, str]:
+    """Read the current org / repo / status selections from the view's input state,
+    so refresh and any single filter change both re-publish with the full selection."""
+    by_action = {
+        FILTER_ORG_ACTION_ID: "org",
+        FILTER_REPO_ACTION_ID: "repo",
+        FILTER_STATUS_ACTION_ID: "status",
+    }
+    filters: dict[str, str] = {}
+    state_values = (payload.get("view") or {}).get("state", {}).get("values", {})
+    for block in state_values.values():
+        for action_id, data in block.items():
+            key = by_action.get(action_id)
+            selected = (data or {}).get("selected_option")
+            if key and selected:
+                filters[key] = selected.get("value")
+    return filters
+
+
+def _republish_home(payload: dict) -> HttpResponse:
+    """Re-publish the Home tab for the clicking user, preserving filter selections."""
+    slack_team_id = payload.get("team", {}).get("id", "")
+    slack_user_id = payload.get("user", {}).get("id", "")
+    if not (slack_team_id and slack_user_id):
+        return HttpResponse(status=200)
+
+    result = load_integrations(
+        slack_team_id=slack_team_id,
+        kinds=[SLACK_INTEGRATION_KIND],
+        slack_user_id=slack_user_id,
+        user=None,
+    )
+    if not result.candidates:
+        return HttpResponse(status=200)
+
+    resolution = resolve_user_for_workspace(
+        workspace_result=result,
+        slack_team_id=slack_team_id,
+        slack_user_id=slack_user_id,
+    )
+    if resolution.user is not None:
+        probe = result.integration if result.integration in result.candidates else result.candidates[0]
+        publish_home_tab(
+            SlackIntegration(probe),
+            slack_user_id=slack_user_id,
+            slack_workspace_id=slack_team_id,
+            accessible_integrations=resolution.candidates,
+            filters=_extract_home_filters(payload),
+        )
     return HttpResponse(status=200)
