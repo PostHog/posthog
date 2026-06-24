@@ -12,12 +12,9 @@ import {
     buildWidgetTileMetadataPatch,
     getWidgetEditModalTileDefaults,
     widgetEditModalFilterTestAccountsActions,
-    widgetEditModalFilterTestAccountsReducers,
     widgetEditModalListFieldActions,
     widgetEditModalPropSelectors,
-    widgetEditModalSavingReducers,
     widgetEditModalTileActions,
-    widgetEditModalTileReducers,
 } from '../editWidgetModalBuilders'
 import type { DashboardWidgetEditModalProps } from '../registry'
 import type { editLlmAnalyticsTracesWidgetModalLogicType } from './editLlmAnalyticsTracesWidgetModalLogicType'
@@ -94,8 +91,25 @@ export const editLlmAnalyticsTracesWidgetModalLogic = kea<editLlmAnalyticsTraces
                 setDateFrom: (_: WidgetDateFromValue, { dateFrom }: { dateFrom: WidgetDateFromValue }) => dateFrom,
             },
         ],
-        ...widgetEditModalTileReducers,
-        ...widgetEditModalFilterTestAccountsReducers,
+        tileName: [
+            '',
+            {
+                setTileName: (_: string, { tileName }: { tileName: string }) => tileName,
+            },
+        ],
+        tileDescription: [
+            '',
+            {
+                setTileDescription: (_: string, { tileDescription }: { tileDescription: string }) => tileDescription,
+            },
+        ],
+        filterTestAccounts: [
+            false,
+            {
+                setFilterTestAccounts: (_: boolean, { filterTestAccounts }: { filterTestAccounts: boolean }) =>
+                    filterTestAccounts,
+            },
+        ],
         filterSupportTraces: [
             false,
             {
@@ -131,7 +145,14 @@ export const editLlmAnalyticsTracesWidgetModalLogic = kea<editLlmAnalyticsTraces
                 },
             },
         ],
-        ...widgetEditModalSavingReducers,
+        saving: [
+            false,
+            {
+                submit: (_state: boolean, _payload: { value: true }) => true,
+                submitSuccess: (_state: boolean, _payload: { value: true }) => false,
+                submitFailure: (_state: boolean, _payload: { value: true }) => false,
+            },
+        ],
     }),
 
     selectors({
@@ -193,7 +214,8 @@ export const editLlmAnalyticsTracesWidgetModalLogic = kea<editLlmAnalyticsTraces
             ),
             filterSupportTraces: baseConfig.filterSupportTraces ?? false,
             savedFilters: readSavedTraceFilters(),
-            appliedSavedFilterId: null,
+            // appliedSavedFilterId intentionally omitted: its reducer default (`null as string | null`)
+            // drives kea-typegen inference — a literal `null` here narrows the inferred type to `null`.
             fieldErrors: {},
             saving: false,
         }
@@ -205,7 +227,7 @@ export const editLlmAnalyticsTracesWidgetModalLogic = kea<editLlmAnalyticsTraces
             if (!savedFilter) {
                 return
             }
-            const source = (savedFilter.query as { source?: Record<string, unknown> } | undefined)?.source
+            const source = savedFilter.query?.source as unknown as Record<string, unknown> | undefined
             const extracted = extractSavedFilterValues(source)
             actions.setDateFrom(extracted.dateFrom)
             if (extracted.filterTestAccounts !== null) {
