@@ -176,21 +176,6 @@ export function ExperimentResultsWidget({
         return <ExperimentResultsLoadingSkeleton />
     }
 
-    // Shares the tile picker's key so the inline and header selectors stay in sync.
-    const inlineExperimentPicker = onUpdateConfig ? (
-        <div className="w-64 max-w-full">
-            <ExperimentPickerSelect
-                pickerKey={`results-tile-${tileId}`}
-                value={null}
-                fullWidth
-                onChange={(value) => {
-                    void onUpdateConfig(patchExperimentResultsWidgetConfig(config, value))
-                }}
-                dataAttr="experiment-results-widget-empty-state-select"
-            />
-        </div>
-    ) : undefined
-
     if (!payload || payload.needsConfiguration) {
         // No experiments in the project yet — mirror the list widget's "create one" CTA.
         if (onUpdateConfig && payload && payload.hasExperiments === false) {
@@ -217,6 +202,20 @@ export function ExperimentResultsWidget({
                 />
             )
         }
+        // Editable tile, no experiment chosen yet — let the user pick one inline (shares the tile picker's key).
+        const inlinePicker = onUpdateConfig ? (
+            <div className="w-64 max-w-full">
+                <ExperimentPickerSelect
+                    pickerKey={`results-tile-${tileId}`}
+                    value={null}
+                    fullWidth
+                    onChange={(value) => {
+                        void onUpdateConfig(patchExperimentResultsWidgetConfig(config, value))
+                    }}
+                    dataAttr="experiment-results-widget-empty-state-select"
+                />
+            </div>
+        ) : undefined
         return (
             <ExperimentResultsWidgetMessage
                 title="No experiment selected"
@@ -225,7 +224,7 @@ export function ExperimentResultsWidget({
                         ? 'Pick an experiment to see its results here.'
                         : 'No experiment has been selected for this tile yet.'
                 }
-                cta={inlineExperimentPicker}
+                cta={inlinePicker}
             />
         )
     }
