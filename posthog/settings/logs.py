@@ -27,8 +27,17 @@ if IS_INTERACTIVE_SHELL:
 
 
 class FilterStatsd(logging.Filter):
-    def filter(self, record):
+    def filter(self, record: logging.LogRecord) -> bool:
         return not record.name.startswith("statsd.client")
+
+
+class MaxLevelFilter(logging.Filter):
+    def __init__(self, level: int) -> None:
+        super().__init__()
+        self.level = level
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return record.levelno <= self.level
 
 
 def add_pid_and_tid(
@@ -85,13 +94,29 @@ LOGGING = {
     "filters": {
         "filter_statsd": {
             "()": "posthog.settings.logs.FilterStatsd",
-        }
+        },
+        "max_level_info": {
+            "()": "posthog.settings.logs.MaxLevelFilter",
+            "level": logging.INFO,
+        },
     },
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
             "formatter": LOGGING_FORMATTER_NAME,
             "filters": ["filter_statsd"],
+        },
+        "console_stdout_info": {
+            "class": "logging.StreamHandler",
+            "formatter": LOGGING_FORMATTER_NAME,
+            "filters": ["filter_statsd", "max_level_info"],
+            "stream": "ext://sys.stdout",
+        },
+        "console_stderr_warning": {
+            "class": "logging.StreamHandler",
+            "formatter": LOGGING_FORMATTER_NAME,
+            "filters": ["filter_statsd"],
+            "level": "WARNING",
         },
         "null": {
             "class": "logging.NullHandler",
@@ -111,8 +136,18 @@ LOGGING = {
         "posthog.tasks.email": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "products.exports.backend.tasks": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.tasks.ai_observability_usage_report": {"level": "INFO", "handlers": ["console"], "propagate": False},
-        "posthog.tasks.hypercache_verification": {"level": "INFO", "handlers": ["console"], "propagate": False},
-        "posthog.storage.hypercache_verifier": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        # Hypercache verify-and-fix can emit expected high-volume INFO bursts.
+        # Keep those off stderr so stream-based collectors don't relabel them as errors.
+        "posthog.tasks.hypercache_verification": {
+            "level": "INFO",
+            "handlers": ["console_stdout_info", "console_stderr_warning"],
+            "propagate": False,
+        },
+        "posthog.storage.hypercache_verifier": {
+            "level": "INFO",
+            "handlers": ["console_stdout_info", "console_stderr_warning"],
+            "propagate": False,
+        },
         "posthog.auth.mfa": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.security.command_exec_audit": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.temporal.data_imports.pipelines.pipeline_v3.load": {
