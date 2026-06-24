@@ -34,6 +34,8 @@ import {
     AgentApplicationsRevisionsPartialUpdateParams,
     AgentApplicationsRevisionsPromoteCreateParams,
     AgentApplicationsRevisionsRetrieveParams,
+    AgentApplicationsRevisionsSkillRefsUpdateBody,
+    AgentApplicationsRevisionsSkillRefsUpdateParams,
     AgentApplicationsRevisionsSlackManifestParams,
     AgentApplicationsRevisionsSpecUpdateBody,
     AgentApplicationsRevisionsSpecUpdateParams,
@@ -589,6 +591,31 @@ const agentApplicationsRevisionsRetrieve = (): ToolBase<
     },
 })
 
+const AgentApplicationsRevisionsSkillRefsUpdateSchema = AgentApplicationsRevisionsSkillRefsUpdateParams.omit({
+    project_id: true,
+}).extend(AgentApplicationsRevisionsSkillRefsUpdateBody.shape)
+
+const agentApplicationsRevisionsSkillRefsUpdate = (): ToolBase<
+    typeof AgentApplicationsRevisionsSkillRefsUpdateSchema,
+    Schemas.AgentRevision
+> => ({
+    name: 'agent-applications-revisions-skill-refs-update',
+    schema: AgentApplicationsRevisionsSkillRefsUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof AgentApplicationsRevisionsSkillRefsUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.skill_refs !== undefined) {
+            body['skill_refs'] = params.skill_refs
+        }
+        const result = await context.api.request<Schemas.AgentRevision>({
+            method: 'PUT',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.application_id))}/revisions/${encodeURIComponent(String(params.id))}/skill_refs/`,
+            body,
+        })
+        return result
+    },
+})
+
 const AgentApplicationsRevisionsSlackManifestSchema = AgentApplicationsRevisionsSlackManifestParams.omit({
     project_id: true,
 })
@@ -847,6 +874,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'agent-applications-revisions-partial-update': agentApplicationsRevisionsPartialUpdate,
     'agent-applications-revisions-promote-create': agentApplicationsRevisionsPromoteCreate,
     'agent-applications-revisions-retrieve': agentApplicationsRevisionsRetrieve,
+    'agent-applications-revisions-skill-refs-update': agentApplicationsRevisionsSkillRefsUpdate,
     'agent-applications-revisions-slack-manifest': agentApplicationsRevisionsSlackManifest,
     'agent-applications-revisions-spec-update': agentApplicationsRevisionsSpecUpdate,
     'agent-applications-revisions-system-prompt': agentApplicationsRevisionsSystemPrompt,

@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 35 enabled ops
+ * PostHog API - MCP 34 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -1746,6 +1746,61 @@ export const AgentApplicationsRevisionsPromoteCreateParams = /* @__PURE__ */ zod
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
 })
+
+/**
+ * Full-replace the draft's store-skill references. They are resolved
+ * and materialized into the bundle at freeze, not here — this only records
+ * which skills (and pinned versions) the freeze should pull in.
+ */
+export const AgentApplicationsRevisionsSkillRefsUpdateParams = /* @__PURE__ */ zod.object({
+    application_id: zod.string(),
+    id: zod.string().describe('A UUID string identifying this agent revision.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const agentApplicationsRevisionsSkillRefsUpdateBodySkillRefsItemAliasMax = 64
+
+export const agentApplicationsRevisionsSkillRefsUpdateBodySkillRefsItemAliasRegExp = new RegExp(
+    '^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$'
+)
+
+export const AgentApplicationsRevisionsSkillRefsUpdateBody = /* @__PURE__ */ zod
+    .object({
+        skill_refs: zod
+            .array(
+                zod
+                    .object({
+                        from_template: zod
+                            .string()
+                            .describe(
+                                'Name of the skill in the llma-skill store to pin into this agent. Resolved at freeze to the chosen `version` and materialized into the bundle.'
+                            ),
+                        alias: zod
+                            .string()
+                            .max(agentApplicationsRevisionsSkillRefsUpdateBodySkillRefsItemAliasMax)
+                            .regex(agentApplicationsRevisionsSkillRefsUpdateBodySkillRefsItemAliasRegExp)
+                            .describe(
+                                'Folder the resolved skill is materialized under in the bundle (`skills/<alias>/`). Lowercase letters, digits, hyphens or underscores; must be unique within the revision.'
+                            ),
+                        version: zod
+                            .number()
+                            .min(1)
+                            .optional()
+                            .describe(
+                                "Specific published version to pin. Omit to pin the store's latest version at freeze time."
+                            ),
+                    })
+                    .describe(
+                        "One reference to a versioned skill in the llma-skill store, pinned into\nthis agent's bundle at freeze."
+                    )
+            )
+            .describe('The complete set of store-skill references for this draft; replaces any existing references.'),
+    })
+    .describe("Body for PUT /revisions/<id>/skill_refs/ — full-replace the draft's references.")
 
 /**
  * Build a Slack app manifest for this revision's slack trigger.
