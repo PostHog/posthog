@@ -15,6 +15,8 @@ from temporalio.exceptions import ApplicationError
 # sandbox crashes workflow validation. Only the activities touch them at runtime, so pass
 # them through the sandbox unmodified.
 with workflow.unsafe.imports_passed_through():
+    from django.db import transaction
+
     import structlog
     from anthropic import APIError
     from pydantic import BaseModel, Field, model_validator
@@ -104,7 +106,7 @@ BASE_DRAFT_SCOPES = ["business_knowledge:read", "project:read"]
 # direct-query data sources — outside the "customer's own PostHog project data" boundary these
 # scopes are meant to cover. There is no narrower project-only query scope to grant instead, so
 # the direct-connection path is closed at the prompt layer (the diagnostic instructions forbid
-# connectionId / external sources) and backstopped by review_reply_activity, which treats any
+# connectionId / external sources) and backstopped by support_review_reply_activity, which treats any
 # external-connection-sourced data in the reply as unsafe.
 DIAGNOSTIC_DRAFT_SCOPES = [
     "error_tracking:read",
@@ -426,6 +428,13 @@ class PersistReplyInput:
 
 
 @dataclass
+class RecordTriageInput:
+    team_id: int
+    ticket_id: str
+    patch: dict[str, Any]
+
+
+@dataclass
 class SafetyFilterInput:
     team_id: int
     ticket_context: str
@@ -475,7 +484,7 @@ class SupportReplyDraft(BaseModel):
 
 @activity.defn
 @close_db_connections
-async def build_context_activity(input: SupportReplyInput) -> BuildContextOutput:
+async def support_build_context_activity(input: SupportReplyInput) -> BuildContextOutput:
     """Build the full ticket context string reusing the existing suggest.py helper."""
     async with Heartbeater():
         return await database_sync_to_async(_build_context_sync, thread_sensitive=False)(input.team_id, input.ticket_id)
@@ -510,7 +519,7 @@ def _build_context_sync(team_id: int, ticket_id: str) -> BuildContextOutput:
 
 
 @activity.defn
-async def safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput:
+async def support_safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput:
     """Screen ticket for prompt injection / data exfiltration before the draft loop."""
     async with Heartbeater():
         return await _safety_filter(input.team_id, input.ticket_context)
@@ -545,7 +554,7 @@ async def _safety_filter(team_id: int, ticket_context: str) -> SafetyFilterOutpu
 
 
 @activity.defn
-async def review_reply_activity(input: ReviewReplyInput) -> ReviewReplyOutput:
+async def support_review_reply_activity(input: ReviewReplyInput) -> ReviewReplyOutput:
     """Screen the final reply for data exfiltration / PII leakage before persisting."""
     async with Heartbeater():
         return await _review_reply(input.team_id, input.ticket_context, input.reply, input.sources, input.ticket_type)
@@ -595,7 +604,7 @@ TICKET TYPE: {ticket_type}"""
 
 
 @activity.defn
-async def classify_activity(input: ClassifyInput) -> ClassifyOutput:
+async def support_classify_activity(input: ClassifyInput) -> ClassifyOutput:
     """One-shot LLM triage of a ticket into a type + diagnostics flag + seed search queries."""
     async with Heartbeater():
         return await _classify(input.team_id, input.ticket_context)
@@ -655,7 +664,7 @@ classify the customer's support question."""
 
 
 @activity.defn
-async def refine_queries_activity(input: RefineQueriesInput) -> RefineQueriesOutput:
+async def support_refine_queries_activity(input: RefineQueriesInput) -> RefineQueriesOutput:
     """Use a lightweight LLM to generate search queries from ticket context + missing gaps."""
     async with Heartbeater():
         return await _refine_queries(
@@ -712,7 +721,7 @@ derive search queries about the customer's support question."""
 
 @activity.defn
 @close_db_connections
-async def retrieve_activity(input: RetrieveInput) -> RetrieveOutput:
+async def support_retrieve_activity(input: RetrieveInput) -> RetrieveOutput:
     """Search BK + rerank. On widen attempts, also fetch document windows around prior citations."""
     async with Heartbeater():
         return await database_sync_to_async(_retrieve_sync, thread_sensitive=False)(
@@ -788,7 +797,7 @@ def _hydrate_chunks(team_id: int, chunk_ids: list[str]) -> list[dict[str, Any]]:
 
 @activity.defn
 @close_db_connections
-async def draft_activity(input: DraftInput) -> DraftOutput:
+async def support_draft_activity(input: DraftInput) -> DraftOutput:
     """Run a sandbox session with read-only MCP to draft a reply."""
     async with Heartbeater():
         return await _draft_async(
@@ -932,7 +941,7 @@ Return your response as a JSON object with keys: reply, citations, confidence, s
 
 
 @activity.defn
-async def validate_activity(input: ValidateInput) -> ValidateOutput:
+async def support_validate_activity(input: ValidateInput) -> ValidateOutput:
     """Validate the draft reply against the source chunks for groundedness and coverage."""
     async with Heartbeater():
         return await _validate(
@@ -1030,7 +1039,7 @@ CITED CHUNKS:
 
 @activity.defn
 @close_db_connections
-async def persist_reply_activity(input: PersistReplyInput) -> None:
+async def support_persist_reply_activity(input: PersistReplyInput) -> None:
     """Persist the validated reply as a private AI comment on the ticket."""
     async with Heartbeater():
         await database_sync_to_async(_persist_reply_sync, thread_sensitive=False)(
@@ -1053,6 +1062,25 @@ def _persist_reply_sync(team_id: int, ticket_id: str, reply: str, citations: lis
     )
 
 
+@activity.defn(name="support-record-triage")
+@close_db_connections
+async def support_record_triage_activity(input: RecordTriageInput) -> None:
+    """Merge triage/outcome metadata into the ticket's ai_triage JSON field."""
+    await database_sync_to_async(_record_triage_sync, thread_sensitive=False)(
+        input.team_id, input.ticket_id, input.patch
+    )
+
+
+def _record_triage_sync(team_id: int, ticket_id: str, patch: dict[str, Any]) -> None:
+    with transaction.atomic():
+        ticket = Ticket.objects.select_for_update().filter(team_id=team_id, id=ticket_id).first()
+        if ticket is None:
+            return
+        merged = {**(ticket.ai_triage or {}), **patch}
+        ticket.ai_triage = merged
+        ticket.save(update_fields=["ai_triage", "updated_at"])
+
+
 # ---------------------------------------------------------------------------
 # Workflow
 # ---------------------------------------------------------------------------
@@ -1069,149 +1097,242 @@ class SupportReplyWorkflow:
 
     @workflow.run
     async def run(self, input: SupportReplyInput) -> str:
+        team_id = input.team_id
+        ticket_id = input.ticket_id
+        wf_info = workflow.info()
+        _triage_base: dict[str, Any] = {
+            "schema_version": 1,
+            "workflow_id": wf_info.workflow_id,
+            "run_id": wf_info.run_id,
+        }
+
+        async def _record_triage(patch: dict[str, Any]) -> None:
+            # Best-effort observability metadata — must never break the support pipeline, so
+            # swallow failures here rather than letting a triage write abort the run.
+            try:
+                await workflow.execute_activity(
+                    support_record_triage_activity,
+                    RecordTriageInput(team_id=team_id, ticket_id=ticket_id, patch={**_triage_base, **patch}),
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+            except Exception:
+                workflow.logger.warning("support_reply: failed to record triage", status=patch.get("status"))
+
         # Build context
         ctx_output = await workflow.execute_activity(
-            build_context_activity,
+            support_build_context_activity,
             input,
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
+        # Record lifecycle start
+        await _record_triage(
+            {
+                "status": "in_progress",
+                "started_at": workflow.now().isoformat(),
+            }
+        )
+
         # Slice once so the safety filter and draft agent see the exact same ticket text.
         reviewed_context = ctx_output.ticket_context[:MAX_SAFETY_REVIEWED_CHARS]
 
-        # Input safety gate: block prompt-injection / exfiltration attempts before any LLM
-        # draft work. Mirrored from the signals product's safety_filter_activity pattern.
-        safety_output = await workflow.execute_activity(
-            safety_filter_activity,
-            SafetyFilterInput(team_id=input.team_id, ticket_context=reviewed_context),
-            start_to_close_timeout=timedelta(minutes=2),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-        if not safety_output.safe:
-            workflow.logger.info(
-                "support_reply: ticket blocked by safety filter",
-                threat_type=safety_output.threat_type,
-            )
-            return "blocked_unsafe"
-
-        # Triage once, up front (not per attempt): the type + seed queries bias the whole
-        # loop, and `unactionable` tickets (spam/bare feedback) skip the expensive draft loop.
-        classify_output = await workflow.execute_activity(
-            classify_activity,
-            ClassifyInput(team_id=input.team_id, ticket_context=reviewed_context),
-            start_to_close_timeout=timedelta(minutes=2),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
-        if classify_output.ticket_type == "unactionable":
-            # Distinct outcome from `escalated_no_reply` (which means "tried and exhausted
-            # retries"): this ticket had no answerable question, so downstream routing/metrics
-            # can treat spam/feedback differently from genuine failed attempts.
-            workflow.logger.info("support_reply: ticket classified unactionable; skipping draft loop")
-            return "skipped_unactionable"
-
-        ticket_type = classify_output.ticket_type
-
-        missing: list[str] = []
-        prior_citations: list[str] = []
-        prior_reply: str = ""
-        best_reply: str = ""
-        best_confidence: float = 0.0
-        best_citations: list[str] = []
-        best_sources: list[dict[str, str]] = []
-        best_missing: list[str] = []
-
-        for attempt in range(MAX_ATTEMPTS):
-            widen = attempt > 0
-
-            # Refine queries
-            refine_output = await workflow.execute_activity(
-                refine_queries_activity,
-                RefineQueriesInput(
-                    team_id=input.team_id,
-                    ticket_context=reviewed_context,
-                    missing=missing,
-                    ticket_type=ticket_type,
-                    seed_queries=classify_output.seed_queries,
-                ),
+        # --- Outcome tracking: set before each return, recorded in finally ---
+        outcome: dict[str, Any] = {}
+        try:
+            # Input safety gate: block prompt-injection / exfiltration attempts before any LLM
+            # draft work. Mirrored from the signals product's safety_filter_activity pattern.
+            safety_output = await workflow.execute_activity(
+                support_safety_filter_activity,
+                SafetyFilterInput(team_id=input.team_id, ticket_context=reviewed_context),
                 start_to_close_timeout=timedelta(minutes=2),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
+            if not safety_output.safe:
+                workflow.logger.info(
+                    "support_reply: ticket blocked by safety filter",
+                    threat_type=safety_output.threat_type,
+                )
+                outcome = {"result": "blocked_unsafe"}
+                return "blocked_unsafe"
 
-            # Retrieve + rerank
-            retrieve_output = await workflow.execute_activity(
-                retrieve_activity,
-                RetrieveInput(
-                    team_id=input.team_id,
-                    queries=refine_output.queries,
-                    prior_citation_chunk_ids=prior_citations,
-                    widen=widen,
-                ),
-                start_to_close_timeout=timedelta(minutes=3),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-
-            # Don't short-circuit on empty in-process retrieval — the draft agent has
-            # read-only MCP tools (PostHog docs via docs-search, the team's business
-            # knowledge) and can find sources itself. Seed chunks are just a head start.
-            if not retrieve_output.chunk_ids:
-                workflow.logger.info("support_reply: no seed chunks; drafting via MCP tools only")
-
-            # Draft via sandbox
-            draft_output = await workflow.execute_activity(
-                draft_activity,
-                DraftInput(
-                    team_id=input.team_id,
-                    ticket_context=reviewed_context,
-                    chunk_ids=retrieve_output.chunk_ids,
-                    prior_reply=prior_reply,
-                    prior_missing=missing,
-                    always_on_context=ctx_output.always_on_context,
-                    ticket_type=ticket_type,
-                    # Only widen scopes when the classifier flagged diagnostics AND the team
-                    # opted in — the toggle is the human consent gate for project-wide reads.
-                    needs_diagnostics=classify_output.needs_diagnostics and ctx_output.diagnostics_allowed,
-                ),
-                start_to_close_timeout=timedelta(minutes=15),
-                retry_policy=RetryPolicy(maximum_attempts=2),
-            )
-
-            # Validate
-            validate_output = await workflow.execute_activity(
-                validate_activity,
-                ValidateInput(
-                    team_id=input.team_id,
-                    ticket_context=reviewed_context,
-                    reply=draft_output.reply,
-                    citations=draft_output.citations,
-                    chunk_ids=retrieve_output.chunk_ids,
-                    sources=draft_output.sources,
-                    ticket_type=ticket_type,
-                ),
+            # Triage once, up front (not per attempt): the type + seed queries bias the whole
+            # loop, and `unactionable` tickets (spam/bare feedback) skip the expensive draft loop.
+            classify_output = await workflow.execute_activity(
+                support_classify_activity,
+                ClassifyInput(team_id=input.team_id, ticket_context=reviewed_context),
                 start_to_close_timeout=timedelta(minutes=2),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
+            if classify_output.ticket_type == "unactionable":
+                # Distinct outcome from `escalated_no_reply` (which means "tried and exhausted
+                # retries"): this ticket had no answerable question, so downstream routing/metrics
+                # can treat spam/feedback differently from genuine failed attempts.
+                workflow.logger.info("support_reply: ticket classified unactionable; skipping draft loop")
+                outcome = {"result": "skipped_unactionable", "ticket_type": "unactionable"}
+                return "skipped_unactionable"
 
-            # Track best-so-far by the validator's confidence (the trusted score, same
-            # signal the threshold gate uses) — not the draft's self-reported confidence —
-            # so an escalated note carries an honest confidence and the best-validated draft.
-            if validate_output.confidence >= best_confidence:
-                best_reply = draft_output.reply
-                best_confidence = validate_output.confidence
-                best_citations = draft_output.citations
-                best_sources = draft_output.sources
-                best_missing = validate_output.missing
+            ticket_type = classify_output.ticket_type
+            needs_diagnostics = classify_output.needs_diagnostics and ctx_output.diagnostics_allowed
 
-            if validate_output.confidence >= SCORE_THRESHOLD:
-                # Output safety gate: check for PII leaks / exfil before the reply reaches
-                # the (untrusted) ticket author.
-                review_output = await workflow.execute_activity(
-                    review_reply_activity,
-                    ReviewReplyInput(
+            missing: list[str] = []
+            prior_citations: list[str] = []
+            prior_reply: str = ""
+            best_reply: str = ""
+            best_confidence: float = 0.0
+            best_citations: list[str] = []
+            best_sources: list[dict[str, str]] = []
+            best_missing: list[str] = []
+
+            for attempt in range(MAX_ATTEMPTS):
+                widen = attempt > 0
+
+                # Refine queries
+                refine_output = await workflow.execute_activity(
+                    support_refine_queries_activity,
+                    RefineQueriesInput(
+                        team_id=input.team_id,
+                        ticket_context=reviewed_context,
+                        missing=missing,
+                        ticket_type=ticket_type,
+                        seed_queries=classify_output.seed_queries,
+                    ),
+                    start_to_close_timeout=timedelta(minutes=2),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+
+                # Retrieve + rerank
+                retrieve_output = await workflow.execute_activity(
+                    support_retrieve_activity,
+                    RetrieveInput(
+                        team_id=input.team_id,
+                        queries=refine_output.queries,
+                        prior_citation_chunk_ids=prior_citations,
+                        widen=widen,
+                    ),
+                    start_to_close_timeout=timedelta(minutes=3),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+
+                # Don't short-circuit on empty in-process retrieval — the draft agent has
+                # read-only MCP tools (PostHog docs via docs-search, the team's business
+                # knowledge) and can find sources itself. Seed chunks are just a head start.
+                if not retrieve_output.chunk_ids:
+                    workflow.logger.info("support_reply: no seed chunks; drafting via MCP tools only")
+
+                # Draft via sandbox
+                draft_output = await workflow.execute_activity(
+                    support_draft_activity,
+                    DraftInput(
+                        team_id=input.team_id,
+                        ticket_context=reviewed_context,
+                        chunk_ids=retrieve_output.chunk_ids,
+                        prior_reply=prior_reply,
+                        prior_missing=missing,
+                        always_on_context=ctx_output.always_on_context,
+                        ticket_type=ticket_type,
+                        # Only widen scopes when the classifier flagged diagnostics AND the team
+                        # opted in — the toggle is the human consent gate for project-wide reads.
+                        needs_diagnostics=needs_diagnostics,
+                    ),
+                    start_to_close_timeout=timedelta(minutes=15),
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
+
+                # Validate
+                validate_output = await workflow.execute_activity(
+                    support_validate_activity,
+                    ValidateInput(
                         team_id=input.team_id,
                         ticket_context=reviewed_context,
                         reply=draft_output.reply,
+                        citations=draft_output.citations,
+                        chunk_ids=retrieve_output.chunk_ids,
                         sources=draft_output.sources,
+                        ticket_type=ticket_type,
+                    ),
+                    start_to_close_timeout=timedelta(minutes=2),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+
+                # Track best-so-far by the validator's confidence (the trusted score, same
+                # signal the threshold gate uses) — not the draft's self-reported confidence —
+                # so an escalated note carries an honest confidence and the best-validated draft.
+                if validate_output.confidence >= best_confidence:
+                    best_reply = draft_output.reply
+                    best_confidence = validate_output.confidence
+                    best_citations = draft_output.citations
+                    best_sources = draft_output.sources
+                    best_missing = validate_output.missing
+
+                if validate_output.confidence >= SCORE_THRESHOLD:
+                    # Output safety gate: check for PII leaks / exfil before the reply reaches
+                    # the (untrusted) ticket author.
+                    review_output = await workflow.execute_activity(
+                        support_review_reply_activity,
+                        ReviewReplyInput(
+                            team_id=input.team_id,
+                            ticket_context=reviewed_context,
+                            reply=draft_output.reply,
+                            sources=draft_output.sources,
+                            ticket_type=ticket_type,
+                        ),
+                        start_to_close_timeout=timedelta(minutes=2),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                    if not review_output.safe:
+                        workflow.logger.info(
+                            "support_reply: reply blocked by output review",
+                            reason=review_output.reason,
+                        )
+                        outcome = {
+                            "result": "blocked_unsafe_reply",
+                            "ticket_type": ticket_type,
+                            "needs_diagnostics": needs_diagnostics,
+                            "diagnostics_allowed": ctx_output.diagnostics_allowed,
+                            "confidence": validate_output.confidence,
+                            "attempts": attempt + 1,
+                        }
+                        return "blocked_unsafe_reply"
+
+                    await workflow.execute_activity(
+                        support_persist_reply_activity,
+                        PersistReplyInput(
+                            team_id=input.team_id,
+                            ticket_id=input.ticket_id,
+                            reply=draft_output.reply,
+                            citations=draft_output.citations,
+                            confidence=validate_output.confidence,
+                        ),
+                        start_to_close_timeout=timedelta(minutes=1),
+                        retry_policy=RetryPolicy(maximum_attempts=3),
+                    )
+                    outcome = {
+                        "result": "persisted",
+                        "ticket_type": ticket_type,
+                        "needs_diagnostics": needs_diagnostics,
+                        "diagnostics_allowed": ctx_output.diagnostics_allowed,
+                        "confidence": validate_output.confidence,
+                        "attempts": attempt + 1,
+                    }
+                    return f"persisted (confidence={validate_output.confidence:.2f}, attempts={attempt + 1})"
+
+                # Prepare for next iteration: refine the best-validated draft (not necessarily
+                # the last one, which may have drifted) using the gaps the validator found in it.
+                missing = best_missing
+                prior_citations = best_citations
+                prior_reply = best_reply
+
+            # Exhausted attempts — persist best if we have one with non-zero confidence
+            if best_reply and best_confidence > 0:
+                review_output = await workflow.execute_activity(
+                    support_review_reply_activity,
+                    ReviewReplyInput(
+                        team_id=input.team_id,
+                        ticket_context=reviewed_context,
+                        reply=best_reply,
+                        sources=best_sources,
                         ticket_type=ticket_type,
                     ),
                     start_to_close_timeout=timedelta(minutes=2),
@@ -1222,61 +1343,54 @@ class SupportReplyWorkflow:
                         "support_reply: reply blocked by output review",
                         reason=review_output.reason,
                     )
+                    outcome = {
+                        "result": "blocked_unsafe_reply",
+                        "ticket_type": ticket_type,
+                        "needs_diagnostics": needs_diagnostics,
+                        "diagnostics_allowed": ctx_output.diagnostics_allowed,
+                        "confidence": best_confidence,
+                        "attempts": MAX_ATTEMPTS,
+                    }
                     return "blocked_unsafe_reply"
 
                 await workflow.execute_activity(
-                    persist_reply_activity,
+                    support_persist_reply_activity,
                     PersistReplyInput(
                         team_id=input.team_id,
                         ticket_id=input.ticket_id,
-                        reply=draft_output.reply,
-                        citations=draft_output.citations,
-                        confidence=validate_output.confidence,
+                        reply=best_reply,
+                        citations=best_citations,
+                        confidence=best_confidence,
                     ),
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
-                return f"persisted (confidence={validate_output.confidence:.2f}, attempts={attempt + 1})"
+                outcome = {
+                    "result": "escalated_with_best",
+                    "ticket_type": ticket_type,
+                    "needs_diagnostics": needs_diagnostics,
+                    "diagnostics_allowed": ctx_output.diagnostics_allowed,
+                    "confidence": best_confidence,
+                    "attempts": MAX_ATTEMPTS,
+                }
+                return f"escalated_with_best (confidence={best_confidence:.2f})"
 
-            # Prepare for next iteration: refine the best-validated draft (not necessarily
-            # the last one, which may have drifted) using the gaps the validator found in it.
-            missing = best_missing
-            prior_citations = best_citations
-            prior_reply = best_reply
-
-        # Exhausted attempts — persist best if we have one with non-zero confidence
-        if best_reply and best_confidence > 0:
-            review_output = await workflow.execute_activity(
-                review_reply_activity,
-                ReviewReplyInput(
-                    team_id=input.team_id,
-                    ticket_context=reviewed_context,
-                    reply=best_reply,
-                    sources=best_sources,
-                    ticket_type=ticket_type,
-                ),
-                start_to_close_timeout=timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-            if not review_output.safe:
-                workflow.logger.info(
-                    "support_reply: reply blocked by output review",
-                    reason=review_output.reason,
+            outcome = {
+                "result": "escalated_no_reply",
+                "ticket_type": ticket_type,
+                "needs_diagnostics": needs_diagnostics,
+                "diagnostics_allowed": ctx_output.diagnostics_allowed,
+                "attempts": MAX_ATTEMPTS,
+            }
+            return "escalated_no_reply"
+        finally:
+            # `outcome` is only set on the workflow's own terminal branches; on an unexpected
+            # crash it stays empty, so we never mark a failed run as "done".
+            if outcome:
+                await _record_triage(
+                    {
+                        **outcome,
+                        "status": "done",
+                        "finished_at": workflow.now().isoformat(),
+                    }
                 )
-                return "blocked_unsafe_reply"
-
-            await workflow.execute_activity(
-                persist_reply_activity,
-                PersistReplyInput(
-                    team_id=input.team_id,
-                    ticket_id=input.ticket_id,
-                    reply=best_reply,
-                    citations=best_citations,
-                    confidence=best_confidence,
-                ),
-                start_to_close_timeout=timedelta(minutes=1),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-            return f"escalated_with_best (confidence={best_confidence:.2f})"
-
-        return "escalated_no_reply"

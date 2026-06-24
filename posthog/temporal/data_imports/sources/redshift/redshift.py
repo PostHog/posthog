@@ -102,6 +102,13 @@ _REDSHIFT_CONNECT_OPTS: dict[str, Any] = {
 # system catalogs plus `pg_automv` (auto-materialized views) and per-session `pg_temp_*` schemas.
 SYSTEM_REDSHIFT_SCHEMAS = ["pg_catalog", "information_schema", "pg_internal", "pg_automv"]
 
+# Redshift stamps internal bookkeeping columns onto materialized views — e.g.
+# `padb_internal_txn_id_col` and `padb_internal_txn_seq_col`. They appear in
+# `information_schema.columns` but `SELECT *` never returns them, so leaving them in the
+# discovered schema makes the Arrow schema disagree with the streamed rows and
+# `pa.Table.from_pydict` raises a `KeyError`. The `padb_internal` prefix is Redshift-reserved.
+REDSHIFT_INTERNAL_COLUMN_LIKE = "padb_internal%"
+
 
 def _display_name(schema_name: str, table_name: str, *, qualify: bool) -> str:
     """Discovery key for a table: dotted `schema.table` in multi-schema mode, bare table otherwise."""
@@ -387,8 +394,8 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         qualify = selected_schema is None
 
         with conn.cursor() as cursor:
-            params: dict = {}
-            where: list[str] = []
+            params: dict = {"internal_column": REDSHIFT_INTERNAL_COLUMN_LIKE}
+            where: list[str] = ["column_name NOT LIKE %(internal_column)s"]
             if selected_schema is not None:
                 params["schema"] = selected_schema
                 where.append("table_schema = %(schema)s")
@@ -803,7 +810,12 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                 information_schema.columns
             WHERE
                 table_schema = {schema}
-                AND table_name = {table}""").format(schema=sql.Literal(schema), table=sql.Literal(table_name))
+                AND table_name = {table}
+                AND column_name NOT LIKE {internal_column}""").format(
+            schema=sql.Literal(schema),
+            table=sql.Literal(table_name),
+            internal_column=sql.Literal(REDSHIFT_INTERNAL_COLUMN_LIKE),
+        )
 
         if logger is not None:
             _explain_query(cursor, query, logger)

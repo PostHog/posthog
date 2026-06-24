@@ -20,6 +20,7 @@ from posthog.temporal.data_imports.sources.appsflyer.appsflyer import (
 )
 from posthog.temporal.data_imports.sources.appsflyer.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import AppsFlyerSourceConfig
@@ -80,6 +81,11 @@ You can find your API token (V2) in AppsFlyer under your account menu > Security
                 ],
             ),
         )
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.appsflyer.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
 
     def get_schemas(
         self,

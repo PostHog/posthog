@@ -51,7 +51,7 @@ import {
 } from '@posthog/agent-shared'
 
 import { runSession } from '../loop/driver'
-import { IntegrationHostValidator, McpTransportFactory, openMcpClients } from '../loop/mcp-clients'
+import { McpTransportFactory, openMcpClients } from '../loop/mcp-clients'
 import * as metrics from '../metrics'
 import { resolveModelCached } from '../models/pi-client'
 
@@ -65,9 +65,6 @@ export interface WorkerDeps {
     broker: SecretBroker
     /** Resolved per-application secrets — wire from the team's encrypted env. */
     resolveSecrets: (session: AgentSession) => Promise<Record<string, string>>
-    resolveIntegrations: (
-        session: AgentSession
-    ) => Promise<Record<string, { kind: string; access_token: string; refresh_token?: string }>>
     /**
      * Resolve a session's spec.model string to a concrete pi-ai Model. Defaults
      * to `resolveModelCached(spec.model)` which works for built-in providers.
@@ -138,11 +135,11 @@ export interface WorkerDeps {
     /** Operator override (AGENT_MAX_OUTPUT_TOKENS); clamps per-turn max_tokens below model ceiling. */
     maxOutputTokens?: number
     /**
-     * Set to true when calls go through PostHog's ai-gateway. The runner
-     * keeps token counts but drops pi-ai's `cost.*` accumulation — the
-     * gateway tracks cost server-side; client-side estimates are unreliable.
+     * True on the ai-gateway path: the gateway emits the `$ai_generation`
+     * (settled cost + forwarded attribution), so the runner suppresses its
+     * duplicate. pi-ai's `cost.*` estimates are never used regardless.
      */
-    useGatewayCost?: boolean
+    gatewayEmitsGenerations?: boolean
     /**
      * Approval-gated tools store. MANDATORY and
      * fail-closed: `requires_approval` in spec.tools is a security control, so
@@ -153,9 +150,11 @@ export interface WorkerDeps {
     approvals: ApprovalStore
     /**
      * Builds the deep link the synthetic queued tool_result surfaces to
-     * the model. Wire from config so prod hits the real domain.
+     * the model. Wire from config so prod hits the real domain. Takes the
+     * agent slug so the link can carry `?agent=<slug>` — the deep-link
+     * approval modal needs it to address the (slug-routed) ingress directly.
      */
-    buildApprovalUrl?: (requestId: string) => string
+    buildApprovalUrl?: (requestId: string, slug: string) => string
     /**
      * S3-backed memory store for `@posthog/memory-*` tools. Wired from
      * AGENT_MEMORY_S3_* config; unset disables memory tools.
@@ -187,16 +186,6 @@ export interface WorkerDeps {
      * instrumentation / retry middleware.
      */
     mcpTransportFactory?: McpTransportFactory
-    /**
-     * Per-call validator that gates attaching a connected integration's
-     * bearer token to an outbound MCP request. **Required to use
-     * `auth.integration` on any `external` MCP ref** — without it,
-     * `openMcpClients` fails closed (a spec author can't redirect a
-     * team's OAuth token to an arbitrary URL). Production wires this
-     * against a per-integration-kind host registry (`linear:*` →
-     * `mcp.linear.app`, etc.); tests can supply `() => true` to opt-in.
-     */
-    integrationHostValidator?: IntegrationHostValidator
     /**
      * Dev-only bearer forwarded to `openMcpClients`. See `OpenMcpClientsDeps`.
      * Sourced from `AGENT_DEV_MCP_BEARER_TOKEN`; the runner's `index.ts`
@@ -403,7 +392,6 @@ export class Worker {
             // Friendly name for the session's `$ai_trace` (LLM Analytics). Best-
             // effort — a missing app just falls back to the id in the driver.
             const application = await this.deps.revisions.getApplication(session.application_id).catch(() => null)
-            const integrations = await this.deps.resolveIntegrations(session)
             const secrets = await this.deps.resolveSecrets(session)
             const customTools = rev.spec.tools.filter((t) => t.kind === 'custom')
             if (customTools.length > 0) {
@@ -475,7 +463,7 @@ export class Worker {
             let mcpFailures: Awaited<ReturnType<typeof openMcpClients>>['failures'] = []
             if (rev.spec.mcps.length > 0) {
                 // Build the per-asker resolver only when an MCP needs it (auth.provider),
-                // so the common auth.integration / secret path pays nothing.
+                // so the common secret / BYO-token path pays nothing.
                 const mcpNeedsIdentity = rev.spec.mcps.some((m) => m.auth?.provider)
                 const mcpIdentity =
                     mcpNeedsIdentity && this.deps.identityCredentials && this.deps.identityLinks
@@ -492,11 +480,9 @@ export class Worker {
                           })
                         : undefined
                 const opened = await openMcpClients(rev.spec.mcps, {
-                    integrations,
                     secrets,
                     secretAllowedHosts: (name) => getSecretAllowedHosts(rev.spec, name),
                     transportFactory: this.deps.mcpTransportFactory,
-                    integrationHostValidator: this.deps.integrationHostValidator,
                     identity: mcpIdentity,
                     devMcpBearerToken: this.deps.devMcpBearerToken,
                     log: (level, msg, meta) => sLog[level](meta ?? {}, msg),
@@ -539,12 +525,15 @@ export class Worker {
             const apiKey = await this.deps.resolveApiKey?.(session)
             const gatewayHeaders = this.deps.resolveGatewayHeaders?.(session)
             const gatewayUsage = await this.deps.resolveGatewayUsage?.(session)
+            // Bind the agent slug into the approval-link builder so the deep link
+            // carries `?agent=<slug>` — the ingress-routed approval modal needs it
+            // to address the agent's ingress directly.
+            const buildApprovalUrl = this.deps.buildApprovalUrl
             const outcome = await runSession(rev, session, {
                 model,
                 apiKey,
                 bundle: this.deps.bundle,
                 sandbox,
-                integrations,
                 secrets,
                 broker: this.deps.broker,
                 bus: this.deps.bus,
@@ -553,11 +542,13 @@ export class Worker {
                 applicationName: application?.name || application?.slug,
                 shutdownSignal: this.shutdownController.signal,
                 getSessionState: async (id) => (await this.deps.queue.get(id))?.state ?? null,
-                useGatewayCost: this.deps.useGatewayCost,
+                gatewayEmitsGenerations: this.deps.gatewayEmitsGenerations,
                 gatewayHeaders,
                 gatewayUsage,
                 approvals: this.deps.approvals,
-                buildApprovalUrl: this.deps.buildApprovalUrl,
+                buildApprovalUrl: buildApprovalUrl
+                    ? (requestId) => buildApprovalUrl(requestId, application?.slug ?? '')
+                    : undefined,
                 memoryStore: this.deps.memoryStore,
                 tabularStore: this.deps.tabularStore,
                 credentialBroker: this.deps.credentialBroker,

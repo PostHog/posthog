@@ -3,11 +3,12 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 
-from posthog.schema import IntervalType, NodeKind, TrendsAlertConfig, TrendsQuery
+from posthog.schema import IntervalType, TrendsAlertConfig, TrendsQuery
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 
@@ -24,7 +25,12 @@ from posthog.tasks.alerts.trends import TrendResult, _has_breakdown, _is_non_tim
 from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult
 from posthog.utils import get_from_dict_or_attr, relative_date_parse
 
-from products.alerts.backend.evaluation.contract import ComparableSeries, ExtractionResult, SeriesPoint
+from products.alerts.backend.evaluation.contract import (
+    ComparableSeries,
+    ExtractionResult,
+    SeriesPoint,
+    SimulationContext,
+)
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.models.insight import Insight
 
@@ -194,14 +200,29 @@ class TrendsDetectorExtractor:
             insight, alert.team, trends_query, detector_config, series_index=series_index, user=alert.created_by
         )
 
+    def simulate(self, insight: Insight, query: object, ctx: SimulationContext) -> tuple[ExtractionResult, str | None]:
+        trends_query = TrendsQuery.model_validate(query)
+        result = extract_detector_series(
+            insight,
+            ctx.team,
+            trends_query,
+            ctx.detector_config,
+            series_index=ctx.series_index,
+            date_from=ctx.date_from,
+            user=ctx.user,
+        )
+        interval_value = trends_query.interval.value if trends_query.interval else None
+        return result, interval_value
+
 
 def simulate_detector_on_insight(
     insight: Insight,
-    team: Any,
+    team: Team,
     detector_config: dict[str, Any],
     series_index: int = 0,
     date_from: str | None = None,
     user: Optional[User] = None,
+    config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Run a detector over historical insight data for chart visualization. Read-only (no AlertCheck)."""
     if insight.query is None:
@@ -214,17 +235,32 @@ def simulate_detector_on_insight(
     if kind in WRAPPER_NODE_KINDS:
         query = get_from_dict_or_attr(query, "source")
         kind = get_from_dict_or_attr(query, "kind")
-    if kind != NodeKind.TRENDS_QUERY:
-        raise ValueError("Only TrendsQuery insights are supported for simulation.")
 
-    trends_query = TrendsQuery.model_validate(query)
     # Read-only simulation runs outside the alert-check activity, so tag its query directly.
     tag_queries(product=Product.PRODUCT_ANALYTICS, feature=Feature.ALERTING)
     detector_type_str = detector_config.get("type", "zscore")
-    result = extract_detector_series(
-        insight, team, trends_query, detector_config, series_index=series_index, date_from=date_from, user=user
+
+    # Route through the same kind→extractor registry as the alert path (check_detector_alert), so
+    # simulation and evaluation can't drift: a kind added to DETECTOR_EXTRACTORS is automatically
+    # simulatable via its extractor's simulate(). The import is lazy because dispatcher imports this
+    # module's extractor classes — importing the registry at module load would cycle.
+    from products.alerts.backend.evaluation.dispatcher import (  # noqa: PLC0415 — breaks dispatcher↔detector import cycle
+        DETECTOR_EXTRACTORS,
     )
-    interval_value = trends_query.interval.value if trends_query.interval else None
+
+    extractor = DETECTOR_EXTRACTORS.get(kind)
+    if extractor is None:
+        raise ValueError(f"Anomaly detection simulation isn't supported for {kind} insights")
+
+    ctx = SimulationContext(
+        team=team,
+        detector_config=detector_config,
+        user=user,
+        series_index=series_index,
+        date_from=date_from,
+        config=config,
+    )
+    result, interval_value = extractor.simulate(insight, query, ctx)
 
     if not result.series:
         # Preserve the original, more specific diagnostics: a genuinely empty query vs rows that
@@ -233,7 +269,12 @@ def simulate_detector_on_insight(
             raise ValueError("No results found for insight.")
         if result.is_breakdown:
             raise ValueError("No breakdown values had enough data points for simulation.")
-        raise ValueError("No data points found for the selected series.")
+        # Rows exist but the series is shorter than the detector's window — say so, rather than the
+        # misleading "no data" (e.g. a 40-row SQL query against the default 90-point window).
+        raise ValueError(
+            "Not enough data points to score: the series is shorter than the detector's window size. "
+            "Return more rows or reduce the window size."
+        )
 
     if result.is_breakdown:
         breakdown_sims = [_sim_from_series(s, detector_config, detector_type_str) for s in result.series]
