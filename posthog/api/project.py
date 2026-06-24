@@ -68,7 +68,8 @@ from posthog.models.product_intent import promoted_product_lookup
 from posthog.models.product_intent.product_intent import (
     ProductIntent,
     ProductIntentSerializer,
-    calculate_product_activation,
+    cached_product_intents_for_team,
+    enqueue_product_activation_calc_debounced,
 )
 from posthog.models.project import Project
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -915,7 +916,12 @@ class ProjectBackwardCompatSerializer(
         return TeamSerializer.validate_workflows_config(value)
 
     def get_effective_membership_level(self, project: Project) -> Optional[OrganizationMembership.Level]:
-        team = project.teams.get(pk=project.pk)
+        try:
+            team = project.passthrough_team
+        except Team.DoesNotExist:
+            # A project should always have a passthrough team; degrade gracefully
+            # rather than 500ing the whole retrieve if the row is missing.
+            return None
         return self.user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, project: Project) -> bool:
@@ -925,7 +931,12 @@ class ProjectBackwardCompatSerializer(
         return cached_group_types_for_project(project)
 
     def get_live_events_token(self, project: Project) -> Optional[str]:
-        team = project.teams.get(pk=project.pk)
+        try:
+            team = project.passthrough_team
+        except Team.DoesNotExist:
+            # A project should always have a passthrough team; degrade gracefully
+            # rather than 500ing the whole retrieve if the row is missing.
+            return None
         request = self.context.get("request")
         user_id = request.user.id if request and hasattr(request, "user") and request.user.is_authenticated else None
         return get_or_mint_live_events_token(team, user_id)
@@ -945,12 +956,16 @@ class ProjectBackwardCompatSerializer(
         }
     )
     def get_product_intents(self, obj):
-        project = obj
-        team = project.passthrough_team
-        calculate_product_activation.delay(team.id, only_calc_if_days_since_last_checked=1)
-        return ProductIntent.objects.filter(team=team).values(
-            "product_type", "created_at", "onboarding_completed_at", "updated_at"
-        )
+        # Mirror TeamSerializer.get_product_intents: debounce-then-enqueue rather than
+        # .delay() on every render, and read intents from a per-team cache. The old
+        # unconditional .delay() did a broker round-trip on every retrieve and would
+        # 500 the endpoint when the broker was unavailable.
+        try:
+            team = obj.passthrough_team
+        except Team.DoesNotExist:
+            return []
+        enqueue_product_activation_calc_debounced(team.id)
+        return cached_product_intents_for_team(team.id)
 
     @extend_schema_field(
         serializers.ListField(child=serializers.ChoiceField(choices=[(e.value, e.value) for e in SetupTaskId]))

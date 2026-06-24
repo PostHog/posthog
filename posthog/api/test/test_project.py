@@ -667,6 +667,18 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         # project_id on a Project equals its own id (Project ↔ Team is 1:1)
         self.assertEqual(data["project_id"], self.project.id)
 
+    def test_retrieve_project_does_not_500_when_broker_unavailable(self):
+        # Regression: get_product_intents used to call calculate_product_activation.delay()
+        # on every retrieve, which 500s the whole endpoint when the broker is down. It now
+        # goes through the debounced helper, which fails open on broker errors.
+        with patch(
+            "posthog.models.product_intent.product_intent.calculate_product_activation.delay",
+            side_effect=Exception("broker is unavailable"),
+        ):
+            response = self.client.get(f"/api/projects/{self.project.id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertIn("product_intents", response.json())
+
     def test_new_passthrough_field_writes_through_to_team(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
