@@ -4,7 +4,7 @@ import { Redis } from 'ioredis'
 import { timeoutGuard } from '~/common/utils/db/utils'
 import { parseTeamsList } from '~/common/utils/env-utils'
 import { logger } from '~/common/utils/logger'
-import { IngestionConsumerConfig, IngestionLane } from '~/ingestion/config'
+import { IngestionConsumerConfig, IngestionLane, REALTIME_INGESTION_LANES } from '~/ingestion/config'
 import { RedisPool } from '~/types'
 
 import { featureFlagCalledDedupRedisLatency, featureFlagCalledDedupRedisOpsTotal } from './metrics'
@@ -140,8 +140,15 @@ export type FeatureFlagCalledDedupEnvConfig = Pick<
     | 'INGESTION_FEATURE_FLAG_CALLED_DEDUP_TTL_SECONDS'
 >
 
-/** Lanes that may dedup. `null` covers local dev, where no lane is set. */
-const DEDUP_ALLOWED_LANES: readonly (IngestionLane | null)[] = ['main', 'overflow', null]
+/**
+ * Lanes that may dedup: the real-time lanes plus `team2`, plus `null` for local
+ * dev, where no lane is set. Derived from REALTIME_INGESTION_LANES so a new
+ * real-time lane is covered automatically; delayed lanes are excluded by
+ * construction. `team2` is added explicitly because it is a real-time lane that
+ * is not part of REALTIME_INGESTION_LANES. See
+ * `createFeatureFlagCalledDedupService` for why delayed lanes must never dedup.
+ */
+const DEDUP_ALLOWED_LANES: readonly (IngestionLane | null)[] = [...REALTIME_INGESTION_LANES, 'team2', null]
 
 /**
  * Builds the dedup service from ingestion config, or undefined when the dedup
@@ -150,7 +157,9 @@ const DEDUP_ALLOWED_LANES: readonly (IngestionLane | null)[] = ['main', 'overflo
  * The dedup window is processing-time, not event-time, so lanes that process
  * delayed events (historical, async) must never dedup: a backfilled event is
  * not a duplicate of the live event that claimed its tuple an hour ago. The
- * lane gate holds even if the dedup env vars leak into a shared config.
+ * real-time lanes in DEDUP_ALLOWED_LANES all share that processing-time
+ * window, so they may dedup. The lane gate holds even if the dedup env vars
+ * leak into a shared config.
  */
 export function createFeatureFlagCalledDedupService(
     redisPool: RedisPool,
