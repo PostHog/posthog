@@ -107,6 +107,7 @@ def _make_schema(cdc_mode="streaming"):
     schema.cdc_table_mode = "consolidated"
     schema.enabled_columns = None
     schema.incremental_field = None
+    schema.resolved_s3_folder_name = None
     schema.save = MagicMock()
     return schema
 
