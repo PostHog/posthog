@@ -1,3 +1,4 @@
+import os
 import re
 import json
 import time
@@ -63,6 +64,26 @@ from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.models.insight import Insight
 
 from .auth import PersonalAPIKeyAuthentication
+
+logger = structlog.get_logger(__name__)
+
+# A finished request that grew the worker's RSS by at least this many MiB is logged as
+# `request_memory_growth`. Tunable via env so the threshold can be tightened/relaxed in
+# prod without a deploy. Set to 0 to log every request's growth (noisy — debugging only).
+REQUEST_RSS_GROWTH_LOG_MB = float(os.getenv("WEB_REQUEST_RSS_GROWTH_LOG_MB", "100"))
+
+
+def current_rss_mb() -> float | None:
+    """Resident set size of the current worker process in MiB, read from
+    /proc/self/statm (field 2 = resident pages). Returns None when unavailable,
+    e.g. on non-Linux dev machines where /proc is absent."""
+    try:
+        with open("/proc/self/statm") as statm:
+            resident_pages = int(statm.read().split()[1])
+    except (OSError, ValueError, IndexError):
+        return None
+    return resident_pages * os.sysconf("SC_PAGE_SIZE") / (1024 * 1024)
+
 
 ALWAYS_ALLOWED_ENDPOINTS = [
     "static",
@@ -668,10 +689,19 @@ def per_request_logging_context_middleware(
         # roll out CloudFront in front of app.posthog.com. We can get the host
         # header from NGINX, but we really want to have a way to get to the
         # team_id given a host header, and we can't do that with NGINX.
+        # Capture the worker's RSS at the start of the request and bind it to the
+        # logging context, so it rides along on `request_started`/`request_finished`.
+        # A worker OOM-killed mid-request (SIGKILL, uncatchable) never logs
+        # `request_finished` — but its `request_started` line carries `rss_mb` and the
+        # `worker_pid`, so the request in flight when a worker died is identifiable
+        # after the fact. See `request_memory_growth` below for the finished-request view.
+        rss_mb_start = current_rss_mb()
         structlog.contextvars.bind_contextvars(
             host=request.headers.get("host", ""),
             container_hostname=settings.CONTAINER_HOSTNAME,
             x_forwarded_for=request.headers.get("x-forwarded-for", ""),
+            worker_pid=os.getpid(),
+            rss_mb=round(rss_mb_start, 1) if rss_mb_start is not None else None,
         )
 
         # Forwarded by the PostHog MCP server (services/mcp) on every API call.
@@ -706,7 +736,27 @@ def per_request_logging_context_middleware(
             if mcp_conversation_id:
                 span.set_attribute("mcp.conversation_id", mcp_conversation_id)
 
-        return get_response(request)
+        response = get_response(request)
+
+        # Flag requests that materially grew this worker's footprint. Steady accumulation
+        # of these on a pod is the in-app fingerprint of the request mix that walks RSS up
+        # to the cgroup limit and triggers the OOM kill.
+        rss_mb_end = current_rss_mb()
+        if (
+            rss_mb_start is not None
+            and rss_mb_end is not None
+            and rss_mb_end - rss_mb_start >= REQUEST_RSS_GROWTH_LOG_MB
+        ):
+            logger.warning(
+                "request_memory_growth",
+                rss_mb_start=round(rss_mb_start, 1),
+                rss_mb_end=round(rss_mb_end, 1),
+                rss_mb_delta=round(rss_mb_end - rss_mb_start, 1),
+                request_path=request.path,
+                method=request.method,
+            )
+
+        return response
 
     return middleware
 
