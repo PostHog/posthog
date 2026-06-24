@@ -29,6 +29,14 @@ use ingestion_consumer::worker_registry::{WorkerRegistry, WorkerRegistryConfig};
 common_alloc::used!();
 
 fn main() -> Result<()> {
+    // Install a process-wide rustls CryptoProvider before any TLS use. kube's
+    // HTTPS client (EndpointSlice discovery) uses rustls 0.23, which can't
+    // auto-pick a provider with both aws-lc-rs and ring compiled in — it panics.
+    // Matches personhog-router / cymbal / kafka-assigner.
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("failed to install rustls ring CryptoProvider");
+
     let config = Config::init_from_env()
         .context("Failed to load configuration from environment variables")?;
 
@@ -177,11 +185,37 @@ async fn async_main(config: Config) -> Result<()> {
             ))
         }
     };
-    let _discovery_handle = discovery.start(
-        Arc::clone(&registry),
-        Arc::clone(&transport),
-        discovery_token.clone(),
-    );
+    let _discovery_handle = discovery.start(Arc::clone(&registry), discovery_token.clone());
+
+    // Reap drained workers: once a departed worker has finished its in-flight
+    // batches (or hit the drain timeout), remove it from the registry and prune
+    // its transport semaphore. No-op in static mode (workers never drain).
+    {
+        let registry = Arc::clone(&registry);
+        let transport = Arc::clone(&transport);
+        let dispatcher = Arc::clone(&dispatcher);
+        let token = probe_token.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = token.cancelled() => break,
+                    _ = tokio::time::sleep(Duration::from_secs(1)) => {}
+                }
+                // A worker that left the pool while idle has no in-flight to
+                // resolve, so `on_sub_batch_resolved` never completes its drain.
+                // Complete it here so it's reaped now rather than at the timeout.
+                for worker in registry.draining_workers() {
+                    if !dispatcher.has_in_flight(&worker) {
+                        registry.complete_drain(&worker);
+                    }
+                }
+                for worker in registry.reapable_workers() {
+                    registry.remove_worker(&worker);
+                    transport.remove_worker(&worker);
+                }
+            }
+        });
+    }
 
     // For dynamic discovery, wait for the first workers before consuming so the
     // first batch has somewhere to route.

@@ -251,10 +251,29 @@ export const FeedbackSubmitSchema = z.object({
     details: z
         .string()
         .optional()
-        .describe(
-            "Any additional context that doesn't fit the other fields. Keep it to clear, concise bullet points."
-        ),
+        .describe("Any additional context that doesn't fit the other fields. Keep it to clear, concise bullet points."),
 })
+
+const SavedMetricAttachItemSchema = z.object({
+    id: z
+        .number()
+        .int()
+        .describe('ID of an existing shared/saved metric. Discover IDs with experiment-saved-metrics-list.'),
+    metadata: z
+        .object({
+            type: z
+                .enum(['primary', 'secondary'])
+                .describe('Whether this metric is a primary or secondary metric on the experiment.'),
+        })
+        .optional()
+        .describe('Optional per-link metadata. Omit to default this metric to primary.'),
+})
+
+export const SavedMetricsAttachSchema = z
+    .array(SavedMetricAttachItemSchema)
+    .describe(
+        "The complete desired set of shared (saved) metrics for the experiment — this REPLACES all existing saved-metric links, it does not append. To add or remove one, first read the experiment's current saved_metrics via experiment-get and resend the full set. Pass an empty array to detach all shared metrics."
+    )
 
 export const ExperimentResultsGetSchema = z.object({
     id: z.number().describe('The ID of the experiment to get comprehensive results for'),

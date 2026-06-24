@@ -182,6 +182,24 @@ def test_validate_credentials_rejects_unknown_site():
     assert "is not visible to the connected Google account" in (message or "")
 
 
+def test_validate_credentials_suggests_registered_property_for_bare_hostname():
+    # User entered a bare hostname; the account has the URL-prefix property. Point them
+    # at the exact string to paste rather than the dead-end "not visible" message.
+    config = GoogleSearchConsoleSourceConfig(site_url="plotlens.ai", google_search_console_integration_id=1)
+    with (
+        mock.patch("posthog.temporal.data_imports.sources.google_search_console.source.google_search_console_session"),
+        mock.patch(
+            "posthog.temporal.data_imports.sources.google_search_console.source.list_sites",
+            return_value=[{"siteUrl": "https://plotlens.ai/", "permissionLevel": "siteOwner"}],
+        ),
+    ):
+        ok, message = GoogleSearchConsoleSource().validate_credentials(config, team_id=1)
+
+    assert ok is False
+    assert "https://plotlens.ai/" in (message or "")
+    assert "is not visible to the connected Google account" not in (message or "")
+
+
 def test_validate_credentials_rejects_unverified_user():
     with (
         mock.patch("posthog.temporal.data_imports.sources.google_search_console.source.google_search_console_session"),

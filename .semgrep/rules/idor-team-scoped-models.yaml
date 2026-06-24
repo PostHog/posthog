@@ -59,6 +59,8 @@ rules:
                               |Action
                               |AgentApplication
                               |AgentArtifact
+                              |AgentIdentityCredential
+                              |AgentIdentityLinkState
                               |AgentRevision
                               |AgentSandboxInstance
                               |AgentSession
@@ -88,6 +90,7 @@ rules:
                               |CoreMemory
                               |CustomerJourney
                               |CustomerProfileConfig
+                              |CustomPropertyDefinition
                               |DAG
                               |Dashboard
                               |DashboardTemplate
@@ -255,6 +258,7 @@ rules:
                               |UserRepoPreference
                               |VisionAction
                               |VisionActionRun
+                              |WarehouseColumnAnnotation
                               |WebAnalyticsAchievementProgress
                               |WebAnalyticsFilterPreset
                               |WebAnalyticsInteraction
@@ -320,6 +324,8 @@ rules:
                         |Action
                         |AgentApplication
                         |AgentArtifact
+                        |AgentIdentityCredential
+                        |AgentIdentityLinkState
                         |AgentRevision
                         |AgentSandboxInstance
                         |AgentSession
@@ -349,6 +355,7 @@ rules:
                         |CoreMemory
                         |CustomerJourney
                         |CustomerProfileConfig
+                        |CustomPropertyDefinition
                         |DAG
                         |Dashboard
                         |DashboardTemplate
@@ -512,6 +519,7 @@ rules:
                         |UserRepoPreference
                         |VisionAction
                         |VisionActionRun
+                        |WarehouseColumnAnnotation
                         |WebAnalyticsAchievementProgress
                         |WebAnalyticsFilterPreset
                         |WebAnalyticsInteraction
@@ -615,6 +623,7 @@ rules:
                               |Plugin
                               |Project
                               |ProxyRecord
+                              |ReplayObservationUsage
                               |ReplayQuotaGrant
                               |Role
                               |RoleExternalReference
@@ -683,6 +692,7 @@ rules:
                         |Plugin
                         |Project
                         |ProxyRecord
+                        |ReplayObservationUsage
                         |ReplayQuotaGrant
                         |Role
                         |RoleExternalReference

@@ -6,6 +6,7 @@ Quick-reference for AI agents using `@posthog/quill-components` — composed com
 
 - `DataTable` — TanStack Table wired onto quill `Table` + `Pagination`
 - `DateTimePicker` — calendar range picker with quick-range presets (`quickRanges`, `CUSTOM_RANGE`)
+- `DatePicker` — single-date picker (one calendar, optional time, no quick ranges)
 - `useCalendar` — headless calendar grid hook (`Day`, `Month` enums)
 
 ## DataTable
@@ -27,6 +28,7 @@ const columns: ColumnDef<Person>[] = [
   pageSizeOptions={[10, 25, 50]} // renders the per-page selector
   stickyHeader                   // or "page" to stick to document scroll
   fullWidth
+  size="sm"                      // tighten cell padding; pair with Card size="sm"
 />
 ```
 
@@ -61,6 +63,33 @@ Rules:
 - Dual-calendar layout appears at the `lg` breakpoint unless `compact` forces a single calendar.
 - `minDate`/`maxDate` are day-granular; time inputs are independent of those bounds.
 - `weekStartsOn` affects the calendar grid only, not quick-range math.
+
+## DatePicker
+
+Single-date sibling of `DateTimePicker` — one calendar, no quick ranges, value is a plain `Date`.
+
+```tsx
+import { DatePicker } from '@posthog/quill-components'
+;<DatePicker
+  value={date}
+  onApply={(next) => setDate(next)}
+  onCancel={() => close()}
+  minDate={minDate}
+  maxDate={new Date()}
+  dateFormat="MDY" // or 'DMY' | 'YMD'
+  showTime // include time in the value initially (hour/minute inputs shown)
+  showTimeToggle // render the "Include time" toggle; defaults to showTime. false = fixed precision
+  onIncludeTimeChange={(includeTime) => ...} // fired when the toggle flips
+/>
+```
+
+Rules:
+
+- `value`/`onApply` are a single `Date`, not `{ start, end, range }`. Use this for the single-date PostHog callers (currently `LemonCalendarSelect`); reach for `DateTimePicker` only when you need a start→end range.
+- `showTime` seeds whether time is included; `showTimeToggle` (defaults to `showTime`) decides whether the "Include time" toggle renders. Set `showTimeToggle={false}` with `showTime` for a fixed time precision (no opt-out); pass `showTimeToggle` alone to start date-only but let the user add time. `onIncludeTimeChange` reports toggle changes so a wrapper can mirror the state (e.g. to update a trigger label).
+- Without time included the applied value is floored to start-of-day; with it, the value keeps its hour/minute.
+- Shares the calendar grid and `minDate`/`maxDate` day-granular bounds with `DateTimePicker` (both render `Calendar` from `calendar-grid.tsx`).
+- Always a single calendar; there is no `compact`/dual-calendar mode.
 
 ## useCalendar
 

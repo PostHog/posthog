@@ -740,7 +740,12 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         invalidate_group_types_cache(self.team.project_id)
         db = Database.create_for(team=self.team)
 
-        assert db.get_table("events").fields["event"] == StringDatabaseField(name="event", nullable=False)
+        event_field = db.get_table("events").fields["event"]
+        assert isinstance(event_field, StringDatabaseField)
+        assert event_field.name == "event"
+        assert event_field.nullable is False
+        assert not event_field.array
+        assert event_field.hidden is False
 
     def test_database_expression_fields(self):
         db = Database.create_for(team=self.team)
@@ -1239,7 +1244,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         sql = "select id from persons"
         query, _ = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
-            "equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_0)s)), person.version), 1), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))"
+            "equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))"
             in query
         ), query
 
@@ -1257,7 +1262,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         sql = "select person.id from events"
         query, _ = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
-            "less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_0)s)), person.version), 1), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))"
+            "less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))"
             in query
         ), query
 

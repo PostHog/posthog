@@ -492,7 +492,7 @@ export interface ScoutLimitsApi {
  * change without a deploy to either app.
  */
 export interface ScoutMetadataApi {
-    /** Whether this project is enrolled to run scouts (set via the signals-scout flag allowlist). */
+    /** Whether this project runs scouts. True when the project is in the signals-scout flag's enrollment set — either listed explicitly in guaranteed_team_ids or covered by the "*" wildcard (every project that turns scouts on) — and not in skip_team_ids. */
     enrolled: boolean
     /**
      * Free-form announcement banner to show above the scout UI (e.g. alpha run-limit notice), or null when unset.
@@ -1368,6 +1368,16 @@ export interface ScratchpadEntryApi {
      * @nullable
      */
     created_by_run_id: string | null
+    /**
+     * Canonical skill name of the scout that created this entry (e.g. `signals-scout-apm`), or null if human-authored.
+     * @nullable
+     */
+    created_by_skill?: string | null
+    /**
+     * Relative Tasks UI deep-link to the run that created this entry, or null if the run linkage isn't captured.
+     * @nullable
+     */
+    created_by_run_url?: string | null
 }
 
 /**
