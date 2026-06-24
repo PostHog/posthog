@@ -1317,9 +1317,10 @@ class HogFlowViewSet(
         try:
             hog_flow = self.get_object()
         except (Http404, exceptions.NotFound):
-            # No saved workflow yet (e.g. testing from the builder before first save) — fall back to
-            # testing the submitted payload. A PermissionDenied from the object-level access check must
-            # not be swallowed here; it surfaces as a 403.
+            # Only a genuinely missing workflow lands here (e.g. testing from the builder before first
+            # save) — fall back to testing the submitted payload. Permission failures never reach this
+            # fallback: a resource-level denial 403s upstream before this method runs, and an object-level
+            # PermissionDenied from get_object() is deliberately not caught, so it surfaces as a 403.
             hog_flow = None
 
         serializer = HogFlowInvocationSerializer(
