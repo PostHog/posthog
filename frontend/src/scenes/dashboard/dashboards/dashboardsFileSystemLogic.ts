@@ -33,6 +33,8 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
         navigateToFolder: (folder: string) => ({ folder }),
         // Toggle a folder's expand/collapse state in the panel (folders start collapsed — see expandedFolders).
         toggleFolder: (folder: string) => ({ folder }),
+        // Replace the whole expanded-folders map at once (Expand all / Collapse all).
+        setExpandedFolders: (folders: Record<string, boolean>) => ({ folders }),
         // Create a folder inside the current folder (the UI prompts for the name).
         createFolder: (name: string) => ({ name }),
     }),
@@ -84,6 +86,7 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
             {} as Record<string, boolean>,
             {
                 toggleFolder: (state, { folder }) => ({ ...state, [folder]: !state[folder] }),
+                setExpandedFolders: (_, { folders }) => folders,
             },
         ],
     }),

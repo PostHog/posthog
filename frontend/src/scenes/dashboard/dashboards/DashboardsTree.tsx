@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
 
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { LemonTree, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
@@ -40,7 +42,7 @@ function collectPaths(nodes: FolderTreeNode[], acc: string[] = []): string[] {
 // reads the same entryByRef the scoping uses, so the displayed folder always matches where the dashboard is.
 export function DashboardsTree(): JSX.Element {
     const { folderTree, currentSubtreeDashboards, entryByRef, expandedFolders } = useValues(dashboardsFileSystemLogic)
-    const { navigateToFolder, toggleFolder } = useActions(dashboardsFileSystemLogic)
+    const { navigateToFolder, toggleFolder, setExpandedFolders } = useActions(dashboardsFileSystemLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
 
     const treeData: TreeDataItem[] = [
@@ -55,6 +57,7 @@ export function DashboardsTree(): JSX.Element {
     // The root is always open; folders are closed until the user expands them.
     const folderPaths = collectPaths(folderTree)
     const expandedItemIds = [ROOT_ID, ...folderPaths.filter((id) => expandedFolders[id])]
+    const allExpanded = folderPaths.length > 0 && folderPaths.every((id) => expandedFolders[id])
 
     const folderForDashboard = (dashboard: DashboardBasicType): string => {
         const entry = entryByRef[String(dashboard.id)]
@@ -65,8 +68,20 @@ export function DashboardsTree(): JSX.Element {
     return (
         <div className="grid grid-cols-[260px_1fr] gap-4" data-attr="dashboards-tree">
             <div className="flex flex-col gap-1 border-r border-border pr-2" aria-label="Folder tree">
-                <div>
+                <div className="flex items-center justify-between gap-1">
                     <NewFolderButton />
+                    <LemonButton
+                        size="small"
+                        type="tertiary"
+                        onClick={() =>
+                            setExpandedFolders(
+                                allExpanded ? {} : Object.fromEntries(folderPaths.map((id) => [id, true]))
+                            )
+                        }
+                        disabledReason={folderPaths.length === 0 ? 'No folders yet' : undefined}
+                    >
+                        {allExpanded ? 'Collapse all' : 'Expand all'}
+                    </LemonButton>
                 </div>
                 <LemonTree
                     // Folder rows are accordion triggers; ButtonPrimitives shades any open / expanded trigger,

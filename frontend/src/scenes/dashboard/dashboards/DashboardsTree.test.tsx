@@ -32,14 +32,17 @@ jest.mock('lib/lemon-ui/LemonTree/LemonTree', () => {
 
 describe('DashboardsTree', () => {
     const navigateToFolder = jest.fn()
+    const setExpandedFolders = jest.fn()
 
     afterEach(cleanup)
 
     beforeEach(() => {
         navigateToFolder.mockClear()
+        setExpandedFolders.mockClear()
         ;(useActions as jest.Mock).mockReturnValue({
             navigateToFolder,
             toggleFolder: jest.fn(),
+            setExpandedFolders,
             createFolder: jest.fn(),
         })
     })
@@ -86,6 +89,31 @@ describe('DashboardsTree', () => {
         render(<DashboardsTree />)
         fireEvent.click(screen.getByText('All dashboards'))
         expect(navigateToFolder).toHaveBeenCalledWith('')
+    })
+
+    it('expands every folder when "Expand all" is clicked', () => {
+        mockValues({
+            folderTree: [
+                {
+                    path: 'Marketing',
+                    label: 'Marketing',
+                    children: [{ path: 'Marketing/Q1', label: 'Q1', children: [] }],
+                },
+            ],
+        })
+        render(<DashboardsTree />)
+        fireEvent.click(screen.getByText('Expand all'))
+        expect(setExpandedFolders).toHaveBeenCalledWith({ Marketing: true, 'Marketing/Q1': true })
+    })
+
+    it('collapses every folder when "Collapse all" is clicked (all currently expanded)', () => {
+        mockValues({
+            folderTree: [{ path: 'Marketing', label: 'Marketing', children: [] }],
+            expandedFolders: { Marketing: true },
+        })
+        render(<DashboardsTree />)
+        fireEvent.click(screen.getByText('Collapse all'))
+        expect(setExpandedFolders).toHaveBeenCalledWith({})
     })
 
     it('resolves each dashboard folder from entryByRef (the same source as scoping)', () => {
