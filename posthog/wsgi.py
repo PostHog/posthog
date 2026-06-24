@@ -23,11 +23,6 @@ os.environ.setdefault("SERVER_GATEWAY_INTERFACE", "WSGI")
 start_continuous_profiling()
 initialize_otel()
 
-# Periodically log this worker's RSS (`worker_memory`) so the climb toward the cgroup
-# limit that precedes an OOM kill is visible in PostHog logs. Web-only: non-web processes
-# never import this module. No-op when WEB_MEMORY_SAMPLE_INTERVAL_SECONDS <= 0.
-start_web_memory_sampler()
-
 # Boot allocations are almost all permanent, so cyclic GC during django.setup() only adds
 # pauses (~300ms). Disable it for the boot, then freeze the survivors so later full
 # collections skip them — which also maximizes copy-on-write sharing when a prototype
@@ -69,5 +64,10 @@ def application(environ, start_response):
     global _prewarmed
     if not _prewarmed:
         prewarm_query_cache_cluster_in_background()
+        # Start the RSS sampler post-fork, here in the worker. Unit forks workers from a
+        # prototype that already imported this module, and a thread started pre-fork does
+        # not survive into the worker — starting it on the worker's first call samples the
+        # process that actually serves requests and grows toward the OOM limit.
+        start_web_memory_sampler()
         _prewarmed = True
     return _django_application(environ, start_response)
