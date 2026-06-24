@@ -6,6 +6,7 @@ stays as the source of truth.
 """
 
 from products.customer_analytics.backend.constants import (
+    ACCOUNT_ASSIGNMENT_ROLE_FIELDS,
     BILLING_SPEND_INSIGHT_SHORT_IDS,
     BILLING_USAGE_INSIGHT_SHORT_IDS,
     CUSTOMER_ANALYTICS_CSP_FLAG,
@@ -13,6 +14,7 @@ from products.customer_analytics.backend.constants import (
 )
 
 __all__ = [
+    "ACCOUNT_ASSIGNMENT_ROLE_FIELDS",
     "BILLING_SPEND_INSIGHT_SHORT_IDS",
     "BILLING_USAGE_INSIGHT_SHORT_IDS",
     "CUSTOMER_ANALYTICS_CSP_FLAG",

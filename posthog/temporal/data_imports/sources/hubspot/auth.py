@@ -16,7 +16,7 @@ _FALLBACK_WAIT = wait_exponential_jitter(initial=1, max=30)
 
 
 class HubspotRetryableError(Exception):
-    """Transient HubSpot API failure (429 rate limit or 5xx) that should be retried with backoff."""
+    """Transient HubSpot API failure (429 rate limit, 5xx, or portal migration) that should be retried with backoff."""
 
     def __init__(self, message: str, retry_after: float | None = None) -> None:
         super().__init__(message)
@@ -81,6 +81,11 @@ def hubspot_refresh_access_token(refresh_token: str, source_id: str | None = Non
         if res.status_code == 429 or res.status_code >= 500:
             retry_after = _parse_retry_after(res) if res.status_code == 429 else None
             raise HubspotRetryableError(err_message, retry_after=retry_after)
+        # HubSpot briefly returns this (on a non-5xx) while a portal is migrated between data
+        # centers; the portal becomes reachable again once the migration finishes, so back off
+        # and retry rather than failing the sync (and disabling the schema) on a transient state.
+        if "migration in progress" in err_message.lower():
+            raise HubspotRetryableError(err_message)
         raise Exception(err_message)
 
     access_token = res.json()["access_token"]

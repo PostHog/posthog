@@ -33,10 +33,10 @@ import { reset } from '@posthog/agent-shared/testing'
 
 const KAFKA_HOSTS = process.env.KAFKA_HOSTS ?? 'localhost:9092'
 
-import { buildApprovalDecidedMarker } from './approval-marker'
+import { buildApprovalDecidedMarker } from '@posthog/agent-shared'
+
 import { runSession } from './driver'
 import type { OpenedMcp, RemoteMcpTool } from './mcp-clients'
-import type { IsAskerInApproverScope } from './per-asker-auth'
 
 const FAUX_MODEL_ID = 'faux/test'
 // Realistic UUID — PG's `uuid` columns (approvals.session_id, etc.) reject
@@ -91,6 +91,7 @@ function makeSession(over: Partial<AgentSession> = {}): AgentSession {
         retry_count: 0,
         acl: [],
         pending_elevation_requests: [],
+        is_preview: false,
         usage_total: { ...EMPTY_USAGE_TOTAL },
         created_at: '2026-05-29',
         updated_at: '2026-05-29',
@@ -168,7 +169,6 @@ async function run(
         model: fauxModel((over.script as AssistantMessage[]) ?? [stop('ok')]),
         bundle,
         sandbox: null,
-        integrations: {},
         secrets: {},
         inputs: new PgSessionQueue(pool),
         bus: driverTestBus,
@@ -358,8 +358,8 @@ describe('driver runSession', () => {
      * so they never appear in `spec.tools[]` and the native/custom approval
      * lookup misses them. PR 7 added a fallback that decomposes
      * `<prefix>__<remoteName>` against `spec.mcps[].tools[]` — these tests pin
-     * the wrap path for the MCP variant + the `session_principal` gate the
-     * concierge relies on (which always queues — it never fast-paths).
+     * the wrap path for the MCP variant + the `principal` gate the concierge
+     * relies on (which always queues — there is no fast-path).
      */
     describe('MCP tool approval gating', () => {
         // Minimal `OpenedMcp` stub — same shape as `build-agent-tools.test.ts`'s
@@ -395,8 +395,8 @@ describe('driver runSession', () => {
         }
 
         // Route through `AgentSpecSchema.parse` so the approval-policy
-        // defaults (`allow_edit`, `allow_agent_approver`) get materialised
-        // — the runner reads the strict shape, not the zod input form.
+        // defaults (`type`, `allow_edit`, `ttl_ms`) get materialised — the
+        // runner reads the strict shape, not the zod input form.
         const POSTHOG_REF: McpRef = AgentSpecSchema.parse({
             model: FAUX_MODEL_ID,
             mcps: [
@@ -410,7 +410,7 @@ describe('driver runSession', () => {
                         {
                             name: 'agent-applications-revisions-promote-create',
                             requires_approval: true,
-                            approval_policy: { approvers: ['session_principal'], ttl_ms: 900_000 },
+                            approval_policy: { type: 'principal', ttl_ms: 900_000 },
                         },
                     ],
                 },
@@ -539,7 +539,7 @@ describe('driver runSession', () => {
                             {
                                 name: 'pingback',
                                 requires_approval: true,
-                                approval_policy: { approvers: ['team_admins'] },
+                                approval_policy: { type: 'agent' },
                             },
                         ],
                     },
@@ -589,15 +589,14 @@ describe('driver runSession', () => {
             expect(out.state).not.toBe('failed')
         })
 
-        it('session_principal does NOT fast-path: queues even when the last sender matches session.principal (injection guard)', async () => {
+        it('queues even when the last sender matches session.principal (no auto-dispatch / injection guard)', async () => {
             // Alice authed the session (`session.principal === alice`) and is
             // the one driving this turn (`conversation[last].sender === alice`).
-            // Even so, a `session_principal`-gated call must NOT auto-dispatch:
-            // the owner being the asker is not consent to the specific gated
-            // call the model emitted (which a prompt injection in content the
-            // agent read could have steered). The wrap queues; the real remote
-            // tool is never hit. Regression guard for the "approval bypass for
-            // session-principal tools" finding.
+            // There is no fast-path: being the asker is not consent to the
+            // specific gated call the model emitted (which a prompt injection in
+            // content the agent read could have steered). The wrap queues; the
+            // real remote tool is never hit. Regression guard for the "approval
+            // bypass" finding.
             const mcp = makeFakeMcp('posthog', POSTHOG_REF, {
                 'agent-applications-revisions-promote-create': { description: 'd', result: { promoted: true } },
             })
@@ -606,10 +605,6 @@ describe('driver runSession', () => {
                 principal: principalAlice,
                 conversation: [{ role: 'user', content: 'promote it', sender: principalAlice, timestamp: Date.now() }],
             })
-            // Faithful stub of the production `makePerAskerAuth`: `team_admins`
-            // is the only self-authorising fast-path scope. `session_principal`
-            // never clears the gate, so the concierge's `['session_principal']`
-            // policy resolves to false here.
             const out = await run(makeRev({ mcps: [POSTHOG_REF as never] }), session, {
                 script: [
                     toolUse([
@@ -621,8 +616,6 @@ describe('driver runSession', () => {
                 ],
                 approvals,
                 mcpClients: [mcp],
-                isAskerInApproverScope: (async (_conversation, _teamId, scope) =>
-                    scope.includes('team_admins')) satisfies IsAskerInApproverScope,
             })
             expect(out.state).toBe('completed')
             // The real remote tool was NEVER called — the gate held.

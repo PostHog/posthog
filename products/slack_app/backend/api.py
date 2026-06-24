@@ -22,6 +22,7 @@ from slack_sdk.errors import SlackApiError
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.event_usage import groups
+from posthog.git import extract_explicit_repo
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models.integration import (
     SLACK_INTEGRATION_KINDS,
@@ -50,7 +51,9 @@ from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
 
+from products.slack_app.backend import inbox_channel, onboarding
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
+from products.slack_app.backend.services import inbox_interactivity
 from products.slack_app.backend.services.integration_resolver import (
     UserResolutionFailure,
     format_project_candidate_list,
@@ -743,30 +746,8 @@ def _post_repo_picker_message(
 
 
 def _extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
-    """Extract an explicit org/repo token from message text, if it matches connected repos."""
-    if not text or not all_repos:
-        return None
-
-    normalized_repos = {repo.lower(): repo for repo in all_repos}
-    cleaned_text = _strip_bot_mentions(text)
-
-    for token in cleaned_text.split():
-        candidate = token.strip("`'\"()[]{}<>,.;:!?")
-
-        # Slack can format links as <url|label>; for repo tokens we want the label.
-        if "|" in candidate:
-            candidate = candidate.split("|", 1)[1].strip("`'\"()[]{}<>,.;:!?")
-
-        if not candidate or "://" in candidate or candidate.startswith("http"):
-            continue
-        if not re.fullmatch(r"[\w.-]+/[\w.-]+", candidate):
-            continue
-
-        match = normalized_repos.get(candidate.lower())
-        if match:
-            return match
-
-    return None
+    """Extract an explicit org/repo token from Slack message text, if it matches connected repos."""
+    return extract_explicit_repo(_strip_bot_mentions(text), all_repos)
 
 
 def _get_full_repo_names(integration: Integration, *, user_id: int | None) -> list[str]:
@@ -1989,6 +1970,10 @@ def _route_member_joined_channel(
         # event for every channel-membership change, so the volume is high.
         return ROUTE_HANDLED_LOCALLY
 
+    # The onboarding flow has its own messaging for the inbox channel — skip the generic welcome here.
+    if inbox_channel.is_inbox_channel(integration, channel_id):
+        return ROUTE_HANDLED_LOCALLY
+
     if not _claim_channel_onboarding(slack_team_id, channel_id):
         logger.info(
             "slack_app_channel_onboarding_skipped_duplicate",
@@ -2751,19 +2736,9 @@ def _handle_no_repo_needed_submit(payload: dict) -> HttpResponse:
 
 
 def _delete_ephemeral_via_response_url(response_url: str) -> None:
-    """Remove the original ephemeral prompt via the interactivity ``response_url``.
-
-    Every click outcome is recorded as a public threaded message — the
-    ephemeral prompt has done its job by then and only the public message
-    should remain. Failures are logged but never raised: a click handler
-    that can't reach Slack still finished its DB work.
-    """
-    if not response_url:
-        return
-    try:
-        requests.post(response_url, json={"delete_original": True}, timeout=3)
-    except Exception:
-        logger.warning("slack_app_channel_approval_response_url_failed", exc_info=True)
+    """Remove the original ephemeral prompt via the interactivity ``response_url`` once its public
+    threaded outcome has been posted."""
+    inbox_interactivity.post_response_url(response_url, {"delete_original": True})
 
 
 def _post_channel_approval_outcome(
@@ -3015,7 +2990,8 @@ def _handle_signals_dismiss_report(payload: dict) -> HttpResponse:
 
     slack_user_id = payload.get("user", {}).get("id", "")
     # Only PostHog org members may dismiss — a non-member in a shared channel must not suppress reports.
-    if _is_org_member(integration, slack_user_id) is None:
+    org_member = _is_org_member(integration, slack_user_id)
+    if org_member is None:
         logger.warning(
             "signals_dismiss_report_not_org_member",
             integration_id=integration.id,
@@ -3023,7 +2999,9 @@ def _handle_signals_dismiss_report(payload: dict) -> HttpResponse:
         )
         return HttpResponse(status=200)
 
-    suppressed = dismiss_report_from_slack(report_team_id, str(report_id), slack_user_id=slack_user_id)
+    suppressed = dismiss_report_from_slack(
+        report_team_id, str(report_id), slack_user_id=slack_user_id, user_id=org_member.id
+    )
 
     _post_signals_dismiss_feedback(payload, dismissed=suppressed, slack_user_id=slack_user_id)
     return HttpResponse(status=200)
@@ -3112,6 +3090,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     hinted_integration_id, hinted_user_id = _extract_picker_hints(payload)
     terminate_integration_id, terminate_user_id = _extract_terminate_hints(payload)
     dismiss_integration_id = _extract_dismiss_hints(payload)
+    inbox_integration_id = inbox_interactivity.extract_inbox_hints(payload)
     requesting_user = payload.get("user", {}).get("id", "")
     slack_team_id = payload.get("team", {}).get("id")
 
@@ -3142,6 +3121,14 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         # Intended trust boundary for dismiss is org membership (any org member can dismiss the org's reports).
         local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
             id=dismiss_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
+            kind=SLACK_INTEGRATION_KIND,
+            integration_id=slack_team_id,
+        ).exists()
+    elif slack_team_id and inbox_integration_id:
+        # Inbox onboarding buttons (create/join) are DMed to a user; any clicker may act, so this
+        # is gated only on owning the integration locally.
+        local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+            id=inbox_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         ).exists()
@@ -3232,5 +3219,13 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return _handle_channel_approval_deny(payload)
             if action.get("action_id") == SIGNALS_DISMISS_REPORT_ACTION_ID:
                 return _handle_signals_dismiss_report(payload)
+            if action.get("action_id") == onboarding.INBOX_CREATE_ACTION_ID:
+                return inbox_interactivity.handle_inbox_create(payload)
+            if action.get("action_id") == onboarding.INBOX_JOIN_ACTION_ID:
+                return inbox_interactivity.handle_inbox_join(payload)
+            if action.get("action_id") == onboarding.INBOX_SOURCES_CHECKBOXES_ACTION:
+                return inbox_interactivity.handle_inbox_sources(payload)
+            if action.get("action_id") == onboarding.INBOX_AI_APPROVAL_ACTION_ID:
+                return inbox_interactivity.handle_inbox_ai_approval(payload)
 
     return HttpResponse(status=200)

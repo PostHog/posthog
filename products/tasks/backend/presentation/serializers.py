@@ -202,8 +202,8 @@ class TaskRunDetailSerializer(DataclassSerializer):
 
 # Only implementation is supported when linking a task to a report from the public task API
 # (e.g. PostHog Code inbox); research/repo-selection links are created by server-side flows.
-# The value/label mirror `signals` `SignalReportTask.Relationship.IMPLEMENTATION` — kept inline
-# so presentation never imports the other product's models.
+# Mirrors `signals` `task_run_artefacts.TASK_RUN_TYPE_IMPLEMENTATION` — kept inline
+# so presentation never imports the other product's internals.
 SIGNAL_REPORT_TASK_RELATIONSHIP_IMPLEMENTATION = "implementation"
 
 
@@ -852,6 +852,22 @@ class ConnectionTokenResponseSerializer(serializers.Serializer):
     """Response containing a JWT token for direct sandbox connection"""
 
     token = serializers.CharField(help_text="JWT token for authenticating with the sandbox")
+
+
+class StreamReadTokenResponseSerializer(serializers.Serializer):
+    """Response containing a JWT token (and resolved base URL) for reading a task run's live event stream"""
+
+    token = serializers.CharField(
+        help_text="Run-scoped JWT the browser presents to the agent-proxy to read this run's live event stream"
+    )
+    stream_base_url = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Base URL of the agent-proxy to read the stream from when routing via the proxy is enabled for "
+            "this user. Null means read from the Django endpoint directly (same-origin). The client appends "
+            "the run's stream path and sends the token as a Bearer header when this is set."
+        ),
+    )
 
 
 class TaskRunCreateRequestSerializer(serializers.Serializer):
@@ -1745,4 +1761,46 @@ class SlackThreadContextResponseSerializer(serializers.Serializer):
     runs = SlackThreadContextRunSerializer(
         many=True,
         help_text="All runs on the task, oldest first. Empty when no mapping was found.",
+    )
+
+
+class AgentProxyCallbackRequestSerializer(serializers.Serializer):
+    """Request body for the agent-proxy side-effect callback.
+
+    Called by the standalone Node agent-proxy after it accepts an ingest event
+    that triggers a Temporal heartbeat or an awaiting-input push notification.
+    The request is authenticated with the original sandbox event ingest JWT so
+    Django can re-validate claims without an extra token round-trip.
+    """
+
+    kind = serializers.ChoiceField(
+        choices=["heartbeat", "awaiting_input"],
+        help_text=(
+            "Side effect to dispatch. 'heartbeat' signals the Temporal workflow to reset its "
+            "inactivity timer. 'awaiting_input' fires a mobile push notification when an "
+            "interactive run finishes a turn and is waiting for user input."
+        ),
+    )
+    agent_active = serializers.BooleanField(
+        help_text=(
+            "Whether the agent is currently active (true) or idle (false). "
+            "For 'heartbeat' callbacks this is always true. "
+            "For 'awaiting_input' callbacks this is always false."
+        ),
+    )
+    task_id = serializers.CharField(
+        max_length=36,
+        help_text="UUID of the Task that owns this run. Must match the JWT claim.",
+    )
+    team_id = serializers.IntegerField(
+        min_value=1,
+        help_text="Numeric team (project) ID. Must match the JWT claim.",
+    )
+
+
+class AgentProxyCallbackResponseSerializer(serializers.Serializer):
+    """Response from the agent-proxy side-effect callback."""
+
+    dispatched = serializers.BooleanField(
+        help_text="True when the requested side effect was dispatched; false when skipped (e.g. run not found)."
     )

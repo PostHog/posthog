@@ -51,6 +51,7 @@ class TeamInline(TabularInlinePaginated):
             "ai_gateway_actions",
             "ai_gateway_wallet",
             "policy_cache_blob",
+            "group_type_mappings_display",
         )
     ] + ["displayed_name"]
 
