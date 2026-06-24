@@ -1,20 +1,27 @@
 """Test that we capture exceptions in activities and workflows to PostHog."""
 
 import uuid
+import asyncio
 import datetime as dt
+import concurrent.futures
 from dataclasses import dataclass
 from typing import Any
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import temporalio.exceptions
 from temporalio import activity, workflow
 from temporalio.client import Client, WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.worker import ExecuteActivityInput, ExecuteWorkflowInput, UnsandboxedWorkflowRunner, Worker
 
-from posthog.temporal.common.posthog_client import PostHogClientInterceptor
+from posthog.temporal.common.posthog_client import (
+    PostHogClientInterceptor,
+    _PostHogClientActivityInboundInterceptor,
+    _PostHogClientWorkflowInterceptor,
+)
 
 
 @dataclass
@@ -188,3 +195,42 @@ async def test_workflow_only_error_is_captured(temporal_client: Client):
         assert isinstance(workflow_call[0][0], ApplicationError)
         assert workflow_call[1]["properties"]["temporal.execution_type"] == "workflow"
         assert workflow_call[1]["properties"]["temporal.workflow.id"] == workflow_id
+
+
+def _cancellation_exceptions() -> list[BaseException]:
+    """Cancellation-class exceptions that Temporal raises as normal control flow.
+
+    ``temporalio.exceptions.CancelledError`` is what Temporal raises into a sync activity's
+    worker thread when it is cancelled or times out (the exact case observed in the wild)."""
+    return [
+        temporalio.exceptions.CancelledError("Cancelled"),
+        asyncio.CancelledError(),
+        concurrent.futures.CancelledError(),
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "interceptor_cls,input_spec,execute_method",
+    [
+        (_PostHogClientActivityInboundInterceptor, ExecuteActivityInput, "execute_activity"),
+        (_PostHogClientWorkflowInterceptor, ExecuteWorkflowInput, "execute_workflow"),
+    ],
+)
+class TestCancellationIsNotCaptured:
+    @pytest.mark.parametrize("exc", _cancellation_exceptions())
+    async def test_cancellation_is_reraised_without_capture(
+        self, exc: BaseException, interceptor_cls, input_spec, execute_method
+    ):
+        next_interceptor = AsyncMock()
+        getattr(next_interceptor, execute_method).side_effect = exc
+        interceptor = interceptor_cls(next_interceptor)
+
+        mock_input = MagicMock(spec=input_spec)
+        mock_input.args = []
+
+        with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+            with pytest.raises(type(exc)):
+                await getattr(interceptor, execute_method)(mock_input)
+
+        mock_ph_capture.assert_not_called()

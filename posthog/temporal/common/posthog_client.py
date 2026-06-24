@@ -1,3 +1,4 @@
+import concurrent.futures
 from dataclasses import is_dataclass
 from typing import Any, Optional
 
@@ -18,6 +19,19 @@ from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
 
 logger = get_write_only_logger()
+
+
+def _is_cancellation_exception(e: BaseException) -> bool:
+    """Cancellation is normal Temporal control flow, not a fault: when an activity or
+    workflow is cancelled or times out, Temporal raises a cancellation-class exception
+    into the executing code (for sync activities, ``CancelledError`` is raised straight
+    into the worker thread mid-call). Such exceptions must be re-raised to preserve
+    Temporal's cancellation semantics, but should not be reported as error-tracking faults.
+
+    ``temporalio.exceptions.is_cancelled_exception`` covers ``asyncio.CancelledError``,
+    Temporal's ``CancelledError``, and ``ActivityError``/``ChildWorkflowError`` wrapping a
+    cancellation; we additionally treat ``concurrent.futures.CancelledError`` as benign."""
+    return temporalio.exceptions.is_cancelled_exception(e) or isinstance(e, concurrent.futures.CancelledError)
 
 
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
@@ -65,6 +79,8 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
         try:
             return await super().execute_activity(input)
         except Exception as e:
+            if _is_cancellation_exception(e):
+                raise  # Benign cancellation, not a fault — preserve cancellation semantics without reporting
             activity_info = activity.info()
             capture_kwargs = {
                 "properties": {
@@ -95,6 +111,8 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
         try:
             return await super().execute_workflow(input)
         except Exception as e:
+            if _is_cancellation_exception(e):
+                raise  # Benign cancellation, not a fault — preserve cancellation semantics without reporting
             if isinstance(e, temporalio.exceptions.ActivityError):
                 raise  # Already captured at the activity level
             try:
