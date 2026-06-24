@@ -8,7 +8,6 @@ import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileIte
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { humanFriendlyDuration } from 'lib/utils/durations'
@@ -31,14 +30,15 @@ import {
 
 import { taskDetailSceneLogic } from '../logics/taskDetailSceneLogic'
 import { TaskRun } from '../types'
-import { CollapsibleContent } from './CollapsibleContent'
 import { TaskRunChat } from './TaskRunChat'
 
 export interface TaskDetailPageProps {
     taskId: string
+    /** Mobile shows the single-column layout, where a back button is needed to return to the list. */
+    isMobile: boolean
 }
 
-export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
+export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.Element {
     const sceneLogic = taskDetailSceneLogic({ taskId })
     const {
         task,
@@ -72,7 +72,7 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
     const latestRun = runs.length > 0 ? runs[0] : null
     const isLatestRunInProgress = latestRun?.status === 'in_progress' || latestRun?.status === 'queued'
     const isLatestRunCompleted = latestRun?.status === 'completed'
-    const runButtonText = !hasBeenRun ? 'Run task' : isLatestRunCompleted ? 'Run again' : 'Retry task'
+    const runButtonText = !hasBeenRun ? 'Run task' : 'Retry task'
 
     const prUrl = selectedRun?.output?.pr_url as string | undefined
     const titleActions =
@@ -98,7 +98,7 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                         View PR
                     </LemonButton>
                 )}
-                {!isLatestRunInProgress && (
+                {!isLatestRunInProgress && !isLatestRunCompleted && (
                     <LemonButton type="primary" size="small" icon={<IconPlay />} onClick={runTask}>
                         {runButtonText}
                     </LemonButton>
@@ -172,27 +172,19 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                         resourceType={{ type: 'task' }}
                         isLoading={isTaskPending}
                         canEdit={false}
-                        forceBackTo={{
-                            key: 'tasks',
-                            name: 'Tasks',
-                            path: urls.taskTracker(),
-                        }}
+                        forceBackTo={
+                            isMobile
+                                ? {
+                                      key: 'tasks',
+                                      name: 'Tasks',
+                                      path: urls.taskTracker(),
+                                  }
+                                : undefined
+                        }
                         actions={titleActions}
                     />
 
                     {selectedRun && <TaskRunMetadata selectedRun={selectedRun} />}
-
-                    {isTaskPending ? (
-                        <TaskDescriptionSkeleton />
-                    ) : task?.description ? (
-                        <div className="relative mt-2">
-                            <CollapsibleContent>
-                                <LemonMarkdown lowKeyHeadings className="text-sm">
-                                    {task.description}
-                                </LemonMarkdown>
-                            </CollapsibleContent>
-                        </div>
-                    ) : null}
 
                     <LemonDivider />
 
@@ -245,16 +237,6 @@ function TaskActionsSkeleton(): JSX.Element {
         <div className="flex items-center gap-2">
             <LemonSkeleton className="h-7 w-40" />
             <LemonSkeleton className="h-7 w-24" />
-        </div>
-    )
-}
-
-function TaskDescriptionSkeleton(): JSX.Element {
-    return (
-        <div className="flex flex-col gap-2 mt-2 max-w-4xl">
-            <LemonSkeleton className="h-4 w-full" />
-            <LemonSkeleton className="h-4 w-11/12 opacity-60" />
-            <LemonSkeleton className="h-4 w-2/3 opacity-30" />
         </div>
     )
 }

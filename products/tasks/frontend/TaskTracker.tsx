@@ -32,7 +32,7 @@ export function TaskTracker({ taskId }: TaskTrackerProps): JSX.Element {
 
     const selectedTaskId = taskId && taskId !== 'new' ? taskId : null
 
-    const rightPane = selectedTaskId ? <TaskDetailPage taskId={selectedTaskId} /> : <TaskComposer />
+    const rightPane = selectedTaskId ? <TaskDetailPage taskId={selectedTaskId} isMobile={false} /> : <TaskComposer />
 
     if (isMobile) {
         // Single column: detail, composer, or the list (with a "Create a new task" row).
@@ -41,7 +41,7 @@ export function TaskTracker({ taskId }: TaskTrackerProps): JSX.Element {
                 <div className="flex flex-col h-full min-h-0">
                     <AllowTrainingCallout featureName="PostHog Code" />
                     <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
-                        <TaskDetailPage taskId={selectedTaskId} />
+                        <TaskDetailPage taskId={selectedTaskId} isMobile />
                     </div>
                 </div>
             )
