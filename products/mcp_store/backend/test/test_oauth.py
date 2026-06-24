@@ -123,22 +123,22 @@ class TestResolveIssuer(TestCase):
             _resolve_issuer(metadata, "https://origin.com")
 
 
-class TestRefreshOauthToken(TestCase):
+class TestRefreshOauthToken(SimpleTestCase):
     @parameterized.expand(
         [
             (
                 "known_provider_with_secret",
                 {"client_secret": "my-secret"},
-                {"client_secret": "my-secret"},
+                ("my-client", "my-secret"),
             ),
             (
                 "dcr_without_secret",
                 {"client_secret": None},
-                {},
+                None,
             ),
         ]
     )
-    def test_client_secret_inclusion(self, _name, kwargs, expected_extra_data):
+    def test_default_token_auth_method(self, _name, kwargs, expected_auth):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {"access_token": "new-token", "refresh_token": "new-refresh"}
@@ -152,14 +152,17 @@ class TestRefreshOauthToken(TestCase):
                 **kwargs,
             )
 
-        call_data = mock_post.call_args[1]["data"]
+        call_kwargs = mock_post.call_args.kwargs
+        call_data = call_kwargs["data"]
         self.assertEqual(call_data["grant_type"], "refresh_token")
         self.assertEqual(call_data["refresh_token"], "old-refresh")
-        self.assertEqual(call_data["client_id"], "my-client")
-        if expected_extra_data:
-            self.assertEqual(call_data["client_secret"], expected_extra_data["client_secret"])
-        else:
+        if expected_auth:
+            self.assertNotIn("client_id", call_data)
             self.assertNotIn("client_secret", call_data)
+        else:
+            self.assertEqual(call_data["client_id"], "my-client")
+            self.assertNotIn("client_secret", call_data)
+        self.assertEqual(call_kwargs["auth"], expected_auth)
         self.assertEqual(result["access_token"], "new-token")
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
@@ -918,6 +921,9 @@ class TestRegisterDCRClient(SimpleTestCase):
             == "none"
         )
 
+    def test_omitted_supported_methods_default_to_basic_for_confidential_clients(self):
+        assert select_token_endpoint_auth_method({}, has_client_secret=True) == "client_secret_basic"
+
     @patch("products.mcp_store.backend.oauth.requests.post")
     def test_rejects_dcr_when_provider_only_lists_unsupported_auth_methods(self, mock_post):
         with self.assertRaisesMessage(ValueError, "private_key_jwt"):
@@ -962,9 +968,9 @@ class TestRegisterDCRClient(SimpleTestCase):
                 ("abc", "minted-secret", "client_secret_basic"),
             ),
             (
-                "keeps_secret_when_auth_method_unspecified",
+                "keeps_secret_with_basic_auth_when_auth_method_unspecified",
                 {"client_id": "abc", "client_secret": "minted-secret"},
-                ("abc", "minted-secret", "client_secret_post"),
+                ("abc", "minted-secret", "client_secret_basic"),
             ),
         ]
     )
@@ -1079,7 +1085,7 @@ class TestResolveInstallationOauthContext(BaseTest):
         assert metadata["token_endpoint"] == "https://auth.template.example.com/token"
         assert client_id == "template-client"
         assert client_secret == "template-secret"
-        assert auth_method == "client_secret_post"
+        assert auth_method == "client_secret_basic"
 
     def test_dcr_template_backed_install_returns_per_installation_metadata_and_creds(self):
         # DCR templates carry no shared client_id AND no trusted metadata —
@@ -1133,7 +1139,7 @@ class TestResolveInstallationOauthContext(BaseTest):
         assert metadata["token_endpoint"] == "https://auth.custom.example.com/token"
         assert client_id == "per-user-client"
         assert client_secret == "per-user-secret"
-        assert auth_method == "client_secret_post"
+        assert auth_method == "client_secret_basic"
 
     def test_custom_install_without_secret_returns_none(self):
         installation = MCPServerInstallation.objects.create(
@@ -1164,10 +1170,10 @@ class TestExchangeOauthToken(BaseTest):
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
     @patch("products.mcp_store.backend.oauth.requests.post")
-    def test_confidential_custom_install_sends_client_secret(self, mock_post, _allow):
-        """dcr_client_secret round-trips through resolve_installation_oauth_context into the token exchange body."""
+    def test_confidential_custom_install_defaults_to_http_basic(self, mock_post, _allow):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
+        mock_resp.ok = True
         mock_resp.json.return_value = {"access_token": "abc", "refresh_token": "def"}
         mock_post.return_value = mock_resp
 
@@ -1187,12 +1193,46 @@ class TestExchangeOauthToken(BaseTest):
         )
 
         assert result["access_token"] == "abc"
-        sent_form = mock_post.call_args[1]["data"]
+        sent_form = mock_post.call_args.kwargs["data"]
+        assert "client_id" not in sent_form
+        assert "client_secret" not in sent_form
+        assert sent_form["grant_type"] == "authorization_code"
+        assert sent_form["code_verifier"] == "pkce-verifier"
+        assert mock_post.call_args.kwargs["auth"] == ("confidential-client", "confidential-secret")
+        assert mock_post.call_args.kwargs["allow_redirects"] is False
+
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_client_secret_post_custom_install_sends_secret_in_form(self, mock_post, _allow):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.ok = True
+        mock_resp.json.return_value = {"access_token": "abc", "refresh_token": "def"}
+        mock_post.return_value = mock_resp
+
+        installation = self._make_installation(
+            sensitive_configuration={
+                "dcr_client_id": "confidential-client",
+                "dcr_client_secret": "confidential-secret",
+                "dcr_token_endpoint_auth_method": "client_secret_post",
+            },
+        )
+
+        result = exchange_oauth_token(
+            installation=installation,
+            code="auth-code",
+            pkce_verifier="pkce-verifier",
+            redirect_uri="https://app.posthog.com/callback",
+            is_https=lambda url: url.startswith("https://"),
+        )
+
+        assert result["access_token"] == "abc"
+        sent_form = mock_post.call_args.kwargs["data"]
         assert sent_form["client_id"] == "confidential-client"
         assert sent_form["client_secret"] == "confidential-secret"
         assert sent_form["grant_type"] == "authorization_code"
         assert sent_form["code_verifier"] == "pkce-verifier"
-        assert mock_post.call_args.kwargs["allow_redirects"] is False
+        assert mock_post.call_args.kwargs["auth"] is None
 
     @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, None))
     @patch("products.mcp_store.backend.oauth.requests.post")

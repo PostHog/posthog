@@ -17,6 +17,7 @@ logger = structlog.get_logger(__name__)
 
 TIMEOUT = 10
 SUPPORTED_TOKEN_ENDPOINT_AUTH_METHODS = ("none", "client_secret_post", "client_secret_basic")
+DEFAULT_CONFIDENTIAL_TOKEN_ENDPOINT_AUTH_METHOD = "client_secret_basic"
 
 
 class SSRFBlockedError(Exception):
@@ -115,7 +116,7 @@ def select_token_endpoint_auth_method(metadata: dict, *, has_client_secret: bool
         else SUPPORTED_TOKEN_ENDPOINT_AUTH_METHODS
     )
     if not supported_methods:
-        return "client_secret_post" if has_client_secret else "none"
+        return DEFAULT_CONFIDENTIAL_TOKEN_ENDPOINT_AUTH_METHOD if has_client_secret else "none"
     for method in preferred_methods:
         if method in supported_methods:
             return method
@@ -345,7 +346,7 @@ def register_dcr_client(metadata: dict, redirect_uri: str) -> tuple[str, str | N
     if isinstance(returned_auth_method_value, str) and returned_auth_method_value:
         returned_auth_method = returned_auth_method_value
     elif returned_secret and token_endpoint_auth_method == "none":
-        returned_auth_method = "client_secret_post"
+        returned_auth_method = DEFAULT_CONFIDENTIAL_TOKEN_ENDPOINT_AUTH_METHOD
     else:
         returned_auth_method = token_endpoint_auth_method
     if returned_auth_method not in SUPPORTED_TOKEN_ENDPOINT_AUTH_METHODS:
@@ -383,7 +384,7 @@ def _credential_auth_method(credentials: dict, auth_method_key: str, client_secr
     method = credentials.get(auth_method_key)
     if isinstance(method, str) and method in SUPPORTED_TOKEN_ENDPOINT_AUTH_METHODS:
         return method
-    return "client_secret_post" if client_secret else "none"
+    return DEFAULT_CONFIDENTIAL_TOKEN_ENDPOINT_AUTH_METHOD if client_secret else "none"
 
 
 def resolve_installation_oauth_context(installation: MCPServerInstallation) -> tuple[dict, str, str | None, str]:
@@ -474,7 +475,7 @@ def refresh_oauth_token(
             client_id=client_id,
             client_secret=client_secret,
             token_endpoint_auth_method=token_endpoint_auth_method
-            or ("client_secret_post" if client_secret else "none"),
+            or (DEFAULT_CONFIDENTIAL_TOKEN_ENDPOINT_AUTH_METHOD if client_secret else "none"),
         )
     except ValueError as exc:
         raise TokenRefreshError(str(exc))
