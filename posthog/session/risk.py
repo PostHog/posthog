@@ -4,6 +4,10 @@ from enum import Enum, IntEnum
 from math import asin, cos, radians, sin, sqrt
 from typing import Optional
 
+import posthoganalytics
+
+from posthog.models import User
+
 RISK_DISTANCE_FLOOR_KM = 500.0
 RISK_ELAPSED_FLOOR_S = 300.0
 RISK_VELOCITY_MAX_KMH = 1000.0
@@ -86,3 +90,31 @@ def tier_for(signals: set[RiskSignal]) -> RiskTier:
     if signals:
         return RiskTier.MEDIUM
     return RiskTier.NONE
+
+
+@dataclass
+class RiskFlags:
+    detection: bool
+    step_up: bool
+    session_end: bool
+
+
+def _enabled(key: str, user: User) -> bool:
+    # only_evaluate_locally keeps this off the network on the request hot path; an unloaded
+    # flag returns None, which bool() collapses to False (fail-closed for enforcement).
+    return bool(
+        posthoganalytics.feature_enabled(
+            key, str(user.distinct_id), person_properties={"email": user.email}, only_evaluate_locally=True
+        )
+    )
+
+
+def risk_flags(user: User) -> RiskFlags:
+    # session-risk-detection is the master gate: off ⇒ everything off.
+    if not _enabled("session-risk-detection", user):
+        return RiskFlags(detection=False, step_up=False, session_end=False)
+    return RiskFlags(
+        detection=True,
+        step_up=_enabled("session-risk-step-up", user),
+        session_end=_enabled("session-risk-session-end", user),
+    )

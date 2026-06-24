@@ -2,8 +2,18 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
-from posthog.session.risk import Baseline, Context, RiskSignal, RiskTier, evaluate_signals, tier_for, ua_signature
+from posthog.session.risk import (
+    Baseline,
+    Context,
+    RiskSignal,
+    RiskTier,
+    evaluate_signals,
+    risk_flags,
+    tier_for,
+    ua_signature,
+)
 
 
 class TestUaSignature(BaseTest):
@@ -73,3 +83,20 @@ class TestSignalsAndTiers(BaseTest):
         b = Baseline(latitude=None, longitude=None, country_code=None, ua_signature=None, last_activity=None)
         signals = evaluate_signals(b, self._ctx(country_code="JP"), now=datetime(2026, 1, 2, tzinfo=UTC))
         self.assertEqual(signals, set())
+
+
+class TestRiskFlags(BaseTest):
+    @patch("posthog.session.risk.posthoganalytics.feature_enabled")
+    def test_detection_off_forces_all_off(self, mock_flag):
+        mock_flag.side_effect = lambda key, *a, **k: False
+        flags = risk_flags(self.user)
+        self.assertFalse(flags.detection)
+        self.assertFalse(flags.step_up)
+        self.assertFalse(flags.session_end)
+
+    @patch("posthog.session.risk.posthoganalytics.feature_enabled")
+    def test_step_up_requires_detection(self, mock_flag):
+        mock_flag.side_effect = lambda key, *a, **k: key in {"session-risk-detection", "session-risk-step-up"}
+        flags = risk_flags(self.user)
+        self.assertTrue(flags.step_up)
+        self.assertFalse(flags.session_end)
