@@ -1,12 +1,10 @@
 import { useValues } from 'kea'
-import { router } from 'kea-router'
 
 import { IconPlus, IconPlusSmall } from '@posthog/icons'
-import { LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { Link } from 'lib/lemon-ui/Link'
-import { LinkListItem } from 'lib/ui/LinkListItem/LinkListItem'
 import { urls } from 'scenes/urls'
 
 import { tasksLogic } from '../logics/tasksLogic'
@@ -15,31 +13,64 @@ import { TaskListItem } from './TaskListItem'
 interface TasksListColumnProps {
     /** Currently selected task id, used to highlight its row. Null when showing the composer. */
     selectedTaskId: string | null
-    /** On mobile the column is the whole screen, so it gets a "Create a new task" row up top. */
+    /** On mobile the column is the whole screen: the page scrolls and a floating button creates a task. */
     isMobile?: boolean
 }
 
 export function TasksListColumn({ selectedTaskId, isMobile = false }: TasksListColumnProps): JSX.Element {
     const { tasks, tasksLoading } = useValues(tasksLogic)
 
+    const rows =
+        tasksLoading && tasks.length === 0 ? (
+            <div className="flex flex-col gap-1 px-1">
+                <LemonSkeleton className="h-8" />
+                <LemonSkeleton className="h-8 opacity-60" />
+                <LemonSkeleton className="h-8 opacity-30" />
+            </div>
+        ) : tasks.length === 0 ? (
+            <div className="flex flex-col items-center justify-center text-center py-8 text-muted">
+                <p className="text-sm mb-0">No tasks yet</p>
+            </div>
+        ) : (
+            tasks.map((task) => (
+                <TaskListItem key={task.id} task={task} isActive={task.id === selectedTaskId} isMobile={isMobile} />
+            ))
+        )
+
+    if (isMobile) {
+        // The page (main) scrolls — no inner scroll container. Extra bottom padding keeps the last
+        // rows clear of the floating create button.
+        return (
+            <>
+                <div className="flex flex-col gap-1 px-1 pb-24">{rows}</div>
+                <LemonButton
+                    type="primary"
+                    icon={<IconPlus />}
+                    to={urls.taskNew()}
+                    size="large"
+                    data-attr="tasks-new-mobile"
+                    className="fixed bottom-4 right-4 z-20 shadow-md"
+                >
+                    New task
+                </LemonButton>
+            </>
+        )
+    }
+
     return (
         <div className="flex flex-col h-full min-h-0">
-            {!isMobile && (
-                <>
-                    <div className="flex items-center justify-between gap-1 p-2 shrink-0">
-                        <span className="text-sm font-semibold pl-1">Tasks</span>
-                        <Link
-                            to={urls.taskNew()}
-                            data-attr="tasks-new"
-                            buttonProps={{ iconOnly: true, variant: 'outline' }}
-                            tooltip="New task"
-                        >
-                            <IconPlusSmall className="size-4" />
-                        </Link>
-                    </div>
-                    <LemonDivider className="mt-0 mb-2 shrink-0" />
-                </>
-            )}
+            <div className="flex items-center justify-between gap-1 p-2 shrink-0">
+                <span className="text-sm font-semibold pl-1">Tasks</span>
+                <Link
+                    to={urls.taskNew()}
+                    data-attr="tasks-new"
+                    buttonProps={{ iconOnly: true, variant: 'outline' }}
+                    tooltip="New task"
+                >
+                    <IconPlusSmall className="size-4" />
+                </Link>
+            </div>
+            <LemonDivider className="mt-0 mb-2 shrink-0" />
 
             <ScrollableShadows
                 direction="vertical"
@@ -47,39 +78,7 @@ export function TasksListColumn({ selectedTaskId, isMobile = false }: TasksListC
                 innerClassName="flex flex-col gap-1 px-1 pb-4"
                 styledScrollbars
             >
-                {isMobile && (
-                    <LinkListItem.Root>
-                        <LinkListItem.Group>
-                            <Link
-                                to={urls.taskNew()}
-                                data-attr="tasks-new-mobile"
-                                onClick={(e) => {
-                                    e.preventDefault()
-                                    router.actions.push(urls.taskNew())
-                                }}
-                                buttonProps={{ fullWidth: true, menuItem: true }}
-                            >
-                                <LinkListItem.Content icon={<IconPlus />} title="Create a new task" />
-                            </Link>
-                        </LinkListItem.Group>
-                    </LinkListItem.Root>
-                )}
-
-                {tasksLoading && tasks.length === 0 ? (
-                    <div className="flex flex-col gap-1 px-1">
-                        <LemonSkeleton className="h-8" />
-                        <LemonSkeleton className="h-8 opacity-60" />
-                        <LemonSkeleton className="h-8 opacity-30" />
-                    </div>
-                ) : tasks.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center text-center py-8 text-muted">
-                        <p className="text-sm mb-0">No tasks yet</p>
-                    </div>
-                ) : (
-                    tasks.map((task) => (
-                        <TaskListItem key={task.id} task={task} isActive={task.id === selectedTaskId} />
-                    ))
-                )}
+                {rows}
             </ScrollableShadows>
         </div>
     )

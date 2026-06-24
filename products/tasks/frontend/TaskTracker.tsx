@@ -54,17 +54,16 @@ export function TaskTracker({ taskId }: TaskTrackerProps): JSX.Element {
                 </SceneContent>
             )
         }
+        // List view scrolls with the page (main), not an inner container, so no fixed height here.
         return (
-            <SceneContent className="h-full">
+            <SceneContent>
                 <SceneTitleSection
                     name={sceneConfigurations[Scene.TaskTracker].name}
                     description={sceneConfigurations[Scene.TaskTracker].description}
                     resourceType={{ type: sceneConfigurations[Scene.TaskTracker].iconType || 'default_icon_type' }}
                 />
                 <AllowTrainingCallout featureName="Tasks" />
-                <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
-                    <TasksListColumn selectedTaskId={null} isMobile />
-                </div>
+                <TasksListColumn selectedTaskId={null} isMobile />
             </SceneContent>
         )
     }
@@ -73,8 +72,7 @@ export function TaskTracker({ taskId }: TaskTrackerProps): JSX.Element {
         <SceneContent className="h-full">
             <AllowTrainingCallout featureName="Tasks" />
             <div className="flex flex-1 min-h-0 gap-4">
-                {/* `-ml-4` pulls the rail flush with the scene's left edge, past the scene padding. */}
-                <div className="w-72 shrink-0 -ml-4 flex flex-col min-h-0 border-r border-primary">
+                <div className="w-72 shrink-0 pl-0 flex flex-col min-h-0 border-r border-primary">
                     <TasksListColumn selectedTaskId={selectedTaskId} />
                 </div>
                 <div className="flex-1 min-w-0 flex flex-col min-h-0 overflow-hidden">{rightPane}</div>
