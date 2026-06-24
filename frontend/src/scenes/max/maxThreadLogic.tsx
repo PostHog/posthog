@@ -686,24 +686,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // briefly show a duplicate (until the runtime resolves to the SandboxThread) that vanishes
             // on reload, since sandbox turns live in the run log, not the legacy conversation messages.
             if (generationAttempt === 0 && streamData.content && addToThread && !isSandboxConversation) {
-                // Guard against a duplicate provisional bubble when the ask flow fires more than
-                // once before the first response arrives (e.g. maxThreadLogic remounts as the
-                // conversation id resolves and an effect keyed on the askMax action re-issues the
-                // ask): if the most recent message is already an identical human bubble we just
-                // added, skip it so the streamed human echo replaces a single provisional instead
-                // of leaving the earlier one orphaned.
-                const lastMessage = values.threadRaw.at(-1)
-                const isDuplicateProvisional =
-                    !!lastMessage && isHumanMessage(lastMessage) && lastMessage.content === streamData.content
-                if (!isDuplicateProvisional) {
-                    const message: ThreadMessage = {
-                        type: AssistantMessageType.Human,
-                        content: streamData.content,
-                        status: 'completed',
-                        trace_id: traceId,
-                    }
-                    actions.addMessage(message)
+                const message: ThreadMessage = {
+                    type: AssistantMessageType.Human,
+                    content: streamData.content,
+                    status: 'completed',
+                    trace_id: traceId,
                 }
+                actions.addMessage(message)
             }
 
             if (isSandboxConversation) {
@@ -1276,6 +1265,18 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // Only process if this thread is the currently active one
             if (values.conversationId !== values.activeThreadKey) {
                 return
+            }
+            // Ignore a duplicate ask that arrives while an identical one is still generating.
+            // A user send only ever fires askMax once; a second ask with the same content while
+            // a stream is in flight comes from a re-issued auto-send (the thread logic remounts as
+            // the conversation id resolves from its frontend uuid, re-running effects keyed on the
+            // askMax action). Without this it appends another provisional human bubble for the same
+            // message, duplicating it in the thread.
+            if (addToThread && typeof prompt === 'string' && values.threadLoading) {
+                const lastHumanMessage = [...values.threadRaw].reverse().find(isHumanMessage)
+                if (lastHumanMessage?.content === prompt) {
+                    return
+                }
             }
             // A sent message consumes any sandbox pre-warm: the warm Run is the in-progress run the
             // sandbox routing follows up on, so cancel pending timers and clear the flag WITHOUT

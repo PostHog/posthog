@@ -1128,33 +1128,6 @@ describe('maxThreadLogic', () => {
         })
     })
 
-    describe('provisional human bubble dedup', () => {
-        it('does not add a second identical provisional when the ask fires twice before a response', async () => {
-            mockStream()
-
-            await expectLogic(logic, () => {
-                logic.actions.streamConversation({ agent_mode: null, content: 'What are my most popular pages?' }, 0)
-                logic.actions.streamConversation({ agent_mode: null, content: 'What are my most popular pages?' }, 0)
-            })
-
-            const humanMessages = logic.values.threadRaw.filter((m) => m.type === AssistantMessageType.Human)
-            expect(humanMessages).toHaveLength(1)
-            expect(humanMessages[0].content).toBe('What are my most popular pages?')
-        })
-
-        it('still adds a provisional when the previous human message has different content', async () => {
-            mockStream()
-
-            await expectLogic(logic, () => {
-                logic.actions.streamConversation({ agent_mode: null, content: 'first question' }, 0)
-                logic.actions.streamConversation({ agent_mode: null, content: 'second question' }, 0)
-            })
-
-            const humanMessages = logic.values.threadRaw.filter((m) => m.type === AssistantMessageType.Human)
-            expect(humanMessages).toHaveLength(2)
-        })
-    })
-
     describe('parallel conversation isolation', () => {
         it('only processes askMax for the active thread, not other mounted threads', async () => {
             const streamSpy = mockStream()

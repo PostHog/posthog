@@ -103,11 +103,7 @@ export const decorators: Meta['decorators'] = [
 const preview: Preview = {
     parameters: {
         actions: { argTypesRegex: '^on[A-Z].*' },
-        // Storybook 10's addon-a11y auto-runs axe-core (and a vision-simulator decorator)
-        // on every story inside the test-runner via experimental_afterEach. The visual
-        // snapshot run is capture-only and never wanted a11y testing in the loop — it adds
-        // per-story work and noise to the snapshot path. Keep the a11y panel for manual use
-        // in dev, but disable the automatic test execution during the test-runner.
+        // We don't want axe-core tests in visual review
         a11y: { test: 'off' },
         controls: {
             matchers: {
