@@ -233,13 +233,11 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                         dateTo: dateRange.dateTo.toISOString(),
                         metricName: ['conversion'],
                     }
-                    const conversionResponse = await loadAppMetricsTotals(baseRequest, timezone)
-                    await breakpoint(10)
-
-                    const startedResponse = await loadAppMetricsTotals(
-                        { ...baseRequest, metricName: ['triggered'] },
-                        timezone
-                    )
+                    // The two totals have no data dependency, so fetch them in parallel.
+                    const [conversionResponse, startedResponse] = await Promise.all([
+                        loadAppMetricsTotals(baseRequest, timezone),
+                        loadAppMetricsTotals({ ...baseRequest, metricName: ['triggered'] }, timezone),
+                    ])
                     await breakpoint(10)
 
                     const conversions = Object.values(conversionResponse).reduce((sum, r) => sum + r.total, 0)
