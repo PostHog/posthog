@@ -160,6 +160,7 @@ the row lists both.
 | postgres          | DB protocol                 | psycopg                                                         | ➖                          |
 | postmark          | HTTP                        | requests                                                        | ✅                          |
 | productboard      | HTTP                        | requests                                                        | ✅                          |
+| pylon             | HTTP                        | requests                                                        | ✅                          |
 | recurly           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ramp              | HTTP                        | requests                                                        | ✅                          |
 | recharge          | HTTP                        | requests                                                        | ✅                          |
@@ -565,7 +566,6 @@ doesn't conflict with concurrent PRs.
 - primetric
 - printify
 - productive
-- pylon
 - pypi
 - qonto
 - qualaroo
