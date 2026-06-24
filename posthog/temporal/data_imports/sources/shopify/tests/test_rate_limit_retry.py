@@ -1,11 +1,15 @@
 import pytest
+from unittest.mock import MagicMock, patch
 
+from requests.exceptions import ChunkedEncodingError
 from tenacity import Future, RetryCallState, Retrying
 
+from posthog.temporal.data_imports.sources.shopify.constants import ABANDONED_CHECKOUTS, SHOPIFY_GRAPHQL_OBJECTS
 from posthog.temporal.data_imports.sources.shopify.shopify import (
     _SHOPIFY_MAX_THROTTLE_WAIT_SECONDS,
     ShopifyRetryableError,
     _get_retryable_error,
+    _make_paginated_shopify_request,
     _shopify_retry_wait,
     _throttle_retry_after,
 )
@@ -81,3 +85,47 @@ def test_retry_wait_honors_throttle_refill_time():
 def test_retry_wait_falls_back_to_backoff_without_retry_after():
     wait = _shopify_retry_wait(_retry_state(ShopifyRetryableError("internal error")))
     assert 1.0 <= wait <= 2.0  # initial=1, max=30, jitter up to 1s on attempt 1
+
+
+def _ok_page() -> MagicMock:
+    response = MagicMock()
+    response.status_code = 200
+    response.json.return_value = {
+        "data": {ABANDONED_CHECKOUTS: {"nodes": [{"id": "1"}], "pageInfo": {"hasNextPage": False, "endCursor": None}}}
+    }
+    return response
+
+
+@patch("tenacity.nap.time.sleep")
+def test_request_retries_connection_broken_mid_stream_then_succeeds(_mock_sleep):
+    # A connection dropped mid-response surfaces from `post` as ChunkedEncodingError; it's
+    # transient, so the request is reissued rather than failing the import.
+    sess = MagicMock()
+    sess.post.side_effect = [
+        ChunkedEncodingError("Connection broken: InvalidChunkLength(got length b'', 0 bytes read)"),
+        _ok_page(),
+    ]
+
+    batches = list(
+        _make_paginated_shopify_request(
+            "https://example.invalid/graphql", sess, SHOPIFY_GRAPHQL_OBJECTS[ABANDONED_CHECKOUTS], MagicMock()
+        )
+    )
+
+    assert batches == [[{"id": "1"}]]
+    assert sess.post.call_count == 2
+
+
+@patch("tenacity.nap.time.sleep")
+def test_request_reraises_retryable_after_persistent_connection_broken(_mock_sleep):
+    sess = MagicMock()
+    sess.post.side_effect = ChunkedEncodingError("Connection broken: InvalidChunkLength(got length b'', 0 bytes read)")
+
+    with pytest.raises(ShopifyRetryableError):
+        list(
+            _make_paginated_shopify_request(
+                "https://example.invalid/graphql", sess, SHOPIFY_GRAPHQL_OBJECTS[ABANDONED_CHECKOUTS], MagicMock()
+            )
+        )
+
+    assert sess.post.call_count == 5
