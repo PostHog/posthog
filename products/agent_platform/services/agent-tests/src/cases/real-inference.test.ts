@@ -35,7 +35,7 @@ import { fileURLToPath } from 'node:url'
 import request from 'supertest'
 
 import { type AuthProvider, publicVerifier, readBearer } from '@posthog/agent-ingress'
-import { posthogAiGatewayModel } from '@posthog/agent-runner'
+import { generateSessionSummary, posthogAiGatewayModel } from '@posthog/agent-runner'
 
 import { buildCluster, closeSharedPool, Cluster } from '../harness'
 
@@ -491,5 +491,39 @@ maybeDescribe('real inference (via pi-ai): real e2e [%s]', (_label, real: Provid
         // direction, not specific wording.
         expect(finalText.length).toBeGreaterThan(20)
         expect(finalText).toMatch(/tool|query|available|unable|cannot|not.*available|sorry/i)
+    }, 60_000)
+})
+
+// Session summarization needs only a model (no cluster) — its own block so we
+// don't pay the cluster spin-up for a pure inference call.
+const maybeSummaryDescribe = (SKIP ? describe.skip : describe.each(matrix.map((p) => [p.label, p] as const))) as (
+    name: string,
+    fn: (label: string, real: ProviderSpec) => void
+) => void
+
+maybeSummaryDescribe('session summary (real inference): [%s]', (_label, real: ProviderSpec) => {
+    it('summarizes a finished session into a parseable {summary, topic, outcome}', async () => {
+        // Proves a real cheap model, given our digest + system prompt, returns
+        // the strict JSON the parser expects and grounds it in the transcript.
+        const conversation: Parameters<typeof generateSessionSummary>[1] = [
+            { role: 'user', content: 'My deploy to staging is stuck — can you find what went wrong?', timestamp: 1 },
+            {
+                role: 'assistant',
+                content: [
+                    {
+                        type: 'text',
+                        text: 'The staging deploy failed on a missing DATABASE_URL env var. Add it to the staging config and re-run — that should unblock it.',
+                    },
+                ],
+                timestamp: 2,
+            },
+        ]
+        const result = await generateSessionSummary(real.model, conversation, { apiKey: real.apiKey })
+        expect(result).not.toBeNull()
+        expect(result!.summary.length).toBeGreaterThan(0)
+        expect(result!.topic.length).toBeGreaterThan(0)
+        expect(['resolved', 'failed', 'abandoned', 'other']).toContain(result!.outcome)
+        // Grounded in the transcript, not hallucinated.
+        expect(`${result!.summary} ${result!.topic}`.toLowerCase()).toMatch(/deploy|staging|database|env/)
     }, 60_000)
 })
