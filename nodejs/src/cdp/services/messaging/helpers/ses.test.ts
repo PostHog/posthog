@@ -243,8 +243,9 @@ describe('SesWebhookHandler', () => {
             },
         ]
         const result = await handler.handleWebhook({ body, headers: {} })
-        // No metric recorded for the test send, but the hard bounce still triggers an opt-out.
+        // No metric or log entry recorded for the test send, but the hard bounce still triggers an opt-out.
         expect(result.metrics).toEqual([])
+        expect(result.logEntries).toEqual([])
         expect(result.optOutRecipients).toEqual([{ teamId: '1', emailAddresses: ['to@example.com'] }])
     })
 

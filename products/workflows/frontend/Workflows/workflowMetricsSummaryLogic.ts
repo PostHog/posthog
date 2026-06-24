@@ -136,6 +136,10 @@ export const WORKFLOW_EMAIL_METRICS: Record<
 export const EMAIL_METRIC_LOG_FILTERS: Partial<Record<EmailMetric, { search: string; levels: LogEntryLevel[] }>> = {
     email_bounced: { search: 'bounce', levels: ['WARN', 'ERROR'] },
     email_blocked: { search: 'Complaint', levels: ['WARN', 'ERROR'] },
+    // email_failed (RenderingFailure + Reject) is intentionally omitted: its two SES events emit
+    // differently-worded messages ("Rendering failure …" vs "Message rejected by SES …") with no
+    // shared substring, and filtering by ERROR level alone would also catch permanent bounces.
+    // A reliable drill-down would need the log writer to emit a stable machine token to match on.
 }
 
 // Build the router search params that point the Invocations (logs) tab at the invocations whose

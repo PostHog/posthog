@@ -545,7 +545,9 @@ export class SesWebhookHandler {
             // Allowlist actionId before interpolating into the [Action:…] rich-log token,
             // since actionId comes from the attacker-influenceable ph_id tag.
             const safeActionId = actionId && /^[a-zA-Z0-9_-]+$/.test(actionId) ? actionId : undefined
-            for (const line of formatSesEventLogs(rec)) {
+            // Skip test sends here too (mirrors the metrics gate above) so a "Run test" bounce
+            // doesn't write a misleading failure into the workflow's invocation logs.
+            for (const line of isTest ? [] : formatSesEventLogs(rec)) {
                 const prefix = safeActionId ? `[Action:${safeActionId}] ` : ''
                 logEntries.push({
                     functionId,
