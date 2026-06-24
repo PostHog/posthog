@@ -93,6 +93,41 @@ export const CODING_AGENT_CLIENT_NAME_FRAGMENTS = [
 // `claudeai`.
 export const ANTHROPIC_CLIENT_NAME_FRAGMENTS = ['claudecode', 'claudeai', 'cowork'] as const
 
+// Anthropic clients connect through a pooled MCP transport and usually omit the
+// `initialize` body's `clientInfo.name`, reporting their live product only in the
+// `x-anthropic-client` (`vendorClient`) header. Map that vendor value to the
+// canonical client-name token the MCP analytics dashboard buckets on, so these
+// sessions are attributed to a real client instead of falling into "Other".
+// Mirrors the vendor→name mapping in the dashboard (harnessRegistry.ts and
+// models-mcp.md) — keep the three in sync.
+const VENDOR_CLIENT_TO_CLIENT_NAME: Readonly<Record<string, string>> = {
+    claudecode: 'claude-code',
+    claudeai: 'claude-ai',
+    cowork: 'cowork',
+    claudedesign: 'claude-design',
+}
+
+/**
+ * Resolve the client name used for analytics (`$mcp_client_name`) and the API
+ * client header. Prefers the self-reported `clientInfo.name`; when that's absent
+ * — as it is for Anthropic clients on the pooled transport — it falls back to a
+ * canonical name derived from the `x-anthropic-client` vendor header, keeping the
+ * raw vendor value for any unrecognized Anthropic product. Returns undefined when
+ * neither is available.
+ */
+export function resolveEffectiveClientName(
+    clientName: string | undefined,
+    vendorClient: string | undefined
+): string | undefined {
+    if (clientName) {
+        return clientName
+    }
+    if (!vendorClient) {
+        return undefined
+    }
+    return VENDOR_CLIENT_TO_CLIENT_NAME[normalizeClientName(vendorClient)] ?? vendorClient
+}
+
 // Value sent in `x-posthog-mcp-consumer` by PostHog Code (the Tasks sandbox
 // wrapper around the Claude Agent SDK) when the task was launched from the
 // PostHog Code UI. Used to force coding-agent behavior and to gate UI-apps

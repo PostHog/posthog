@@ -13,6 +13,7 @@ import {
     isCliModeEnabledClient,
     isPostHogCodeConsumer,
     isVibeCodingClient,
+    resolveEffectiveClientName,
 } from '@/lib/client-detection'
 
 describe('isCliModeEnabledClient', () => {
@@ -117,6 +118,38 @@ describe('isCliModeEnabledClient', () => {
             expect(fragment).toBe(fragment.toLowerCase().replace(/[-_\s]+/g, ''))
             expect(fragment.length).toBeGreaterThan(0)
         }
+    })
+})
+
+describe('resolveEffectiveClientName', () => {
+    it('prefers the self-reported clientName when present', () => {
+        expect(resolveEffectiveClientName('Cursor', 'ClaudeCode')).toBe('Cursor')
+        expect(resolveEffectiveClientName('claude-code', undefined)).toBe('claude-code')
+    })
+
+    it.each([
+        ['ClaudeCode', 'claude-code'],
+        ['ClaudeAI', 'claude-ai'],
+        ['Cowork', 'cowork'],
+        ['ClaudeDesign', 'claude-design'],
+        // Case- and separator-insensitive, matching normalizeClientName.
+        ['claudecode', 'claude-code'],
+        ['CLAUDE-CODE', 'claude-code'],
+    ])('maps vendor header %s to %s when clientName is absent', (vendorClient, expected) => {
+        expect(resolveEffectiveClientName(undefined, vendorClient)).toBe(expected)
+    })
+
+    it('keeps an unrecognized vendor value rather than dropping it', () => {
+        expect(resolveEffectiveClientName(undefined, 'SomeFutureAnthropicProduct')).toBe('SomeFutureAnthropicProduct')
+    })
+
+    it('returns undefined when neither clientName nor vendorClient is set', () => {
+        expect(resolveEffectiveClientName(undefined, undefined)).toBeUndefined()
+        expect(resolveEffectiveClientName('', undefined)).toBeUndefined()
+    })
+
+    it('falls back to the vendor header when clientName is empty', () => {
+        expect(resolveEffectiveClientName('', 'ClaudeCode')).toBe('claude-code')
     })
 })
 
