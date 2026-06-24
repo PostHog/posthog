@@ -125,7 +125,9 @@ def _normalize_rows(
         item["lat"] = location.lat
         item["lon"] = location.lon
         item["location_label"] = location.label
-        item["dt_iso"] = _dt_to_iso(item.get("dt"))
+        # `dt` is part of the primary key, so a row without it is degenerate — read it directly
+        # so a missing field fails loudly rather than flowing a null partition key into the merge.
+        item["dt_iso"] = _dt_to_iso(item["dt"])
 
     return items
 

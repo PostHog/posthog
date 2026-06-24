@@ -128,6 +128,12 @@ class TestNormalizeRows:
         assert rows[0]["main"] == {"aqi": 2}
         assert rows[0]["dt_iso"] == "2024-06-23T16:00:00+00:00"
 
+    def test_row_without_dt_raises(self):
+        # `dt` is part of the primary key; a row missing it must fail loudly, not yield a null key.
+        response = {"main": {"temp": 280}}
+        with pytest.raises(KeyError):
+            _normalize_rows(OPENWEATHER_ENDPOINTS["current_weather"], response, Location(51.5, -0.12, None))
+
 
 # The undecorated `_fetch` (tenacity exposes the original via `__wrapped__`) so the status
 # classification can be asserted without waiting through retry backoff.
