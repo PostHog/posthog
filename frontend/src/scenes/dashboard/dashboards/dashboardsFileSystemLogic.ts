@@ -182,7 +182,8 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
                 actions.loadFolderEntries()
                 actions.navigateToFolder(path)
                 lemonToast.success(`Created folder "${trimmed}"`)
-            } catch {
+            } catch (error) {
+                console.error('Error creating folder:', error)
                 lemonToast.error('Could not create the folder.')
             }
         },
@@ -203,7 +204,8 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
                     actions.navigateToFolder(newPath)
                 }
                 lemonToast.success(`Renamed to "${trimmed}"`)
-            } catch {
+            } catch (error) {
+                console.error('Error renaming folder:', error)
                 lemonToast.error('Could not rename the folder.')
             }
         },
@@ -213,10 +215,15 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
             actions.deleteItem(entry, DASHBOARDS_TREE_PROJECT_LOGIC_KEY)
         },
         [projectTreeDataLogic.actionTypes.deleteSavedItem]: ({ savedItem }) => {
+            // Deleting a folder cascades to its dashboards (soft-deleted server-side, undoable). Refetch our
+            // FileSystem rows AND the dashboards list itself — without the latter the soft-deleted dashboards
+            // linger in dashboardsModel and the folder looks like it didn't delete.
             actions.loadFolderEntries()
             actions.loadDashboardFileSystemEntries()
-            // If the folder we were scoped to is gone, fall back to the root rather than a dead scope.
-            if (values.currentFolder === savedItem.path) {
+            dashboardsModel.actions.loadDashboards()
+            // If the folder we were scoped to — or an ancestor of it — is gone, fall back to the root
+            // rather than leaving the table pointed at a now-deleted subtree.
+            if (values.currentFolder === savedItem.path || values.currentFolder.startsWith(`${savedItem.path}/`)) {
                 actions.navigateToFolder('')
             }
         },

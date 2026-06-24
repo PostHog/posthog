@@ -155,4 +155,47 @@ describe('dashboardsFileSystemLogic', () => {
         }).toDispatchActions(['loadFolderEntriesFailure'])
         expect(error).toHaveBeenCalled()
     })
+
+    it('renameFolder moves the folder to the renamed sibling path and re-points the current scope', async () => {
+        const move = jest.spyOn(api.fileSystem, 'move').mockResolvedValue({} as any)
+        await expectLogic(logic).toDispatchActions(['loadFolderEntriesSuccess'])
+        logic.actions.navigateToFolder('Marketing')
+        logic.actions.renameFolder({ id: 'fld', type: 'folder', path: 'Marketing' } as any, 'Growth')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(move).toHaveBeenCalledWith('fld', 'Growth')
+        expect(logic.values.currentFolder).toEqual('Growth')
+    })
+
+    it('renameFolder ignores a blank name and an unsaved (id-less) folder', async () => {
+        const move = jest.spyOn(api.fileSystem, 'move').mockResolvedValue({} as any)
+        logic.actions.renameFolder({ id: 'fld', type: 'folder', path: 'Marketing' } as any, '   ')
+        logic.actions.renameFolder({ type: 'folder', path: 'Marketing' } as any, 'Growth')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(move).not.toHaveBeenCalled()
+    })
+
+    it('deleteFolder delegates to the shared delete path (projectTreeDataLogic.deleteItem)', async () => {
+        jest.spyOn(api.fileSystem, 'count').mockResolvedValue({ count: 0 } as any)
+        jest.spyOn(api.fileSystem, 'delete').mockResolvedValue({ deleted: [] } as any)
+        await expectLogic(logic, () => {
+            logic.actions.deleteFolder({ id: 'fld', type: 'folder', path: 'Marketing' } as any)
+        }).toDispatchActions([projectTreeDataLogic.actionTypes.deleteItem])
+    })
+
+    it('on delete, refetches and falls back to root when the current folder OR an ancestor is gone', async () => {
+        await expectLogic(logic).toDispatchActions(['loadFolderEntriesSuccess'])
+        logic.actions.navigateToFolder('Marketing/Q1')
+        await expectLogic(logic, () => {
+            // Deleting the ancestor 'Marketing' while scoped to 'Marketing/Q1' must reset to root.
+            projectTreeDataLogic.actions.deleteSavedItem({ id: 'fld', type: 'folder', path: 'Marketing' } as any)
+        }).toDispatchActions(['loadFolderEntries', 'loadDashboardFileSystemEntries'])
+        expect(logic.values.currentFolder).toEqual('')
+    })
+
+    it('on delete of an unrelated folder, keeps the current scope', async () => {
+        logic.actions.navigateToFolder('Marketing')
+        projectTreeDataLogic.actions.deleteSavedItem({ id: 'fld', type: 'folder', path: 'Finance' } as any)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.currentFolder).toEqual('Marketing')
+    })
 })
