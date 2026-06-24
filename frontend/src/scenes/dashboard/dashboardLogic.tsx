@@ -2666,9 +2666,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // dashboardsModel so the sidebar and other global views stay up to date
                 dashboardsModel.actions.updateDashboardSuccess(dashboard)
             }
-            // Confirm the save explicitly — exiting edit mode is otherwise silent, which left
-            // users re-clicking Save unsure whether anything happened. Only toast when changes
-            // were actually persisted (the no-op exit path skips the PATCH).
+            // Only toast when changes were actually persisted — the no-op exit path skips the PATCH.
             if (cache.dashboardChangesPersisted) {
                 cache.dashboardChangesPersisted = false
                 lemonToast.success('Dashboard saved')

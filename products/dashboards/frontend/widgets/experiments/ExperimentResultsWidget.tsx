@@ -176,8 +176,7 @@ export function ExperimentResultsWidget({
         return <ExperimentResultsLoadingSkeleton />
     }
 
-    // Editable tile with no experiment chosen yet: let the user pick one right here instead of
-    // hunting for the selector in the tile header. Shares the tile picker's key so state stays in sync.
+    // Shares the tile picker's key so the inline and header selectors stay in sync.
     const inlineExperimentPicker = onUpdateConfig ? (
         <div className="w-64 max-w-full">
             <ExperimentPickerSelect

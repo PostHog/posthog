@@ -26,8 +26,6 @@ describe('ExperimentResultsWidget', () => {
         teamLogic.mount()
     })
 
-    // The project has experiments but this tile hasn't been pointed at one yet — the state a
-    // freshly-added experiment_results widget lands in, which is where users were removing it.
     const noExperimentSelected = { needsConfiguration: true, hasExperiments: true, metrics: [] }
 
     it('lets an editor pick an experiment inline when none is selected', () => {
