@@ -59,11 +59,17 @@ const fn encode_unix_timestamp_millis(millis: u64, random_bytes: &[u8; 10]) -> U
 }
 
 pub fn uuid_v7() -> Uuid {
-    let bytes = random_bytes();
     let now = time::OffsetDateTime::now_utc();
     let now_millis: u64 = now.unix_timestamp() as u64 * 1_000 + now.millisecond() as u64;
 
-    encode_unix_timestamp_millis(now_millis, &bytes)
+    uuid_v7_at_millis(now_millis)
+}
+
+/// Like [`uuid_v7`] but encodes a caller-provided Unix-millisecond timestamp into the time
+/// component, so a server-assigned UUID can carry the event's own time, not ingestion time.
+pub fn uuid_v7_at_millis(unix_millis: u64) -> Uuid {
+    let bytes = random_bytes();
+    encode_unix_timestamp_millis(unix_millis, &bytes)
 }
 
 pub fn extract_lib_version(form: &EventFormData, params: &EventQuery) -> Option<String> {

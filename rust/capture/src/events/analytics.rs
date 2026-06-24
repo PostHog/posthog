@@ -23,7 +23,7 @@ use crate::{
     global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter},
     prometheus::{report_clock_skew, report_dropped_events},
     router, sinks,
-    utils::uuid_v7,
+    utils::{uuid_v7, uuid_v7_at_millis},
     v0_request::{
         DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata, ProcessingContext,
     },
@@ -93,7 +93,8 @@ fn create_heatmap_redirect(
     let heatmap_event = RawEvent {
         token: event.token.clone(),
         distinct_id: Some(serde_json::Value::String(distinct_id)),
-        uuid: Some(uuid_v7()),
+        // Leave unset so process_single_event seeds the UUID from the event timestamp.
+        uuid: None,
         event: "$$heatmap".to_string(),
         properties,
         timestamp: event.timestamp.clone(),
@@ -180,7 +181,13 @@ pub fn process_single_event(
     }
 
     let event = CapturedEvent {
-        uuid: event.uuid.unwrap_or_else(uuid_v7),
+        // Seed server-assigned UUIDv7s from the event's resolved timestamp, not ingestion time, so the embedded time tracks events.timestamp. Pre-epoch timestamps don't fit the 48-bit field, so fall back to now.
+        uuid: event.uuid.unwrap_or_else(|| {
+            match u64::try_from(parsed_timestamp.timestamp.timestamp_millis()) {
+                Ok(millis) => uuid_v7_at_millis(millis),
+                Err(_) => uuid_v7(),
+            }
+        }),
         distinct_id: event
             .extract_distinct_id()
             .ok_or(CaptureError::MissingDistinctId)?,
@@ -459,6 +466,43 @@ mod tests {
             set_once: Some(HashMap::new()),
             token: Some("test_token".to_string()),
         }
+    }
+
+    #[test]
+    fn test_server_assigned_uuid_encodes_event_timestamp() {
+        // Ingestion clock is in 2023, but the event's own timestamp is back in 2020.
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+
+        let mut properties = HashMap::new();
+        properties.insert("distinct_id".to_string(), json!("test_user"));
+        let event = RawEvent {
+            uuid: None,
+            distinct_id: None,
+            event: "$pageview".to_string(),
+            properties,
+            timestamp: Some("2020-06-15T00:00:00Z".to_string()),
+            offset: None,
+            set: None,
+            set_once: None,
+            token: Some("test_token".to_string()),
+        };
+
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+        let processed = process_single_event(&event, historical_cfg, &context).unwrap();
+
+        let expected_millis = processed
+            .metadata
+            .computed_timestamp
+            .unwrap()
+            .timestamp_millis() as u128;
+        // The high 48 bits of a UUIDv7 hold the Unix-millisecond timestamp.
+        let uuid_millis = processed.event.uuid.as_u128() >> 80;
+        assert_eq!(uuid_millis, expected_millis);
+        // Must reflect the 2020 event time, not the 2023 ingestion clock.
+        assert!(now.timestamp_millis() as u128 - uuid_millis > 60_000_000_000);
     }
 
     #[test]
