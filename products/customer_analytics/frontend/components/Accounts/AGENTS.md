@@ -52,6 +52,8 @@ AccountsTabContent  ── binds dataNodeLogic(ACCOUNTS_HOGQL_DATA_NODE_KEY, acc
 
 Default columns (`ACCOUNTS_HOGQL_DEFAULT_SELECT`): `name`, `tag_names`, `notebook_count`, `csm`, `account_executive`, `account_owner`. The name column is force-kept (`ensureNameColumn`) — removing it breaks identity, scroll, and role edits. Extra columns come from account properties, lazy/virtual-table joins under `system.accounts`, data-warehouse joins, or freeform SQL — all assembled by `buildAccountColumnGroups`.
 
+**Billing columns** (`confirmed_mrr`, `credits_used`) are two optional, picker-only columns (a "Billing" group in `buildAccountColumnGroups`, **not** in the default select). They're PostHog-internal: `buildAccountColumnGroups` only offers them when the `billing_invoices_by_org` warehouse view is present in `allTablesMap`, and the backend (`accounts_query_runner`) resolves them to `NULL` where the view is absent — so they degrade gracefully like the Spend/Usage tabs. The runner special-cases the two bare column names and, when they're selected, `LEFT JOIN`s a current-calendar-month aggregate of that view on `accounts.external_id = organization_id`; accounts with no current-month invoice surface `NULL` (rendered `—`). Values are currency-formatted via `humanFriendlyCurrency` (`KNOWN_COLUMN_TEMPLATES`); `credits_used` keeps the source's raw sign (credits are stored negative). Constants are mirrored in `constants.ts` ↔ `backend/constants.py`. No new analytics events — adding/removing these columns flows through the existing view-save events.
+
 Sort safety: removing the sorted column drops the sort (`clearSortIfColumnRemoved`), else the backend gets an `orderBy` referencing a missing alias.
 
 ## The expanded row
@@ -121,7 +123,7 @@ The tool is registered for the page regardless of agent mode. The Customer analy
 ### Backend touchpoints
 
 - `products/customer_analytics/backend/models` — the `Account` model (`external_id` = group key).
-- `products/customer_analytics/backend/` — `accounts_query_runner` (builds the list rows + cell tuples).
+- `products/customer_analytics/backend/` — `accounts_query_runner` (builds the list rows + cell tuples; also LEFT-joins the internal `billing_invoices_by_org` view for the optional `confirmed_mrr`/`credits_used` columns when they're selected and the view exists).
 - `products/customer_analytics/backend/max_tools/` — `OpenAccountTool` and other account Max tools.
 - `ee/hogai/core/agent_modes/presets/customer_analytics.py` — the Customer analytics agent mode (gated by the `customer-analytics-csp` flag).
 

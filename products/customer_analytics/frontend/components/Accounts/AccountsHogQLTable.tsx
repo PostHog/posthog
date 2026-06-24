@@ -8,6 +8,7 @@ import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
+import { humanFriendlyCurrency } from 'lib/utils/numbers'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
@@ -19,6 +20,7 @@ import { AccountNotebooksExpansion } from './AccountNotebooksExpansion'
 import { ACCOUNTS_NAME_COLUMN, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import { accountsExpansionLogic } from './accountsExpansionLogic'
 import { AccountRoleKey, accountsLogic } from './accountsLogic'
+import { BILLING_CONFIRMED_MRR_COLUMN, BILLING_CREDITS_USED_COLUMN } from './constants'
 
 type AccountAssignment = { id: number; email: string } | null
 
@@ -38,6 +40,8 @@ const COLUMN_WIDTHS = {
     csm: '220px',
     account_executive: '220px',
     account_owner: '220px',
+    confirmed_mrr: '140px',
+    credits_used: '140px',
 } as const
 
 function getCellAt(record: unknown, names: string[], column: string): unknown {
@@ -109,6 +113,22 @@ function NotebookCountCell({ record }: { record: unknown }): JSX.Element {
     const getCell = useGetCell()
     const count = Number(getCell(record, 'notebook_count')) || 0
     return count > 0 ? <span>{count}</span> : <span className="text-muted">—</span>
+}
+
+// Billing columns (confirmed_mrr / credits_used) come from the internal billing view as numbers,
+// or NULL where the account has no current-month invoice / the view is absent. Render currency,
+// dash for missing. Raw sign is preserved (credits are stored negative).
+function CurrencyCell({ record, column }: { record: unknown; column: string }): JSX.Element {
+    const getCell = useGetCell()
+    const raw = getCell(record, column)
+    if (raw === null || raw === undefined) {
+        return <span className="text-muted">—</span>
+    }
+    const numeric = typeof raw === 'number' ? raw : Number(raw)
+    if (!Number.isFinite(numeric)) {
+        return <span className="text-muted">—</span>
+    }
+    return <span>{humanFriendlyCurrency(numeric)}</span>
 }
 
 function RoleAssignmentCell({ record, role }: { record: unknown; role: AccountRoleKey }): JSX.Element {
@@ -221,6 +241,16 @@ const KNOWN_COLUMN_TEMPLATES: Record<string, KnownColumnTemplate> = {
         label: ROLE_LABELS.account_owner,
         width: COLUMN_WIDTHS.account_owner,
         render: ({ record }) => <RoleAssignmentCell record={record} role="account_owner" />,
+    },
+    [BILLING_CONFIRMED_MRR_COLUMN]: {
+        label: 'Confirmed MRR',
+        width: COLUMN_WIDTHS.confirmed_mrr,
+        render: ({ record }) => <CurrencyCell record={record} column={BILLING_CONFIRMED_MRR_COLUMN} />,
+    },
+    [BILLING_CREDITS_USED_COLUMN]: {
+        label: 'Credits used',
+        width: COLUMN_WIDTHS.credits_used,
+        render: ({ record }) => <CurrencyCell record={record} column={BILLING_CREDITS_USED_COLUMN} />,
     },
 }
 

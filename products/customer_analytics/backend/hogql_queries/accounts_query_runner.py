@@ -1,6 +1,7 @@
 from posthog.schema import AccountsQuery, AccountsQueryResponse, CachedAccountsQueryResponse
 
 from posthog.hogql import ast
+from posthog.hogql.database.database import Database
 from posthog.hogql.errors import BaseHogQLError, ExposedHogQLError
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
@@ -10,6 +11,8 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import User
 from posthog.rbac.user_access_control import UserAccessControl
+
+from products.customer_analytics.backend.constants import BILLING_INVOICES_VIEW_NAME, BILLING_PICKER_COLUMNS
 
 NAME_COLUMN = "name"
 
@@ -49,8 +52,14 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
 
         self.columns: list[str] = []
         self._select_exprs: list[ast.Expr] = []
+        # Whether the internal billing view exists for this team. Resolved once, and only when a
+        # billing column is actually requested, so ordinary queries never pay the database-build
+        # cost. Drives whether billing columns join the view or fall back to NULL.
+        self._billing_view_available = False
         if not self._metrics_only:
             raw_selects = list(self.query.select) if self.query.select else list(DEFAULT_COLUMNS)
+            if any(raw in BILLING_PICKER_COLUMNS for raw in raw_selects):
+                self._billing_view_available = self._check_billing_view_available()
             seen: set[str] = set()
             for raw in raw_selects:
                 column_name, expr = self._resolve_column(raw)
@@ -62,6 +71,9 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
             if NAME_COLUMN not in seen:
                 self.columns.insert(0, NAME_COLUMN)
                 self._select_exprs.insert(0, self._name_tuple_expr())
+
+        # Billing columns trigger a LEFT JOIN against the internal billing view in `to_query`.
+        self._requested_billing_columns: list[str] = [c for c in self.columns if c in BILLING_PICKER_COLUMNS]
 
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=self.limit_context,
@@ -77,6 +89,8 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
     def _resolve_column(self, raw: str) -> tuple[str, ast.Expr]:
         if raw == NAME_COLUMN:
             return NAME_COLUMN, self._name_tuple_expr()
+        if raw in BILLING_PICKER_COLUMNS:
+            return raw, self._billing_column_expr(raw)
         expr = parse_expr(raw)
         column_name = expr.alias if isinstance(expr, ast.Alias) else raw
         return column_name, expr
@@ -95,6 +109,50 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
                     ast.Field(chain=["external_id"]),
                     ast.Call(name="toString", args=[ast.Field(chain=["id"])]),
                 ],
+            ),
+        )
+
+    def _check_billing_view_available(self) -> bool:
+        # The billing view is PostHog-internal; it only exists where the billing warehouse data is
+        # synced. Build the team's HogQL database to check — done lazily (only when a billing column
+        # is requested) since the build isn't free. Fail closed (NULL columns) on any error.
+        try:
+            database = Database.create_for(team=self.team, user=self.user)
+            return database.has_table(BILLING_INVOICES_VIEW_NAME)
+        except Exception:
+            return False
+
+    def _billing_column_expr(self, column: str) -> ast.Expr:
+        # With the view present, read the column off the joined `billing` subquery (added in
+        # `to_query`); without it, resolve to NULL so the column stays present but empty.
+        if self._billing_view_available:
+            return ast.Alias(alias=column, expr=ast.Field(chain=["billing", column]))
+        return ast.Alias(alias=column, expr=ast.Constant(value=None))
+
+    def _billing_join_expr(self) -> ast.JoinExpr:
+        # Pre-aggregate the billing view to one current-calendar-month row per org, then LEFT JOIN
+        # on the account's external_id. The GROUP BY keeps it one row per org, so the per-account
+        # query stays one row per account (no GROUP BY there). Accounts with no invoice in the
+        # current month don't match and surface NULL. Aliases must match BILLING_PICKER_COLUMNS.
+        subquery = parse_select(
+            """
+            SELECT
+                organization_id,
+                sumIf(mrr, type NOT LIKE '%upcoming%') AS confirmed_mrr,
+                sum(credits_used) AS credits_used
+            FROM {view}
+            WHERE toStartOfMonth(period_end) = toStartOfMonth(now())
+            GROUP BY organization_id
+            """,
+            {"view": ast.Field(chain=[BILLING_INVOICES_VIEW_NAME])},
+        )
+        return ast.JoinExpr(
+            table=subquery,
+            alias="billing",
+            join_type="LEFT JOIN",
+            constraint=ast.JoinConstraint(
+                expr=parse_expr("billing.organization_id = accounts.external_id"),
+                constraint_type="ON",
             ),
         )
 
@@ -129,12 +187,16 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
         where_exprs = self._build_where_exprs()
         order_clauses = self.query.orderBy or [DEFAULT_ORDER_BY]
 
+        select_from = ast.JoinExpr(
+            table=ast.Field(chain=["system", "accounts"]),
+            alias="accounts",
+        )
+        if self._requested_billing_columns and self._billing_view_available:
+            select_from.next_join = self._billing_join_expr()
+
         return ast.SelectQuery(
             select=self._select_exprs,
-            select_from=ast.JoinExpr(
-                table=ast.Field(chain=["system", "accounts"]),
-                alias="accounts",
-            ),
+            select_from=select_from,
             where=ast.And(exprs=where_exprs) if where_exprs else None,
             order_by=[parse_order_expr(_normalize_order_clause(c), timings=self.timings) for c in order_clauses],
         )

@@ -1,4 +1,5 @@
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
+from unittest.mock import patch
 
 from django.test import override_settings
 from django.utils import timezone
@@ -7,6 +8,7 @@ from parameterized import parameterized
 
 from posthog.schema import AccountsQuery, AccountsQueryResponse
 
+from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.api.tagged_item import set_tags_on_object
@@ -517,3 +519,52 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
 
         runner = AccountsQueryRunner(query=AccountsQuery(), team=self.team)
         self.assertRaises(UserAccessControlError, runner.validate_query_runner_access, self.user)
+
+    def test_billing_columns_resolve_to_null_when_view_absent(self):
+        create_account(team_id=self.team.id, name="A")
+        with patch.object(AccountsQueryRunner, "_check_billing_view_available", return_value=False):
+            runner, response = self._run_query(select=["name", "confirmed_mrr", "credits_used"])
+        self.assertEqual(runner.columns, ["name", "confirmed_mrr", "credits_used"])
+        # No join is added, so the query never references the (absent) view; the columns are still
+        # present, just NULL.
+        self.assertIsNone(runner.to_query().select_from.next_join)
+        name_idx = runner.columns.index("name")
+        billing_cells = [cell for idx, cell in enumerate(response.results[0]) if idx != name_idx]
+        self.assertEqual(billing_cells, [None, None])
+
+    def test_billing_columns_join_the_view_when_present(self):
+        with patch.object(AccountsQueryRunner, "_check_billing_view_available", return_value=True):
+            runner = AccountsQueryRunner(
+                query=AccountsQuery(
+                    select=["name", "confirmed_mrr", "credits_used"],
+                    orderBy=["confirmed_mrr DESC"],
+                ),
+                team=self.team,
+                user=self.user,
+            )
+            query = runner.to_query()
+        self.assertEqual(runner.columns, ["name", "confirmed_mrr", "credits_used"])
+        join = query.select_from.next_join
+        self.assertIsInstance(join, ast.JoinExpr)
+        self.assertEqual(join.join_type, "LEFT JOIN")
+        self.assertEqual(join.alias, "billing")
+        # Billing columns read off the joined `billing` subquery, aliased back to their bare names.
+        mrr_expr = runner._select_exprs[runner.columns.index("confirmed_mrr")]
+        self.assertIsInstance(mrr_expr, ast.Alias)
+        self.assertEqual(mrr_expr.alias, "confirmed_mrr")
+        self.assertEqual(mrr_expr.expr.chain, ["billing", "confirmed_mrr"])
+
+    def test_billing_columns_not_requested_skips_view_check(self):
+        with patch.object(AccountsQueryRunner, "_check_billing_view_available") as check_view:
+            runner = AccountsQueryRunner(query=AccountsQuery(select=["name"]), team=self.team, user=self.user)
+        # A query without billing columns must not pay the database-build cost of the view check.
+        check_view.assert_not_called()
+        self.assertEqual(runner._requested_billing_columns, [])
+        self.assertIsNone(runner.to_query().select_from.next_join)
+
+    def test_billing_column_in_overview_metric_raises(self):
+        # Overview tiles run against system.accounts only (no billing join), so a tile referencing a
+        # billing column fails — billing metrics are out of scope for now.
+        create_account(team_id=self.team.id, name="A")
+        with self.assertRaises(ExposedHogQLError):
+            self._run_query(select=["name"], metrics=["sum(confirmed_mrr)"])

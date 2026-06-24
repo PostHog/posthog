@@ -11,6 +11,7 @@ import type { DataWarehouseViewLink } from '~/types'
 import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joinsLogic'
 
 import type { accountsColumnConfigLogicType } from './accountsColumnConfigLogicType'
+import { BILLING_CONFIRMED_MRR_COLUMN, BILLING_CREDITS_USED_COLUMN, BILLING_INVOICES_VIEW_NAME } from './constants'
 
 // Mandatory — the backend emits it as `tuple(name, external_id, id)` so the
 // row identity (id) and copy-able external_id ride along with the display name.
@@ -56,7 +57,7 @@ export const ACCOUNTS_ACCOUNTS_TABLE_NAME = 'system.accounts'
 // of which name the backend hands us.
 const ACCOUNTS_JOIN_SOURCE_TABLE_NAMES = new Set(['accounts', ACCOUNTS_ACCOUNTS_TABLE_NAME])
 
-export type AccountColumnGroupKey = 'account_properties' | 'sql_expression' | `accounts.${string}`
+export type AccountColumnGroupKey = 'account_properties' | 'sql_expression' | 'billing' | `accounts.${string}`
 
 export type AccountColumnOption = {
     name: string
@@ -169,9 +170,28 @@ export function buildAccountColumnGroups(
         addJoinGroup(join.field_name, buildJoinOptions(join.field_name, columnNames, joinedTable))
     }
 
+    // The billing view is PostHog-internal — only offer these columns where it exists in the
+    // schema (warehouse views key into `allTablesMap` by their bare name). The backend resolves
+    // them to NULL if requested elsewhere (e.g. a shared view), so this is a UI-level gate.
+    const billingGroups: AccountColumnGroup[] = []
+    if (allTablesMap?.[BILLING_INVOICES_VIEW_NAME]) {
+        // No `type`: these are display-only currency columns. A numeric type would surface them in
+        // the overview-tiles metric picker (`numericColumnOptions`), but the tiles' metrics query
+        // doesn't add the billing join, so aggregating them would error — keep them out of tiles.
+        billingGroups.push({
+            key: 'billing',
+            label: 'Billing',
+            options: [
+                { name: BILLING_CONFIRMED_MRR_COLUMN, expression: BILLING_CONFIRMED_MRR_COLUMN },
+                { name: BILLING_CREDITS_USED_COLUMN, expression: BILLING_CREDITS_USED_COLUMN },
+            ],
+        })
+    }
+
     return [
         { key: 'account_properties', label: 'Account properties', options: directOptions },
         ...joinGroups,
+        ...billingGroups,
         { key: 'sql_expression', label: 'SQL expression', options: [], isFreeform: true },
     ]
 }

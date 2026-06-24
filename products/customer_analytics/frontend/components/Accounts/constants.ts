@@ -42,3 +42,11 @@ export const AccountsEvents = {
     TabViewed: 'customer analytics account tab viewed',
     RelatedUserClicked: 'customer analytics account related user clicked',
 } as const
+
+// PostHog-internal billing warehouse view backing the optional, picker-only `confirmed_mrr` and
+// `credits_used` columns. The columns are only offered when this view is present in the HogQL
+// schema (`allTablesMap`), and resolve to NULL elsewhere — mirrors the Spend/Usage tabs.
+// Keep in sync with backend/constants.py (BILLING_INVOICES_VIEW_NAME / BILLING_*_COLUMN).
+export const BILLING_INVOICES_VIEW_NAME = 'billing_invoices_by_org'
+export const BILLING_CONFIRMED_MRR_COLUMN = 'confirmed_mrr'
+export const BILLING_CREDITS_USED_COLUMN = 'credits_used'
