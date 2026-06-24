@@ -12,7 +12,7 @@ export function buildBaseLegendConfig({
     show: boolean
     legendPosition: string | null | undefined
     canEditInsight: boolean
-    inSharedMode: boolean
+    inSharedMode?: boolean
 }): ChartLegendConfig {
     return {
         show,

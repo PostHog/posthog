@@ -110,14 +110,15 @@ export function FunnelLineChart({
         () =>
             seriesBase.map((s) => ({
                 ...s,
-                label: hasBreakdown(s.meta?.breakdown_value)
-                    ? formatBreakdownLabel(
-                          s.meta.breakdown_value,
-                          breakdownFilter ?? undefined,
-                          allCohorts.results,
-                          formatPropertyValueForDisplay
-                      )
-                    : FUNNEL_CONVERSION_SERIES_LABEL,
+                label:
+                    s.meta && hasBreakdown(s.meta.breakdown_value)
+                        ? formatBreakdownLabel(
+                              s.meta.breakdown_value,
+                              breakdownFilter ?? undefined,
+                              allCohorts.results,
+                              formatPropertyValueForDisplay
+                          )
+                        : FUNNEL_CONVERSION_SERIES_LABEL,
             })),
         [seriesBase, breakdownFilter, allCohorts.results, formatPropertyValueForDisplay]
     )
