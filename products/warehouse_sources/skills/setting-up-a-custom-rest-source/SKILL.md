@@ -28,10 +28,10 @@ This is an **alpha** capability. Caps: at most 50 resources per manifest, and at
 - The user explicitly asks for a "custom REST source", "custom source manifest", or to "build a connector from docs".
 
 A Custom source is the **fallback** — only correct when no native connector fits. PostHog ships **hundreds** of native
-connectors (Postgres, MySQL, Stripe, Hubspot, Zendesk, BigQuery, GitHub, Salesforce, …), far more than any list here
-can name, so **never infer "no built-in exists" from a name's absence in these examples** — that misroutes well-known
-APIs into a hand-authored manifest that duplicates a battle-tested connector. Step 0 below makes you check the registry
-before drafting anything; if a native connector matches, hand off to `setting-up-a-data-warehouse-source` instead.
+connectors, far more than could be listed here, so **never assume an API has no built-in** — most well-known SaaS apps
+and databases do, and guessing wrong misroutes them into a hand-authored manifest that duplicates a battle-tested
+connector. Step 0 below makes you check the registry before drafting anything; if a native connector matches, hand off
+to `setting-up-a-data-warehouse-source` instead.
 
 ## The grammar
 
@@ -83,9 +83,8 @@ response. Putting a token inline is rejected at validation.
 ### Step 0 — Check for a native connector first
 
 Before drafting anything, call `external-data-sources-wizard` to list the native source types and check whether the
-target API is among them (match on the service name — GitHub, Stripe, Salesforce, Postgres, …). A Custom source is the
-fallback for APIs with **no** native connector; do not skip this check on the assumption that a well-known API isn't
-supported — most are.
+target API is among them, matching on the service name. A Custom source is the fallback for APIs with **no** native
+connector; do not skip this check on the assumption that a well-known API isn't supported — most are.
 
 If a native connector matches, **stop and tell the user** the built-in path is simpler and battle-tested (it handles
 auth, pagination, schema, and incremental sync for you), and hand off to `setting-up-a-data-warehouse-source`. Only
