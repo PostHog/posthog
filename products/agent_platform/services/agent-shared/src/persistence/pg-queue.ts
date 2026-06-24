@@ -8,7 +8,7 @@
  * The runner drains pending_inputs into conversation at turn start atomically.
  */
 
-import type { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg'
+import type { Pool, PoolClient } from 'pg'
 
 import {
     AgentSession,
@@ -33,29 +33,8 @@ const SELECT_COLS = `id, application_id, revision_id, team_id, external_key,
                      usage_total, acl, pending_elevation_requests, is_preview,
                      created_at, updated_at`
 
-// Interim guard for the unindexed transcript search (proper fix: a persisted,
-// indexed search column). Bounds a broad `conversation::text ILIKE` so it fails
-// fast instead of tying up a worker detoasting every session.
-const SEARCH_STATEMENT_TIMEOUT_MS = 5000
-
 export class PgSessionQueue implements SessionQueue {
     constructor(private readonly pool: Pool) {}
-
-    private async searchQuery<R extends QueryResultRow>(sql: string, params: unknown[]): Promise<QueryResult<R>> {
-        const client = await this.pool.connect()
-        try {
-            await client.query('BEGIN')
-            await client.query(`SET LOCAL statement_timeout = ${SEARCH_STATEMENT_TIMEOUT_MS}`)
-            const result = await client.query<R>(sql, params)
-            await client.query('COMMIT')
-            return result
-        } catch (err) {
-            await client.query('ROLLBACK').catch(() => undefined)
-            throw err
-        } finally {
-            client.release()
-        }
-    }
 
     async enqueue(session: AgentSession): Promise<void> {
         await this.pool.query(
@@ -438,14 +417,14 @@ export class PgSessionQueue implements SessionQueue {
         const offset = Math.max(0, opts.offset ?? 0)
         const { where, params } = buildSessionFilter(applicationId, opts)
         params.push(limit, offset)
-        const sql = `SELECT ${SELECT_COLS}
+        const r = await this.pool.query<DbRow>(
+            `SELECT ${SELECT_COLS}
              FROM agent_session
              WHERE ${where.join(' AND ')}
              ORDER BY created_at DESC
-             LIMIT $${params.length - 1} OFFSET $${params.length}`
-        const r = opts.search?.trim()
-            ? await this.searchQuery<DbRow>(sql, params)
-            : await this.pool.query<DbRow>(sql, params)
+             LIMIT $${params.length - 1} OFFSET $${params.length}`,
+            params
+        )
         return r.rows.map(rowToSession)
     }
 
@@ -454,10 +433,10 @@ export class PgSessionQueue implements SessionQueue {
         opts: Omit<ListSessionsOpts, 'limit' | 'offset'> = {}
     ): Promise<number> {
         const { where, params } = buildSessionFilter(applicationId, opts)
-        const sql = `SELECT COUNT(*)::text AS count FROM agent_session WHERE ${where.join(' AND ')}`
-        const r = opts.search?.trim()
-            ? await this.searchQuery<{ count: string }>(sql, params)
-            : await this.pool.query<{ count: string }>(sql, params)
+        const r = await this.pool.query<{ count: string }>(
+            `SELECT COUNT(*)::text AS count FROM agent_session WHERE ${where.join(' AND ')}`,
+            params
+        )
         return Number(r.rows[0]?.count ?? 0)
     }
 
@@ -632,11 +611,13 @@ function buildSessionFilter(
         where.push(`created_at <= $${params.length}`)
     }
     if (opts.search?.trim()) {
-        // Escape LIKE wildcards so the term matches literally.
+        // id + external_key only — transcript search would scan/detoast every
+        // session's JSONB; it lands on a persisted, indexed column instead.
+        // LIKE wildcards escaped so the term matches literally.
         const term = `%${opts.search.trim().replace(/[\\%_]/g, '\\$&')}%`
         params.push(term)
         const idx = params.length
-        where.push(`(id::text ILIKE $${idx} OR external_key ILIKE $${idx} OR conversation::text ILIKE $${idx})`)
+        where.push(`(id::text ILIKE $${idx} OR external_key ILIKE $${idx})`)
     }
     return { where, params }
 }

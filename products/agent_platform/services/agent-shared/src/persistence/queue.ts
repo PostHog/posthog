@@ -70,7 +70,7 @@ export interface ListSessionsOpts {
     createdAfter?: string
     /** ISO datetime — only return sessions with created_at <= this. */
     createdBefore?: string
-    /** Case-insensitive substring over id, external_key, and transcript text. */
+    /** Case-insensitive substring over the session id and external_key. */
     search?: string
 }
 
