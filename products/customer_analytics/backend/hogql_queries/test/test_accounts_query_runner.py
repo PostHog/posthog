@@ -527,7 +527,9 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(runner.columns, ["name", "confirmed_mrr", "credits_used"])
         # No join is added, so the query never references the (absent) view; the columns are still
         # present, just NULL.
-        self.assertIsNone(runner.to_query().select_from.next_join)
+        select_from = runner.to_query().select_from
+        assert select_from is not None
+        self.assertIsNone(select_from.next_join)
         name_idx = runner.columns.index("name")
         billing_cells = [cell for idx, cell in enumerate(response.results[0]) if idx != name_idx]
         self.assertEqual(billing_cells, [None, None])
@@ -544,14 +546,16 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
             )
             query = runner.to_query()
         self.assertEqual(runner.columns, ["name", "confirmed_mrr", "credits_used"])
+        assert query.select_from is not None
         join = query.select_from.next_join
-        self.assertIsInstance(join, ast.JoinExpr)
+        assert isinstance(join, ast.JoinExpr)
         self.assertEqual(join.join_type, "LEFT JOIN")
         self.assertEqual(join.alias, "billing")
         # Billing columns read off the joined `billing` subquery, aliased back to their bare names.
         mrr_expr = runner._select_exprs[runner.columns.index("confirmed_mrr")]
-        self.assertIsInstance(mrr_expr, ast.Alias)
+        assert isinstance(mrr_expr, ast.Alias)
         self.assertEqual(mrr_expr.alias, "confirmed_mrr")
+        assert isinstance(mrr_expr.expr, ast.Field)
         self.assertEqual(mrr_expr.expr.chain, ["billing", "confirmed_mrr"])
 
     def test_billing_columns_not_requested_skips_view_check(self):
@@ -560,7 +564,9 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         # A query without billing columns must not pay the database-build cost of the view check.
         check_view.assert_not_called()
         self.assertEqual(runner._requested_billing_columns, [])
-        self.assertIsNone(runner.to_query().select_from.next_join)
+        select_from = runner.to_query().select_from
+        assert select_from is not None
+        self.assertIsNone(select_from.next_join)
 
     def test_billing_column_in_overview_metric_raises(self):
         # Overview tiles run against system.accounts only (no billing join), so a tile referencing a
