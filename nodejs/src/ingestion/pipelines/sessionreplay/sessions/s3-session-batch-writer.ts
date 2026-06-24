@@ -18,10 +18,8 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
     private uploadPromise: Promise<CompleteMultipartUploadCommandOutput>
     private key: string
     private currentOffset = 0
-    private timeoutId: NodeJS.Timeout | null = null
     private error: Error | null = null
     private rejectCallbacks: ((error: Error) => void)[] = []
-    private uploadStartTime: number
 
     constructor(
         private readonly s3: S3Client,
@@ -31,7 +29,6 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
     ) {
         this.stream = new PassThrough()
         this.key = this.generateKey()
-        this.uploadStartTime = Date.now()
 
         logger.debug('🔄', 's3_session_batch_writer_opening_stream', { key: this.key })
 
@@ -53,12 +50,6 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
             this.handleError(error)
         })
 
-        this.timeoutId = setTimeout(() => {
-            this.handleError(new Error(`S3 upload timed out after ${this.timeout}ms`))
-            SessionBatchMetrics.incrementS3UploadTimeouts()
-            this.stream.destroy()
-        }, this.timeout)
-
         this.uploadPromise = upload.done().catch((error) => {
             logger.error('🔄', 's3_session_batch_writer_upload_error', { key: this.key, error })
             SessionBatchMetrics.incrementS3UploadErrors()
@@ -72,10 +63,6 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
             this.error = error
             this.rejectCallbacks.forEach((reject) => reject(error))
             this.rejectCallbacks = []
-            if (this.timeoutId) {
-                clearTimeout(this.timeoutId)
-                this.timeoutId = null
-            }
         }
     }
 
@@ -133,20 +120,24 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
 
     public async finish(): Promise<void> {
         return await this.withErrorBarrier(async () => {
+            const timeoutId = setTimeout(() => {
+                this.handleError(new Error(`S3 upload timed out after ${this.timeout}ms`))
+                SessionBatchMetrics.incrementS3UploadTimeouts()
+                this.stream.destroy()
+            }, this.timeout)
+
             try {
+                const finishStartTime = performance.now()
                 this.stream.end()
                 await this.uploadPromise
-                if (this.timeoutId) {
-                    clearTimeout(this.timeoutId)
-                    this.timeoutId = null
-                }
+                clearTimeout(timeoutId)
 
-                // Record successful upload metrics
-                const uploadDuration = (Date.now() - this.uploadStartTime) / 1000
+                const uploadDuration = (performance.now() - finishStartTime) / 1000
                 SessionBatchMetrics.incrementS3BatchesUploaded()
                 SessionBatchMetrics.observeS3UploadLatency(uploadDuration)
                 SessionBatchMetrics.incrementS3BytesWritten(this.currentOffset)
             } catch (error) {
+                clearTimeout(timeoutId)
                 logger.error('🔄', 's3_session_batch_writer_upload_error', { key: this.key, error })
                 SessionBatchMetrics.incrementS3UploadErrors()
                 throw error

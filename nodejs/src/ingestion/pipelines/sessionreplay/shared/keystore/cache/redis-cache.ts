@@ -1,3 +1,4 @@
+import { SessionBatchMetrics } from '~/ingestion/pipelines/sessionreplay/sessions/metrics'
 import {
     deserializeSessionKey,
     serializeSessionKey,
@@ -7,12 +8,14 @@ import { RedisPool } from '~/types'
 
 const CACHE_KEY_PREFIX = '@posthog/replay/recording-key'
 const REDIS_CACHE_TTL_SECONDS = 60 * 60 * 24 // 24 hours
+const DEFAULT_REDIS_TIMEOUT_MS = 5000
 
 export class RedisCachedKeyStore implements KeyStore {
     constructor(
         private readonly delegate: KeyStore,
         private readonly redisPool: RedisPool,
-        private readonly ttlSeconds: number = REDIS_CACHE_TTL_SECONDS
+        private readonly ttlSeconds: number = REDIS_CACHE_TTL_SECONDS,
+        private readonly redisTimeoutMs: number = DEFAULT_REDIS_TIMEOUT_MS
     ) {}
 
     private cacheKey(sessionId: string, teamId: number): string {
@@ -23,31 +26,61 @@ export class RedisCachedKeyStore implements KeyStore {
         await this.delegate.start()
     }
 
+    private redisTimeout(): Promise<never> {
+        return new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error(`Redis timeout after ${this.redisTimeoutMs}ms`)), this.redisTimeoutMs)
+        )
+    }
+
     private async getCached(sessionId: string, teamId: number): Promise<SessionKey | null> {
-        const client = await this.redisPool.acquire()
+        const startTime = performance.now()
+        let client
         try {
-            const cached = await client.get(this.cacheKey(sessionId, teamId))
+            const redisOp = async () => {
+                client = await this.redisPool.acquire()
+                return client.get(this.cacheKey(sessionId, teamId))
+            }
+            const cached = await Promise.race([redisOp(), this.redisTimeout()])
             return cached ? deserializeSessionKey(cached) : null
         } finally {
-            await this.redisPool.release(client)
+            if (client) {
+                await this.redisPool.release(client)
+            }
+            SessionBatchMetrics.observeKeystoreRedisLatency((performance.now() - startTime) / 1000)
         }
     }
 
     private async setCached(sessionId: string, teamId: number, key: SessionKey): Promise<void> {
-        const client = await this.redisPool.acquire()
+        const startTime = performance.now()
+        let client
         try {
-            await client.setex(this.cacheKey(sessionId, teamId), this.ttlSeconds, serializeSessionKey(key))
+            const redisOp = async () => {
+                client = await this.redisPool.acquire()
+                await client.setex(this.cacheKey(sessionId, teamId), this.ttlSeconds, serializeSessionKey(key))
+            }
+            await Promise.race([redisOp(), this.redisTimeout()])
         } finally {
-            await this.redisPool.release(client)
+            if (client) {
+                await this.redisPool.release(client)
+            }
+            SessionBatchMetrics.observeKeystoreRedisLatency((performance.now() - startTime) / 1000)
         }
     }
 
     private async deleteCached(sessionId: string, teamId: number): Promise<void> {
-        const client = await this.redisPool.acquire()
+        const startTime = performance.now()
+        let client
         try {
-            await client.del(this.cacheKey(sessionId, teamId))
+            const redisOp = async () => {
+                client = await this.redisPool.acquire()
+                await client.del(this.cacheKey(sessionId, teamId))
+            }
+            await Promise.race([redisOp(), this.redisTimeout()])
         } finally {
-            await this.redisPool.release(client)
+            if (client) {
+                await this.redisPool.release(client)
+            }
+            SessionBatchMetrics.observeKeystoreRedisLatency((performance.now() - startTime) / 1000)
         }
     }
 

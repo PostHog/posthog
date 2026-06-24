@@ -9,6 +9,8 @@ import { SessionBatchMetrics } from './metrics'
 
 const DEFAULT_LOCAL_CACHE_MAX_SIZE = 100_000
 
+const DEFAULT_REDIS_TIMEOUT_MS = 5000
+
 export interface SessionFilterConfig {
     redisPool: RedisPool
     bucketCapacity: number
@@ -19,6 +21,7 @@ export interface SessionFilterConfig {
     filterEnabled: boolean
     localCacheTtlMs: number
     localCacheMaxSize?: number
+    redisTimeoutMs?: number
 }
 
 /**
@@ -45,12 +48,14 @@ export class SessionFilter {
     private readonly sessionLimiter: Limiter
     private readonly blockingEnabled: boolean
     private readonly filterEnabled: boolean
+    private readonly redisTimeoutMs: number
 
     constructor(config: SessionFilterConfig) {
         this.redisPool = config.redisPool
         this.sessionLimiter = new Limiter(config.bucketCapacity, config.bucketReplenishRate)
         this.blockingEnabled = config.blockingEnabled
         this.filterEnabled = config.filterEnabled
+        this.redisTimeoutMs = config.redisTimeoutMs ?? DEFAULT_REDIS_TIMEOUT_MS
 
         this.localCache = new LRUCache({
             max: config.localCacheMaxSize ?? DEFAULT_LOCAL_CACHE_MAX_SIZE,
@@ -75,10 +80,18 @@ export class SessionFilter {
         this.localCache.set(key, true)
         SessionBatchMetrics.incrementSessionsBlocked()
 
+        const startTime = performance.now()
         let client
         try {
-            client = await this.redisPool.acquire()
-            await client.set(key, '1', 'EX', SESSION_FILTER_REDIS_TTL_SECONDS)
+            const redisOp = async () => {
+                client = await this.redisPool.acquire()
+                await client.set(key, '1', 'EX', SESSION_FILTER_REDIS_TTL_SECONDS)
+            }
+            const timeout = new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error(`Redis timeout after ${this.redisTimeoutMs}ms`)), this.redisTimeoutMs)
+            )
+
+            await Promise.race([redisOp(), timeout])
 
             logger.info('session_filter_blocked_session', {
                 teamId,
@@ -97,6 +110,7 @@ export class SessionFilter {
             if (client) {
                 await this.redisPool.release(client)
             }
+            SessionBatchMetrics.observeSessionFilterRedisLatency((performance.now() - startTime) / 1000)
         }
     }
 
@@ -126,10 +140,18 @@ export class SessionFilter {
 
         SessionBatchMetrics.incrementSessionFilterCacheMiss()
 
+        const startTime = performance.now()
         let client
         try {
-            client = await this.redisPool.acquire()
-            const exists = await client.exists(key)
+            const redisOp = async () => {
+                client = await this.redisPool.acquire()
+                return client.exists(key)
+            }
+            const timeout = new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error(`Redis timeout after ${this.redisTimeoutMs}ms`)), this.redisTimeoutMs)
+            )
+
+            const exists = await Promise.race([redisOp(), timeout])
             const isBlocked = exists === 1
 
             // Cache the result locally to prevent repeated Redis calls
@@ -138,7 +160,7 @@ export class SessionFilter {
 
             return isBlocked
         } catch (error) {
-            // Fail open: if Redis is unavailable, allow the session through
+            // Fail open: if Redis is unavailable or times out, allow the session through
             logger.error('session_filter_is_blocked_redis_error', {
                 teamId,
                 sessionId,
@@ -150,6 +172,7 @@ export class SessionFilter {
             if (client) {
                 await this.redisPool.release(client)
             }
+            SessionBatchMetrics.observeSessionFilterRedisLatency((performance.now() - startTime) / 1000)
         }
     }
 
