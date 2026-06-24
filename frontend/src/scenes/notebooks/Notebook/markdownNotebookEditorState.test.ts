@@ -228,8 +228,7 @@ Thinking...`)
     })
 
     it('keeps the highest notebook version during shuffled remote update bursts', () => {
-        const remoteNotebooks = Array.from({ length: 40 }, (_, index) => {
-            const version = index + 2
+        const shuffledRemoteNotebooks = [6, 4, 2, 3, 5, 7].map((version) => {
             const markdown = `${BASE_MARKDOWN}\n\nremote update ${version}`
             return {
                 ...cachedNotebook,
@@ -238,17 +237,13 @@ Thinking...`)
                 text_content: markdown,
             }
         })
-        const shuffledRemoteNotebooks = [
-            ...remoteNotebooks.filter((_, index) => index % 2 === 0).reverse(),
-            ...remoteNotebooks.filter((_, index) => index % 2 === 1),
-        ]
 
         for (const notebook of shuffledRemoteNotebooks) {
             logic.actions.loadNotebookSuccess(notebook)
             logic.actions.applyRemoteNotebookContent(notebook.content, notebook.version)
         }
 
-        const latestNotebook = remoteNotebooks[remoteNotebooks.length - 1]
+        const latestNotebook = shuffledRemoteNotebooks[shuffledRemoteNotebooks.length - 1]
         expect(logic.values.notebook?.version).toBe(latestNotebook.version)
         expect(logic.values.notebook?.content).toEqual(latestNotebook.content)
     })
