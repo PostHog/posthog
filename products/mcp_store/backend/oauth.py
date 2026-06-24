@@ -303,9 +303,13 @@ def register_dcr_client(metadata: dict, redirect_uri: str) -> tuple[str, str | N
         raise ValueError("No client_id in DCR response")
 
     returned_secret = data.get("client_secret") or ""
-    returned_auth_method = data.get("token_endpoint_auth_method") or (
-        "client_secret_post" if returned_secret else token_endpoint_auth_method
-    )
+    returned_auth_method_value = data.get("token_endpoint_auth_method")
+    if isinstance(returned_auth_method_value, str) and returned_auth_method_value:
+        returned_auth_method = returned_auth_method_value
+    elif returned_secret and token_endpoint_auth_method == "none":
+        returned_auth_method = "client_secret_post"
+    else:
+        returned_auth_method = token_endpoint_auth_method
     if returned_auth_method not in SUPPORTED_TOKEN_ENDPOINT_AUTH_METHODS:
         raise ValueError(f"Unsupported token_endpoint_auth_method from DCR response: {returned_auth_method}")
     if returned_auth_method != "none" and not returned_secret:
@@ -454,11 +458,11 @@ def refresh_oauth_token(
     except SSRFBlockedError:
         raise TokenRefreshError(f"Token refresh URL blocked by SSRF protection: {token_url}")
     except requests.RequestException as exc:
-        status_code = getattr(getattr(exc, "response", None), "status_code", None)
+        failed_status_code = getattr(getattr(exc, "response", None), "status_code", None)
         logger.warning(
             "OAuth token refresh request failed",
             token_url=token_url,
-            status_code=status_code,
+            status_code=failed_status_code,
         )
         raise TokenRefreshError("Token refresh request failed")
 

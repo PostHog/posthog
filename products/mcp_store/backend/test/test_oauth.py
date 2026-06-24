@@ -939,6 +939,29 @@ class TestRegisterDCRClient(TestCase):
         assert "refresh_token" not in payload["scope"]
         assert mock_post.call_args.kwargs["allow_redirects"] is False
 
+    @patch("products.mcp_store.backend.oauth.is_url_allowed", return_value=(True, ""))
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_keeps_requested_basic_auth_when_dcr_response_omits_auth_method(self, mock_post, _allow):
+        mock_response = MagicMock()
+        mock_response.ok = True
+        mock_response.status_code = 201
+        mock_response.json.return_value = {
+            "client_id": "abc",
+            "client_secret": "minted-secret",
+        }
+        mock_post.return_value = mock_response
+
+        result = register_dcr_client(
+            {
+                "registration_endpoint": "https://auth.example.com/register",
+                "token_endpoint_auth_methods_supported": ["client_secret_basic"],
+            },
+            "https://app.posthog.com/callback",
+        )
+
+        assert result == ("abc", "minted-secret", "client_secret_basic")
+        assert mock_post.call_args.kwargs["json"]["token_endpoint_auth_method"] == "client_secret_basic"
+
     def test_scope_selection_prefers_protected_resource_scopes(self):
         metadata = {
             "scopes_supported": ["admin", "read"],
