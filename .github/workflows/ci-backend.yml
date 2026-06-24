@@ -290,8 +290,14 @@ jobs:
             # test products/warehouse_sources/backend/temporal/data_imports/sources/tests/test_ci_core_coupled_sources.py.
             # Fails OPEN: empty/non-source/coupled file list → false → full matrix.
             # PR events only; push and merge_group always run everything.
+            # continue-on-error keeps the fail-open promise even when the runner can't
+            # start the step at all: a very large PR (e.g. a big rename) makes
+            # BACKEND_FILES exceed the process env limit ("Argument list too long"),
+            # which would otherwise hard-fail this job and skip every dependent test job.
+            # On that failure the job output below defaults to false → full matrix.
             - name: Determine if only data warehouse sources changed
               id: sources
+              continue-on-error: true
               if: github.event_name == 'pull_request'
               env:
                   BACKEND_FILES: ${{ steps.filter.outputs.backend_files }}
