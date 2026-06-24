@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
@@ -14,6 +14,9 @@ import {
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { userLogic } from 'scenes/userLogic'
+
+import { AvailableFeature } from '~/types'
 
 import { TaxonomicFilterEmptyState, taxonomicFilterGroupTypesWithEmptyStates } from './TaxonomicFilterEmptyState'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
@@ -24,6 +27,22 @@ export interface InfiniteSelectResultsProps {
     popupAnchorElement: HTMLDivElement | null
     definitionPopoverRenderer?: DefinitionPopoverRenderer
     categoryDropdownVariant?: CategoryDropdownVariant
+}
+
+export function getCategoryPillDisabledReason(
+    canInteract: boolean,
+    groupType: TaxonomicFilterGroupType,
+    hasPathsAdvanced: boolean
+): string | null {
+    if (canInteract) {
+        return null
+    }
+    // Wildcard groups (paths) are gated behind Advanced paths — explain the paygate rather than a generic "No results".
+    // Paid users with no wildcards defined still see "No results" since they can add them.
+    if (groupType === TaxonomicFilterGroupType.Wildcards && !hasPathsAdvanced) {
+        return 'Wildcard groups are only available on paid plans'
+    }
+    return 'No results'
 }
 
 // CategoryPillContent uses useValues(infiniteListLogic) without props, relying on BindLogic context
@@ -38,6 +57,7 @@ function CategoryPillContent({
     onClick: () => void
 }): JSX.Element {
     const { taxonomicGroups } = useValues(taxonomicFilterLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
     const {
         totalResultCount,
         totalListCount,
@@ -57,13 +77,29 @@ function CategoryPillContent({
         groupType === TaxonomicFilterGroupType.SuggestedFilters
     const showLoading = (isLoading && hasRemoteDataSource) || isLocalDataLoading
 
-    return (
+    const disabledReason = getCategoryPillDisabledReason(
+        canInteract,
+        groupType,
+        hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
+    )
+    // Wildcard groups are gated behind Advanced paths. LemonTag's `disabledReason` only renders as a slow
+    // native `title`, so surface the upgrade hint via a proper Tooltip instead (and skip the native title to
+    // avoid a duplicate tooltip). Other groups keep the existing `disabledReason` ("No results") behavior.
+    const isGatedWildcards =
+        !canInteract &&
+        groupType === TaxonomicFilterGroupType.Wildcards &&
+        !hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
+
+    const tag = (
         <LemonTag
             type={isActive ? 'primary' : canInteract ? 'option' : 'muted'}
             data-attr={`taxonomic-tab-${groupType}`}
             onClick={canInteract ? onClick : undefined}
-            disabledReason={!canInteract ? 'No results' : null}
-            className="font-normal"
+            disabledReason={isGatedWildcards ? undefined : disabledReason}
+            // The gated case drops `disabledReason` (and its native title) in favor of the Tooltip below; keep the
+            // reason screen-reader-accessible via aria-label since the tag isn't focusable.
+            aria-label={isGatedWildcards ? (disabledReason ?? undefined) : undefined}
+            className={cn('font-normal', isGatedWildcards && 'cursor-not-allowed')}
         >
             {group?.categoryLabel ? (
                 group.categoryLabel(totalResultCount)
@@ -88,6 +124,8 @@ function CategoryPillContent({
             )}
         </LemonTag>
     )
+
+    return isGatedWildcards && disabledReason ? <Tooltip title={disabledReason}>{tag}</Tooltip> : tag
 }
 
 // CategoryPill wraps CategoryPillContent with BindLogic to ensure infiniteListLogic is properly mounted
