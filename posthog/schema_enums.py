@@ -21,6 +21,15 @@ class AIEventType(StrEnum):
     FIELD_AI_GENERATION_CLUSTERS = "$ai_generation_clusters"
 
 
+class AccessControlLevel(StrEnum):
+    NONE = "none"
+    MEMBER = "member"
+    ADMIN = "admin"
+    VIEWER = "viewer"
+    EDITOR = "editor"
+    MANAGER = "manager"
+
+
 class MathGroupTypeIndex(float, Enum):
     NUMBER_0 = 0
     NUMBER_1 = 1
@@ -327,6 +336,11 @@ class AssistantSetPropertyFilterOperator(StrEnum):
     IS_NOT_SET = "is_not_set"
 
 
+class Compare(StrEnum):
+    CURRENT = "current"
+    PREVIOUS = "previous"
+
+
 class AssistantStickinessDisplayType(StrEnum):
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
@@ -417,11 +431,6 @@ class AssistantTool(StrEnum):
     OPEN_ACCOUNT = "open_account"
 
 
-class Compare(StrEnum):
-    CURRENT = "current"
-    PREVIOUS = "previous"
-
-
 class Display(StrEnum):
     AUTO = "Auto"
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
@@ -439,6 +448,12 @@ class Display(StrEnum):
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
     BOX_PLOT = "BoxPlot"
     SLOPE_GRAPH = "SlopeGraph"
+
+
+class MetricSummary(StrEnum):
+    TOTAL = "total"
+    AVERAGE = "average"
+    LATEST = "latest"
 
 
 class YAxisScaleType(StrEnum):
@@ -1782,7 +1797,21 @@ class ExternalDataSourceType(StrEnum):
     STREAMLABS = "Streamlabs"
     DATORAMA = "Datorama"
     AHREFS = "Ahrefs"
+    LIGHTFIELD = "Lightfield"
+    APPSTACK = "Appstack"
+    RAZORPAY = "Razorpay"
+    NEON = "Neon"
+    NEW_RELIC = "NewRelic"
     CUSTOM = "Custom"
+    TILE38 = "Tile38"
+    CHATWOOT = "Chatwoot"
+    SANITY = "Sanity"
+    METRONOME = "Metronome"
+    JOBBER = "Jobber"
+    KNOCK = "Knock"
+    LEEXI = "Leexi"
+    RB2_B = "RB2B"
+    SUPERWALL = "Superwall"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -1804,6 +1833,7 @@ class FileSystemIconType(StrEnum):
     DEFAULT_ICON_TYPE = "default_icon_type"
     DASHBOARD = "dashboard"
     LLM_ANALYTICS = "llm_analytics"
+    AI_GATEWAY = "ai_gateway"
     PRODUCT_ANALYTICS = "product_analytics"
     REVENUE_ANALYTICS = "revenue_analytics"
     REVENUE_ANALYTICS_METADATA = "revenue_analytics_metadata"
@@ -1927,6 +1957,13 @@ class FunnelVizType(StrEnum):
     TIME_TO_CONVERT = "time_to_convert"
     TRENDS = "trends"
     FLOW = "flow"
+
+
+class LegendPosition(StrEnum):
+    TOP = "top"
+    BOTTOM = "bottom"
+    LEFT = "left"
+    RIGHT = "right"
 
 
 class Position(StrEnum):
@@ -2514,6 +2551,7 @@ class NodeKind(StrEnum):
     ENDPOINTS_USAGE_OVERVIEW_QUERY = "EndpointsUsageOverviewQuery"
     ENDPOINTS_USAGE_TABLE_QUERY = "EndpointsUsageTableQuery"
     ENDPOINTS_USAGE_TRENDS_QUERY = "EndpointsUsageTrendsQuery"
+    MCP_HARNESS_BREAKDOWN_QUERY = "MCPHarnessBreakdownQuery"
     PROPERTY_VALUES_QUERY = "PropertyValuesQuery"
 
 
@@ -2654,6 +2692,7 @@ class ProductItemCategory(StrEnum):
 
 class ProductKey(StrEnum):
     ACTIONS = "actions"
+    AI_GATEWAY = "ai_gateway"
     LLM_ANALYTICS = "llm_analytics"
     ALERTS = "alerts"
     ANNOTATIONS = "annotations"
@@ -2829,6 +2868,7 @@ class RecordingOrder(StrEnum):
     MOUSE_ACTIVITY_COUNT = "mouse_activity_count"
     ACTIVITY_SCORE = "activity_score"
     RECORDING_TTL = "recording_ttl"
+    SURFACING_SCORE = "surfacing_score"
 
 
 class RecordingOrderDirection(StrEnum):

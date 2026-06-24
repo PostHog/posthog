@@ -1491,6 +1491,194 @@ class TestHogFlowAPI(APIBaseTest):
             "type": "validation_error",
         }
 
+    def test_hog_flow_data_warehouse_table_trigger_valid(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "data-warehouse-table",
+                "table_name": "postgres.table_1",
+                "filters": {"properties": []},
+            },
+        }
+
+        hog_flow = {
+            "name": "Test DWH Flow",
+            "status": "active",
+            "actions": [trigger_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        trigger = response.json()["trigger"]
+        assert trigger["type"] == "data-warehouse-table"
+        assert trigger["table_name"] == "postgres.table_1"
+        # Filters should be compiled to bytecode with the data-warehouse-table source
+        assert trigger["filters"]["source"] == "data-warehouse-table"
+        assert "bytecode" in trigger["filters"]
+
+    def test_hog_flow_data_warehouse_table_trigger_without_table_name(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "data-warehouse-table",
+                "filters": {"properties": []},
+            },
+        }
+
+        hog_flow = {
+            "name": "Test DWH Flow",
+            "status": "active",
+            "actions": [trigger_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert response.json() == {
+            "attr": "actions__0__table_name",
+            "code": "invalid_input",
+            "detail": "A data warehouse table name is required for this trigger.",
+            "type": "validation_error",
+        }
+
+    def test_hog_flow_data_warehouse_table_trigger_draft_allows_missing_table_name(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "data-warehouse-table",
+                "filters": {"properties": []},
+            },
+        }
+
+        hog_flow = {
+            "name": "Test DWH Flow",
+            "status": "draft",
+            "actions": [trigger_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
+    def test_hog_flow_data_warehouse_table_trigger_filters_not_dict(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "data-warehouse-table",
+                "table_name": "postgres.table_1",
+                "filters": "not a dict",
+            },
+        }
+
+        hog_flow = {
+            "name": "Test DWH Flow",
+            "status": "active",
+            "actions": [trigger_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert response.json() == {
+            "attr": "actions__0__filters",
+            "code": "invalid_input",
+            "detail": "Filters must be a dictionary.",
+            "type": "validation_error",
+        }
+
+    @parameterized.expand(
+        [
+            ("wait_until_condition", {"condition": {"filters": {"properties": []}}, "max_wait_duration": "5m"}),
+            ("random_cohort_branch", {"cohorts": [{"percentage": 50}]}),
+        ]
+    )
+    def test_hog_flow_data_warehouse_table_trigger_rejects_person_dependent_steps(self, action_type, action_config):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "data-warehouse-table",
+                "table_name": "postgres.table_1",
+                "filters": {"properties": []},
+            },
+        }
+        person_dependent_action = {
+            "id": "person_step",
+            "name": "person_step",
+            "type": action_type,
+            "config": action_config,
+        }
+
+        hog_flow = {
+            "name": "Test DWH Flow",
+            "status": "active",
+            "actions": [trigger_action, person_dependent_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == "actions"
+        assert action_type in response.json()["detail"]
+
+    def test_hog_flow_data_warehouse_table_trigger_draft_allows_person_dependent_steps(self):
+        # Drafts are not executed, so we defer the hard rejection until activation.
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "data-warehouse-table",
+                "table_name": "postgres.table_1",
+                "filters": {"properties": []},
+            },
+        }
+        person_dependent_action = {
+            "id": "person_step",
+            "name": "person_step",
+            "type": "random_cohort_branch",
+            "config": {"cohorts": [{"percentage": 50}]},
+        }
+
+        hog_flow = {
+            "name": "Test DWH Flow",
+            "status": "draft",
+            "actions": [trigger_action, person_dependent_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
+    def test_hog_flow_data_warehouse_table_trigger_forces_exit_only_at_end(self):
+        # Other exit conditions re-evaluate trigger/conversion filters that may reference person
+        # data, so warehouse-triggered flows are coerced to exit_only_at_end regardless of input.
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "data-warehouse-table",
+                "table_name": "postgres.table_1",
+                "filters": {"properties": []},
+            },
+        }
+
+        hog_flow = {
+            "name": "Test DWH Flow",
+            "status": "active",
+            "exit_condition": "exit_on_conversion",
+            "actions": [trigger_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        assert response.json()["exit_condition"] == "exit_only_at_end"
+
     @parameterized.expand(
         [
             ("events", {"events": [{"id": "$pageview", "type": "events"}]}),
@@ -1712,7 +1900,49 @@ class TestHogFlowAPI(APIBaseTest):
             )
 
         assert response.status_code == 200, response.json()
-        assert response.json() == {"affected": 4, "total": 10}
+        body = response.json()
+        assert body["affected"] == 4
+        assert body["total"] == 10
+        assert "limit" in body
+        assert body["limit"] > 0
+
+    @override_settings(
+        HOGFLOW_BATCH_TRIGGER_LIMIT=5000,
+        HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED=50000,
+        HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set(),
+    )
+    def test_hog_flow_user_blast_radius_returns_default_limit_for_unlisted_team(self):
+        with patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius:
+            from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
+
+            mock_get_user_blast_radius.return_value = BlastRadiusResult(affected=0, total=0)
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": []}},
+            )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["limit"] == 5000
+
+    def test_hog_flow_user_blast_radius_returns_elevated_limit_for_listed_team(self):
+        with (
+            override_settings(
+                HOGFLOW_BATCH_TRIGGER_LIMIT=5000,
+                HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED=50000,
+                HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS={self.team.id},
+            ),
+            patch("products.workflows.backend.api.hog_flow.get_user_blast_radius") as mock_get_user_blast_radius,
+        ):
+            from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
+
+            mock_get_user_blast_radius.return_value = BlastRadiusResult(affected=0, total=0)
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": []}},
+            )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["limit"] == 50000
 
     def test_user_blast_radius_personal_api_key_requires_person_read_scope(self):
         # Sizing an audience queries person data, so a hog_flow:read-only token must NOT be able to use
@@ -1747,7 +1977,10 @@ class TestHogFlowAPI(APIBaseTest):
                 headers={"authorization": f"Bearer {key}"},
             )
         assert response.status_code == 200, response.json()
-        assert response.json() == {"affected": 1, "total": 10}
+        body = response.json()
+        assert body["affected"] == 1
+        assert body["total"] == 10
+        assert "limit" in body
 
     @parameterized.expand(
         [

@@ -41,7 +41,6 @@ import {
 import {
     MarkdownNotebookTextSurface,
     areNotebookDocumentsEqual,
-    collapseAdjacentEmptyPromptNodes,
     ensureEditableNotebookDocument,
     getAskAIInlineNotebookQuery,
     getAskAISelectionQuery,
@@ -111,9 +110,11 @@ import {
     FloatingToolbarState,
     FloatingToolbarTextRange,
     INSERT_MENU_PLACEHOLDER,
+    InsertCommand,
     InsertMenuPosition,
     InsertMenuSelectionDirection,
     InsertMenuState,
+    MarkdownNotebookInsertMenuApi,
     MAX_UNDO_HISTORY_ENTRIES,
     NOTEBOOK_TITLE_PLACEHOLDER,
     RestoreSelectionRequest,
@@ -217,9 +218,12 @@ export type MarkdownNotebookProps = {
     onChange?: (value: string) => void
     onAskAI?: (request: MarkdownNotebookAskAIRequest) => void
     isAskAIDisabled?: boolean
-    createAIChatId?: () => string
+    createAIConversationId?: () => string
     mode?: NotebookMode
     registry?: NotebookComponentRegistry
+    /** Caller-supplied insert-menu commands. Receives an API for inserting blocks so the command's
+     * behavior (e.g. opening a picker modal) and labeling stay in the caller, not this component. */
+    extraInsertCommands?: (api: MarkdownNotebookInsertMenuApi) => InsertCommand[]
     remoteValue?: string
     /** Notebook version `remoteValue` corresponds to, for version-aware caret mapping. */
     remoteVersion?: number
@@ -233,15 +237,18 @@ export type MarkdownNotebookProps = {
     onCaretChange?: (position: MarkdownNotebookCaretPosition | null) => void
     initialInsertMenu?: { nodeIndex?: number; query?: string }
     focusAIPromptRequest?: number
+    aiWritingNodeIndexes?: number[]
     placeholder?: string
     className?: string
     autoFocus?: boolean
     showDebug?: boolean
+    debugOpen?: boolean
+    onDebugOpenChange?: (isOpen: boolean) => void
     'data-attr'?: string
 }
 
 export type MarkdownNotebookAskAIRequest = {
-    chatId: string
+    conversationId: string
     query: string
     source: 'slash' | 'selection'
     responseNodeId: string
@@ -291,11 +298,11 @@ const UNDO_TYPING_GROUP_MS = 1000
  * cover the keystrokes that can land between a save being sent and its response echoing back. */
 const MAX_TRACKED_LOCAL_SNAPSHOTS = 100
 
-function createDefaultAIChatId(): string {
+function createDefaultAIConversationId(): string {
     if (typeof window !== 'undefined' && window.crypto?.randomUUID) {
         return window.crypto.randomUUID()
     }
-    return makeEmptyParagraph('ai-chat').id
+    return makeEmptyParagraph('ai-conversation').id
 }
 
 /** Below this container width, comment threads render inline instead of in the margin. */
@@ -387,10 +394,11 @@ export function MarkdownNotebook({
     value,
     onChange,
     onAskAI,
-    isAskAIDisabled = false,
-    createAIChatId = createDefaultAIChatId,
+    isAskAIDisabled: isAIPromptSubmitDisabled = false,
+    createAIConversationId = createDefaultAIConversationId,
     mode = 'edit',
     registry,
+    extraInsertCommands,
     remoteValue,
     remoteVersion,
     deferRemoteValue = false,
@@ -400,10 +408,13 @@ export function MarkdownNotebook({
     onCaretChange,
     initialInsertMenu,
     focusAIPromptRequest,
+    aiWritingNodeIndexes,
     placeholder = 'Start writing...',
     className,
     autoFocus = false,
     showDebug = false,
+    debugOpen,
+    onDebugOpenChange,
     'data-attr': dataAttr = 'markdown-notebook',
 }: MarkdownNotebookProps): JSX.Element {
     const mergedRegistry = useMemo(
@@ -423,7 +434,8 @@ export function MarkdownNotebook({
     const [dropBoundaryIndex, setDropBoundaryIndex] = useState<number | null>(null)
     const [selectedComponentNodeIds, setSelectedComponentNodeIds] = useState<Set<string>>(() => new Set())
     const [componentPanelCache, setComponentPanelCache] = useState<Record<string, ComponentPanelCacheEntry>>({})
-    const [isDebugOpen, setIsDebugOpen] = useState(false)
+    const [internalDebugOpen, setInternalDebugOpen] = useState(false)
+    const isDebugOpen = debugOpen ?? internalDebugOpen
     const [isDebugLogging, setIsDebugLogging] = useState(false)
     const debugLogRef = useRef<NotebookDebugLog | null>(null)
     // Margin layout needs the container to fit the text column plus the full comment
@@ -488,6 +500,7 @@ export function MarkdownNotebook({
     }, [])
 
     const hasDiscussionComments = useMemo(() => document.nodes.some(isDiscussionCommentNode), [document])
+    const aiWritingNodeIndexSet = useMemo(() => new Set(aiWritingNodeIndexes ?? []), [aiWritingNodeIndexes])
 
     useLayoutEffect(() => {
         const element = mainRef.current
@@ -682,11 +695,22 @@ export function MarkdownNotebook({
         floatingToolbarRevealTimeoutRef.current = null
     }, [])
 
+    const setDebugOpen = useCallback(
+        (nextOpen: boolean | ((isOpen: boolean) => boolean)): void => {
+            const resolvedNextOpen = typeof nextOpen === 'function' ? nextOpen(isDebugOpen) : nextOpen
+            if (debugOpen === undefined) {
+                setInternalDebugOpen(resolvedNextOpen)
+            }
+            onDebugOpenChange?.(resolvedNextOpen)
+        },
+        [debugOpen, isDebugOpen, onDebugOpenChange]
+    )
+
     useEffect(() => {
         if (!showDebug) {
-            setIsDebugOpen(false)
+            setDebugOpen(false)
         }
-    }, [showDebug])
+    }, [setDebugOpen, showDebug])
 
     const mapRemoteCaretAnchors = useCallback(
         (previousDocument: NotebookDocument, nextDocument: NotebookDocument, remoteMergeVersion?: number): void => {
@@ -1161,6 +1185,10 @@ export function MarkdownNotebook({
                 return false
             }
 
+            if (selectedEntries.some((entry) => aiWritingNodeIndexSet.has(entry.index))) {
+                return true
+            }
+
             const requestFocusForDeletedSelection = (
                 nextNodes: NotebookBlockNode[],
                 selectionStartIndex: number
@@ -1318,7 +1346,7 @@ export function MarkdownNotebook({
             })
             return true
         },
-        [commitDocument]
+        [aiWritingNodeIndexSet, commitDocument]
     )
 
     const splitTextBlockAtCurrentSelection = useCallback((): boolean => {
@@ -1960,6 +1988,11 @@ export function MarkdownNotebook({
                 return true
             }
 
+            if (direction === 'backward' && selectionStart === 0 && nodeIndex === 0) {
+                restoreSelectionRef.current = { nodeId: node.id, start: 0, end: 0 }
+                return true
+            }
+
             if (direction === 'forward' || selectionStart !== 0 || nodeIndex <= 0) {
                 return false
             }
@@ -2222,6 +2255,19 @@ export function MarkdownNotebook({
         [mergedRegistry, replaceNode]
     )
 
+    const insertMenuApi = useMemo<MarkdownNotebookInsertMenuApi>(
+        () => ({
+            insertComponent: (targetNodeId, tagName, props) =>
+                replaceNodeWithInsertedComponent(targetNodeId, {
+                    id: makeEmptyParagraph(`component-${tagName}`).id,
+                    type: 'component',
+                    tagName,
+                    props,
+                }),
+        }),
+        [replaceNodeWithInsertedComponent]
+    )
+
     const replaceNodeWithNodes = useCallback(
         (nodeId: string, replacementNodes: NotebookBlockNode[]): void => {
             const currentDocument = documentRef.current
@@ -2339,10 +2385,6 @@ export function MarkdownNotebook({
             nodeId: string,
             options?: { source?: 'slash' | 'selection'; selectedMarkdown?: string; selectedRefId?: string }
         ): void => {
-            if (isAskAIDisabled || documentRef.current.nodes.some(isPromptComponentNode)) {
-                return
-            }
-
             onInteractionStateChange?.(true)
             const currentDocument = documentRef.current
             const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
@@ -2375,7 +2417,7 @@ export function MarkdownNotebook({
             if (didUpdate) {
                 commitDocument({
                     ...currentDocument,
-                    nodes: collapseAdjacentEmptyPromptNodes(nextNodes, nodeId),
+                    nodes: nextNodes,
                 })
             } else {
                 commitDocument({
@@ -2393,7 +2435,7 @@ export function MarkdownNotebook({
                 selectedRefId: options?.selectedRefId,
             })
         },
-        [commitDocument, isAskAIDisabled, onInteractionStateChange]
+        [commitDocument, onInteractionStateChange]
     )
 
     const updateAIPromptQuery = (nodeId: string, query: string): void => {
@@ -2407,7 +2449,6 @@ export function MarkdownNotebook({
 
     const renderedNodes = getRenderedNodes()
     const aiWritingPlaceholderNodeIds = useMemo(() => getAIWritingPlaceholderNodeIds(document.nodes), [document.nodes])
-    const isAskAIInsertionDisabled = isAskAIDisabled || document.nodes.some(isPromptComponentNode)
     const focusAIPromptNodeId = useMemo(
         () => (focusAIPromptRequest === undefined ? null : getLatestEmptyAIPromptNodeId(document.nodes)),
         [document.nodes, focusAIPromptRequest]
@@ -2435,9 +2476,18 @@ export function MarkdownNotebook({
                     restoreSelectionRef.current = { nodeId, start: 0, end: 0 }
                 },
                 onAskAI ? openAIPrompt : undefined,
-                isAskAIInsertionDisabled
+                false,
+                extraInsertCommands ? extraInsertCommands(insertMenuApi) : []
             ),
-        [mergedRegistry, replaceNodeWithInsertedComponent, replaceNode, onAskAI, openAIPrompt, isAskAIInsertionDisabled]
+        [
+            mergedRegistry,
+            replaceNodeWithInsertedComponent,
+            replaceNode,
+            onAskAI,
+            openAIPrompt,
+            extraInsertCommands,
+            insertMenuApi,
+        ]
     )
 
     function getRenderedNodes(): NotebookBlockNode[] {
@@ -3229,7 +3279,7 @@ export function MarkdownNotebook({
     }
 
     const askAIAboutSelection = (): void => {
-        if (!floatingToolbar || !onAskAI || isAskAIInsertionDisabled) {
+        if (!floatingToolbar || !onAskAI) {
             return
         }
 
@@ -3310,7 +3360,7 @@ export function MarkdownNotebook({
         }
         commitDocument({
             ...currentDocument,
-            nodes: collapseAdjacentEmptyPromptNodes(nextNodes, promptNode.id),
+            nodes: nextNodes,
         })
 
         floatingToolbarPositionLockRef.current = null
@@ -4660,6 +4710,10 @@ export function MarkdownNotebook({
     }
 
     const submitAIPromptForNode = (nodeId: string, queryOverride?: string): boolean => {
+        if (isAIPromptSubmitDisabled) {
+            return false
+        }
+
         const activeAIPromptMenu = insertMenu?.nodeId === nodeId && insertMenu.mode === 'ai' ? insertMenu : null
         const currentDocument = documentRef.current
         const nodes = currentDocument.nodes.length ? currentDocument.nodes : [emptyNodeRef.current]
@@ -4698,7 +4752,7 @@ export function MarkdownNotebook({
             return false
         }
 
-        const chatId = createAIChatId()
+        const conversationId = createAIConversationId()
         const nextDocument: NotebookDocument = { ...currentDocument, nodes: nodesWithResponse }
         commitDocument(nextDocument)
         clearInsertMenu()
@@ -4709,7 +4763,7 @@ export function MarkdownNotebook({
             activeAIPromptMenu?.selectedMarkdown ?? getNotebookStringProp(currentPromptNode?.props.selectedMarkdown)
         const selectedRefId = activeAIPromptMenu?.selectedRefId ?? getNotebookStringProp(currentPromptNode?.props.ref)
         onAskAI({
-            chatId,
+            conversationId,
             query:
                 source === 'selection' && selectedMarkdown
                     ? getAskAISelectionQuery(
@@ -4988,7 +5042,7 @@ export function MarkdownNotebook({
                     aria-label="Edit markdown source"
                     aria-controls={debugDrawerId}
                     aria-expanded={isDebugOpen}
-                    onClick={() => setIsDebugOpen((isOpen) => !isOpen)}
+                    onClick={() => setDebugOpen((isOpen) => !isOpen)}
                 />
             </div>
         )
@@ -4996,6 +5050,8 @@ export function MarkdownNotebook({
 
     const renderNotebookRow = (node: NotebookBlockNode, index: number): JSX.Element => {
         const isTitleRow = index === 0
+        const isAIWritingNode = aiWritingNodeIndexSet.has(index)
+        const nodeMode = isAIWritingNode ? 'view' : mode
         const isInsertMenuOpen = insertMenu?.nodeId === node.id
         const insertMenuMode = isInsertMenuOpen ? (insertMenu.mode ?? 'tools') : null
         const isToolInsertMenuOpen = isInsertMenuOpen && insertMenuMode === 'tools'
@@ -5018,7 +5074,7 @@ export function MarkdownNotebook({
             insertMenu.query.length > 0 &&
             getFilteredInsertCommands(insertCommands, insertMenu.query).length === 0
 
-        const isDraggableRow = mode === 'edit' && !isTitleRow && !isDiscussionCommentNode(node)
+        const isDraggableRow = mode === 'edit' && !isTitleRow && !isDiscussionCommentNode(node) && !isAIWritingNode
 
         return (
             <div
@@ -5026,6 +5082,7 @@ export function MarkdownNotebook({
                     'MarkdownNotebook__row',
                     isInsertMenuOpen && 'MarkdownNotebook__row--insert-menu-open',
                     isAIPromptOpen && 'MarkdownNotebook__row--ai-prompt',
+                    isAIWritingNode && 'MarkdownNotebook__row--ai-writing',
                     isDiscussionCommentNode(node) && 'MarkdownNotebook__row--margin-comment',
                     draggingNodeId === node.id && 'MarkdownNotebook__row--dragging'
                 )}
@@ -5083,7 +5140,7 @@ export function MarkdownNotebook({
                 {renderNode({
                     node,
                     nodeIndex: index,
-                    mode,
+                    mode: nodeMode,
                     placeholder: isTitleRow
                         ? NOTEBOOK_TITLE_PLACEHOLDER
                         : isToolInsertMenuOpen
@@ -5175,16 +5232,18 @@ export function MarkdownNotebook({
                         setActiveRowIndex(index)
                         setActiveBoundaryIndex(null)
                     },
-                    showInlineInsertMenuButton: mode === 'edit' && shouldShowInlineInsertMenuButton,
+                    showInlineInsertMenuButton: mode === 'edit' && !isAIWritingNode && shouldShowInlineInsertMenuButton,
                     isInlineInsertMenuButtonVisible: activeRowIndex === index || isToolInsertMenuOpen || isAIPromptOpen,
                     isInsertMenuOpen,
                     insertMenuMode,
                     hasInvalidInsertMenuQuery,
+                    isAIWriting: isAIWritingNode,
                     isAIWritingPlaceholder: aiWritingPlaceholderNodeIds.has(node.id),
                     aiPromptFocusRequest:
                         focusAIPromptNodeId === node.id && focusAIPromptRequest !== undefined
                             ? focusAIPromptRequest
                             : undefined,
+                    isAIPromptSubmitDisabled,
                     submitInsertMenuSelection: (queryOverride) =>
                         submitInsertMenuSelectionForNode(node.id, queryOverride),
                     submitAIPrompt: (queryOverride) => submitAIPromptForNode(node.id, queryOverride),
@@ -5352,7 +5411,7 @@ export function MarkdownNotebook({
                             setBlockStyle={setSelectedBlockStyle}
                             copySelection={copyFloatingToolbarSelection}
                             askAIAboutSelection={onAskAI ? askAIAboutSelection : undefined}
-                            isAskAIDisabled={isAskAIInsertionDisabled}
+                            isAskAIDisabled={false}
                             startInlineCommentAtSelection={
                                 canStartInlineCommentAtSelection() ? startInlineCommentAtSelection : undefined
                             }
@@ -5379,7 +5438,7 @@ export function MarkdownNotebook({
                                 >
                                     {isDebugLogging ? 'Stop' : 'Log'}
                                 </LemonButton>
-                                <LemonButton size="xsmall" onClick={() => setIsDebugOpen(false)}>
+                                <LemonButton size="xsmall" onClick={() => setDebugOpen(false)}>
                                     Close
                                 </LemonButton>
                             </div>

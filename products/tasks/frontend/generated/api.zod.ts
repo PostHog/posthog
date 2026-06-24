@@ -24,158 +24,203 @@ export const CodeInvitesRedeemCreateBody = /* @__PURE__ */ zod.object({
  */
 export const sandboxCreateBodyNameMax = 255
 
+export const sandboxCreateBodyNetworkAccessLevelDefault = `full`
 export const sandboxCreateBodyAllowedDomainsItemMax = 255
 
+export const sandboxCreateBodyIncludeDefaultDomainsDefault = false
 export const sandboxCreateBodyRepositoriesItemMax = 255
 
-export const SandboxCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(sandboxCreateBodyNameMax),
-    network_access_level: zod
-        .enum(['trusted', 'full', 'custom'])
-        .optional()
-        .describe('\* `trusted` - Trusted\n\* `full` - Full\n\* `custom` - Custom'),
-    allowed_domains: zod
-        .array(zod.string().max(sandboxCreateBodyAllowedDomainsItemMax))
-        .optional()
-        .describe('List of allowed domains for custom network access'),
-    include_default_domains: zod
-        .boolean()
-        .optional()
-        .describe('Whether to include default trusted domains (GitHub, npm, PyPI)'),
-    repositories: zod
-        .array(zod.string().max(sandboxCreateBodyRepositoriesItemMax))
-        .optional()
-        .describe('List of repositories this environment applies to (format: org\/repo)'),
-    environment_variables: zod
-        .unknown()
-        .optional()
-        .describe('Encrypted environment variables (write-only, never returned in responses)'),
-    private: zod
-        .boolean()
-        .optional()
-        .describe('If true, only the creator can see this environment. Otherwise visible to whole team.'),
-})
+export const sandboxCreateBodyPrivateDefault = true
+
+export const SandboxCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod.string().max(sandboxCreateBodyNameMax).describe('Display name for the environment.'),
+        network_access_level: zod
+            .enum(['trusted', 'full', 'custom'])
+            .describe('\* `trusted` - Trusted\n\* `full` - Full\n\* `custom` - Custom')
+            .default(sandboxCreateBodyNetworkAccessLevelDefault)
+            .describe(
+                'Network access policy: trusted (default allowlist), full (unrestricted), or custom.\n\n\* `trusted` - Trusted\n\* `full` - Full\n\* `custom` - Custom'
+            ),
+        allowed_domains: zod
+            .array(zod.string().max(sandboxCreateBodyAllowedDomainsItemMax))
+            .optional()
+            .describe('Allowed domains for custom network access.'),
+        include_default_domains: zod
+            .boolean()
+            .default(sandboxCreateBodyIncludeDefaultDomainsDefault)
+            .describe('Whether to include default trusted domains (GitHub, npm, PyPI).'),
+        repositories: zod
+            .array(zod.string().max(sandboxCreateBodyRepositoriesItemMax))
+            .optional()
+            .describe('Repositories this environment applies to (format: org\/repo).'),
+        environment_variables: zod
+            .unknown()
+            .optional()
+            .describe('Encrypted environment variables (write-only, never returned in responses).'),
+        private: zod
+            .boolean()
+            .default(sandboxCreateBodyPrivateDefault)
+            .describe('If true, only the creator can see this environment; otherwise the whole team can.'),
+    })
+    .describe('Request body for creating or updating a sandbox environment.')
 
 /**
  * API for managing sandbox environments that control network access for task runs.
  */
 export const sandboxPartialUpdateBodyNameMax = 255
 
+export const sandboxPartialUpdateBodyNetworkAccessLevelDefault = `full`
 export const sandboxPartialUpdateBodyAllowedDomainsItemMax = 255
 
+export const sandboxPartialUpdateBodyIncludeDefaultDomainsDefault = false
 export const sandboxPartialUpdateBodyRepositoriesItemMax = 255
 
-export const SandboxPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(sandboxPartialUpdateBodyNameMax).optional(),
-    network_access_level: zod
-        .enum(['trusted', 'full', 'custom'])
-        .optional()
-        .describe('\* `trusted` - Trusted\n\* `full` - Full\n\* `custom` - Custom'),
-    allowed_domains: zod
-        .array(zod.string().max(sandboxPartialUpdateBodyAllowedDomainsItemMax))
-        .optional()
-        .describe('List of allowed domains for custom network access'),
-    include_default_domains: zod
-        .boolean()
-        .optional()
-        .describe('Whether to include default trusted domains (GitHub, npm, PyPI)'),
-    repositories: zod
-        .array(zod.string().max(sandboxPartialUpdateBodyRepositoriesItemMax))
-        .optional()
-        .describe('List of repositories this environment applies to (format: org\/repo)'),
-    environment_variables: zod
-        .unknown()
-        .optional()
-        .describe('Encrypted environment variables (write-only, never returned in responses)'),
-    private: zod
-        .boolean()
-        .optional()
-        .describe('If true, only the creator can see this environment. Otherwise visible to whole team.'),
-})
+export const sandboxPartialUpdateBodyPrivateDefault = true
 
+export const SandboxPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(sandboxPartialUpdateBodyNameMax)
+            .optional()
+            .describe('Display name for the environment.'),
+        network_access_level: zod
+            .enum(['trusted', 'full', 'custom'])
+            .describe('\* `trusted` - Trusted\n\* `full` - Full\n\* `custom` - Custom')
+            .default(sandboxPartialUpdateBodyNetworkAccessLevelDefault)
+            .describe(
+                'Network access policy: trusted (default allowlist), full (unrestricted), or custom.\n\n\* `trusted` - Trusted\n\* `full` - Full\n\* `custom` - Custom'
+            ),
+        allowed_domains: zod
+            .array(zod.string().max(sandboxPartialUpdateBodyAllowedDomainsItemMax))
+            .optional()
+            .describe('Allowed domains for custom network access.'),
+        include_default_domains: zod
+            .boolean()
+            .default(sandboxPartialUpdateBodyIncludeDefaultDomainsDefault)
+            .describe('Whether to include default trusted domains (GitHub, npm, PyPI).'),
+        repositories: zod
+            .array(zod.string().max(sandboxPartialUpdateBodyRepositoriesItemMax))
+            .optional()
+            .describe('Repositories this environment applies to (format: org\/repo).'),
+        environment_variables: zod
+            .unknown()
+            .optional()
+            .describe('Encrypted environment variables (write-only, never returned in responses).'),
+        private: zod
+            .boolean()
+            .default(sandboxPartialUpdateBodyPrivateDefault)
+            .describe('If true, only the creator can see this environment; otherwise the whole team can.'),
+    })
+    .describe('Request body for creating or updating a sandbox environment.')
+
+/**
+ * API for managing scheduled task automations.
+ */
 export const taskAutomationsCreateBodyNameMax = 255
 
 export const taskAutomationsCreateBodyRepositoryMax = 255
 
 export const taskAutomationsCreateBodyCronExpressionMax = 100
 
+export const taskAutomationsCreateBodyTimezoneDefault = `UTC`
 export const taskAutomationsCreateBodyTimezoneMax = 128
 
 export const taskAutomationsCreateBodyTemplateIdMax = 255
 
-export const TaskAutomationsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(taskAutomationsCreateBodyNameMax),
-    prompt: zod.string(),
-    repository: zod.string().max(taskAutomationsCreateBodyRepositoryMax),
-    github_integration: zod.number().nullish(),
-    cron_expression: zod.string().max(taskAutomationsCreateBodyCronExpressionMax),
-    timezone: zod.string().max(taskAutomationsCreateBodyTimezoneMax).optional(),
-    template_id: zod.string().max(taskAutomationsCreateBodyTemplateIdMax).nullish(),
-    enabled: zod.boolean().optional(),
-})
+export const taskAutomationsCreateBodyEnabledDefault = true
 
-export const taskAutomationsUpdateBodyNameMax = 255
+export const TaskAutomationsCreateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(taskAutomationsCreateBodyNameMax)
+            .describe("Display name (stored as the backing task's title)."),
+        prompt: zod.string().describe("The automation prompt (stored as the backing task's description)."),
+        repository: zod
+            .string()
+            .max(taskAutomationsCreateBodyRepositoryMax)
+            .describe('Target repository in the format organization\/repository.'),
+        github_integration: zod
+            .number()
+            .nullish()
+            .describe("GitHub integration to run as. Defaults to the team's GitHub integration when omitted."),
+        cron_expression: zod
+            .string()
+            .max(taskAutomationsCreateBodyCronExpressionMax)
+            .describe('Standard 5-field cron expression (minute hour day month weekday).'),
+        timezone: zod
+            .string()
+            .max(taskAutomationsCreateBodyTimezoneMax)
+            .default(taskAutomationsCreateBodyTimezoneDefault)
+            .describe('IANA timezone the schedule runs in.'),
+        template_id: zod
+            .string()
+            .max(taskAutomationsCreateBodyTemplateIdMax)
+            .nullish()
+            .describe('Optional template identifier this automation was created from.'),
+        enabled: zod
+            .boolean()
+            .default(taskAutomationsCreateBodyEnabledDefault)
+            .describe('Whether the schedule is active; paused when false.'),
+    })
+    .describe('Request body for creating or updating a task automation.')
 
-export const taskAutomationsUpdateBodyRepositoryMax = 255
-
-export const taskAutomationsUpdateBodyCronExpressionMax = 100
-
-export const taskAutomationsUpdateBodyTimezoneMax = 128
-
-export const taskAutomationsUpdateBodyTemplateIdMax = 255
-
-export const TaskAutomationsUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(taskAutomationsUpdateBodyNameMax),
-    prompt: zod.string(),
-    repository: zod.string().max(taskAutomationsUpdateBodyRepositoryMax),
-    github_integration: zod.number().nullish(),
-    cron_expression: zod.string().max(taskAutomationsUpdateBodyCronExpressionMax),
-    timezone: zod.string().max(taskAutomationsUpdateBodyTimezoneMax).optional(),
-    template_id: zod.string().max(taskAutomationsUpdateBodyTemplateIdMax).nullish(),
-    enabled: zod.boolean().optional(),
-})
-
+/**
+ * API for managing scheduled task automations.
+ */
 export const taskAutomationsPartialUpdateBodyNameMax = 255
 
 export const taskAutomationsPartialUpdateBodyRepositoryMax = 255
 
 export const taskAutomationsPartialUpdateBodyCronExpressionMax = 100
 
+export const taskAutomationsPartialUpdateBodyTimezoneDefault = `UTC`
 export const taskAutomationsPartialUpdateBodyTimezoneMax = 128
 
 export const taskAutomationsPartialUpdateBodyTemplateIdMax = 255
 
-export const TaskAutomationsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(taskAutomationsPartialUpdateBodyNameMax).optional(),
-    prompt: zod.string().optional(),
-    repository: zod.string().max(taskAutomationsPartialUpdateBodyRepositoryMax).optional(),
-    github_integration: zod.number().nullish(),
-    cron_expression: zod.string().max(taskAutomationsPartialUpdateBodyCronExpressionMax).optional(),
-    timezone: zod.string().max(taskAutomationsPartialUpdateBodyTimezoneMax).optional(),
-    template_id: zod.string().max(taskAutomationsPartialUpdateBodyTemplateIdMax).nullish(),
-    enabled: zod.boolean().optional(),
-})
+export const taskAutomationsPartialUpdateBodyEnabledDefault = true
 
-export const taskAutomationsRunCreateBodyNameMax = 255
-
-export const taskAutomationsRunCreateBodyRepositoryMax = 255
-
-export const taskAutomationsRunCreateBodyCronExpressionMax = 100
-
-export const taskAutomationsRunCreateBodyTimezoneMax = 128
-
-export const taskAutomationsRunCreateBodyTemplateIdMax = 255
-
-export const TaskAutomationsRunCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(taskAutomationsRunCreateBodyNameMax),
-    prompt: zod.string(),
-    repository: zod.string().max(taskAutomationsRunCreateBodyRepositoryMax),
-    github_integration: zod.number().nullish(),
-    cron_expression: zod.string().max(taskAutomationsRunCreateBodyCronExpressionMax),
-    timezone: zod.string().max(taskAutomationsRunCreateBodyTimezoneMax).optional(),
-    template_id: zod.string().max(taskAutomationsRunCreateBodyTemplateIdMax).nullish(),
-    enabled: zod.boolean().optional(),
-})
+export const TaskAutomationsPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(taskAutomationsPartialUpdateBodyNameMax)
+            .optional()
+            .describe("Display name (stored as the backing task's title)."),
+        prompt: zod.string().optional().describe("The automation prompt (stored as the backing task's description)."),
+        repository: zod
+            .string()
+            .max(taskAutomationsPartialUpdateBodyRepositoryMax)
+            .optional()
+            .describe('Target repository in the format organization\/repository.'),
+        github_integration: zod
+            .number()
+            .nullish()
+            .describe("GitHub integration to run as. Defaults to the team's GitHub integration when omitted."),
+        cron_expression: zod
+            .string()
+            .max(taskAutomationsPartialUpdateBodyCronExpressionMax)
+            .optional()
+            .describe('Standard 5-field cron expression (minute hour day month weekday).'),
+        timezone: zod
+            .string()
+            .max(taskAutomationsPartialUpdateBodyTimezoneMax)
+            .default(taskAutomationsPartialUpdateBodyTimezoneDefault)
+            .describe('IANA timezone the schedule runs in.'),
+        template_id: zod
+            .string()
+            .max(taskAutomationsPartialUpdateBodyTemplateIdMax)
+            .nullish()
+            .describe('Optional template identifier this automation was created from.'),
+        enabled: zod
+            .boolean()
+            .default(taskAutomationsPartialUpdateBodyEnabledDefault)
+            .describe('Whether the schedule is active; paused when false.'),
+    })
+    .describe('Request body for creating or updating a task automation.')
 
 /**
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
@@ -184,68 +229,71 @@ export const tasksCreateBodyTitleMax = 255
 
 export const tasksCreateBodyRepositoryMax = 255
 
-export const TasksCreateBody = /* @__PURE__ */ zod.object({
-    title: zod
-        .string()
-        .max(tasksCreateBodyTitleMax)
-        .optional()
-        .describe('Short human-readable title. Auto-generated from `description` when omitted.'),
-    title_manually_set: zod.boolean().optional(),
-    description: zod
-        .string()
-        .optional()
-        .describe('Free-form description of the work to be done. Used as the prompt passed to the agent.'),
-    origin_product: zod
-        .enum([
-            'error_tracking',
-            'eval_clusters',
-            'user_created',
-            'automation',
-            'slack',
-            'support_queue',
-            'session_summaries',
-            'signal_report',
-            'signals_scout',
-            'support_reply',
-        ])
-        .describe(
-            '\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
-        )
-        .optional()
-        .describe(
-            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
-        ),
-    repository: zod
-        .string()
-        .max(tasksCreateBodyRepositoryMax)
-        .nullish()
-        .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
-    github_integration: zod.number().nullish().describe('GitHub integration for this task'),
-    github_user_integration: zod
-        .uuid()
-        .nullish()
-        .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
-    signal_report: zod.uuid().nullish(),
-    signal_report_task_relationship: zod
-        .enum(['implementation'])
-        .describe('\* `implementation` - Implementation')
-        .optional(),
-    json_schema: zod
-        .unknown()
-        .optional()
-        .describe('JSON schema for the task. This is used to validate the output of the task.'),
-    internal: zod
-        .boolean()
-        .optional()
-        .describe('If true, this task is for internal use and should not be exposed to end users.'),
-    archived: zod
-        .boolean()
-        .optional()
-        .describe(
-            'If true, the task is hidden from default list responses. Used by PostHog Code clients to share archive state across desktop and mobile.'
-        ),
-    ci_prompt: zod.string().nullish().describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
-})
+export const TasksCreateBody = /* @__PURE__ */ zod
+    .object({
+        title: zod
+            .string()
+            .max(tasksCreateBodyTitleMax)
+            .optional()
+            .describe('Short human-readable title. Auto-generated from `description` when omitted.'),
+        title_manually_set: zod
+            .boolean()
+            .optional()
+            .describe('Whether the title was set by a human (vs auto-generated from the description).'),
+        description: zod
+            .string()
+            .optional()
+            .describe('Free-form description of the work to be done. Used as the prompt passed to the agent.'),
+        origin_product: zod
+            .enum([
+                'error_tracking',
+                'eval_clusters',
+                'user_created',
+                'automation',
+                'slack',
+                'support_queue',
+                'session_summaries',
+                'posthog_ai',
+                'signal_report',
+                'signals_scout',
+                'support_reply',
+            ])
+            .describe(
+                '\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
+            )
+            .optional()
+            .describe(
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
+            ),
+        repository: zod
+            .string()
+            .max(tasksCreateBodyRepositoryMax)
+            .nullish()
+            .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
+        github_integration: zod.number().nullish().describe('GitHub integration for this task.'),
+        github_user_integration: zod
+            .uuid()
+            .nullish()
+            .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
+        signal_report: zod.uuid().nullish().describe('Signal report this task implements, when created from a report.'),
+        signal_report_task_relationship: zod
+            .enum(['implementation'])
+            .describe('\* `implementation` - Implementation')
+            .optional(),
+        json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
+        internal: zod
+            .boolean()
+            .optional()
+            .describe('If true, this task is for internal use and should not be exposed to end users.'),
+        archived: zod.boolean().optional().describe('If true, the task is hidden from default list responses.'),
+        ci_prompt: zod
+            .string()
+            .nullish()
+            .describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
+    })
+    .describe(
+        'Request body for creating or updating a task.\n\nField required\/default semantics match the ``Task`` model. The view passes\n``validated_data`` (integration\/report PK fields already resolved to instances) to the\nfacade ``create_task`` \/ ``update_task`` functions.'
+    )
 
 /**
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
@@ -254,68 +302,71 @@ export const tasksUpdateBodyTitleMax = 255
 
 export const tasksUpdateBodyRepositoryMax = 255
 
-export const TasksUpdateBody = /* @__PURE__ */ zod.object({
-    title: zod
-        .string()
-        .max(tasksUpdateBodyTitleMax)
-        .optional()
-        .describe('Short human-readable title. Auto-generated from `description` when omitted.'),
-    title_manually_set: zod.boolean().optional(),
-    description: zod
-        .string()
-        .optional()
-        .describe('Free-form description of the work to be done. Used as the prompt passed to the agent.'),
-    origin_product: zod
-        .enum([
-            'error_tracking',
-            'eval_clusters',
-            'user_created',
-            'automation',
-            'slack',
-            'support_queue',
-            'session_summaries',
-            'signal_report',
-            'signals_scout',
-            'support_reply',
-        ])
-        .describe(
-            '\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
-        )
-        .optional()
-        .describe(
-            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
-        ),
-    repository: zod
-        .string()
-        .max(tasksUpdateBodyRepositoryMax)
-        .nullish()
-        .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
-    github_integration: zod.number().nullish().describe('GitHub integration for this task'),
-    github_user_integration: zod
-        .uuid()
-        .nullish()
-        .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
-    signal_report: zod.uuid().nullish(),
-    signal_report_task_relationship: zod
-        .enum(['implementation'])
-        .describe('\* `implementation` - Implementation')
-        .optional(),
-    json_schema: zod
-        .unknown()
-        .optional()
-        .describe('JSON schema for the task. This is used to validate the output of the task.'),
-    internal: zod
-        .boolean()
-        .optional()
-        .describe('If true, this task is for internal use and should not be exposed to end users.'),
-    archived: zod
-        .boolean()
-        .optional()
-        .describe(
-            'If true, the task is hidden from default list responses. Used by PostHog Code clients to share archive state across desktop and mobile.'
-        ),
-    ci_prompt: zod.string().nullish().describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
-})
+export const TasksUpdateBody = /* @__PURE__ */ zod
+    .object({
+        title: zod
+            .string()
+            .max(tasksUpdateBodyTitleMax)
+            .optional()
+            .describe('Short human-readable title. Auto-generated from `description` when omitted.'),
+        title_manually_set: zod
+            .boolean()
+            .optional()
+            .describe('Whether the title was set by a human (vs auto-generated from the description).'),
+        description: zod
+            .string()
+            .optional()
+            .describe('Free-form description of the work to be done. Used as the prompt passed to the agent.'),
+        origin_product: zod
+            .enum([
+                'error_tracking',
+                'eval_clusters',
+                'user_created',
+                'automation',
+                'slack',
+                'support_queue',
+                'session_summaries',
+                'posthog_ai',
+                'signal_report',
+                'signals_scout',
+                'support_reply',
+            ])
+            .describe(
+                '\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
+            )
+            .optional()
+            .describe(
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
+            ),
+        repository: zod
+            .string()
+            .max(tasksUpdateBodyRepositoryMax)
+            .nullish()
+            .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
+        github_integration: zod.number().nullish().describe('GitHub integration for this task.'),
+        github_user_integration: zod
+            .uuid()
+            .nullish()
+            .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
+        signal_report: zod.uuid().nullish().describe('Signal report this task implements, when created from a report.'),
+        signal_report_task_relationship: zod
+            .enum(['implementation'])
+            .describe('\* `implementation` - Implementation')
+            .optional(),
+        json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
+        internal: zod
+            .boolean()
+            .optional()
+            .describe('If true, this task is for internal use and should not be exposed to end users.'),
+        archived: zod.boolean().optional().describe('If true, the task is hidden from default list responses.'),
+        ci_prompt: zod
+            .string()
+            .nullish()
+            .describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
+    })
+    .describe(
+        'Request body for creating or updating a task.\n\nField required\/default semantics match the ``Task`` model. The view passes\n``validated_data`` (integration\/report PK fields already resolved to instances) to the\nfacade ``create_task`` \/ ``update_task`` functions.'
+    )
 
 /**
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
@@ -324,68 +375,71 @@ export const tasksPartialUpdateBodyTitleMax = 255
 
 export const tasksPartialUpdateBodyRepositoryMax = 255
 
-export const TasksPartialUpdateBody = /* @__PURE__ */ zod.object({
-    title: zod
-        .string()
-        .max(tasksPartialUpdateBodyTitleMax)
-        .optional()
-        .describe('Short human-readable title. Auto-generated from `description` when omitted.'),
-    title_manually_set: zod.boolean().optional(),
-    description: zod
-        .string()
-        .optional()
-        .describe('Free-form description of the work to be done. Used as the prompt passed to the agent.'),
-    origin_product: zod
-        .enum([
-            'error_tracking',
-            'eval_clusters',
-            'user_created',
-            'automation',
-            'slack',
-            'support_queue',
-            'session_summaries',
-            'signal_report',
-            'signals_scout',
-            'support_reply',
-        ])
-        .describe(
-            '\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
-        )
-        .optional()
-        .describe(
-            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
-        ),
-    repository: zod
-        .string()
-        .max(tasksPartialUpdateBodyRepositoryMax)
-        .nullish()
-        .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
-    github_integration: zod.number().nullish().describe('GitHub integration for this task'),
-    github_user_integration: zod
-        .uuid()
-        .nullish()
-        .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
-    signal_report: zod.uuid().nullish(),
-    signal_report_task_relationship: zod
-        .enum(['implementation'])
-        .describe('\* `implementation` - Implementation')
-        .optional(),
-    json_schema: zod
-        .unknown()
-        .optional()
-        .describe('JSON schema for the task. This is used to validate the output of the task.'),
-    internal: zod
-        .boolean()
-        .optional()
-        .describe('If true, this task is for internal use and should not be exposed to end users.'),
-    archived: zod
-        .boolean()
-        .optional()
-        .describe(
-            'If true, the task is hidden from default list responses. Used by PostHog Code clients to share archive state across desktop and mobile.'
-        ),
-    ci_prompt: zod.string().nullish().describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
-})
+export const TasksPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        title: zod
+            .string()
+            .max(tasksPartialUpdateBodyTitleMax)
+            .optional()
+            .describe('Short human-readable title. Auto-generated from `description` when omitted.'),
+        title_manually_set: zod
+            .boolean()
+            .optional()
+            .describe('Whether the title was set by a human (vs auto-generated from the description).'),
+        description: zod
+            .string()
+            .optional()
+            .describe('Free-form description of the work to be done. Used as the prompt passed to the agent.'),
+        origin_product: zod
+            .enum([
+                'error_tracking',
+                'eval_clusters',
+                'user_created',
+                'automation',
+                'slack',
+                'support_queue',
+                'session_summaries',
+                'posthog_ai',
+                'signal_report',
+                'signals_scout',
+                'support_reply',
+            ])
+            .describe(
+                '\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
+            )
+            .optional()
+            .describe(
+                'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created).\n\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `automation` - Automation\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `signal_report` - Signal Report\n\* `signals_scout` - Signals Scout\n\* `support_reply` - Support Reply'
+            ),
+        repository: zod
+            .string()
+            .max(tasksPartialUpdateBodyRepositoryMax)
+            .nullish()
+            .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
+        github_integration: zod.number().nullish().describe('GitHub integration for this task.'),
+        github_user_integration: zod
+            .uuid()
+            .nullish()
+            .describe('User-scoped GitHub integration to use for user-authored cloud runs.'),
+        signal_report: zod.uuid().nullish().describe('Signal report this task implements, when created from a report.'),
+        signal_report_task_relationship: zod
+            .enum(['implementation'])
+            .describe('\* `implementation` - Implementation')
+            .optional(),
+        json_schema: zod.unknown().optional().describe('JSON schema used to validate the output of the task.'),
+        internal: zod
+            .boolean()
+            .optional()
+            .describe('If true, this task is for internal use and should not be exposed to end users.'),
+        archived: zod.boolean().optional().describe('If true, the task is hidden from default list responses.'),
+        ci_prompt: zod
+            .string()
+            .nullish()
+            .describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
+    })
+    .describe(
+        'Request body for creating or updating a task.\n\nField required\/default semantics match the ``Task`` model. The view passes\n``validated_data`` (integration\/report PK fields already resolved to instances) to the\nfacade ``create_task`` \/ ``update_task`` functions.'
+    )
 
 /**
  * Idempotent upsert: marks the calling user + `device_id` as actively watching this task for the next ~60 seconds. While at least one device for the user has a non-expired presence row for this task, the push fanout will skip ALL of that user's other registered devices for task notifications — the contract is 'if any device is demonstrably watching, suppress the others'. Clients call this every ~30s while the task screen is foregrounded. `device_id` is the UUID of the caller's UserPushToken row.
@@ -735,6 +789,8 @@ export const tasksRunsCreateBodyEnvironmentDefault = `local`
 export const tasksRunsCreateBodyModeDefault = `background`
 export const tasksRunsCreateBodyBranchMax = 255
 
+export const tasksRunsCreateBodyHomeQuickActionMax = 120
+
 export const TasksRunsCreateBody = /* @__PURE__ */ zod
     .object({
         environment: zod
@@ -805,6 +861,13 @@ export const TasksRunsCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Initial permission mode for the agent session. Claude runtimes accept PostHog permission presets like 'plan'. Codex runtimes accept native Codex modes like 'auto' and 'read-only'.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access"
+            ),
+        home_quick_action: zod
+            .string()
+            .max(tasksRunsCreateBodyHomeQuickActionMax)
+            .optional()
+            .describe(
+                "Label of the Home-tab quick action that started this run (e.g. 'Fix CI'), surfaced on the workstream."
             ),
     })
     .describe('Request body for creating a task run without starting execution yet.')

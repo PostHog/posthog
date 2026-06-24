@@ -19,6 +19,11 @@
             ],
             "description": "Human-readable description."
         },
+        "direct_query_enabled": {
+            "default": true,
+            "description": "Whether a synced source should also be live-queryable via direct connection. Defaults to true; ignored for pure direct-query sources.",
+            "type": "boolean"
+        },
         "payload": {
             "additionalProperties": {},
             "description": "Connection credentials for the source. Keys depend on source_type. For database sources: host, port, database, user, password, schema. For SaaS sources: api_key or OAuth fields. Use external-data-sources-wizard to see required fields per source type.",

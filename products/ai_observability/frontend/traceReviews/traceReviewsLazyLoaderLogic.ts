@@ -1,5 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
+import { chunk } from 'lib/utils/arrays'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { traceReviewsApi } from './traceReviewsApi'
@@ -7,16 +8,6 @@ import type { traceReviewsLazyLoaderLogicType } from './traceReviewsLazyLoaderLo
 import type { TraceReview } from './types'
 
 const BATCH_MAX_SIZE = 100
-
-function chunk<T>(arr: T[], size: number): T[][] {
-    const chunks: T[][] = []
-
-    for (let i = 0; i < arr.length; i += size) {
-        chunks.push(arr.slice(i, i + size))
-    }
-
-    return chunks
-}
 
 export const traceReviewsLazyLoaderLogic = kea<traceReviewsLazyLoaderLogicType>([
     path(['products', 'ai_observability', 'frontend', 'traceReviews', 'traceReviewsLazyLoaderLogic']),

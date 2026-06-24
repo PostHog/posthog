@@ -358,6 +358,11 @@ export const WorkflowHealthDayApi = zod.object({
     run_count: zod.number().describe('Runs started that day.'),
     completed: zod.number().describe('Runs that completed that day.'),
     successes: zod.number().describe("Completed runs with conclusion 'success' that day."),
+    failures: zod
+        .number()
+        .describe(
+            "Completed runs that failed that day (conclusion 'failure' or 'timed_out'); excludes skipped, cancelled, and action_required runs."
+        ),
 })
 
 export type WorkflowHealthDayApi = zod.input<typeof WorkflowHealthDayApi>
@@ -378,6 +383,11 @@ export const WorkflowHealthItemApi = zod.object({
                 run_count: zod.number().describe('Runs started that day.'),
                 completed: zod.number().describe('Runs that completed that day.'),
                 successes: zod.number().describe("Completed runs with conclusion 'success' that day."),
+                failures: zod
+                    .number()
+                    .describe(
+                        "Completed runs that failed that day (conclusion 'failure' or 'timed_out'); excludes skipped, cancelled, and action_required runs."
+                    ),
             })
         )
         .describe('Daily run history across the whole window, oldest first, zero-filled.'),
@@ -398,7 +408,7 @@ export const WorkflowHealthItemApi = zod.object({
     last_failure_at: zod.iso
         .datetime({ offset: true })
         .nullable()
-        .describe("When the most recent run with conclusion 'failure' started, or null."),
+        .describe("When the most recent failing run (conclusion 'failure' or 'timed_out') started, or null."),
 })
 
 export type WorkflowHealthItemApi = zod.input<typeof WorkflowHealthItemApi>

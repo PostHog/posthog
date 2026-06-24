@@ -1,19 +1,13 @@
-from posthog.hogql.database.models import FunctionCallTable
+from posthog.hogql.database.direct_sql_table import DirectSQLTable
 from posthog.hogql.errors import QueryError
-from posthog.hogql.escape_sql import escape_hogql_identifier, escape_mysql_identifier
+from posthog.hogql.escape_sql import escape_mysql_identifier
 
 
-class DirectMySQLTable(FunctionCallTable):
-    requires_args: bool = False
+class DirectMySQLTable(DirectSQLTable):
     # In MySQL a "schema" and a "database" are the same namespace; this holds the
     # database the table lives in.
     mysql_schema: str
     mysql_table_name: str
-    external_data_source_id: str
-    connection_metadata: dict[str, object] | None = None
-
-    def to_printed_hogql(self) -> str:
-        return escape_hogql_identifier(self.name)
 
     def to_printed_mysql(self, context) -> str:
         if not self.mysql_schema.strip():

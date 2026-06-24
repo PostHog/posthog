@@ -3,7 +3,7 @@ import { combineUrl, router } from 'kea-router'
 import { useMemo, useRef } from 'react'
 
 import { IconDownload, IconPlusSmall, IconUpload } from '@posthog/icons'
-import { LemonDivider, LemonModal, LemonSwitch, Link } from '@posthog/lemon-ui'
+import { LemonDivider, LemonModal, LemonSwitch, LemonTabs, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
@@ -30,7 +30,15 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { LLMSkillListApi } from 'products/skills/frontend/generated/api.schemas'
 
-import { SKILLS_GROUP_LIMIT, SKILLS_PER_PAGE, SkillGroupNode, SkillGroupTree, llmSkillsLogic } from './llmSkillsLogic'
+import {
+    DEFAULT_SKILLS_TAB_KEY,
+    SKILLS_GROUP_LIMIT,
+    SKILLS_PER_PAGE,
+    SkillGroupNode,
+    SkillGroupTree,
+    llmSkillsLogic,
+    skillTabUrl,
+} from './llmSkillsLogic'
 import { SKILL_NAME_MAX_LENGTH, validateSkillName } from './skillConstants'
 import { openArchiveSkillDialog } from './skillSceneComponents'
 
@@ -40,11 +48,20 @@ export const scene: SceneExport = {
     productKey: ProductKey.AI_OBSERVABILITY,
 }
 
+// Mirrors `metadata.seeded_by` stamped by the Signals scout harness (kept local so the skills
+// product needn't depend on the signals product). Its presence marks a canonical scout.
+const HARNESS_SEEDED_BY = 'signals_scout_harness'
+
+function isCanonicalScout(skill: LLMSkillListApi): boolean {
+    return (skill.metadata as Record<string, unknown> | undefined)?.seeded_by === HARNESS_SEEDED_BY
+}
+
 function buildSkillColumns(
     skillUrl: (name: string) => string,
     duplicateSkill: (name: string, newName: string) => void,
     deleteSkill: (name: string) => void,
-    downloadSkillZip: (name: string) => void
+    downloadSkillZip: (name: string) => void,
+    options?: { showScoutOrigin?: boolean }
 ): LemonTableColumns<LLMSkillListApi> {
     return [
         {
@@ -60,6 +77,23 @@ function buildSkillColumns(
                 )
             },
         },
+        ...(options?.showScoutOrigin
+            ? ([
+                  {
+                      title: 'Origin',
+                      key: 'origin',
+                      width: 110,
+                      render: function renderOrigin(_, skill) {
+                          const canonical = isCanonicalScout(skill)
+                          return (
+                              <LemonTag type={canonical ? 'completion' : 'default'}>
+                                  {canonical ? 'Canonical' : 'Custom'}
+                              </LemonTag>
+                          )
+                      },
+                  },
+              ] as LemonTableColumns<LLMSkillListApi>)
+            : []),
         {
             title: 'Description',
             dataIndex: 'description',
@@ -394,18 +428,32 @@ function ConnectToClaudeCodeModal(): JSX.Element {
 export function LLMSkillsScene(): JSX.Element {
     const { setFilters, deleteSkill, duplicateSkill, downloadSkillZip, importSkill, setConnectModalOpen } =
         useActions(llmSkillsLogic)
-    const { skills, skillsLoading, sorting, pagination, filters, skillCountLabel, groupedSkills, importing } =
-        useValues(llmSkillsLogic)
+    const {
+        skills,
+        skillsLoading,
+        sorting,
+        pagination,
+        filters,
+        skillCountLabel,
+        groupedSkills,
+        importing,
+        activeTabKey,
+        activeCategory,
+        activeTabDescription,
+        visibleCategoryTabs,
+    } = useValues(llmSkillsLogic)
     const { searchParams } = useValues(router)
     const skillUrl = (name: string): string => combineUrl(urls.skill(name), searchParams).url
     const fileInputRef = useRef<HTMLInputElement | null>(null)
 
+    const showScoutOrigin = activeCategory === 'scout'
+
     // Memoize columns so the array reference doesn't change every render — otherwise every
     // nested LemonTable inside the grouped tree reconciles on each parent re-render.
     const columns = useMemo(
-        () => buildSkillColumns(skillUrl, duplicateSkill, deleteSkill, downloadSkillZip),
+        () => buildSkillColumns(skillUrl, duplicateSkill, deleteSkill, downloadSkillZip, { showScoutOrigin }),
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        [searchParams, duplicateSkill, deleteSkill, downloadSkillZip]
+        [searchParams, duplicateSkill, deleteSkill, downloadSkillZip, showScoutOrigin]
     )
 
     const showGroupedView = filters.group_by_prefix && groupedSkills && !skillsLoading
@@ -432,12 +480,13 @@ export function LLMSkillsScene(): JSX.Element {
             <ConnectToClaudeCodeModal />
             <SceneTitleSection
                 name="Skills"
-                description="Manage versioned agent skills that any agent can discover and use."
+                description={activeTabDescription}
                 resourceType={{ type: 'llm_analytics' }}
                 actions={
                     <>
                         <LemonButton
                             type="secondary"
+                            size="small"
                             onClick={() => setConnectModalOpen(true)}
                             data-attr="connect-coding-agent-button"
                         >
@@ -449,6 +498,7 @@ export function LLMSkillsScene(): JSX.Element {
                         >
                             <LemonButton
                                 type="secondary"
+                                size="small"
                                 icon={<IconUpload />}
                                 onClick={() => fileInputRef.current?.click()}
                                 loading={importing}
@@ -464,6 +514,7 @@ export function LLMSkillsScene(): JSX.Element {
                         >
                             <LemonButton
                                 type="primary"
+                                size="small"
                                 to={skillUrl('new')}
                                 icon={<IconPlusSmall />}
                                 data-attr="new-skill-button"
@@ -474,6 +525,17 @@ export function LLMSkillsScene(): JSX.Element {
                     </>
                 }
             />
+
+            {visibleCategoryTabs.length > 0 && (
+                <LemonTabs
+                    activeKey={activeTabKey}
+                    onChange={(key) => router.actions.push(skillTabUrl(key))}
+                    tabs={[
+                        { key: DEFAULT_SKILLS_TAB_KEY, label: 'Skills' },
+                        ...visibleCategoryTabs.map((tab) => ({ key: tab.key, label: tab.label })),
+                    ]}
+                />
+            )}
 
             <div className="space-y-4">
                 <div className="flex gap-x-4 gap-y-2 items-center flex-wrap">

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBolt, IconGear, IconSearch, IconTarget, IconX } from '@posthog/icons'
+import { IconBolt, IconGear, IconSearch, IconStar, IconTarget, IconX } from '@posthog/icons'
 import { Badge, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
@@ -21,6 +21,8 @@ import {
     SceneMenuBarSubMenu,
 } from '~/layout/scenes/components/SceneMenuBar'
 
+import { isWebAnalyticsAchievementsEnabled } from './achievements/gating'
+import { webAnalyticsAchievementsLogic } from './achievements/webAnalyticsAchievementsLogic'
 import { ProductTab, TILE_LABELS, TileId } from './common'
 
 const ANALYTICS_TILES = [
@@ -93,7 +95,9 @@ function WebAnalyticsSceneMenuBarInner(): JSX.Element {
     const { projectTreeRefEntry } = useValues(projectTreeDataLogic)
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
+    const { openModal: openAchievementsModal } = useActions(webAnalyticsAchievementsLogic)
 
+    const showAchievements = isWebAnalyticsAchievementsEnabled(featureFlags)
     const showTileToggles = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_TOGGLES]
     const showQueryEngineToggle = !!featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES]
     const isUsingNewEngine = !!currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables
@@ -168,6 +172,16 @@ function WebAnalyticsSceneMenuBarInner(): JSX.Element {
                             Enter focus mode
                         </SceneMenuBarItem>
                     ) : null)}
+                {showAchievements && (
+                    <SceneMenuBarItem
+                        onClick={() => openAchievementsModal()}
+                        data-attr="web-analytics-achievements-open"
+                        opensFloatingUi
+                    >
+                        <IconStar />
+                        Achievements
+                    </SceneMenuBarItem>
+                )}
                 <SceneMenuBarSeparator />
                 <SceneMenuBarCheckboxItem
                     checked={shouldFilterTestAccounts}

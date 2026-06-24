@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
@@ -17,6 +17,12 @@ class KlaviyoEndpointConfig:
     page_size: Optional[int] = None  # Override default page size (100)
     sort: Optional[str] = None  # Sort field for the endpoint
     default_lookback_days: Optional[int] = None  # Limit first sync to last N days instead of full history
+    primary_keys: list[str] = field(default_factory=lambda: ["id"])  # Primary key columns for dedup
+    should_sync_default: bool = True  # Whether the table is selected for sync by default in the UI
+    # Fan out over every synced list, following /lists/{list_id}/relationships/profiles to materialize
+    # the otherwise-unqueryable many-to-many list<->profile membership as {list_id, profile_id} rows.
+    # When True, `path` is a template with a `{list_id}` placeholder.
+    fan_out_over_lists: bool = False
 
 
 KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
@@ -142,6 +148,18 @@ KLAVIYO_ENDPOINTS: dict[str, KlaviyoEndpointConfig] = {
                 "field_type": IncrementalFieldType.DateTime,
             },
         ],
+    ),
+    # Klaviyo only exposes list membership as JSON:API relationship links on the profile/list
+    # objects (API endpoints that can't be called from HogQL), so the many-to-many can't be joined.
+    # This table follows those links to produce a flat {list_id, profile_id} join table. It fans out
+    # one paginated request per list, so it's opt-in (off by default) to avoid the extra API cost.
+    "list_profiles": KlaviyoEndpointConfig(
+        name="list_profiles",
+        path="/lists/{list_id}/relationships/profiles",
+        incremental_fields=[],
+        primary_keys=["list_id", "profile_id"],
+        should_sync_default=False,
+        fan_out_over_lists=True,
     ),
 }
 

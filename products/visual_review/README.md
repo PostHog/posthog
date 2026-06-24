@@ -116,7 +116,7 @@ The CLI uploads directly to S3 via presigned POST URLs — the backend never pro
 ### Run purposes
 
 - **`review`** (default) — approvable. Backend posts PR comment prompts; UI surfaces it under "needs review"; CLI gates on unapproved changes.
-- **`observe`** — tracking only. Backend rejects approval attempts; no PR comment; excluded from "needs review". Use on master pushes where there's no PR to approve.
+- **`observe`** — tracking only. Backend rejects approval attempts; no PR comment; excluded from "needs review". The commit status is posted green (`success`, "Tracking only…") to a separate, non-gating `… (tracking)` context — never the gating `PostHog Visual Review / {run_type}` one. `purpose` is client-supplied, so greening the gating context would let an observe run bypass branch protection on a PR head SHA; the separate context keeps observe runs informational-only (like `(partial)` runs). The UI hides all approval affordances. Use on master pushes where there's no PR to approve.
 
 ## Current state
 

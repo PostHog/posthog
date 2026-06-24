@@ -2056,6 +2056,23 @@ export interface GoalLineApi {
     value: number
 }
 
+export type LegendPositionApi = (typeof LegendPositionApi)[keyof typeof LegendPositionApi]
+
+export const LegendPositionApi = {
+    Top: 'top',
+    Bottom: 'bottom',
+    Left: 'left',
+    Right: 'right',
+} as const
+
+export type MetricSummaryApi = (typeof MetricSummaryApi)[keyof typeof MetricSummaryApi]
+
+export const MetricSummaryApi = {
+    Total: 'total',
+    Average: 'average',
+    Latest: 'latest',
+} as const
+
 export type ResultCustomizationByApi = (typeof ResultCustomizationByApi)[keyof typeof ResultCustomizationByApi]
 
 export const ResultCustomizationByApi = {
@@ -2141,6 +2158,8 @@ export interface TrendsFilterApi {
     goalLines?: GoalLineApi[] | null
     hiddenLegendIndexes?: number[] | null
     hideWeekends?: boolean | null
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
+    legendPosition?: LegendPositionApi | null
     /** Metric display: change pill color when the metric decreased. Defaults to red. */
     metricChangeDecreaseColor?: string | null
     /** Metric display: change pill color when the metric increased. Defaults to green. */
@@ -2153,6 +2172,8 @@ export interface TrendsFilterApi {
     metricLineIncreaseColor?: string | null
     /** Show the period-over-period change pill on the Metric display. */
     metricShowChange?: boolean | null
+    /** Metric display: which summary the resting headline shows — the period total, the average, or the latest point. Hovering the sparkline always shows the hovered point's value. Also drives the change pill: total/average compare against the previous period when "compare to previous" is on; latest compares first→last of the series. */
+    metricSummary?: MetricSummaryApi | null
     minDecimalPlaces?: number | null
     movingAverageIntervals?: number | null
     /** Wether result datasets are associated by their values or by their order. */
@@ -2487,6 +2508,8 @@ export interface FunnelsFilterApi {
     /** Trends only: hide periods whose conversion window has not fully elapsed yet, so the recent tail of the trend isn't dragged down by entrants who still have time to convert. */
     hideIncompleteConversionWindowPeriods?: boolean | null
     layout?: FunnelLayoutApi | null
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
+    legendPosition?: LegendPositionApi | null
     /** Customizations for the appearance of result datasets. */
     resultCustomizations?: FunnelsFilterApiResultCustomizations
     /** Whether to render annotations on the chart. Only applies to historical-trends funnels. */
@@ -3086,6 +3109,8 @@ export interface StickinessFilterApi {
     computedAs?: StickinessComputationModeApi | null
     display?: ChartDisplayTypeApi | null
     hiddenLegendIndexes?: number[] | null
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
+    legendPosition?: LegendPositionApi | null
     /** Whether result datasets are associated by their values or by their order. */
     resultCustomizationBy?: ResultCustomizationByApi | null
     /** Customizations for the appearance of result datasets. */
@@ -3161,6 +3186,8 @@ export const LifecycleToggleApi = {
 } as const
 
 export interface LifecycleFilterApi {
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
+    legendPosition?: LegendPositionApi | null
     showLegend?: boolean | null
     /** Append per-band percentage to each value label (e.g. `580 (42%)`). Requires `showValuesOnSeries` — on its own it has no visible effect. */
     showPercentagesOnSeries?: boolean | null
