@@ -1,8 +1,8 @@
 import { IconCursorClick, IconPencil } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Scene } from 'scenes/sceneTypes'
@@ -13,7 +13,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 export function NewActionButton({ onSelectOption }: { onSelectOption?: () => void }): JSX.Element {
     return (
         <AccessControlAction resourceType={AccessControlResourceType.Action} minAccessLevel={AccessControlLevel.Editor}>
-            <AppShortcut
+            <Shortcut
                 name="NewAction"
                 keybind={[keyBinds.new]}
                 intent="New action"
@@ -81,7 +81,7 @@ export function NewActionButton({ onSelectOption }: { onSelectOption?: () => voi
                 >
                     New action
                 </LemonButton>
-            </AppShortcut>
+            </Shortcut>
         </AccessControlAction>
     )
 }

@@ -2,8 +2,8 @@ import { useValues } from 'kea'
 
 import { IconSearch } from '@posthog/icons'
 
-import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { RenderKeybind } from 'lib/components/Shortcuts/ShortcutMenu'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import posthog from 'lib/posthog-typed'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 

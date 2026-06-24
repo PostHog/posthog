@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { isMac } from 'lib/utils/dom'
 
-import { AppShortcutType, appShortcutLogic } from './appShortcutLogic'
+import { ShortcutType, shortcutLogic } from './shortcutLogic'
 
 const IS_MAC = isMac()
 
@@ -15,7 +15,7 @@ export function convertPlatformKeybinds(keybinds: string[][]): string[][] {
     return keybinds.map(convertPlatformKeybind)
 }
 
-interface UseAppShortcutBase {
+interface UseShortcutOptionsBase {
     /** Unique identifier for the shortcut */
     name: string
     /** Keybind(s) - use 'command' for Cmd/Ctrl. Multiple arrays = alternative keybinds */
@@ -23,14 +23,14 @@ interface UseAppShortcutBase {
     /** Description of what the shortcut does */
     intent: string
     /** Scope: 'global' or a specific Scene key */
-    scope?: AppShortcutType['scope']
+    scope?: ShortcutType['scope']
     /** When true, shortcut is not registered */
     disabled?: boolean
     /** Higher priority items appear first in their group. Default: 0 */
     priority?: number
 }
 
-interface UseAppShortcutWithRef extends UseAppShortcutBase {
+interface UseShortcutOptionsWithRef extends UseShortcutOptionsBase {
     /** 'click' triggers element.click(), 'focus' triggers element.focus() */
     interaction: 'click' | 'focus'
     /** Optional: use your own ref instead of the one returned by the hook */
@@ -38,7 +38,7 @@ interface UseAppShortcutWithRef extends UseAppShortcutBase {
     callback?: never
 }
 
-interface UseAppShortcutWithCallback extends UseAppShortcutBase {
+interface UseShortcutOptionsWithCallback extends UseShortcutOptionsBase {
     /** 'function' calls your callback directly - no ref needed */
     interaction: 'function'
     /** The function to call when the shortcut is triggered */
@@ -46,9 +46,9 @@ interface UseAppShortcutWithCallback extends UseAppShortcutBase {
     externalRef?: never
 }
 
-export type UseAppShortcutOptions = UseAppShortcutWithRef | UseAppShortcutWithCallback
+export type UseShortcutOptions = UseShortcutOptionsWithRef | UseShortcutOptionsWithCallback
 
-export interface UseAppShortcutReturn<T extends HTMLElement> {
+export interface UseShortcutReturn<T extends HTMLElement> {
     /** Object ref - use this if you just need a simple ref */
     ref: React.RefObject<T>
     /** Callback ref - use this if you need to know when the element mounts (e.g., for conditional rendering) */
@@ -63,7 +63,7 @@ export interface UseAppShortcutReturn<T extends HTMLElement> {
  * **1. Element interaction (click/focus)** - triggers click() or focus() on an element
  * ```tsx
  * // Simple: use the returned ref
- * const { ref } = useAppShortcut({
+ * const { ref } = useShortcut({
  *     name: 'open-search',
  *     keybind: [['command', 'k']],
  *     intent: 'Open search',
@@ -73,7 +73,7 @@ export interface UseAppShortcutReturn<T extends HTMLElement> {
  *
  * // Or bring your own ref
  * const myRef = useRef<HTMLButtonElement>(null)
- * useAppShortcut({
+ * useShortcut({
  *     name: 'open-search',
  *     keybind: [['command', 'k']],
  *     intent: 'Open search',
@@ -85,7 +85,7 @@ export interface UseAppShortcutReturn<T extends HTMLElement> {
  *
  * **2. Function callback** - calls a function directly, no element needed
  * ```tsx
- * useAppShortcut({
+ * useShortcut({
  *     name: 'toggle-theme',
  *     keybind: [['command', 'd']],
  *     intent: 'Toggle dark mode',
@@ -106,14 +106,12 @@ export interface UseAppShortcutReturn<T extends HTMLElement> {
  * keybind: [['command', 'k'], ['command', 'shift', 'k']]  // Either triggers it
  * ```
  */
-export function useAppShortcut<T extends HTMLElement = HTMLElement>(
-    options: UseAppShortcutOptions
-): UseAppShortcutReturn<T> {
+export function useShortcut<T extends HTMLElement = HTMLElement>(options: UseShortcutOptions): UseShortcutReturn<T> {
     const { name, keybind, intent, interaction, scope = 'global', disabled = false, priority } = options
 
     const internalRef = useRef<T>(null)
     const [isRefReady, setIsRefReady] = useState(false)
-    const { registerAppShortcut, unregisterAppShortcut } = useActions(appShortcutLogic)
+    const { registerShortcut, unregisterShortcut } = useActions(shortcutLogic)
 
     const externalRef = options.interaction !== 'function' ? options.externalRef : undefined
     const callback = options.interaction === 'function' ? options.callback : undefined
@@ -138,7 +136,7 @@ export function useAppShortcut<T extends HTMLElement = HTMLElement>(
 
         if (interaction === 'function' && callbackFnRef.current) {
             const platformAgnosticKeybinds = convertPlatformKeybinds(keybind)
-            registerAppShortcut({
+            registerShortcut({
                 name,
                 keybind: platformAgnosticKeybinds,
                 callback: () => callbackFnRef.current?.(),
@@ -149,7 +147,7 @@ export function useAppShortcut<T extends HTMLElement = HTMLElement>(
             })
         } else if (isRefReady && ref.current && interaction !== 'function') {
             const platformAgnosticKeybinds = convertPlatformKeybinds(keybind)
-            registerAppShortcut({
+            registerShortcut({
                 name,
                 keybind: platformAgnosticKeybinds,
                 ref: ref as React.RefObject<HTMLElement>,
@@ -161,9 +159,9 @@ export function useAppShortcut<T extends HTMLElement = HTMLElement>(
         }
 
         return () => {
-            unregisterAppShortcut(name)
+            unregisterShortcut(name)
         }
-    }, [isRefReady, name, intent, interaction, scope, disabled, ref, priority, registerAppShortcut]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [isRefReady, name, intent, interaction, scope, disabled, ref, priority, registerShortcut, unregisterShortcut]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return { ref, callbackRef }
 }

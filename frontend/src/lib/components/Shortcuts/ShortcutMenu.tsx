@@ -17,7 +17,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { Combobox } from '~/lib/ui/Combobox/Combobox'
 
-import { AppShortcutType, appShortcutLogic } from './appShortcutLogic'
+import { ShortcutType, shortcutLogic } from './shortcutLogic'
 
 function titleForKey(key: string): string {
     switch (key) {
@@ -31,7 +31,7 @@ function titleForKey(key: string): string {
     }
 }
 
-function getShortcutIcon(shortcut: AppShortcutType): JSX.Element | null {
+function getShortcutIcon(shortcut: ShortcutType): JSX.Element | null {
     switch (shortcut.interaction) {
         case 'focus':
             return (
@@ -89,19 +89,19 @@ export function RenderKeybind({ keybind, className, minimal }: RenderKeybindProp
     )
 }
 
-export function AppShortcutMenu(): JSX.Element | null {
-    const { appShortcutMenuOpen, disabledShortcutNames } = useValues(appShortcutLogic)
-    const { setAppShortcutMenuOpen, toggleShortcutDisabled } = useActions(appShortcutLogic)
-    const { registeredAppShortcuts } = useValues(appShortcutLogic)
+export function ShortcutMenu(): JSX.Element | null {
+    const { shortcutMenuOpen, disabledShortcutNames } = useValues(shortcutLogic)
+    const { setShortcutMenuOpen, toggleShortcutDisabled } = useActions(shortcutLogic)
+    const { registeredShortcuts } = useValues(shortcutLogic)
     const { sceneId } = useValues(sceneLogic)
     const comboboxRef = useRef<ListBoxHandle>(null)
 
     // Group shortcuts by scope, with scene-specific first and global last
     const groupedShortcuts = useMemo(() => {
-        const groups: Record<string, AppShortcutType[]> = {}
+        const groups: Record<string, ShortcutType[]> = {}
         const currentScene = sceneId
 
-        registeredAppShortcuts.forEach((shortcut) => {
+        registeredShortcuts.forEach((shortcut) => {
             const scope = shortcut.scope || 'global'
 
             // Only include shortcuts that are global or match the current scene
@@ -142,14 +142,14 @@ export function AppShortcutMenu(): JSX.Element | null {
             title: titleForKey(key),
             shortcuts: groups[key],
         }))
-    }, [registeredAppShortcuts, sceneId])
+    }, [registeredShortcuts, sceneId])
 
     const handleClose = useCallback(() => {
-        setAppShortcutMenuOpen(false)
-    }, [setAppShortcutMenuOpen])
+        setShortcutMenuOpen(false)
+    }, [setShortcutMenuOpen])
 
     const handleItemClick = useCallback(
-        (shortcut: AppShortcutType) => {
+        (shortcut: ShortcutType) => {
             if (shortcut.interaction === 'click') {
                 shortcut.ref.current?.click()
             } else if (shortcut.interaction === 'focus') {
@@ -188,7 +188,7 @@ export function AppShortcutMenu(): JSX.Element | null {
                     // Get the shortcut name from the data attribute
                     const shortcutName = focusedElement.getAttribute('data-shortcut-name')
                     if (shortcutName) {
-                        const shortcut = registeredAppShortcuts.find((s) => s.name === shortcutName)
+                        const shortcut = registeredShortcuts.find((s) => s.name === shortcutName)
                         if (shortcut) {
                             handleItemClick(shortcut)
                         }
@@ -209,11 +209,11 @@ export function AppShortcutMenu(): JSX.Element | null {
                 }, 50) // Slightly longer delay for search updates
             }
         },
-        [handleClose, registeredAppShortcuts, handleItemClick]
+        [handleClose, registeredShortcuts, handleItemClick]
     )
 
     useEffect(() => {
-        if (appShortcutMenuOpen) {
+        if (shortcutMenuOpen) {
             // Focus the search input when opened
             setTimeout(() => {
                 const searchInput = document.querySelector('#scene-action-palette input') as HTMLInputElement
@@ -237,11 +237,11 @@ export function AppShortcutMenu(): JSX.Element | null {
                 window.removeEventListener('keydown', handleEscape)
             }
         }
-    }, [appShortcutMenuOpen, handleClose])
+    }, [shortcutMenuOpen, handleClose])
 
     // Ensure search input is focused and first item is selected when shortcuts change
     useEffect(() => {
-        if (appShortcutMenuOpen && registeredAppShortcuts.length > 0) {
+        if (shortcutMenuOpen && registeredShortcuts.length > 0) {
             setTimeout(() => {
                 const searchInput = document.querySelector('#scene-action-palette input') as HTMLInputElement
                 if (searchInput) {
@@ -251,9 +251,9 @@ export function AppShortcutMenu(): JSX.Element | null {
                 comboboxRef.current?.focusFirstItem()
             }, 0)
         }
-    }, [appShortcutMenuOpen, registeredAppShortcuts])
+    }, [shortcutMenuOpen, registeredShortcuts])
 
-    if (!appShortcutMenuOpen) {
+    if (!shortcutMenuOpen) {
         return null
     }
 
@@ -261,7 +261,7 @@ export function AppShortcutMenu(): JSX.Element | null {
         <div className="fixed inset-0 z-[var(--z-shortcut-menu)] flex items-end justify-center p-6 backdrop-blur-[var(--modal-backdrop-blur)]">
             <div
                 className="bg-surface-secondary border-3 border-tertiary rounded-lg shadow-2xl w-96 max-h-[calc(100vh-(var(--spacing)*6))] overflow-x-hidden overflow-y-auto backdrop-blur-sm"
-                id="app-shortcut-menu"
+                id="shortcut-menu"
                 onKeyDown={handleKeyDown}
             >
                 <Combobox ref={comboboxRef}>
