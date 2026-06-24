@@ -180,7 +180,6 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                             !!featureFlags[FEATURE_FLAGS.CDP_VERCEL_LOG_DRAIN]
                     )
                     .filter((x) => x.id !== 'template-microsoft-ads' || !!featureFlags[FEATURE_FLAGS.CDP_MICROSOFT_ADS])
-                    .filter((x) => x.id !== 'template-appcues' || !!featureFlags[FEATURE_FLAGS.CDP_APPCUES])
                     .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
             },
         ],
