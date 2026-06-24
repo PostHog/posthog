@@ -68,8 +68,10 @@ def _build_collection_session_ids(team: Team, collection_id: str) -> list[str] |
         logger.warning("session_replay_widget_collection_not_found", extra={"short_id": collection_id})
         return None
 
+    # Legacy items can have a null recording FK (they used the deprecated session_id field instead); skip
+    # them so no None leaks into session_ids and corrupts the ClickHouse IN clause.
     return list(
-        SessionRecordingPlaylistItem.objects.filter(playlist=playlist)
+        SessionRecordingPlaylistItem.objects.filter(playlist=playlist, recording__isnull=False)
         .exclude(deleted=True)
         .order_by("-created_at")
         .values_list("recording_id", flat=True)

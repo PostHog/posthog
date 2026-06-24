@@ -631,6 +631,25 @@ class TestDashboardRunWidgets(APIBaseTest):
         assert query.order_direction == RecordingOrderDirection.ASC
 
     @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
+    def test_session_replay_widget_collection_skips_legacy_null_recording_items(
+        self, mock_list_recordings: MagicMock
+    ) -> None:
+        mock_list_recordings.return_value = ([], False, None, None)
+        collection = self._collection_with_recordings(self.team, ["session-a"])
+        # Legacy items used the deprecated session_id field and have a null recording FK.
+        SessionRecordingPlaylistItem.objects.create(playlist=collection, recording=None, session_id="legacy")
+
+        run_session_replay_list_widget(
+            self.team,
+            {"limit": 5, "collectionId": collection.short_id},
+            user=self.user,
+        )
+
+        query = mock_list_recordings.call_args.kwargs["query"]
+        # No None leaks into session_ids — the legacy null-recording item is skipped.
+        assert query.session_ids == ["session-a"]
+
+    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
     def test_session_replay_widget_filters_within_collection(self, mock_list_recordings: MagicMock) -> None:
         mock_list_recordings.return_value = ([], False, None, None)
         collection = self._collection_with_recordings(self.team, ["session-a", "session-b"])
