@@ -154,11 +154,12 @@ import { AllowImpersonation } from './user/AllowImpersonation'
 import { ChangePassword, ChangePasswordTitle } from './user/ChangePassword'
 import { ConnectedApps } from './user/ConnectedApps'
 import { HedgehogModeSettings } from './user/HedgehogModeSettings'
+import { LoginSessions } from './user/LoginSessions'
 import { MCPHintsSetting } from './user/MCPHintsSetting'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PasskeySettings } from './user/PasskeySettings'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
-import { PersonalIntegrations } from './user/PersonalIntegrations'
+import { PersonalGitHubIntegrations, PersonalSlackIntegrations } from './user/PersonalIntegrations'
 import { RealtimeNotificationPreferences } from './user/RealtimeNotificationPreferences'
 import { Reminders } from './user/Reminders'
 import { SidebarAutoSuggestSetting } from './user/SidebarProductSettings'
@@ -1813,6 +1814,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <PasskeySettings />,
                 keywords: ['webauthn', 'fido', 'biometric', 'passwordless'],
             },
+            {
+                id: 'login-sessions',
+                flag: 'WEB_SESSION_MANAGEMENT',
+                title: 'Web sessions',
+                description: 'Devices and browsers currently signed in to your PostHog account.',
+                component: <LoginSessions />,
+                keywords: ['sessions', 'devices', 'logins', 'sign out', 'log out', 'security', 'revoke'],
+            },
         ],
     },
     {
@@ -1962,12 +1971,21 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'Personal integrations',
         settings: [
             {
-                id: 'personal-integrations',
-                title: 'Personal integrations',
+                id: 'personal-integrations-github',
+                title: 'GitHub',
                 description:
                     'Your personal GitHub integrations for repo access, code attribution, and pull request authorship. You can connect multiple GitHub accounts or organizations.',
-                component: <PersonalIntegrations />,
+                component: <PersonalGitHubIntegrations />,
                 keywords: ['github', 'integration', 'repos', 'identity', 'link', 'code', 'personal'],
+            },
+            {
+                id: 'personal-integrations-slack',
+                title: 'Slack',
+                description:
+                    'Bind your Slack identity to this PostHog account so @PostHog mentions route to you even when your Slack email and PostHog email differ.',
+                component: <PersonalSlackIntegrations />,
+                keywords: ['slack', 'integration', 'identity', 'link', 'mention', 'personal'],
+                flag: 'SLACK_APP_OAUTH',
             },
         ],
     },

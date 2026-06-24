@@ -18,6 +18,7 @@ import {
 } from '@posthog/icons'
 import { LemonDialog } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconTextSize } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -80,6 +81,7 @@ export const QueryDatabase = ({
         activeDraggedViewId,
         highlightedDropFolderId,
         highlightViewsSectionDrop,
+        featureFlags,
     } = useValues(queryDatabaseLogic)
     const {
         setExpandedFolders,
@@ -104,7 +106,7 @@ export const QueryDatabase = ({
     } = useActions(dataWarehouseViewsLogic)
     const { deleteJoin } = useActions(sourceManagementLogic)
     const { deleteDraft } = useActions(draftsLogic)
-    const { openMaterializationModal, runQuery, setActiveTab, setQueryInput, setSourceQuery } =
+    const { openMaterializationModal, openAccessControlModal, runQuery, setActiveTab, setQueryInput, setSourceQuery } =
         useActions(sqlEditorLogic)
     const { isEmbeddedMode, sourceQuery } = useValues(sqlEditorLogic)
     const builtTabLogic = useMountedLogic(sqlEditorLogic)
@@ -117,6 +119,7 @@ export const QueryDatabase = ({
     )
     const addJoinAccessDisabledReason = resourceLevelEditorDisabledReason
     const materializationAccessDisabledReason = resourceLevelEditorDisabledReason
+    const warehouseAccessControlEnabled = !!featureFlags[FEATURE_FLAGS.HOGQL_WAREHOUSE_ACCESS_CONTROL]
     const formatTraversalChain = (chain?: (string | number)[]): string | null => {
         if (!chain || chain.length === 0) {
             return null
@@ -508,6 +511,12 @@ export const QueryDatabase = ({
 
                 // Show menu for tables
                 if (item.record?.type === 'table') {
+                    // Per-object access control only exists for actual warehouse tables, not posthog/system tables
+                    const warehouseTableId =
+                        warehouseAccessControlEnabled && item.record.table?.type === 'data_warehouse'
+                            ? item.record.table?.id
+                            : null
+
                     return (
                         <DropdownMenuGroup>
                             <DropdownMenuItem
@@ -554,6 +563,21 @@ export const QueryDatabase = ({
                             >
                                 <ButtonPrimitive menuItem>Copy table name</ButtonPrimitive>
                             </DropdownMenuItem>
+                            {warehouseTableId ? (
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        openAccessControlModal({
+                                            resource: AccessControlResourceType.WarehouseTable,
+                                            resourceId: warehouseTableId,
+                                            name: item.name,
+                                        })
+                                    }}
+                                >
+                                    <ButtonPrimitive menuItem>Access control</ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ) : null}
                         </DropdownMenuGroup>
                     )
                 }
@@ -684,6 +708,11 @@ export const QueryDatabase = ({
                                   item.record.view?.user_access_level
                               )
                             : null
+                    // Only saved views map to the WarehouseView resource; endpoints use the Endpoint resource, managed views have none.
+                    const warehouseViewId =
+                        warehouseAccessControlEnabled && item.record.type === 'view' && item.record.isSavedQuery
+                            ? item.record.view?.id
+                            : null
 
                     return (
                         <DropdownMenuGroup>
@@ -795,6 +824,21 @@ export const QueryDatabase = ({
                                     }}
                                 >
                                     <ButtonPrimitive menuItem>Copy view name</ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ) : null}
+                            {warehouseViewId ? (
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        openAccessControlModal({
+                                            resource: AccessControlResourceType.WarehouseView,
+                                            resourceId: warehouseViewId,
+                                            name: item.name,
+                                        })
+                                    }}
+                                >
+                                    <ButtonPrimitive menuItem>Access control</ButtonPrimitive>
                                 </DropdownMenuItem>
                             ) : null}
                         </DropdownMenuGroup>

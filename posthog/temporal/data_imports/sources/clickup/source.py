@@ -17,6 +17,7 @@ from posthog.temporal.data_imports.sources.clickup.clickup import (
 )
 from posthog.temporal.data_imports.sources.clickup.settings import CLICKUP_ENDPOINTS, ENDPOINTS
 from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -81,6 +82,11 @@ The **Workspace ID** is the numeric ID in your ClickUp URL: `https://app.clickup
             "401 Client Error: Unauthorized for url: https://api.clickup.com": "Your ClickUp API token is invalid or expired. Please generate a new token and reconnect.",
             "403 Client Error: Forbidden for url: https://api.clickup.com": "Your ClickUp API token does not have access to this resource. Check the token permissions and try again.",
         }
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.clickup.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
 
     def get_schemas(
         self,

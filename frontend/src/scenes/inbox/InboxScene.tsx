@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBug } from '@posthog/icons'
+import { IconArrowLeft, IconBug } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -15,6 +15,7 @@ import { AgentRunDetail } from './components/detail/AgentRunDetail'
 import { InboxDetailHeader } from './components/detail/InboxDetailHeader'
 import { ReportDetail, ReportDetailSkeleton } from './components/detail/ReportDetail'
 import { InboxOnboardingBanner, InboxOnboardingTakeover } from './components/onboarding/InboxOnboarding'
+import { ScratchpadPanel } from './components/scratchpad/ScratchpadPanel'
 import { AgentSetupColumn } from './components/shell/AgentSetupColumn'
 import { InboxScopeSelect } from './components/shell/InboxScopeSelect'
 import { InboxTabBar } from './components/shell/InboxTabBar'
@@ -135,6 +136,31 @@ function InboxDetailView({ report }: { report: SignalReport }): JSX.Element {
     )
 }
 
+/**
+ * Fleet-memory (scratchpad) detail surface: the browse/search panel under a back link, rendered
+ * full-width over the list like the scout detail. Reached from the fleet-memory callout.
+ */
+function InboxScratchpadView(): JSX.Element {
+    const { setScratchpadOpen } = useActions(inboxSceneLogic)
+
+    return (
+        <div className="flex flex-col min-h-0 flex-1 overflow-auto">
+            <div className="px-4 pt-3">
+                <LemonButton
+                    type="tertiary"
+                    size="small"
+                    icon={<IconArrowLeft />}
+                    onClick={() => setScratchpadOpen(false)}
+                    className="self-start"
+                >
+                    Scouts
+                </LemonButton>
+            </div>
+            <ScratchpadPanel />
+        </div>
+    )
+}
+
 export function InboxScene(): JSX.Element {
     const {
         isRunningSessionAnalysis,
@@ -142,6 +168,7 @@ export function InboxScene(): JSX.Element {
         selectedReport,
         selectedReportLoading,
         selectedScoutSkillName,
+        isScratchpadOpen,
     } = useValues(inboxSceneLogic)
     const { runSessionAnalysis } = useActions(inboxSceneLogic)
     const { onboardingMode } = useValues(inboxOnboardingLogic)
@@ -151,7 +178,7 @@ export function InboxScene(): JSX.Element {
     // stays *mounted* (just hidden) rather than being unmounted. That keeps `reportListLogic` and the scroll
     // container alive, so clicking "back" lands on the same scroll position with the same loaded pages —
     // instead of remounting and resetting to the first page at the top.
-    const showDetail = !!selectedReportId || !!selectedScoutSkillName
+    const showDetail = !!selectedReportId || !!selectedScoutSkillName || isScratchpadOpen
 
     return (
         <SceneContent className="gap-y-0 border-b-0 flex-1 min-h-0">
@@ -192,7 +219,9 @@ export function InboxScene(): JSX.Element {
 
             {showDetail && (
                 <div className="flex flex-col -mx-4 flex-1 min-h-0">
-                    {selectedScoutSkillName ? (
+                    {isScratchpadOpen ? (
+                        <InboxScratchpadView />
+                    ) : selectedScoutSkillName ? (
                         <ScoutDetailView skillName={selectedScoutSkillName} />
                     ) : selectedReport ? (
                         <InboxDetailView report={selectedReport} />

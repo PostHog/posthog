@@ -5,9 +5,9 @@ from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult
 from posthog.utils import get_from_dict_or_attr
 
 from products.alerts.backend.evaluation.comparator import evaluate_threshold
-from products.alerts.backend.evaluation.contract import Extractor
+from products.alerts.backend.evaluation.contract import DetectorExtractor, Extractor
 from products.alerts.backend.evaluation.detector import TrendsDetectorExtractor, evaluate_with_detector
-from products.alerts.backend.evaluation.hogql import HogQLExtractor
+from products.alerts.backend.evaluation.hogql import HogQLDetectorExtractor, HogQLExtractor
 from products.alerts.backend.evaluation.trends import TrendsExtractor
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.models.insight import Insight
@@ -19,9 +19,12 @@ EXTRACTORS: dict[NodeKind, Extractor] = {
 }
 
 # The anomaly-detector path mirrors EXTRACTORS: one detector extractor per kind, scored by the shared
-# evaluate_with_detector. Trends-only in v1, but the dispatch no longer hardcodes the kind.
-DETECTOR_EXTRACTORS: dict[NodeKind, Extractor] = {
+# evaluate_with_detector. Funnels stay threshold-only (no native time series to score). This is the
+# single source of truth for both detector paths — alert checks call extract(), read-only simulation
+# (simulate_detector_on_insight) calls simulate() — so adding a kind here makes it work in both.
+DETECTOR_EXTRACTORS: dict[NodeKind, DetectorExtractor] = {
     NodeKind.TRENDS_QUERY: TrendsDetectorExtractor(),
+    NodeKind.HOG_QL_QUERY: HogQLDetectorExtractor(),
 }
 
 
@@ -45,9 +48,9 @@ def check_detector_alert(alert: AlertConfiguration, insight: Insight, query: obj
 def check_alert_for_insight(alert: AlertConfiguration) -> AlertEvaluationResult:
     """Dispatch an alert to its insight-kind extractor, then run the shared comparator.
 
-    If ``detector_config`` is set, routes through the anomaly-detector registry (trends-only in v1);
-    each detector extractor shares the ``ComparableSeries`` contract, so the dispatch shape mirrors
-    the threshold path. Otherwise the extractor normalizes the query result into an
+    If ``detector_config`` is set, routes through the anomaly-detector registry (one extractor per
+    supported insight kind); each detector extractor shares the ``ComparableSeries`` contract, so the
+    dispatch shape mirrors the threshold path. Otherwise the extractor normalizes the query result into an
     ``ExtractionResult`` and the comparator evaluates it against the threshold.
     """
     insight = alert.insight
