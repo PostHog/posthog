@@ -371,17 +371,31 @@ export interface PatchedErrorTrackingAssignmentRuleApi {
 }
 
 export interface ErrorTrackingExternalReferenceIntegrationResultApi {
+    /** ID of the integration backing this external reference. */
     readonly id: number
+    /** Integration provider, e.g. 'github', 'gitlab', 'linear', or 'jira'. */
     readonly kind: string
+    /** Human-readable name of the connected integration. */
     readonly display_name: string
 }
 
+/**
+ * Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}.
+ */
+export type ErrorTrackingExternalReferenceResultApiConfig = { [key: string]: string }
+
 export interface ErrorTrackingExternalReferenceResultApi {
+    /** Unique ID of the external reference. */
     readonly id: string
+    /** The connected integration this reference was created through. */
     readonly integration: ErrorTrackingExternalReferenceIntegrationResultApi
+    /** ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira'). */
     integration_id: number
-    config: unknown
+    /** Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. */
+    config: ErrorTrackingExternalReferenceResultApiConfig
+    /** ID of the error tracking issue to link the reference to. */
     issue: string
+    /** URL of the linked external issue in the provider's system. */
     readonly external_url: string
 }
 

@@ -2416,6 +2416,20 @@
             "readOnlyHint": true
         }
     },
+    "error-tracking-external-references-create": {
+        "description": "Link an error tracking issue to an external issue tracker (GitHub, GitLab, Linear, or Jira) by creating the external issue. Provide the error tracking issue id as `issue`, the connected integration as `integration_id`, and a `config` object with the provider-specific fields. Required `config` keys by integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Look up the project's integrations first to find the `integration_id` and its kind.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Create error tracking external reference",
+        "title": "Create error tracking external reference",
+        "required_scopes": ["error_tracking:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "error-tracking-grouping-rules-create": {
         "description": "Create an error tracking grouping rule for the current project. Provide required `filters`, and optionally set `assignee` and `description` for the issues this rule creates.",
         "category": "Error tracking",

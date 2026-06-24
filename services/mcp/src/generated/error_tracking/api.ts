@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 20 enabled ops
+ * PostHog API - MCP 21 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -1002,6 +1002,28 @@ export const ErrorTrackingAssignmentRulesCreateBody = /* @__PURE__ */ zod.object
                 .describe('User ID when `type` is `user`, or role UUID when `type` is `role`.'),
         })
         .describe('User or role to assign matching issues to.'),
+})
+
+export const ErrorTrackingExternalReferencesCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ErrorTrackingExternalReferencesCreateBody = /* @__PURE__ */ zod.object({
+    integration_id: zod
+        .number()
+        .describe(
+            "ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira')."
+        ),
+    config: zod
+        .record(zod.string(), zod.string())
+        .describe(
+            'Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}.'
+        ),
+    issue: zod.string().describe('ID of the error tracking issue to link the reference to.'),
 })
 
 export const ErrorTrackingGroupingRulesListParams = /* @__PURE__ */ zod.object({
