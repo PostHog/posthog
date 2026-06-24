@@ -3553,6 +3553,55 @@ email@example.org,
             response.json().items(),
         )
 
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_update_static_cohort_used_in_flag_rejects_static_to_dynamic_behavioral_groups(
+        self, patch_calculate_cohort, patch_capture
+    ) -> None:
+        def cohort_filter(cohort_id: int) -> dict[str, Any]:
+            return {"key": "id", "value": cohort_id, "type": "cohort"}
+
+        behavioral_filter = {
+            "event_type": "events",
+            "explicit_datetime": "-14d",
+            "key": "$pageview",
+            "value": "performed_event_first_time",
+            "type": "behavioral",
+        }
+        static_cohort = Cohort.objects.create(
+            team=self.team,
+            name="static cohort",
+            is_static=True,
+            groups=[{"properties": [behavioral_filter]}],
+        )
+        self.assertIsNone(static_cohort.filters)
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [cohort_filter(static_cohort.pk)]}]},
+            name="This is a static cohort-based flag",
+            key="static-cohort-flag",
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{static_cohort.pk}",
+            data={
+                "name": "static cohort",
+                "is_static": False,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertLessEqual(
+            {
+                "type": "validation_error",
+                "code": "behavioral_cohort_found",
+                "detail": "Behavioral filters cannot be added to cohorts used in feature flags.",
+                "attr": None,
+            }.items(),
+            response.json().items(),
+        )
+
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_duplicating_dynamic_cohort_as_static(self, patch_on_commit):
         _create_person(

@@ -972,6 +972,9 @@ class CohortSerializer(serializers.ModelSerializer):
         return raw
 
     def validate(self, attrs: dict) -> dict:
+        # Field-level validate_filters only runs when the PATCH body includes `filters`. This
+        # object-level guard covers the static-to-dynamic flip when it does not, re-checking the
+        # instance's preserved behavioral filters against the feature-flag rule.
         attrs = super().validate(attrs)
 
         if self.context["request"].method != "PATCH" or self.instance is None:
