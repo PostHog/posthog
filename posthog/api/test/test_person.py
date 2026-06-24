@@ -1476,12 +1476,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             uuid=person_a_uuid,
             version=0,
         )
-        PersonDistinctId.objects.create(
-            team_id=self.team.pk,
-            person=person_a,
-            distinct_id="deleted_user",
-            version=0,
-        )
+        add_distinct_id(person=person_a, distinct_id="deleted_user", version=0)
         create_person_in_ch(
             team_id=self.team.pk,
             uuid=str(person_a.uuid),
@@ -1507,12 +1502,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Manually add the deleted distinct_id to person B (simulating a merge scenario)
         # This would happen in a real scenario where events come in for the deleted distinct_id
-        PersonDistinctId.objects.create(
-            team_id=self.team.pk,
-            person=person_b,
-            distinct_id="deleted_user",
-            version=2,
-        )
+        add_distinct_id(person=person_b, distinct_id="deleted_user", version=2)
         create_person_distinct_id(
             team_id=self.team.pk,
             distinct_id="deleted_user",
@@ -1853,21 +1843,11 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         person_not_changed_1 = create_person(team=self.team, properties={"abcdef": 1111}, version=0, uuid=uuid4())
 
         # distinct id no update
-        PersonDistinctId.objects.create(
-            team_id=self.team.pk,
-            person=person_not_changed_1,
-            distinct_id="distinct_id-1",
-            version=0,
-        )
+        add_distinct_id(person=person_not_changed_1, distinct_id="distinct_id-1", version=0)
 
         # deleted person not re-used
         person_deleted_1 = create_person(team=self.team, properties={"abcdef": 1111}, version=0, uuid=uuid4())
-        PersonDistinctId.objects.create(
-            team_id=self.team.pk,
-            person=person_deleted_1,
-            distinct_id="distinct_id-del-1",
-            version=16,
-        )
+        add_distinct_id(person=person_deleted_1, distinct_id="distinct_id-del-1", version=16)
         person_deleted_1.delete()
 
         response = self.client.post(

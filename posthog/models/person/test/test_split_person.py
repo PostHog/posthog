@@ -7,7 +7,7 @@ from posthog.models import Person
 from posthog.models.person import PersonDistinctId
 from posthog.models.person.missing_person import uuidFromDistinctId
 from posthog.personhog_client.fake_client import FakePersonHogClient, fake_personhog_client
-from posthog.test.persons import create_person
+from posthog.test.persons import add_distinct_id, create_person
 
 
 @patch("posthog.models.person.util.create_person")
@@ -35,11 +35,7 @@ class TestSplitPerson(BaseTest):
             version=version,
         )
         for distinct_id in distinct_ids:
-            PersonDistinctId.objects.create(
-                team=self.team,
-                person=person,
-                distinct_id=distinct_id,
-            )
+            add_distinct_id(person=person, distinct_id=distinct_id)
         fake.add_person(
             team_id=self.team.id,
             person_id=person.id,

@@ -12,7 +12,7 @@ from posthog.hogql_queries.actor_strategies import PersonStrategy
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models import Team
 from posthog.models.person import Person
-from posthog.test.persons import create_person
+from posthog.test.persons import create_person, update_person
 
 
 def _make_strategy(team) -> PersonStrategy:
@@ -127,7 +127,7 @@ class TestPersonStrategyGetActors(BaseTest):
         Person.objects.filter(pk=p_new.pk).update(created_at=now)
         for p in [p_old, p_mid, p_new]:
             p.refresh_from_db()
-            p.save()
+            update_person(p)
 
         strategy = _make_strategy(self.team)
         result = strategy.get_actors(

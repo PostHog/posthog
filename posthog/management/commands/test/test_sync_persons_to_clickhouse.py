@@ -26,6 +26,7 @@ from posthog.models.person.sql import (
 from posthog.models.person.util import create_person, create_person_distinct_id
 from posthog.models.signals import mute_selected_signals
 from posthog.test.persons import (
+    add_distinct_id,
     create_group as create_test_group,
     create_person as create_test_person,
 )
@@ -105,7 +106,7 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
     def test_distinct_ids_sync(self):
         with mute_selected_signals():  # without creating/updating in clickhouse
             person = create_test_person(team=self.team, version=0, uuid=uuid4())
-            PersonDistinctId.objects.create(team=self.team, person=person, distinct_id="test-id", version=4)
+            add_distinct_id(person=person, distinct_id="test-id", version=4)
 
         run_distinct_id_sync(self.team.pk, live_run=True, deletes=False)
 
@@ -120,7 +121,8 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
     def test_distinct_ids_sync_with_null_version(self):
         with mute_selected_signals():  # without creating/updating in clickhouse
             person = create_test_person(team=self.team, version=0, uuid=uuid4())
-            PersonDistinctId.objects.create(team=self.team, person=person, distinct_id="test-id", version=None)
+            pdi = add_distinct_id(person=person, distinct_id="test-id", version=0)
+            PersonDistinctId.objects.filter(pk=pdi.pk).update(version=None)
 
         run_distinct_id_sync(self.team.pk, live_run=True, deletes=False)
 
@@ -357,47 +359,17 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
         )
 
         # 2 distinct id no update
-        PersonDistinctId.objects.create(
-            team=self.team,
-            person=person_not_changed_1,
-            distinct_id="distinct_id",
-            version=0,
-        )
-        PersonDistinctId.objects.create(
-            team=self.team,
-            person=person_not_changed_1,
-            distinct_id="distinct_id-9",
-            version=9,
-        )
+        add_distinct_id(person=person_not_changed_1, distinct_id="distinct_id", version=0)
+        add_distinct_id(person=person_not_changed_1, distinct_id="distinct_id-9", version=9)
 
         # # 2 distinct id to be created
         with mute_selected_signals():  # without creating/updating in clickhouse
-            PersonDistinctId.objects.create(
-                team=self.team,
-                person=person_not_changed_1,
-                distinct_id="distinct_id-10",
-                version=10,
-            )
-            PersonDistinctId.objects.create(
-                team=self.team,
-                person=person_not_changed_1,
-                distinct_id="distinct_id-11",
-                version=11,
-            )
+            add_distinct_id(person=person_not_changed_1, distinct_id="distinct_id-10", version=10)
+            add_distinct_id(person=person_not_changed_1, distinct_id="distinct_id-11", version=11)
 
             # 2 distinct id that need to update
-            PersonDistinctId.objects.create(
-                team=self.team,
-                person=person_not_changed_2,
-                distinct_id="distinct_id-12",
-                version=13,
-            )
-            PersonDistinctId.objects.create(
-                team=self.team,
-                person=person_not_changed_2,
-                distinct_id="distinct_id-14",
-                version=15,
-            )
+            add_distinct_id(person=person_not_changed_2, distinct_id="distinct_id-12", version=13)
+            add_distinct_id(person=person_not_changed_2, distinct_id="distinct_id-14", version=15)
         create_person_distinct_id(
             team_id=self.team.pk,
             distinct_id="distinct_id-12",
