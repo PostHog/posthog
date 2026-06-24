@@ -201,32 +201,48 @@ def extract_teams_graph_images(
     return images
 
 
+_RE_GRAPH_HOSTED_PATH = re.compile(
+    r"^/(?:v1\.0|beta)/teams/(?P<tid>[^/]+)/channels/(?P<cid>[^/]+)"
+    r"/messages/(?P<mid>[^/]+)"
+    r"(?:/replies/(?P<rid>[^/]+))?"
+    r"/hostedcontents/[^/]+/\$value$",
+    re.IGNORECASE,
+)
+
+
 def _is_expected_hosted_content_path(url: str, teams_team_id: str, channel_id: str, msg_id: str) -> bool:
     """Validate that a hostedContents URL belongs to the expected team/channel/message.
 
-    Accepts both top-level message paths:
-        /teams/{tid}/channels/{cid}/messages/{mid}/hostedContents/{hcid}/$value
-    and reply paths:
-        /teams/{tid}/channels/{cid}/messages/{root}/replies/{mid}/hostedContents/{hcid}/$value
+    Parses the path positionally against the exact Graph API structure:
+        /v1.0/teams/{tid}/channels/{cid}/messages/{mid}/hostedContents/{hcid}/$value
+        /v1.0/teams/{tid}/channels/{cid}/messages/{root}/replies/{rid}/hostedContents/{hcid}/$value
     """
     try:
         parsed = urlparse(url)
     except ValueError:
         return False
-    path = parsed.path.lower()
-    tid = teams_team_id.lower()
-    cid = channel_id.lower()
-    mid = msg_id.lower()
 
-    if f"/teams/{tid}/channels/{cid}/" not in path:
+    m = _RE_GRAPH_HOSTED_PATH.match(parsed.path)
+    if not m:
         return False
 
-    # Must reference this message — either as the direct message or as a reply id
-    if f"/messages/{mid}/hostedcontents/" in path:
-        return True
-    if f"/replies/{mid}/hostedcontents/" in path:
-        return True
-    return False
+    if m.group("tid").lower() != teams_team_id.lower():
+        return False
+    if m.group("cid").lower() != channel_id.lower():
+        return False
+
+    # For a top-level message, msg_id must match the messages segment.
+    # For a reply, msg_id must match the replies segment.
+    mid_lower = msg_id.lower()
+    rid = m.group("rid")
+    if rid:
+        if rid.lower() != mid_lower:
+            return False
+    else:
+        if m.group("mid").lower() != mid_lower:
+            return False
+
+    return True
 
 
 def _extract_hosted_content_id(url: str) -> str | None:
