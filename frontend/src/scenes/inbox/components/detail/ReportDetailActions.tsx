@@ -2,19 +2,20 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconArchive, IconPullRequest, IconUndo } from '@posthog/icons'
+import { IconArchive, IconMessage, IconPullRequest, IconUndo } from '@posthog/icons'
 import { LemonButton, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
-import { captureInboxReportAction } from '../../inboxAnalytics'
+import { captureInboxReportAction, captureInboxReportFeedback } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport, SignalReportStatus } from '../../types'
 import { useReportArchive } from '../cards/useReportArchive'
+import { openFeedbackReportDialog } from '../shell/FeedbackReportDialog'
 
 /**
  * Should the Create PR action be offered? Mirrors desktop `canCreateImplementationPr` /
@@ -93,29 +94,55 @@ export function ReportDetailActions({ report }: { report: SignalReport }): JSX.E
         }
     }
 
-    // A resolved report is terminal – its PR already merged, so no detail actions apply.
+    // Feedback is always available – it never changes the report's state, just records what the
+    // user thinks of it (and its PR), so it stays even for resolved/archived reports.
+    const feedbackButton = (
+        <LemonButton
+            type="secondary"
+            size="small"
+            icon={<IconMessage />}
+            tooltip="Tell us how useful this report was"
+            onClick={() =>
+                openFeedbackReportDialog({
+                    reportTitle: report.title ?? 'Untitled report',
+                    onConfirm: ({ sentiment, note }) => {
+                        captureInboxReportFeedback({ report, sentiment, note, surface: 'detail_pane' })
+                        lemonToast.success('Thanks for the feedback')
+                    },
+                })
+            }
+        >
+            Feedback
+        </LemonButton>
+    )
+
+    // A resolved report is terminal – its PR already merged, so only feedback applies.
     if (isResolved) {
-        return <></>
+        return feedbackButton
     }
 
     // An already-archived report offers Restore instead of Archive (and no Create PR).
     if (isArchived) {
         return (
-            <LemonButton
-                type="secondary"
-                size="small"
-                icon={<IconUndo />}
-                loading={isRestoring}
-                tooltip="Restore this report to your inbox"
-                onClick={() => void onRestoreClick()}
-            >
-                Restore
-            </LemonButton>
+            <>
+                {feedbackButton}
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconUndo />}
+                    loading={isRestoring}
+                    tooltip="Restore this report to your inbox"
+                    onClick={() => void onRestoreClick()}
+                >
+                    Restore
+                </LemonButton>
+            </>
         )
     }
 
     return (
         <>
+            {feedbackButton}
             <LemonButton
                 type="secondary"
                 size="small"

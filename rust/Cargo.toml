@@ -6,6 +6,8 @@ members = [
   "batch-import-worker",
   "capture",
   "capture-logs",
+  "cohort-event-shuffler",
+  "cohort-stream-processor",
   "common/alloc",
   "common/assignment-coordination",
   "common/k8s-awareness",

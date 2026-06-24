@@ -5,12 +5,22 @@ import posthoganalytics
 from pydantic import ValidationError
 from rest_framework import exceptions
 
-from posthog.schema import RecordingOrder, RecordingsQuery
+from posthog.schema import PropertyFilterType, RecordingOrder, RecordingsQuery
 
 if TYPE_CHECKING:
     from posthog.models import User
 
 SURFACING_SCORE_ORDER_FLAG = "replay-playlist-surfacing-score"
+
+
+def recordings_query_has_event_filters(query: RecordingsQuery) -> bool:
+    """Whether a query carries something the matching_events endpoint can highlight: an event filter,
+    an action filter, or an event-property filter. The endpoint rejects queries without one, so both
+    the endpoint's own precondition and any caller that decides whether to hit it share this check."""
+    has_event_properties = any(
+        getattr(prop, "type", None) == PropertyFilterType.EVENT for prop in (query.properties or [])
+    )
+    return bool(query.events) or bool(query.actions) or has_event_properties
 
 
 def gate_surfacing_score_order(query: RecordingsQuery, user: "User | None") -> None:

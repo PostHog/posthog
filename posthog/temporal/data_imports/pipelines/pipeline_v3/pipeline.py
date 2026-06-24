@@ -132,8 +132,15 @@ class PipelineV3(Generic[ResumableData]):
         elif self._schema.is_append:
             sync_type = "append"
 
-        partition_count = self._schema.partition_count or self._resource.partition_count
-        partition_size = self._schema.partition_size or self._resource.partition_size
+        # Operator-pinned overrides (admin repartition action) win over the auto-detected
+        # persisted value and the source-computed value. See setup_partitioning in the v2
+        # pipeline for the same precedence and rationale.
+        partition_count = (
+            self._schema.partition_count_override or self._schema.partition_count or self._resource.partition_count
+        )
+        partition_size = (
+            self._schema.partition_size_override or self._schema.partition_size or self._resource.partition_size
+        )
         partition_keys = self._schema.partitioning_keys or self._resource.partition_keys or self._resource.primary_keys
         partition_format = self._schema.partition_format or self._resource.partition_format
         partition_mode = self._schema.partition_mode or self._resource.partition_mode
