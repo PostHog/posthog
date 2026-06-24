@@ -708,6 +708,11 @@ export const QueryDatabase = ({
                                   item.record.view?.user_access_level
                               )
                             : null
+                    // Only saved views map to the WarehouseView resource; endpoints use the Endpoint resource, managed views have none.
+                    const warehouseViewId =
+                        warehouseAccessControlEnabled && item.record.type === 'view' && item.record.isSavedQuery
+                            ? item.record.view?.id
+                            : null
 
                     return (
                         <DropdownMenuGroup>
@@ -821,17 +826,14 @@ export const QueryDatabase = ({
                                     <ButtonPrimitive menuItem>Copy view name</ButtonPrimitive>
                                 </DropdownMenuItem>
                             ) : null}
-                            {warehouseAccessControlEnabled &&
-                            item.record.type === 'view' &&
-                            item.record.isSavedQuery &&
-                            item.record.view?.id ? (
+                            {warehouseViewId ? (
                                 <DropdownMenuItem
                                     asChild
                                     onClick={(e) => {
                                         e.stopPropagation()
                                         openAccessControlModal({
                                             resource: AccessControlResourceType.WarehouseView,
-                                            resourceId: item.record?.view.id,
+                                            resourceId: warehouseViewId,
                                             name: item.name,
                                         })
                                     }}

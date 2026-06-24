@@ -211,7 +211,7 @@ export const getAccessControlTooltip = (resource: APIScopeObject): string | null
         return 'Access control only applies to managed sources (Stripe, Postgres, etc.) and covers CRUD operations on the source configuration. It does not restrict querying data from those sources.'
     }
     if (resource === AccessControlResourceType.WarehouseObjects) {
-        return 'Viewer is required to query a table or view via SQL. Editor and above also control creating, editing, deleting, and materializing tables, views (aka "models"), folders, and joins.'
+        return 'Viewer is required to query a table or view via SQL. Editor and above also control creating, editing, and deleting tables, views (aka "models"), folders, and joins.'
     }
     return null
 }
