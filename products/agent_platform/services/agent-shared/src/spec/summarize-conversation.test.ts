@@ -99,7 +99,7 @@ describe('totalConversationUsage', () => {
         })
     })
 
-    it('aggregates tokens + cost across multiple assistant turns', () => {
+    it('aggregates token counts across assistant turns but never pi-estimated cost', () => {
         const c: ConversationMessage[] = [
             user('q1'),
             assistant({ text: 'a1', input: 100, output: 10, costIn: 0.001, costOut: 0.0005 }),
@@ -109,9 +109,11 @@ describe('totalConversationUsage', () => {
         const total = totalConversationUsage(c)
         expect(total.tokens_in).toBe(150)
         expect(total.tokens_out).toBe(15)
-        expect(total.cost_input).toBeCloseTo(0.0015, 10)
-        expect(total.cost_output).toBeCloseTo(0.0008, 10)
-        expect(total.cost_total).toBeCloseTo(0.0023, 10)
+        // pi-ai's per-message cost estimates are never trusted — cost is owned
+        // by the gateway settlement merged onto the persisted column, not here.
+        expect(total.cost_input).toBe(0)
+        expect(total.cost_output).toBe(0)
+        expect(total.cost_total).toBe(0)
     })
 
     it('ignores user / toolResult messages and assistant turns missing usage', () => {
@@ -129,22 +131,26 @@ describe('totalConversationUsage', () => {
 })
 
 describe('accumulateUsage', () => {
-    it('folds one assistant message into a running total', () => {
+    it('folds token counts into a running total but never pi-estimated cost', () => {
         const msg = assistant({ input: 10, output: 2, costIn: 0.1, costOut: 0.05 })
         const after = accumulateUsage(EMPTY_USAGE_TOTAL, msg)
         expect(after.tokens_in).toBe(10)
         expect(after.tokens_out).toBe(2)
-        expect(after.cost_total).toBeCloseTo(0.15, 10)
-    })
-
-    it('keeps tokens but zeros cost when useGatewayCost is true', () => {
-        const msg = assistant({ input: 10, output: 2, costIn: 0.1, costOut: 0.05 })
-        const after = accumulateUsage(EMPTY_USAGE_TOTAL, msg, { useGatewayCost: true })
-        expect(after.tokens_in).toBe(10)
-        expect(after.tokens_out).toBe(2)
+        // Cost is never taken from pi-ai's estimate, even when the message reports it.
         expect(after.cost_input).toBe(0)
         expect(after.cost_output).toBe(0)
         expect(after.cost_total).toBe(0)
+    })
+
+    it('carries prior cost forward unchanged — gateway settlement owns cost_total', () => {
+        // The driver merges the gateway's settled /v1/usage figure into
+        // cost_total post-turn; accumulateUsage must preserve it, not clobber or
+        // add a pi estimate on top.
+        const prev = { ...EMPTY_USAGE_TOTAL, cost_total: 0.42 }
+        const msg = assistant({ input: 10, output: 2, costIn: 0.1, costOut: 0.05 })
+        const after = accumulateUsage(prev, msg)
+        expect(after.tokens_in).toBe(10)
+        expect(after.cost_total).toBe(0.42)
     })
 
     it('returns the prev total unchanged when the message has no usage', () => {
