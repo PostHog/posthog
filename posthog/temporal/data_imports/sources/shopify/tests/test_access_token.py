@@ -73,9 +73,24 @@ def test_graphql_access_denied_is_non_retryable(error_message):
 @pytest.mark.parametrize(
     "error_message",
     [
+        "402 Client Error: Payment Required for url: https://my-store.myshopify.com/admin/api/2025-10/graphql.json",
+        "402 Client Error: Payment Required for url: https://another-store.myshopify.com/admin/api/2024-01/graphql.json",
+    ],
+)
+def test_payment_required_is_non_retryable(error_message):
+    patterns = ShopifySource().get_non_retryable_errors()
+    assert any(pattern in error_message for pattern in patterns), (
+        f"402 Payment Required error '{error_message}' should match a non-retryable pattern"
+    )
+
+
+@pytest.mark.parametrize(
+    "error_message",
+    [
         "Shopify: rate limit exceeded...",
         "Shopify: internal error from request 503 Service Unavailable",
         "Unexpected graphql response format in Shopify rows read. Keys: ['extensions']",
+        "429 Client Error: Too Many Requests for url: https://my-store.myshopify.com/admin/api/2025-10/graphql.json",
     ],
 )
 def test_transient_graphql_errors_stay_retryable(error_message):

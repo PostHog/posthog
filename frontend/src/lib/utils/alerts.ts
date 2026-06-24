@@ -8,7 +8,11 @@ import { CyclotronJobFiltersType, HogFunctionType, PropertyFilterType, PropertyO
 
 export const ALERT_NOTIFICATION_TYPE_SLACK = 'slack' as const
 export const ALERT_NOTIFICATION_TYPE_WEBHOOK = 'webhook' as const
-export type AlertNotificationType = typeof ALERT_NOTIFICATION_TYPE_SLACK | typeof ALERT_NOTIFICATION_TYPE_WEBHOOK
+export const ALERT_NOTIFICATION_TYPE_DISCORD = 'discord' as const
+export type AlertNotificationType =
+    | typeof ALERT_NOTIFICATION_TYPE_SLACK
+    | typeof ALERT_NOTIFICATION_TYPE_WEBHOOK
+    | typeof ALERT_NOTIFICATION_TYPE_DISCORD
 
 export const buildAlertFilterConfig = (alertId: string): CyclotronJobFiltersType => ({
     properties: [
@@ -31,6 +35,10 @@ const INSIGHT_ALERT_SLACK_INPUTS =
     HOG_FUNCTION_SUB_TEMPLATES[INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID].find((t) => t.template_id === 'template-slack')
         ?.inputs ?? {}
 
+const INSIGHT_ALERT_DISCORD_INPUTS =
+    HOG_FUNCTION_SUB_TEMPLATES[INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID].find((t) => t.template_id === 'template-discord')
+        ?.inputs ?? {}
+
 export type PendingAlertNotification =
     | {
           type: typeof ALERT_NOTIFICATION_TYPE_SLACK
@@ -40,6 +48,10 @@ export type PendingAlertNotification =
       }
     | {
           type: typeof ALERT_NOTIFICATION_TYPE_WEBHOOK
+          webhookUrl: string
+      }
+    | {
+          type: typeof ALERT_NOTIFICATION_TYPE_DISCORD
           webhookUrl: string
       }
 
@@ -56,7 +68,7 @@ export function buildHogFunctionPayload(
         filters: buildAlertFilterConfig(alertId),
     }
 
-    if (notification.type === 'slack') {
+    if (notification.type === ALERT_NOTIFICATION_TYPE_SLACK) {
         return {
             ...base,
             name: `${alertName ?? 'Alert'}: Slack #${notification.slackChannelName ?? 'channel'}`,
@@ -65,6 +77,18 @@ export function buildHogFunctionPayload(
                 ...INSIGHT_ALERT_SLACK_INPUTS,
                 slack_workspace: { value: notification.slackWorkspaceId },
                 channel: { value: notification.slackChannelId },
+            },
+        }
+    }
+
+    if (notification.type === ALERT_NOTIFICATION_TYPE_DISCORD) {
+        return {
+            ...base,
+            name: `${alertName ?? 'Alert'}: Discord`,
+            template_id: 'template-discord',
+            inputs: {
+                ...INSIGHT_ALERT_DISCORD_INPUTS,
+                webhookUrl: { value: notification.webhookUrl },
             },
         }
     }

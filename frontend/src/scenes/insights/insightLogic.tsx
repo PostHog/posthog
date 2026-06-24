@@ -475,12 +475,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             (s) => [s.query],
             (query) => !!query && canToggleDisplayLabelsInInsightQuery(query),
         ],
-        canToggleLegendForInsight: [
-            (s) => [s.query, s.featureFlags],
-            (query, featureFlags) =>
-                !!query &&
-                canToggleLegendInInsightQuery(query, !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_FUNNEL]),
-        ],
+        canToggleLegendForInsight: [(s) => [s.query], (query) => !!query && canToggleLegendInInsightQuery(query)],
         canToggleAnnotationsForInsight: [
             (s) => [s.query],
             (query) => !!query && canToggleAnnotationsInInsightQuery(query),
@@ -493,13 +488,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             (s) => [s.query],
             (query) => (query ? getDisplayLabelsToggleText(query) : 'Show values on series'),
         ],
-        legendToggleTextForInsight: [
-            (s) => [s.query, s.featureFlags],
-            (query, featureFlags) =>
-                query
-                    ? getLegendToggleText(query, !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_HOG_CHARTS_FUNNEL])
-                    : 'Show legend',
-        ],
+        legendToggleTextForInsight: [(s) => [s.query], (query) => (query ? getLegendToggleText(query) : 'Show legend')],
         annotationsToggleTextForInsight: [
             (s) => [s.query],
             (query) => (query ? getAnnotationsToggleText(query) : 'Hide annotations'),

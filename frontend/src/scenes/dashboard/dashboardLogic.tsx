@@ -293,6 +293,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setAddWidgetModalOpen: (open: boolean) => ({ open }),
         toggleAddWidgetSelectedType: (widgetType: string) => ({ widgetType }),
         clearAddWidgetSelectedTypes: true,
+        toggleAddWidgetCollapsedGroup: (groupId: string) => ({ groupId }),
         addWidgetTileFinished: true,
         /** One-shot signal asking the view to scroll the dashboard to the bottom (e.g. after adding tiles). */
         requestScrollToBottom: true,
@@ -1352,6 +1353,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 clearAddWidgetSelectedTypes: () => [],
             },
         ],
+        addWidgetCollapsedGroups: [
+            [] as string[],
+            {
+                setAddWidgetModalOpen: (state, { open }) => (open ? [] : state),
+                toggleAddWidgetCollapsedGroup: (state, { groupId }) => {
+                    const collapsed = new Set(state)
+                    if (collapsed.has(groupId)) {
+                        collapsed.delete(groupId)
+                    } else {
+                        collapsed.add(groupId)
+                    }
+                    return Array.from(collapsed)
+                },
+            },
+        ],
     })),
     selectors(() => ({
         shouldUseStreaming: [
@@ -2286,6 +2302,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const insight = tile.insight
 
             if (!insight) {
+                return
+            }
+
+            // Shared/public/export viewers must not be able to trigger server-side refreshes.
+            if (isSharedView()) {
                 return
             }
 

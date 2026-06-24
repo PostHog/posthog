@@ -4,6 +4,7 @@ import collections.abc
 from dataclasses import dataclass
 
 import structlog
+from dateutil.relativedelta import relativedelta
 
 from posthog.settings import integrations
 from posthog.temporal.data_imports.naming_convention import NamingConvention
@@ -18,6 +19,11 @@ from .schemas import RESOURCE_SCHEMAS, BingAdsResource
 from .utils import BingAdsResumeConfig, fetch_data_in_yearly_chunks
 
 logger = structlog.get_logger()
+
+# Microsoft Advertising retains daily-aggregated performance report data for 36 months. Requesting an
+# end date older than that is rejected with InvalidCustomDateRangeEnd, so don't look back past it —
+# older data simply doesn't exist to fetch.
+BING_ADS_REPORT_RETENTION = relativedelta(months=36)
 
 
 @dataclass
@@ -81,6 +87,12 @@ def bing_ads_source(
         if not developer_token:
             raise ValueError("Bing Ads developer token not configured")
 
+        # Without these the SDK posts a token request omitting client_id, and Microsoft replies with the
+        # opaque AADSTS900144 ("request body must contain client_id") — fail fast so it isn't mis-surfaced
+        # as a customer "reconnect your integration" error when it's really a missing PostHog config.
+        if not integrations.BING_ADS_CLIENT_ID or not integrations.BING_ADS_CLIENT_SECRET:
+            raise ValueError("Bing Ads OAuth application credentials not configured")
+
         client = BingAdsClient(
             access_token=access_token,
             refresh_token=refresh_token,
@@ -110,7 +122,7 @@ def bing_ads_source(
                 is_first_sync = db_incremental_field_last_value is None
 
                 if is_first_sync:
-                    start_date = today - dt.timedelta(days=365 * 5)
+                    start_date = today - BING_ADS_REPORT_RETENTION
                 else:
                     last_value = db_incremental_field_last_value
 
@@ -132,7 +144,7 @@ def bing_ads_source(
                     resumable_source_manager=resumable_source_manager,
                 )
             else:
-                start_date = today - dt.timedelta(days=365 * 5)
+                start_date = today - BING_ADS_REPORT_RETENTION
                 yield from fetch_data_in_yearly_chunks(
                     client=client,
                     resource=resource,

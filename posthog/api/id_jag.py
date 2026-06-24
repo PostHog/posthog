@@ -8,26 +8,17 @@ to us, or get a personal API token to programmatically access our API.
 """
 
 import uuid
-from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any, TypedDict, cast
 
 from django.conf import settings
 from django.core.cache import cache
-from django.utils.decorators import method_decorator
-from django.views.decorators.csrf import csrf_exempt
 
 import jwt
 import requests
 import structlog
 from oauth2_provider.utils import jwk_from_pem
 from rest_framework import status
-from rest_framework.exceptions import ParseError, UnsupportedMediaType
-from rest_framework.parsers import FormParser, JSONParser
-from rest_framework.permissions import AllowAny
-from rest_framework.request import Request
-from rest_framework.response import Response
-from rest_framework.views import APIView
 
 from posthog.constants import AvailableFeature
 from posthog.models.organization_domain import OrganizationDomain
@@ -67,12 +58,6 @@ class IdJagError(Exception):
             self.error_code = error_code
         if http_status is not None:
             self.http_status = http_status
-
-    def to_response(self) -> Response:
-        return Response(
-            {"error": self.error_code, "error_description": self.description},
-            status=self.http_status,
-        )
 
 
 class InvalidRequestError(IdJagError):
@@ -450,38 +435,6 @@ def _construct_access_token(payload: dict[str, Any]) -> str:
     )
 
 
-def _parse_request_data(request: Request) -> dict[str, Any]:
-    """Read the token-endpoint request body via DRF's unified `request.data` so
-    both content types land on the same path:
-
-    * `application/x-www-form-urlencoded` (RFC 6749 §4.5 — the canonical OAuth
-      shape; PyJWT-bearer / SDK clients typically use this), parsed by
-      `FormParser` into a `QueryDict`.
-    * `application/json`, parsed by `JSONParser` into a `dict`.
-
-    Both `QueryDict` and `dict` support `.items()`; we normalize to a plain
-    `dict[str, Any]` so callers don't have to care which parser ran.
-
-    Unsupported content types and malformed bodies surface as
-    `InvalidRequestError` so they map to RFC 6749 `invalid_request` rather than
-    DRF's default 415/400 HTML.
-    """
-
-    try:
-        data = request.data
-    except UnsupportedMediaType:
-        raise InvalidRequestError(
-            f"Unsupported Content-Type: {request.content_type or 'unset'}. "
-            "Use application/x-www-form-urlencoded or application/json.",
-        )
-    except ParseError as e:
-        raise InvalidRequestError(f"Request body could not be parsed: {e.detail}")
-
-    if not hasattr(data, "items"):
-        return {}
-    return dict(data.items())
-
-
 def _parse_scope_list(value: str | list[str] | None) -> list[str]:
     if value is None:
         return []
@@ -521,62 +474,3 @@ def issue_access_token(
     )
     token = _construct_access_token(payload)
     return token, granted, settings.ID_JAG_ACCESS_TOKEN_TTL_SECONDS
-
-
-@method_decorator(csrf_exempt, name="dispatch")
-class IdJagViewSet(APIView):
-    """
-    Token endpoint for the JWT Bearer Grant (RFC 7523) — exchanges an ID-JAG
-    issued by a trusted IdP for a short-lived PostHog access token.
-
-    The XAA flow puts this at the AS `token_endpoint`. We host it at
-    `/id-jag/token` to keep it cleanly separated from the OAuth 2.0 token
-    endpoint at `/oauth/token`.
-
-    https://xaa.dev/docs/step3
-    https://xaa.dev/docs/byor-auth-server
-    """
-
-    authentication_classes: Sequence[type[Any]] = ()
-    permission_classes = [AllowAny]
-    parser_classes = [FormParser, JSONParser]
-    schema = None
-
-    def post(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        try:
-            data = _parse_request_data(request)
-        except IdJagError as e:
-            return e.to_response()
-
-        grant_type = data.get("grant_type")
-        if not grant_type:
-            return InvalidRequestError("grant_type is required").to_response()
-        if grant_type != JWT_BEARER_GRANT_TYPE:
-            return UnsupportedGrantTypeError(
-                f"grant_type must be {JWT_BEARER_GRANT_TYPE}",
-            ).to_response()
-
-        assertion = data.get("assertion")
-        if not assertion or not isinstance(assertion, str):
-            return InvalidRequestError("assertion is required").to_response()
-
-        requested_scope = data.get("scope")
-        request_client_id = data.get("client_id")
-
-        try:
-            token, granted, expires_in_seconds = issue_access_token(assertion, requested_scope, request_client_id)
-        except IdJagError as e:
-            logger.info("id_jag_token_rejected", error=e.error_code, description=e.description)
-            return e.to_response()
-
-        return Response(
-            {
-                "access_token": token,
-                "token_type": "Bearer",
-                "expires_in": expires_in_seconds,
-                "scope": " ".join(granted),
-            }
-        )
-
-    def get(self, _request: Request, *_args: Any, **_kwargs: Any) -> Response:
-        return InvalidRequestError("Token endpoint only accepts POST", error_code="invalid_request").to_response()

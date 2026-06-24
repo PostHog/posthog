@@ -24,6 +24,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import HogQLQueryModifiers, InCohortVia, RetentionQuery
 
+from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
 
@@ -35,8 +36,10 @@ from posthog.constants import (
     TREND_FILTER_TYPE_EVENTS,
 )
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.insights.retention.retention_base_query_fixed import RetentionFixedIntervalBaseQueryBuilder
 from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
 from posthog.hogql_queries.insights.retention.test.retention_base_query_variant import (
+    RETENTION_BASE_QUERY_VARIANT_PATCH_PATH,
     RetentionBaseQueryVariantComparisonMixin,
 )
 from posthog.hogql_queries.insights.retention.test.utils import pad, pluck
@@ -976,6 +979,55 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
         )
         self.assertEqual(
             pad([[2, 1, 1, 0, 0], [1, 1, 0, 0], [3, 1, 0], [3, 0], [0]]),
+            pluck(result, "values", "count"),
+        )
+
+    @parameterized.expand(
+        [
+            ("threshold_2", 2, 3),
+            ("threshold_3", 3, 2),
+            ("threshold_5", 5, 1),
+        ]
+    )
+    def test_recurring_retention_minimum_occurrences_thresholds(
+        self, _name: str, minimum_occurrences: int, expected_interval_1: int
+    ):
+        # Recurring retention with a higher occurrence threshold: all four people cohort on day 0 (signed_up), then
+        # return a different number of times on day 1. Only those at or above the threshold count for interval 1, so
+        # the interval-1 cell shrinks as the threshold rises (3 -> 2 -> 1). The variant comparison harness asserts the
+        # data-warehouse variant matches the legacy path for each threshold.
+        for distinct_id in ["personA", "personB", "personC", "personD"]:
+            _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
+
+        _create_events(
+            self.team,
+            [("personA", _date(0)), ("personB", _date(0)), ("personC", _date(0)), ("personD", _date(0))],
+            "signed_up",
+        )
+        _create_events(
+            self.team,
+            [
+                *[("personA", _date(1))] * 5,
+                *[("personB", _date(1))] * 3,
+                *[("personC", _date(1))] * 2,
+                ("personD", _date(1)),
+            ],
+            "used_feature",
+        )
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(2, hour=6)},
+                "retentionFilter": {
+                    "totalIntervals": 3,
+                    "targetEntity": {"id": "signed_up", "type": "events"},
+                    "returningEntity": {"id": "used_feature", "type": "events"},
+                    "minimumOccurrences": minimum_occurrences,
+                },
+            }
+        )
+        self.assertEqual(
+            pad([[4, expected_interval_1, 0], [0, 0], [0]]),
             pluck(result, "values", "count"),
         )
 
@@ -3118,8 +3170,43 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             ],
         )
 
-    def test_retention_first_time_ever_with_minimum_occurrences(self):
-        """Test first time ever retention with minimum occurrences requirement"""
+    @parameterized.expand(
+        [
+            # threshold 2: person1's 2 day-2 pageviews and person2's 2 day-5 pageviews both still qualify
+            (
+                "threshold_2",
+                2,
+                [
+                    [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
+                    [1, 1, 0, 0, 0, 0, 0],  # Day 1: person1 (signup), returns day 2 with 2+ pageviews
+                    [1, 1, 0, 1, 0, 0, 0],  # Day 2: person2 (signup), returns day 3 and 5 with 2+ pageviews
+                    [1, 0, 0, 0, 0, 0, 0],  # Day 3: person3 (signup), but doesn't return with 2+ pageviews
+                    [0, 0, 0, 0, 0, 0, 0],  # Day 4: no new users
+                    [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
+                    [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
+                    [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
+                ],
+            ),
+            # threshold 3: only person2's 3 day-3 pageviews clear the bar; the day-2 and day-5 two-pageview days drop
+            (
+                "threshold_3",
+                3,
+                [
+                    [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
+                    [1, 0, 0, 0, 0, 0, 0],  # Day 1: person1 (signup), only 2 day-2 pageviews -> below threshold
+                    [1, 1, 0, 0, 0, 0, 0],  # Day 2: person2 (signup), 3 day-3 pageviews qualify; 2 day-5 don't
+                    [1, 0, 0, 0, 0, 0, 0],  # Day 3: person3 (signup), only 1 day-4 pageview
+                    [0, 0, 0, 0, 0, 0, 0],  # Day 4: no new users
+                    [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
+                    [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
+                    [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
+                ],
+            ),
+        ]
+    )
+    def test_retention_first_time_ever_with_minimum_occurrences(
+        self, _name: str, minimum_occurrences: int, expected_counts: list[list[int]]
+    ):
         _create_person(team_id=self.team.pk, distinct_ids=["person1"])
         _create_person(team_id=self.team.pk, distinct_ids=["person2"])
         _create_person(team_id=self.team.pk, distinct_ids=["person3"])
@@ -3157,7 +3244,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                         "type": TREND_FILTER_TYPE_EVENTS,
                     },
                     "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
-                    "minimumOccurrences": 2,  # Require at least 2 pageviews in a day to count as retention
+                    "minimumOccurrences": minimum_occurrences,
                 },
             }
         )
@@ -3167,23 +3254,7 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             pluck(result, "label"),
             ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7"],
         )
-
-        # Person1: first event on day 1 (signup), has 2 pageviews on day 2 (qualifies)
-        # Person2: first event on day 2 (signup), has 3 pageviews on day 3 and 2 on day 5 (both qualify)
-        # Person3: first event on day 3 (signup), has only 1 pageview on day 4 (doesn't qualify)
-        self.assertEqual(
-            pluck(result, "values", "count"),
-            [
-                [0, 0, 0, 0, 0, 0, 0],  # Day 0: no one
-                [1, 1, 0, 0, 0, 0, 0],  # Day 1: person1 (signup), returns day 2 with 2+ pageviews
-                [1, 1, 0, 1, 0, 0, 0],  # Day 2: person2 (signup), returns day 3 and 5 with 2+ pageviews
-                [1, 0, 0, 0, 0, 0, 0],  # Day 3: person3 (signup), but doesn't return with 2+ pageviews
-                [0, 0, 0, 0, 0, 0, 0],  # Day 4: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 5: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 6: no new users
-                [0, 0, 0, 0, 0, 0, 0],  # Day 7: no new users
-            ],
-        )
+        self.assertEqual(pluck(result, "values", "count"), expected_counts)
 
     def test_retention_first_time_ever_actors_query(self):
         """Test actors query for first time ever retention"""
@@ -3594,6 +3665,82 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             ),
         )
 
+    def test_dwh_variant_pushes_sampling_into_event_subqueries(self):
+        # The variant wraps a UNION ALL in a JoinExpr; SAMPLE on that wrapper never reaches the inner
+        # events scans, so it must be pushed into each FROM events arm where ClickHouse can apply it.
+        query = RetentionQuery(
+            dateRange={"date_to": _date(10, hour=6)},
+            samplingFactor=0.5,
+            retentionFilter={"totalIntervals": 11},
+        )
+        runner = RetentionQueryRunner(team=self.team, query=query)
+
+        with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=True):
+            base_query = RetentionFixedIntervalBaseQueryBuilder(runner).build()
+
+        assert base_query.select_from is not None
+        union = base_query.select_from.table
+        assert isinstance(union, ast.SelectSetQuery)
+        self.assertIsNone(base_query.select_from.sample)
+
+        event_arms = [
+            arm
+            for arm in union.select_queries()
+            if isinstance(arm, ast.SelectQuery)
+            and arm.select_from is not None
+            and isinstance(arm.select_from.table, ast.Field)
+            and arm.select_from.table.chain == ["events"]
+        ]
+        self.assertEqual(len(event_arms), 2)
+        for arm in event_arms:
+            assert arm.select_from is not None
+            sample = arm.select_from.sample
+            assert isinstance(sample, ast.SampleExpr)
+            self.assertEqual(sample.sample_value.left.value, 0.5)
+
+    def _create_sampling_parity_fixtures(self):
+        for i in range(20):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"])
+        _create_events(
+            self.team,
+            [(f"person{i}", _date(day)) for i in range(20) for day in range(7)],
+        )
+
+    @parameterized.expand([("factor_0_1", 0.1), ("factor_0_5", 0.5), ("factor_1_0", 1.0)])
+    def test_sampling_parity_recurring(self, _name: str, sampling_factor: float):
+        # run_query asserts the legacy and DWH-variant paths return identical results. Deterministic
+        # SAMPLE BY cityHash64(distinct_id) makes the single-scan legacy query and the two-arm variant
+        # union sample the same rows, so parity must hold at every factor.
+        self._create_sampling_parity_fixtures()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10, hour=6)},
+                "samplingFactor": sampling_factor,
+                "retentionFilter": {"totalIntervals": 11},
+            }
+        )
+        self.assertEqual(len(result), 11)
+
+    @parameterized.expand([("factor_0_1", 0.1), ("factor_0_5", 0.5), ("factor_1_0", 1.0)])
+    def test_sampling_parity_first_time(self, _name: str, sampling_factor: float):
+        # First-time retention anchors on minIf over the sampled stream; the variant computes it in a
+        # separate union arm from the legacy single scan, so this exercises a different aggregation than
+        # the recurring case. run_query asserts the two paths stay identical under sampling.
+        self._create_sampling_parity_fixtures()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(10, hour=6)},
+                "samplingFactor": sampling_factor,
+                "retentionFilter": {
+                    "totalIntervals": 11,
+                    "retentionType": RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
+                },
+            }
+        )
+        self.assertEqual(len(result), 11)
+
     def test_retention_with_breakdown_with_person_properties(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"country": "US"})
         _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"country": "UK"})
@@ -3682,6 +3829,114 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                 ]
             ),
         )
+
+    def test_dwh_variant_breakdown_event_property_per_value_parity(self):
+        # Tracer bullet: the variant must mirror the legacy per-value cohort semantics
+        # for event-property breakdowns. person1 starts "clothing" then returns with a
+        # mismatched "electronics" purchase, which must not retain within the clothing
+        # bucket — identically on both the legacy and the DWH-variant paths.
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0), {"category": "clothing", "$event_type": "signup"}),
+                ("person2", _date(0), {"category": "electronics", "$event_type": "signup"}),
+            ],
+            event="signup",
+        )
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(1), {"category": "clothing", "$event_type": "purchase"}),
+                ("person1", _date(2), {"category": "electronics", "$event_type": "purchase"}),
+                ("person2", _date(1), {"category": "electronics", "$event_type": "purchase"}),
+            ],
+            event="purchase",
+        )
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(5, hour=0)},
+                "retentionFilter": {
+                    "totalIntervals": 6,
+                    "period": "Day",
+                    "targetEntity": {"id": "signup", "type": "events"},
+                    "returningEntity": {"id": "purchase", "type": "events"},
+                },
+                "breakdownFilter": {"breakdowns": [{"property": "category", "type": "event"}]},
+            }
+        )
+
+        # Clothing cohort retains person1 on day 1 (matching purchase) but not day 2
+        # (the electronics purchase belongs to a different bucket).
+        clothing = pluck([c for c in result if c.get("breakdown_value") == "clothing"], "values", "count")
+        self.assertEqual(clothing[0][:3], [1, 1, 0])
+
+    def test_dwh_variant_breakdown_first_ever_parity(self):
+        # First-ever buckets each actor by the breakdown value on their absolute-first
+        # start event (argMinIf). old_user's first app_opened predates the flag, so they
+        # belong only to the empty bucket — never the later "control" one — on both paths.
+        _create_person(team_id=self.team.pk, distinct_ids=["old_user"])
+        _create_person(team_id=self.team.pk, distinct_ids=["new_user"])
+
+        _create_events(self.team, [("old_user", _date(0))], "app_opened")
+        _create_events(self.team, [("old_user", _date(2), {"$feature/x": "control"})], "app_opened")
+        _create_events(self.team, [("old_user", _date(3), {"$feature/x": "control"})], "insight_viewed")
+        _create_events(self.team, [("new_user", _date(2), {"$feature/x": "variant"})], "app_opened")
+        _create_events(self.team, [("new_user", _date(3), {"$feature/x": "variant"})], "insight_viewed")
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(4)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 4,
+                    "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
+                    "targetEntity": {"id": "app_opened", "name": "app_opened", "type": TREND_FILTER_TYPE_EVENTS},
+                    "returningEntity": {"id": "insight_viewed", "name": "insight_viewed", "type": "events"},
+                },
+                "breakdownFilter": {"breakdown": "$feature/x", "breakdown_type": "event"},
+            }
+        )
+        # old_user anchors on their flag-less first event, so "control" never appears.
+        self.assertNotIn("control", {c.get("breakdown_value") for c in result})
+
+    def test_dwh_variant_breakdown_cohort_union_of_unions_parity(self):
+        # Cohort breakdown composes as a UNION ALL of per-cohort base queries, each
+        # itself a UNION ALL inside the variant. Both paths must agree on that shape.
+        _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+        _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            name="c1",
+            groups=[{"properties": [{"key": "name", "value": "p1", "type": "person"}]}],
+        )
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            name="c2",
+            groups=[{"properties": [{"key": "name", "value": "p2", "type": "person"}]}],
+        )
+        cohort1.calculate_people_ch(pending_version=0)
+        cohort2.calculate_people_ch(pending_version=0)
+
+        _create_events(
+            self.team,
+            [("p1", _date(0)), ("p1", _date(1)), ("p2", _date(0)), ("p2", _date(2))],
+        )
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(4, hour=0)},
+                "retentionFilter": {"totalIntervals": 5, "period": "Day"},
+                "breakdownFilter": {"breakdown_type": "cohort", "breakdown": [cohort1.pk, cohort2.pk]},
+            }
+        )
+        self.assertEqual({c.get("breakdown_value") for c in result}, {str(cohort1.pk), str(cohort2.pk)})
 
     @override_settings(IN_UNIT_TESTING=True)
     def test_retention_with_breakdown_with_data_warehouse_person_properties(self):

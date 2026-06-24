@@ -71,7 +71,10 @@ export class ChartInsightBase {
     }
 
     async hoverChartAt(xFraction: number = 0.3, yFraction: number = 0.5): Promise<void> {
-        const canvas = this.chart.locator('canvas')
+        // The quill chart renders two canvases (static `role="img"` layer + an
+        // `aria-hidden` hover overlay), so target the static layer to avoid a
+        // strict-mode violation. Both share the same box, so hovering it is correct.
+        const canvas = this.chart.locator('canvas[role="img"]')
         await expect(canvas).toBeVisible()
         await expect(async () => {
             await canvas.scrollIntoViewIfNeeded()

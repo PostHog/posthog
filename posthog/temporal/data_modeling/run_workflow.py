@@ -72,8 +72,8 @@ from products.data_modeling.backend.models.modeling import DataWarehouseModelPat
 from products.data_warehouse.backend.data_load.create_table import create_table_from_saved_query
 from products.data_warehouse.backend.data_load.saved_query_service import a_pause_saved_query_schedule
 from products.data_warehouse.backend.s3 import ensure_bucket_exists, get_s3_client
-from products.endpoints.backend.rate_limit import set_endpoint_materialization_ready
-from products.endpoints.backend.services.endpoint_materialization_service import prepare_executable_query
+from products.endpoints.backend.rate_limit import update_materialization_ready_for_saved_query
+from products.endpoints.backend.services.materialization import prepare_executable_query
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 LOGGER = get_logger(__name__)
@@ -817,7 +817,11 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
         modifiers=modifiers,
     )
     context.output_format = "TabSeparated"
-    context.database = await database_sync_to_async(Database.create_for)(team=team, modifiers=context.modifiers)
+    # Userless materialization context; bypass warehouse HogQL access control so the model query
+    # can resolve its source tables/views.
+    context.database = await database_sync_to_async(Database.create_for)(
+        team=team, modifiers=context.modifiers, bypass_warehouse_access_control=True
+    )
 
     prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
         query_node, context=context, dialect="clickhouse", settings=settings, stack=[]
@@ -869,7 +873,11 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
         limit_top_select=False,
         modifiers=modifiers,
     )
-    context.database = await database_sync_to_async(Database.create_for)(team=team, modifiers=context.modifiers)
+    # Userless materialization context; bypass warehouse HogQL access control so the model query
+    # can resolve its source tables/views.
+    context.database = await database_sync_to_async(Database.create_for)(
+        team=team, modifiers=context.modifiers, bypass_warehouse_access_control=True
+    )
 
     prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
         query_node, context=context, dialect="clickhouse", settings=settings, stack=[]
@@ -1596,7 +1604,7 @@ async def update_saved_query_status(
 
     if saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
         is_ready = status == DataWarehouseSavedQuery.Status.COMPLETED
-        await database_sync_to_async(set_endpoint_materialization_ready)(team_id, saved_query.name, is_ready)
+        await database_sync_to_async(update_materialization_ready_for_saved_query)(team_id, saved_query, is_ready)
 
 
 @dataclasses.dataclass

@@ -1,8 +1,9 @@
 from datetime import datetime, timedelta
-from typing import ClassVar, Optional
+from typing import TYPE_CHECKING, ClassVar, Optional
 
 from unittest.mock import MagicMock, patch
 
+from django.apps import apps
 from django.test import TestCase
 from django.utils import timezone
 
@@ -12,7 +13,8 @@ from prometheus_client import CollectorRegistry
 from posthog.models import Organization, Team
 from posthog.tasks.tasks import capture_task_run_state_metrics
 
-from products.tasks.backend.models import Task, TaskRun
+if TYPE_CHECKING:
+    from products.tasks.backend.models import Task, TaskRun
 
 
 class TestCaptureTaskRunStateMetrics(TestCase):
@@ -27,11 +29,15 @@ class TestCaptureTaskRunStateMetrics(TestCase):
     def _make_task_run(
         self,
         *,
-        origin: Task.OriginProduct,
-        status: TaskRun.Status,
-        environment: TaskRun.Environment = TaskRun.Environment.CLOUD,
+        origin: "Task.OriginProduct",
+        status: "TaskRun.Status",
+        environment: "Optional[TaskRun.Environment]" = None,
         created_at: Optional[datetime] = None,
-    ) -> TaskRun:
+    ) -> "TaskRun":
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
+        if environment is None:
+            environment = TaskRun.Environment.CLOUD
         task = Task.objects.create(
             team=self.team,
             title="t",
@@ -59,6 +65,8 @@ class TestCaptureTaskRunStateMetrics(TestCase):
         return registry
 
     def test_emits_counts_grouped_by_status_origin_and_environment(self) -> None:
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
         self._make_task_run(origin=Task.OriginProduct.SLACK, status=TaskRun.Status.QUEUED)
         self._make_task_run(origin=Task.OriginProduct.SLACK, status=TaskRun.Status.QUEUED)
         self._make_task_run(origin=Task.OriginProduct.USER_CREATED, status=TaskRun.Status.IN_PROGRESS)
@@ -94,12 +102,13 @@ class TestCaptureTaskRunStateMetrics(TestCase):
 
     @parameterized.expand(
         [
-            (TaskRun.Status.COMPLETED,),
-            (TaskRun.Status.FAILED,),
-            (TaskRun.Status.CANCELLED,),
+            (apps.get_model("tasks", "TaskRun").Status.COMPLETED,),
+            (apps.get_model("tasks", "TaskRun").Status.FAILED,),
+            (apps.get_model("tasks", "TaskRun").Status.CANCELLED,),
         ]
     )
-    def test_ignores_terminal_statuses(self, status: TaskRun.Status) -> None:
+    def test_ignores_terminal_statuses(self, status: "TaskRun.Status") -> None:
+        Task = apps.get_model("tasks", "Task")
         self._make_task_run(origin=Task.OriginProduct.SLACK, status=status)
 
         registry = self._run_with_registry()
@@ -113,6 +122,8 @@ class TestCaptureTaskRunStateMetrics(TestCase):
         )
 
     def test_emits_oldest_open_run_age(self) -> None:
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
         long_ago = timezone.now() - timedelta(minutes=30)
         self._make_task_run(
             origin=Task.OriginProduct.SLACK,
@@ -132,6 +143,8 @@ class TestCaptureTaskRunStateMetrics(TestCase):
         assert 1500 < age < 2400
 
     def test_emits_runs_created_1h_by_origin_and_environment(self) -> None:
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
         # Two Slack runs created just now, one old run (outside the 1h window), one PostHog-code run.
         self._make_task_run(origin=Task.OriginProduct.SLACK, status=TaskRun.Status.QUEUED)
         self._make_task_run(origin=Task.OriginProduct.SLACK, status=TaskRun.Status.COMPLETED)
@@ -160,6 +173,8 @@ class TestCaptureTaskRunStateMetrics(TestCase):
         )
 
     def test_emits_runs_terminal_1h_grouped_by_status_and_origin(self) -> None:
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
         # 2 completed Slack runs + 1 failed User run in the last hour, plus 1 old completed run (outside 1h).
         self._make_task_run(origin=Task.OriginProduct.SLACK, status=TaskRun.Status.COMPLETED)
         self._make_task_run(origin=Task.OriginProduct.SLACK, status=TaskRun.Status.COMPLETED)
@@ -185,6 +200,8 @@ class TestCaptureTaskRunStateMetrics(TestCase):
         )
 
     def test_age_gauge_only_covers_queued_and_in_progress(self) -> None:
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
         self._make_task_run(
             origin=Task.OriginProduct.SLACK,
             status=TaskRun.Status.NOT_STARTED,

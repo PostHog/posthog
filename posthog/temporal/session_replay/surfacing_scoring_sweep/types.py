@@ -46,11 +46,15 @@ class ListChunksResult:
 @dataclass
 class ChunkResult:
     chunk_id: int
+    # Rows published to Kafka (after dropping out-of-contract rows).
     scored: int = 0
+    # Rows the feature SELECT returned from ClickHouse, before any drop.
+    fetched: int = 0
 
 
 @dataclass
 class ScoreSessionsBatchResult:
     total_scored: int = 0
+    total_fetched: int = 0
     chunks_dispatched: int = 0
     chunks_failed: int = 0

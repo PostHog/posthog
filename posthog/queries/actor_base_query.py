@@ -20,6 +20,7 @@ from posthog.models.group import Group
 from posthog.models.person import Person
 from posthog.models.person.person import READ_DB_FOR_PERSONS
 from posthog.models.person.util import _batched_get_distinct_ids_for_persons, _batched_get_persons_by_uuids
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.personhog_client.converters import proto_person_to_model
 from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
 from posthog.queries.insight import insight_sync_execute
@@ -233,7 +234,8 @@ class ActorBaseQuery:
                 value_per_actor_id,
             )
         else:
-            actors, serialized_actors = get_people(self._team, actor_ids, value_per_actor_id)
+            with personhog_caller_tag("persons/actor-query"):
+                actors, serialized_actors = get_people(self._team, actor_ids, value_per_actor_id)
 
         if self.ACTOR_VALUES_INCLUDED:
             # We fetched actors from Postgres in get_groups/get_people, so `ORDER BY actor_value DESC` no longer holds

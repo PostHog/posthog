@@ -703,7 +703,7 @@ class GitHubIntegrationBase:
     query($owner: String!, $repo: String!, $number: Int!) {
       repository(owner: $owner, name: $repo) {
         pullRequest(number: $number) {
-          number title url state isDraft mergeable updatedAt
+          number title url state isDraft mergeable updatedAt headRefName
           author { login }
           reviewDecision
           reviewRequests(first: 50) {
@@ -857,6 +857,7 @@ class GitHubIntegrationBase:
             "unresolved_threads": unresolved_threads,
             "mergeable": self._map_mergeable(pr.get("mergeable")),
             "author_login": author,
+            "head_branch": pr.get("headRefName"),
             "requested_reviewer_logins": reviewer_logins,
             "updated_at": pr.get("updatedAt"),
         }

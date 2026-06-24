@@ -597,6 +597,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             type: TaxonomicFilterGroupType.SpanAttributes,
             endpoint: combineUrl(`api/environments/${projectId}/tracing/spans/attributes`, {
                 attribute_type: 'span_attribute',
+                search_values: 'true',
                 ...endpointFilters,
             }).url,
             valuesEndpoint: (key) =>
@@ -615,6 +616,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             type: TaxonomicFilterGroupType.SpanResourceAttributes,
             endpoint: combineUrl(`api/environments/${projectId}/tracing/spans/attributes`, {
                 attribute_type: 'span_resource_attribute',
+                search_values: 'true',
                 ...endpointFilters,
             }).url,
             valuesEndpoint: (key) =>

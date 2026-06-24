@@ -38,6 +38,8 @@ export type NotebookProps = NotebookLogicProps & {
     initialContent?: JSONContent
     editable?: boolean
     className?: string
+    markdownSourceOpen?: boolean
+    onMarkdownSourceOpenChange?: (isOpen: boolean) => void
 }
 
 export function Notebook({
@@ -50,6 +52,8 @@ export function Notebook({
     cachedInsightsByShortId,
     cachedInlineQueryResultsByNodeId,
     className,
+    markdownSourceOpen,
+    onMarkdownSourceOpenChange,
 }: NotebookProps): JSX.Element {
     const logicProps: NotebookLogicProps = {
         shortId,
@@ -177,8 +181,17 @@ export function Notebook({
                     ) : null}
 
                     <div className="Notebook_content">
-                        <NotebookColumnLeft />
-                        <ErrorBoundary>{isMarkdownNotebook ? <MarkdownNotebookV2 /> : <Editor />}</ErrorBoundary>
+                        {isMarkdownNotebook ? null : <NotebookColumnLeft />}
+                        <ErrorBoundary>
+                            {isMarkdownNotebook ? (
+                                <MarkdownNotebookV2
+                                    debugOpen={markdownSourceOpen}
+                                    onDebugOpenChange={onMarkdownSourceOpenChange}
+                                />
+                            ) : (
+                                <Editor />
+                            )}
+                        </ErrorBoundary>
                         <NotebookColumnRight />
                     </div>
                 </div>

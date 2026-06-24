@@ -161,39 +161,52 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
         Returns schema names this hook soft-deleted (default impl never does;
         override to handle direct-query table cleanup).
         """
-        schemas_by_name: dict[str, SourceSchema] = {s.name: s for s in source_schemas}
-        rows = ExternalDataSchema.objects.filter(team_id=team_id, source_id=source.id, deleted=False)
-        for row in rows:
-            source_schema = schemas_by_name.get(row.name)
-            if source_schema is None:
-                continue
-            new_metadata = sql_schema_metadata(
-                source_schema.columns,
-                source_schema.foreign_keys,
-                source_catalog=source_schema.source_catalog,
-                source_schema=source_schema.source_schema,
-                source_table_name=source_schema.source_table_name,
+        return reconcile_source_schema_metadata(source, source_schemas, team_id)
+
+
+def reconcile_source_schema_metadata(
+    source: ExternalDataSource,
+    source_schemas: list[SourceSchema],
+    team_id: int,
+) -> list[str]:
+    """Persist `schema_metadata` per schema row and prune stale `enabled_columns`.
+
+    Generic over the source driver — it reads only `SourceSchema` fields and the
+    `ExternalDataSchema` rows — so non-`SQLSource` sources (e.g. ClickHouse) can
+    reuse it to surface column metadata for row filters and the column picker.
+    Returns schema names soft-deleted by this hook (currently none).
+    """
+    schemas_by_name: dict[str, SourceSchema] = {s.name: s for s in source_schemas}
+    rows = ExternalDataSchema.objects.filter(team_id=team_id, source_id=source.id, deleted=False)
+    for row in rows:
+        source_schema = schemas_by_name.get(row.name)
+        if source_schema is None:
+            continue
+        new_metadata = sql_schema_metadata(
+            source_schema.columns,
+            source_schema.foreign_keys,
+            source_catalog=source_schema.source_catalog,
+            source_schema=source_schema.source_schema,
+            source_table_name=source_schema.source_table_name,
+        )
+        existing_config: dict[str, Any] = dict(row.sync_type_config) if isinstance(row.sync_type_config, dict) else {}
+        existing_config["schema_metadata"] = new_metadata
+
+        available_names = extract_available_column_names(new_metadata)
+        pruned_enabled_columns, removed_columns = prune_enabled_columns(row.enabled_columns, available_names)
+        update_fields = ["sync_type_config", "updated_at"]
+        if removed_columns:
+            log.info(
+                "sql_source.reconcile_schema_metadata.pruned_enabled_columns",
+                source_id=str(source.id),
+                schema_id=str(row.id),
+                schema_name=row.name,
+                removed_columns=removed_columns,
             )
-            existing_config: dict[str, Any] = (
-                dict(row.sync_type_config) if isinstance(row.sync_type_config, dict) else {}
-            )
-            existing_config["schema_metadata"] = new_metadata
+            row.enabled_columns = pruned_enabled_columns
+            update_fields.append("enabled_columns")
 
-            available_names = extract_available_column_names(new_metadata)
-            pruned_enabled_columns, removed_columns = prune_enabled_columns(row.enabled_columns, available_names)
-            update_fields = ["sync_type_config", "updated_at"]
-            if removed_columns:
-                log.info(
-                    "sql_source.reconcile_schema_metadata.pruned_enabled_columns",
-                    source_id=str(source.id),
-                    schema_id=str(row.id),
-                    schema_name=row.name,
-                    removed_columns=removed_columns,
-                )
-                row.enabled_columns = pruned_enabled_columns
-                update_fields.append("enabled_columns")
+        row.sync_type_config = existing_config
+        row.save(update_fields=update_fields)
 
-            row.sync_type_config = existing_config
-            row.save(update_fields=update_fields)
-
-        return []
+    return []

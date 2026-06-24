@@ -84,6 +84,17 @@ class TestValidateManifest(SimpleTestCase):
             validate_manifest(manifest)
         assert expected_substring in str(ctx.exception)
 
+    def test_empty_required_strings_give_plain_message(self):
+        # Empty required fields used to surface pydantic's raw "String should have at
+        # least 1 character" with positional paths; assert the friendlier, JSON-mirroring form.
+        manifest = {"client": {"base_url": ""}, "resources": [{"name": "", "endpoint": {"path": ""}}]}
+        with self.assertRaises(ManifestValidationError) as ctx:
+            validate_manifest(manifest)
+        message = str(ctx.exception)
+        assert "client.base_url: must not be empty" in message
+        assert "resources[0].name: must not be empty" in message
+        assert "resources[0].endpoint.path: must not be empty" in message
+
     def test_rejects_duplicate_resource_names(self):
         manifest = _minimal_manifest()
         manifest["resources"].append({**manifest["resources"][0]})
@@ -830,6 +841,20 @@ class TestCustomSourceSourceForPipeline(SimpleTestCase):
 
         threaded_incremental = mock_resources.call_args.args[0]["resources"][0]["endpoint"]["incremental"]
         assert threaded_incremental == {"cursor_path": "updated_at", "start_param": "since"}
+
+
+class TestCustomSourceNonRetryableErrors(SimpleTestCase):
+    def test_missing_resource_message_is_classified_non_retryable(self):
+        # The message `source_for_pipeline` raises when a schema points to a resource
+        # the manifest no longer defines must be recognized by the source's classifier,
+        # so `_handle_import_error` stops the job instead of capturing + retrying it.
+        # Pin the specific substring on both ends — the raised message and the dict key —
+        # so the guard breaks if either the wording or the key drifts.
+        with self.assertRaises(ValueError) as ctx:
+            _fanout_chain(_minimal_manifest(), "nonexistent")
+
+        assert "not found in config" in str(ctx.exception)
+        assert "not found in config" in CustomSource().get_non_retryable_errors()
 
 
 def _fanout_manifest() -> dict:

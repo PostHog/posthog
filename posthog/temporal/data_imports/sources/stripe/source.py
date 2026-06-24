@@ -29,6 +29,7 @@ from posthog.temporal.data_imports.sources.common.base import (
     WebhookSource,
     WebhookSyncResult,
 )
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -97,6 +98,11 @@ class StripeSource(
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.STRIPE
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.stripe.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
 
     @property
     def webhook_template(self) -> Optional["HogFunctionTemplateDC"]:
@@ -255,6 +261,14 @@ If automatic creation failed due to a permissions error and you're using a restr
             # A non-Connect key was sent with a `stripe_account` header (the source's "Account id"),
             # so Stripe rejects the whole request for the account rather than a specific scope.
             "Only Stripe Connect platforms can work with other accounts": "Stripe rejected the request because your API key isn't authorized for the configured Stripe account. The 'Account id' in your source settings only applies to Stripe Connect platform accounts — remove or correct it if your key belongs directly to the account, then reconnect.",
+            # Stripe's `account_invalid` rejection: the key can't reach the configured account (a
+            # `stripe_account` header it isn't authorized for) or the connected application's access
+            # was revoked. Surfaced mid-sync as `stripe.PermissionError` straight out of `get_rows`,
+            # so it never matches the URL-based 403 key. Retrying can't fix a key/account mismatch or
+            # a revoked grant — match Stripe's stable message (the account id and key are redacted out
+            # of the substring). `_is_stripe_account_access_error` classifies the same phrase for the
+            # webhook-creation path.
+            "does not have access to account": "Stripe rejected the request because your API key isn't authorized for the configured Stripe account. Remove or correct the 'Account id' in your source settings if your key belongs directly to the account. If you connected via OAuth, the application access may have been revoked — reconnect your Stripe account.",
             # Deterministic credential/config errors from _get_api_key and OAuthMixin
             "Missing Stripe API key": "Stripe API key is not configured. Please update the source configuration.",
             "Missing Stripe integration ID": "Stripe integration ID is not configured. Please reconnect your Stripe account.",
@@ -328,15 +342,18 @@ If automatic creation failed due to a permissions error and you're using a restr
                 return True, None
             else:
                 return False, "Invalid Stripe credentials"
-        except StripeAuthenticationError as e:
+        except StripeAuthenticationError:
             if config.auth_method.selection == "oauth":
                 return (
                     False,
                     "Your Stripe OAuth connection has expired or been revoked. Please reconnect your Stripe account.",
                 )
+            # Stripe's 401 body echoes the rejected key verbatim, so interpolating `e.stripe_message`
+            # leaks whatever the user pasted (often a password) into the toast and the
+            # `warehouse credentials invalid` analytics event. The guidance below stands on its own.
             return (
                 False,
-                f"Stripe rejected the API key: {e.stripe_message}. Double-check that you pasted a restricted key (rk_live_...) for the same Stripe account, with no extra whitespace, and that it has not been revoked.",
+                "Stripe rejected the API key. Double-check that you pasted a restricted key (rk_live_...) for the same Stripe account, with no extra whitespace, and that it has not been revoked.",
             )
         except StripePermissionError as e:
             # 403s are self-explanatory — the resource name tells the customer which Stripe scope
@@ -361,6 +378,16 @@ If automatic creation failed due to a permissions error and you're using a restr
             if e.missing_permissions:
                 message += f". Additionally lacks permissions for {', '.join(e.missing_permissions.keys())}"
             return False, message
+        except ValueError as e:
+            # `_get_api_key` raises ValueError for deterministic config problems (missing API key,
+            # missing integration ID, missing access token). The user-facing wording already lives
+            # in `get_non_retryable_errors`; reuse it so this path doesn't leak the internal
+            # "Missing Stripe integration ID" string. Fall back to the raw message if unmapped.
+            raw = str(e)
+            for pattern, friendly in self.get_non_retryable_errors().items():
+                if friendly and pattern in raw:
+                    return False, friendly
+            return False, raw
         except Exception as e:
             return False, str(e)
 

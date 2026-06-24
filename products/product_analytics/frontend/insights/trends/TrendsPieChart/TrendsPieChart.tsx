@@ -44,11 +44,7 @@ const handleChartError = (error: Error, info: ErrorInfo): void => {
     })
 }
 
-export function TrendsPieChart({
-    context,
-    inSharedMode = false,
-    showPersonsModal = true,
-}: TrendsPieChartProps): JSX.Element | null {
+export function TrendsPieChart({ context, showPersonsModal = true }: TrendsPieChartProps): JSX.Element | null {
     const { isDarkModeOn } = useValues(themeLogic)
     // isDarkModeOn invalidates the memo so buildTheme() re-reads CSS vars on dark-mode toggle.
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
@@ -239,7 +235,10 @@ export function TrendsPieChart({
     }
 
     return (
-        <div className={`flex flex-col w-full h-full ${inSharedMode ? 'ActionsPie--shared' : 'ActionsPie'}`}>
+        // `flex-1 min-h-0` (not `h-full`) so the chart fills the flex column even when the
+        // parent only sets `min-height`/`flex` — a percentage height would collapse to 0,
+        // leaving `PieChart` with `outerRadius <= 0` and no slices. Mirrors the bar/line charts.
+        <div className="flex flex-col w-full flex-1 min-h-0">
             <PieChart<TrendsSeriesMeta>
                 series={series}
                 theme={theme}

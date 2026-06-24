@@ -558,9 +558,19 @@ if not CDP_API_URL:
         "http://localhost:6738" if DEBUG else "http://ingestion-cdp-api.posthog.svc.cluster.local"
     )  # localhost is correct — plugin server runs on host in dev
 
-# Shared secret for internal API authentication between Django and Node.js services
+# Shared secret for internal API authentication between Django and Node.js services.
+# Only the services that make/serve internal calls get this injected, so a missing value must not
+# block startup. Defaults to the public dev secret in DEBUG/TEST; elsewhere it defaults to empty and
+# internal API requests fail closed at request time (InternalAPIAuthentication) rather than silently
+# running on a known-public value. Stripped at load so a mounted secret's trailing newline can't
+# cause a spurious mismatch; get_list already strips the fallbacks.
 LOCAL_DEV_INTERNAL_API_SECRET = "posthog123"
-INTERNAL_API_SECRET = get_from_env("INTERNAL_API_SECRET", LOCAL_DEV_INTERNAL_API_SECRET)
+INTERNAL_API_SECRET = get_from_env(
+    "INTERNAL_API_SECRET", LOCAL_DEV_INTERNAL_API_SECRET if DEBUG or TEST else ""
+).strip()
+# Previous secrets still accepted for verification during zero-downtime rotation, newest first.
+# Receivers accept INTERNAL_API_SECRET plus these; senders always send INTERNAL_API_SECRET.
+INTERNAL_API_SECRET_FALLBACKS = get_list(os.getenv("INTERNAL_API_SECRET_FALLBACKS", ""))
 
 EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")
 
@@ -572,10 +582,19 @@ if not EMBEDDING_API_URL:
 # This allows feature-flags service to have dedicated Redis for better resource isolation
 FLAGS_REDIS_URL = os.getenv("FLAGS_REDIS_URL", None)
 
-# Dedicated Redis for ai-gateway HyperCache reads
-AI_GATEWAY_REDIS_URL = os.getenv("AI_GATEWAY_REDIS_URL", None)
+# Dedicated Redis for ai-gateway HyperCache reads. In local dev defaults to the
+# sibling ai-gateway's valkey (host port 6381) so the gateway-credential blob is
+# published where the gateway reads it — zero config for the agent-platform e2e
+# (see bin/setup-gateway-e2e). Prod sets it explicitly; tests leave it unset.
+AI_GATEWAY_REDIS_URL = os.getenv("AI_GATEWAY_REDIS_URL", "redis://localhost:6381" if DEBUG and not TEST else None)
 
 TASKS_REDIS_URL = os.getenv("TASKS_REDIS_URL", None)
+
+# Public base URL of the LLM gateway, surfaced in the app's per-gateway endpoint
+# examples (…/v1/<slug>/messages). Deployment-specific; empty until configured,
+# except in local dev where it defaults to the gateway's local listen addr
+# (AI_GATEWAY_LISTEN_ADDR=:8080 in PostHog/ai-gateway).
+AI_GATEWAY_PUBLIC_URL = os.getenv("AI_GATEWAY_PUBLIC_URL", "http://localhost:8080" if DEBUG else "")
 
 # Rust feature flags service URL
 # This is used to proxy flag evaluation requests to the Rust feature flags service

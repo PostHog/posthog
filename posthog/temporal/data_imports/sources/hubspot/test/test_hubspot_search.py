@@ -5,6 +5,8 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+from requests.exceptions import JSONDecodeError as RequestsJSONDecodeError
+
 from posthog.temporal.data_imports.sources.hubspot.hubspot import (
     HubspotPathologicalWindowError,
     HubspotResumeConfig,
@@ -942,6 +944,46 @@ class TestGetRowsFullRefresh:
             )
 
         assert captured_urls[0] == "https://api.hubapi.com/resume-here"
+
+    def test_truncated_json_body_is_retried(self) -> None:
+        # Regression: a truncated/partial page body raises requests' JSONDecodeError
+        # ("Unterminated string"). It must be treated as transient and retried, not crash
+        # the whole import.
+        from posthog.temporal.data_imports.sources.hubspot.hubspot import get_rows
+
+        manager = _make_manager()
+        logger = MagicMock()
+
+        truncated = _make_response(200, {"results": [{"id": "1", "properties": {"hs_object_id": "1"}}]})
+        truncated.json.side_effect = RequestsJSONDecodeError("Unterminated string starting at", "doc", 42)
+        good = _make_response(200, {"results": [{"id": "1", "properties": {"hs_object_id": "1"}}]})
+
+        iter_resp = iter([truncated, good])
+        captured_urls: list[str] = []
+
+        def _get(url, headers=None, timeout=None):  # noqa: ARG001
+            captured_urls.append(url)
+            return next(iter_resp)
+
+        with patch(
+            "posthog.temporal.data_imports.sources.hubspot.hubspot.make_tracked_session",
+            new=lambda *_a, **_k: type("_S", (), {"get": staticmethod(_get)})(),
+        ):
+            tables = list(
+                get_rows(
+                    api_key="k",
+                    refresh_token="r",
+                    endpoint="deals",
+                    logger=logger,
+                    resumable_source_manager=manager,
+                    include_custom_props=False,
+                )
+            )
+
+        # The truncated response was reissued (same URL) and the retry yielded the row.
+        assert len(captured_urls) == 2
+        assert captured_urls[0] == captured_urls[1]
+        assert sum(t.num_rows for t in tables) == 1
 
 
 class TestExpectedPropertiesBackfill:

@@ -12,8 +12,8 @@ describe('migrate()', () => {
     beforeEach(() => {
         useMocks({
             post: {
-                '/api/environments/:team_id/query/upgrade': (req) => {
-                    const data = req.body as any
+                '/api/environments/:team_id/query/upgrade': async ({ request }) => {
+                    const data = (await request.json()) as any
                     if (data?.query?.source?.kind === 'RetentionQuery') {
                         return [
                             200,
