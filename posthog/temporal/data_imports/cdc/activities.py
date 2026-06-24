@@ -67,6 +67,10 @@ SLOT_INVALIDATION_RECOVERY_MESSAGE = (
 # engine invalidates the slot first and we lose the chance to act cleanly.
 RETENTION_CAP_SAFETY_FACTOR = 0.8
 
+# Mirrors maximum_attempts on CDCExtractionWorkflow's retry policy (workflows.py). On the final
+# attempt a failure won't be retried, so it's the last chance to record a visible failed-run row.
+CDC_MAX_EXTRACTION_ATTEMPTS = 3
+
 
 @dataclasses.dataclass
 class CDCExtractInput:
@@ -946,6 +950,7 @@ class CDCExtractActivity:
             schema.latest_error = None
             schema.last_synced_at = now
             schema.save(update_fields=["status", "latest_error", "last_synced_at", "updated_at"])
+            self._record_run_heartbeat(schema, now)
             # Per-schema breadcrumb so the Syncs UI shows _why_ the latest run produced no rows.
             self._schema_log(schema).info(
                 "cdc_extract_no_changes",
@@ -1107,6 +1112,12 @@ class CDCExtractActivity:
             self._schema_log(schema).error(
                 "cdc_extract_schema_failed", error=str(exc), category=info.category, retryable=info.retryable
             )
+        # A failure before the first micro-flush creates no ExternalDataJob, so the Syncs tab stays
+        # empty while the schema reads FAILED. Backfill a terminal FAILED row per schema so the run
+        # is visible — but only once retries are exhausted or the error is non-retryable, otherwise
+        # every transient retry would leave a stray failed row.
+        if not self.created_jobs and (activity.info().attempt >= CDC_MAX_EXTRACTION_ATTEMPTS or not info.retryable):
+            self._create_failure_visibility_jobs(friendly)
         self._emit_run_duration("failed")
         return info
 
@@ -1125,6 +1136,40 @@ class CDCExtractActivity:
         except Exception:
             self.log.warning("cdc_non_retryable_capture_failed", exc_info=True)
 
+    def _create_failure_visibility_jobs(self, friendly_error: str) -> None:
+        """Create one terminal FAILED ExternalDataJob per CDC schema for a run that produced none.
+
+        Mirrors the running-job creation in _get_or_create_tracker (workflow ids, V3, snapshot) so
+        the Syncs tab renders these the same way as a job that failed after it started writing.
+        """
+        now = dt.datetime.now(tz=dt.UTC)
+        activity_info = activity.info()
+        for schema in self.cdc_schemas:
+            ExternalDataJob.objects.create(
+                team_id=self.inputs.team_id,
+                pipeline_id=self.inputs.source_id,
+                schema=schema,
+                status=ExternalDataJob.Status.FAILED,
+                rows_synced=0,
+                latest_error=friendly_error,
+                workflow_id=activity_info.workflow_id,
+                workflow_run_id=activity_info.workflow_run_id,
+                pipeline_version=ExternalDataJob.PipelineVersion.V3,
+                finished_at=now,
+                schema_snapshot=_build_schema_snapshot(schema),
+            )
+
+    def _record_run_heartbeat(self, schema: ExternalDataSchema, run_at: dt.datetime) -> None:
+        """Persist a per-schema last-run heartbeat (cdc_last_run_at / cdc_last_run_event_count) so a
+        quiet zero-event run still proves extraction is alive. Nothing reads these keys yet — an
+        upcoming CDC health check and the status endpoint will — so this is a forward-looking
+        breadcrumb, not an ExternalDataJob row per idle run.
+        """
+        self._update_schema_sync_type_config(
+            schema,
+            updates={"cdc_last_run_at": run_at.isoformat(), "cdc_last_run_event_count": self.event_count},
+        )
+
     def _finalize_success(self) -> None:
         now = dt.datetime.now(tz=dt.UTC)
         synced_tables = {tracker.table_name for tracker in self.write_trackers.values()}
@@ -1133,6 +1178,7 @@ class CDCExtractActivity:
             schema.latest_error = None
             schema.last_synced_at = now
             schema.save(update_fields=["status", "latest_error", "last_synced_at", "updated_at"])
+            self._record_run_heartbeat(schema, now)
             # Breadcrumb for idle tables; _handle_no_changes only covers the whole-source-quiet case.
             if schema.name not in synced_tables:
                 self._schema_log(schema).info("cdc_extract_no_changes")
