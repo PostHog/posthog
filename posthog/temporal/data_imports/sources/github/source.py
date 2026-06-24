@@ -1,4 +1,8 @@
-from typing import Optional, cast
+import secrets
+from typing import TYPE_CHECKING, Optional, cast
+
+if TYPE_CHECKING:
+    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
 from posthog.schema import (
     DataWarehouseSourceCategory,
@@ -14,27 +18,60 @@ from posthog.schema import (
 
 from posthog.models.integration import GitHubIntegration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from posthog.temporal.data_imports.sources.common.base import (
+    ExternalWebhookInfo,
+    FieldType,
+    ResumableSource,
+    WebhookCreationResult,
+    WebhookDeletionResult,
+    WebhookSource,
+)
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import GithubSourceConfig
 from posthog.temporal.data_imports.sources.github.github import (
     GithubResumeConfig,
+    create_repo_webhook,
+    delete_repo_webhook,
+    get_repo_webhook_info,
     github_source,
     validate_credentials as validate_github_credentials,
 )
-from posthog.temporal.data_imports.sources.github.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from posthog.temporal.data_imports.sources.github.settings import ENDPOINTS, GITHUB_ENDPOINTS, INCREMENTAL_FIELDS
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
+# Schemas that can be fed by GitHub webhooks, mapped to the X-GitHub-Event header
+# value the webhook handler routes on (schema_mapping is keyed by these values).
+GITHUB_WEBHOOK_RESOURCE_MAP: dict[str, str] = {
+    "workflow_jobs": "workflow_job",
+    "workflow_runs": "workflow_run",
+}
+
 
 @SourceRegistry.register
-class GithubSource(ResumableSource[GithubSourceConfig, GithubResumeConfig], OAuthMixin):
+class GithubSource(
+    ResumableSource[GithubSourceConfig, GithubResumeConfig],
+    WebhookSource[GithubSourceConfig],
+    OAuthMixin,
+):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.GITHUB
+
+    @property
+    def webhook_template(self) -> Optional["HogFunctionTemplateDC"]:
+        from posthog.temporal.data_imports.sources.github.webhook_template import template
+
+        return template
+
+    @property
+    def webhook_resource_map(self) -> dict[str, str]:
+        return GITHUB_WEBHOOK_RESOURCE_MAP
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -100,7 +137,36 @@ class GithubSource(ResumableSource[GithubSourceConfig, GithubResumeConfig], OAut
                     ),
                 ],
             ),
+            webhookSetupCaption="""To set up the webhook manually:
+
+1. Go to your repository's **Settings > Webhooks** on GitHub
+2. Click **Add webhook**
+3. Paste the webhook URL shown below into the **Payload URL** field
+4. Set **Content type** to **application/json**
+5. Enter a **Secret** and add the same value to the **Signing secret** field below
+6. Under **Which events would you like to trigger this webhook?**, choose **Let me select individual events** and tick **Workflow jobs** and **Workflow runs**
+7. Click **Add webhook**
+
+If automatic creation failed, your token needs webhook permissions — the **admin:repo_hook** scope on a classic token, or **Repository webhooks: read and write** on a fine-grained token. Add it and reconnect, or set the webhook up manually using the steps above.""",
+            webhookFields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="signing_secret",
+                        label="Signing secret",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=True,
+                        placeholder="your webhook secret",
+                        secret=True,
+                    ),
+                ],
+            ),
         )
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.github.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
@@ -150,6 +216,25 @@ class GithubSource(ResumableSource[GithubSourceConfig, GithubResumeConfig], OAut
             raise ValueError("GitHub access token not found")
         return integration.access_token
 
+    @staticmethod
+    def _schema_for_endpoint(endpoint: str) -> SourceSchema:
+        webhook_capable = endpoint in GITHUB_WEBHOOK_RESOURCE_MAP
+        # An endpoint whose poll does no first-sync backfill (initial_lookback_days == 0,
+        # i.e. workflow_jobs) can only ever be populated by the webhook — the per-run
+        # fan-out is too expensive to backfill at run volume. Offer it as webhook-only so
+        # users can't pick a poll mode that would sync an empty table forever. workflow_runs
+        # keeps its poll backfill; the webhook just replaces re-polling for it.
+        webhook_only = webhook_capable and GITHUB_ENDPOINTS[endpoint].initial_lookback_days == 0
+        supports_poll = bool(INCREMENTAL_FIELDS.get(endpoint)) and not webhook_only
+        return SourceSchema(
+            name=endpoint,
+            supports_incremental=supports_poll,
+            supports_append=supports_poll,
+            supports_webhooks=webhook_capable,
+            webhook_only=webhook_only,
+            incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+        )
+
     def get_schemas(
         self,
         config: GithubSourceConfig,
@@ -158,15 +243,7 @@ class GithubSource(ResumableSource[GithubSourceConfig, GithubResumeConfig], OAut
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
-                supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-            )
-            for endpoint in list(ENDPOINTS)
-        ]
+        schemas = [self._schema_for_endpoint(endpoint) for endpoint in list(ENDPOINTS)]
         if names is not None:
             names_set = set(names)
             schemas = [s for s in schemas if s.name in names_set]
@@ -184,6 +261,38 @@ class GithubSource(ResumableSource[GithubSourceConfig, GithubResumeConfig], OAut
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[GithubResumeConfig]:
         return ResumableSourceManager[GithubResumeConfig](inputs, GithubResumeConfig)
 
+    def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
+        return WebhookSourceManager(inputs, inputs.logger)
+
+    def get_desired_webhook_events(
+        self, config: GithubSourceConfig, eligible_schema_names: list[str]
+    ) -> list[str] | None:
+        # Map the eligible schemas to GitHub event names (e.g. ["workflow_job", "workflow_run"]).
+        return [
+            GITHUB_WEBHOOK_RESOURCE_MAP[name] for name in eligible_schema_names if name in GITHUB_WEBHOOK_RESOURCE_MAP
+        ]
+
+    def create_webhook(self, config: GithubSourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
+        access_token = self._get_access_token(config, team_id)
+        # GitHub's webhook secret is creator-supplied, so we mint one, hand it to GitHub as the
+        # hook's config.secret, and return it via extra_inputs so it lands on the hog function for
+        # signature verification. (Contrast Stripe, which generates and returns its own secret.)
+        secret = secrets.token_hex(32)
+        # Always subscribe to the full workflow event pair, not just the enabled schemas: jobs fan
+        # out under runs, so the two travel together and we want both regardless of which is synced.
+        events = self.get_desired_webhook_events(config, list(GITHUB_WEBHOOK_RESOURCE_MAP.keys())) or []
+        return create_repo_webhook(access_token, config.repository, webhook_url, events, secret=secret)
+
+    def delete_webhook(self, config: GithubSourceConfig, webhook_url: str, team_id: int) -> WebhookDeletionResult:
+        access_token = self._get_access_token(config, team_id)
+        return delete_repo_webhook(access_token, config.repository, webhook_url)
+
+    def get_external_webhook_info(
+        self, config: GithubSourceConfig, webhook_url: str, team_id: int
+    ) -> ExternalWebhookInfo:
+        access_token = self._get_access_token(config, team_id)
+        return get_repo_webhook_info(access_token, config.repository, webhook_url)
+
     def source_for_pipeline(
         self,
         config: GithubSourceConfig,
@@ -191,6 +300,11 @@ class GithubSource(ResumableSource[GithubSourceConfig, GithubResumeConfig], OAut
         inputs: SourceInputs,
     ) -> SourceResponse:
         access_token = self._get_access_token(config, inputs.team_id)
+        # Only the workflow schemas can be webhook-fed, so skip building the manager — and its
+        # webhook_enabled() DB lookup — for the poll-only endpoints (issues, commits, etc.).
+        webhook_source_manager = (
+            self.get_webhook_source_manager(inputs) if inputs.schema_name in GITHUB_WEBHOOK_RESOURCE_MAP else None
+        )
 
         return github_source(
             personal_access_token=access_token,
@@ -203,4 +317,5 @@ class GithubSource(ResumableSource[GithubSourceConfig, GithubResumeConfig], OAut
             if inputs.should_use_incremental_field
             else None,
             incremental_field=inputs.incremental_field,
+            webhook_source_manager=webhook_source_manager,
         )

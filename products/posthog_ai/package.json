@@ -2,5 +2,29 @@
     "name": "@posthog/products-posthog-ai",
     "scripts": {
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ scripts/ -v --tb=short"
+    },
+    "dependencies": {
+        "eventsource-parser": "*",
+        "kea-subscriptions": "catalog:",
+        "marked": "*",
+        "posthog-js": "catalog:",
+        "tailwind-merge": "*"
+    },
+    "devDependencies": {
+        "@testing-library/react": "*",
+        "kea-test-utils": "catalog:"
+    },
+    "peerDependencies": {
+        "@posthog/icons": "*",
+        "@storybook/react": "catalog:",
+        "@types/react": "*",
+        "@types/react-dom": "*",
+        "clsx": "*",
+        "kea": "catalog:",
+        "kea-forms": "catalog:",
+        "kea-loaders": "catalog:",
+        "kea-router": "catalog:",
+        "react": "*",
+        "react-dom": "*"
     }
 }

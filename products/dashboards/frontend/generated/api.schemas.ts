@@ -2508,6 +2508,8 @@ export interface FunnelsFilterApi {
     /** Trends only: hide periods whose conversion window has not fully elapsed yet, so the recent tail of the trend isn't dragged down by entrants who still have time to convert. */
     hideIncompleteConversionWindowPeriods?: boolean | null
     layout?: FunnelLayoutApi | null
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
+    legendPosition?: LegendPositionApi | null
     /** Customizations for the appearance of result datasets. */
     resultCustomizations?: FunnelsFilterApiResultCustomizations
     /** Whether to render annotations on the chart. Only applies to historical-trends funnels. */
@@ -3107,6 +3109,8 @@ export interface StickinessFilterApi {
     computedAs?: StickinessComputationModeApi | null
     display?: ChartDisplayTypeApi | null
     hiddenLegendIndexes?: number[] | null
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
+    legendPosition?: LegendPositionApi | null
     /** Whether result datasets are associated by their values or by their order. */
     resultCustomizationBy?: ResultCustomizationByApi | null
     /** Customizations for the appearance of result datasets. */
@@ -3182,6 +3186,8 @@ export const LifecycleToggleApi = {
 } as const
 
 export interface LifecycleFilterApi {
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
+    legendPosition?: LegendPositionApi | null
     showLegend?: boolean | null
     /** Append per-band percentage to each value label (e.g. `580 (42%)`). Requires `showValuesOnSeries` — on its own it has no visible effect. */
     showPercentagesOnSeries?: boolean | null

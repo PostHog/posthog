@@ -19,9 +19,9 @@ from __future__ import annotations
 import time
 import datetime
 import collections
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from typing import Any
+from typing import Any, TypeVar
 
 from django.conf import settings
 
@@ -61,7 +61,7 @@ from posthog.temporal.data_imports.sources.common.sql.incremental import Increme
 from posthog.temporal.data_imports.sources.common.sql.location import normalize_namespace, resolve_source_location
 from posthog.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
 
-from products.data_warehouse.backend.types import IncrementalFieldType
+from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
 __all__ = [
     "MySQLColumn",
@@ -288,24 +288,47 @@ def _is_bad_plan_error(e: pymysql.err.OperationalError) -> bool:
 # ~3s and surfacing the drop as error-tracking noise.
 _MAX_CONNECT_ATTEMPTS = 5
 
+# pymysql error code 2003 (CR_CONN_HOST_ERROR): the catch-all "Can't connect to MySQL server
+# on '<host>'" raised for any failure to establish the connection. Almost always a deterministic
+# config problem (wrong host/port, closed firewall) and so non-retryable — the one transient
+# exception is an SSL handshake the peer aborted with an unexpected EOF (see
+# `_is_transient_connect_drop`).
+_CANT_CONNECT_TO_SERVER_CODE = 2003
+
+# OpenSSL's signature for "the peer closed the connection before the TLS handshake finished".
+# pymysql wraps it as the 2003 connect failure above. Unlike WRONG_VERSION_NUMBER (a server that
+# doesn't speak TLS at all — a deterministic config error, already non-retryable), an unexpected
+# EOF mid-handshake is a transient drop: an overloaded server, a proxy/load-balancer idle cull, a
+# failover, or a momentary network blip, all of which a fresh attempt recovers from. Mirrors the
+# Postgres source, which retries its own "SSL connection has been closed unexpectedly" on connect.
+_SSL_UNEXPECTED_EOF_TOKEN = "[SSL: UNEXPECTED_EOF_WHILE_READING]"
+
 
 def _is_transient_connect_drop(e: BaseException) -> bool:
     """Return True if the connection was dropped mid-handshake — a transient blip.
 
-    pymysql reports a socket close while reading the server greeting as the same
-    2013 code we see mid-query, but at connect time it means the server hung up
-    before the handshake finished (an overloaded server, a proxy idle cull, a
-    failover, a momentary network blip) — a fresh attempt recovers. The one 2013
-    that is *not* transient is the SSL-version mismatch (a deterministic config
-    error, already non-retryable): it arrives with an `[SSL: ...` suffix, so
-    exclude that and let it surface.
+    Two shapes share this transient class, both surfaced by pymysql as an
+    `OperationalError` at connect time:
+
+    - `2013` (lost connection): a socket close while reading the server greeting —
+      an overloaded server, a proxy idle cull, a failover, a momentary network blip.
+      A fresh attempt recovers. The one 2013 that is *not* transient is the SSL-version
+      mismatch (a deterministic config error, already non-retryable): it arrives with an
+      `[SSL: ...` suffix, so exclude that and let it surface.
+    - `2003` (can't connect) carrying an `[SSL: UNEXPECTED_EOF_WHILE_READING]` cause:
+      the peer aborted the TLS handshake with an unexpected EOF — the SSL-flavoured
+      sibling of the 2013 drop, equally transient. The generic 2003 (wrong host/port,
+      firewall) stays non-retryable, so match only the unexpected-EOF token.
     """
     if not isinstance(e, pymysql.err.OperationalError):
         return False
     code = e.args[0] if e.args else None
-    if code != _LOST_CONNECTION_DURING_QUERY_CODE:
-        return False
-    return "[SSL:" not in " ".join(str(arg) for arg in e.args)
+    args_text = " ".join(str(arg) for arg in e.args)
+    if code == _LOST_CONNECTION_DURING_QUERY_CODE:
+        return "[SSL:" not in args_text
+    if code == _CANT_CONNECT_TO_SERVER_CODE:
+        return _SSL_UNEXPECTED_EOF_TOKEN in args_text
+    return False
 
 
 def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
@@ -328,6 +351,62 @@ def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
                 "Transient MySQL connection drop during connect; retrying",
                 attempt=attempt,
                 max_attempts=_MAX_CONNECT_ATTEMPTS,
+                exc_info=e,
+            )
+            time.sleep(min(2 * attempt, 30))
+
+
+_T = TypeVar("_T")
+
+# Vitess/PlanetScale vtgate wraps a momentarily-unreachable backend tablet (a failover,
+# restart, or rollout) as pymysql OperationalError(1105) carrying the gRPC status
+# `code = Unavailable`. 1105 is MySQL's generic ER_UNKNOWN_ERROR catch-all, so we key on
+# the stable `code = Unavailable` token rather than the bare code — the volatile
+# target/host/port and other 1105 payloads stay untouched.
+_GRPC_UNAVAILABLE_TOKEN = "code = Unavailable"
+
+
+def _is_transient_tablet_unavailable(e: BaseException) -> bool:
+    """Return True if a Vitess vtgate reported its backend tablet transiently unavailable.
+
+    gRPC `Unavailable` is the canonical retry-me status: the tablet is briefly
+    unreachable (failover, restart) even though the vtgate handshake succeeded, so the
+    first query after connect fails with a 1105 `code = Unavailable`. A fresh attempt
+    after a short backoff usually lands on a healthy tablet.
+    """
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    return _GRPC_UNAVAILABLE_TOKEN in " ".join(str(arg) for arg in e.args)
+
+
+def _retry_on_transient_tablet_unavailable(
+    operation: Callable[[], _T],
+    logger: FilteringBoundLogger,
+    *,
+    max_attempts: int = _MAX_CONNECT_ATTEMPTS,
+) -> _T:
+    """Run `operation`, retrying a transient Vitess tablet-unavailable error.
+
+    Mirrors `_connect_with_transient_retry`, but covers the metadata queries that run on
+    a freshly opened connection: reconnecting alone doesn't help when the vtgate
+    handshake succeeds and only the first query hits an unavailable tablet, so retry the
+    whole operation (which reopens the connection) with a bounded backoff instead of
+    failing sync setup on the first blip and surfacing it as captured error-tracking
+    noise. Non-transient errors re-raise immediately because
+    `_is_transient_tablet_unavailable` only matches the gRPC `Unavailable` status.
+    """
+    attempt = 0
+    while True:
+        try:
+            return operation()
+        except pymysql.err.OperationalError as e:
+            attempt += 1
+            if attempt >= max_attempts or not _is_transient_tablet_unavailable(e):
+                raise
+            logger.warning(
+                "Transient MySQL tablet-unavailable error during metadata discovery; retrying",
+                attempt=attempt,
+                max_attempts=max_attempts,
                 exc_info=e,
             )
             time.sleep(min(2 * attempt, 30))
@@ -996,39 +1075,49 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         enabled_columns = inputs.enabled_columns
         row_filters = inputs.row_filters
 
-        with self.connect(config) as connection:
-            with connection.cursor() as cursor:
-                primary_keys = self.get_primary_keys_for_table(cursor, schema, table_name)
-                full_table = self.get_table_metadata(cursor, schema, table_name)
+        def _discover_metadata() -> tuple[list[str] | None, pa.Schema, int, PartitionSettings | None, int]:
+            with self.connect(config) as connection:
+                with connection.cursor() as cursor:
+                    primary_keys = self.get_primary_keys_for_table(cursor, schema, table_name)
+                    full_table = self.get_table_metadata(cursor, schema, table_name)
 
-                # Resolve PKs before the projection so probe/sample queries match the streaming SELECT.
-                if primary_keys is None and "id" in full_table:
-                    primary_keys = ["id"]
+                    # Resolve PKs before the projection so probe/sample queries match the streaming SELECT.
+                    if primary_keys is None and "id" in full_table:
+                        primary_keys = ["id"]
 
-                projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
-                table = project_arrow_columns(full_table, projected)
-                arrow_schema = table.to_arrow_schema()
-                logger.debug(f"Source schema: {arrow_schema}")
+                    projected = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
+                    table = project_arrow_columns(full_table, projected)
+                    arrow_schema = table.to_arrow_schema()
+                    logger.debug(f"Source schema: {arrow_schema}")
 
-                inner_query, inner_query_args = _build_query(
-                    schema,
-                    table_name,
-                    should_use_incremental_field,
-                    incremental_field,
-                    incremental_field_type,
-                    db_incremental_field_last_value,
-                    enabled_columns=enabled_columns,
-                    primary_keys=primary_keys,
-                    row_filters=row_filters,
-                )
+                    inner_query, inner_query_args = _build_query(
+                        schema,
+                        table_name,
+                        should_use_incremental_field,
+                        incremental_field,
+                        incremental_field_type,
+                        db_incremental_field_last_value,
+                        enabled_columns=enabled_columns,
+                        primary_keys=primary_keys,
+                        row_filters=row_filters,
+                    )
 
-                rows_to_sync = self.get_rows_to_sync(cursor, inner_query, inner_query_args, logger)
-                chunk_size = self.get_chunk_size(cursor, schema, table_name, inner_query, inner_query_args, logger)
-                partition_settings = (
-                    self.get_partition_settings(cursor, schema, table_name, logger)
-                    if should_use_incremental_field
-                    else None
-                )
+                    rows_to_sync = self.get_rows_to_sync(cursor, inner_query, inner_query_args, logger)
+                    chunk_size = self.get_chunk_size(cursor, schema, table_name, inner_query, inner_query_args, logger)
+                    partition_settings = (
+                        self.get_partition_settings(cursor, schema, table_name, logger)
+                        if should_use_incremental_field
+                        else None
+                    )
+            return primary_keys, arrow_schema, chunk_size, partition_settings, rows_to_sync
+
+        # A PlanetScale/Vitess tablet can be momentarily unavailable even once the vtgate
+        # handshake succeeds, so retry the whole metadata-discovery block (reopening the
+        # connection) on a transient `code = Unavailable` rather than failing setup on the
+        # first blip — see `_retry_on_transient_tablet_unavailable`.
+        primary_keys, arrow_schema, chunk_size, partition_settings, rows_to_sync = (
+            _retry_on_transient_tablet_unavailable(_discover_metadata, logger)
+        )
 
         def _stream_with_optional_force_index(force_index_name: str | None) -> Iterator[Any]:
             """Open a fresh connection and stream rows.

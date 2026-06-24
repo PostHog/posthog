@@ -94,6 +94,7 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "account": "customer_analytics",
     "customer_journey": "customer_analytics",
     "experiment_saved_metric": "experiment",
+    "experiment_holdout": "experiment",
     "dashboard_template": "dashboard",
     # Marketing analytics doesn't have its own RBAC resource yet — inherit from
     # web_analytics so the existing per-team controls actually gate it (matches
@@ -297,6 +298,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "session_recording_playlist"
     if name == "experimentsavedmetric":
         return "experiment_saved_metric"
+    if name == "experimentholdout":
+        return "experiment_holdout"
     if name == "endpointversion":
         return "endpoint"
     if name == "externaldatasource":
@@ -385,7 +388,10 @@ class UserAccessControl:
         """
         if not EE_AVAILABLE or not self._team:
             return []
-        return list(AccessControl.objects.filter(self._filter_options({"team_id": self._team.id})))
+        # select_related("team") so _row_matches can read ac.team.organization_id without a per-row FK fetch
+        return list(
+            AccessControl.objects.select_related("team").filter(self._filter_options({"team_id": self._team.id}))
+        )
 
     @property
     def rbac_supported(self) -> bool:
@@ -463,7 +469,9 @@ class UserAccessControl:
                 if isinstance(resource, str):
                     span.set_attribute("rbac.resource", resource)
                 span.set_attribute("rbac.has_resource_id", filters.get("resource_id") is not None)
-                self._cache[key] = list(AccessControl.objects.filter(self._filter_options(filters)))
+                self._cache[key] = list(
+                    AccessControl.objects.select_related("team").filter(self._filter_options(filters))
+                )
                 span.set_attribute("rbac.row_count", len(self._cache[key]))
 
         return self._cache[key]
@@ -544,7 +552,7 @@ class UserAccessControl:
         q = Q()
         for filters in filter_groups:
             q = q | self._filter_options(filters)
-        self._fill_filters_cache(filter_groups, list(AccessControl.objects.filter(q)))
+        self._fill_filters_cache(filter_groups, list(AccessControl.objects.select_related("team").filter(q)))
 
     def preload_access_levels(self, team: Team, resource: APIScopeObject, resource_id: Optional[str] = None) -> None:
         """

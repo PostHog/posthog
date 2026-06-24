@@ -79,6 +79,7 @@ function session(label: string): AgentSession {
         usage_total: { ...EMPTY_USAGE_TOTAL },
         acl: [],
         pending_elevation_requests: [],
+        is_preview: false,
         created_at: '2026-05-27',
         updated_at: '2026-05-27',
     }
@@ -325,7 +326,9 @@ describe('janitor HTTP', () => {
         expect(real.body).toMatchObject({ scanned: 1, updated: 1, dry_run: false })
         const after = (await queue.get(uuidFor('s-backfill')))!
         expect(after.usage_total.tokens_in).toBe(7)
-        expect(after.usage_total.cost_total).toBeCloseTo(0.015, 10)
+        // Cost is owned by the gateway's settled figure, never recomputed from pi-ai's
+        // conversation estimates — so the backfill rewrites tokens but leaves cost at zero.
+        expect(after.usage_total.cost_total).toBe(0)
 
         // Second run finds nothing to update.
         const repeat = await request(app)

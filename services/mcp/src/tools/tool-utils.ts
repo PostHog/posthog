@@ -24,6 +24,23 @@ export async function withPostHogUrl<T>(context: Context, result: T, path: strin
 }
 
 /**
+ * Adds an `_agentNote` field carrying brief point-of-use guidance for the calling agent
+ * (configured per tool via `agent_note` in the YAML definition). For raw array results the
+ * array is wrapped as `{ results, _agentNote }`, mirroring `withPostHogUrl`.
+ */
+export type WithAgentNote<T = unknown> = T extends readonly (infer U)[]
+    ? { results: U[]; _agentNote: string }
+    : T & { _agentNote: string }
+
+/** Adds `_agentNote` to a result. Wraps raw arrays in `{ results, _agentNote }` (see type above). */
+export function withAgentNote<T>(result: T, note: string): WithAgentNote<T> {
+    if (Array.isArray(result)) {
+        return { results: result, _agentNote: note } as unknown as WithAgentNote<T>
+    }
+    return { ...result, _agentNote: note } as WithAgentNote<T>
+}
+
+/**
  * Pick only fields matching the given dot-path patterns.
  * Supports wildcards: `'groups.*.key'` iterates all array items / object keys.
  */
