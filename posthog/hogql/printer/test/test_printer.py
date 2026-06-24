@@ -462,6 +462,11 @@ class TestPrinter(BaseTest):
         self.assertEqual(self._expr("1.0 % 2.66"), "modulo(1.0, 2.66)")
         self.assertEqual(self._expr("'string'"), "%(hogql_val_0)s")
 
+    def test_case_insensitive_function_name(self):
+        # rand is registered case-insensitively, so uppercase RAND() resolves to rand()
+        self.assertEqual(self._expr("rand()"), "rand()")
+        self.assertEqual(self._expr("RAND()"), "rand()")
+
     def test_arrays(self):
         self.assertEqual(self._expr("[]"), "[]")
         self.assertEqual(self._expr("[1,2]"), "[1, 2]")
