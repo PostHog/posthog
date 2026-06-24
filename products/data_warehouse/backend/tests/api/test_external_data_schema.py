@@ -3202,3 +3202,59 @@ class TestExternalDataSchemaRowFilters(APIBaseTest):
         response = self._patch(schema, [{"column": "id", "operator": ">", "value": 10}])
         assert response.status_code == 400
         assert "not supported for CDC" in str(response.json())
+
+
+class TestExternalDataSchemaMaskedColumns(APIBaseTest):
+    """PATCH-level validation for masked_columns. Like row_filters, it only reads the schema's
+    discovered columns plus the configured PK / incremental field — no source DB connection."""
+
+    SCHEMA_METADATA = {
+        "columns": [
+            {"name": "id", "data_type": "integer", "is_nullable": False},
+            {"name": "created_at", "data_type": "timestamp", "is_nullable": True},
+            {"name": "password", "data_type": "varchar(255)", "is_nullable": True},
+        ]
+    }
+
+    def _create(self) -> ExternalDataSchema:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={"host": "h", "port": "5432", "database": "d", "user": "u", "password": "p", "schema": "public"},
+        )
+        return ExternalDataSchema.objects.create(
+            name="Customers",
+            team=self.team,
+            source=source,
+            sync_type_config={
+                "schema_metadata": self.SCHEMA_METADATA,
+                "primary_key_columns": ["id"],
+                "incremental_field": "created_at",
+            },
+        )
+
+    def _patch(self, schema: ExternalDataSchema, masked_columns: Any):
+        return self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"masked_columns": masked_columns},
+        )
+
+    def test_valid_masked_columns_persist(self):
+        schema = self._create()
+        response = self._patch(schema, ["password"])
+        assert response.status_code == 200, response.json()
+        schema.refresh_from_db()
+        assert schema.masked_columns == ["password"]
+
+    def test_unknown_column_rejected(self):
+        schema = self._create()
+        response = self._patch(schema, ["does_not_exist"])
+        assert response.status_code == 400
+        assert "Unknown columns in masked_columns" in str(response.json())
+
+    @parameterized.expand([("primary_key", "id"), ("incremental_field", "created_at")])
+    def test_protected_column_rejected(self, _name: str, column: str):
+        schema = self._create()
+        response = self._patch(schema, [column])
+        assert response.status_code == 400
+        assert "can't be masked" in str(response.json())

@@ -87,6 +87,10 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     enabled_columns = models.JSONField(null=True, blank=True, default=None)
     # null (default) = sync all rows. List of {column, operator, value} predicates ANDed onto the WHERE clause.
     row_filters = models.JSONField(null=True, blank=True, default=None)
+    # null (default) = no masking. List of source column names whose values are replaced at sync time with a
+    # deterministic one-way HMAC-SHA256 digest (for sensitive data: passwords, PII, etc.). PK columns and the
+    # active incremental field can't be masked — that would corrupt merges and the incremental cursor.
+    masked_columns = models.JSONField(null=True, blank=True, default=None)
 
     __repr__ = sane_repr("name")
 

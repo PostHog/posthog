@@ -55,6 +55,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import resolve_table_and_folder_names
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.masking import mask_value
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.kafka.common import SyncTypeLiteral
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import (
     PostgresProducer,
@@ -149,6 +150,8 @@ class CDCExtractActivity:
         self.pk_columns_by_table: dict[str, list[str]] = {}
         # Missing entry = sync all columns; otherwise the set is the projection (always includes PKs).
         self.enabled_columns_by_table: dict[str, set[str]] = {}
+        # Missing/empty entry = no masking; otherwise the set is the columns to mask (never PK/incremental).
+        self.masked_columns_by_table: dict[str, set[str]] = {}
         self.write_trackers: dict[str, _WriteTracker] = {}
         self.created_jobs: list[ExternalDataJob] = []
         self.adapter: typing.Any = None
@@ -783,6 +786,15 @@ class CDCExtractActivity:
                     retained.add(inc)
                 self.enabled_columns_by_table[schema.name] = retained
 
+            # Masking is independent of column selection: a schema may mask columns it still syncs.
+            masked = schema.masked_columns
+            if isinstance(masked, list) and masked:
+                protected: set[str] = set(self.pk_columns_by_table.get(schema.name, []))
+                masked_inc = schema.incremental_field
+                if isinstance(masked_inc, str) and masked_inc:
+                    protected.add(masked_inc)
+                self.masked_columns_by_table[schema.name] = {str(c) for c in masked} - protected
+
     def _project_event_columns(self, event: ChangeEvent) -> ChangeEvent:
         retained = self.enabled_columns_by_table.get(event.table_name)
         if retained is None:
@@ -798,6 +810,16 @@ class CDCExtractActivity:
             columns=filtered,
             column_types=event.column_types,
         )
+
+    def _mask_event_columns(self, event: ChangeEvent) -> ChangeEvent:
+        masked = self.masked_columns_by_table.get(event.table_name)
+        if not masked:
+            return event
+        columns = {
+            name: (mask_value(self.inputs.team_id, value) if name in masked else value)
+            for name, value in event.columns.items()
+        }
+        return dataclasses.replace(event, columns=columns)
 
     def _qualified_table_name(self, schema: ExternalDataSchema) -> str:
         """Resolve a CDC schema row to its source-qualified `schema.table` name.
@@ -855,6 +877,7 @@ class CDCExtractActivity:
                 event = dataclasses.replace(event, table_name=canonical_name)
 
             event = self._project_event_columns(event)
+            event = self._mask_event_columns(event)
             self.batcher.add(event)
 
             # A change in position_serialized proves the previous transaction fully

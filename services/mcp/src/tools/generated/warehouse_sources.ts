@@ -161,6 +161,9 @@ const externalDataSchemasCancel = (): ToolBase<typeof ExternalDataSchemasCancelS
         if (params.enabled_columns !== undefined) {
             body['enabled_columns'] = params.enabled_columns
         }
+        if (params.masked_columns !== undefined) {
+            body['masked_columns'] = params.masked_columns
+        }
         if (params.row_filters !== undefined) {
             body['row_filters'] = params.row_filters
         }
@@ -230,6 +233,9 @@ const externalDataSchemasIncrementalFieldsCreate = (): ToolBase<
         }
         if (params.enabled_columns !== undefined) {
             body['enabled_columns'] = params.enabled_columns
+        }
+        if (params.masked_columns !== undefined) {
+            body['masked_columns'] = params.masked_columns
         }
         if (params.row_filters !== undefined) {
             body['row_filters'] = params.row_filters
@@ -315,6 +321,9 @@ const externalDataSchemasPartialUpdate = (): ToolBase<
         if (params.enabled_columns !== undefined) {
             body['enabled_columns'] = params.enabled_columns
         }
+        if (params.masked_columns !== undefined) {
+            body['masked_columns'] = params.masked_columns
+        }
         if (params.row_filters !== undefined) {
             body['row_filters'] = params.row_filters
         }
@@ -367,6 +376,9 @@ const externalDataSchemasReload = (): ToolBase<typeof ExternalDataSchemasReloadS
         if (params.enabled_columns !== undefined) {
             body['enabled_columns'] = params.enabled_columns
         }
+        if (params.masked_columns !== undefined) {
+            body['masked_columns'] = params.masked_columns
+        }
         if (params.row_filters !== undefined) {
             body['row_filters'] = params.row_filters
         }
@@ -418,6 +430,9 @@ const externalDataSchemasResync = (): ToolBase<typeof ExternalDataSchemasResyncS
         }
         if (params.enabled_columns !== undefined) {
             body['enabled_columns'] = params.enabled_columns
+        }
+        if (params.masked_columns !== undefined) {
+            body['masked_columns'] = params.masked_columns
         }
         if (params.row_filters !== undefined) {
             body['row_filters'] = params.row_filters

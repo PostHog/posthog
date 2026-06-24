@@ -124,6 +124,12 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
         ),
+    masked_columns: zod
+        .array(zod.string())
+        .nullish()
+        .describe(
+            "Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key columns and the active incremental field can't be masked."
+        ),
     row_filters: zod
         .array(
             zod.object({
@@ -234,6 +240,12 @@ export const ExternalDataSchemasCancelCreateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
+        ),
+    masked_columns: zod
+        .array(zod.string())
+        .nullish()
+        .describe(
+            "Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key columns and the active incremental field can't be masked."
         ),
     row_filters: zod
         .array(
@@ -355,6 +367,12 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
         .describe(
             'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
         ),
+    masked_columns: zod
+        .array(zod.string())
+        .nullish()
+        .describe(
+            "Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key columns and the active incremental field can't be masked."
+        ),
     row_filters: zod
         .array(
             zod.object({
@@ -466,6 +484,12 @@ export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
         ),
+    masked_columns: zod
+        .array(zod.string())
+        .nullish()
+        .describe(
+            "Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key columns and the active incremental field can't be masked."
+        ),
     row_filters: zod
         .array(
             zod.object({
@@ -576,6 +600,12 @@ export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             'Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.'
+        ),
+    masked_columns: zod
+        .array(zod.string())
+        .nullish()
+        .describe(
+            "Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key columns and the active incremental field can't be masked."
         ),
     row_filters: zod
         .array(

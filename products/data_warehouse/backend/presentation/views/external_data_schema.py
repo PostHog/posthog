@@ -289,6 +289,16 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "even if not listed here."
         ),
     )
+    masked_columns = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Names of source columns whose values are replaced with a deterministic one-way digest at "
+            "sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. "
+            "Primary-key columns and the active incremental field can't be masked."
+        ),
+    )
     row_filters = RowFiltersField(
         required=False,
         allow_null=True,
@@ -337,6 +347,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "primary_key_columns",
             "cdc_table_mode",
             "enabled_columns",
+            "masked_columns",
             "row_filters",
             "available_columns",
             "source",
@@ -562,6 +573,34 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
                             f"Unknown columns in enabled_columns: {sorted(unknown)}. "
                             "Run `Pull new schemas` to refresh available columns."
                         )
+
+        if "masked_columns" in validated_data:
+            masked_columns = validated_data["masked_columns"]
+            if masked_columns is not None:
+                if not isinstance(masked_columns, list) or not all(isinstance(c, str) for c in masked_columns):
+                    raise ValidationError("masked_columns must be a list of column-name strings or null.")
+                metadata = instance.schema_metadata or {}
+                metadata_columns = metadata.get("columns") if isinstance(metadata, dict) else None
+                known = (
+                    {col.get("name") for col in metadata_columns if isinstance(col, dict)}
+                    if isinstance(metadata_columns, list)
+                    else set()
+                )
+                if known:
+                    unknown = [c for c in masked_columns if c not in known]
+                    if unknown:
+                        raise ValidationError(
+                            f"Unknown columns in masked_columns: {sorted(unknown)}. "
+                            "Run `Pull new schemas` to refresh available columns."
+                        )
+                protected = set(instance.primary_key_columns or [])
+                if instance.incremental_field:
+                    protected.add(instance.incremental_field)
+                conflicting = [c for c in masked_columns if c in protected]
+                if conflicting:
+                    raise ValidationError(
+                        f"Primary-key and incremental-field columns can't be masked: {sorted(conflicting)}."
+                    )
 
         # Validate against the schema's columns; raw filters are persisted as-is and re-coerced at sync time.
         if "row_filters" in validated_data and validated_data["row_filters"] is not None:
