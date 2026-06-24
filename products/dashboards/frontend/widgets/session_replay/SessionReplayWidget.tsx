@@ -181,8 +181,7 @@ export function SessionReplayWidgetTopHeading({
     showWidgetType,
     dateText,
 }: DashboardWidgetTopHeadingProps): JSX.Element {
-    const asShortId = (value: unknown): string | null =>
-        typeof value === 'string' && value.length > 0 ? value : null
+    const asShortId = (value: unknown): string | null => (typeof value === 'string' && value.length > 0 ? value : null)
     const savedFilterId = asShortId(config.savedFilterId)
     const collectionId = asShortId(config.collectionId)
     const { savedFilterLabelById, collectionLabelById } = useValues(sessionReplayWidgetSavedFiltersLogic)
