@@ -23,7 +23,7 @@ use crate::{
     global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter},
     prometheus::{report_clock_skew, report_dropped_events},
     router, sinks,
-    utils::uuid_v7_from_event_timestamp,
+    utils::uuid_v7_from_datetime,
     v0_request::{
         DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata, ProcessingContext,
     },
@@ -184,7 +184,7 @@ pub fn process_single_event(
         // Seed the UUIDv7 from the event timestamp, not ingestion time, so its embedded time tracks events.timestamp.
         uuid: event
             .uuid
-            .unwrap_or_else(|| uuid_v7_from_event_timestamp(parsed_timestamp.timestamp)),
+            .unwrap_or_else(|| uuid_v7_from_datetime(parsed_timestamp.timestamp)),
         distinct_id: event
             .extract_distinct_id()
             .ok_or(CaptureError::MissingDistinctId)?,
@@ -405,7 +405,7 @@ pub async fn process_events(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::uuid_v7_from_event_timestamp;
+    use crate::utils::uuid_v7_from_datetime;
     use crate::v0_request::{OverflowReason, ProcessingContext};
     use chrono::{DateTime, TimeZone, Utc};
     use common_types::RawEvent;
@@ -1979,10 +1979,8 @@ mod tests {
 
         let timestamp = "2023-01-01T11:00:00Z";
         RawEvent {
-            uuid: Some(uuid_v7_from_event_timestamp(
-                DateTime::parse_from_rfc3339(timestamp)
-                    .unwrap()
-                    .with_timezone(&Utc),
+            uuid: Some(uuid_v7_from_datetime(
+                DateTime::parse_from_rfc3339(timestamp).unwrap(),
             )),
             distinct_id: None,
             event: "$pageview".to_string(),

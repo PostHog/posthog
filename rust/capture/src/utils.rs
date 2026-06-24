@@ -1,6 +1,6 @@
 use axum::http::HeaderMap;
 use base64::Engine;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeZone};
 use common_types::RawEvent;
 use rand::RngCore;
 use std::collections::HashSet;
@@ -65,9 +65,9 @@ pub fn uuid_v7(unix_millis: u64) -> Uuid {
     encode_unix_timestamp_millis(unix_millis, &bytes)
 }
 
-/// Builds a server-assigned UUIDv7 seeded from an event's resolved timestamp, so its embedded time tracks the event rather than ingestion. Pre-1970 timestamps are floored to the epoch, since the unsigned time field can't represent negatives.
-pub fn uuid_v7_from_event_timestamp(timestamp: DateTime<Utc>) -> Uuid {
-    uuid_v7(timestamp.timestamp_millis().max(0) as u64)
+/// Builds a UUIDv7 whose time component is the given instant. Pre-epoch datetimes are floored to the epoch, since the unsigned time field can't represent negatives.
+pub fn uuid_v7_from_datetime<Tz: TimeZone>(datetime: DateTime<Tz>) -> Uuid {
+    uuid_v7(datetime.timestamp_millis().max(0) as u64)
 }
 
 pub fn extract_lib_version(form: &EventFormData, params: &EventQuery) -> Option<String> {
@@ -274,20 +274,17 @@ mod tests {
     }
 
     #[test]
-    fn uuid_v7_from_event_timestamp_encodes_event_time() {
-        let ts = DateTime::parse_from_rfc3339("2020-06-15T00:00:00Z")
-            .unwrap()
-            .with_timezone(&Utc);
-        let uuid = uuid_v7_from_event_timestamp(ts);
+    fn uuid_v7_from_datetime_encodes_the_instant() {
+        // A non-UTC offset still yields the same absolute instant in the UUID.
+        let ts = DateTime::parse_from_rfc3339("2020-06-15T00:00:00Z").unwrap();
+        let uuid = uuid_v7_from_datetime(ts);
         assert_eq!(uuid_time_millis(uuid), ts.timestamp_millis() as u128);
         assert_eq!(uuid.get_version_num(), 7);
     }
 
     #[test]
-    fn uuid_v7_from_event_timestamp_floors_pre_epoch_to_zero() {
-        let ts = DateTime::parse_from_rfc3339("1969-06-15T00:00:00Z")
-            .unwrap()
-            .with_timezone(&Utc);
-        assert_eq!(uuid_time_millis(uuid_v7_from_event_timestamp(ts)), 0);
+    fn uuid_v7_from_datetime_floors_pre_epoch_to_zero() {
+        let ts = DateTime::parse_from_rfc3339("1969-06-15T00:00:00Z").unwrap();
+        assert_eq!(uuid_time_millis(uuid_v7_from_datetime(ts)), 0);
     }
 }

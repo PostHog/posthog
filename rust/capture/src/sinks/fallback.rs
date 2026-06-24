@@ -108,7 +108,7 @@ impl Event for FallbackSink {
 mod tests {
     use super::*;
     use crate::sinks::print::PrintSink;
-    use crate::utils::uuid_v7_from_event_timestamp;
+    use crate::utils::uuid_v7_from_datetime;
     use crate::v0_request::{DataType, ProcessedEventMetadata};
     use common_types::CapturedEvent;
     use std::time::Duration;
@@ -139,7 +139,7 @@ mod tests {
             .with_timezone(&chrono::Utc);
         let event = ProcessedEvent {
             event: CapturedEvent {
-                uuid: uuid_v7_from_event_timestamp(timestamp),
+                uuid: uuid_v7_from_datetime(timestamp),
                 distinct_id: "test_id".to_string(),
                 session_id: None,
                 ip: "127.0.0.1".to_string(),
@@ -191,7 +191,7 @@ mod tests {
             .with_timezone(&chrono::Utc);
         let event = ProcessedEvent {
             event: CapturedEvent {
-                uuid: uuid_v7_from_event_timestamp(timestamp),
+                uuid: uuid_v7_from_datetime(timestamp),
                 distinct_id: "test_id".to_string(),
                 session_id: None,
                 ip: "127.0.0.1".to_string(),

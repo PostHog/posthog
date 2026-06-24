@@ -105,7 +105,7 @@ pub fn stamp_overflow_reason(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::uuid_v7_from_event_timestamp;
+    use crate::utils::uuid_v7_from_datetime;
     use crate::v0_request::{ProcessedEvent, ProcessedEventMetadata};
     use common_types::CapturedEvent;
     use std::num::NonZeroU32;
@@ -118,7 +118,7 @@ mod tests {
     ) -> ProcessedEvent {
         let timestamp = chrono::Utc::now();
         let event = CapturedEvent {
-            uuid: uuid_v7_from_event_timestamp(timestamp),
+            uuid: uuid_v7_from_datetime(timestamp),
             distinct_id: distinct_id.to_string(),
             session_id: None,
             ip: "127.0.0.1".to_string(),

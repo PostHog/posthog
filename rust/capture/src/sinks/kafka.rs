@@ -794,7 +794,7 @@ mod tests {
     use crate::config::{self, EnvelopeCompression};
     use crate::sinks::kafka::KafkaSink;
     use crate::sinks::Event;
-    use crate::utils::uuid_v7_from_event_timestamp;
+    use crate::utils::uuid_v7_from_datetime;
     use crate::v0_request::{DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata};
     use common_types::CapturedEvent;
     use rand::distributions::Alphanumeric;
@@ -897,7 +897,7 @@ mod tests {
         let distinct_id = "test_distinct_id_123".to_string();
         let timestamp = chrono::Utc::now();
         let event: CapturedEvent = CapturedEvent {
-            uuid: uuid_v7_from_event_timestamp(timestamp),
+            uuid: uuid_v7_from_datetime(timestamp),
             distinct_id: distinct_id.clone(),
             session_id: None,
             ip: "".to_string(),
@@ -952,7 +952,7 @@ mod tests {
             .collect();
         let timestamp = chrono::Utc::now();
         let captured = CapturedEvent {
-            uuid: uuid_v7_from_event_timestamp(timestamp),
+            uuid: uuid_v7_from_datetime(timestamp),
             distinct_id: "id1".to_string(),
             session_id: None,
             ip: "".to_string(),
@@ -985,7 +985,7 @@ mod tests {
         let timestamp = chrono::Utc::now();
         let big_event = ProcessedEvent {
             event: CapturedEvent {
-                uuid: uuid_v7_from_event_timestamp(timestamp),
+                uuid: uuid_v7_from_datetime(timestamp),
                 distinct_id: "id1".to_string(),
                 session_id: None,
                 ip: "".to_string(),
@@ -1215,7 +1215,7 @@ mod tests {
         fn create_test_event(input: &EventInput) -> ProcessedEvent {
             let timestamp = chrono::Utc::now();
             let event = CapturedEvent {
-                uuid: uuid_v7_from_event_timestamp(timestamp),
+                uuid: uuid_v7_from_datetime(timestamp),
                 distinct_id: "test_user".to_string(),
                 session_id: Some("session123".to_string()),
                 ip: "127.0.0.1".to_string(),
