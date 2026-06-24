@@ -3423,7 +3423,7 @@ class ZapierSupportedStorageSourceConfig(config.Config):
 
 @config.config
 class ZendeskSellSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config

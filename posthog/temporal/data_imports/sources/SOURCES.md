@@ -220,6 +220,7 @@ the row lists both.
 | workos            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | wrike             | HTTP                        | requests                                                        | ✅                          |
 | zendesk           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| zendesk_sell      | HTTP                        | requests                                                        | ✅                          |
 | zoom              | HTTP                        | requests                                                        | ✅                          |
 | zuora             | HTTP                        | requests                                                        | ✅                          |
 
@@ -705,7 +706,6 @@ doesn't conflict with concurrent PRs.
 - youtube_data
 - zapier_supported_storage
 - zapsign
-- zendesk_sell
 - zendesk_sunshine
 - zenefits
 - zenloop
