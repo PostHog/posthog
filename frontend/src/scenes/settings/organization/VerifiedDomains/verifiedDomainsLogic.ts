@@ -11,6 +11,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import {
     identityProviderConfigsCreate,
+    identityProviderConfigsDestroy,
     identityProviderConfigsPartialUpdate,
     identityProviderConfigsScimTokenCreate,
 } from '~/generated/core/api'
@@ -25,15 +26,21 @@ import type { verifiedDomainsLogicType } from './verifiedDomainsLogicType'
  *
  * We link the (still empty) config to the domain *before* populating any fields, so the
  * domain→config mirror that runs on the link's domain save sees no divergence to clobber.
+ * If linking fails, the freshly created config is deleted so we don't leave an orphan behind.
  */
 async function ensureIdpConfigId(organizationId: string, domain: OrganizationDomainType): Promise<string> {
     if (domain.identity_provider_config) {
         return domain.identity_provider_config
     }
     const config = await identityProviderConfigsCreate(organizationId, { name: domain.domain })
-    await api.update(`api/organizations/${organizationId}/domains/${domain.id}`, {
-        identity_provider_config: config.id,
-    })
+    try {
+        await api.update(`api/organizations/${organizationId}/domains/${domain.id}`, {
+            identity_provider_config: config.id,
+        })
+    } catch (error) {
+        await identityProviderConfigsDestroy(organizationId, config.id).catch(() => undefined)
+        throw error
+    }
     return config.id
 }
 

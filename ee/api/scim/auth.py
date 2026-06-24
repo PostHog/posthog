@@ -54,14 +54,18 @@ class SCIMBearerTokenAuthentication(BaseAuthentication):
         except OrganizationDomain.DoesNotExist:
             raise exceptions.AuthenticationFailed("Invalid organization domain")
 
-        if not domain.has_scim:
+        # Read the linked IdP config directly (the source of truth) rather than through the
+        # empty-config fallback, so a domain with no config fails clearly here instead of falling
+        # through to a misleading "Invalid bearer token" on a null hash below.
+        config = domain.identity_provider_config
+        if config is None or not config.has_scim:
             raise exceptions.AuthenticationFailed("SCIM not configured for this domain")
 
         if not domain.organization.is_feature_available(AvailableFeature.SCIM):
             raise exceptions.AuthenticationFailed("Your organization does not have the required license to use SCIM")
 
         # Verify the bearer token matches the stored hashed token (sourced from the IdP config)
-        if not check_password(token, domain.idp_config.scim_bearer_token):
+        if not check_password(token, config.scim_bearer_token):
             raise exceptions.AuthenticationFailed("Invalid bearer token")
 
         return (SCIMAuthToken(domain), domain)

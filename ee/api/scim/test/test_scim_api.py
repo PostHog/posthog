@@ -49,6 +49,19 @@ class TestSCIMAPI(APILicensedTest):
         assert data["status"] == 403
         assert "detail" in data
 
+    def test_domain_without_idp_config_is_rejected(self):
+        # A domain with no linked IdP config must be rejected by SCIM auth (the no-config case is
+        # handled explicitly, not by falling through to check_password against a null hash).
+        unconfigured = OrganizationDomain.objects.create(
+            organization=self.organization,
+            domain="no-config.example.com",
+            verified_at="2024-01-01T00:00:00Z",
+        )
+        assert unconfigured.identity_provider_config is None
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.plain_token}")
+        response = self.client.get(f"/scim/v2/{unconfigured.id}/Users")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
     def test_no_token(self):
         response = self.client.get(f"/scim/v2/{self.domain.id}/Users")
         assert response.status_code == status.HTTP_401_UNAUTHORIZED

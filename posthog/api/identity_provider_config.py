@@ -1,7 +1,5 @@
 from typing import Any, cast
 
-from django.core.exceptions import ValidationError as DjangoValidationError
-
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, request, response, serializers, status
@@ -184,13 +182,6 @@ class IdentityProviderConfigSerializer(serializers.ModelSerializer):
 
         instance = super().update(instance, validated_data)
         self._scim_plain_token = scim_plain_token
-
-        id_jag_fields = {"id_jag_issuer_url", "id_jag_jwks_url", "id_jag_allowed_clients"}
-        if id_jag_fields.intersection(validated_data):
-            try:
-                instance.full_clean()
-            except DjangoValidationError as e:
-                raise serializers.ValidationError(e.message_dict) from e
 
         return instance
 
