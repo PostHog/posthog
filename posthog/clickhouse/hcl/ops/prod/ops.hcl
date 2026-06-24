@@ -24,7 +24,8 @@ database "posthog" {
       type = "LowCardinality(String)"
     }
     column "type" {
-      type = "LowCardinality(String)"
+      type    = "LowCardinality(String)"
+      default = "'sum'"
     }
     column "key" {
       type = "Map(LowCardinality(String), String)"
@@ -33,7 +34,8 @@ database "posthog" {
       type = "Float64"
     }
     column "count" {
-      type = "UInt64"
+      type    = "UInt64"
+      default = "0"
     }
     column "pipeline" {
       type = "LowCardinality(String)"

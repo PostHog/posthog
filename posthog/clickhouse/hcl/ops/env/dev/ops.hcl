@@ -2,11 +2,11 @@
 #
 # Generated/maintained as the declarative source of truth for the OPS ClickHouse cluster.
 # Resolve with: hclexp load -layer <base>,<...>
-
 database "posthog" {
   table "prom_metrics" {
     column "id" {
-      type = "UUID"
+      type    = "UUID"
+      default = "reinterpretAsUUID(sipHash128(metric_name, all_tags))"
     }
     column "timestamp" {
       type = "DateTime64(3)"
@@ -95,12 +95,14 @@ database "posthog" {
     }
   }
   table "prom_metrics_tags" {
-    order_by = ["metric_name", "id"]
+    primary_key = ["metric_name"]
+    order_by    = ["metric_name", "id"]
     settings = {
       index_granularity = "8192"
     }
     column "id" {
-      type = "UUID"
+      type    = "UUID"
+      default = "reinterpretAsUUID(sipHash128(metric_name, all_tags))"
     }
     column "metric_name" {
       type = "LowCardinality(String)"
@@ -124,7 +126,8 @@ database "posthog" {
   }
   table "writable_prom_metrics" {
     column "id" {
-      type = "UUID"
+      type    = "UUID"
+      default = "reinterpretAsUUID(sipHash128(metric_name, all_tags))"
     }
     column "timestamp" {
       type = "DateTime64(3)"
@@ -220,7 +223,8 @@ database "posthog" {
   }
   table "writable_prom_metrics_tags" {
     column "id" {
-      type = "UUID"
+      type    = "UUID"
+      default = "reinterpretAsUUID(sipHash128(metric_name, all_tags))"
     }
     column "metric_name" {
       type = "LowCardinality(String)"

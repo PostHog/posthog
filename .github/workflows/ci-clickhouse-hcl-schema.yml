@@ -28,9 +28,10 @@ permissions:
     packages: read
 
 env:
-    # Pin to a concrete chschema build (not :latest) for reproducibility — same
-    # sha the wrapper and charts dump pipeline use. Override via repo variable.
-    HCLEXP_IMAGE: ${{ vars.HCLEXP_IMAGE || 'ghcr.io/posthog/chschema:sha-2a066e4' }}
+    # Pin to a concrete chschema build (not :latest) for reproducibility. sha-f9490b7
+    # has the modifier-aware diff (chschema #59) so the guard compares ALIAS/
+    # MATERIALIZED/DEFAULT columns. Override via repo variable.
+    HCLEXP_IMAGE: ${{ vars.HCLEXP_IMAGE || 'ghcr.io/posthog/chschema:sha-f9490b7' }}
 
 jobs:
     ops-hcl-guard:
