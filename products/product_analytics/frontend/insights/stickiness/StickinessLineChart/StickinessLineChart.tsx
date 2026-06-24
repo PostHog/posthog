@@ -8,7 +8,6 @@ import { buildTheme } from 'lib/charts/utils/theme'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
-import { formatEventName } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
@@ -79,14 +78,9 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
         indexedResults[0]?.data &&
         indexedResults.filter((result: IndexedTrendResult) => result.count !== 0).length > 0
 
-    const humanizedResults = useMemo(
-        () => (indexedResults ?? []).map((r) => ({ ...r, label: formatEventName(r.label) ?? r.label })),
-        [indexedResults]
-    )
-
     const series: Series<TrendsSeriesMeta>[] = useMemo(
         () =>
-            buildStickinessSeries<IndexedTrendResult, TrendsSeriesMeta>(humanizedResults, {
+            buildStickinessSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
                 showMultipleYAxes: showMultipleYAxes ?? undefined,
                 display: display ?? undefined,
                 getColor: getTrendsColor,
@@ -95,7 +89,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
                 getHidden: quillLegendEnabled ? undefined : getTrendsHidden,
                 buildMeta: buildTrendsSeriesMeta,
             }),
-        [humanizedResults, display, getTrendsColor, getTrendsHidden, showMultipleYAxes, quillLegendEnabled]
+        [indexedResults, display, getTrendsColor, getTrendsHidden, showMultipleYAxes, quillLegendEnabled]
     )
 
     const chartConfig: TimeSeriesLineChartConfig = useMemo(
