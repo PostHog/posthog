@@ -7,6 +7,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.models import Organization, Team
+
+from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.temporal.pipeline import (
     MAX_ATTEMPTS,
     BuildContextOutput,
@@ -19,10 +22,12 @@ from products.conversations.backend.temporal.pipeline import (
     SupportReplyInput,
     SupportReplyWorkflow,
     ValidateOutput,
+    _record_triage_sync,
     support_build_context_activity,
     support_classify_activity,
     support_draft_activity,
     support_persist_reply_activity,
+    support_record_triage_activity,
     support_refine_queries_activity,
     support_retrieve_activity,
     support_review_reply_activity,
@@ -46,6 +51,7 @@ PIPELINE_MODULE = "products.conversations.backend.temporal.pipeline"
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
+@patch(f"{PIPELINE_MODULE}._record_triage_sync")
 @patch(f"{PIPELINE_MODULE}._persist_reply_sync")
 @patch(f"{PIPELINE_MODULE}._review_reply", new_callable=AsyncMock)
 @patch(f"{PIPELINE_MODULE}._validate", new_callable=AsyncMock)
@@ -65,6 +71,7 @@ async def test_workflow_persists_on_high_score(
     mock_validate,
     mock_review,
     mock_persist,
+    mock_record_triage,
     workflow_input,
     sample_chunk_ids,
 ):
@@ -99,6 +106,7 @@ async def test_workflow_persists_on_high_score(
                 support_validate_activity,
                 support_review_reply_activity,
                 support_persist_reply_activity,
+                support_record_triage_activity,
             ],
         ):
             result = await env.client.execute_workflow(
@@ -116,6 +124,7 @@ async def test_workflow_persists_on_high_score(
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
+@patch(f"{PIPELINE_MODULE}._record_triage_sync")
 @patch(f"{PIPELINE_MODULE}._persist_reply_sync")
 @patch(f"{PIPELINE_MODULE}._review_reply", new_callable=AsyncMock)
 @patch(f"{PIPELINE_MODULE}._validate", new_callable=AsyncMock)
@@ -135,6 +144,7 @@ async def test_workflow_widens_on_low_score(
     mock_validate,
     mock_review,
     mock_persist,
+    mock_record_triage,
     workflow_input,
     sample_chunk_ids,
 ):
@@ -180,6 +190,7 @@ async def test_workflow_widens_on_low_score(
                 support_validate_activity,
                 support_review_reply_activity,
                 support_persist_reply_activity,
+                support_record_triage_activity,
             ],
         ):
             result = await env.client.execute_workflow(
@@ -196,6 +207,7 @@ async def test_workflow_widens_on_low_score(
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
+@patch(f"{PIPELINE_MODULE}._record_triage_sync")
 @patch(f"{PIPELINE_MODULE}._persist_reply_sync")
 @patch(f"{PIPELINE_MODULE}._review_reply", new_callable=AsyncMock)
 @patch(f"{PIPELINE_MODULE}._validate", new_callable=AsyncMock)
@@ -215,6 +227,7 @@ async def test_workflow_escalates_after_max_attempts(
     mock_validate,
     mock_review,
     mock_persist,
+    mock_record_triage,
     workflow_input,
     sample_chunk_ids,
 ):
@@ -249,6 +262,7 @@ async def test_workflow_escalates_after_max_attempts(
                 support_validate_activity,
                 support_review_reply_activity,
                 support_persist_reply_activity,
+                support_record_triage_activity,
             ],
         ):
             result = await env.client.execute_workflow(
@@ -265,6 +279,7 @@ async def test_workflow_escalates_after_max_attempts(
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
+@patch(f"{PIPELINE_MODULE}._record_triage_sync")
 @patch(f"{PIPELINE_MODULE}._persist_reply_sync")
 @patch(f"{PIPELINE_MODULE}._review_reply", new_callable=AsyncMock)
 @patch(f"{PIPELINE_MODULE}._validate", new_callable=AsyncMock)
@@ -284,6 +299,7 @@ async def test_workflow_drafts_via_mcp_when_no_seed_chunks(
     mock_validate,
     mock_review,
     mock_persist,
+    mock_record_triage,
     workflow_input,
 ):
     from temporalio.testing import WorkflowEnvironment
@@ -313,6 +329,7 @@ async def test_workflow_drafts_via_mcp_when_no_seed_chunks(
                 support_validate_activity,
                 support_review_reply_activity,
                 support_persist_reply_activity,
+                support_record_triage_activity,
             ],
         ):
             result = await env.client.execute_workflow(
@@ -587,6 +604,7 @@ class TestSafetyFilterActivity:
             patch(f"{PIPELINE_MODULE}._validate", new_callable=AsyncMock) as mock_validate,
             patch(f"{PIPELINE_MODULE}._review_reply", new_callable=AsyncMock) as mock_review,
             patch(f"{PIPELINE_MODULE}._persist_reply_sync") as mock_persist,
+            patch(f"{PIPELINE_MODULE}._record_triage_sync"),
         ):
             async with await WorkflowEnvironment.start_time_skipping() as env:
                 async with Worker(
@@ -603,6 +621,7 @@ class TestSafetyFilterActivity:
                         support_validate_activity,
                         support_review_reply_activity,
                         support_persist_reply_activity,
+                        support_record_triage_activity,
                     ],
                 ):
                     result = await env.client.execute_workflow(
@@ -703,6 +722,7 @@ class TestReviewReplyActivity:
                 return_value=ReviewReplyOutput(safe=False, reason="reply dumps raw emails"),
             ),
             patch(f"{PIPELINE_MODULE}._persist_reply_sync") as mock_persist,
+            patch(f"{PIPELINE_MODULE}._record_triage_sync"),
         ):
             async with await WorkflowEnvironment.start_time_skipping() as env:
                 async with Worker(
@@ -719,6 +739,7 @@ class TestReviewReplyActivity:
                         support_validate_activity,
                         support_review_reply_activity,
                         support_persist_reply_activity,
+                        support_record_triage_activity,
                     ],
                 ):
                     result = await env.client.execute_workflow(
@@ -892,6 +913,7 @@ class TestValidateActivity:
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
+@patch(f"{PIPELINE_MODULE}._record_triage_sync")
 @patch(f"{PIPELINE_MODULE}._persist_reply_sync")
 @patch(f"{PIPELINE_MODULE}._review_reply", new_callable=AsyncMock)
 @patch(f"{PIPELINE_MODULE}._validate", new_callable=AsyncMock)
@@ -911,6 +933,7 @@ async def test_always_on_context_plumbed_to_draft(
     mock_validate,
     mock_review,
     mock_persist,
+    mock_record_triage,
     workflow_input,
     sample_chunk_ids,
 ):
@@ -949,6 +972,7 @@ async def test_always_on_context_plumbed_to_draft(
                 support_validate_activity,
                 support_review_reply_activity,
                 support_persist_reply_activity,
+                support_record_triage_activity,
             ],
         ):
             await env.client.execute_workflow(
@@ -964,6 +988,7 @@ async def test_always_on_context_plumbed_to_draft(
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
+@patch(f"{PIPELINE_MODULE}._record_triage_sync")
 @patch(f"{PIPELINE_MODULE}._persist_reply_sync")
 @patch(f"{PIPELINE_MODULE}._review_reply", new_callable=AsyncMock)
 @patch(f"{PIPELINE_MODULE}._validate", new_callable=AsyncMock)
@@ -983,6 +1008,7 @@ async def test_workflow_short_circuits_unactionable(
     mock_validate,
     mock_review,
     mock_persist,
+    mock_record_triage,
     workflow_input,
 ):
     from temporalio.testing import WorkflowEnvironment
@@ -1007,6 +1033,7 @@ async def test_workflow_short_circuits_unactionable(
                 support_validate_activity,
                 support_review_reply_activity,
                 support_persist_reply_activity,
+                support_record_triage_activity,
             ],
         ):
             result = await env.client.execute_workflow(
@@ -1025,6 +1052,7 @@ async def test_workflow_short_circuits_unactionable(
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
+@patch(f"{PIPELINE_MODULE}._record_triage_sync")
 @patch(f"{PIPELINE_MODULE}._persist_reply_sync")
 @patch(f"{PIPELINE_MODULE}._review_reply", new_callable=AsyncMock)
 @patch(f"{PIPELINE_MODULE}._validate", new_callable=AsyncMock)
@@ -1044,6 +1072,7 @@ async def test_classify_runs_once_and_threads_ticket_type(
     mock_validate,
     mock_review,
     mock_persist,
+    mock_record_triage,
     workflow_input,
     sample_chunk_ids,
 ):
@@ -1083,6 +1112,7 @@ async def test_classify_runs_once_and_threads_ticket_type(
                 support_validate_activity,
                 support_review_reply_activity,
                 support_persist_reply_activity,
+                support_record_triage_activity,
             ],
         ):
             await env.client.execute_workflow(
@@ -1107,6 +1137,7 @@ async def test_classify_runs_once_and_threads_ticket_type(
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
+@patch(f"{PIPELINE_MODULE}._record_triage_sync")
 @patch(f"{PIPELINE_MODULE}._persist_reply_sync")
 @patch(f"{PIPELINE_MODULE}._review_reply", new_callable=AsyncMock)
 @patch(f"{PIPELINE_MODULE}._validate", new_callable=AsyncMock)
@@ -1126,6 +1157,7 @@ async def test_diagnostics_gated_off_when_team_not_opted_in(
     mock_validate,
     mock_review,
     mock_persist,
+    mock_record_triage,
     workflow_input,
     sample_chunk_ids,
 ):
@@ -1165,6 +1197,7 @@ async def test_diagnostics_gated_off_when_team_not_opted_in(
                 support_validate_activity,
                 support_review_reply_activity,
                 support_persist_reply_activity,
+                support_record_triage_activity,
             ],
         ):
             await env.client.execute_workflow(
@@ -1270,3 +1303,261 @@ class TestClassifyActivity:
         inside, _, _ = after.partition("</ticket_context>")
         assert injection in inside
         assert injection not in before
+
+
+class TestRecordTriageActivity:
+    @parameterized.expand(
+        [
+            (
+                "persisted",
+                ClassifyOutput(ticket_type="how_to", needs_diagnostics=False, seed_queries=["setup"]),
+                SafetyFilterOutput(safe=True),
+                ValidateOutput(grounded=True, coverage=0.9, confidence=0.85, missing=[]),
+                ReviewReplyOutput(safe=True),
+                "persisted",
+            ),
+            (
+                "blocked_unsafe",
+                None,
+                SafetyFilterOutput(safe=False, threat_type="instruction_injection", explanation="bad"),
+                None,
+                None,
+                "blocked_unsafe",
+            ),
+            (
+                "skipped_unactionable",
+                ClassifyOutput(ticket_type="unactionable", needs_diagnostics=False, seed_queries=[]),
+                SafetyFilterOutput(safe=True),
+                None,
+                None,
+                "skipped_unactionable",
+            ),
+            (
+                "blocked_unsafe_reply",
+                ClassifyOutput(ticket_type="how_to", needs_diagnostics=False, seed_queries=[]),
+                SafetyFilterOutput(safe=True),
+                ValidateOutput(grounded=True, coverage=0.9, confidence=0.9, missing=[]),
+                ReviewReplyOutput(safe=False, reason="PII leak"),
+                "blocked_unsafe_reply",
+            ),
+        ],
+    )
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_records_triage_outcome_per_terminal_path(
+        self,
+        _name,
+        classify_output,
+        safety_output,
+        validate_output,
+        review_output,
+        expected_result,
+    ):
+        from temporalio.testing import WorkflowEnvironment
+        from temporalio.worker import Worker
+
+        with (
+            patch(
+                f"{PIPELINE_MODULE}._build_context_sync",
+                return_value=BuildContextOutput(ticket_context="help", ticket_title="Help"),
+            ),
+            patch(f"{PIPELINE_MODULE}._safety_filter", new_callable=AsyncMock, return_value=safety_output),
+            patch(
+                f"{PIPELINE_MODULE}._classify",
+                new_callable=AsyncMock,
+                return_value=classify_output or ClassifyOutput(ticket_type="how_to", needs_diagnostics=False),
+            ),
+            patch(
+                f"{PIPELINE_MODULE}._refine_queries",
+                new_callable=AsyncMock,
+                return_value=RefineQueriesOutput(queries=["q"]),
+            ),
+            patch(
+                f"{PIPELINE_MODULE}._retrieve_sync",
+                return_value=RetrieveOutput(chunk_ids=["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"]),
+            ),
+            patch(
+                f"{PIPELINE_MODULE}._draft_async",
+                new_callable=AsyncMock,
+                return_value=DraftOutput(
+                    reply="answer",
+                    citations=["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"],
+                    confidence=0.9,
+                ),
+            ),
+            patch(
+                f"{PIPELINE_MODULE}._validate",
+                new_callable=AsyncMock,
+                return_value=validate_output or ValidateOutput(grounded=True, coverage=0.9, confidence=0.9, missing=[]),
+            ),
+            patch(
+                f"{PIPELINE_MODULE}._review_reply",
+                new_callable=AsyncMock,
+                return_value=review_output or ReviewReplyOutput(safe=True),
+            ),
+            patch(f"{PIPELINE_MODULE}._persist_reply_sync"),
+            patch(f"{PIPELINE_MODULE}._record_triage_sync") as mock_record_triage,
+        ):
+            async with await WorkflowEnvironment.start_time_skipping() as env:
+                async with Worker(
+                    env.client,
+                    task_queue="test-queue",
+                    workflows=[SupportReplyWorkflow],
+                    activities=[
+                        support_build_context_activity,
+                        support_safety_filter_activity,
+                        support_classify_activity,
+                        support_refine_queries_activity,
+                        support_retrieve_activity,
+                        support_draft_activity,
+                        support_validate_activity,
+                        support_review_reply_activity,
+                        support_persist_reply_activity,
+                        support_record_triage_activity,
+                    ],
+                ):
+                    result = await env.client.execute_workflow(
+                        SupportReplyWorkflow.run,
+                        SupportReplyInput(team_id=1, ticket_id="deadbeef-0000-0000-0000-000000000001"),
+                        id=f"test-triage-{_name}",
+                        task_queue="test-queue",
+                    )
+
+            assert expected_result in result
+
+            # At least 2 calls: in_progress at start, done at terminal
+            assert mock_record_triage.call_count >= 2
+
+            # First call is always the in_progress lifecycle marker
+            first_call_patch = mock_record_triage.call_args_list[0][0][2]
+            assert first_call_patch["status"] == "in_progress"
+            assert "started_at" in first_call_patch
+            assert "workflow_id" in first_call_patch
+            assert "run_id" in first_call_patch
+            assert first_call_patch["schema_version"] == 1
+
+            # Last call is the terminal outcome
+            last_call_patch = mock_record_triage.call_args_list[-1][0][2]
+            assert last_call_patch["status"] == "done"
+            assert last_call_patch["result"] == expected_result
+            assert "finished_at" in last_call_patch
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_escalated_no_reply_records_triage(self):
+        from temporalio.testing import WorkflowEnvironment
+        from temporalio.worker import Worker
+
+        with (
+            patch(
+                f"{PIPELINE_MODULE}._build_context_sync",
+                return_value=BuildContextOutput(ticket_context="help", ticket_title="Help"),
+            ),
+            patch(
+                f"{PIPELINE_MODULE}._safety_filter", new_callable=AsyncMock, return_value=SafetyFilterOutput(safe=True)
+            ),
+            patch(
+                f"{PIPELINE_MODULE}._classify",
+                new_callable=AsyncMock,
+                return_value=ClassifyOutput(ticket_type="how_to", needs_diagnostics=False, seed_queries=[]),
+            ),
+            patch(
+                f"{PIPELINE_MODULE}._refine_queries",
+                new_callable=AsyncMock,
+                return_value=RefineQueriesOutput(queries=["q"]),
+            ),
+            patch(f"{PIPELINE_MODULE}._retrieve_sync", return_value=RetrieveOutput(chunk_ids=[])),
+            patch(
+                f"{PIPELINE_MODULE}._draft_async",
+                new_callable=AsyncMock,
+                return_value=DraftOutput(reply="", citations=[], confidence=0.0),
+            ),
+            patch(
+                f"{PIPELINE_MODULE}._validate",
+                new_callable=AsyncMock,
+                return_value=ValidateOutput(grounded=False, coverage=0.0, confidence=0.0, missing=["everything"]),
+            ),
+            patch(
+                f"{PIPELINE_MODULE}._review_reply", new_callable=AsyncMock, return_value=ReviewReplyOutput(safe=True)
+            ),
+            patch(f"{PIPELINE_MODULE}._persist_reply_sync"),
+            patch(f"{PIPELINE_MODULE}._record_triage_sync") as mock_record_triage,
+        ):
+            async with await WorkflowEnvironment.start_time_skipping() as env:
+                async with Worker(
+                    env.client,
+                    task_queue="test-queue",
+                    workflows=[SupportReplyWorkflow],
+                    activities=[
+                        support_build_context_activity,
+                        support_safety_filter_activity,
+                        support_classify_activity,
+                        support_refine_queries_activity,
+                        support_retrieve_activity,
+                        support_draft_activity,
+                        support_validate_activity,
+                        support_review_reply_activity,
+                        support_persist_reply_activity,
+                        support_record_triage_activity,
+                    ],
+                ):
+                    result = await env.client.execute_workflow(
+                        SupportReplyWorkflow.run,
+                        SupportReplyInput(team_id=1, ticket_id="deadbeef-0000-0000-0000-000000000001"),
+                        id="test-triage-escalated-no-reply",
+                        task_queue="test-queue",
+                    )
+
+            assert result == "escalated_no_reply"
+
+            last_call_patch = mock_record_triage.call_args_list[-1][0][2]
+            assert last_call_patch["status"] == "done"
+            assert last_call_patch["result"] == "escalated_no_reply"
+            assert last_call_patch["attempts"] == MAX_ATTEMPTS
+
+
+class TestRecordTriageSync:
+    def _make_ticket(self) -> Ticket:
+        org = Organization.objects.create(name="triage-org")
+        team = Team.objects.create(organization=org, name="triage-team")
+        return Ticket.objects.create_with_number(
+            team=team,
+            widget_session_id="triage-session",
+            distinct_id="triage-distinct",
+        )
+
+    @pytest.mark.django_db
+    def test_merge_accumulates_lifecycle_writes(self):
+        # Guards the clobber regression: the terminal "done" write must merge into the
+        # earlier "in_progress" write, not replace ai_triage wholesale.
+        ticket = self._make_ticket()
+
+        _record_triage_sync(
+            ticket.team_id,
+            str(ticket.id),
+            {"schema_version": 1, "status": "in_progress", "started_at": "t0"},
+        )
+        _record_triage_sync(
+            ticket.team_id,
+            str(ticket.id),
+            {"status": "done", "result": "persisted", "finished_at": "t1"},
+        )
+
+        ticket.refresh_from_db()
+        assert ticket.ai_triage == {
+            "schema_version": 1,
+            "started_at": "t0",
+            "status": "done",
+            "result": "persisted",
+            "finished_at": "t1",
+        }
+
+    @pytest.mark.django_db
+    def test_missing_ticket_is_noop(self):
+        ticket = self._make_ticket()
+
+        # Wrong team_id must not match (and must not raise) — tenant isolation on the write path.
+        _record_triage_sync(ticket.team_id + 1, str(ticket.id), {"status": "done"})
+
+        ticket.refresh_from_db()
+        assert ticket.ai_triage == {}

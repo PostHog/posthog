@@ -768,6 +768,8 @@ class TestFullBackfillSensorEarliestDate:
         )
         keys = [rr.partition_key for rr in result.run_requests]
         assert keys == ["1_2020-01", "2_2020-01", "1_2020-02", "2_2020-02", "1_2020-03", "2_2020-03"]
+        # Every full-backfill run is tagged so the next tick's in-flight count excludes daily runs.
+        assert all(rr.tags.get("duckling_backfill_type") == "full" for rr in result.run_requests)
 
     def test_skips_existing_partitions(self):
         result, _ = self._run_full_sensor(
@@ -819,6 +821,26 @@ class TestFullBackfillSensorEarliestDate:
             get_runs=[MagicMock()] * 100,
         )
         assert len(result.run_requests) == 0
+
+    def test_inflight_count_filters_by_full_backfill_tag(self):
+        # The in-flight query must be scoped to full-backfill runs via the tag, so daily
+        # runs on the shared job can't starve the top-up.
+        from dagster import DagsterInstance, build_sensor_context
+
+        with (
+            patch("posthog.dags.events_backfill_to_duckling.timezone") as mock_tz,
+            patch("posthog.dags.events_backfill_to_duckling.DuckLakeBackfill") as mock_cls,
+            patch("posthog.dags.events_backfill_to_duckling.get_earliest_event_date_for_team"),
+        ):
+            mock_tz.now.return_value = datetime(2020, 2, 10, 12, 0, 0)
+            mock_cls.objects.filter.return_value.order_by.return_value = [self._bf(1, earliest=date(2020, 1, 1))]
+            instance = DagsterInstance.ephemeral()
+            context = build_sensor_context(instance=instance)
+            with patch.object(instance, "get_runs", return_value=[]) as mock_get_runs:
+                duckling_events_full_backfill_sensor(context)
+
+        runs_filter = mock_get_runs.call_args.kwargs["filters"]
+        assert runs_filter.tags == {"duckling_backfill_type": "full"}
 
 
 class TestGetClusterRetry:

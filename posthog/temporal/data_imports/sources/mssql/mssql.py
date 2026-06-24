@@ -12,7 +12,7 @@ from __future__ import annotations
 import time
 import collections
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from typing import Any, TypeVar
 
 import pyarrow as pa
@@ -80,6 +80,14 @@ _MAX_DISCOVERY_CONNECTION_ATTEMPTS = 5
 # succeeds. Transient lock contention, not a config or data problem.
 _DEADLOCK_VICTIM_ERROR = "was deadlocked on lock resources"
 _MAX_DEADLOCK_ATTEMPTS = 5
+
+# paramiko raises a bare, message-less EOFError from `start_client` when the SSH gateway accepts
+# the TCP connection but closes it during the SSH handshake — a non-SSH service on the port, a
+# bastion refusing PostHog's IPs, or a proxy that resets the stream. sshtunnel doesn't wrap it, so
+# it escapes as an EOFError whose `str()` is empty, matching no non-retryable rule and retrying
+# forever. `connect` translates it into this stable, classifiable message (see
+# `MSSQLSource.get_non_retryable_errors`) — same gateway-config class as a wrapped tunnel failure.
+_SSH_HANDSHAKE_EOF_ERROR = "SSH gateway closed the connection during the SSH handshake"
 
 
 def _is_transient_connection_error(error: BaseException) -> bool:
@@ -344,7 +352,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
         Opens the SSH tunnel (if configured) once, then connects with the
         MSSQL-wide conventions: 5s login timeout.
         """
-        with open_ssh_tunnel(config) as (host, port):
+        with self._ssh_tunnel_endpoint(config) as (host, port):
             with pymssql.connect(
                 server=host,
                 # pymssql requires port to be str
@@ -355,6 +363,21 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                 login_timeout=5,
             ) as conn:
                 yield conn
+
+    @contextmanager
+    def _ssh_tunnel_endpoint(self, config: MSSQLSourceConfig) -> Iterator[tuple[str, int]]:
+        """Yield the `(host, port)` to connect to, going through the SSH tunnel if configured.
+
+        Translates a bare paramiko handshake `EOFError` into `_SSH_HANDSHAKE_EOF_ERROR`. The
+        `yield` sits outside the `except` so a failure raised by the connection body can never be
+        misattributed to the tunnel handshake.
+        """
+        with ExitStack() as stack:
+            try:
+                host, port = stack.enter_context(open_ssh_tunnel(config))
+            except EOFError as e:
+                raise Exception(_SSH_HANDSHAKE_EOF_ERROR) from e
+            yield host, port
 
     # ------------------------------------------------------------------
     # Listing — batch queries run once during `get_schemas`

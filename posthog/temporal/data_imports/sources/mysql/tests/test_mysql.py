@@ -21,6 +21,7 @@ from posthog.temporal.data_imports.sources.mysql.mysql import (
     _build_query,
     _is_bad_plan_error,
     _is_transient_connect_drop,
+    _is_transient_connect_timeout,
     _is_transient_tablet_unavailable,
     _release_streaming_cursor,
     _retry_on_transient_tablet_unavailable,
@@ -890,6 +891,43 @@ class TestIsTransientConnectDrop:
         assert not _is_transient_connect_drop(pymysql.err.OperationalError())
 
 
+class TestIsTransientConnectTimeout:
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "Can't connect to MySQL server on 'gcp.connect.psdb.cloud' (timed out)",
+            "Can't connect to MySQL server on 'db.example.com' ([Errno 110] Connection timed out)",
+        ],
+    )
+    def test_matches_connect_timeout(self, message):
+        assert _is_transient_connect_timeout(pymysql.err.OperationalError(2003, message))
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            # Refused connection and failed DNS lookup are also 2003 but deterministic
+            # host/port misconfig — they must stay non-retryable, not be absorbed here.
+            "Can't connect to MySQL server on 'db.example.com' ([Errno 111] Connection refused)",
+            "Can't connect to MySQL server on 'nope.example.com' ([Errno -2] Name or service not known)",
+        ],
+    )
+    def test_does_not_match_non_timeout_connect_errors(self, message):
+        assert not _is_transient_connect_timeout(pymysql.err.OperationalError(2003, message))
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            (2013, "Lost connection to MySQL server during query"),
+            (1045, "Access denied for user"),
+        ],
+    )
+    def test_does_not_match_other_error_codes(self, code, message):
+        assert not _is_transient_connect_timeout(pymysql.err.OperationalError(code, message))
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_transient_connect_timeout(pymysql.err.OperationalError())
+
+
 class TestConnectTransientRetry:
     @pytest.mark.parametrize(
         "fail_count,expected_sleeps",
@@ -936,6 +974,40 @@ class TestConnectTransientRetry:
 
         assert mock_connect.call_count == 2
         sleep.assert_called_once_with(2)
+
+    def test_retries_connect_timeout_then_succeeds(self, mocker):
+        sleep = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        conn = MagicMock()
+        conn.__enter__.return_value = conn
+        mock_connect = mocker.patch(
+            "posthog.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=[
+                pymysql.err.OperationalError(2003, "Can't connect to MySQL server on 'host' (timed out)"),
+                conn,
+            ],
+        )
+
+        with MySQLImplementation().connect(_make_config()) as yielded:
+            assert yielded is conn
+
+        assert mock_connect.call_count == 2
+        sleep.assert_called_once_with(2)
+
+    def test_does_not_retry_connection_refused(self, mocker):
+        sleep = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        mock_connect = mocker.patch(
+            "posthog.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=pymysql.err.OperationalError(
+                2003, "Can't connect to MySQL server on 'host' ([Errno 111] Connection refused)"
+            ),
+        )
+
+        with pytest.raises(pymysql.err.OperationalError):
+            with MySQLImplementation().connect(_make_config()):
+                pass
+
+        assert mock_connect.call_count == 1
+        sleep.assert_not_called()
 
     def test_gives_up_after_max_attempts(self, mocker):
         mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")

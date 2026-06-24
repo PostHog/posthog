@@ -82,6 +82,7 @@ BATCH_EXPORTS_LATENCY_HISTOGRAM_METRICS = (
     "batch_exports_activity_interval_execution_latency",
     "batch_exports_workflow_interval_execution_latency",
 )
+# Unit: ms
 BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS = [
     1_000.0,
     30_000.0,  # 30 seconds
@@ -93,6 +94,23 @@ BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS = [
     21_600_000.0,  # 6 hours
     43_200_000.0,  # 12 hours
     86_400_000.0,  # 24 hours
+]
+
+BATCH_EXPORTS_FAST_LATENCY_HISTOGRAM_METRICS = ("batch_exports_queue_wait_time",)
+# Unit: ns
+BATCH_EXPORTS_FAST_LATENCY_HISTOGRAM_BUCKETS = [
+    1_000_000.0,  # 1 ms
+    5_000_000.0,  # 5 ms
+    10_000_000.0,  # 10 ms
+    100_000_000.0,  # 100 ms
+    500_000_000.0,  # 500 ms
+    1_000_000_000.0,  # 1 s
+    5_000_000_000.0,  # 5 s
+    10_000_000_000.0,  # 10 s
+    30_000_000_000.0,  # 30 s
+    60_000_000_000.0,  # 1 min
+    300_000_000_000.0,  # 5 min
+    600_000_000_000.0,  # 10 min
 ]
 
 EVALS_LATENCY_HISTOGRAM_METRICS = (
@@ -251,6 +269,12 @@ async def create_worker(
             zip(
                 BATCH_EXPORTS_LATENCY_HISTOGRAM_METRICS,
                 itertools.repeat(BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
+        | dict(
+            zip(
+                BATCH_EXPORTS_FAST_LATENCY_HISTOGRAM_METRICS,
+                itertools.repeat(BATCH_EXPORTS_FAST_LATENCY_HISTOGRAM_BUCKETS),
             )
         )
         | dict(zip(EVALS_LATENCY_HISTOGRAM_METRICS, itertools.repeat(EVALS_LATENCY_HISTOGRAM_BUCKETS)))

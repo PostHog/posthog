@@ -96,6 +96,13 @@ _LOST_CONNECTION_DURING_QUERY_CODE = 2013
 # resolves it.
 _OUT_OF_SORT_MEMORY_CODE = 1038
 
+# pymysql error code for "Can't connect to MySQL server on '...'" — raised at
+# connect time when the socket connect can't be established. The parenthesised
+# suffix carries the underlying cause (a timeout vs. a refused connection vs. a
+# failed DNS lookup), which is how we tell a transient timeout apart from a hard
+# config error.
+_CANT_CONNECT_CODE = 2003
+
 _SYSTEM_SCHEMAS = ("information_schema", "mysql", "performance_schema", "sys")
 
 
@@ -331,13 +338,34 @@ def _is_transient_connect_drop(e: BaseException) -> bool:
     return False
 
 
+def _is_transient_connect_timeout(e: BaseException) -> bool:
+    """Return True if the initial connect timed out — a transient blip.
+
+    A connect that outruns `connect_timeout` surfaces as pymysql 2003
+    ("Can't connect to MySQL server on '...' (timed out)") wrapping the socket
+    `TimeoutError`. Unlike the other 2003 causes — a refused connection or a
+    failed DNS lookup, both deterministic host/port misconfig that stay
+    non-retryable via the "Can't connect to MySQL server on" classifier — a
+    timeout usually means the server was momentarily slow or unreachable (an
+    overloaded server, a cold PlanetScale endpoint, a brief network blip), so a
+    fresh attempt recovers. Match only the "timed out" payload so the persistent
+    failures still surface.
+    """
+    if not isinstance(e, pymysql.err.OperationalError):
+        return False
+    code = e.args[0] if e.args else None
+    if code != _CANT_CONNECT_CODE:
+        return False
+    return "timed out" in " ".join(str(arg) for arg in e.args)
+
+
 def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
-    """Open a pymysql connection, retrying a transient drop during the handshake.
+    """Open a pymysql connection, retrying a transient drop or timeout on connect.
 
     Mirrors the in-process connect retry the Postgres source uses: a momentary
-    drop while establishing the connection recovers on a fresh attempt, so retry
-    it here with a bounded backoff instead of failing schema discovery / sync setup
-    on the first blip and surfacing it as captured error-tracking noise.
+    drop or timeout while establishing the connection recovers on a fresh attempt,
+    so retry it here with a bounded backoff instead of failing schema discovery /
+    sync setup on the first blip and surfacing it as captured error-tracking noise.
     """
     attempt = 0
     while True:
@@ -345,10 +373,12 @@ def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
             return pymysql.connect(**kwargs)
         except pymysql.err.OperationalError as e:
             attempt += 1
-            if attempt >= _MAX_CONNECT_ATTEMPTS or not _is_transient_connect_drop(e):
+            if attempt >= _MAX_CONNECT_ATTEMPTS or not (
+                _is_transient_connect_drop(e) or _is_transient_connect_timeout(e)
+            ):
                 raise
             structlog.get_logger().warning(
-                "Transient MySQL connection drop during connect; retrying",
+                "Transient MySQL connect error (drop or timeout); retrying",
                 attempt=attempt,
                 max_attempts=_MAX_CONNECT_ATTEMPTS,
                 exc_info=e,

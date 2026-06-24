@@ -2393,6 +2393,10 @@ EVENTS_BACKFILL_MAX_EARLIEST_LOOKUPS_PER_TICK = 5
 # caches "nothing to backfill" instead of re-querying every tick. Far enough in the future
 # that the generated months range is always empty.
 _NO_HISTORY_SENTINEL = date(9999, 12, 31)
+# Run tag stamped on full-backfill runs only. The full and daily events sensors share one
+# job (duckling_events_backfill_job), so the top-up's in-flight count filters on this tag to
+# count its OWN queued runs — otherwise a burst of daily runs could zero out its slots.
+_FULL_BACKFILL_RUN_TAG = {"duckling_backfill_type": "full"}
 
 
 def get_months_in_range(start_date: date, end_date: date) -> list[str]:
@@ -2504,6 +2508,7 @@ def duckling_events_full_backfill_sensor(
     inflight = context.instance.get_runs(
         filters=RunsFilter(
             job_name="duckling_events_backfill_job",
+            tags=_FULL_BACKFILL_RUN_TAG,  # count only full-backfill runs, not the shared-job daily runs
             statuses=[
                 DagsterRunStatus.QUEUED,
                 DagsterRunStatus.NOT_STARTED,
@@ -2524,7 +2529,8 @@ def duckling_events_full_backfill_sensor(
         return SensorResult(run_requests=[])
 
     # run_key = partition_key so a re-tick or restart can't double-launch the same month.
-    run_requests = [RunRequest(partition_key=k, run_key=k) for k in to_emit]
+    # The tag lets the next tick's in-flight count see these as full-backfill runs.
+    run_requests = [RunRequest(partition_key=k, run_key=k, tags=_FULL_BACKFILL_RUN_TAG) for k in to_emit]
     context.log.info(
         f"Enqueuing {len(to_emit)} monthly partition(s) across {len(per_team_remaining)} team(s); "
         f"{len(inflight)} in flight, {len(candidates) - len(to_emit)} still pending"
