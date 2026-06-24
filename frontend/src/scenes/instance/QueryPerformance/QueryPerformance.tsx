@@ -238,14 +238,12 @@ export function QueryPerformance(): JSX.Element {
                 const firstLine = item.exception.split('\n')[0]
                 const preview = firstLine.length > 60 ? firstLine.slice(0, 60) + '…' : firstLine
                 return (
-                    <div className="flex items-center gap-1 min-w-0">
-                        <Tooltip
-                            title={<span className="font-mono text-xs whitespace-pre-wrap">{item.exception}</span>}
-                        >
+                    <Tooltip title={<span className="font-mono text-xs whitespace-pre-wrap">{item.exception}</span>}>
+                        <div className="flex items-center gap-1 min-w-0">
                             <LemonTag type="danger">Error</LemonTag>
-                        </Tooltip>
-                        <span className="font-mono text-xs text-danger truncate">{preview}</span>
-                    </div>
+                            <span className="font-mono text-xs text-danger truncate">{preview}</span>
+                        </div>
+                    </Tooltip>
                 )
             },
         },
