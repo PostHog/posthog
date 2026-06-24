@@ -194,6 +194,65 @@ describe('janitor HTTP', () => {
         )
     })
 
+    it('GET /sessions?search matches transcript text and external_key, case-insensitively', async () => {
+        const { queue, app } = mk()
+        await queue.enqueue({
+            ...session('s-deploy'),
+            application_id: uuidFor('app-1'),
+            external_key: 'slack:C123',
+            conversation: [
+                { role: 'user', content: 'can you deploy the WIDGET service?', timestamp: 1 },
+                {
+                    role: 'assistant',
+                    content: [{ type: 'text', text: 'Deploying widget now.' }],
+                    api: 'a',
+                    provider: 'a',
+                    model: 'm',
+                    usage: { input: 1, output: 1, cost: { input: 0, output: 0, total: 0 } },
+                    timestamp: 2,
+                },
+            ],
+        })
+        await queue.enqueue({
+            ...session('s-unrelated'),
+            application_id: uuidFor('app-1'),
+            external_key: 'slack:C999',
+            conversation: [{ role: 'user', content: 'what is the weather', timestamp: 1 }],
+        })
+        const widget = await request(app)
+            .get('/sessions')
+            .query({ application_id: uuidFor('app-1'), search: 'widget' })
+        expect((widget.body.results as Array<{ id: string }>).map((s) => s.id)).toEqual([uuidFor('s-deploy')])
+        expect(widget.body.count).toBe(1)
+        const byKey = await request(app)
+            .get('/sessions')
+            .query({ application_id: uuidFor('app-1'), search: 'C999' })
+        expect((byKey.body.results as Array<{ id: string }>).map((s) => s.id)).toEqual([uuidFor('s-unrelated')])
+        const none = await request(app)
+            .get('/sessions')
+            .query({ application_id: uuidFor('app-1'), search: 'zzz-nope' })
+        expect(none.body.results).toHaveLength(0)
+        expect(none.body.count).toBe(0)
+    })
+
+    it('GET /sessions?search treats LIKE metacharacters literally', async () => {
+        const { queue, app } = mk()
+        await queue.enqueue({
+            ...session('s-pct'),
+            application_id: uuidFor('app-1'),
+            conversation: [{ role: 'user', content: 'scale to 50% capacity', timestamp: 1 }],
+        })
+        await queue.enqueue({
+            ...session('s-plain'),
+            application_id: uuidFor('app-1'),
+            conversation: [{ role: 'user', content: 'scale to 50 nodes', timestamp: 1 }],
+        })
+        const res = await request(app)
+            .get('/sessions')
+            .query({ application_id: uuidFor('app-1'), search: '50%' })
+        expect((res.body.results as Array<{ id: string }>).map((s) => s.id)).toEqual([uuidFor('s-pct')])
+    })
+
     it('GET /sessions summaries include preview + usage_total off the persisted column', async () => {
         const { queue, app } = mk()
         await queue.enqueue({
