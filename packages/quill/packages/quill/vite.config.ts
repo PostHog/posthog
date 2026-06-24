@@ -51,6 +51,7 @@ export default defineConfig({
                 'react-dom',
                 'react/jsx-runtime',
                 '@posthog/quill-tokens',
+                '@posthog/quill-charts',
                 '@base-ui/react',
                 /^@base-ui\/react\//,
                 'class-variance-authority',

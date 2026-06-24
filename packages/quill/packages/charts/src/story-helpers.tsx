@@ -20,10 +20,10 @@ interface StageProps {
 }
 
 /** Fixed-size chart container shared by stories so snapshots have stable geometry. */
-export function Stage({ children, width = 480, height = 280 }: StageProps): JSX.Element {
+export function Stage({ children, width = 480 }: StageProps): JSX.Element {
     return (
         // eslint-disable-next-line react/forbid-dom-props
-        <div style={{ width, height, display: 'flex', flexDirection: 'column' }}>{children}</div>
+        <div style={{ width, display: 'flex', flexDirection: 'column' }}>{children}</div>
     )
 }
 

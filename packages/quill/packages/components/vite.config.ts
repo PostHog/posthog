@@ -13,7 +13,14 @@ export default defineConfig({
             fileName: (format) => `index.${format === 'es' ? 'js' : 'cjs'}`,
         },
         rollupOptions: {
-            external: ['react', 'react-dom', 'react/jsx-runtime', '@posthog/quill-tokens', '@posthog/quill-primitives'],
+            external: [
+                'react',
+                'react-dom',
+                'react/jsx-runtime',
+                '@posthog/quill-tokens',
+                '@posthog/quill-primitives',
+                '@posthog/quill-charts',
+            ],
         },
         cssCodeSplit: false,
     },
