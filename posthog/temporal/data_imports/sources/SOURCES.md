@@ -94,6 +94,7 @@ the row lists both.
 | drip              | HTTP                        | requests                                                        | ✅                          |
 | freshdesk         | HTTP                        | requests                                                        | ✅                          |
 | freshsales        | HTTP                        | requests                                                        | ✅                          |
+| elasticemail      | HTTP                        | requests                                                        | ✅                          |
 | elasticsearch     | HTTP                        | requests                                                        | ✅                          |
 | eventbrite        | HTTP                        | requests                                                        | ✅                          |
 | front             | HTTP                        | requests                                                        | ✅                          |
@@ -352,7 +353,6 @@ doesn't conflict with concurrent PRs.
 - easypost
 - easypromos
 - ebay
-- elasticemail
 - eloqua
 - emailoctopus
 - employment_hero

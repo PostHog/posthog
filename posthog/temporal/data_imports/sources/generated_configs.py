@@ -1002,7 +1002,7 @@ class EbaySourceConfig(config.Config):
 
 @config.config
 class ElasticemailSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
