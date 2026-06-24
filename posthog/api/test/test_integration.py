@@ -2105,6 +2105,40 @@ class TestGitHubTeamIntegrationComplete:
         assert "github_setup_error=access_denied" in response["Location"]
         assert f"project/{self.team.pk}/settings/project-integrations" in response["Location"]
 
+    @override_settings(GITHUB_APP_CLIENT_ID="client_id", SITE_URL="https://us.posthog.com")
+    def test_team_install_via_oauth_callback_routes_to_team_not_personal(self, client: HttpClient):
+        # "Connect organization" seeds TEAM_INSTALL and sends the user to the App install URL. When
+        # the App is already installed, GitHub returns to the OAuth callback URL (/complete/github-link/)
+        # rather than the setup URL. The dispatcher must still complete this as a team flow — not hand it
+        # to the personal finisher, which would link the installation personally and never create the team
+        # Integration (landing on user-personal-integrations).
+        client.force_login(self.user)
+        next_path = f"/project/{self.team.pk}/settings/environment-integrations"
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token="team-install-token",
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=self.user.id,
+                team_id=self.team.pk,
+                next_url=next_path,
+            ),
+        )
+
+        response = client.get(
+            "/complete/github-link/",
+            {
+                "installation_id": "75826265",
+                "setup_action": "update",
+                "state": urlencode({"token": "team-install-token"}),
+            },
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        # Installation isn't a team integration yet, so the team flow bounces to team OAuth to mint a
+        # code — it must NOT land on the personal success page.
+        assert "github.com/login/oauth/authorize" in response["Location"]
+        assert "user-personal-integrations" not in response["Location"]
+
     def test_missing_installation_id_redirects_pending(self, client: HttpClient):
         client.force_login(self.user)
         next_path = f"/project/{self.team.pk}/settings/project-integrations"

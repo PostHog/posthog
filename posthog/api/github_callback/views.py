@@ -72,10 +72,13 @@ def _finish(http_request: HttpRequest, ctx: CallbackContext) -> FinishResult:
 
     if ctx.github_error:
         error_code = "access_denied" if ctx.github_error == "access_denied" else "github_oauth_error"
-        # TEAM_OAUTH recovery failures should land on the project page, not the personal page —
+        # Team-flow failures should land on the project page, not the personal page —
         # the user was trying to set up a team integration. State is still in cache at this point
         # (load_authorize_state is read-only), so we have the team_id and next_url to redirect with.
-        if ctx.flow == FlowKind.TEAM_OAUTH and ctx.authorize_state is not None:
+        if (
+            ctx.flow in (FlowKind.TEAM_OAUTH, FlowKind.TEAM_INSTALL, FlowKind.TEAM_UPDATE)
+            and ctx.authorize_state is not None
+        ):
             return FinishResult(
                 redirect_kind="team_setup",
                 next_url=ctx.authorize_state.next_url,
@@ -104,6 +107,15 @@ def _finish(http_request: HttpRequest, ctx: CallbackContext) -> FinishResult:
         if ctx.flow == FlowKind.PERSONAL_UPDATE:
             return personal_finish.finish_personal_setup_update(http_request)
         return personal_finish.finish_personal(http_request)
+
+    # Team install/update flows complete via finish_team_setup even when GitHub returns
+    # them to the OAuth callback URL — which it does when the App is already installed
+    # (setup_action=update) or when "request user authorization during installation" is on.
+    # Without this, the oauth_redirect branch below would hand the team flow to
+    # finish_personal, which links the installation personally and never creates the team
+    # Integration. (TEAM_OAUTH is intentionally completed by finish_personal.)
+    if ctx.flow in (FlowKind.TEAM_INSTALL, FlowKind.TEAM_UPDATE):
+        return team_services.finish_team_setup(http_request)
 
     if ctx.entry == "oauth_redirect" or is_personal_github_setup_state(ctx.state_raw):
         return personal_finish.finish_personal(http_request)
