@@ -65,7 +65,7 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
             # double-encoded config fails identically on every discovery run - there is nothing
             # to retry. The per-schema sync path surfaces and disables the source on the same
             # config, so skip quietly here rather than spamming retries and error tracking.
-            logger.warning("Skipping schema discovery: source config could not be parsed")
+            logger.warning("Skipping schema discovery: source config could not be parsed", exc_info=True)
             return
 
         try:
