@@ -2141,7 +2141,8 @@ class OpenFDASourceConfig(config.Config):
 
 @config.config
 class OpenWeatherSourceConfig(config.Config):
-    pass
+    api_key: str
+    locations: str
 
 
 @config.config
