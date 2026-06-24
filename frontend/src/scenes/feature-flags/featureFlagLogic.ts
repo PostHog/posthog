@@ -728,7 +728,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     return featureFlag
                 },
                 setFeatureFlagFilters: (state, { filters }) => {
-                    return { ...state, filters }
+                    if (!state) {
+                        return state
+                    }
+                    return {
+                        ...state,
+                        filters: {
+                            ...filters,
+                            // Preserve current payloads: this action only carries release-condition changes;
+                            // the child component's payloads snapshot is always stale.
+                            payloads: state.filters.payloads,
+                        },
+                    }
                 },
                 setMultivariateOptions: (state, { multivariateOptions }) => {
                     if (!state) {
