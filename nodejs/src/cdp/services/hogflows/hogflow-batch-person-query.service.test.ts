@@ -19,6 +19,8 @@ const createFetchResponse = (status: number, body: unknown): { status: number; t
     }
 }
 
+const FETCH_TIMEOUT_MS = 30_000
+
 describe('HogFlowBatchPersonQueryService', () => {
     const team = { id: 123 } as Team
     const filters = { properties: [], filter_test_accounts: true }
@@ -29,8 +31,10 @@ describe('HogFlowBatchPersonQueryService', () => {
         fetchMock = jest.fn()
     })
 
+    // retryBackoffMs: 0 keeps tests fast — the retry mechanics are what we care about,
+    // not the wall-clock backoff.
     const createService = (): HogFlowBatchPersonQueryService => {
-        return new HogFlowBatchPersonQueryService({ fetch: fetchMock } as any)
+        return new HogFlowBatchPersonQueryService({ fetch: fetchMock } as any, { retryBackoffMs: 0 })
     }
 
     describe('getBlastRadius', () => {
@@ -54,6 +58,7 @@ describe('HogFlowBatchPersonQueryService', () => {
                         filters,
                         group_type_index: 1,
                     }),
+                    timeoutMs: FETCH_TIMEOUT_MS,
                 },
             })
         })
@@ -76,11 +81,12 @@ describe('HogFlowBatchPersonQueryService', () => {
                         filters,
                         group_type_index: undefined,
                     }),
+                    timeoutMs: FETCH_TIMEOUT_MS,
                 },
             })
         })
 
-        it('throws when Django responds with non-200 status', async () => {
+        it('retries once on 5xx and throws when both attempts fail', async () => {
             const service = createService()
 
             fetchMock.mockResolvedValue({
@@ -89,19 +95,55 @@ describe('HogFlowBatchPersonQueryService', () => {
             })
 
             await expect(service.getBlastRadius(team, filters)).rejects.toThrow(
-                'Failed to fetch blast radius: 500 server exploded'
+                'HTTP 500 from /api/projects/123/internal/hog_flows/user_blast_radius: server exploded'
             )
+            expect(fetchMock).toHaveBeenCalledTimes(2)
         })
 
-        it('throws fetchError when internal fetch fails', async () => {
+        it('does NOT retry on 4xx — client errors are non-retryable', async () => {
+            const service = createService()
+
+            fetchMock.mockResolvedValue({
+                fetchResponse: createFetchResponse(403, 'forbidden'),
+                fetchError: null,
+            })
+
+            await expect(service.getBlastRadius(team, filters)).rejects.toThrow(
+                'HTTP 403 from /api/projects/123/internal/hog_flows/user_blast_radius: forbidden'
+            )
+            expect(fetchMock).toHaveBeenCalledTimes(1)
+        })
+
+        it('retries once on fetchError and throws when both attempts fail', async () => {
             const service = createService()
 
             fetchMock.mockResolvedValue({
                 fetchResponse: null,
-                fetchError: new Error('network down'),
+                fetchError: new Error('The operation was aborted due to timeout'),
             })
 
-            await expect(service.getBlastRadius(team, filters)).rejects.toThrow('network down')
+            await expect(service.getBlastRadius(team, filters)).rejects.toThrow(
+                'The operation was aborted due to timeout'
+            )
+            expect(fetchMock).toHaveBeenCalledTimes(2)
+        })
+
+        it('retries once on fetchError and returns the response on second attempt', async () => {
+            const service = createService()
+            const response: BlastRadiusResponse = { users_affected: 7, total_users: 100 }
+
+            fetchMock
+                .mockResolvedValueOnce({
+                    fetchResponse: null,
+                    fetchError: new Error('The operation was aborted due to timeout'),
+                })
+                .mockResolvedValueOnce({
+                    fetchResponse: createFetchResponse(200, response),
+                    fetchError: null,
+                })
+
+            await expect(service.getBlastRadius(team, filters)).resolves.toEqual(response)
+            expect(fetchMock).toHaveBeenCalledTimes(2)
         })
     })
 
@@ -143,6 +185,7 @@ describe('HogFlowBatchPersonQueryService', () => {
                         group_type_index: 2,
                         cursor: null,
                     }),
+                    timeoutMs: FETCH_TIMEOUT_MS,
                 },
             })
             expect(fetchMock).toHaveBeenNthCalledWith(2, {
@@ -154,6 +197,7 @@ describe('HogFlowBatchPersonQueryService', () => {
                         group_type_index: 2,
                         cursor: 'next-cursor',
                     }),
+                    timeoutMs: FETCH_TIMEOUT_MS,
                 },
             })
         })
@@ -181,11 +225,12 @@ describe('HogFlowBatchPersonQueryService', () => {
                         group_type_index: undefined,
                         cursor: null,
                     }),
+                    timeoutMs: FETCH_TIMEOUT_MS,
                 },
             })
         })
 
-        it('throws when persons endpoint responds with non-200 status', async () => {
+        it('does NOT retry on 4xx — client errors are non-retryable', async () => {
             const service = createService()
 
             fetchMock.mockResolvedValue({
@@ -194,19 +239,45 @@ describe('HogFlowBatchPersonQueryService', () => {
             })
 
             await expect(service.getBlastRadiusPersons(team, filters)).rejects.toThrow(
-                'Failed to fetch blast radius persons: 403 forbidden'
+                'HTTP 403 from /api/projects/123/internal/hog_flows/user_blast_radius_persons: forbidden'
             )
+            expect(fetchMock).toHaveBeenCalledTimes(1)
         })
 
-        it('throws fetchError when persons fetch fails', async () => {
+        it('retries once on fetchError (e.g. AbortSignal timeout) before failing', async () => {
             const service = createService()
 
             fetchMock.mockResolvedValue({
                 fetchResponse: null,
-                fetchError: new Error('timeout'),
+                fetchError: new Error('The operation was aborted due to timeout'),
             })
 
-            await expect(service.getBlastRadiusPersons(team, filters)).rejects.toThrow('timeout')
+            await expect(service.getBlastRadiusPersons(team, filters)).rejects.toThrow(
+                'The operation was aborted due to timeout'
+            )
+            expect(fetchMock).toHaveBeenCalledTimes(2)
+        })
+
+        it('returns successful response when first attempt times out and retry succeeds', async () => {
+            const service = createService()
+            const response: BlastRadiusPersonsResponse = {
+                users_affected: ['person_a', 'person_b'],
+                cursor: 'cursor-1',
+                has_more: false,
+            }
+
+            fetchMock
+                .mockResolvedValueOnce({
+                    fetchResponse: null,
+                    fetchError: new Error('The operation was aborted due to timeout'),
+                })
+                .mockResolvedValueOnce({
+                    fetchResponse: createFetchResponse(200, response),
+                    fetchError: null,
+                })
+
+            await expect(service.getBlastRadiusPersons(team, filters)).resolves.toEqual(response)
+            expect(fetchMock).toHaveBeenCalledTimes(2)
         })
     })
 })

@@ -16,13 +16,92 @@ export interface BlastRadiusPersonsResponse {
     has_more: boolean
 }
 
+export interface HogFlowBatchPersonQueryServiceOptions {
+    /** Per-call HTTP timeout for blast-radius fetches. Default: 30s. */
+    fetchTimeoutMs?: number
+    /** Backoff between the initial attempt and the single retry. Default: 500ms. */
+    retryBackoffMs?: number
+}
+
+// The default external-request budget (3s, EXTERNAL_REQUEST_TIMEOUT_MS) is sized for
+// outbound webhooks. Blast-radius fetches hit an internal Django endpoint that runs a
+// HogQL → ClickHouse person scan, which routinely takes 1–3s per page. At 100 pages
+// for a 50k audience, a 97% per-call success rate collapses to ~5% batch success
+// through geometric tail compounding. 30s leaves plenty of headroom; the one retry
+// catches occasional spikes without dropping the whole batch.
+const DEFAULT_FETCH_TIMEOUT_MS = 30_000
+const DEFAULT_RETRY_BACKOFF_MS = 500
+const MAX_ATTEMPTS = 2
+
 /**
  * Service for querying persons via Django internal API for batch HogFlow processing.
  * Calls internal endpoints authenticated with INTERNAL_API_SECRET.
  * Endpoints: /internal/hog_flows/user_blast_radius and /internal/hog_flows/user_blast_radius_persons
  */
 export class HogFlowBatchPersonQueryService {
-    constructor(private internalFetchService: InternalFetchService) {}
+    private readonly fetchTimeoutMs: number
+    private readonly retryBackoffMs: number
+
+    constructor(
+        private internalFetchService: InternalFetchService,
+        options: HogFlowBatchPersonQueryServiceOptions = {}
+    ) {
+        this.fetchTimeoutMs = options.fetchTimeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS
+        this.retryBackoffMs = options.retryBackoffMs ?? DEFAULT_RETRY_BACKOFF_MS
+    }
+
+    /**
+     * POST to an internal endpoint with one retry on timeout / network error / 5xx.
+     * 4xx responses are non-retryable (client error) and throw immediately.
+     */
+    private async fetchInternalEndpoint<T>(urlPath: `/${string}`, body: Record<string, unknown>): Promise<T> {
+        let lastError: Error | null = null
+
+        for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+            if (attempt > 1) {
+                await new Promise<void>((resolve) => setTimeout(resolve, this.retryBackoffMs))
+            }
+
+            const { fetchResponse, fetchError } = await this.internalFetchService.fetch({
+                urlPath,
+                fetchParams: {
+                    method: 'POST',
+                    body: JSON.stringify(body),
+                    timeoutMs: this.fetchTimeoutMs,
+                },
+            })
+
+            if (fetchError) {
+                lastError = fetchError
+            } else if (!fetchResponse) {
+                lastError = new Error('Empty response from internal API')
+            } else if (fetchResponse.status === 200) {
+                return parseJSON(await fetchResponse.text()) as T
+            } else if (fetchResponse.status >= 500) {
+                const errorText = await fetchResponse.text()
+                lastError = new Error(`HTTP ${fetchResponse.status} from ${urlPath}: ${errorText}`)
+            } else {
+                // 4xx — client error, not retryable
+                const errorText = await fetchResponse.text()
+                throw new Error(`HTTP ${fetchResponse.status} from ${urlPath}: ${errorText}`)
+            }
+
+            if (attempt < MAX_ATTEMPTS) {
+                logger.warn('Retrying internal blast-radius fetch', {
+                    urlPath,
+                    attempt,
+                    error: serializeError(lastError),
+                })
+            }
+        }
+
+        logger.error('Internal blast-radius fetch failed after retries', {
+            urlPath,
+            attempts: MAX_ATTEMPTS,
+            error: serializeError(lastError),
+        })
+        throw lastError ?? new Error(`Internal blast-radius fetch failed: ${urlPath}`)
+    }
 
     /**
      * Get count of users affected by filters
@@ -32,46 +111,11 @@ export class HogFlowBatchPersonQueryService {
         filters: Pick<HogFunctionFilters, 'properties' | 'filter_test_accounts'>,
         groupTypeIndex?: number
     ): Promise<BlastRadiusResponse> {
-        // The /internal endpoints aren't exposed publicly and require INTERNAL_API_SECRET for authentication
         const urlPath = `/api/projects/${team.id}/internal/hog_flows/user_blast_radius` as const
-
-        try {
-            const { fetchResponse, fetchError } = await this.internalFetchService.fetch({
-                urlPath,
-                fetchParams: {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        filters,
-                        group_type_index: groupTypeIndex,
-                    }),
-                },
-            })
-
-            if (!fetchResponse || fetchError) {
-                logger.error('Error fetching blast radius from Django', {
-                    error: serializeError(fetchError),
-                    urlPath,
-                })
-                throw fetchError
-            }
-
-            if (fetchResponse.status !== 200) {
-                const errorText = await fetchResponse.text()
-                logger.error('Failed to fetch blast radius from Django', {
-                    status: fetchResponse.status,
-                    error: errorText,
-                    urlPath,
-                })
-                throw new Error(`Failed to fetch blast radius: ${fetchResponse.status} ${errorText}`)
-            }
-
-            const data = parseJSON(await fetchResponse.text()) as BlastRadiusResponse
-
-            return data
-        } catch (error) {
-            logger.error('Error calling blast radius endpoint', { error: serializeError(error), urlPath })
-            throw error
-        }
+        return this.fetchInternalEndpoint<BlastRadiusResponse>(urlPath, {
+            filters,
+            group_type_index: groupTypeIndex,
+        })
     }
 
     /**
@@ -87,44 +131,10 @@ export class HogFlowBatchPersonQueryService {
         cursor?: string | null
     ): Promise<BlastRadiusPersonsResponse> {
         const urlPath = `/api/projects/${team.id}/internal/hog_flows/user_blast_radius_persons` as const
-
-        try {
-            const { fetchResponse, fetchError } = await this.internalFetchService.fetch({
-                urlPath,
-                fetchParams: {
-                    method: 'POST',
-                    body: JSON.stringify({
-                        filters,
-                        group_type_index: groupTypeIndex,
-                        cursor: cursor || null,
-                    }),
-                },
-            })
-
-            if (!fetchResponse || fetchError) {
-                logger.error('Error fetching blast radius persons from Django', {
-                    error: serializeError(fetchError),
-                    urlPath,
-                })
-                throw fetchError
-            }
-
-            if (fetchResponse.status !== 200) {
-                const errorText = await fetchResponse.text()
-                logger.error('Failed to fetch blast radius persons from Django', {
-                    status: fetchResponse.status,
-                    error: errorText,
-                    urlPath,
-                })
-                throw new Error(`Failed to fetch blast radius persons: ${fetchResponse.status} ${errorText}`)
-            }
-
-            const data = parseJSON(await fetchResponse.text()) as BlastRadiusPersonsResponse
-
-            return data
-        } catch (error) {
-            logger.error('Error calling blast radius persons endpoint', { error: serializeError(error), urlPath })
-            throw error
-        }
+        return this.fetchInternalEndpoint<BlastRadiusPersonsResponse>(urlPath, {
+            filters,
+            group_type_index: groupTypeIndex,
+            cursor: cursor || null,
+        })
     }
 }
