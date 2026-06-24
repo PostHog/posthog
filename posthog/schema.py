@@ -10,6 +10,7 @@ from typing import Annotated, Any, Literal
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, RootModel, confloat, conint
 
 from posthog.schema_enums import (
+    AccessControlLevel as AccessControlLevel,
     Action as Action,
     Action1 as Action1,
     AgentMode as AgentMode,
@@ -3104,6 +3105,8 @@ class AggregatedSpanRow(BaseModel):
     name: str
     p50_duration_nano: float
     p95_duration_nano: float
+    p999_duration_nano: float
+    p99_duration_nano: float
     service_name: str
     total_duration_nano: float
 
@@ -6993,6 +6996,8 @@ class SpanTreeNode(BaseModel):
     name: str
     p50_duration_nano: float
     p95_duration_nano: float
+    p999_duration_nano: float
+    p99_duration_nano: float
     parent_name: str
     parent_service: str
     service_name: str
@@ -22191,6 +22196,10 @@ class ExperimentHoldoutType(BaseModel):
     id: int
     name: str
     updated_at: str | None = None
+    user_access_level: AccessControlLevel | None = Field(
+        default=None,
+        description=("Read-only, server-computed effective access level; absent on a not-yet-created holdout."),
+    )
 
 
 class FunnelsFilter(BaseModel):

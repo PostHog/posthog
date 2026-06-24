@@ -1,29 +1,23 @@
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 import { useState } from 'react'
 
-import { IconArrowUpRight, IconGear, IconSparkles } from '@posthog/icons'
+import { IconArrowUpRight, IconGear } from '@posthog/icons'
 import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { SignalScoutConfig, SignalScoutConfigUpdate } from '../../../types'
-import {
-    buildScoutCheckinPrompt,
-    formatRunIntervalShort,
-    prettifyScoutSkillName,
-    ScoutRollup,
-} from '../../../utils/scoutRunsWindow'
+import { formatRunIntervalShort, prettifyScoutSkillName, ScoutRollup } from '../../../utils/scoutRunsWindow'
 import { agentSetupModalLogic } from '../../shell/agentSetupModalLogic'
-import { DryRunBadge, ScoutOriginBadge } from './ScoutBadges'
+import { ScoutOriginBadge } from './ScoutBadges'
 import { ScoutConfigForm, ScoutEnabledSwitch } from './ScoutConfigControls'
 import { ScoutRunBoxes } from './ScoutRunBoxes'
 
 /**
  * The one scout card: name, badges, cadence, emitted count, run boxes, enable
- * switch, a chat check-in button, and a gear that expands the settings form.
+ * switch, and a gear that expands the settings form.
  */
 export function ScoutRowCard({
     config,
@@ -57,7 +51,7 @@ export function ScoutRowCard({
                         {asHeader ? (
                             // min-w keeps the name from being squeezed to zero width by the
                             // trailing badges — truncate should clip to an ellipsis, never vanish.
-                            <span className="truncate font-medium text-sm min-w-[6rem] flex-1">{displayName}</span>
+                            <span className="truncate font-medium text-sm min-w-[6rem]">{displayName}</span>
                         ) : (
                             <Tooltip title={`${config.skill_name} · view scout`}>
                                 <Link
@@ -66,14 +60,15 @@ export function ScoutRowCard({
                                     // (hidden) list subtree — close it so it doesn't cover the detail page.
                                     onClick={() => closeSetupModal()}
                                     subtle
-                                    className="truncate font-medium text-sm min-w-[6rem] flex-1"
+                                    className="truncate font-medium text-sm min-w-[6rem]"
                                 >
                                     {displayName}
                                 </Link>
                             </Tooltip>
                         )}
-                        {/* Icon + badges never shrink: the name (flex-1) absorbs width pressure and
-                            truncates, so the Custom/Canonical pill is never sliced mid-badge. */}
+                        {/* Badges hug the name instead of being shoved to the column's right edge.
+                            They never shrink (shrink-0); the name absorbs width pressure by shrinking
+                            and truncating (down to its min-w floor), so the pill is never sliced. */}
                         <div className="flex items-center gap-2 shrink-0">
                             <Tooltip title={`${config.skill_name} · open skill`}>
                                 <Link
@@ -88,7 +83,6 @@ export function ScoutRowCard({
                                 </Link>
                             </Tooltip>
                             <ScoutOriginBadge skillName={config.skill_name} />
-                            <DryRunBadge config={config} />
                         </div>
                     </div>
                     <div className="flex items-center gap-1 whitespace-nowrap text-[11px] text-muted">
@@ -105,7 +99,6 @@ export function ScoutRowCard({
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                     <ScoutEnabledSwitch config={config} onUpdate={onUpdate} />
-                    <ScoutChatButton skillName={config.skill_name} />
                     <Tooltip title="Scout settings">
                         <LemonButton
                             size="small"
@@ -123,32 +116,5 @@ export function ScoutRowCard({
                 </div>
             ) : null}
         </div>
-    )
-}
-
-/**
- * Icon-only chat CTA on the row: fires a one-click auto-mode cloud task asking
- * about this specific scout, then navigates to it.
- */
-function ScoutChatButton({ skillName }: { skillName: string }): JSX.Element {
-    const { startScoutChatTask } = useActions(scoutFleetLogic)
-    const { chatTaskRunning } = useValues(scoutFleetLogic)
-    return (
-        <Tooltip title="Ask PostHog about this scout">
-            <LemonButton
-                size="small"
-                icon={<IconSparkles />}
-                loading={chatTaskRunning}
-                disabledReason={chatTaskRunning ? 'Starting a task…' : undefined}
-                onClick={() =>
-                    startScoutChatTask(
-                        buildScoutCheckinPrompt(skillName, prettifyScoutSkillName(skillName)),
-                        'scout check-in',
-                        `Scout check-in: ${prettifyScoutSkillName(skillName)}`
-                    )
-                }
-                aria-label={`Ask PostHog about the ${skillName} scout`}
-            />
-        </Tooltip>
     )
 }

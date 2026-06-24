@@ -104,7 +104,7 @@ BASE_DRAFT_SCOPES = ["business_knowledge:read", "project:read"]
 # direct-query data sources — outside the "customer's own PostHog project data" boundary these
 # scopes are meant to cover. There is no narrower project-only query scope to grant instead, so
 # the direct-connection path is closed at the prompt layer (the diagnostic instructions forbid
-# connectionId / external sources) and backstopped by review_reply_activity, which treats any
+# connectionId / external sources) and backstopped by support_review_reply_activity, which treats any
 # external-connection-sourced data in the reply as unsafe.
 DIAGNOSTIC_DRAFT_SCOPES = [
     "error_tracking:read",
@@ -475,7 +475,7 @@ class SupportReplyDraft(BaseModel):
 
 @activity.defn
 @close_db_connections
-async def build_context_activity(input: SupportReplyInput) -> BuildContextOutput:
+async def support_build_context_activity(input: SupportReplyInput) -> BuildContextOutput:
     """Build the full ticket context string reusing the existing suggest.py helper."""
     async with Heartbeater():
         return await database_sync_to_async(_build_context_sync, thread_sensitive=False)(input.team_id, input.ticket_id)
@@ -510,7 +510,7 @@ def _build_context_sync(team_id: int, ticket_id: str) -> BuildContextOutput:
 
 
 @activity.defn
-async def safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput:
+async def support_safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput:
     """Screen ticket for prompt injection / data exfiltration before the draft loop."""
     async with Heartbeater():
         return await _safety_filter(input.team_id, input.ticket_context)
@@ -545,7 +545,7 @@ async def _safety_filter(team_id: int, ticket_context: str) -> SafetyFilterOutpu
 
 
 @activity.defn
-async def review_reply_activity(input: ReviewReplyInput) -> ReviewReplyOutput:
+async def support_review_reply_activity(input: ReviewReplyInput) -> ReviewReplyOutput:
     """Screen the final reply for data exfiltration / PII leakage before persisting."""
     async with Heartbeater():
         return await _review_reply(input.team_id, input.ticket_context, input.reply, input.sources, input.ticket_type)
@@ -595,7 +595,7 @@ TICKET TYPE: {ticket_type}"""
 
 
 @activity.defn
-async def classify_activity(input: ClassifyInput) -> ClassifyOutput:
+async def support_classify_activity(input: ClassifyInput) -> ClassifyOutput:
     """One-shot LLM triage of a ticket into a type + diagnostics flag + seed search queries."""
     async with Heartbeater():
         return await _classify(input.team_id, input.ticket_context)
@@ -655,7 +655,7 @@ classify the customer's support question."""
 
 
 @activity.defn
-async def refine_queries_activity(input: RefineQueriesInput) -> RefineQueriesOutput:
+async def support_refine_queries_activity(input: RefineQueriesInput) -> RefineQueriesOutput:
     """Use a lightweight LLM to generate search queries from ticket context + missing gaps."""
     async with Heartbeater():
         return await _refine_queries(
@@ -712,7 +712,7 @@ derive search queries about the customer's support question."""
 
 @activity.defn
 @close_db_connections
-async def retrieve_activity(input: RetrieveInput) -> RetrieveOutput:
+async def support_retrieve_activity(input: RetrieveInput) -> RetrieveOutput:
     """Search BK + rerank. On widen attempts, also fetch document windows around prior citations."""
     async with Heartbeater():
         return await database_sync_to_async(_retrieve_sync, thread_sensitive=False)(
@@ -788,7 +788,7 @@ def _hydrate_chunks(team_id: int, chunk_ids: list[str]) -> list[dict[str, Any]]:
 
 @activity.defn
 @close_db_connections
-async def draft_activity(input: DraftInput) -> DraftOutput:
+async def support_draft_activity(input: DraftInput) -> DraftOutput:
     """Run a sandbox session with read-only MCP to draft a reply."""
     async with Heartbeater():
         return await _draft_async(
@@ -932,7 +932,7 @@ Return your response as a JSON object with keys: reply, citations, confidence, s
 
 
 @activity.defn
-async def validate_activity(input: ValidateInput) -> ValidateOutput:
+async def support_validate_activity(input: ValidateInput) -> ValidateOutput:
     """Validate the draft reply against the source chunks for groundedness and coverage."""
     async with Heartbeater():
         return await _validate(
@@ -1030,7 +1030,7 @@ CITED CHUNKS:
 
 @activity.defn
 @close_db_connections
-async def persist_reply_activity(input: PersistReplyInput) -> None:
+async def support_persist_reply_activity(input: PersistReplyInput) -> None:
     """Persist the validated reply as a private AI comment on the ticket."""
     async with Heartbeater():
         await database_sync_to_async(_persist_reply_sync, thread_sensitive=False)(
@@ -1071,7 +1071,7 @@ class SupportReplyWorkflow:
     async def run(self, input: SupportReplyInput) -> str:
         # Build context
         ctx_output = await workflow.execute_activity(
-            build_context_activity,
+            support_build_context_activity,
             input,
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
@@ -1083,7 +1083,7 @@ class SupportReplyWorkflow:
         # Input safety gate: block prompt-injection / exfiltration attempts before any LLM
         # draft work. Mirrored from the signals product's safety_filter_activity pattern.
         safety_output = await workflow.execute_activity(
-            safety_filter_activity,
+            support_safety_filter_activity,
             SafetyFilterInput(team_id=input.team_id, ticket_context=reviewed_context),
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
@@ -1098,7 +1098,7 @@ class SupportReplyWorkflow:
         # Triage once, up front (not per attempt): the type + seed queries bias the whole
         # loop, and `unactionable` tickets (spam/bare feedback) skip the expensive draft loop.
         classify_output = await workflow.execute_activity(
-            classify_activity,
+            support_classify_activity,
             ClassifyInput(team_id=input.team_id, ticket_context=reviewed_context),
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
@@ -1126,7 +1126,7 @@ class SupportReplyWorkflow:
 
             # Refine queries
             refine_output = await workflow.execute_activity(
-                refine_queries_activity,
+                support_refine_queries_activity,
                 RefineQueriesInput(
                     team_id=input.team_id,
                     ticket_context=reviewed_context,
@@ -1140,7 +1140,7 @@ class SupportReplyWorkflow:
 
             # Retrieve + rerank
             retrieve_output = await workflow.execute_activity(
-                retrieve_activity,
+                support_retrieve_activity,
                 RetrieveInput(
                     team_id=input.team_id,
                     queries=refine_output.queries,
@@ -1159,7 +1159,7 @@ class SupportReplyWorkflow:
 
             # Draft via sandbox
             draft_output = await workflow.execute_activity(
-                draft_activity,
+                support_draft_activity,
                 DraftInput(
                     team_id=input.team_id,
                     ticket_context=reviewed_context,
@@ -1178,7 +1178,7 @@ class SupportReplyWorkflow:
 
             # Validate
             validate_output = await workflow.execute_activity(
-                validate_activity,
+                support_validate_activity,
                 ValidateInput(
                     team_id=input.team_id,
                     ticket_context=reviewed_context,
@@ -1206,7 +1206,7 @@ class SupportReplyWorkflow:
                 # Output safety gate: check for PII leaks / exfil before the reply reaches
                 # the (untrusted) ticket author.
                 review_output = await workflow.execute_activity(
-                    review_reply_activity,
+                    support_review_reply_activity,
                     ReviewReplyInput(
                         team_id=input.team_id,
                         ticket_context=reviewed_context,
@@ -1225,7 +1225,7 @@ class SupportReplyWorkflow:
                     return "blocked_unsafe_reply"
 
                 await workflow.execute_activity(
-                    persist_reply_activity,
+                    support_persist_reply_activity,
                     PersistReplyInput(
                         team_id=input.team_id,
                         ticket_id=input.ticket_id,
@@ -1247,7 +1247,7 @@ class SupportReplyWorkflow:
         # Exhausted attempts — persist best if we have one with non-zero confidence
         if best_reply and best_confidence > 0:
             review_output = await workflow.execute_activity(
-                review_reply_activity,
+                support_review_reply_activity,
                 ReviewReplyInput(
                     team_id=input.team_id,
                     ticket_context=reviewed_context,
@@ -1266,7 +1266,7 @@ class SupportReplyWorkflow:
                 return "blocked_unsafe_reply"
 
             await workflow.execute_activity(
-                persist_reply_activity,
+                support_persist_reply_activity,
                 PersistReplyInput(
                     team_id=input.team_id,
                     ticket_id=input.ticket_id,

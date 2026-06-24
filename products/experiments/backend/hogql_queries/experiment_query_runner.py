@@ -434,6 +434,8 @@ class ExperimentQueryRunner(QueryRunner):
             experiment_metric_name=metric_name,
             experiment_metric_type=self.metric.metric_type,
         )
+        if isinstance(self.metric, ExperimentFunnelMetric):
+            tag_queries(experiment_funnel_order_type=self.metric.funnel_order_type or "ordered")
 
         experiment_query_ast = self._get_experiment_query()
 

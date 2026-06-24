@@ -107,6 +107,8 @@ __all__ = [
     "create_task_automation",
     "create_task_without_run",
     "create_task_run_connection_token",
+    "create_task_run_stream_read_token",
+    "resolve_stream_base_url",
     "claim_and_fail_stale_run",
     "delete_sandbox_environment",
     "delete_task_automation",
@@ -1700,6 +1702,52 @@ def create_task_run_connection_token(
     if run is None:
         return None
     return _create(task_run=run, user_id=user_id, distinct_id=distinct_id)
+
+
+def create_task_run_stream_read_token(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
+    """Mint a run-scoped token for reading a run's live event stream. ``None`` if the run isn't found."""
+    from products.tasks.backend.logic.services.connection_token import (  # noqa: PLC0415 — keep sandbox deps off the api import path
+        create_stream_read_token as _create,
+    )
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    return _create(task_run=run)
+
+
+def resolve_stream_base_url(*, distinct_id: str, organization_id: str | UUID) -> str | None:
+    """Agent-proxy base URL for the read leg, or ``None`` to read from Django directly.
+
+    Returns the configured agent-proxy URL only when it is set for this environment AND the
+    read-via-proxy flag is enabled for the user, so rollout stays gradual and reversible. The
+    server owns this decision; clients just connect to whatever URL comes back.
+    """
+    from django.conf import settings  # noqa: PLC0415 — keep settings access local to this helper
+
+    from products.tasks.backend.constants import STREAM_VIA_PROXY_FEATURE_FLAG  # noqa: PLC0415
+
+    proxy_url = settings.TASKS_AGENT_PROXY_PUBLIC_URL
+    if not proxy_url:
+        return None
+    # Local dev disables the analytics SDK, so the rollout flag never evaluates; the URL setting
+    # is the opt-in there. Prod (DEBUG off) still gates on the flag below.
+    if settings.DEBUG:
+        return proxy_url
+    try:
+        enabled = bool(
+            posthoganalytics.feature_enabled(
+                STREAM_VIA_PROXY_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": str(organization_id)},
+                group_properties={"organization": {"id": str(organization_id)}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        return None
+    return proxy_url if enabled else None
 
 
 # --- Task run commands (user_message signal + sandbox proxy) ---

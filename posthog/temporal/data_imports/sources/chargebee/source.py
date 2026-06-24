@@ -17,6 +17,7 @@ from posthog.temporal.data_imports.sources.chargebee.chargebee import (
 )
 from posthog.temporal.data_imports.sources.chargebee.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -36,6 +37,11 @@ class ChargebeeSource(ResumableSource[ChargebeeSourceConfig, ChargebeeResumeConf
             "403 Client Error: Forbidden for url": "Chargebee authentication failed. Please check your API key and site name.",
             "Unauthorized for url": "Chargebee authentication failed. Please check your API key and site name.",
         }
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.chargebee.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
 
     def get_schemas(
         self,

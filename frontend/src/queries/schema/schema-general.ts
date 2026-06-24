@@ -3336,6 +3336,8 @@ export interface AggregatedSpanRow {
     avg_duration_nano: number
     p50_duration_nano: number
     p95_duration_nano: number
+    p99_duration_nano: number
+    p999_duration_nano: number
     error_count: integer
 }
 
@@ -3371,6 +3373,8 @@ export interface SpanTreeNode {
     avg_duration_nano: number
     p50_duration_nano: number
     p95_duration_nano: number
+    p99_duration_nano: number
+    p999_duration_nano: number
     error_count: integer
     /**
      * Average nanoseconds from the parent span's start to this span's start. Zero for
@@ -6928,6 +6932,9 @@ export const externalDataSources = [
     'Metronome',
     'Jobber',
     'Knock',
+    'Leexi',
+    'RB2B',
+    'Superwall',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
