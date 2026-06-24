@@ -55,7 +55,7 @@ function TaskRunChatContent({ taskId, runId }: TaskRunChatProps): JSX.Element {
 
     return (
         <div className="flex flex-col h-full overflow-hidden">
-            <div className="flex-1 overflow-y-auto px-4 py-2">
+            <div className="flex-1 overflow-y-auto flex flex-col gap-3">
                 <SandboxThreadView />
             </div>
 

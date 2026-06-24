@@ -26,6 +26,7 @@ import {
     filterPullRequests,
     workflowTrendSeries,
 } from './engineeringAnalyticsLogic'
+import { engineeringAnalyticsSceneLogic } from './engineeringAnalyticsSceneLogic'
 import { sortRunsForTriage } from './pullRequestDetailLogic'
 
 jest.mock('../generated/api', () => ({
@@ -109,7 +110,7 @@ const PRS: PullRequestListItemApi[] = [
 const WORKFLOWS: WorkflowHealthItemApi[] = [
     {
         repo: { provider: 'github', owner: 'posthog', name: 'posthog' },
-        daily: [{ day: '2026-05-30', run_count: 100, completed: 95, successes: 90 }],
+        daily: [{ day: '2026-05-30', run_count: 100, completed: 95, successes: 90, failures: 4 }],
         workflow_name: 'CI',
         run_count: 100,
         success_rate: 0.95,
@@ -226,6 +227,13 @@ describe('engineeringAnalyticsLogic', () => {
         expect(tabB.values.stateFilter).toBe(DEFAULT_FILTERS.state)
     })
 
+    it('scene logic mounts without a tabId so /engineering-analytics resolves instead of 404ing', () => {
+        // #62051 collapsed sceneLogic to single-scene state and stopped threading a tabId into
+        // scene logics. A tab-aware scene logic then throws "must have a tabId prop" on mount,
+        // sceneLogic's catch falls back to Error404, and every visit to the scene 404s.
+        expect(() => engineeringAnalyticsSceneLogic().mount()).not.toThrow()
+    })
+
     it('maps the three endpoints into typed rows and defaults to the open filter', async () => {
         logic = engineeringAnalyticsLogic()
         logic.mount()
@@ -246,7 +254,7 @@ describe('engineeringAnalyticsLogic', () => {
         expect(logic.values.workflowHealth).toHaveLength(1)
         expect(logic.values.workflowHealth[0].successRate).toBe(0.95)
         expect(logic.values.workflowHealth[0].daily).toEqual([
-            { day: '2026-05-30', runCount: 100, completed: 95, successes: 90 },
+            { day: '2026-05-30', runCount: 100, completed: 95, successes: 90, failures: 4 },
         ])
         // Default state filter is "open", so only the open PR survives.
         expect(logic.values.filteredPullRequests).toHaveLength(1)
@@ -268,6 +276,43 @@ describe('engineeringAnalyticsLogic', () => {
         logic.actions.setWorkflowDateRange('2026-01-01', '2026-03-01')
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '2026-01-01', date_to: '2026-03-01' })
+    })
+
+    it('filters workflow health by branch server-side, only reloading on a real change', async () => {
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-30d' })
+
+        // Typing only stages the value — no reload until applied.
+        logic.actions.setBranchFilter('main')
+        expect(logic.values.branchInput).toBe('main')
+        expect(logic.values.appliedBranch).toBe('')
+
+        // Applying promotes it and reloads with the branch param (trimmed).
+        logic.actions.setBranchFilter('  main  ')
+        logic.actions.applyBranchFilter()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealth', 'loadWorkflowHealthSuccess'])
+        expect(logic.values.appliedBranch).toBe('main')
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-30d', branch: 'main' })
+
+        // Re-applying an unchanged value (e.g. a blur with no edit) does not reload.
+        mockWorkflowHealth.mockClear()
+        logic.actions.applyBranchFilter()
+        await expectLogic(logic).toNotHaveDispatchedActions(['loadWorkflowHealth'])
+        expect(mockWorkflowHealth).not.toHaveBeenCalled()
+
+        // The applied branch persists across a date-range reload.
+        logic.actions.setWorkflowDateRange('-90d', null)
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-90d', branch: 'main' })
+
+        // Clearing the box (e.g. the search × button, which only fires onChange('')) applies
+        // immediately — no Enter/blur needed — and drops the filter.
+        logic.actions.setBranchFilter('')
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
+        expect(logic.values.appliedBranch).toBe('')
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-90d' })
     })
 
     it('exposes source options and the multi-source flag only when more than one source exists', async () => {
@@ -336,9 +381,21 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it.each([
-        ['a bad day spikes', { completed: 25, successes: 22 }, 0.12, 'Jun 5 · 3 of 25 non-passing'],
-        ['an all-green day stays flat', { completed: 25, successes: 25 }, 0, 'Jun 5 · 0 of 25 non-passing'],
-        ['a day with nothing completed stays flat', { completed: 0, successes: 0 }, 0, 'Jun 5 · no completed runs'],
+        ['a bad day spikes', { completed: 25, successes: 22, failures: 3 }, 0.12, 'Jun 5 · 3 of 25 failed'],
+        ['an all-green day stays flat', { completed: 25, successes: 25, failures: 0 }, 0, 'Jun 5 · 0 of 25 failed'],
+        // Skipped/cancelled/action_required runs are completed but not failures — they must not spike the bar.
+        [
+            'skipped/cancelled runs are not failures',
+            { completed: 25, successes: 20, failures: 0 },
+            0,
+            'Jun 5 · 0 of 25 failed',
+        ],
+        [
+            'a day with nothing completed stays flat',
+            { completed: 0, successes: 0, failures: 0 },
+            0,
+            'Jun 5 · no completed runs',
+        ],
     ])('workflowTrendSeries: %s', (_label, counts, value, label) => {
         const series = workflowTrendSeries([{ day: '2026-06-05', runCount: 30, ...counts }])
         expect(series).toEqual({ values: [value], labels: [label] })

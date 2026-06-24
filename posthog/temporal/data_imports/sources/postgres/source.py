@@ -69,6 +69,15 @@ PostgresErrors = {
         "your database is active and the connection details are correct."
     ),
     "could not translate host name": "Could not connect to the host",
+    # libpq prefixes a DNS-resolution failure with "could not translate host name ..." (matched
+    # above), but the same getaddrinfo failure also surfaces as the raw socket wording with no such
+    # prefix — "[Errno -2] Name or service not known" (EAI_NONAME) or its EAI_NODATA sibling
+    # "[Errno -5] No address associated with hostname" — e.g. through an SSH tunnel or psycopg's
+    # Python-side resolution. `get_non_retryable_errors` already treats both as non-retryable; map
+    # them here too so credential validation returns an actionable message instead of surfacing the
+    # customer's unresolvable host as captured error noise.
+    "Name or service not known": "Could not resolve the database host. Check that the host is spelled correctly and reachable from the public internet.",
+    "No address associated with hostname": "Could not resolve the database host. Check that the host is spelled correctly and reachable from the public internet.",
     "Is the server running on that host and accepting TCP/IP connections": "Could not connect to the host on the port given",
     'database "': "Database does not exist",
     "timeout expired": "Connection timed out. Does your database have our IP addresses allowed?",

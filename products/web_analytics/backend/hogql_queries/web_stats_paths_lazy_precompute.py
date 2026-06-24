@@ -209,30 +209,39 @@ def _breakdown_value_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr:
       entered on this path". Bounce contributes for every row because
       `breakdown_value == entry_breakdown_value` is always true.
 
-    Path cleaning is applied at READ time (see `_READ_SQL_TEMPLATE`), not here.
-    Storing raw paths keeps the precompute rule-independent: a team can edit
-    their cleaning rules and the existing precomputed rows remain valid — the
-    next read just groups them by the new cleaned values.
+    Path cleaning is applied HERE, at INSERT time, via `runner._apply_path_cleaning`
+    (a no-op when `doPathCleaning` is off or the team has no rules). Storing
+    already-cleaned paths collapses the breakdown to the cleaned cardinality and
+    lets the read group the column directly — it avoids running the team's
+    cleaning regex chain over every row on every read, which dominates read cost
+    on high-path-cardinality teams. The cache key carries the cleaning: the
+    regexes are part of this INSERT AST, so `doPathCleaning` on/off (and a rules
+    change) produce distinct `query_hash`es / jobs that coexist — a rules edit
+    just spawns a fresh job rather than invalidating in place.
 
     The cache key differentiates PAGE vs INITIAL_PAGE automatically: the AST
     for each branch differs, so the lazy_computation `query_hash` differs and
     the two precomputes coexist as distinct jobs."""
     if runner.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE:
         return _entry_breakdown_value_expr(runner)
-    path = ast.Field(chain=["events", "properties", "$pathname"])
+    path: ast.Expr = ast.Field(chain=["events", "properties", "$pathname"])
     if runner.query.includeHost:
-        return _prepend_host_nullif_empty(ast.Field(chain=["events", "properties", "$host"]), path)
-    return path
+        path = _prepend_host_nullif_empty(ast.Field(chain=["events", "properties", "$host"]), path)
+    # Clean after the optional host prefix so the stored value matches what the
+    # read previously produced via `_apply_path_cleaning(breakdown_value)`.
+    return runner._apply_path_cleaning(path)
 
 
 def _entry_breakdown_value_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr:
     """Entry pathname (optionally `entry_hostname`-prefixed) — must match the
-    same shape as `_breakdown_value_expr` so the equality check inside the
-    INSERT properly identifies sessions that entered on each path."""
-    path = ast.Field(chain=["session", "$entry_pathname"])
+    same shape AND cleaning as `_breakdown_value_expr` so the equality check
+    inside the INSERT properly identifies sessions that entered on each path.
+    Cleaning is applied identically (after the optional host prefix) so a cleaned
+    pathname still matches its cleaned entry path."""
+    path: ast.Expr = ast.Field(chain=["session", "$entry_pathname"])
     if runner.query.includeHost:
-        return _prepend_host_nullif_empty(ast.Field(chain=["session", "$entry_hostname"]), path)
-    return path
+        path = _prepend_host_nullif_empty(ast.Field(chain=["session", "$entry_hostname"]), path)
+    return runner._apply_path_cleaning(path)
 
 
 # HogQL template for the precompute INSERT. The lazy_computation framework
@@ -410,12 +419,12 @@ ENSURE_BUDGET_MS = 120 * 1000
 # directly against the UTC bounds we pass in via `{cur_start}` etc. without
 # HogQL coercing them to the team's local timezone.
 #
-# `breakdown_expr` is the (raw or cleaned) breakdown column. Path cleaning is
-# applied here in the read rather than baked into the precompute, so rule
-# edits don't invalidate stored rows and the lazy_computation query_hash
-# doesn't carry the regex string. Cleaning is a chain of nested
-# `replaceRegexpAll` calls (see `apply_path_cleaning`), and ClickHouse
-# aggregate `*Merge` functions remain associative across the GROUP BY change.
+# `breakdown_expr` is the stored `breakdown_value` column directly — no read-time
+# cleaning. Path cleaning is baked into the precompute at INSERT time (see
+# `_breakdown_value_expr`), so the stored column is already cleaned (or raw, for a
+# `doPathCleaning=False` job — the two are distinct `query_hash`es). This avoids
+# running the team's nested `replaceRegexpAll` chain over every row on every read,
+# which dominated read cost on high-path-cardinality teams.
 # The SELECT alias is deliberately `breakdown` (not `breakdown_value`) to avoid
 # shadowing the underlying column name. With the same name, HogQL resolves
 # `breakdown_value` in GROUP BY to the SELECT alias (printing without the
@@ -531,7 +540,7 @@ def execute_read_query(
         "cur_end": ast.Constant(value=current_end_utc),
         "prev_start": ast.Constant(value=prev_start),
         "prev_end": ast.Constant(value=prev_end),
-        "breakdown_expr": runner._apply_path_cleaning(ast.Field(chain=["breakdown_value"])),
+        "breakdown_expr": ast.Field(chain=["breakdown_value"]),
         "fill_fraction_expr": _fill_fraction_expr(sort_column),
     }
 

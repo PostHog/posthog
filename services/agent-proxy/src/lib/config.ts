@@ -1,7 +1,7 @@
 // Environment variable loading and validation for the agent-proxy service.
 //
 // Required vars (must be present in production / NODE_ENV=production):
-//   REDIS_URL
+//   TASKS_REDIS_URL
 //   SANDBOX_JWT_PUBLIC_KEY
 //   AGENT_PROXY_DJANGO_CALLBACK_URL
 //
@@ -81,7 +81,8 @@ export function loadConfig(): Config {
     const isProd = getEnv('NODE_ENV') === 'production'
 
     // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
-    const redisUrl = getEnv('REDIS_URL') ?? (isProd ? requireEnv('REDIS_URL', true) : 'redis://localhost:6379')
+    const localRedisFallbackUrl = 'redis://localhost:6379'
+    const redisUrl = getEnv('TASKS_REDIS_URL') ?? (isProd ? requireEnv('TASKS_REDIS_URL', true) : localRedisFallbackUrl)
 
     // Primary key (required) plus an optional secondary trusted during a key rotation overlap.
     const sandboxJwtPublicKeysPem = [
