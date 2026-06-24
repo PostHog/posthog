@@ -78,9 +78,10 @@ already set up as a shared metric fragments measurement and is exactly what we w
 2. **If a shared metric clearly matches** — confirm the match with the user by name/description,
    then attach it instead of building a new one:
    - Call `experiment-get` to read the experiment's current `saved_metrics`.
-   - Call `experiment-update` with `saved_metrics_ids` containing the full desired set (it
-     **replaces** existing links — include the already-attached ones plus the new `{ "id": <id>,
-     "metadata": { "type": "primary" | "secondary" } }`). `metadata` is optional and defaults to primary.
+   - Call `experiment-update` with `saved_metrics_ids` set to the full desired set — it **replaces**
+     existing links, so include the already-attached ones plus the new entry. Each entry has shape
+     `{ "id": <id>, "metadata": { "type": "primary" } }` — set `type` to `"primary"` or
+     `"secondary"`. `metadata` is optional and defaults to primary.
    - You do not need to discover events (Step 2) — the shared metric already encodes them.
 3. **If the list is empty or nothing matches** — fall through to Step 2 and build an inline metric.
 
