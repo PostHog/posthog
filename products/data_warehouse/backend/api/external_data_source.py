@@ -1336,6 +1336,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         "enable_cdc",
         "disable_cdc",
         "update_cdc_settings",
+        # Enumerates the connected provider's accounts/sites — write-scoped so a read-only token can't
+        # list them (info disclosure); also gated behind admin in dangerously_get_permissions.
+        "oauth_accounts",
     ]
     scope_object_read_actions = [
         "list",
@@ -1347,9 +1350,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         "webhook_info",
         "connections",
         "cdc_status",
-        # Enumerates the connected provider's accounts/sites for the account picker — read action, but
-        # also gated behind manage access in dangerously_get_permissions (info disclosure).
-        "oauth_accounts",
     ]
     queryset = ExternalDataSource.objects.all()
     serializer_class = ExternalDataSourceSerializers
@@ -1483,6 +1483,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         try:
             accounts = source.get_oauth_accounts(integration_id_int, self.team_id)
+        except NotImplementedError:
+            # An OAuth source that hasn't implemented account listing yet (passes the isinstance check).
+            raise ValidationError(f"Source type {source_type} does not support listing OAuth accounts")
         except ValueError as e:
             # Sources raise ValueError for actionable, customer-side failures (missing config, the
             # provider rejecting the credentials). Surface them as a 400 rather than an unhandled 500.

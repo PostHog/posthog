@@ -9757,6 +9757,12 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
         response = self.client.get(self._url("Postgres", 1))
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
 
+    def test_oauth_source_without_listing_returns_400(self):
+        # An OAuth source that hasn't implemented get_oauth_accounts passes the isinstance check but
+        # raises NotImplementedError — it must surface as a 400, not an unhandled 500.
+        response = self.client.get(self._url("Salesforce", 1))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
     def test_gsc_success_maps_sites_to_accounts(self):
         integration = self._gsc_integration()
         with (
