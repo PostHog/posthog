@@ -56,15 +56,15 @@ def _with_auth(spec: dict) -> dict:
         # `model` is optional — auto/medium is the runner's default, so a spec
         # may omit it entirely.
         ("no_model", {}),
-        # model_policy auto: level + default; `model` can be dropped.
-        ("model_policy_auto", {"model_policy": {"mode": "auto", "level": "high"}}),
+        # models auto: level + default; `model` can be dropped.
+        ("models_auto", {"models": {"mode": "auto", "level": "high"}}),
         # auto omitting level (defaulted to medium) + per-policy reasoning.
-        ("model_policy_auto_defaults", {"model_policy": {"mode": "auto", "reasoning": "high"}}),
-        # model_policy manual: provider-diverse priority list, per-entry reasoning.
+        ("models_auto_defaults", {"models": {"mode": "auto", "reasoning": "high"}}),
+        # models manual: provider-diverse priority list, per-entry reasoning.
         (
-            "model_policy_manual",
+            "models_manual",
             {
-                "model_policy": {
+                "models": {
                     "mode": "manual",
                     "models": [
                         {"model": "anthropic/claude-sonnet-4-6", "reasoning": "high"},
@@ -88,7 +88,6 @@ def _with_auth(spec: dict) -> dict:
                 ],
                 "tools": [{"kind": "native", "id": "@posthog/query"}],
                 "skills": [{"id": "research", "path": "skills/research.md"}],
-                "entrypoint": "agent.md",
             },
         ),
         # Nested defaults must mirror zod: omitting fields with defaults at
@@ -209,7 +208,10 @@ def _with_auth(spec: dict) -> dict:
         # promote, so authors may omit it.
         (
             "identity_provider_principal_binding",
-            {"model": "x", "identity_providers": [{"kind": "posthog", "binding": "principal"}]},
+            {
+                "models": {"mode": "auto", "level": "low"},
+                "identity_providers": [{"kind": "posthog", "binding": "principal"}],
+            },
         ),
     ],
 )
@@ -227,11 +229,11 @@ def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
         ("app_row_shaped", {"name": "Hedgebox Helper"}, "name"),
         # `model` is optional, but when present must be a non-empty string. zod
         # uses min(1); JSON Schema mirrors that via minLength.
-        # model_policy is a discriminated union on `mode`; an unknown mode
+        # models is a discriminated union on `mode`; an unknown mode
         # matches neither auto nor manual arm.
-        ("model_policy_bad_mode", {"model_policy": {"mode": "cheapest"}}, "model_policy"),
+        ("models_bad_mode", {"models": {"mode": "cheapest"}}, "models"),
         # manual mode requires a non-empty `models` list.
-        ("model_policy_manual_empty", {"model_policy": {"mode": "manual", "models": []}}, "model_policy"),
+        ("models_manual_empty", {"models": {"mode": "manual", "models": []}}, "models"),
         # `triggers` must be an array if present, not a string.
         ("triggers_wrong_type", {"triggers": "all"}, "triggers"),
         # Discriminated union: an unknown trigger type doesn't match any of
@@ -325,7 +327,10 @@ def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
         # rejects it until it lands — kept in lockstep with the zod enum.
         (
             "identity_provider_agent_binding_rejected",
-            {"model": "x", "identity_providers": [{"kind": "posthog", "binding": "agent"}]},
+            {
+                "models": {"mode": "auto", "level": "low"},
+                "identity_providers": [{"kind": "posthog", "binding": "agent"}],
+            },
             "identity_providers",
         ),
     ],

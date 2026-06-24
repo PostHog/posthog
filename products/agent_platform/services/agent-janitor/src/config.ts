@@ -154,7 +154,7 @@ export const AgentJanitorConfigSchema = PlatformConfigSchema.extend({
         .url()
         .default(() => (isDev() ? 'http://localhost:8080/v1' : 'http://ai-gateway/v1'))
         .describe(
-            'AI gateway base URL (incl. /v1) — the SAME gateway the runner dispatches against. The model-catalog read for model_policy validation hits {url}/models.'
+            'AI gateway base URL (incl. /v1) — the SAME gateway the runner dispatches against. The model-catalog read for models validation hits {url}/models.'
         ),
     posthogAiGatewayKey: z
         .string()

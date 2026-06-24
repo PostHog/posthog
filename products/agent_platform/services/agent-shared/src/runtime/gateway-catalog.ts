@@ -141,7 +141,7 @@ export interface ModelPolicyIssue {
 }
 
 /**
- * Author-time validation of a `model_policy` against the catalog. `manual`:
+ * Author-time validation of a `models` against the catalog. `manual`:
  * each listed model must be servable (author's to fix). `auto`: only flagged
  * when the level resolves to nothing servable — a single dead tier member is
  * platform drift, caught by `validateModelLevels` in CI, not the author's
@@ -158,7 +158,7 @@ export function validateModelPolicy(policy: ModelPolicy, models: CatalogModel[])
             if (!accepted.has(entry.model)) {
                 issues.push({
                     model: entry.model,
-                    pointer: `spec.model_policy.models[${i}].model`,
+                    pointer: `spec.models.models[${i}].model`,
                     reason: 'not served by the gateway',
                 })
             }
@@ -172,7 +172,7 @@ export function validateModelPolicy(policy: ModelPolicy, models: CatalogModel[])
     return [
         {
             model: members.join(', ') || policy.level,
-            pointer: 'spec.model_policy.level',
+            pointer: 'spec.models.level',
             reason: `level "${policy.level}" resolves to no model the gateway currently serves`,
         },
     ]

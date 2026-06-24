@@ -806,7 +806,7 @@ export type IdentityProviderConfig = z.infer<typeof IdentityProviderConfigSchema
 
 export const AgentSpecSchema = z.object({
     /** Model selection: auto level (default) or manual priority list. Resolve via `modelPolicyToList`. */
-    model_policy: ModelPolicySchema.default({ mode: 'auto', level: 'medium' }),
+    models: ModelPolicySchema.default({ mode: 'auto', level: 'medium' }),
     triggers: z.array(TriggerSchema).default([]),
     tools: z.array(ToolRefSchema).default([]),
     mcps: z.array(McpRefSchema).default([]),
@@ -821,7 +821,6 @@ export const AgentSpecSchema = z.object({
         max_memory_mb: 512,
         max_cpu_cores: 0.25,
     }),
-    entrypoint: z.string().default('agent.md'),
     reasoning: ReasoningEffortSchema.optional(),
     framework_prompt: FrameworkPromptConfigSchema.optional(),
     resume: ResumeConfigSchema.optional(),
@@ -833,8 +832,8 @@ export type ModelLevel = z.infer<typeof ModelLevelSchema>
 export type ModelPolicy = z.infer<typeof ModelPolicySchema>
 
 /** Priority-ordered models the runner tries (primary first). Reasoning: per-entry → auto override → spec default. */
-export function modelPolicyToList(spec: Pick<AgentSpec, 'model_policy' | 'reasoning'>): ModelEntry[] {
-    const policy = spec.model_policy
+export function modelPolicyToList(spec: Pick<AgentSpec, 'models' | 'reasoning'>): ModelEntry[] {
+    const policy = spec.models
     if (policy.mode === 'manual') {
         return policy.models.map((m) => ({ model: m.model, reasoning: m.reasoning ?? spec.reasoning }))
     }

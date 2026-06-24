@@ -1,6 +1,6 @@
 # Skill — choosing the model
 
-Load whenever you're about to set `spec.model_policy` on a new or
+Load whenever you're about to set `spec.models` on a new or
 edited agent, OR the user asks "which model should I use?" / "is
 this the right model?" / "what's the cheapest model that'll work?".
 
@@ -11,7 +11,7 @@ the cheapest either. Match the policy to the job.
 
 ## auto is the default — start there
 
-The model lives in `spec.model_policy`, a discriminated union on
+The model lives in `spec.models`, a discriminated union on
 `mode`:
 
 - **`auto`** (the default for almost every agent) — you pick a
@@ -27,13 +27,13 @@ The model lives in `spec.model_policy`, a discriminated union on
 
 ```jsonc
 // auto — the recommendation for most agents
-{ "model_policy": { "mode": "auto", "level": "medium" } }
+{ "models": { "mode": "auto", "level": "medium" } }
 
 // auto with reasoning, when the job benefits from deliberation
-{ "model_policy": { "mode": "auto", "level": "high", "reasoning": "high" } }
+{ "models": { "mode": "auto", "level": "high", "reasoning": "high" } }
 
 // manual — explicit, PROVIDER-DIVERSE priority list
-{ "model_policy": { "mode": "manual", "models": [
+{ "models": { "mode": "manual", "models": [
     { "model": "anthropic/claude-sonnet-4-6", "reasoning": "high" },
     { "model": "openai/gpt-5" }
 ] } }
@@ -171,7 +171,7 @@ each `auto` level move. **Call `@posthog/agent-applications-models`**: it
 returns every served model with its provider, context window, and
 per-million-token pricing. Find the model(s) the policy resolves to and
 quote from that. It's also the source of truth for which model ids are
-valid in a `model_policy` — promote rejects any that aren't served.
+valid in a `models` — promote rejects any that aren't served.
 
 For actual billed spend on an existing agent, use
 `@posthog/get-llm-total-costs-for-project`.
@@ -198,7 +198,7 @@ A good model-pick conversation finishes with:
 - The user said which policy they want.
 - The user understood why you suggested it.
 - The user understood roughly what it'll cost per session.
-- The agent's `spec.model_policy` is set (`auto` unless the job
+- The agent's `spec.models` is set (`auto` unless the job
   truly needs a `manual` pin).
 - Any `manual` list is provider-diverse, ordered primary-first.
 - If reasoning matters, it's set explicitly (on the policy or

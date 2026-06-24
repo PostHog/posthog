@@ -129,7 +129,7 @@ export interface JanitorServerOpts {
      * non-`/healthz` request. Unset → middleware is skipped (dev / harness).
      */
     internalSigningKey?: string
-    /** Served-model catalog. When set, `validate` + freeze reject a model_policy
+    /** Served-model catalog. When set, `validate` + freeze reject a models
      *  the gateway doesn't serve; omitted → the model check is skipped. */
     gatewayCatalog?: GatewayCatalog
 }

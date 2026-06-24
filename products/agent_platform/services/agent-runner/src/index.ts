@@ -202,7 +202,7 @@ async function main(): Promise<void> {
         : null
 
     // Served-model catalog off the same gateway the data plane uses — source of
-    // truth for model_policy resolution + the models tool. DirectHttpClient:
+    // truth for models resolution + the models tool. DirectHttpClient:
     // cluster-internal, smokescreen would deny it.
     const gatewayCatalog = config.useAiGateway
         ? new HttpGatewayCatalog({

@@ -10,16 +10,15 @@ import {
 describe('AgentSpecSchema', () => {
     it('parses a minimal spec with defaults', () => {
         const parsed = AgentSpecSchema.parse({})
-        expect(parsed.model_policy).toEqual({ mode: 'auto', level: 'medium' })
+        expect(parsed.models).toEqual({ mode: 'auto', level: 'medium' })
         expect(parsed.triggers).toEqual([])
         expect(parsed.tools).toEqual([])
-        expect(parsed.entrypoint).toBe('agent.md')
         expect(parsed.limits.max_turns).toBe(50)
     })
 
     it('parses a fully-populated spec', () => {
         const spec: AgentSpec = AgentSpecSchema.parse({
-            model_policy: { mode: 'auto', level: 'high' },
+            models: { mode: 'auto', level: 'high' },
             triggers: [
                 { type: 'slack', config: { channel_id: 'C01', mention_only: true, trusted_workspaces: '*' } },
                 { type: 'webhook', config: { path: '/hook' }, auth: { modes: [{ type: 'posthog_internal' }] } },
@@ -32,7 +31,6 @@ describe('AgentSpecSchema', () => {
             skills: [{ id: 'deep-research', path: 'skills/deep-research/SKILL.md' }],
             secrets: ['ACME_KEY'],
             limits: { max_turns: 10, max_tool_calls: 50, max_wall_seconds: 300 },
-            entrypoint: 'agent.md',
         })
         expect(spec.triggers).toHaveLength(2)
         expect(spec.tools).toHaveLength(2)

@@ -1,5 +1,5 @@
 {
-    "model_policy": { "mode": "auto", "level": "high" },
+    "models": { "mode": "auto", "level": "high" },
     "reasoning": "high",
     "triggers": [
         {

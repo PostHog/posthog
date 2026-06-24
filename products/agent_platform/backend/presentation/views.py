@@ -162,7 +162,7 @@ class JanitorUpstreamError(APIException):
             # see the concrete reason, not just the opaque code. Two shapes:
             # custom-tool compile -> top-level errors=[{kind, message, line}];
             # freeze/validate -> report.errors=[{code, message, pointer}] (e.g.
-            # invalid_model from the model_policy gate).
+            # invalid_model from the models gate).
             sub_errors = e.body.get("errors")
             if not sub_errors:
                 report = e.body.get("report")
@@ -2149,7 +2149,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=True, methods=["post"], url_path="validate")
     def validate(self, request: Request, **kwargs) -> Response:
-        """Pre-flight checks before freeze + promote: entrypoint file exists,
+        """Pre-flight checks before freeze + promote: agent.md exists,
         every native tool id is registered, every custom tool has its
         compiled.js + schema.json, every skill path exists, every declared
         secret has a value set in this revision's env block. Returns
@@ -2271,7 +2271,7 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                             "Fully-assembled system prompt the runner would pass "
                             "to pi-ai for a session against this revision. "
                             "Concatenates the platform framework preamble, the "
-                            "bundle's `agent.md` (or `spec.entrypoint`), and the "
+                            "bundle's `agent.md`, and the "
                             "skills index. Inspect before promotion to confirm "
                             "the model will see what you expect."
                         ),

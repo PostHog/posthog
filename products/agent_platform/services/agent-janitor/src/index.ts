@@ -157,7 +157,7 @@ async function main(): Promise<void> {
     )
 
     // Served-model catalog off the same gateway the runner uses — validate +
-    // freeze reject a model_policy the gateway can't serve. DirectHttpClient:
+    // freeze reject a models the gateway can't serve. DirectHttpClient:
     // cluster-internal, smokescreen would deny it.
     const gatewayCatalog = new HttpGatewayCatalog({
         baseUrl: config.aiGatewayUrl,

@@ -131,10 +131,10 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
     "properties": {
-        # Model selection (mirrors `AgentSpecSchema.model_policy`, default
+        # Model selection (mirrors `AgentSpecSchema.models`, default
         # auto/medium). auto: platform resolves `level` to a cross-provider list
         # at runtime. manual: author's explicit priority list.
-        "model_policy": {
+        "models": {
             "default": {"mode": "auto", "level": "medium"},
             "oneOf": [
                 {
@@ -581,7 +581,6 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
             "required": ["max_turns", "max_tool_calls", "max_wall_seconds", "max_memory_mb", "max_cpu_cores"],
             "additionalProperties": False,
         },
-        "entrypoint": {"default": "agent.md", "type": "string"},
         "reasoning": {"type": "string", "enum": ["minimal", "low", "medium", "high", "xhigh"]},
         "framework_prompt": {
             "type": "object",
@@ -620,18 +619,17 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
             "additionalProperties": False,
         },
     },
-    # `model` is no longer required — `model_policy` (or the runner's
+    # `model` is no longer required — `models` (or the runner's
     # auto/medium default) covers the model choice. Mirror
     # `AgentSpecSchema.model` (.optional()) in spec.ts.
     "required": [
-        "model_policy",
+        "models",
         "triggers",
         "tools",
         "mcps",
         "skills",
         "secrets",
         "limits",
-        "entrypoint",
     ],
     "additionalProperties": False,
 }

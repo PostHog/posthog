@@ -73,7 +73,7 @@ describe('validateModelPolicy', () => {
         }
         const issues = validateModelPolicy(policy, CATALOG)
         expect(issues).toHaveLength(1)
-        expect(issues[0]).toMatchObject({ model: 'openai/gpt-foo', pointer: 'spec.model_policy.models[1].model' })
+        expect(issues[0]).toMatchObject({ model: 'openai/gpt-foo', pointer: 'spec.models.models[1].model' })
     })
 
     it('accepts an auto policy whose level has at least one servable member', () => {
@@ -84,7 +84,7 @@ describe('validateModelPolicy', () => {
         const issues = validateModelPolicy({ mode: 'auto', level: 'high' }, [CATALOG[3]]) // only openai/gpt-5
         // high = [opus-4-7, gpt-5-pro, sonnet-4-6]; none is openai/gpt-5 → whole level dead
         expect(issues).toHaveLength(1)
-        expect(issues[0].pointer).toBe('spec.model_policy.level')
+        expect(issues[0].pointer).toBe('spec.models.level')
     })
 
     it('fails open: empty catalog (unreachable gateway) blocks nothing', () => {

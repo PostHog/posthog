@@ -71,11 +71,11 @@ maybeDescribe('Postgres impls (real PG)', () => {
         expect(rev.state).toBe('draft')
 
         const newSpec = AgentSpecSchema.parse({
-            model_policy: { mode: 'manual', models: [{ model: 'mock-static:hello' }] },
+            models: { mode: 'manual', models: [{ model: 'mock-static:hello' }] },
         })
         await store.updateSpec(rev.id, newSpec)
         const after = await store.getRevision(rev.id)
-        expect(after!.spec.model_policy).toEqual({ mode: 'manual', models: [{ model: 'mock-static:hello' }] })
+        expect(after!.spec.models).toEqual({ mode: 'manual', models: [{ model: 'mock-static:hello' }] })
 
         await store.setRevisionState(rev.id, 'live')
         await store.setLiveRevision(app.id, rev.id)

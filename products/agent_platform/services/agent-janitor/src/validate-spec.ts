@@ -125,22 +125,21 @@ export async function validateRevisionBundle(
         })
     }
 
-    const entrypoint = rev.spec.entrypoint || 'agent.md'
-    if (!(await bundle.exists(rev.id, entrypoint))) {
+    if (!(await bundle.exists(rev.id, 'agent.md'))) {
         errors.push({
             code: 'missing_entrypoint',
-            message: `entrypoint "${entrypoint}" is not present in the bundle`,
-            pointer: 'spec.entrypoint',
+            message: 'agent.md is not present in the bundle',
+            pointer: 'agent.md',
         })
     }
 
-    // model_policy must reference models the gateway serves — catch it at freeze,
+    // models must reference models the gateway serves — catch it at freeze,
     // not as a runtime 400 in a user's session. Fails open on an empty
     // (unreachable) catalog; see gateway-catalog.ts.
-    for (const issue of validateModelPolicy(rev.spec.model_policy, catalogModels)) {
+    for (const issue of validateModelPolicy(rev.spec.models, catalogModels)) {
         errors.push({
             code: 'invalid_model',
-            message: `model_policy: "${issue.model}" ${issue.reason}`,
+            message: `models: "${issue.model}" ${issue.reason}`,
             pointer: issue.pointer,
         })
     }
@@ -261,13 +260,13 @@ const SECRET_REF = /\$\{([A-Z][A-Z0-9_]*)\}/g
 
 interface ScanTarget {
     path: string
-    /** Where the error attaches — `spec.entrypoint` or `spec.skills[i].path`. */
+    /** Where the error attaches — `agent.md` or `spec.skills[i].path`. */
     pointer: string
 }
 
 /**
- * Cross-check spec.secrets[] against `${NAME}` references in the agent.md
- * entrypoint and each declared skill body. A reference to a bare-string
+ * Cross-check spec.secrets[] against `${NAME}` references in agent.md
+ * and each declared skill body. A reference to a bare-string
  * `spec.secrets[]` entry is `secret_no_host_binding` at session start (the
  * runtime refuses substitution into model-controlled URL/headers/body), so
  * catch it here instead of letting it surface as a tool error on first call.
@@ -281,7 +280,7 @@ async function checkSecretHostBindings(
     bundle: BundleStore,
     errors: ValidationError[]
 ): Promise<void> {
-    const targets: ScanTarget[] = [{ path: rev.spec.entrypoint || 'agent.md', pointer: 'spec.entrypoint' }]
+    const targets: ScanTarget[] = [{ path: 'agent.md', pointer: 'agent.md' }]
     for (const [i, skill] of rev.spec.skills.entries()) {
         targets.push({ path: skill.path, pointer: `spec.skills[${i}].path` })
     }
