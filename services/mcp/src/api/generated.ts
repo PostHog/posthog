@@ -50358,17 +50358,6 @@ export namespace Schemas {
       content: string;
     }
 
-    /**
-     * Body shape for PUT /revisions/<id>/skills/<skill_id>/. The body is stored
-     * at the canonical `skills/<skill_id>/SKILL.md` path in the bundle.
-     */
-    export interface WriteSkillRequest {
-      /** One-line summary shown in the skill index; the model uses it to decide when to load the skill. */
-      description: string;
-      /** The skill's full markdown body, stored at `skills/<skill_id>/SKILL.md`. */
-      body: string;
-    }
-
     export type WriteSpecRequestSpec = { [key: string]: unknown };
 
     /**
@@ -50394,11 +50383,11 @@ export namespace Schemas {
 
     /**
      * Body shape for PUT /revisions/<id>/bundle/ — the full-replace typed
-     * payload.
+     * payload. Skills are not authored here: they come from the llma-skill store
+     * via `skill_refs` and are materialized into the bundle at freeze.
      */
     export interface WriteTypedBundleRequest {
       agent_md: string;
-      skills?: WriteSkillRequest[];
       tools?: WriteToolRequest[];
       spec: WriteTypedBundleRequestSpec;
     }

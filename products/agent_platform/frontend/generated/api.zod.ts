@@ -2034,24 +2034,6 @@ export const AgentApplicationsRevisionsAgentMdUpdateBody = /* @__PURE__ */ zod
 export const AgentApplicationsRevisionsBundleUpdateBody = /* @__PURE__ */ zod
     .object({
         agent_md: zod.string(),
-        skills: zod
-            .array(
-                zod
-                    .object({
-                        description: zod
-                            .string()
-                            .describe(
-                                'One-line summary shown in the skill index; the model uses it to decide when to load the skill.'
-                            ),
-                        body: zod
-                            .string()
-                            .describe("The skill's full markdown body, stored at `skills\/<skill_id>\/SKILL.md`."),
-                    })
-                    .describe(
-                        'Body shape for PUT \/revisions\/<id>\/skills\/<skill_id>\/. The body is stored\nat the canonical `skills\/<skill_id>\/SKILL.md` path in the bundle.'
-                    )
-            )
-            .optional(),
         tools: zod
             .array(
                 zod
@@ -2065,7 +2047,9 @@ export const AgentApplicationsRevisionsBundleUpdateBody = /* @__PURE__ */ zod
             .optional(),
         spec: zod.record(zod.string(), zod.unknown()),
     })
-    .describe('Body shape for PUT \/revisions\/<id>\/bundle\/ — the full-replace typed\npayload.')
+    .describe(
+        'Body shape for PUT \/revisions\/<id>\/bundle\/ — the full-replace typed\npayload. Skills are not authored here: they come from the llma-skill store\nvia `skill_refs` and are materialized into the bundle at freeze.'
+    )
 
 /**
  * Copy every file from `source_revision_id` into this revision.
@@ -2177,44 +2161,6 @@ export const AgentApplicationsRevisionsSkillRefsUpdateBody = /* @__PURE__ */ zod
             .describe('The complete set of store-skill references for this draft; replaces any existing references.'),
     })
     .describe("Body for PUT \/revisions\/<id>\/skill_refs\/ — full-replace the draft's references.")
-
-/**
- * Revisions of an agent. Created in `draft`, promoted through
- * `ready → live` once the bundle has been uploaded + frozen.
- *
- * URLs (nested under an application):
- *
- *     Model CRUD:
- *         GET   .../revisions/                       list
- *         POST  .../revisions/                       create draft
- *         GET   .../revisions/<id>/                  retrieve
- *         PATCH .../revisions/<id>/                  update spec (draft only)
- *
- *     Lifecycle:
- *         POST  .../revisions/<id>/promote/          ready → live
- *         POST  .../revisions/<id>/archive/          → archived
- *         POST  .../revisions/<id>/freeze/           draft → ready (stamps sha256)
- *         POST  .../revisions/<id>/clone_from/       copy bundle from another rev
- *         POST  .../revisions/new_draft/             create draft + clone_from atomically
- *
- *     Bundle authoring (proxied to the janitor):
- *         GET    .../revisions/<id>/manifest/        list paths + sha256
- *         GET    .../revisions/<id>/file/?path=…     read one file
- *         PUT    .../revisions/<id>/file/?path=…     write one file (draft)
- *         DELETE .../revisions/<id>/file/?path=…     delete one file (draft)
- *         GET    .../revisions/<id>/bundle/          bulk pull all files
- *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
- */
-export const AgentApplicationsRevisionsSkillsUpdateBody = /* @__PURE__ */ zod
-    .object({
-        description: zod
-            .string()
-            .describe('One-line summary shown in the skill index; the model uses it to decide when to load the skill.'),
-        body: zod.string().describe("The skill's full markdown body, stored at `skills\/<skill_id>\/SKILL.md`."),
-    })
-    .describe(
-        'Body shape for PUT \/revisions\/<id>\/skills\/<skill_id>\/. The body is stored\nat the canonical `skills\/<skill_id>\/SKILL.md` path in the bundle.'
-    )
 
 /**
  * Revisions of an agent. Created in `draft`, promoted through

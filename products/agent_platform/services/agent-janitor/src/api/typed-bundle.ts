@@ -79,7 +79,7 @@ const SpecPutBodySchema = z.object({
     spec: TypedSpecSchema,
 })
 
-const TypedBundlePutBodySchema = TypedBundleSchema
+const TypedBundlePutBodySchema = TypedBundleSchema.omit({ skills: true })
 
 export interface TypedBundleRouterOpts {
     revisions: RevisionStore

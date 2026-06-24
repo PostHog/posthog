@@ -416,22 +416,6 @@ class WriteSpecRequestSerializer(serializers.Serializer):
     spec = serializers.DictField(child=serializers.JSONField())
 
 
-class WriteSkillRequestSerializer(serializers.Serializer):
-    """Body shape for PUT /revisions/<id>/skills/<skill_id>/. The body is stored
-    at the canonical `skills/<skill_id>/SKILL.md` path in the bundle."""
-
-    description = serializers.CharField(
-        allow_blank=False,
-        trim_whitespace=False,
-        help_text="One-line summary shown in the skill index; the model uses it to decide when to load the skill.",
-    )
-    body = serializers.CharField(
-        allow_blank=True,
-        trim_whitespace=False,
-        help_text="The skill's full markdown body, stored at `skills/<skill_id>/SKILL.md`.",
-    )
-
-
 class WriteToolRequestSerializer(serializers.Serializer):
     """Body shape for PUT /revisions/<id>/tools/<tool_id>/."""
 
@@ -442,30 +426,24 @@ class WriteToolRequestSerializer(serializers.Serializer):
 
 class WriteTypedBundleRequestSerializer(serializers.Serializer):
     """Body shape for PUT /revisions/<id>/bundle/ — the full-replace typed
-    payload."""
+    payload. Skills are not authored here: they come from the llma-skill store
+    via `skill_refs` and are materialized into the bundle at freeze."""
 
     agent_md = serializers.CharField(allow_blank=True, trim_whitespace=False)
-    skills = serializers.ListField(child=WriteSkillRequestSerializer(), required=False, default=list)
     tools = serializers.ListField(child=WriteToolRequestSerializer(), required=False, default=list)
     spec = serializers.DictField(child=serializers.JSONField())
 
     def to_internal_value(self, data: dict) -> dict:
-        """Skill / tool items carry an `id` field that the nested serializer
-        doesn't declare (it lives in the URL for the single-resource PUTs).
-        Stash + restore so the per-item validation still passes."""
-        skills = data.get("skills", [])
+        """Tool items carry an `id` field that the nested serializer doesn't
+        declare (it lives in the URL for the single-resource PUTs). Stash +
+        restore so the per-item validation still passes."""
         tools = data.get("tools", [])
-        skill_ids = [s.get("id") for s in skills]
         tool_ids = [t.get("id") for t in tools]
-        # Strip ids so the inner serializers don't complain about unknowns.
         stripped = {
             **data,
-            "skills": [{k: v for k, v in s.items() if k != "id"} for s in skills],
             "tools": [{k: v for k, v in t.items() if k != "id"} for t in tools],
         }
         out = super().to_internal_value(stripped)
-        # Reattach ids — janitor wants them.
-        out["skills"] = [{**s, "id": skill_ids[i]} for i, s in enumerate(out.get("skills", []))]
         out["tools"] = [{**t, "id": tool_ids[i]} for i, t in enumerate(out.get("tools", []))]
         return out
 

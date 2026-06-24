@@ -42,8 +42,7 @@ import {
     posthogAgentApplicationsRevisionsPartialUpdateV1,
     posthogAgentApplicationsRevisionsPromoteV1,
     posthogAgentApplicationsRevisionsRetrieveV1,
-    posthogAgentApplicationsRevisionsSkillsDestroyV1,
-    posthogAgentApplicationsRevisionsSkillsUpdateV1,
+    posthogAgentApplicationsRevisionsSkillRefsSetV1,
     posthogAgentApplicationsRevisionsSlackManifestV1,
     posthogAgentApplicationsRevisionsSystemPromptV1,
     posthogAgentApplicationsRevisionsToolsDestroyV1,
@@ -53,6 +52,8 @@ import {
     posthogAgentApplicationsSessionsListV1,
     posthogAgentApplicationsSessionsRetrieveV1,
     posthogAgentApplicationsSetEnvV1,
+    posthogLlmSkillsCreateV1,
+    posthogLlmSkillsSearchV1,
 } from './tools/posthog-agent-management.v1'
 import { posthogListProjectsV1 } from './tools/posthog-projects.v1'
 import { posthogQueryV1 } from './tools/posthog-query.v1'
@@ -131,8 +132,9 @@ export const ALL_TOOLS: NativeTool[] = [
     posthogAgentApplicationsRevisionsNewDraftV1,
     posthogAgentApplicationsRevisionsPartialUpdateV1,
     posthogAgentApplicationsRevisionsAgentMdUpdateV1,
-    posthogAgentApplicationsRevisionsSkillsUpdateV1,
-    posthogAgentApplicationsRevisionsSkillsDestroyV1,
+    posthogLlmSkillsSearchV1,
+    posthogLlmSkillsCreateV1,
+    posthogAgentApplicationsRevisionsSkillRefsSetV1,
     posthogAgentApplicationsRevisionsToolsUpdateV1,
     posthogAgentApplicationsRevisionsToolsDestroyV1,
     posthogAgentApplicationsRevisionsValidateV1,

@@ -326,16 +326,19 @@ export function stripDerivedSpecFields(spec: Record<string, unknown>): TypedSpec
  *   - tool compilation (calling `compileAndWriteTool` per tool)
  *   - persisting `bundle.spec` onto the revision row
  */
-export async function syncBundleToStore(revisionId: string, store: BundleStore, bundle: TypedBundle): Promise<void> {
+export async function syncBundleToStore(
+    revisionId: string,
+    store: BundleStore,
+    bundle: Omit<TypedBundle, 'skills'>
+): Promise<void> {
     const entries = await store.list(revisionId)
     const existing = new Set(entries.map((e) => e.path))
 
-    // Build the set of paths we WILL write so we know what to delete.
+    // Build the set of paths we WILL write so we know what to delete. Skills are
+    // NOT managed here — they're materialized from the store at freeze and live
+    // only in the frozen bundle, so the full-replace never touches `skills/`.
     const willWrite = new Set<string>()
     willWrite.add(AGENT_MD_PATH)
-    for (const skill of bundle.skills) {
-        willWrite.add(skillBodyPath(skill.id))
-    }
     for (const tool of bundle.tools) {
         willWrite.add(toolSourcePath(tool.id))
         willWrite.add(toolSchemaPath(tool.id))
@@ -343,23 +346,19 @@ export async function syncBundleToStore(revisionId: string, store: BundleStore, 
     }
 
     // Delete anything in the canonical layout that's NOT in the new payload.
-    // We DON'T touch paths outside the canonical layout — those are either
-    // future-resource buckets or legacy junk the migrator hasn't cleaned up.
+    // We DON'T touch paths outside the canonical layout (future-resource buckets
+    // or legacy junk) and we DON'T touch `skills/` (freeze-owned).
     for (const path of existing) {
         if (willWrite.has(path)) {
             continue
         }
-        if (path === AGENT_MD_PATH || path.startsWith('skills/') || path.startsWith('tools/')) {
+        if (path === AGENT_MD_PATH || path.startsWith('tools/')) {
             await store.delete(revisionId, path)
         }
     }
 
-    // Write agent.md + skill bodies. Tools are written by the caller after
-    // the compile step succeeds.
+    // Write agent.md. Tools are written by the caller after the compile step.
     await store.write(revisionId, AGENT_MD_PATH, bundle.agent_md)
-    for (const skill of bundle.skills) {
-        await store.write(revisionId, skillBodyPath(skill.id), skill.body)
-    }
 }
 
 /**

@@ -1023,17 +1023,6 @@ export interface WriteAgentMdRequestApi {
 
 export type WriteTypedBundleRequestApiSpec = { [key: string]: unknown }
 
-/**
- * Body shape for PUT /revisions/<id>/skills/<skill_id>/. The body is stored
- * at the canonical `skills/<skill_id>/SKILL.md` path in the bundle.
- */
-export interface WriteSkillRequestApi {
-    /** One-line summary shown in the skill index; the model uses it to decide when to load the skill. */
-    description: string
-    /** The skill's full markdown body, stored at `skills/<skill_id>/SKILL.md`. */
-    body: string
-}
-
 export type WriteToolRequestApiArgsSchema = { [key: string]: unknown }
 
 /**
@@ -1047,11 +1036,11 @@ export interface WriteToolRequestApi {
 
 /**
  * Body shape for PUT /revisions/<id>/bundle/ — the full-replace typed
- * payload.
+ * payload. Skills are not authored here: they come from the llma-skill store
+ * via `skill_refs` and are materialized into the bundle at freeze.
  */
 export interface WriteTypedBundleRequestApi {
     agent_md: string
-    skills?: WriteSkillRequestApi[]
     tools?: WriteToolRequestApi[]
     spec: WriteTypedBundleRequestApiSpec
 }

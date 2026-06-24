@@ -88,7 +88,6 @@ from .serializers import (
     SetEnvRequestSerializer,
     SetSkillRefsRequestSerializer,
     WriteAgentMdRequestSerializer,
-    WriteSkillRequestSerializer,
     WriteSpecRequestSerializer,
     WriteToolRequestSerializer,
     WriteTypedBundleRequestSerializer,
@@ -1978,20 +1977,6 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         body = WriteSpecRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
         return Response(self._call(_janitor().put_spec, str(revision.id), body.validated_data["spec"]))
-
-    @extend_schema(request=WriteSkillRequestSerializer)
-    @action(detail=True, methods=["put"], url_path=r"skills/(?P<skill_id>[a-z0-9][a-z0-9_-]*)")
-    def put_skill(self, request: Request, skill_id: str, **kwargs) -> Response:
-        revision: AgentRevision = self.get_object()
-        body = WriteSkillRequestSerializer(data=request.data)
-        body.is_valid(raise_exception=True)
-        return Response(self._call(_janitor().put_skill, str(revision.id), skill_id, body.validated_data))
-
-    @extend_schema(request=None)
-    @put_skill.mapping.delete
-    def delete_skill(self, request: Request, skill_id: str, **kwargs) -> Response:
-        revision: AgentRevision = self.get_object()
-        return Response(self._call(_janitor().delete_skill, str(revision.id), skill_id))
 
     @extend_schema(request=SetSkillRefsRequestSerializer, responses={200: AgentRevisionSerializer})
     @action(detail=True, methods=["put"], url_path="skill_refs")

@@ -591,36 +591,6 @@
         },
         "feature_flag": "agent-platform"
     },
-    "agent-applications-revisions-skills-destroy": {
-        "description": "Removes the skill folder (`skills/<id>/`, holding its `SKILL.md`). Returns 404 if the skill doesn't exist. Draft-only. Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate → freeze → promote workflow.",
-        "category": "Agent stack",
-        "feature": "agent_platform",
-        "summary": "Delete one skill",
-        "title": "Delete one skill",
-        "required_scopes": ["agents:write"],
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "agent-platform"
-    },
-    "agent-applications-revisions-skills-update": {
-        "description": "Body `{ description, body }`. Creates the skill if it doesn't exist, replaces it if it does. The `body` is stored at `skills/<skill_id>/SKILL.md`. Skill id comes from the URL. Draft-only. Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate → freeze → promote workflow.",
-        "category": "Agent stack",
-        "feature": "agent_platform",
-        "summary": "Upsert one skill",
-        "title": "Upsert one skill",
-        "required_scopes": ["agents:write"],
-        "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "agent-platform"
-    },
     "agent-applications-revisions-slack-manifest": {
         "description": "Returns `{ revision_id, manifest, notes, events_url, interactivity_url }` for a revision that has a slack trigger. `manifest` is a ready-to-paste Slack app manifest (JSON) for https://api.slack.com/apps?new_app=1 → \"From an app manifest\" — its OAuth scopes and bot event subscriptions are derived from the agent's slack trigger config (mention_only / auto_resume_threads / ack_reaction) and its Slack tools, so it subscribes to exactly the events the config needs. Hand the user the manifest plus the create-from-manifest link; surface `notes` (e.g. invite the bot to its channels). 400 if the revision has no slack trigger.",
         "category": "Agent stack",
