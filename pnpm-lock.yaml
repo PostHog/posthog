@@ -4136,7 +4136,7 @@ importers:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
       msw:
-        specifier: ^2.14.6
+        specifier: '*'
         version: 2.14.6(@types/node@25.8.0)(typescript@6.0.3)
 
   products/toolbar: {}

@@ -11,7 +11,7 @@
     },
     "devDependencies": {
         "kea-test-utils": "catalog:",
-        "msw": "^2.14.6"
+        "msw": "*"
     },
     "peerDependencies": {
         "@dnd-kit/core": "*",
