@@ -110,6 +110,15 @@ tools:
             to deep-link the user into the agent console's secret editor (see the secrets-and-integrations skill for the
             URL contract and callback flow); this endpoint exists for CI / scripts that already hold the value
             out-of-band.
+    agent-applications-identities-list:
+        operation: agent_applications_identities_list
+        enabled: false
+    agent-applications-identity-connect:
+        operation: agent_applications_identity_connect
+        enabled: false
+    agent-applications-identity-disconnect:
+        operation: agent_applications_identity_disconnect
+        enabled: false
     agent-applications-list:
         operation: agent_applications_list
         enabled: true
