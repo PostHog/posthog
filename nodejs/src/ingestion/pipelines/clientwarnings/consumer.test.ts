@@ -1,5 +1,5 @@
-import { ProducerName } from '~/common/outputs'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import { ProducerName } from '~/ingestion/common/producers'
 import { newScope } from '~/ingestion/common/scopes'
 import { IngestionOutputsConfig } from '~/ingestion/config'
 import { RedisPool } from '~/types'

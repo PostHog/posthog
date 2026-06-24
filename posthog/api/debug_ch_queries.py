@@ -418,7 +418,12 @@ class DebugCHQueries(viewsets.ViewSet):
                 argMax(JSONExtractString(log_comment, 'experiment_metric_name'), type) AS experiment_metric_name,
                 argMax(JSONExtractString(log_comment, 'experiment_execution_path'), type) AS experiment_execution_path,
                 argMax(JSONExtractString(log_comment, 'experiment_metric_type'), type) AS experiment_metric_type,
-                argMax(JSONExtractInt(log_comment, 'experiment_id'), type) AS experiment_id
+                argMax(JSONExtractString(log_comment, 'experiment_funnel_order_type'), type) AS experiment_funnel_order_type,
+                argMax(JSONExtractInt(log_comment, 'experiment_id'), type) AS experiment_id,
+                argMax(JSONExtractString(log_comment, 'experiment_exposures_path'), type) AS experiment_exposures_path,
+                argMax(JSONExtractString(log_comment, 'experiment_metric_events_path'), type) AS experiment_metric_events_path,
+                argMax(JSONExtractString(log_comment, 'experiment_query_surface'), type) AS experiment_query_surface,
+                argMax(JSONExtractString(log_comment, 'experiment_precompute_table'), type) AS experiment_precompute_table
             FROM (
                 SELECT
                     query_id, query, query_start_time, query_duration_ms, exception,
@@ -474,7 +479,12 @@ class DebugCHQueries(viewsets.ViewSet):
                     "experiment_metric_name": row[9],
                     "experiment_execution_path": row[10],
                     "experiment_metric_type": row[11],
-                    "experiment_id": row[12] or None,
+                    "experiment_funnel_order_type": row[12] or None,
+                    "experiment_id": row[13] or None,
+                    "experiment_exposures_path": row[14],
+                    "experiment_metric_events_path": row[15],
+                    "experiment_query_surface": row[16],
+                    "experiment_precompute_table": row[17],
                 }
                 for row in response
             ]

@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional, cast
 
 from django.conf import settings
+from django.contrib.postgres.aggregates import ArrayAgg
 from django.db import transaction
 from django.db.models import Count, Prefetch, Q, QuerySet, deletion
 
@@ -2453,6 +2454,35 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
             return []
 
 
+class EvaluationFeatureFlagSerializer(MinimalFeatureFlagSerializer):
+    """Flag representation for the SDK-facing evaluation paths: the flags cache the Rust
+    service reads (`serialize_feature_flags`) and the local-evaluation response.
+
+    Adds `has_experiment` on top of the minimal flag shape. It lives here rather than on
+    MinimalFeatureFlagSerializer so the many UI endpoints that embed the minimal serializer
+    (surveys, early access features, product tours, experiments, my_flags) don't each pay a
+    per-flag experiment lookup for a field only the SDKs consume.
+    """
+
+    has_experiment = serializers.SerializerMethodField(
+        help_text=(
+            "True if the flag has at least one non-deleted linked experiment. SDKs use this to decide whether "
+            "to keep all $feature_flag_called event properties or send a minimal event."
+        )
+    )
+
+    class Meta(MinimalFeatureFlagSerializer.Meta):
+        fields = [*MinimalFeatureFlagSerializer.Meta.fields, "has_experiment"]
+
+    def get_has_experiment(self, feature_flag: FeatureFlag) -> bool:
+        # The evaluation/cache batch queries annotate `_has_experiment` via a bulk Exists,
+        # so this avoids an N+1. The exists() fallback only fires for unannotated callers.
+        cached = getattr(feature_flag, "_has_experiment", None)
+        if cached is not None:
+            return cached
+        return feature_flag.experiment_set.filter(deleted=False).exists()
+
+
 class MyFlagsResponseSerializer(serializers.Serializer):
     feature_flag = MinimalFeatureFlagSerializer()
     value = serializers.JSONField()
@@ -2996,11 +3026,23 @@ class FeatureFlagViewSet(
             FeatureFlag.objects.filter(team__project_id=self.project_id)
             .exclude(Q(id__in=survey_flag_ids))
             .exclude(Q(id__in=product_tour_internal_targeting_flags))
+            .annotate(
+                evaluation_tag_names_agg=ArrayAgg(
+                    "flag_evaluation_contexts__evaluation_context__name",
+                    filter=Q(flag_evaluation_contexts__isnull=False),
+                    distinct=True,
+                ),
+            )
             .order_by("-created_at")
         )
 
         if not feature_flags:
             return Response([])
+
+        # Transfer the bulk-aggregated context names onto _evaluation_tag_names so the
+        # serializer answers without a per-flag query (see get_evaluation_contexts).
+        for flag in feature_flags:
+            flag._evaluation_tag_names = getattr(flag, "evaluation_tag_names_agg", None)
 
         groups = request.validated_query_data.get("groups", {})
         # Ensure groups is always a dict, not a string

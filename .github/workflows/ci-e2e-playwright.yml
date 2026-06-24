@@ -31,7 +31,7 @@ permissions:
     contents: read
 
 env:
-    DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+    DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
     DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     REDIS_URL: redis://localhost
@@ -73,6 +73,9 @@ env:
     AZURE_INFERENCE_CREDENTIAL: ${{ secrets.AZURE_INFERENCE_CREDENTIAL }}
     AZURE_INFERENCE_ENDPOINT: ${{ secrets.AZURE_INFERENCE_ENDPOINT }}
     PERSONHOG_ADDR: 'localhost:50052'
+    # Internal API auth needs a non-empty INTERNAL_API_SECRET when DEBUG/TEST are off. The dev value
+    # matches the Node plugins container's non-prod default, so Django<->Node internal calls authenticate.
+    INTERNAL_API_SECRET: posthog123
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -421,7 +424,7 @@ jobs:
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Start Docker services

@@ -168,7 +168,12 @@ impl Resolve<Catalog> for RawFrame {
             RawFrame::Php(frame) => (Ok(vec![frame.into()]), "php"),
             RawFrame::Python(frame) => (Ok(vec![frame.into()]), "python"),
             RawFrame::Ruby(frame) => (Ok(vec![frame.into()]), "ruby"),
-            RawFrame::Rust(frame) => (Ok(vec![frame.into()]), "rust"),
+            RawFrame::Native(frame) => (
+                frame
+                    .resolve(team_id, catalog, debug_images, context_lines)
+                    .await,
+                "native",
+            ),
             RawFrame::Custom(frame) => (Ok(vec![frame.into()]), "custom"),
             RawFrame::Go(frame) => (Ok(vec![frame.into()]), "go"),
             RawFrame::Hermes(frame) => (

@@ -306,6 +306,8 @@ export const urls = {
         const segment = findingId ? `/${findingId === ':findingId' ? findingId : encodeURIComponent(findingId)}` : ''
         return `/inbox/scouts/${skillName}${segment}`
     },
+    // Scout fleet memory (scratchpad) browse/search surface, reached from the fleet-memory callout.
+    inboxScratchpad: (): string => '/inbox/scouts/scratchpad',
     webAnalyticsBotAnalytics: (): string => '/web/bots',
     webAnalyticsHealth: (): string => '/web/health',
     pipelineStatus: (): string => '/health/pipeline-status',
