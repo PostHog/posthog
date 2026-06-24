@@ -1858,6 +1858,29 @@ export namespace Schemas {
       ActivityEventsList: 'activity_events_list',
     } as const;
 
+    export type ActivityEventsListWidgetUpdateRequestOpenApiWidgetType = typeof ActivityEventsListWidgetUpdateRequestOpenApiWidgetType[keyof typeof ActivityEventsListWidgetUpdateRequestOpenApiWidgetType];
+
+
+    export const ActivityEventsListWidgetUpdateRequestOpenApiWidgetType = {
+      ActivityEventsList: 'activity_events_list',
+    } as const;
+
+    export interface ActivityEventsListWidgetUpdateRequestOpenApi {
+      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+      tile_id: number;
+      /**
+         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** New markdown description for the widget. Omit to leave unchanged. */
+      description?: string;
+      widget_type: ActivityEventsListWidgetUpdateRequestOpenApiWidgetType;
+      /** New configuration for the recent events widget. Omit to leave unchanged. */
+      config?: ActivityEventsListWidgetConfig;
+    }
+
     export interface ActivityLog {
       readonly id: string;
       user: UserBasic;
@@ -19516,6 +19539,29 @@ export namespace Schemas {
       ErrorTrackingList: 'error_tracking_list',
     } as const;
 
+    export type ErrorTrackingListWidgetUpdateRequestOpenApiWidgetType = typeof ErrorTrackingListWidgetUpdateRequestOpenApiWidgetType[keyof typeof ErrorTrackingListWidgetUpdateRequestOpenApiWidgetType];
+
+
+    export const ErrorTrackingListWidgetUpdateRequestOpenApiWidgetType = {
+      ErrorTrackingList: 'error_tracking_list',
+    } as const;
+
+    export interface ErrorTrackingListWidgetUpdateRequestOpenApi {
+      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+      tile_id: number;
+      /**
+         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** New markdown description for the widget. Omit to leave unchanged. */
+      description?: string;
+      widget_type: ErrorTrackingListWidgetUpdateRequestOpenApiWidgetType;
+      /** New configuration for the top issues widget. Omit to leave unchanged. */
+      config?: ErrorTrackingListWidgetConfig;
+    }
+
     export interface ErrorTrackingRecommendation {
       /** Recommendation UUID. */
       id: string;
@@ -21277,6 +21323,29 @@ export namespace Schemas {
       ExperimentResults: 'experiment_results',
     } as const;
 
+    export type ExperimentResultsWidgetUpdateRequestOpenApiWidgetType = typeof ExperimentResultsWidgetUpdateRequestOpenApiWidgetType[keyof typeof ExperimentResultsWidgetUpdateRequestOpenApiWidgetType];
+
+
+    export const ExperimentResultsWidgetUpdateRequestOpenApiWidgetType = {
+      ExperimentResults: 'experiment_results',
+    } as const;
+
+    export interface ExperimentResultsWidgetUpdateRequestOpenApi {
+      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+      tile_id: number;
+      /**
+         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** New markdown description for the widget. Omit to leave unchanged. */
+      description?: string;
+      widget_type: ExperimentResultsWidgetUpdateRequestOpenApiWidgetType;
+      /** New configuration for the experiment results widget. Omit to leave unchanged. */
+      config?: ExperimentResultsWidgetConfig;
+    }
+
     /**
      * Mixin for serializers to add user access control fields
      */
@@ -21334,6 +21403,29 @@ export namespace Schemas {
     export const ExperimentsListWidgetTypeEnum = {
       ExperimentsList: 'experiments_list',
     } as const;
+
+    export type ExperimentsListWidgetUpdateRequestOpenApiWidgetType = typeof ExperimentsListWidgetUpdateRequestOpenApiWidgetType[keyof typeof ExperimentsListWidgetUpdateRequestOpenApiWidgetType];
+
+
+    export const ExperimentsListWidgetUpdateRequestOpenApiWidgetType = {
+      ExperimentsList: 'experiments_list',
+    } as const;
+
+    export interface ExperimentsListWidgetUpdateRequestOpenApi {
+      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+      tile_id: number;
+      /**
+         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** New markdown description for the widget. Omit to leave unchanged. */
+      description?: string;
+      widget_type: ExperimentsListWidgetUpdateRequestOpenApiWidgetType;
+      /** New configuration for the experiments list widget. Omit to leave unchanged. */
+      config?: ExperimentsListWidgetConfig;
+    }
 
     export interface ExplainRequest {
       /** UUID of the log entry to explain */
@@ -24161,6 +24253,8 @@ export namespace Schemas {
       readonly snapshots: readonly HeatmapSnapshotMetadata[];
       /** Soft-delete flag; deleted heatmaps are hidden from the list. */
       deleted?: boolean;
+      /** Whether the headless browser dismisses cookie/consent banners before capturing the screenshot. Only applies to 'screenshot' heatmaps. */
+      block_consent_modals?: boolean;
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
@@ -39133,6 +39227,8 @@ export namespace Schemas {
       type?: HeatmapType;
       /** Set true to soft-delete the saved heatmap. */
       deleted?: boolean;
+      /** When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps. */
+      block_consent_modals?: boolean;
     }
 
     export interface PatchedScheduledChange {
@@ -40774,6 +40870,43 @@ export namespace Schemas {
          * @nullable
          */
       queue_id?: string | null;
+    }
+
+    export type SessionReplayListWidgetUpdateRequestOpenApiWidgetType = typeof SessionReplayListWidgetUpdateRequestOpenApiWidgetType[keyof typeof SessionReplayListWidgetUpdateRequestOpenApiWidgetType];
+
+
+    export const SessionReplayListWidgetUpdateRequestOpenApiWidgetType = {
+      SessionReplayList: 'session_replay_list',
+    } as const;
+
+    export interface SessionReplayListWidgetUpdateRequestOpenApi {
+      /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+      tile_id: number;
+      /**
+         * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+         * @maxLength 400
+         * @nullable
+         */
+      name?: string | null;
+      /** New markdown description for the widget. Omit to leave unchanged. */
+      description?: string;
+      widget_type: SessionReplayListWidgetUpdateRequestOpenApiWidgetType;
+      /** New configuration for the recent recordings widget. Omit to leave unchanged. */
+      config?: SessionReplayListWidgetConfig;
+    }
+
+    export type UpdateDashboardWidgetRequest = ActivityEventsListWidgetUpdateRequestOpenApi | ErrorTrackingListWidgetUpdateRequestOpenApi | SessionReplayListWidgetUpdateRequestOpenApi | ExperimentsListWidgetUpdateRequestOpenApi | ExperimentResultsWidgetUpdateRequestOpenApi;
+
+    /**
+     * OpenAPI-only batch-update schema with widget_type-discriminated config shapes for agents.
+     */
+    export interface PatchedUpdateDashboardWidgetsBatchRequestOpenApi {
+      /**
+         * Widget tiles to update atomically, each identified by its tile_id. config shape is per widget_type; see dashboard-widget-catalog-list for per-type config_schema (1–10 per request).
+         * @minItems 1
+         * @maxItems 10
+         */
+      widgets?: UpdateDashboardWidgetRequest[];
     }
 
     /**
@@ -45927,6 +46060,8 @@ export namespace Schemas {
       type?: HeatmapType;
       /** Set true to soft-delete the saved heatmap. */
       deleted?: boolean;
+      /** When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps. */
+      block_consent_modals?: boolean;
     }
 
     /**
@@ -50308,6 +50443,11 @@ export namespace Schemas {
       target_language?: string;
     }
 
+    export interface UpdateDashboardWidgetsBatchResponse {
+      /** Updated dashboard widget tiles in request order. */
+      tiles: DashboardTile[];
+    }
+
     export interface UpdateTextTileRequest {
       /** ID of the dashboard tile to update. Use dashboard-get to look up tile IDs. */
       tile_id: number;
@@ -52701,6 +52841,18 @@ export namespace Schemas {
 
 
     export const EnvironmentsDashboardsWidgetsBatchCreateFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
+    export type EnvironmentsDashboardsUpdateWidgetsBatchParams = {
+    format?: EnvironmentsDashboardsUpdateWidgetsBatchFormat;
+    };
+
+    export type EnvironmentsDashboardsUpdateWidgetsBatchFormat = typeof EnvironmentsDashboardsUpdateWidgetsBatchFormat[keyof typeof EnvironmentsDashboardsUpdateWidgetsBatchFormat];
+
+
+    export const EnvironmentsDashboardsUpdateWidgetsBatchFormat = {
       Json: 'json',
       Txt: 'txt',
     } as const;
@@ -58493,6 +58645,18 @@ export namespace Schemas {
       Txt: 'txt',
     } as const;
 
+    export type DashboardsUpdateWidgetsBatchParams = {
+    format?: DashboardsUpdateWidgetsBatchFormat;
+    };
+
+    export type DashboardsUpdateWidgetsBatchFormat = typeof DashboardsUpdateWidgetsBatchFormat[keyof typeof DashboardsUpdateWidgetsBatchFormat];
+
+
+    export const DashboardsUpdateWidgetsBatchFormat = {
+      Json: 'json',
+      Txt: 'txt',
+    } as const;
+
     export type DashboardsBulkUpdateTagsCreateParams = {
     format?: DashboardsBulkUpdateTagsCreateFormat;
     };
@@ -62807,13 +62971,21 @@ export namespace Schemas {
      */
     content_max_chars?: number;
     /**
+     * ISO-8601 inclusive lower bound on `updated_at`. Omit to skip the lower bound.
+     */
+    date_from?: string;
+    /**
+     * ISO-8601 exclusive upper bound on `updated_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `updated_at` of the oldest entry from the prior page).
+     */
+    date_to?: string;
+    /**
      * When true, blank each entry's `content` and return only keys + metadata. Use to scan which memories exist without pulling their (potentially large) bodies, then re-query the ones worth a full read. Takes precedence over `content_max_chars`.
      */
     keys_only?: boolean;
     /**
-     * Max rows to return (default 20, hard cap 100).
+     * Max rows to return (default 20, hard cap 500).
      * @minimum 1
-     * @maximum 100
+     * @maximum 500
      */
     limit?: number;
     /**
@@ -63470,6 +63642,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Filter to the actions belonging to one scanner.
+     */
+    scanner?: string;
     };
 
     export type VisionObservationsListParams = {
