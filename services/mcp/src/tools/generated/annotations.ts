@@ -39,6 +39,9 @@ const annotationCreate = (): ToolBase<typeof AnnotationCreateSchema, Schemas.Ann
         if (params.emoji !== undefined) {
             body['emoji'] = params.emoji
         }
+        if (params.hidden_in_user_interface !== undefined) {
+            body['hidden_in_user_interface'] = params.hidden_in_user_interface
+        }
         const result = await context.api.request<Schemas.Annotation>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/annotations/`,
@@ -126,6 +129,9 @@ const annotationsPartialUpdate = (): ToolBase<typeof AnnotationsPartialUpdateSch
         }
         if (params.emoji !== undefined) {
             body['emoji'] = params.emoji
+        }
+        if (params.hidden_in_user_interface !== undefined) {
+            body['hidden_in_user_interface'] = params.hidden_in_user_interface
         }
         const result = await context.api.request<Schemas.Annotation>({
             method: 'PATCH',

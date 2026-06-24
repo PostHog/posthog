@@ -141,8 +141,13 @@ export interface RunSessionDeps {
     analytics?: AnalyticsSink
     /** Agent display name, used to name the `$ai_trace`. Falls back to the slug, then the app id. */
     applicationName?: string
-    /** Suppress pi-ai's client-side cost numbers (gateway tracks cost server-side). */
-    useGatewayCost?: boolean
+    /**
+     * True on the ai-gateway path: the gateway emits its own `$ai_generation`
+     * (settled cost + the `X-PostHog-Properties` attribution), so the runner
+     * suppresses its duplicate. Still emits `$ai_span`/`$ai_trace` and still
+     * settles cost into the session row via `gatewayUsage`.
+     */
+    gatewayEmitsGenerations?: boolean
     /** Approval-gated tool store. MANDATORY — gated tools queue instead of
      * executing and resume via the decided-marker path in getSteeringMessages.
      * `runSession` throws if it's missing rather than running gated tools
@@ -161,11 +166,12 @@ export interface RunSessionDeps {
     tabularStore?: TabularStore
     /**
      * Per-session static HTTP headers stamped on every outbound model call.
-     * On the ai-gateway path this carries `X-PostHog-Distinct-Id` +
-     * `X-PostHog-Trace-Id` so gateway-emitted `$ai_generation` events
-     * attribute correctly. The `gatewayMetadataStreamFn` wrapper merges
-     * these with a per-turn `Idempotency-Key` + `X-Request-Id` of the form
-     * `agent:<session>:<turn>` and forwards them to pi-ai's per-call
+     * On the ai-gateway path this carries `X-PostHog-Distinct-Id`,
+     * `X-PostHog-Trace-Id`, and `X-PostHog-Properties` (the `$agent_*`
+     * attribution) so the gateway-emitted `$ai_generation` events attribute to
+     * the right user, trace, and agent application. The `gatewayMetadataStreamFn`
+     * wrapper merges these with a per-turn `Idempotency-Key` + `X-Request-Id` of
+     * the form `agent:<session>:<turn>` and forwards them to pi-ai's per-call
      * `options.headers`. Presence also signals `errorContext()` to mark
      * failures as `source: ai_gateway`.
      */
@@ -241,7 +247,15 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
     // message into the thread (see the turn_end handler). The model is told as
     // much so it replies in natural language instead of forcing everything
     // through the slack-post-message tool.
-    const slackReply = isSlackTriggerMetadata(session.trigger_metadata) ? session.trigger_metadata : null
+    //
+    // Preview-mode isolation: when the session was created via the preview
+    // ingress path, the relay is disabled — author iteration must not post
+    // into the real Slack channel attached to the live revision. The
+    // system-prompt suppression below also drops the slack-relay guidance so
+    // the model isn't told to "just reply in natural language" while the
+    // platform is actually noop'ing the relay underneath it.
+    const slackReply =
+        !session.is_preview && isSlackTriggerMetadata(session.trigger_metadata) ? session.trigger_metadata : null
     const system = await buildSystemPrompt(rev, deps.bundle, {
         unavailableMcps: (deps.mcpFailures ?? []).map((f) => ({
             id: f.ref.id,
@@ -666,6 +680,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                                 latency_ms: started ? Date.now() - started.t0 : 0,
                                 is_error: event.isError,
                                 error: errorText,
+                                is_preview: session.is_preview,
                             },
                         ])
                     }
@@ -690,9 +705,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                         errorMessage: msg.errorMessage,
                         timestamp: msg.timestamp,
                     }
-                    session.usage_total = accumulateUsage(session.usage_total, record, {
-                        useGatewayCost: deps.useGatewayCost,
-                    })
+                    session.usage_total = accumulateUsage(session.usage_total, record)
 
                     for (const b of msg.content) {
                         if (b.type === 'text' && b.text) {
@@ -729,14 +742,12 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                         }
                     }
 
-                    // Gateway settled-cost recovery: pi-ai's `usage.cost.*` numbers
-                    // are client-side estimates on the gateway path (zeroed by
-                    // `accumulateUsage` when `useGatewayCost`), so fetch the real
-                    // cost from `GET /v1/usage/<request_id>` and merge it. Best-
-                    // effort — a transient fetch failure leaves cost_total
-                    // unchanged for that turn (the gateway also emits its own
-                    // `$ai_generation` event with the cost, so the loss is
-                    // bounded to the session row's running total).
+                    // Gateway settled-cost recovery: `accumulateUsage` never
+                    // trusts pi-ai estimates, so `GET /v1/usage/<request_id>` is
+                    // the sole source of the session row's cost on this path.
+                    // Best-effort — a failed/NaN fetch leaves cost_total
+                    // unchanged (the gateway's own $ai_generation still carries
+                    // the cost).
                     if (deps.gatewayUsage) {
                         const requestId = turnRequestIds.get(turn)
                         if (requestId) {
@@ -770,33 +781,39 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                         turnRequestIds.delete(turn)
                     }
 
-                    await analytics.write([
-                        {
-                            kind: 'generation',
-                            ts: new Date(msg.timestamp).toISOString(),
-                            team_id: session.team_id,
-                            application_id: session.application_id,
-                            revision_id: rev.id,
-                            session_id: session.id,
-                            turn,
-                            span_id: genSpan,
-                            distinct_id: distinctId,
-                            model: msg.model ?? deps.model.id,
-                            provider: msg.provider ?? deps.model.provider,
-                            input: inputSnapshot,
-                            output: msg.content,
-                            input_tokens: msg.usage?.input ?? 0,
-                            output_tokens: msg.usage?.output ?? 0,
-                            cache_read_tokens: msg.usage?.cacheRead,
-                            cache_write_tokens: msg.usage?.cacheWrite,
-                            total_tokens: msg.usage?.totalTokens,
-                            latency_ms: Date.now() - turnStart,
-                            cost_usd: deps.useGatewayCost ? undefined : msg.usage?.cost?.total,
-                            stop_reason: msg.stopReason,
-                            is_error: msg.stopReason === 'error',
-                            error: msg.stopReason === 'error' ? msg.errorMessage : undefined,
-                        },
-                    ])
+                    // Gateway path: the gateway emits the `$ai_generation` (with
+                    // cost), so skip ours to avoid double-counting. Direct path:
+                    // emit without cost and let ingestion price it — pi-ai's
+                    // estimate is never used.
+                    if (!deps.gatewayEmitsGenerations) {
+                        await analytics.write([
+                            {
+                                kind: 'generation',
+                                ts: new Date(msg.timestamp).toISOString(),
+                                team_id: session.team_id,
+                                application_id: session.application_id,
+                                revision_id: rev.id,
+                                session_id: session.id,
+                                turn,
+                                span_id: genSpan,
+                                distinct_id: distinctId,
+                                model: msg.model ?? deps.model.id,
+                                provider: msg.provider ?? deps.model.provider,
+                                input: inputSnapshot,
+                                output: msg.content,
+                                input_tokens: msg.usage?.input ?? 0,
+                                output_tokens: msg.usage?.output ?? 0,
+                                cache_read_tokens: msg.usage?.cacheRead,
+                                cache_write_tokens: msg.usage?.cacheWrite,
+                                total_tokens: msg.usage?.totalTokens,
+                                latency_ms: Date.now() - turnStart,
+                                stop_reason: msg.stopReason,
+                                is_error: msg.stopReason === 'error',
+                                error: msg.stopReason === 'error' ? msg.errorMessage : undefined,
+                                is_preview: session.is_preview,
+                            },
+                        ])
+                    }
                     await deps.onTurnPersist?.(session)
                     return
                 }
@@ -1063,6 +1080,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                                             latency_ms: Date.now() - t0,
                                             is_error: d.isError,
                                             error: d.error,
+                                            is_preview: session.is_preview,
                                         },
                                     ])
                                 } catch (obsErr) {
@@ -1158,6 +1176,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                     trace_name: deps.applicationName ?? `agent:${session.application_id}`,
                     input_state: traceInput,
                     output_state: lastOutput,
+                    is_preview: session.is_preview,
                 },
             ])
         }

@@ -418,6 +418,7 @@ class QueryTags(BaseModel):
     experiment_metric_uuid: Optional[str] = None
     experiment_metric_name: Optional[str] = None
     experiment_metric_type: Optional[str] = None  # "mean", "funnel", "ratio", "retention"
+    experiment_funnel_order_type: Optional[str] = None  # funnel metrics only: "ordered", "unordered", "strict"
     # DEPRECATED: alias of experiment_exposures_path, kept so external tooling keeps working.
     experiment_execution_path: Optional[str] = None  # "direct_scan" or "precomputed"
     experiment_exposures_path: Optional[str] = None  # "direct_scan" or "precomputed"
