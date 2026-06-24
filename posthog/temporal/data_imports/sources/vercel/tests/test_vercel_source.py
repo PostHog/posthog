@@ -44,6 +44,11 @@ class TestVercelSource:
     def test_source_type(self) -> None:
         assert self.source.source_type == ExternalDataSourceType.VERCEL
 
+    def test_connection_host_fields_includes_team_id(self) -> None:
+        # team_id retargets the stored token at a different Vercel team, so editing it must force
+        # the token to be re-entered.
+        assert self.source.connection_host_fields == ["team_id"]
+
     def test_source_config_metadata(self) -> None:
         config = self.source.get_source_config
         assert config.label == "Vercel"

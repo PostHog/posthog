@@ -33,6 +33,13 @@ class VercelSource(ResumableSource[VercelSourceConfig, VercelResumeConfig]):
         return ExternalDataSourceType.VERCEL
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # `team_id` selects which Vercel team the stored access token is used against. Editing it
+        # on an existing source must force the token to be re-entered — otherwise an editor could
+        # retarget the preserved token at another Vercel team it can access.
+        return ["team_id"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.VERCEL,
