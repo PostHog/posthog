@@ -66,7 +66,7 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
     const prUrl = selectedRun?.output?.pr_url as string | undefined
 
     return (
-        <SceneContent>
+        <SceneContent className="h-full min-h-0">
             {sceneMenuBarEnabled && (
                 <SceneMenuBar>
                     <SceneMenuBarMenu label="File" dataAttr="task-menubar-file">
@@ -222,7 +222,7 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                     <p className="text-muted">This task hasn't been run yet</p>
                 </div>
             ) : selectedRun ? (
-                <div className="flex-1 overflow-hidden max-w-6xl mx-auto w-full mb-8">
+                <div className="flex-1 min-h-0 overflow-hidden max-w-6xl mx-auto w-full">
                     <TaskRunChat taskId={task.id} runId={selectedRun.id} />
                 </div>
             ) : null}

@@ -802,6 +802,7 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'TaskTracker',
         description: 'Tasks are work that agents can do for you, like creating a pull request or fixing an issue.',
         iconType: 'task',
+        layout: 'app-full-scene-height',
     },
     SlackTaskContext: { name: 'Slack task context', projectBased: true },
     Toolbar: {

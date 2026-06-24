@@ -36,29 +36,33 @@ export function TaskTracker({ taskId }: TaskTrackerProps): JSX.Element {
         // Single column: detail, composer, or the list (with a "Create a new task" row).
         if (selectedTaskId) {
             return (
-                <>
+                <div className="flex flex-col h-full min-h-0">
                     <AllowTrainingCallout featureName="PostHog Code" />
-                    <TaskDetailPage taskId={selectedTaskId} />
-                </>
+                    <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
+                        <TaskDetailPage taskId={selectedTaskId} />
+                    </div>
+                </div>
             )
         }
         if (taskId === 'new') {
             return (
-                <SceneContent>
+                <SceneContent className="h-full">
                     <AllowTrainingCallout featureName="Tasks" />
-                    <TaskComposer />
+                    <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
+                        <TaskComposer />
+                    </div>
                 </SceneContent>
             )
         }
         return (
-            <SceneContent>
+            <SceneContent className="h-full">
                 <SceneTitleSection
                     name={sceneConfigurations[Scene.TaskTracker].name}
                     description={sceneConfigurations[Scene.TaskTracker].description}
                     resourceType={{ type: sceneConfigurations[Scene.TaskTracker].iconType || 'default_icon_type' }}
                 />
                 <AllowTrainingCallout featureName="Tasks" />
-                <div className="flex flex-col min-h-[60vh]">
+                <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
                     <TasksListColumn selectedTaskId={null} isMobile />
                 </div>
             </SceneContent>
@@ -66,13 +70,13 @@ export function TaskTracker({ taskId }: TaskTrackerProps): JSX.Element {
     }
 
     return (
-        <SceneContent>
+        <SceneContent className="h-full">
             <AllowTrainingCallout featureName="Tasks" />
-            <div className="flex flex-1 min-h-[70vh] gap-4">
-                <div className="w-80 shrink-0 border-r border-primary">
+            <div className="flex flex-1 min-h-0 gap-4">
+                <div className="w-80 shrink-0 flex flex-col min-h-0 border-r border-primary">
                     <TasksListColumn selectedTaskId={selectedTaskId} />
                 </div>
-                <div className="flex-1 min-w-0 overflow-auto">{rightPane}</div>
+                <div className="flex-1 min-w-0 flex flex-col min-h-0 overflow-hidden">{rightPane}</div>
             </div>
         </SceneContent>
     )

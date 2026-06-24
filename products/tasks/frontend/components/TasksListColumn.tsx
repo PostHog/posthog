@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconPlus, IconPlusSmall } from '@posthog/icons'
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { Link } from 'lib/lemon-ui/Link'
@@ -25,17 +25,20 @@ export function TasksListColumn({ selectedTaskId, isMobile = false }: TasksListC
     return (
         <div className="flex flex-col h-full min-h-0">
             {!isMobile && (
-                <div className="flex items-center justify-between gap-1 p-2 shrink-0">
-                    <span className="text-sm font-semibold pl-1">Tasks</span>
-                    <Link
-                        to={urls.taskNew()}
-                        data-attr="tasks-new"
-                        buttonProps={{ iconOnly: true, variant: 'outline' }}
-                        tooltip="New task"
-                    >
-                        <IconPlusSmall className="size-4" />
-                    </Link>
-                </div>
+                <>
+                    <div className="flex items-center justify-between gap-1 p-2 shrink-0">
+                        <span className="text-sm font-semibold pl-1">Tasks</span>
+                        <Link
+                            to={urls.taskNew()}
+                            data-attr="tasks-new"
+                            buttonProps={{ iconOnly: true, variant: 'outline' }}
+                            tooltip="New task"
+                        >
+                            <IconPlusSmall className="size-4" />
+                        </Link>
+                    </div>
+                    <LemonDivider className="m-0 shrink-0" />
+                </>
             )}
 
             <ScrollableShadows

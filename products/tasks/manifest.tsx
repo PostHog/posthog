@@ -13,6 +13,8 @@ export const manifest: ProductManifest = {
             activityScope: 'TaskTracker',
             description: 'Tasks are work that agents can do for you, like creating a pull request or fixing an issue.',
             iconType: 'task',
+            // Master/detail with internally-scrolling columns — the scene fills the viewport height.
+            layout: 'app-full-scene-height',
         },
         // Hidden internal debug scene. No nav entry — reachable only by typing the URL.
         SlackTaskContext: {
