@@ -406,10 +406,16 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                     # Push the narrow uuid prefilter into PREWHERE so ClickHouse evaluates it
                     # against just the `uuid` column before materializing wide columns
                     # (`properties`, `elements_chain`, `person_properties`, group property
-                    # tuples). The original `where` stays on `stmt.where` from the construction
-                    # above — PREWHERE filters granules first, then WHERE applies on the
-                    # surviving rows with full columns read.
+                    # tuples).
                     stmt.prewhere = parse_expr("uuid in ({inner_query})", {"inner_query": inner_query})
+                    # Drop the user's `where` from the outer query — the inner subquery already
+                    # evaluates exactly that predicate against the same `events` table, so any
+                    # row that survives PREWHERE has by definition been certified by the inner.
+                    # Repeating it on the outer would force the optimizer to re-read predicate
+                    # columns (including potentially wide ones like `properties` for filter
+                    # eval) on the surviving rows. Tenant isolation (`team_id`) is added later
+                    # by the access wrapper and is not touched by this change.
+                    stmt.where = None
 
                 return stmt
 
