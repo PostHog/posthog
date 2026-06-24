@@ -50445,6 +50445,15 @@ export namespace Schemas {
       count: number;
     }
 
+    export interface _LogFacetValueMulti {
+      /** The facet's client-supplied key, matching a `key` from the request. */
+      facetKey: string;
+      /** The facet value (e.g. a severity level, service name, or attribute value). */
+      value: string;
+      /** Number of matching log records, with all active filters applied except this facet's own selection. */
+      count: number;
+    }
+
     /**
      * * `log` - log
      * * `log_attribute` - log_attribute
@@ -50592,17 +50601,44 @@ export namespace Schemas {
       count: number;
     }
 
-    export interface _LogsFacetValuesBody {
-      /** Top-level column to facet on. Provide exactly one of facetField or facetResourceAttribute. Its own filter is excluded so counts reflect the other active filters.
+    export interface _LogsFacetSpec {
+      /** Client-supplied identifier for this facet, echoed back on each result row so the caller can bucket values by facet. Must be unique within the request. */
+      key: string;
+      /** Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute, or facetAttribute.
        *
        * * `severity_text` - severity_text
        * * `service_name` - service_name */
       facetField?: FacetFieldEnum | null;
       /**
-         * Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of facetField or facetResourceAttribute. Its own log_resource_attribute filter is excluded so counts reflect the other active filters.
+         * Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of facetField, facetResourceAttribute, or facetAttribute.
          * @nullable
          */
       facetResourceAttribute?: string | null;
+      /**
+         * Log attribute key to facet on (e.g. 'http.status_code'). Provide exactly one of facetField, facetResourceAttribute, or facetAttribute.
+         * @nullable
+         */
+      facetAttribute?: string | null;
+      /** Type-ahead filter over this facet's own values (case-insensitive substring match). */
+      facetSearch?: string;
+    }
+
+    export interface _LogsFacetValuesBody {
+      /** Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute, or facetAttribute. Its own filter is excluded so counts reflect the other active filters.
+       *
+       * * `severity_text` - severity_text
+       * * `service_name` - service_name */
+      facetField?: FacetFieldEnum | null;
+      /**
+         * Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of facetField, facetResourceAttribute, or facetAttribute. Its own log_resource_attribute filter is excluded so counts reflect the other active filters.
+         * @nullable
+         */
+      facetResourceAttribute?: string | null;
+      /**
+         * Log attribute key to facet on (e.g. 'http.status_code'). Provide exactly one of facetField, facetResourceAttribute, or facetAttribute. Its own log_attribute filter is excluded so counts reflect the other active filters.
+         * @nullable
+         */
+      facetAttribute?: string | null;
       /** Date range. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels (ignored when faceting on severity_text). */
@@ -50615,6 +50651,31 @@ export namespace Schemas {
       facetSearch?: string;
       /** Property filters for the query. */
       filterGroup?: _LogPropertyFilter[];
+    }
+
+    export interface _LogsFacetValuesMultiBody {
+      /** Facets to compute in a single query. Each is cross-filtered independently — its own selection is excluded so it doesn't zero out its siblings. */
+      facets: _LogsFacetSpec[];
+      /** Date range. Defaults to last hour. */
+      dateRange?: _DateRange;
+      /** Filter by log severity levels (ignored by a facet faceting on severity_text). */
+      severityLevels?: SeverityLevelsEnum[];
+      /** Filter by service names (ignored by a facet faceting on service_name). */
+      serviceNames?: string[];
+      /** Full-text search term to filter log bodies. */
+      searchTerm?: string;
+      /** Property filters for the query. */
+      filterGroup?: _LogPropertyFilter[];
+    }
+
+    export interface _LogsFacetValuesMultiRequest {
+      /** The multi-facet values query to execute. */
+      query: _LogsFacetValuesMultiBody;
+    }
+
+    export interface _LogsFacetValuesMultiResponse {
+      /** Flat list of values across all requested facets, each tagged with its facetKey and ordered by count descending within a facet. Bucket by facetKey to rebuild per-facet lists. */
+      results: _LogFacetValueMulti[];
     }
 
     export interface _LogsFacetValuesRequest {

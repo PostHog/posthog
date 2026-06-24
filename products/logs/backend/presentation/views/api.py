@@ -45,7 +45,12 @@ from products.logs.backend.count_ranges_query_runner import (
 )
 from products.logs.backend.has_logs_query_runner import team_has_logs
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
-from products.logs.backend.log_facet_values_query_runner import FACET_FIELDS, LogFacetValuesQueryRunner
+from products.logs.backend.log_facet_values_query_runner import (
+    FACET_FIELDS,
+    LogFacet,
+    LogFacetValuesMultiQueryRunner,
+    LogFacetValuesQueryRunner,
+)
 from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
 from products.logs.backend.logs_query_runner import CachedLogsQueryResponse, LogsQueryResponse, LogsQueryRunner
 from products.logs.backend.presentation.views.alerts_api import LogsAlertViewSet
@@ -385,6 +390,86 @@ class _LogsFacetValuesBodySerializer(serializers.Serializer):
 
 class _LogsFacetValuesRequestSerializer(serializers.Serializer):
     query = _LogsFacetValuesBodySerializer(help_text="The facet values query to execute.")
+
+
+class _LogsFacetSpecSerializer(serializers.Serializer):
+    key = serializers.CharField(
+        help_text="Client-supplied identifier for this facet, echoed back on each result row so the "
+        "caller can bucket values by facet. Must be unique within the request."
+    )
+    facetField = serializers.ChoiceField(
+        choices=["severity_text", "service_name"],
+        required=False,
+        allow_null=True,
+        help_text="Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute, or "
+        "facetAttribute.",
+    )
+    facetResourceAttribute = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of "
+        "facetField, facetResourceAttribute, or facetAttribute.",
+    )
+    facetAttribute = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Log attribute key to facet on (e.g. 'http.status_code'). Provide exactly one of facetField, "
+        "facetResourceAttribute, or facetAttribute.",
+    )
+    facetSearch = serializers.CharField(
+        required=False,
+        help_text="Type-ahead filter over this facet's own values (case-insensitive substring match).",
+    )
+
+
+class _LogsFacetValuesMultiBodySerializer(serializers.Serializer):
+    facets = _LogsFacetSpecSerializer(
+        many=True,
+        help_text="Facets to compute in a single query. Each is cross-filtered independently — its own "
+        "selection is excluded so it doesn't zero out its siblings.",
+    )
+    dateRange = _DateRangeSerializer(required=False, help_text="Date range. Defaults to last hour.")
+    severityLevels = serializers.ListField(
+        child=serializers.ChoiceField(choices=["trace", "debug", "info", "warn", "error", "fatal"]),
+        required=False,
+        default=list,
+        help_text="Filter by log severity levels (ignored by a facet faceting on severity_text).",
+    )
+    serviceNames = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=list,
+        help_text="Filter by service names (ignored by a facet faceting on service_name).",
+    )
+    searchTerm = serializers.CharField(required=False, help_text="Full-text search term to filter log bodies.")
+    filterGroup = serializers.ListField(
+        child=_LogPropertyFilterSerializer(),
+        required=False,
+        default=list,
+        help_text="Property filters for the query.",
+    )
+
+
+class _LogsFacetValuesMultiRequestSerializer(serializers.Serializer):
+    query = _LogsFacetValuesMultiBodySerializer(help_text="The multi-facet values query to execute.")
+
+
+class _LogFacetValueMultiSerializer(serializers.Serializer):
+    facetKey = serializers.CharField(help_text="The facet's client-supplied key, matching a `key` from the request.")
+    value = serializers.CharField(
+        help_text="The facet value (e.g. a severity level, service name, or attribute value)."
+    )
+    count = serializers.IntegerField(
+        help_text="Number of matching log records, with all active filters applied except this facet's own selection."
+    )
+
+
+class _LogsFacetValuesMultiResponseSerializer(serializers.Serializer):
+    results = _LogFacetValueMultiSerializer(
+        many=True,
+        help_text="Flat list of values across all requested facets, each tagged with its facetKey and "
+        "ordered by count descending within a facet. Bucket by facetKey to rebuild per-facet lists.",
+    )
 
 
 class _LogsCountRangesBodySerializer(serializers.Serializer):
@@ -880,6 +965,58 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             facet_attribute=facet_attribute or None,
             facet_search=query_data.get("facetSearch"),
         )
+        response = runner.run(
+            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            analytics_props=get_request_analytics_properties(request),
+        )
+        assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
+        return Response({"results": response.results}, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        request=_LogsFacetValuesMultiRequestSerializer, responses={200: _LogsFacetValuesMultiResponseSerializer}
+    )
+    @action(detail=False, methods=["POST"], required_scopes=["logs:read"])
+    def facet_values_multi(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=Product.LOGS, feature=Feature.QUERY)
+        query_data = request.data.get("query", {})
+
+        facets_data = query_data.get("facets") or []
+        keys = [f.get("key") for f in facets_data]
+        if not facets_data:
+            raise ParseError("Provide at least one facet")
+        if any(not key for key in keys):
+            raise ParseError("Each facet requires a key")
+        if len(set(keys)) != len(keys):
+            raise ParseError("Facet keys must be unique")
+        try:
+            facets = [
+                LogFacet(
+                    key=f["key"],
+                    facet_field=f.get("facetField") or None,
+                    facet_resource_attribute=f.get("facetResourceAttribute") or None,
+                    facet_attribute=f.get("facetAttribute") or None,
+                    facet_search=f.get("facetSearch"),
+                )
+                for f in facets_data
+            ]
+        except ValueError as e:
+            raise ParseError(str(e))
+
+        date_range_data = query_data.get("dateRange")
+        date_range = self.get_model(date_range_data, DateRange) if date_range_data else DateRange(date_from="-1h")
+
+        query = LogsQuery(
+            dateRange=date_range,
+            severityLevels=query_data.get("severityLevels", []),
+            serviceNames=query_data.get("serviceNames", []),
+            searchTerm=query_data.get("searchTerm", None),
+            filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
+        )
+
+        try:
+            runner = LogFacetValuesMultiQueryRunner(team=self.team, query=query, facets=facets)
+        except ValueError as e:
+            raise ParseError(str(e))
         response = runner.run(
             ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             analytics_props=get_request_analytics_properties(request),

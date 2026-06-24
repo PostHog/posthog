@@ -48,6 +48,15 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         return {r["value"]: r["count"] for r in response.json()["results"]}
 
+    def _facet_multi(self, facets: list[dict], **filters) -> dict[str, dict[str, int]]:
+        body = {"query": {"facets": facets, "dateRange": self.DATE_RANGE, **filters}}
+        response = self.client.post(f"/api/projects/{self.team.pk}/logs/facet_values_multi", body, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        buckets: dict[str, dict[str, int]] = {}
+        for r in response.json()["results"]:
+            buckets.setdefault(r["facetKey"], {})[r["value"]] = r["count"]
+        return buckets
+
     @parameterized.expand(
         [
             ("severity_text", "severityLevels"),
@@ -197,3 +206,63 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
             body = {"query": {**query, "dateRange": self.DATE_RANGE}}
             response = self.client.post(f"/api/projects/{self.team.pk}/logs/facet_values", body, format="json")
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_multi_returns_each_facet_matching_the_single_endpoint(self):
+        """A batch request returns the same values+counts per facet as the single-facet endpoint."""
+        buckets = self._facet_multi(
+            [
+                {"key": "level", "facetField": "severity_text"},
+                {"key": "service", "facetField": "service_name"},
+                {"key": "ns", "facetResourceAttribute": "k8s.namespace.name"},
+                {"key": "method", "facetAttribute": "method"},
+            ]
+        )
+        self.assertEqual(set(buckets), {"level", "service", "ns", "method"})
+        self.assertEqual(buckets["level"], self._facet("severity_text"))
+        self.assertEqual(buckets["service"], self._facet("service_name"))
+        self.assertEqual(buckets["ns"], self._facet_attr("k8s.namespace.name"))
+        self.assertEqual(buckets["method"], self._facet_log_attr("method"))
+
+    def test_multi_cross_filters_each_facet_independently(self):
+        """Each facet in a batch excludes only its own filter, honoring the others."""
+        base = self._facet_multi(
+            [
+                {"key": "level", "facetField": "severity_text"},
+                {"key": "service", "facetField": "service_name"},
+            ]
+        )
+        own_level = next(iter(base["level"]))
+        scoped = self._facet_multi(
+            [
+                {"key": "level", "facetField": "severity_text"},
+                {"key": "service", "facetField": "service_name"},
+            ],
+            severityLevels=[own_level],
+        )
+        # level ignores its own severity filter; service is re-scoped by it.
+        self.assertEqual(scoped["level"], base["level"])
+        self.assertLessEqual(sum(scoped["service"].values()), sum(base["service"].values()))
+
+    def test_multi_applies_per_facet_search(self):
+        searched = self._facet_multi(
+            [
+                {"key": "service", "facetField": "service_name", "facetSearch": "aws"},
+                {"key": "method", "facetAttribute": "method"},
+            ]
+        )
+        self.assertTrue(all("aws" in value.lower() for value in searched.get("service", {})))
+        self.assertGreater(len(searched.get("method", {})), 0)
+
+    @parameterized.expand(
+        [
+            ("empty", []),
+            ("missing_key", [{"facetField": "service_name"}]),
+            ("duplicate_keys", [{"key": "a", "facetField": "service_name"}, {"key": "a", "facetAttribute": "method"}]),
+            ("no_target", [{"key": "a"}]),
+            ("two_targets", [{"key": "a", "facetField": "service_name", "facetAttribute": "method"}]),
+        ]
+    )
+    def test_multi_rejects_invalid_requests(self, _name, facets):
+        body = {"query": {"facets": facets, "dateRange": self.DATE_RANGE}}
+        response = self.client.post(f"/api/projects/{self.team.pk}/logs/facet_values_multi", body, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

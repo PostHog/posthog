@@ -41,6 +41,8 @@ import type {
     _LogsCountRangesResponseApi,
     _LogsCountRequestApi,
     _LogsCountResponseApi,
+    _LogsFacetValuesMultiRequestApi,
+    _LogsFacetValuesMultiResponseApi,
     _LogsFacetValuesRequestApi,
     _LogsFacetValuesResponseApi,
     _LogsQueryRequestApi,
@@ -394,6 +396,23 @@ export const logsFacetValuesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_logsFacetValuesRequestApi),
+    })
+}
+
+export const getLogsFacetValuesMultiCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/facet_values_multi/`
+}
+
+export const logsFacetValuesMultiCreate = async (
+    projectId: string,
+    _logsFacetValuesMultiRequestApi: _LogsFacetValuesMultiRequestApi,
+    options?: RequestInit
+): Promise<_LogsFacetValuesMultiResponseApi> => {
+    return apiMutator<_LogsFacetValuesMultiResponseApi>(getLogsFacetValuesMultiCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_logsFacetValuesMultiRequestApi),
     })
 }
 

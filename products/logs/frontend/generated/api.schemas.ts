@@ -1047,6 +1047,62 @@ export interface _LogsFacetValuesResponseApi {
     results: _LogFacetValueApi[]
 }
 
+export interface _LogsFacetSpecApi {
+    /** Client-supplied identifier for this facet, echoed back on each result row so the caller can bucket values by facet. Must be unique within the request. */
+    key: string
+    /** Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute, or facetAttribute.
+     *
+     * * `severity_text` - severity_text
+     * * `service_name` - service_name */
+    facetField?: FacetFieldEnumApi | null
+    /**
+     * Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of facetField, facetResourceAttribute, or facetAttribute.
+     * @nullable
+     */
+    facetResourceAttribute?: string | null
+    /**
+     * Log attribute key to facet on (e.g. 'http.status_code'). Provide exactly one of facetField, facetResourceAttribute, or facetAttribute.
+     * @nullable
+     */
+    facetAttribute?: string | null
+    /** Type-ahead filter over this facet's own values (case-insensitive substring match). */
+    facetSearch?: string
+}
+
+export interface _LogsFacetValuesMultiBodyApi {
+    /** Facets to compute in a single query. Each is cross-filtered independently — its own selection is excluded so it doesn't zero out its siblings. */
+    facets: _LogsFacetSpecApi[]
+    /** Date range. Defaults to last hour. */
+    dateRange?: _DateRangeApi
+    /** Filter by log severity levels (ignored by a facet faceting on severity_text). */
+    severityLevels?: SeverityLevelsEnumApi[]
+    /** Filter by service names (ignored by a facet faceting on service_name). */
+    serviceNames?: string[]
+    /** Full-text search term to filter log bodies. */
+    searchTerm?: string
+    /** Property filters for the query. */
+    filterGroup?: _LogPropertyFilterApi[]
+}
+
+export interface _LogsFacetValuesMultiRequestApi {
+    /** The multi-facet values query to execute. */
+    query: _LogsFacetValuesMultiBodyApi
+}
+
+export interface _LogFacetValueMultiApi {
+    /** The facet's client-supplied key, matching a `key` from the request. */
+    facetKey: string
+    /** The facet value (e.g. a severity level, service name, or attribute value). */
+    value: string
+    /** Number of matching log records, with all active filters applied except this facet's own selection. */
+    count: number
+}
+
+export interface _LogsFacetValuesMultiResponseApi {
+    /** Flat list of values across all requested facets, each tagged with its facetKey and ordered by count descending within a facet. Bucket by facetKey to rebuild per-facet lists. */
+    results: _LogFacetValueMultiApi[]
+}
+
 /**
  * * `latest` - latest
  * * `earliest` - earliest

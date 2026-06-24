@@ -4,6 +4,7 @@ import {
     PropertyFilterValue,
     PropertyOperator,
     UniversalFiltersGroup,
+    UniversalFiltersGroupValue,
 } from '~/types'
 
 import { SEVERITY_BAR_COLORS } from 'products/logs/frontend/components/VirtualizedLogsList/columnDefinitions'
@@ -122,7 +123,10 @@ export function toggleMapAttributeFilter(
     const others = innerFilters(group).filter((f) => !isMapAttributeFilter(f, key, filterType))
     const values: MapAttributeFilter[] =
         next.length > 0 ? [...others, { key, type: filterType, operator: PropertyOperator.Exact, value: next }] : others
-    return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values }] }
+    return {
+        type: FilterLogicalOperator.And,
+        values: [{ type: FilterLogicalOperator.And, values: values as UniversalFiltersGroupValue[] }],
+    }
 }
 
 // Colors mirror the severity bar in the log rows (SEVERITY_BAR_COLORS) so the rail matches the viewer.
