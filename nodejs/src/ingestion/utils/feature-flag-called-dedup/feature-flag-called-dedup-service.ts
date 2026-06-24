@@ -94,7 +94,14 @@ export function featureFlagCalledDedupKey(
     // teamId stays in the key so operators can SCAN or purge one team's claims.
     const hash = createHash('sha256')
         .update(
-            JSON.stringify([teamId, distinctId, flagKey, response ?? null, normalizedGroups, hasExperiment ?? null])
+            JSON.stringify([
+                teamId,
+                distinctId,
+                flagKey,
+                response ?? null,
+                normalizedGroups,
+                hasExperiment === true ? true : null,
+            ])
         )
         .digest('base64url')
         .slice(0, HASH_LENGTH)

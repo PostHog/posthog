@@ -194,9 +194,9 @@ describe('RedisFeatureFlagCalledDedupService', () => {
                 [1, 'user-1', 'flag-a', true, { org: 'o1' }, null],
                 [1, 'user-1', 'flag-a', true, undefined, null],
             ],
-            ['has_experiment', [1, 'user-1', 'flag-a', true, null, true], [1, 'user-1', 'flag-a', true, null, false]],
-            // The property is optional and absent on events today (no SDK sets it yet),
-            // so cover the experiment-vs-absent axis alongside the explicit true/false above.
+            // false and null/undefined both mean "not an experiment exposure" — the key
+            // only distinguishes true (experiment) from everything else.
+            ['has_experiment', [1, 'user-1', 'flag-a', true, null, true], [1, 'user-1', 'flag-a', true, null, null]],
             [
                 'has_experiment true vs absent',
                 [1, 'user-1', 'flag-a', true, null, true],
