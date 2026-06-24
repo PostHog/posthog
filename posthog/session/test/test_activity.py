@@ -3,6 +3,7 @@ from datetime import timedelta
 from importlib import import_module
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.conf import settings
 from django.contrib.auth import BACKEND_SESSION_KEY, SESSION_KEY
@@ -134,6 +135,27 @@ class TestSessionActivity(BaseTest):
         row = Session.objects.get(session_key=key)
         self.assertIsNotNone(row.last_activity)
         self.assertEqual(row.login_method, "password")
+
+    def test_sync_writes_baseline_columns(self):
+        user = self._make_user()
+        key = self._login_session(user)
+        request = self._request(user, key)
+        request.META["HTTP_USER_AGENT"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/120.0"
+
+        with (
+            patch("posthog.session.activity.get_ip_address", return_value="8.8.8.8"),
+            patch(
+                "posthog.session.activity.get_geoip_location",
+                return_value={"latitude": 40.7, "longitude": -74.0, "country_code": "US"},
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            sync_current_session_metadata(request, force=True)
+
+        row = Session.objects.get(session_key=key)
+        self.assertEqual(row.country_code, "US")
+        self.assertEqual(row.latitude, 40.7)
+        self.assertIsNotNone(row.ua_signature)
 
     def test_sync_metadata_is_throttled(self):
         user = self._make_user()
