@@ -1751,7 +1751,7 @@ class LinnworksSourceConfig(config.Config):
 
 @config.config
 class LobSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
