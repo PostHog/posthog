@@ -178,17 +178,21 @@ def get_bedrock_session() -> Boto3Session:
 
 
 def _is_unsigned_thinking_block(block: Any) -> bool:
+    """Detect thinking blocks Bedrock CountTokens rejects because they cannot be replay-verified."""
     return isinstance(block, dict) and block.get("type") == "thinking" and not block.get("signature")
 
 
 @dataclass
 class CountTokensSanitizationReport:
+    """Bounded record of data lost while adapting an Anthropic CountTokens request."""
+
     dropped_property_counts: Counter[str] = field(default_factory=Counter)
     dropped_paths: list[str] = field(default_factory=list)
     dropped_items_total: int = 0
     dropped_paths_truncated: bool = False
 
     def record_drop(self, property_name: str, path: str) -> None:
+        """Track a dropped field without storing request contents."""
         self.dropped_property_counts[property_name] += 1
         self.dropped_items_total += 1
         if len(self.dropped_paths) < MAX_COUNT_TOKENS_LOSS_REPORT_PATHS:
@@ -198,10 +202,12 @@ class CountTokensSanitizationReport:
 
     @property
     def has_drops(self) -> bool:
+        """Return whether this adaptation lost any request data."""
         return self.dropped_items_total > 0
 
 
 def _sanitize_bedrock_count_tokens_messages(messages: Any) -> tuple[Any, CountTokensSanitizationReport]:
+    """Remove nested message content Bedrock CountTokens rejects, preserving a loss report."""
     report = CountTokensSanitizationReport()
     if not isinstance(messages, list):
         return messages, report
@@ -242,6 +248,7 @@ def _record_count_tokens_top_level_drops(
     *,
     body_properties: frozenset[str],
 ) -> None:
+    """Add omitted top-level request fields to the same loss report as nested drops."""
     for property_name in sorted(request_data):
         if property_name in body_properties or property_name in COUNT_TOKENS_ROUTING_PROPERTIES:
             continue
@@ -255,6 +262,7 @@ def _record_count_tokens_sanitization_report(
     product: str,
     transport: str,
 ) -> None:
+    """Emit one warning and metric update after all CountTokens drops are collected."""
     if not report.has_drops:
         return
 
