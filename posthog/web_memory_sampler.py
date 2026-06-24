@@ -8,6 +8,8 @@ from prometheus_client import Gauge
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_SAMPLE_INTERVAL_SECONDS = 30.0
+
 # Per-worker RSS, scraped via bin/unit_metrics.py's MultiProcessCollector. `liveall`
 # exposes one series per live worker pid, so a single worker climbing toward the cgroup
 # limit is visible rather than hidden inside an aggregate. A worker hard-killed by the OOM
@@ -39,11 +41,11 @@ def _sample_once(log: structlog.BoundLogger, pod: str | None, request_limit: str
     rss_mb = current_rss_mb()
     if rss_mb is None:
         return
-    WORKER_RSS_MB.set(rss_mb)
+    rss_mb_rounded = round(rss_mb, 1)
+    WORKER_RSS_MB.set(rss_mb_rounded)
     log.info(
         "worker_memory",
-        pid=os.getpid(),
-        rss_mb=round(rss_mb, 1),
+        rss_mb=rss_mb_rounded,
         pod=pod,
         request_limit=request_limit,
     )
@@ -55,7 +57,10 @@ def _sample_loop(interval_seconds: float) -> None:
     request_limit = os.getenv("NGINX_UNIT_REQUEST_LIMIT")
     while True:
         time.sleep(interval_seconds)
-        _sample_once(log, pod, request_limit)
+        try:
+            _sample_once(log, pod, request_limit)
+        except Exception:
+            logger.exception("web memory sample failed")
 
 
 def start_web_memory_sampler() -> None:
@@ -75,11 +80,14 @@ def start_web_memory_sampler() -> None:
     global _sampler_started_pid
     try:
         try:
-            interval_seconds = float(os.getenv("WEB_MEMORY_SAMPLE_INTERVAL_SECONDS", "30"))
+            interval_seconds = float(
+                os.getenv("WEB_MEMORY_SAMPLE_INTERVAL_SECONDS", str(DEFAULT_SAMPLE_INTERVAL_SECONDS))
+            )
         except ValueError:
-            interval_seconds = 30.0
+            interval_seconds = DEFAULT_SAMPLE_INTERVAL_SECONDS
         if interval_seconds <= 0:
             return
+        interval_seconds = max(interval_seconds, 1.0)
         pid = os.getpid()
         with _lock:
             if _sampler_started_pid == pid:

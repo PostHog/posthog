@@ -1,6 +1,5 @@
 import os
 import sys
-import threading
 
 import pytest
 from unittest import mock
@@ -28,13 +27,23 @@ def test_current_rss_mb_handles_missing_proc(monkeypatch):
 def test_sampler_disabled_starts_no_thread(monkeypatch):
     # A non-positive interval must be a no-op so the sampler can be turned off in prod
     # without a deploy, and so it never spawns a thread in environments that don't want it.
+    started_threads: list[str] = []
+
+    class _RecordingThread:
+        def __init__(self, **kwargs):
+            self._name = kwargs["name"]
+
+        def start(self):
+            started_threads.append(self._name)
+
+    monkeypatch.setattr(sampler.threading, "Thread", _RecordingThread)
     monkeypatch.setattr(sampler, "_sampler_started_pid", None)
     monkeypatch.setenv("WEB_MEMORY_SAMPLE_INTERVAL_SECONDS", "0")
 
     sampler.start_web_memory_sampler()
 
     assert sampler._sampler_started_pid is None
-    assert not any(t.name == "web-memory-sampler" for t in threading.enumerate())
+    assert started_threads == []
 
 
 def test_sampler_rearms_when_guard_inherited_from_another_process(monkeypatch):
