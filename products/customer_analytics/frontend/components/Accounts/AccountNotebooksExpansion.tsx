@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconGraph, IconPeople, IconPiggyBank, IconReceipt } from '@posthog/icons'
+import { IconGraph, IconPencil, IconPeople, IconPiggyBank, IconReceipt } from '@posthog/icons'
 import {
     LemonButton,
+    LemonInput,
     LemonSkeleton,
     LemonTable,
     LemonTableColumns,
@@ -95,7 +96,9 @@ export function AccountNotebooksExpansion({
     externalId: string
 }): JSX.Element {
     const logic = accountNotebooksLogic({ accountId })
-    const { notebooks, notebooksLoading } = useValues(logic)
+    const { notebooks, notebooksResponseLoading, createdNoteLoading, searchTerm, sorting, pagination } =
+        useValues(logic)
+    const { setSearchTerm, setSorting, createNote } = useActions(logic)
     const { activeTabFor } = useValues(accountsExpansionLogic)
     const { setActiveTab } = useActions(accountsExpansionLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
@@ -135,6 +138,7 @@ export function AccountNotebooksExpansion({
             title: 'Created by',
             key: 'created_by',
             width: 220,
+            sorter: true,
             render: (_, notebook) => {
                 const user = notebook.created_by
                 if (!user) {
@@ -156,6 +160,7 @@ export function AccountNotebooksExpansion({
             title: 'Created at',
             key: 'created_at',
             width: 180,
+            sorter: true,
             render: (_, notebook) => <TZLabel time={notebook.created_at} />,
         },
     ]
@@ -176,19 +181,44 @@ export function AccountNotebooksExpansion({
                                 key: 'notes',
                                 label: 'Notes',
                                 content: (
-                                    <LemonTable<AccountNotebookApi>
-                                        size="small"
-                                        embedded
-                                        dataSource={notebooks ?? []}
-                                        rowKey="short_id"
-                                        loading={notebooksLoading}
-                                        columns={columns}
-                                        emptyState={
-                                            notebooks === null
-                                                ? 'Failed to load account notes.'
-                                                : 'No notes linked to this account yet.'
-                                        }
-                                    />
+                                    <div className="flex flex-col gap-2">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <LemonInput
+                                                type="search"
+                                                placeholder="Search notes by title or content"
+                                                value={searchTerm}
+                                                onChange={setSearchTerm}
+                                                className="max-w-xs"
+                                            />
+                                            <LemonButton
+                                                type="primary"
+                                                size="small"
+                                                icon={<IconPencil />}
+                                                onClick={createNote}
+                                                loading={createdNoteLoading}
+                                            >
+                                                New note
+                                            </LemonButton>
+                                        </div>
+                                        <LemonTable<AccountNotebookApi>
+                                            size="small"
+                                            embedded
+                                            dataSource={notebooks ?? []}
+                                            rowKey="short_id"
+                                            loading={notebooksResponseLoading}
+                                            columns={columns}
+                                            sorting={sorting}
+                                            onSort={setSorting}
+                                            pagination={pagination}
+                                            emptyState={
+                                                notebooks === null
+                                                    ? 'Failed to load account notes.'
+                                                    : searchTerm
+                                                      ? 'No notes match your search.'
+                                                      : 'No notes linked to this account yet.'
+                                            }
+                                        />
+                                    </div>
                                 ),
                             },
                             {
