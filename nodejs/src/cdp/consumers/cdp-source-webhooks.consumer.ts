@@ -124,7 +124,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
      * and logged at error level — a non-empty rate means the (cookieless) Redis is unhealthy.
      */
     private async getTeamDailySalt(teamId: number): Promise<string> {
-        // UTC calendar day — matches the Vercel template's `day` (formatDateTime(now(), '%Y-%m-%d')).
+        // UTC calendar day — matches the consuming template's `day` (formatDateTime(now(), '%Y-%m-%d')).
         const yyyymmdd = new Date(Date.now()).toISOString().slice(0, 10)
         let reason: SaltFallbackReason = 'redis_error'
         try {

@@ -139,6 +139,9 @@ export class CdpApi {
             connection: createCookielessRedisConnectionConfig(config),
             poolMinSize: 0,
             poolMaxSize: config.REDIS_POOL_MAX_SIZE,
+            // Fail fast on a saturated pool so a sustained Redis outage can't pile up an unbounded queue of
+            // abandoned acquires (each webhook already returns within the salt fetch timeout regardless).
+            acquireTimeoutMillis: 1000,
         })
         this.dailySaltProvider = new DailySaltProvider(config.COOKIELESS_SALT_TTL_SECONDS, this.cookielessRedisPool)
         this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(config, deps, jobQueues, this.dailySaltProvider)

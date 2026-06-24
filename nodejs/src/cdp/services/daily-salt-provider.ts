@@ -26,7 +26,8 @@ const MAX_SUPPORTED_INGESTION_LAG_HOURS = 72
 export type DailySaltResult = { success: true; salt: Buffer } | { success: false; reason: 'date_out_of_range' }
 
 export class DailySaltProvider {
-    // Only ever holds today's salt (callers always ask for "today"), so it stays at ~1 entry — no cleanup needed.
+    // Grow-only day→salt cache. Callers only ask for "today", so it gains at most one 16-byte entry per
+    // calendar day of process uptime — unbounded growth is a non-issue, so there's no cleanup.
     private readonly localSaltMap: Record<string, Buffer> = {}
 
     constructor(

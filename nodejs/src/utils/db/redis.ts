@@ -27,6 +27,9 @@ export interface RedisPoolConfig {
     connection: RedisConnectionConfig
     poolMinSize: number
     poolMaxSize: number
+    // Optional cap on how long `acquire()` waits for a free connection. Undefined = wait indefinitely
+    // (generic-pool default). Set it to bound the waiter queue when callers must fail fast on a saturated pool.
+    acquireTimeoutMillis?: number
 }
 
 export async function createRedisFromConfig(config: RedisConnectionConfig): Promise<Redis.Redis> {
@@ -45,6 +48,8 @@ export function createRedisPoolFromConfig(config: RedisPoolConfig): RedisPool {
             min: config.poolMinSize,
             max: config.poolMaxSize,
             autostart: true,
+            // Passing undefined leaves generic-pool's default (wait forever), so existing callers are unchanged.
+            acquireTimeoutMillis: config.acquireTimeoutMillis,
         }
     )
 }
