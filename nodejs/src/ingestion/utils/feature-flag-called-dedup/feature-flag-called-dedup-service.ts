@@ -82,7 +82,8 @@ export function featureFlagCalledDedupKey(
     distinctId: string,
     flagKey: string,
     response: unknown,
-    groups: unknown
+    groups: unknown,
+    hasExperiment: unknown
 ): string {
     const normalizedGroups =
         groups && typeof groups === 'object' && !Array.isArray(groups)
@@ -92,7 +93,9 @@ export function featureFlagCalledDedupKey(
     // a future code path assembles a key without the prefix. The plaintext
     // teamId stays in the key so operators can SCAN or purge one team's claims.
     const hash = createHash('sha256')
-        .update(JSON.stringify([teamId, distinctId, flagKey, response ?? null, normalizedGroups]))
+        .update(
+            JSON.stringify([teamId, distinctId, flagKey, response ?? null, normalizedGroups, hasExperiment ?? null])
+        )
         .digest('base64url')
         .slice(0, HASH_LENGTH)
     return `${REDIS_KEY_PREFIX}${teamId}:${hash}`
