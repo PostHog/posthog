@@ -645,8 +645,9 @@ async def ateam_emit(aorganization_emit):
     from products.signals.backend.models import SignalSourceConfig
 
     team = await database_sync_to_async(Team.objects.create)(organization=aorganization_emit, name="emit-team")
-    # The signals_scout source must be explicitly enabled per-team — emit_signal()
-    # silently no-ops without it, and the harness preflight mirrors that gate.
+    # The scout source is on by default (fail-open: no row means enabled), so emit isn't gated
+    # off here. Seed the explicit enabled row anyway so tests that flip it to False to exercise the
+    # source_disabled gate have a row to update.
     with team_scope(team.id, canonical=True):
         await database_sync_to_async(SignalSourceConfig.objects.create)(
             team=team,
