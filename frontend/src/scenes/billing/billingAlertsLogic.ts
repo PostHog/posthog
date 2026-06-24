@@ -15,6 +15,7 @@ import {
     billingAlertsPartialUpdate,
 } from '~/generated/core/api'
 import type {
+    BillingAlertCreateDestinationApi,
     BillingAlertConfigurationApi as GeneratedBillingAlertConfigurationApi,
     BillingAlertEventApi,
     MetricEnumApi,
@@ -44,7 +45,7 @@ export enum BillingAlertWizardStep {
 }
 
 export type BillingAlertTriggerKey = 'spend_relative_increase' | 'spend_absolute_value' | 'usage_relative_increase'
-export type BillingAlertDestinationKey = 'slack'
+export type BillingAlertDestinationKey = 'slack' | 'webhook' | 'teams'
 
 export interface BillingAlertTrigger {
     key: BillingAlertTriggerKey
@@ -145,6 +146,45 @@ function splitSlackChannel(slackChannel: string): { channelId: string; channelNa
     return { channelId, channelName: channelName ?? '' }
 }
 
+function isValidHttpUrl(value: string | null): boolean {
+    const trimmed = value?.trim()
+    return !!trimmed && URL.canParse(trimmed) && /^https?:\/\//.test(trimmed)
+}
+
+function destinationPayload({
+    destinationKey,
+    slackIntegrationId,
+    slackChannel,
+    webhookUrl,
+}: {
+    destinationKey: BillingAlertDestinationKey
+    slackIntegrationId: number | null
+    slackChannel: string | null
+    webhookUrl: string
+}): BillingAlertCreateDestinationApi | null {
+    if (destinationKey === 'slack') {
+        if (!slackIntegrationId || !slackChannel?.trim()) {
+            return null
+        }
+        const { channelId, channelName } = splitSlackChannel(slackChannel)
+        return {
+            type: 'slack',
+            slack_workspace_id: slackIntegrationId,
+            slack_channel_id: channelId,
+            slack_channel_name: channelName,
+        }
+    }
+
+    if (!isValidHttpUrl(webhookUrl)) {
+        return null
+    }
+
+    return {
+        type: destinationKey,
+        webhook_url: webhookUrl.trim(),
+    }
+}
+
 function createPayload(form: BillingAlertForm): Parameters<typeof billingAlertsCreate>[1] {
     return {
         metric: form.metric,
@@ -170,6 +210,7 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
     actions({
         setCreationView: (view: BillingAlertCreationView) => ({ view }),
         setWizardStep: (step: BillingAlertWizardStep) => ({ step }),
+        selectDestination: (destinationKey: BillingAlertDestinationKey) => ({ destinationKey }),
         setSelectedDestinationKey: (destinationKey: BillingAlertDestinationKey) => ({ destinationKey }),
         selectTrigger: (triggerKey: BillingAlertTriggerKey) => ({ triggerKey }),
         setFilters: (filters: Partial<BillingAlertListFilters>) => ({ filters }),
@@ -188,10 +229,12 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
         checkNow: (alert: BillingAlertConfiguration) => ({ alert }),
         loadEvents: (alertId: string) => ({ alertId }),
         setEvents: (alertId: string, events: BillingAlertEventApi[]) => ({ alertId, events }),
+        openDestinationPanel: (alertId: string) => ({ alertId }),
         setDestinationAlertId: (alertId: string | null) => ({ alertId }),
         setSlackIntegrationId: (integrationId: number | null) => ({ integrationId }),
         setSlackChannel: (slackChannel: string | null) => ({ slackChannel }),
-        createSlackDestination: true,
+        setWebhookUrl: (webhookUrl: string) => ({ webhookUrl }),
+        createDestination: true,
         setSaving: (saving: boolean) => ({ saving }),
         setDestinationSaving: (saving: boolean) => ({ saving }),
         setCheckingAlertId: (alertId: string | null) => ({ alertId }),
@@ -211,7 +254,7 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
             {
                 setCreationView: () => BillingAlertWizardStep.Destination,
                 setWizardStep: (_, { step }) => step,
-                setSelectedDestinationKey: () => BillingAlertWizardStep.Trigger,
+                selectDestination: () => BillingAlertWizardStep.Trigger,
                 selectTrigger: () => BillingAlertWizardStep.Configure,
                 resetCreation: () => BillingAlertWizardStep.Destination,
             },
@@ -219,7 +262,11 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
         selectedDestinationKey: [
             'slack' as BillingAlertDestinationKey,
             {
+                selectDestination: (_, { destinationKey }) => destinationKey,
                 setSelectedDestinationKey: (_, { destinationKey }) => destinationKey,
+                openDestinationPanel: () => 'slack' as BillingAlertDestinationKey,
+                setDestinationAlertId: (state, { alertId }) =>
+                    alertId === null ? ('slack' as BillingAlertDestinationKey) : state,
                 resetCreation: () => 'slack' as BillingAlertDestinationKey,
             },
         ],
@@ -261,6 +308,7 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
         destinationAlertId: [
             null as string | null,
             {
+                openDestinationPanel: (_, { alertId }) => alertId,
                 setDestinationAlertId: (_, { alertId }) => alertId,
                 resetCreation: () => null,
             },
@@ -269,6 +317,8 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
             null as number | null,
             {
                 setSlackIntegrationId: (_, { integrationId }) => integrationId,
+                openDestinationPanel: () => null,
+                setDestinationAlertId: (state, { alertId }) => (alertId === null ? null : state),
                 resetCreation: () => null,
             },
         ],
@@ -277,7 +327,18 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
             {
                 setSlackChannel: (_, { slackChannel }) => slackChannel,
                 setSlackIntegrationId: () => null,
+                openDestinationPanel: () => null,
+                setDestinationAlertId: (state, { alertId }) => (alertId === null ? null : state),
                 resetCreation: () => null,
+            },
+        ],
+        webhookUrl: [
+            '',
+            {
+                setWebhookUrl: (_, { webhookUrl }) => webhookUrl,
+                openDestinationPanel: () => '',
+                setDestinationAlertId: (state, { alertId }) => (alertId === null ? '' : state),
+                resetCreation: () => '',
             },
         ],
         saving: [
@@ -351,21 +412,43 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
                 alerts.length - filteredAlerts.length,
         ],
         canSubmit: [
-            (s) => [s.form, s.selectedDestinationKey, s.slackIntegrationId, s.slackChannel],
+            (s) => [s.form, s.selectedDestinationKey, s.slackIntegrationId, s.slackChannel, s.webhookUrl],
             (
                 form: BillingAlertForm,
                 selectedDestinationKey: BillingAlertDestinationKey,
                 slackIntegrationId: number | null,
-                slackChannel: string | null
+                slackChannel: string | null,
+                webhookUrl: string
             ): boolean => {
                 const hasThreshold =
                     form.threshold_type === 'relative_increase'
                         ? form.threshold_percentage > 0
                         : form.threshold_value !== undefined
-                const hasDestination =
-                    selectedDestinationKey !== 'slack' || (!!slackIntegrationId && !!slackChannel?.trim())
+                const hasDestination = !!destinationPayload({
+                    destinationKey: selectedDestinationKey,
+                    slackIntegrationId,
+                    slackChannel,
+                    webhookUrl,
+                })
                 return !!form.name.trim() && hasThreshold && hasDestination
             },
+        ],
+        canCreateDestination: [
+            (s) => [s.destinationAlertId, s.selectedDestinationKey, s.slackIntegrationId, s.slackChannel, s.webhookUrl],
+            (
+                destinationAlertId: string | null,
+                selectedDestinationKey: BillingAlertDestinationKey,
+                slackIntegrationId: number | null,
+                slackChannel: string | null,
+                webhookUrl: string
+            ): boolean =>
+                !!destinationAlertId &&
+                !!destinationPayload({
+                    destinationKey: selectedDestinationKey,
+                    slackIntegrationId,
+                    slackChannel,
+                    webhookUrl,
+                }),
         ],
     }),
 
@@ -379,14 +462,14 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
             actions.setSaving(true)
             try {
                 const created = await billingAlertsCreate(organizationId, createPayload(values.form))
-                if (values.selectedDestinationKey === 'slack' && values.slackIntegrationId && values.slackChannel) {
-                    const { channelId, channelName } = splitSlackChannel(values.slackChannel)
-                    await billingAlertsDestinationsCreate(organizationId, created.id, {
-                        type: 'slack',
-                        slack_workspace_id: values.slackIntegrationId,
-                        slack_channel_id: channelId,
-                        slack_channel_name: channelName,
-                    })
+                const payload = destinationPayload({
+                    destinationKey: values.selectedDestinationKey,
+                    slackIntegrationId: values.slackIntegrationId,
+                    slackChannel: values.slackChannel,
+                    webhookUrl: values.webhookUrl,
+                })
+                if (payload) {
+                    await billingAlertsDestinationsCreate(organizationId, created.id, payload)
                 }
                 lemonToast.success('Billing alert created.')
                 actions.resetCreation()
@@ -461,30 +544,26 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
                 lemonToast.error(apiMessage(error))
             }
         },
-        createSlackDestination: async () => {
+        createDestination: async () => {
             const organizationId = values.currentOrganization?.id
-            if (
-                !organizationId ||
-                !values.destinationAlertId ||
-                !values.slackIntegrationId ||
-                !values.slackChannel ||
-                values.destinationSaving
-            ) {
+            const payload = destinationPayload({
+                destinationKey: values.selectedDestinationKey,
+                slackIntegrationId: values.slackIntegrationId,
+                slackChannel: values.slackChannel,
+                webhookUrl: values.webhookUrl,
+            })
+            if (!organizationId || !values.destinationAlertId || !payload || values.destinationSaving) {
                 return
             }
 
-            const { channelId, channelName } = splitSlackChannel(values.slackChannel)
             actions.setDestinationSaving(true)
             try {
-                await billingAlertsDestinationsCreate(organizationId, values.destinationAlertId, {
-                    type: 'slack',
-                    slack_workspace_id: values.slackIntegrationId,
-                    slack_channel_id: channelId,
-                    slack_channel_name: channelName,
-                })
-                lemonToast.success('Slack destination added.')
+                await billingAlertsDestinationsCreate(organizationId, values.destinationAlertId, payload)
+                lemonToast.success('Destination added.')
                 actions.setDestinationAlertId(null)
+                actions.setSlackIntegrationId(null)
                 actions.setSlackChannel(null)
+                actions.setWebhookUrl('')
                 actions.loadAlerts()
             } catch (error) {
                 lemonToast.error(apiMessage(error))

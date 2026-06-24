@@ -9,7 +9,6 @@ import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/Inte
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
-import { IconSlack } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
@@ -31,13 +30,45 @@ import {
     BillingAlertWizardStep,
     billingAlertsLogic,
 } from './billingAlertsLogic'
-import type { BillingAlertConfiguration } from './billingAlertsLogic'
+import type { BillingAlertConfiguration, BillingAlertDestinationKey } from './billingAlertsLogic'
 
 const BILLING_ALERT_WIZARD_STEPS: AlertingWizardStep<BillingAlertWizardStep>[] = [
     { key: BillingAlertWizardStep.Destination, label: 'Destination' },
     { key: BillingAlertWizardStep.Trigger, label: 'Trigger' },
     { key: BillingAlertWizardStep.Configure, label: 'Configure' },
 ]
+
+const BILLING_ALERT_DESTINATIONS: {
+    key: BillingAlertDestinationKey
+    name: string
+    description: string
+    icon: string
+}[] = [
+    {
+        key: 'slack',
+        name: 'Slack',
+        description: 'Post to a Slack channel when the billing alert fires, resolves, or errors.',
+        icon: '/static/services/slack.png',
+    },
+    {
+        key: 'teams',
+        name: 'Microsoft Teams',
+        description: 'Post to a Microsoft Teams webhook when the billing alert fires, resolves, or errors.',
+        icon: '/static/services/microsoft-teams.png',
+    },
+    {
+        key: 'webhook',
+        name: 'Webhook',
+        description: 'Send an HTTP request when the billing alert fires, resolves, or errors.',
+        icon: '/static/services/webhook.svg',
+    },
+]
+
+const BILLING_ALERT_DESTINATION_SELECT_OPTIONS = BILLING_ALERT_DESTINATIONS.map((destination) => ({
+    value: destination.key,
+    label: destination.name,
+    icon: <img src={destination.icon} alt="" className="h-5 w-5 object-contain" />,
+}))
 
 function metricLabel(metric: MetricEnumApi | undefined): string {
     return metric === 'usage' ? 'Usage' : 'Spend'
@@ -88,6 +119,21 @@ function stateLabel(state: BillingAlertConfigurationStateEnumApi, enabled: boole
     return state.replaceAll('_', ' ')
 }
 
+function destinationLabel(destinationKey: BillingAlertDestinationKey): string {
+    return BILLING_ALERT_DESTINATIONS.find((destination) => destination.key === destinationKey)?.name ?? 'Destination'
+}
+
+function destinationWebhookLabel(destinationKey: BillingAlertDestinationKey): string {
+    return destinationKey === 'teams' ? 'Microsoft Teams webhook URL' : 'Webhook URL'
+}
+
+function destinationDisabledReason(destinationKey: BillingAlertDestinationKey): string {
+    if (destinationKey === 'slack') {
+        return 'Slack connection and channel are required.'
+    }
+    return `Enter a valid ${destinationWebhookLabel(destinationKey).toLowerCase()}.`
+}
+
 function BillingAlertEvents({ events }: { events: BillingAlertEventApi[] | undefined }): JSX.Element {
     if (!events) {
         return <Spinner />
@@ -133,8 +179,7 @@ export function BillingAlerts(): JSX.Element {
         deleteAlert,
         checkNow,
         loadEvents,
-        setDestinationAlertId,
-        setSlackChannel,
+        openDestinationPanel,
     } = useActions(billingAlertsLogic)
 
     const columns: LemonTableColumns<BillingAlertConfiguration> = [
@@ -211,12 +256,9 @@ export function BillingAlerts(): JSX.Element {
                                         onClick: () => checkNow(alert),
                                     },
                                     {
-                                        label: 'Add Slack destination',
+                                        label: 'Add destination',
                                         icon: <IconPlus />,
-                                        onClick: () => {
-                                            setDestinationAlertId(alert.id)
-                                            setSlackChannel(null)
-                                        },
+                                        onClick: () => openDestinationPanel(alert.id),
                                     },
                                     {
                                         label: 'Delete',
@@ -303,7 +345,7 @@ export function BillingAlerts(): JSX.Element {
                 }}
             />
 
-            <BillingAlertSlackDestinationPanel />
+            <BillingAlertDestinationPanel />
         </div>
     )
 }
@@ -329,7 +371,7 @@ function BillingAlertWizard(): JSX.Element {
 
 function BillingAlertDestinationStep(): JSX.Element {
     const { selectedDestinationKey } = useValues(billingAlertsLogic)
-    const { setSelectedDestinationKey } = useActions(billingAlertsLogic)
+    const { selectDestination } = useActions(billingAlertsLogic)
 
     return (
         <div className="space-y-4">
@@ -338,13 +380,16 @@ function BillingAlertDestinationStep(): JSX.Element {
                 <p className="text-secondary text-sm">Choose the first notification destination for this alert.</p>
             </div>
             <div className="space-y-3">
-                <AlertingChoiceCard
-                    icon={<IconSlack className="text-2xl" />}
-                    name="Slack"
-                    description="Post to a Slack channel when the billing alert fires, resolves, or errors."
-                    selected={selectedDestinationKey === 'slack'}
-                    onClick={() => setSelectedDestinationKey('slack')}
-                />
+                {BILLING_ALERT_DESTINATIONS.map((destination) => (
+                    <AlertingChoiceCard
+                        key={destination.key}
+                        icon={<img src={destination.icon} alt="" className="h-8 w-8 object-contain" />}
+                        name={destination.name}
+                        description={destination.description}
+                        selected={selectedDestinationKey === destination.key}
+                        onClick={() => selectDestination(destination.key)}
+                    />
+                ))}
             </div>
         </div>
     )
@@ -391,9 +436,7 @@ function BillingAlertConfigureStep(): JSX.Element {
                     type="primary"
                     onClick={createAlert}
                     loading={saving}
-                    disabledReason={
-                        !canSubmit ? 'Name, threshold, Slack connection, and channel are required.' : undefined
-                    }
+                    disabledReason={!canSubmit ? 'Name, threshold, and destination details are required.' : undefined}
                     data-attr="create-billing-alert"
                 >
                     Create alert
@@ -424,9 +467,7 @@ function BillingAlertTraditionalEditor(): JSX.Element {
                     type="primary"
                     onClick={createAlert}
                     loading={saving}
-                    disabledReason={
-                        !canSubmit ? 'Name, threshold, Slack connection, and channel are required.' : undefined
-                    }
+                    disabledReason={!canSubmit ? 'Name, threshold, and destination details are required.' : undefined}
                     data-attr="create-billing-alert"
                 >
                     Create alert
@@ -437,15 +478,21 @@ function BillingAlertTraditionalEditor(): JSX.Element {
 }
 
 function BillingAlertFormFields({ includeDestination }: { includeDestination: boolean }): JSX.Element {
-    const { form, slackIntegrationId, slackChannel } = useValues(billingAlertsLogic)
-    const { setFormValue, setSlackIntegrationId, setSlackChannel } = useActions(billingAlertsLogic)
-    const { integrations, integrationsLoading } = useValues(integrationsLogic)
-
-    const slackIntegrations = integrations?.filter((integration) => integration.kind === 'slack') ?? []
-    const selectedSlackIntegration = integrations?.find((integration) => integration.id === slackIntegrationId)
-
     return (
         <div className="deprecated-space-y-4">
+            <BillingAlertThresholdFields />
+
+            {includeDestination ? <BillingAlertDestinationFields /> : null}
+        </div>
+    )
+}
+
+function BillingAlertThresholdFields(): JSX.Element {
+    const { form } = useValues(billingAlertsLogic)
+    const { setFormValue } = useActions(billingAlertsLogic)
+
+    return (
+        <>
             <LemonField.Pure label="Name">
                 <LemonInput
                     value={form.name}
@@ -552,44 +599,71 @@ function BillingAlertFormFields({ includeDestination }: { includeDestination: bo
                     />
                 </LemonField.Pure>
             </div>
-
-            {includeDestination ? (
-                <div className="deprecated-space-y-3">
-                    <h3 className="mb-0">Slack destination</h3>
-                    {integrationsLoading ? (
-                        <Spinner />
-                    ) : !slackIntegrations.length ? (
-                        <SlackNotConfiguredBanner />
-                    ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            <IntegrationChoice
-                                integration="slack"
-                                value={slackIntegrationId ?? undefined}
-                                onChange={(integrationId) => setSlackIntegrationId(integrationId)}
-                            />
-                            {selectedSlackIntegration ? (
-                                <SlackChannelPicker
-                                    integration={selectedSlackIntegration as IntegrationType}
-                                    value={slackChannel ?? undefined}
-                                    onChange={setSlackChannel}
-                                />
-                            ) : null}
-                        </div>
-                    )}
-                </div>
-            ) : null}
-        </div>
+        </>
     )
 }
 
-function BillingAlertSlackDestinationPanel(): JSX.Element | null {
-    const { destinationAlertId, slackIntegrationId, slackChannel, destinationSaving } = useValues(billingAlertsLogic)
-    const { setDestinationAlertId, setSlackIntegrationId, setSlackChannel, createSlackDestination } =
+function BillingAlertDestinationFields(): JSX.Element {
+    const { selectedDestinationKey, slackIntegrationId, slackChannel, webhookUrl } = useValues(billingAlertsLogic)
+    const { setSelectedDestinationKey, setSlackIntegrationId, setSlackChannel, setWebhookUrl } =
         useActions(billingAlertsLogic)
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
 
     const slackIntegrations = integrations?.filter((integration) => integration.kind === 'slack') ?? []
     const selectedSlackIntegration = integrations?.find((integration) => integration.id === slackIntegrationId)
+
+    return (
+        <div className="deprecated-space-y-3">
+            <h3 className="mb-0">Destination</h3>
+            <LemonField.Pure label="Destination type">
+                <LemonSelect
+                    value={selectedDestinationKey}
+                    onChange={(destinationKey) =>
+                        setSelectedDestinationKey(destinationKey as BillingAlertDestinationKey)
+                    }
+                    options={BILLING_ALERT_DESTINATION_SELECT_OPTIONS}
+                />
+            </LemonField.Pure>
+
+            {selectedDestinationKey === 'slack' ? (
+                integrationsLoading ? (
+                    <Spinner />
+                ) : !slackIntegrations.length ? (
+                    <SlackNotConfiguredBanner />
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <IntegrationChoice
+                            integration="slack"
+                            value={slackIntegrationId ?? undefined}
+                            onChange={(integrationId) => setSlackIntegrationId(integrationId)}
+                        />
+                        {selectedSlackIntegration ? (
+                            <SlackChannelPicker
+                                integration={selectedSlackIntegration as IntegrationType}
+                                value={slackChannel ?? undefined}
+                                onChange={setSlackChannel}
+                            />
+                        ) : null}
+                    </div>
+                )
+            ) : (
+                <LemonField.Pure label={destinationWebhookLabel(selectedDestinationKey)}>
+                    <LemonInput
+                        value={webhookUrl}
+                        onChange={setWebhookUrl}
+                        placeholder="https://..."
+                        data-attr="billing-alert-webhook-url"
+                    />
+                </LemonField.Pure>
+            )}
+        </div>
+    )
+}
+
+function BillingAlertDestinationPanel(): JSX.Element | null {
+    const { destinationAlertId, selectedDestinationKey, destinationSaving, canCreateDestination } =
+        useValues(billingAlertsLogic)
+    const { setDestinationAlertId, createDestination } = useActions(billingAlertsLogic)
 
     if (!destinationAlertId) {
         return null
@@ -599,46 +673,27 @@ function BillingAlertSlackDestinationPanel(): JSX.Element | null {
         <LemonModal
             isOpen
             onClose={() => setDestinationAlertId(null)}
-            title="Slack destination"
+            title="Add destination"
             width={600}
-            data-attr="billing-alert-slack-destination"
+            data-attr="billing-alert-destination"
         >
-            {integrationsLoading ? (
-                <Spinner />
-            ) : !slackIntegrations.length ? (
-                <SlackNotConfiguredBanner />
-            ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <IntegrationChoice
-                        integration="slack"
-                        value={slackIntegrationId ?? undefined}
-                        onChange={(integrationId) => setSlackIntegrationId(integrationId)}
-                    />
-                    {selectedSlackIntegration ? (
-                        <SlackChannelPicker
-                            integration={selectedSlackIntegration as IntegrationType}
-                            value={slackChannel ?? undefined}
-                            onChange={setSlackChannel}
-                        />
-                    ) : null}
-                    <div className="md:col-span-2 flex justify-end">
-                        <LemonButton
-                            type="primary"
-                            icon={<IconPlus />}
-                            onClick={createSlackDestination}
-                            loading={destinationSaving}
-                            disabledReason={
-                                !slackIntegrationId || !slackChannel
-                                    ? 'Slack connection and channel are required.'
-                                    : undefined
-                            }
-                            data-attr="create-billing-alert-slack-destination"
-                        >
-                            Add Slack destination
-                        </LemonButton>
-                    </div>
+            <div className="deprecated-space-y-4">
+                <BillingAlertDestinationFields />
+                <div className="flex justify-end">
+                    <LemonButton
+                        type="primary"
+                        icon={<IconPlus />}
+                        onClick={createDestination}
+                        loading={destinationSaving}
+                        disabledReason={
+                            !canCreateDestination ? destinationDisabledReason(selectedDestinationKey) : undefined
+                        }
+                        data-attr="create-billing-alert-destination"
+                    >
+                        Add {destinationLabel(selectedDestinationKey)} destination
+                    </LemonButton>
                 </div>
-            )}
+            </div>
         </LemonModal>
     )
 }
