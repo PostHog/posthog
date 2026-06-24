@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Result};
-use clap::Subcommand;
 use posthog_symbol_data::{write_symbol_data, ElfDebugInfo};
 use symbolic::debuginfo::{Archive, FileFormat, ObjectKind};
 use tracing::{info, warn};
@@ -10,12 +9,6 @@ use crate::api::symbol_sets::SymbolSetUpload;
 use crate::dsym::source_bundle;
 
 pub mod upload;
-
-#[derive(Subcommand)]
-pub enum DebugSymbolsSubcommand {
-    /// Upload native debug symbol files (ELF) to PostHog
-    Upload(upload::Args),
-}
 
 const ELF_MAGIC: &[u8; 4] = b"\x7fELF";
 

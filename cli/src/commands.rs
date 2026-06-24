@@ -6,7 +6,6 @@ use tracing::{debug, error, warn};
 
 use crate::{
     api_proxy,
-    debug_symbols::DebugSymbolsSubcommand,
     download::SymbolSetsSubcommand,
     dsym::DsymSubcommand,
     error::CapturedError,
@@ -68,7 +67,9 @@ fn dry_run_skipped_command(command: &Commands) -> Option<&'static str> {
     match command {
         Commands::Sourcemap { .. } => Some("sourcemap"),
         Commands::Dsym { .. } => Some("dSYM"),
-        Commands::DebugSymbols { .. } => Some("debug symbols"),
+        Commands::SymbolSets {
+            cmd: SymbolSetsSubcommand::Upload(_),
+        } => Some("native debug symbols"),
         Commands::Hermes { .. } => Some("hermes sourcemap"),
         Commands::Proguard { .. } => Some("proguard"),
         Commands::Exp { cmd } => match cmd {
@@ -132,12 +133,6 @@ pub enum Commands {
         cmd: DsymSubcommand,
     },
 
-    #[command(about = "Upload native debug symbol files (ELF) to PostHog")]
-    DebugSymbols {
-        #[command(subcommand)]
-        cmd: DebugSymbolsSubcommand,
-    },
-
     #[command(about = "Upload hermes sourcemaps to PostHog")]
     Hermes {
         #[command(subcommand)]
@@ -150,7 +145,7 @@ pub enum Commands {
         cmd: ProguardSubcommand,
     },
 
-    #[command(about = "Manage uploaded symbol sets")]
+    #[command(about = "Upload, download, and manage symbol sets")]
     SymbolSets {
         #[command(subcommand)]
         cmd: SymbolSetsSubcommand,
@@ -328,11 +323,6 @@ impl Cli {
                     crate::dsym::upload::upload(&args)?;
                 }
             },
-            Commands::DebugSymbols { cmd } => match cmd {
-                DebugSymbolsSubcommand::Upload(args) => {
-                    crate::debug_symbols::upload::upload(&args)?;
-                }
-            },
             Commands::Hermes { cmd } => match cmd {
                 HermesSubcommand::Inject(args) => {
                     crate::sourcemaps::hermes::inject::inject(&args)?;
@@ -350,6 +340,9 @@ impl Cli {
                 }
             },
             Commands::SymbolSets { cmd } => match cmd {
+                SymbolSetsSubcommand::Upload(args) => {
+                    crate::debug_symbols::upload::upload(&args)?;
+                }
                 SymbolSetsSubcommand::Download(args) => {
                     crate::download::download(&args)?;
                 }
