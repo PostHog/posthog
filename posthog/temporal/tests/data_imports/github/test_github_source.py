@@ -531,6 +531,57 @@ class TestGithubSourceSortMode:
         assert response.sort_mode == expected_sort_mode
 
 
+# A fresh webhook schema must not deadlock: workflow_jobs does no poll backfill
+# (initial_lookback_days == 0), so webhook mode has to activate before the zero-row
+# poll could mark initial_sync_complete — otherwise the gate never opens and queued
+# webhook files never drain. workflow_runs (and the non-webhook endpoints) keep their
+# historical poll backfill, so they must NOT skip that gate.
+class TestGithubWebhookActivationGate:
+    def _make_webhook_manager(self, enabled: bool) -> mock.Mock:
+        manager = mock.Mock()
+        manager.webhook_enabled = mock.AsyncMock(return_value=enabled)
+        manager.get_items = mock.Mock(return_value=iter([{"id": 1}]))
+        return manager
+
+    @parameterized.expand(
+        [
+            ("workflow_jobs_skips_gate", "workflow_jobs", True),
+            ("workflow_runs_keeps_gate", "workflow_runs", False),
+            ("issues_keeps_gate", "issues", False),
+        ]
+    )
+    def test_skip_check_scoped_to_zero_backfill_endpoint(self, _name: str, endpoint: str, expected_skip: bool) -> None:
+        manager = self._make_webhook_manager(enabled=False)
+        github_source(
+            personal_access_token="token",
+            repository="owner/repo",
+            endpoint=endpoint,
+            logger=mock.Mock(),
+            resumable_source_manager=_make_manager(),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=None,
+            webhook_source_manager=manager,
+        )
+        manager.webhook_enabled.assert_called_once_with(expected_skip)
+
+    def test_webhook_path_drains_manager_when_enabled(self) -> None:
+        # Gate skipped + webhook_enabled True: items() reads the webhook manager (S3
+        # parquet) instead of running the zero-row workflow_jobs poll.
+        manager = self._make_webhook_manager(enabled=True)
+        response = github_source(
+            personal_access_token="token",
+            repository="owner/repo",
+            endpoint="workflow_jobs",
+            logger=mock.Mock(),
+            resumable_source_manager=_make_manager(),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=None,
+            webhook_source_manager=manager,
+        )
+        assert list(response.items()) == [{"id": 1}]
+        manager.get_items.assert_called_once()
+
+
 class TestGetRowsResume:
     """Integration tests for the fresh-run and resume flows in get_rows."""
 
@@ -1139,6 +1190,18 @@ class TestFanOutJobs:
         assert any("/runs/1003/jobs" in c for c in jobs_calls)
         assert not any("/runs/1001/jobs" in c for c in jobs_calls)
 
+    def _make_first_sync_session(self) -> tuple[datetime, _RoutingSession]:
+        # Two runs newest-first: 1003 a day before the frozen now, 1001 over a month back.
+        frozen_now = datetime(2026, 2, 20, tzinfo=UTC)
+        session = _RoutingSession(
+            runs_pages=[(_runs_envelope(_run("2026-02-19T00:00:00Z", 1003), _run("2026-01-10T00:00:00Z", 1001)), "")],
+            jobs_by_run={
+                1003: (_jobs_envelope({"id": 9, "run_id": 1003}), ""),
+                1001: (_jobs_envelope({"id": 1, "run_id": 1001}), ""),
+            },
+        )
+        return frozen_now, session
+
     def _fan_out_with_lookback(self, session: _RoutingSession, lookback_days: int | None, **kwargs: Any) -> list[Any]:
         # Override the production initial_lookback_days so the floor mechanism can be
         # tested independently of whatever default the workflow_jobs endpoint ships.
@@ -1152,16 +1215,8 @@ class TestFanOutJobs:
     def test_first_incremental_sync_floors_fan_out_to_lookback_window(self) -> None:
         # First incremental sync (watermark configured, nothing synced yet) with a
         # non-zero floor: the backfill is bounded at initial_lookback_days instead of
-        # crawling all history. Runs are newest-first; 1003 lands a day before the
-        # frozen now (inside a 30-day window) and 1001 over a month back (outside).
-        frozen_now = datetime(2026, 2, 20, tzinfo=UTC)
-        session = _RoutingSession(
-            runs_pages=[(_runs_envelope(_run("2026-02-19T00:00:00Z", 1003), _run("2026-01-10T00:00:00Z", 1001)), "")],
-            jobs_by_run={
-                1003: (_jobs_envelope({"id": 9, "run_id": 1003}), ""),
-                1001: (_jobs_envelope({"id": 1, "run_id": 1001}), ""),
-            },
-        )
+        # crawling all history. 1003 is inside a 30-day window, 1001 is outside.
+        frozen_now, session = self._make_first_sync_session()
 
         with mock.patch(
             "posthog.temporal.data_imports.sources.github.github._now_utc",
@@ -1186,14 +1241,7 @@ class TestFanOutJobs:
         # expensive to backfill at high run volume, so the first sync fans out over
         # nothing and the webhook becomes the source of truth. Both historical runs
         # are skipped — no jobs request is made for either.
-        frozen_now = datetime(2026, 2, 20, tzinfo=UTC)
-        session = _RoutingSession(
-            runs_pages=[(_runs_envelope(_run("2026-02-19T00:00:00Z", 1003), _run("2026-01-10T00:00:00Z", 1001)), "")],
-            jobs_by_run={
-                1003: (_jobs_envelope({"id": 9, "run_id": 1003}), ""),
-                1001: (_jobs_envelope({"id": 1, "run_id": 1001}), ""),
-            },
-        )
+        frozen_now, session = self._make_first_sync_session()
 
         with mock.patch(
             "posthog.temporal.data_imports.sources.github.github._now_utc",

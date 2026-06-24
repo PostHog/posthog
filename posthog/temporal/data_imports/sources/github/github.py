@@ -622,8 +622,18 @@ def github_source(
     # Steady-state webhook ingestion replaces the poll fan-out once the initial
     # backfill is complete and a webhook function is enabled. When no manager is
     # passed (or it isn't enabled), the poll path below stays unchanged.
+    #
+    # An endpoint whose poll does no first-sync backfill (initial_lookback_days == 0,
+    # i.e. workflow_jobs) would otherwise deadlock a fresh webhook schema: the
+    # zero-row poll never creates a table, so initial_sync_complete is never set, so
+    # webhook_enabled stays False forever and queued webhook files never drain. There
+    # is no backfill to lose for these, so activate webhook mode from the first run
+    # (skip the initial_sync_complete gate), the same way the Slack source does.
+    skip_initial_sync_complete_check = endpoint_config.initial_lookback_days == 0
     webhook_enabled = (
-        async_to_sync(webhook_source_manager.webhook_enabled)() if webhook_source_manager is not None else False
+        async_to_sync(webhook_source_manager.webhook_enabled)(skip_initial_sync_complete_check)
+        if webhook_source_manager is not None
+        else False
     )
 
     def items() -> Iterator[Any] | AsyncIterator[Any]:
