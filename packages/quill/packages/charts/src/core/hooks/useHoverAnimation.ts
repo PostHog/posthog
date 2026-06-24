@@ -23,6 +23,8 @@ interface UseHoverAnimationOptions {
     hoverPosition: { x: number; y: number } | null
     theme: ChartTheme
     dragRect?: DragRect | null
+    /** True when the chart's `isolateModifier` key is held — passed through to `drawHover`. */
+    modifierActive?: boolean
     drawHover: (args: ChartDrawArgs) => DrawHoverResult
     /** Duration (ms) of the hover-overlay fade-in. `0` snaps instantly. */
     hoverAnimationMs: number
@@ -43,6 +45,7 @@ export function useHoverAnimation({
     hoverPosition,
     theme,
     dragRect = null,
+    modifierActive = false,
     drawHover,
     hoverAnimationMs,
 }: UseHoverAnimationOptions): void {
@@ -103,6 +106,7 @@ export function useHoverAnimation({
                 hoverProgress,
                 resetHoverFade,
                 dragRect: dragRectRef.current,
+                modifierActive,
             })
             overlayCtx.restore()
             drewVisibleRef.current = drewVisible
@@ -130,6 +134,8 @@ export function useHoverAnimation({
         // the effect per mousemove doesn't restart the animation.
         // series/labels/theme/drawHover/dragRect are read via refs — dragRect is also in the dep
         // array below so the overlay repaints the selection as the drag rectangle changes.
+        // modifierActive is a dep so toggling the isolate key repaints the overlay even while the
+        // cursor is stationary (hoverIndex/hoverPosition unchanged).
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [overlayCtx, dimensions, scales, hoverIndex, hoverPosition, hoverAnimationMs, dragRect])
+    }, [overlayCtx, dimensions, scales, hoverIndex, hoverPosition, hoverAnimationMs, dragRect, modifierActive])
 }

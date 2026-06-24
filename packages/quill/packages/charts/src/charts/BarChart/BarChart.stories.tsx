@@ -35,6 +35,24 @@ export const StackedDefault: Story = {
     },
 }
 
+export const StackedShiftToIsolate: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const config: BarChartConfig = { barLayout: 'stacked', showGrid: true }
+        return (
+            <Stage>
+                <div className="flex flex-col gap-2">
+                    <p className="text-xs opacity-60 m-0">
+                        Hover a bar, then hold <kbd>⇧ Shift</kbd> to dim the rest of the stack and isolate the single
+                        segment under the cursor — the tooltip narrows to that series.
+                    </p>
+                    <BarChart series={THREE_SERIES} labels={DAYS} config={config} theme={theme} />
+                </div>
+            </Stage>
+        )
+    },
+}
+
 export const Grouped: Story = {
     render: () => {
         const theme = useReactiveTheme()

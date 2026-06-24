@@ -54,6 +54,29 @@ interface RawDragOptions {
     release?: { x: number; y: number }
 }
 
+type ModifierKey = 'Shift' | 'Alt' | 'Meta'
+
+const MODIFIER_FLAG: Record<ModifierKey, 'shiftKey' | 'altKey' | 'metaKey'> = {
+    Shift: 'shiftKey',
+    Alt: 'altKey',
+    Meta: 'metaKey',
+}
+
+/** Press a modifier key (default Shift) globally — the chart's `useModifierKey` listens on
+ *  `window`. The matching `*Key` flag is set on the event so the hook reads it as held. */
+export function pressModifier(key: ModifierKey = 'Shift'): void {
+    act(() => {
+        fireEvent.keyDown(window, { key, [MODIFIER_FLAG[key]]: true })
+    })
+}
+
+/** Release a modifier key (default Shift) globally — counterpart to {@link pressModifier}. */
+export function releaseModifier(key: ModifierKey = 'Shift'): void {
+    act(() => {
+        fireEvent.keyUp(window, { key, [MODIFIER_FLAG[key]]: false })
+    })
+}
+
 /** Pixel-precise drag with explicit client coords — for edge cases `dragSelection` can't express
  *  (sub-threshold moves, non-primary buttons, out-of-plot starts, off-wrapper releases). The mouseup
  *  fires on window since the chart's drag handler listens globally; no trailing click is dispatched. */

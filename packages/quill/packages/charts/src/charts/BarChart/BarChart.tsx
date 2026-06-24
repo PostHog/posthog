@@ -33,8 +33,8 @@ import type {
 } from '../../core/types'
 import { BarTooltip } from './BarTooltip'
 import { computeWrapperMinHeight, HORIZONTAL_MIN_BAND_SIZE_DEFAULT } from './utils/bar-config'
-import { groupedBandSlotAtCursor } from './utils/bars-under-cursor'
-import { drawBarChartStatic, drawBarHoverItems } from './utils/draw-bar-chart'
+import { groupedBandSlotAtCursor, isStackedLayout } from './utils/bars-under-cursor'
+import { drawBarChartStatic, drawBarHoverItems, drawIsolatedSegment } from './utils/draw-bar-chart'
 import { resolveBarHoverItems } from './utils/resolve-bar-hover'
 import { resolveClickedBarSeries } from './utils/resolve-clicked-bar-series'
 
@@ -98,6 +98,12 @@ function BarChartInner<Meta = unknown>({
     const barTrackHover = trackConfig === true || (typeof trackConfig === 'object' && trackConfig.hover !== false)
 
     const { visibleSeries, legendProps } = useChartLegend(series, theme, config?.legend)
+
+    // Hold-Shift-to-isolate: only meaningful for a stacked/percent layout with more than one
+    // segment sharing a band and a tooltip to narrow. Auto-enabled (matching the classic insight
+    // chart's "hold Shift to highlight individual bars" affordance) — no opt-in needed.
+    const shiftIsolateEnabled =
+        isStackedLayout(barLayout) && config?.tooltip?.enabled !== false && visibleSeries.length > 1
 
     const resolvedMinBandSize = minBandSize ?? (isHorizontal ? HORIZONTAL_MIN_BAND_SIZE_DEFAULT : 0)
     const wrapperMinHeight = useMemo(
@@ -294,7 +300,7 @@ function BarChartInner<Meta = unknown>({
 
     const drawHover = useCallback(
         (args: ChartDrawArgs): DrawHoverResult => {
-            const { ctx, scales, hoverIndex, hoverProgress, resetHoverFade } = args
+            const { ctx, dimensions, theme: drawTheme, scales, hoverIndex, hoverProgress, resetHoverFade } = args
             const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
             if (!d3Scales || hoverIndex < 0) {
                 lastHoverKeyRef.current = null
@@ -312,20 +318,25 @@ function BarChartInner<Meta = unknown>({
                 lastHoverKeyRef.current = null
                 return false
             }
-            // Key on the bar-vs-track composition so a bar → track move at the same hoverIndex
-            // still restarts the fade.
-            const currentKey = `${hoverIndex}:${resolved.composition}`
+            const isolate = !!args.modifierActive && shiftIsolateEnabled
+            // Key on the bar-vs-track composition and the isolate mode so a bar → track move (or a
+            // Shift press/release) at the same hoverIndex still restarts the fade.
+            const currentKey = `${hoverIndex}:${resolved.composition}:${isolate ? 'i' : 'h'}`
             let alpha = hoverProgress
             if (currentKey !== lastHoverKeyRef.current) {
                 alpha = resetHoverFade()
                 lastHoverKeyRef.current = currentKey
             }
-            drawBarHoverItems(ctx, d3Scales, resolved, {
-                alpha,
-                barCornerRadius,
-                barTrack,
-                isHorizontal,
-            })
+            if (isolate) {
+                drawIsolatedSegment(ctx, dimensions, drawTheme, resolved, { alpha, barCornerRadius })
+            } else {
+                drawBarHoverItems(ctx, d3Scales, resolved, {
+                    alpha,
+                    barCornerRadius,
+                    barTrack,
+                    isHorizontal,
+                })
+            }
             return true
         },
         [
@@ -337,6 +348,7 @@ function BarChartInner<Meta = unknown>({
             barCornerRadius,
             barTrack,
             barTrackHover,
+            shiftIsolateEnabled,
         ]
     )
 
@@ -390,9 +402,11 @@ function BarChartInner<Meta = unknown>({
                     topStackedKeyByAxis={topStackedKeyByAxis}
                     layout={barLayout}
                     isHorizontal={isHorizontal}
+                    isolateEnabled={shiftIsolateEnabled}
                 />
             )}
             onPointClick={onPointClick}
+            isolateModifier={shiftIsolateEnabled ? 'shift' : undefined}
             wrapClickData={onPointClick ? wrapClickData : undefined}
             className={className}
             dataAttr={dataAttr}

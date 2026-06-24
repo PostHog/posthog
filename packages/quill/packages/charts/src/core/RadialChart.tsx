@@ -155,7 +155,8 @@ export function RadialChart<Meta = unknown>({
         return { layout, canvasBounds }
     }, [layout, canvasBounds])
 
-    const hoverValue = useMemo<ChartHoverContextValue>(() => ({ hoverIndex }), [hoverIndex])
+    // Radial charts don't track an isolate modifier — keep `modifierActive` false.
+    const hoverValue = useMemo<ChartHoverContextValue>(() => ({ hoverIndex, modifierActive: false }), [hoverIndex])
 
     return (
         <ChartLayoutContext.Provider value={layoutValue as ChartLayoutContextValue | null}>

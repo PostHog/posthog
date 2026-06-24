@@ -18,6 +18,9 @@ export interface DefaultTooltipProps<Meta = unknown> extends TooltipContext<Meta
     /** Formats the total value. Defaults to the `valueFormatter` (applied with the first summable
      *  row's entry) or `toLocaleString`. */
     totalFormatter?: (value: number) => string
+    /** Muted footer note rendered below the rows inside the tooltip surface — e.g. a "hold Shift to
+     *  isolate a series" affordance. Omit for no footer. */
+    footer?: React.ReactNode
 }
 
 export function DefaultTooltip<Meta = unknown>({
@@ -27,6 +30,7 @@ export function DefaultTooltip<Meta = unknown>({
     showTotal,
     totalLabel = 'Total',
     totalFormatter,
+    footer,
 }: DefaultTooltipProps<Meta>): React.ReactElement {
     const format = valueFormatter ?? ((value: number): string => value.toLocaleString())
     const summable = seriesData.filter((s) => !s.series.overlay)
@@ -54,6 +58,14 @@ export function DefaultTooltip<Meta = unknown>({
                     <span className="w-2" />
                     <span>{totalLabel}:</span>
                     <strong data-attr="hog-chart-tooltip-value">{formatTotal(total)}</strong>
+                </div>
+            )}
+            {footer != null && (
+                <div
+                    data-attr="hog-chart-tooltip-footer"
+                    className="text-xs opacity-60 mt-1 pt-1 border-t border-current/25"
+                >
+                    {footer}
                 </div>
             )}
         </TooltipSurface>

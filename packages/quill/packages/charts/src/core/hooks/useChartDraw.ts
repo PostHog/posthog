@@ -25,6 +25,8 @@ interface UseChartDrawOptions {
     hoverPosition: { x: number; y: number } | null
     theme: ChartTheme
     dragRect?: DragRect | null
+    /** True when the chart's `isolateModifier` key is held — forwarded to the hover overlay. */
+    modifierActive?: boolean
     drawStatic: (args: ChartDrawArgs) => void
     drawHover: (args: ChartDrawArgs) => DrawHoverResult
     /** Duration (ms) of the hover-overlay fade-in/out. `0` disables. */
@@ -42,6 +44,7 @@ export function useChartDraw({
     hoverPosition,
     theme,
     dragRect = null,
+    modifierActive = false,
     drawStatic,
     drawHover,
     hoverAnimationMs = 0,
@@ -95,6 +98,7 @@ export function useChartDraw({
         hoverPosition,
         theme,
         dragRect,
+        modifierActive,
         drawHover,
         hoverAnimationMs,
     })

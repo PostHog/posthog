@@ -2,9 +2,17 @@ import { fireEvent, waitFor } from '@testing-library/react'
 
 import type { BarChartConfig, ChartTheme, PointClickData, Series } from '../../core/types'
 import { ReferenceLine } from '../../overlays/ReferenceLine'
-import { getHogChart, getHogChartTooltip, renderHogChart } from '../../testing'
+import {
+    getHogChart,
+    getHogChartTooltip,
+    pressModifier,
+    releaseModifier,
+    renderHogChart,
+    waitForHogChartTooltip,
+} from '../../testing'
 import { dimensions } from '../../testing/jsdom'
 import { BarChart } from './BarChart'
+import { SHIFT_ISOLATE_HINT } from './BarTooltip'
 
 const THEME: ChartTheme = {
     colors: ['#1f77b4', '#ff7f0e', '#2ca02c'],
@@ -570,6 +578,120 @@ describe('BarChart', () => {
             const tooltip = await chart.waitForTooltip()
             expect(tooltip.element.textContent).toContain('A')
             expect(tooltip.element.textContent).not.toContain('B')
+        })
+    })
+
+    describe('hold Shift to isolate a stacked segment', () => {
+        // At index 1: a=20 (bottom, value 0–20), b=15 (top, value 20–35). Mid-plot lands in b's
+        // segment; just inside the bottom edge lands in a's.
+        const bandCenterX = dimensions.plotLeft + (dimensions.plotWidth / LABELS.length) * 1.5
+        const nearBottomY = dimensions.plotTop + dimensions.plotHeight - 8
+
+        afterEach(() => releaseModifier())
+
+        it('narrows the tooltip to the segment under the cursor while Shift is held', async () => {
+            const { chart } = renderHogChart(
+                <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ barLayout: 'stacked' }} />
+            )
+            chart.hoverAtIndex(1)
+            const full = await chart.waitForTooltip()
+            expect(full.seriesData.map((s) => s.series.key).sort()).toEqual(['a', 'b'])
+
+            pressModifier()
+            const isolated = await chart.waitForTooltip()
+            expect(isolated.seriesData.map((s) => s.series.key)).toEqual(['b'])
+            expect(isolated.seriesData[0].value).toBe(15)
+        })
+
+        it('isolates the segment matching the cursor y, not just the topmost', async () => {
+            const { chart } = renderHogChart(
+                <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ barLayout: 'stacked' }} />
+            )
+            fireEvent.mouseMove(chart.element, { clientX: bandCenterX, clientY: nearBottomY })
+            await chart.waitForTooltip()
+            pressModifier()
+            const isolated = await chart.waitForTooltip()
+            expect(isolated.seriesData.map((s) => s.series.key)).toEqual(['a'])
+            expect(isolated.seriesData[0].value).toBe(20)
+        })
+
+        it('restores the full stack when Shift is released', async () => {
+            const { chart } = renderHogChart(
+                <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ barLayout: 'stacked' }} />
+            )
+            chart.hoverAtIndex(1)
+            await chart.waitForTooltip()
+            pressModifier()
+            expect((await chart.waitForTooltip()).seriesData).toHaveLength(1)
+            releaseModifier()
+            expect((await chart.waitForTooltip()).seriesData).toHaveLength(2)
+        })
+
+        it('isolates in percent layout too, reporting the segment fraction', async () => {
+            // At index 1 the fractions are a=20/35 (bottom 57%) and b=15/35 (top 43%), so mid-plot
+            // lands in a's segment.
+            const { chart } = renderHogChart(
+                <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ barLayout: 'percent' }} />
+            )
+            chart.hoverAtIndex(1)
+            await chart.waitForTooltip()
+            pressModifier()
+            const isolated = await chart.waitForTooltip()
+            expect(isolated.seriesData.map((s) => s.series.key)).toEqual(['a'])
+            expect(isolated.seriesData[0].value).toBeCloseTo(20 / 35, 5)
+        })
+
+        it('does not isolate a grouped layout (each bar is already separate)', async () => {
+            const { chart } = renderHogChart(
+                <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ barLayout: 'grouped' }} />
+            )
+            // Mid-plot band center lands in b's sub-band; Shift must not narrow further or error.
+            chart.hoverAtIndex(1)
+            const before = await chart.waitForTooltip()
+            pressModifier()
+            const after = await chart.waitForTooltip()
+            expect(after.seriesData.map((s) => s.series.key)).toEqual(before.seriesData.map((s) => s.series.key))
+        })
+
+        describe('hint footer (native tooltip)', () => {
+            it('advertises the affordance on a stacked tooltip when Shift is not held', async () => {
+                const { chart } = renderHogChart(
+                    <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ barLayout: 'stacked' }} />,
+                    { nativeTooltip: true }
+                )
+                const tooltip = await waitForHogChartTooltip(3000, () => chart.hoverAtIndex(1))
+                expect(tooltip.textContent).toContain(SHIFT_ISOLATE_HINT)
+            })
+
+            it('drops the hint while Shift is held', async () => {
+                const { chart } = renderHogChart(
+                    <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ barLayout: 'stacked' }} />,
+                    { nativeTooltip: true }
+                )
+                await waitForHogChartTooltip(3000, () => chart.hoverAtIndex(1))
+                pressModifier()
+                expect(getHogChartTooltip()?.textContent).not.toContain(SHIFT_ISOLATE_HINT)
+                releaseModifier()
+            })
+
+            it('shows no hint for a single-series stacked chart', async () => {
+                const single: Series[] = [{ key: 'a', label: 'A', data: [10, 20, 30] }]
+                const { chart } = renderHogChart(
+                    <BarChart series={single} labels={LABELS} theme={THEME} config={{ barLayout: 'stacked' }} />,
+                    { nativeTooltip: true }
+                )
+                const tooltip = await waitForHogChartTooltip(3000, () => chart.hoverAtIndex(1))
+                expect(tooltip.textContent).not.toContain(SHIFT_ISOLATE_HINT)
+            })
+
+            it('shows no hint on a grouped chart', async () => {
+                const { chart } = renderHogChart(
+                    <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ barLayout: 'grouped' }} />,
+                    { nativeTooltip: true }
+                )
+                const tooltip = await waitForHogChartTooltip(3000, () => chart.hoverAtIndex(1))
+                expect(tooltip.textContent).not.toContain(SHIFT_ISOLATE_HINT)
+            })
         })
     })
 

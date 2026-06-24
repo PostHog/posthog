@@ -96,6 +96,7 @@ export type {
     DateRangeZoomData,
     DragRect,
     LineChartConfig,
+    ModifierKey,
     PointClickData,
     ResolvedSeries,
     ResolveValueFn,

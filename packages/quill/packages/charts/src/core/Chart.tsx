@@ -14,10 +14,10 @@ import { useChartDraw } from './hooks/useChartDraw'
 import { useChartInteraction } from './hooks/useChartInteraction'
 import { useChartMargins } from './hooks/useChartMargins'
 import { useLatest } from './hooks/useLatest'
+import { useModifierKey } from './hooks/useModifierKey'
 import { useResolvedYFormatter } from './hooks/useResolvedYFormatters'
 import { useStableResolveValue } from './hooks/useStableResolveValue'
 import { useYAxisMaps } from './hooks/useYAxisMaps'
-import { computeYAxisGutters, type Gutter } from './y-axis-gutters'
 import type {
     ChartConfig,
     ChartDrawArgs,
@@ -26,11 +26,13 @@ import type {
     CreateScalesFn,
     DateRangeZoomData,
     DrawHoverResult,
+    ModifierKey,
     PointClickData,
     ResolveValueFn,
     Series,
     TooltipContext,
 } from './types'
+import { computeYAxisGutters, type Gutter } from './y-axis-gutters'
 
 const DEFAULT_AXIS_COLOR = 'rgba(0, 0, 0, 0.5)'
 const DEFAULT_HOVER_ANIMATION_MS = 150
@@ -61,6 +63,11 @@ export interface ChartProps<Meta = unknown> {
     /** Enables x-axis drag-to-zoom. Fired with the label range the user dragged across.
      *  x-axis only — has no effect on charts with a vertical (`interactionAxis: 'y'`) interaction. */
     onDateRangeZoom?: (data: DateRangeZoomData) => void
+    /** Track this modifier key (e.g. `'shift'`) while the chart is mounted and expose its
+     *  held state to `drawHover` (via `ChartDrawArgs.modifierActive`) and to tooltip components
+     *  (via `useChartHover().modifierActive`). Chart types use it for a "hold to isolate the data
+     *  point under the cursor" interaction. Omit to track nothing (the default). */
+    isolateModifier?: ModifierKey
     className?: string
     dataAttr?: string
     children?: React.ReactNode
@@ -102,6 +109,7 @@ export function Chart<Meta = unknown>({
     tooltip: renderTooltipProp,
     onPointClick,
     onDateRangeZoom,
+    isolateModifier,
     className,
     dataAttr,
     children,
@@ -128,10 +136,11 @@ export function Chart<Meta = unknown>({
         yAxes,
     } = config ?? {}
 
-    const { formatters: yAxisFormatters, positions: yAxisPositions, titles: yAxisTitles } = useYAxisMaps(
-        yAxes,
-        yAxisLabel
-    )
+    const {
+        formatters: yAxisFormatters,
+        positions: yAxisPositions,
+        titles: yAxisTitles,
+    } = useYAxisMaps(yAxes, yAxisLabel)
     const hoverAnimationMs = resolveHoverAnimationMs(animateHover)
     const interactionAxis: 'x' | 'y' = axisOrientation === 'horizontal' ? 'y' : 'x'
     const {
@@ -190,6 +199,8 @@ export function Chart<Meta = unknown>({
 
     const resolvedYFormatter = useResolvedYFormatter(scales, yTickFormatter)
 
+    const modifierActive = useModifierKey(isolateModifier)
+
     const { hoverIndex, hoverPosition, tooltipCtx, dragRect, handlers } = useChartInteraction<Meta>({
         scales,
         dimensions,
@@ -231,6 +242,7 @@ export function Chart<Meta = unknown>({
         hoverPosition,
         theme,
         dragRect,
+        modifierActive,
         drawStatic,
         drawHover: composedDrawHover,
         hoverAnimationMs,
@@ -293,7 +305,10 @@ export function Chart<Meta = unknown>({
         }
     }, [scales, dimensions, labels, coloredSeries, theme, stablePositionValue, canvasBounds, axisValue, yGutters])
 
-    const hoverValue = useMemo<ChartHoverContextValue>(() => ({ hoverIndex }), [hoverIndex])
+    const hoverValue = useMemo<ChartHoverContextValue>(
+        () => ({ hoverIndex, modifierActive }),
+        [hoverIndex, modifierActive]
+    )
 
     return (
         <ChartLayoutContext.Provider value={layoutValue}>

@@ -437,7 +437,14 @@ export interface ChartDrawArgs {
     /** Live pixel range of an in-progress drag-to-zoom selection, x-axis only. Null when
      *  no drag is active. Only the hover overlay reads this — the static layer ignores it. */
     dragRect?: DragRect | null
+    /** True when the chart's `isolateModifier` key (e.g. Shift) is currently held. Chart types
+     *  read this in `drawHover` to isolate the data point under the cursor (dim the rest). Always
+     *  `false` unless the chart was given an `isolateModifier`. Only the hover overlay reads it. */
+    modifierActive?: boolean
 }
+
+/** Keyboard modifier a chart can track to drive a "hold to isolate" interaction. */
+export type ModifierKey = 'shift' | 'alt' | 'meta'
 
 // x0/x1 are canvas pixels, not necessarily ordered.
 export interface DragRect {

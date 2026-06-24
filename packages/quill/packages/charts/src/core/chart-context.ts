@@ -50,13 +50,16 @@ export interface ChartLayoutContextValue<Meta = unknown> {
 export interface ChartHoverContextValue {
     /** Index of the currently hovered data point, or -1 when not hovering. */
     hoverIndex: number
+    /** True when the chart's `isolateModifier` key (e.g. Shift) is held. Tooltip components read
+     *  this to isolate the hovered data point. Always `false` without an `isolateModifier`. */
+    modifierActive: boolean
 }
 
 /** Merged layout + hover shape returned by {@link useChart}. */
 export interface BaseChartContext<Meta = unknown> extends ChartLayoutContextValue<Meta>, ChartHoverContextValue {}
 
 export const ChartLayoutContext = createContext<ChartLayoutContextValue | null>(null)
-export const ChartHoverContext = createContext<ChartHoverContextValue>({ hoverIndex: -1 })
+export const ChartHoverContext = createContext<ChartHoverContextValue>({ hoverIndex: -1, modifierActive: false })
 
 /** Subscribes to layout-only context. Does NOT re-render on hover. Prefer this for
  *  overlays that don't need `hoverIndex` (axis labels, value labels, reference lines). */

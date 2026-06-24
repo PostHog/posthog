@@ -15,7 +15,14 @@ import {
 } from '../../../core/canvas-renderer'
 import { barColorAt } from '../../../core/color-utils'
 import type { BarScaleSet, StackedBand } from '../../../core/scales'
-import type { BarChartConfig, BarFillStyle, BarsConfig, ChartDimensions, ChartDrawArgs } from '../../../core/types'
+import type {
+    BarChartConfig,
+    BarFillStyle,
+    BarsConfig,
+    ChartDimensions,
+    ChartDrawArgs,
+    ChartTheme,
+} from '../../../core/types'
 import { computeVisibleXLabels } from '../../../overlays/AxisLabels'
 import { resolveBarShadow } from './bar-config'
 import { type BarLayout } from './bars-under-cursor'
@@ -174,6 +181,52 @@ export function drawBarChartStatic(
             ctx.restore()
         }
     })
+}
+
+/** Opacity of the background scrim laid over the plot when isolating a single segment — the
+ *  resting bars show through at `1 - alpha`, so the isolated segment (repainted on top at full
+ *  opacity) reads as the only lit bar. */
+const ISOLATE_SCRIM_ALPHA = 0.7
+/** Background fallback when the theme doesn't set one — the scrim must be opaque-ish to dim. */
+const ISOLATE_SCRIM_FALLBACK = '#ffffff'
+
+export interface DrawIsolatedSegmentArgs {
+    /** Hover-fade progress (0..1) — scales the scrim so the dim eases in with the hover. */
+    alpha: number
+    barCornerRadius: number
+}
+
+/** Shift-to-isolate: dim the whole plot area with a translucent background scrim, then repaint the
+ *  single resolved hover segment at full color on top so it stands out (the rest stays dimmed).
+ *  `resolveBarHoverItems` already narrowed `items` to the visible stacked segment under the cursor
+ *  and supplied the pill clip, so this just paints. No-op when nothing is resolved. */
+export function drawIsolatedSegment(
+    ctx: CanvasRenderingContext2D,
+    dimensions: ChartDimensions,
+    theme: ChartTheme,
+    { items, hoveredBandPills }: ResolvedBarHover,
+    { alpha, barCornerRadius }: DrawIsolatedSegmentArgs
+): void {
+    if (items.length === 0) {
+        return
+    }
+    ctx.save()
+    ctx.globalAlpha = alpha * ISOLATE_SCRIM_ALPHA
+    ctx.fillStyle = theme.backgroundColor ?? ISOLATE_SCRIM_FALLBACK
+    ctx.fillRect(dimensions.plotLeft, dimensions.plotTop, dimensions.plotWidth, dimensions.plotHeight)
+    ctx.restore()
+
+    // Repaint the isolated segment at full opacity over the scrim, matching the resting bar's
+    // pill clip (so a rounded stack's outer end stays rounded) and its own fill color.
+    const highlightRadius = hoveredBandPills.length > 0 ? 0 : barCornerRadius
+    ctx.save()
+    if (hoveredBandPills.length > 0) {
+        clipToRoundedRects(ctx, hoveredBandPills, barCornerRadius)
+    }
+    for (const { series: s, bar } of items) {
+        drawBarHighlight(ctx, bar, barColorAt(s, bar.dataIndex), highlightRadius)
+    }
+    ctx.restore()
 }
 
 export interface DrawBarHoverArgs {
