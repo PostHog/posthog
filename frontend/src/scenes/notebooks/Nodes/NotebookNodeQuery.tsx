@@ -4,6 +4,7 @@ import { useEffect, useMemo } from 'react'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
@@ -54,13 +55,8 @@ const Component = ({
     const { query, nodeId } = attributes
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { expanded, nodeId: resolvedNodeId, notebookLogic } = useValues(nodeLogic)
-    const {
-        editingNodeIds,
-        isShared,
-        getSharedCachedInsight,
-        getSharedCachedInlineQueryResults,
-        canvasFiltersOverride,
-    } = useValues(notebookLogic)
+    const { isShared, getSharedCachedInsight, getSharedCachedInlineQueryResults, canvasFiltersOverride } =
+        useValues(notebookLogic)
     const { setTitlePlaceholder } = useActions(nodeLogic)
     const summarizeInsight = useSummarizeInsight()
     const sharedCachedInsight = query.kind === NodeKind.SavedInsightNode ? getSharedCachedInsight(query.shortId) : null
@@ -188,7 +184,7 @@ const Component = ({
                 <NotebookSQLEditorOutput
                     attributes={attributes}
                     updateAttributes={updateAttributes}
-                    showOutputToolbar={!!editingNodeIds[resolvedNodeId] || !!attributes.showSettings}
+                    showOutputToolbar={!!attributes.showSettings}
                 />
             </div>
         )
@@ -234,6 +230,7 @@ type NotebookNodeQueryAttributes = {
     /* Whether canvasFiltersOverride is applied, as we should apply it only once  */
     isDefaultFilterApplied: boolean
     showSettings?: boolean
+    outputTab?: OutputTab | null
 }
 
 export const Settings = ({
@@ -374,6 +371,9 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
         },
         showSettings: {
             default: false,
+        },
+        outputTab: {
+            default: OutputTab.Results,
         },
     },
     href: ({ query }) =>

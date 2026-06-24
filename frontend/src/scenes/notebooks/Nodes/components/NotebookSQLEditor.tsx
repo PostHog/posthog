@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from 'react'
 
 import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
+import { OutputTab, outputPaneLogic } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { SQLEditor, SQLEditorPanel } from 'scenes/data-warehouse/editor/SQLEditor'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
@@ -93,6 +94,28 @@ export function hasAlreadyRunSqlEditorSourceQuery(
     )
 }
 
+export function shouldApplyNotebookSqlAttributeToSourceQuery(
+    editorSourceQuery: DataVisualizationNode,
+    sourceQuery: DataVisualizationNode,
+    queryInput: string | null,
+    isFirstSeed: boolean
+): boolean {
+    if (isFirstSeed || editorSourceQuery.source.query !== (queryInput ?? '')) {
+        return true
+    }
+
+    const sourceQueryWithCurrentDraft = {
+        ...sourceQuery,
+        source: {
+            ...sourceQuery.source,
+            query: editorSourceQuery.source.query,
+        },
+        display: sourceQuery.display ?? editorSourceQuery.display ?? ChartDisplayType.ActionsTable,
+    }
+
+    return !equal(sourceQueryWithCurrentDraft, editorSourceQuery)
+}
+
 export function useNotebookQuerySQLEditorSync<T extends { query: QuerySchema }>({
     attributes,
     updateAttributes,
@@ -139,11 +162,23 @@ export function useNotebookQuerySQLEditorSync<T extends { query: QuerySchema }>(
             // and edit panels mount separate sync hooks for the same tab, so the edit panel
             // must not reload data just because it mounted with fresh refs.
             const isFirstSeed = lastAttrRef.current === null
+            const shouldApplySourceQuery = shouldApplyNotebookSqlAttributeToSourceQuery(
+                editorSourceQuery,
+                sourceQuery,
+                queryInput,
+                isFirstSeed
+            )
             lastAttrRef.current = editorSourceQuery
             lastLocalRef.current = editorSourceQuery
             setQueryInput(editorSourceQuery.source.query)
-            setSourceQuery(editorSourceQuery)
-            if (isFirstSeed && !hasAlreadyRunSqlEditorSourceQuery(editorSourceQuery, lastRunQuery)) {
+            if (shouldApplySourceQuery) {
+                setSourceQuery(editorSourceQuery)
+            }
+            if (
+                shouldApplySourceQuery &&
+                isFirstSeed &&
+                !hasAlreadyRunSqlEditorSourceQuery(editorSourceQuery, lastRunQuery)
+            ) {
                 runQuery(editorSourceQuery.source.query)
             }
             return
@@ -227,13 +262,55 @@ export function useNotebookCodeSQLEditorSync<T extends { code: string }>({
     }, [code, queryInput, setQueryInput, setSourceQuery, updateAttributes])
 }
 
-export function NotebookSQLEditorOutput<T extends { query: QuerySchema }>({
+export const getNotebookSqlEditorOutputTab = (outputTab: unknown): OutputTab => {
+    if (Object.values(OutputTab).includes(outputTab as OutputTab)) {
+        return outputTab as OutputTab
+    }
+    return OutputTab.Results
+}
+
+export function useNotebookSQLOutputTabSync<T extends { outputTab?: OutputTab | null }>({
+    attributes,
+    updateAttributes,
+    tabId,
+}: NotebookNodeAttributeProperties<T> & { tabId: string }): void {
+    const attributeOutputTab = getNotebookSqlEditorOutputTab(attributes.outputTab)
+    const logic = outputPaneLogic({ tabId })
+    const { activeTab } = useValues(logic)
+    const { setActiveTab } = useActions(logic)
+
+    const lastAttrRef = useRef<OutputTab | null>(null)
+    const lastLocalRef = useRef<OutputTab | null>(null)
+
+    useEffect(() => {
+        if (activeTab === attributeOutputTab) {
+            lastAttrRef.current = attributeOutputTab
+            lastLocalRef.current = activeTab
+            return
+        }
+
+        if (attributeOutputTab !== lastAttrRef.current) {
+            lastAttrRef.current = attributeOutputTab
+            lastLocalRef.current = attributeOutputTab
+            setActiveTab(attributeOutputTab)
+            return
+        }
+
+        if (activeTab !== lastLocalRef.current) {
+            lastLocalRef.current = activeTab
+            updateAttributes({ outputTab: activeTab } as Partial<NotebookNodeAttributes<T>>)
+        }
+    }, [activeTab, attributeOutputTab, setActiveTab, updateAttributes])
+}
+
+export function NotebookSQLEditorOutput<T extends { query: QuerySchema; outputTab?: OutputTab | null }>({
     attributes,
     updateAttributes,
     showOutputToolbar,
 }: NotebookNodeProps<T> & { showOutputToolbar: boolean }): JSX.Element | null {
     const tabId = useMemo(() => getNotebookSqlEditorTabId(attributes.nodeId), [attributes.nodeId])
     const editorSourceQuery = useNotebookQuerySQLEditorSync({ attributes, updateAttributes, tabId })
+    useNotebookSQLOutputTabSync({ attributes, updateAttributes, tabId })
 
     if (!editorSourceQuery) {
         return null

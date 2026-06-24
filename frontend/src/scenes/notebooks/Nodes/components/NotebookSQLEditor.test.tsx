@@ -9,7 +9,12 @@ jest.mock('scenes/data-warehouse/editor/sqlEditorLogic', () => ({
     sqlEditorLogic: jest.fn(),
 }))
 
-import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { act, render, waitFor } from '@testing-library/react'
+
+import { OutputTab, outputPaneLogic } from 'scenes/data-warehouse/editor/outputPaneLogic'
+
+import { DataVisualizationNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
+import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
 import {
@@ -18,9 +23,33 @@ import {
     EMBEDDED_SQL_EDITOR_EDIT_MIN_HEIGHT,
     EMBEDDED_SQL_EDITOR_MIN_HEIGHT,
     getEmbeddedSqlEditorStyle,
+    getNotebookSqlEditorOutputTab,
     getSqlEditorSourceQuery,
     hasAlreadyRunSqlEditorSourceQuery,
+    shouldApplyNotebookSqlAttributeToSourceQuery,
+    useNotebookSQLOutputTabSync,
 } from './NotebookSQLEditor'
+
+function OutputTabSyncHarness({
+    outputTab,
+    tabId,
+    updateAttributes,
+}: {
+    outputTab?: OutputTab | null
+    tabId: string
+    updateAttributes: jest.Mock
+}): JSX.Element | null {
+    useNotebookSQLOutputTabSync({
+        attributes: {
+            nodeId: 'node-1',
+            outputTab,
+        },
+        tabId,
+        updateAttributes,
+    })
+
+    return null
+}
 
 describe('NotebookSQLEditor', () => {
     it('adds notebook query tags to HogQL source queries', () => {
@@ -93,6 +122,85 @@ describe('NotebookSQLEditor', () => {
             height: 320,
             minHeight: EMBEDDED_SQL_EDITOR_MIN_HEIGHT,
         })
+    })
+
+    it('normalizes persisted embedded output tabs', () => {
+        expect(getNotebookSqlEditorOutputTab(OutputTab.Visualization)).toBe(OutputTab.Visualization)
+        expect(getNotebookSqlEditorOutputTab(OutputTab.Both)).toBe(OutputTab.Both)
+        expect(getNotebookSqlEditorOutputTab(undefined)).toBe(OutputTab.Results)
+        expect(getNotebookSqlEditorOutputTab('invalid')).toBe(OutputTab.Results)
+    })
+
+    it('persists embedded output tab changes to notebook node attributes', async () => {
+        initKeaTests()
+        const tabId = 'notebook-sql-output-tab-sync'
+        const updateAttributes = jest.fn()
+
+        render(<OutputTabSyncHarness outputTab={OutputTab.Results} tabId={tabId} updateAttributes={updateAttributes} />)
+
+        await waitFor(() => expect(outputPaneLogic({ tabId }).values.activeTab).toBe(OutputTab.Results))
+
+        act(() => {
+            outputPaneLogic({ tabId }).actions.setActiveTab(OutputTab.Visualization)
+        })
+
+        await waitFor(() => expect(updateAttributes).toHaveBeenCalledWith({ outputTab: OutputTab.Visualization }))
+    })
+
+    it('does not apply draft-only SQL attribute updates to the output source query', () => {
+        const sourceQuery: DataVisualizationNode = {
+            kind: NodeKind.DataVisualizationNode,
+            source: {
+                kind: NodeKind.HogQLQuery,
+                query: 'select 1',
+            },
+            display: ChartDisplayType.GeneratedVegaLite,
+            chartSettings: {
+                generatedVegaLite: {
+                    validatedSpec: { mark: 'bar' },
+                    fields: [],
+                },
+            },
+        }
+        const editorSourceQuery: DataVisualizationNode = {
+            ...sourceQuery,
+            source: {
+                ...sourceQuery.source,
+                query: 'select 12',
+            },
+        }
+
+        expect(shouldApplyNotebookSqlAttributeToSourceQuery(editorSourceQuery, sourceQuery, 'select 12', false)).toBe(
+            false
+        )
+    })
+
+    it('applies non-draft SQL attribute updates to the output source query', () => {
+        const sourceQuery: DataVisualizationNode = {
+            kind: NodeKind.DataVisualizationNode,
+            source: {
+                kind: NodeKind.HogQLQuery,
+                query: 'select 1',
+            },
+            display: ChartDisplayType.GeneratedVegaLite,
+        }
+        const editorSourceQuery: DataVisualizationNode = {
+            ...sourceQuery,
+            source: {
+                ...sourceQuery.source,
+                query: 'select 12',
+            },
+            chartSettings: {
+                generatedVegaLite: {
+                    validatedSpec: { mark: 'bar' },
+                    fields: [],
+                },
+            },
+        }
+
+        expect(shouldApplyNotebookSqlAttributeToSourceQuery(editorSourceQuery, sourceQuery, 'select 12', false)).toBe(
+            true
+        )
     })
 
     it('treats an already-run SQL source as current when only tags differ', () => {
