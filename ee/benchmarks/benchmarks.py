@@ -575,7 +575,9 @@ class QuerySuite:
         stats = run_query(self._run_presorted_events_query, self._presorted_events_query(event="$pageview", limit=1))
         return stats["memory_usage"]
 
-    track_events_query_presorted_memory_usage.unit = "bytes"
+    # ASV reads `unit` off the function object to label the y-axis as "bytes" instead of
+    # the default. mypy doesn't have stubs for ASV's per-function metadata convention.
+    track_events_query_presorted_memory_usage.unit = "bytes"  # type: ignore[attr-defined]
 
     def setup(self):
         for table, properties in MATERIALIZED_PROPERTIES.items():
