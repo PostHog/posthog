@@ -1606,13 +1606,34 @@ dependencies = [
 
 [[package]]
 name = "brotli"
+version = "7.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc97b8f16f944bba54f0433f07e30be199b6dc2bd25937444bbad560bcea29bd"
+dependencies = [
+ "alloc-no-stdlib",
+ "alloc-stdlib",
+ "brotli-decompressor 4.0.3",
+]
+
+[[package]]
+name = "brotli"
 version = "8.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4bd8b9603c7aa97359dbd97ecf258968c95f3adddd6db2f7e7a5bef101c84560"
 dependencies = [
  "alloc-no-stdlib",
  "alloc-stdlib",
- "brotli-decompressor",
+ "brotli-decompressor 5.0.0",
+]
+
+[[package]]
+name = "brotli-decompressor"
+version = "4.0.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a334ef7c9e23abf0ce748e8cd309037da93e606ad52eb372e4ce327a0dcfbdfd"
+dependencies = [
+ "alloc-no-stdlib",
+ "alloc-stdlib",
 ]
 
 [[package]]
@@ -1759,7 +1780,7 @@ dependencies = [
  "axum-client-ip",
  "axum-test-helper",
  "base64 0.22.1",
- "brotli",
+ "brotli 8.0.2",
  "bytes",
  "capture",
  "chrono",
@@ -2291,7 +2312,7 @@ dependencies = [
 name = "common-posthog"
 version = "0.1.0"
 dependencies = [
- "posthog-rs 0.12.0",
+ "posthog-rs 0.13.3",
  "serde_json",
  "tokio",
  "tracing",
@@ -2364,7 +2385,7 @@ version = "0.4.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eb7b51a7d9c967fc26773061ba86150f19c50c0d65c887cb1fbe295fd16619b7"
 dependencies = [
- "brotli",
+ "brotli 8.0.2",
  "compression-core",
  "flate2",
  "memchr",
@@ -2732,7 +2753,7 @@ dependencies = [
  "mockall",
  "moka",
  "personhog-common",
- "posthog-rs 0.12.0",
+ "posthog-rs 0.13.3",
  "posthog-symbol-data",
  "proguard",
  "rand 0.8.5",
@@ -7599,11 +7620,12 @@ dependencies = [
 
 [[package]]
 name = "posthog-rs"
-version = "0.12.0"
+version = "0.13.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "24e1beb349e47c45a4ffdee65e8c096ff0022c0a4d6c566cacdf50f553427fb3"
+checksum = "2136b5250589588b5b514cd64b286bfb8630f2223e4f56ab1fa3858f1600ab38"
 dependencies = [
  "backtrace",
+ "brotli 7.0.0",
  "chrono",
  "derive_builder",
  "flate2",
@@ -7617,6 +7639,7 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
+ "zstd",
 ]
 
 [[package]]
