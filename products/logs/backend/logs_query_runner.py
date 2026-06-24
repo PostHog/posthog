@@ -209,6 +209,7 @@ class LogsFilterBuilder:
         team: "Team",
         query_date_range: QueryDateRange,
         exclude_facet_field: str | None = None,
+        exclude_resource_attribute: str | None = None,
     ):
         self.query = query
         self.team = team
@@ -217,6 +218,9 @@ class LogsFilterBuilder:
         # from the WHERE clause so facet counts reflect every *other* active filter — the standard
         # faceted-search behaviour where selecting a value doesn't zero out its siblings.
         self.exclude_facet_field = exclude_facet_field
+        # The resource-attribute equivalent: when faceting on a resource attribute key, omit that
+        # key's own log_resource_attribute filter so the facet doesn't zero out its own siblings.
+        self.exclude_resource_attribute = exclude_resource_attribute
 
         self.resource_attribute_filters: list[LogPropertyFilter] = []
         self.resource_attribute_negative_filters: list[LogPropertyFilter] = []
@@ -275,6 +279,14 @@ class LogsFilterBuilder:
                     property_filter.key = f"{property_filter.key}__{property_type}"
 
                     self.attribute_filters.insert(0, property_filter)
+
+        if self.exclude_resource_attribute is not None:
+            self.resource_attribute_filters = [
+                f for f in self.resource_attribute_filters if f.key != self.exclude_resource_attribute
+            ]
+            self.resource_attribute_negative_filters = [
+                f for f in self.resource_attribute_negative_filters if f.key != self.exclude_resource_attribute
+            ]
 
     def where(self) -> ast.Expr:
         exprs: list[ast.Expr] = []
@@ -516,10 +528,14 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
     paginator: HogQLHasMorePaginator
 
     def validate_query_runner_access(self, user: "User") -> bool:
-        # LogsQuery is registered in get_query_runner solely for server-side CSV export
-        # (via ExportedAsset + Celery, which runs without a user context and skips this check).
-        # Block all user-initiated queries via the generic /api/projects/:id/query/ endpoint
+        # LogsQuery is registered in get_query_runner solely for server-side CSV export.
+        # The export runs via ExportedAsset + Celery and attributes the read to the export
+        # owner (LimitContext.EXPORT), which must be allowed through. Block everything else —
+        # i.e. user-initiated queries via the generic /api/projects/:id/query/ endpoint —
         # until the LogsQuery schema is stable and ready to be a public API.
+        if self.limit_context == LimitContext.EXPORT:
+            return True
+
         from posthog.rbac.user_access_control import UserAccessControlError
 
         raise UserAccessControlError("logs", "viewer")

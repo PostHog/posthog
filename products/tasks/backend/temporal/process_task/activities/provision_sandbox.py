@@ -43,6 +43,15 @@ RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS = {
     "LLM_GATEWAY_URL",
     "POSTHOG_RESUME_RUN_ID",
     "BASH_ENV",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+    "DISABLE_TELEMETRY",
+    "DISABLE_ERROR_REPORTING",
+}
+
+NETWORK_RESTRICTED_AGENT_ENV = {
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "DISABLE_TELEMETRY": "1",
+    "DISABLE_ERROR_REPORTING": "1",
 }
 
 
@@ -107,11 +116,23 @@ class InjectFreshTokensOnResumeInput:
     repository: str | None
 
 
+def _is_covered_by_wildcard(host: str, wildcard_bases: set[str]) -> bool:
+    base = host[2:] if host.startswith("*.") else host
+    for wildcard_base in wildcard_bases:
+        if host.startswith("*.") and base == wildcard_base:
+            continue
+        if base == wildcard_base or base.endswith("." + wildcard_base):
+            return True
+    return False
+
+
 def _to_modal_domain_allowlist(allowed_domains: list[str]) -> list[str]:
     """Translate the agentsh allowlist into Modal's outbound_domain_allowlist.
 
-    Modal fences the whole sandbox, so union in the infra (and local tunnel) domains
-    the agent needs, and drop loopback aliases Modal rejects as invalid domains.
+    Modal fences the whole sandbox and supports `*.` wildcards that match the
+    apex and any subdomain, so union in the infra (and local tunnel) domains the
+    agent needs, drop loopback aliases Modal rejects as invalid domains, and
+    collapse entries already covered by a wildcard.
     """
     domains = list(allowed_domains)
     extra = list(INFRASTRUCTURE_DOMAINS)
@@ -120,7 +141,18 @@ def _to_modal_domain_allowlist(allowed_domains: list[str]) -> list[str]:
     for domain in extra:
         if domain not in domains:
             domains.append(domain)
-    return [d for d in domains if "." in d and d != "host.docker.internal"]
+
+    fqdns = [d for d in domains if "." in d and d != "host.docker.internal"]
+    wildcard_bases = {d[2:] for d in fqdns if d.startswith("*.")}
+
+    result: list[str] = []
+    seen: set[str] = set()
+    for domain in fqdns:
+        if domain in seen or _is_covered_by_wildcard(domain, wildcard_bases):
+            continue
+        seen.add(domain)
+        result.append(domain)
+    return result
 
 
 def _load_task(ctx: TaskProcessingContext) -> Task:
@@ -204,6 +236,9 @@ def _build_environment_variables(
 
     if settings.SANDBOX_LLM_GATEWAY_URL:
         environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
+
+    if ctx.allowed_domains is not None:
+        environment_variables.update(NETWORK_RESTRICTED_AGENT_ENV)
 
     environment_variables.update(get_git_identity_env_vars(task, ctx.state))
 

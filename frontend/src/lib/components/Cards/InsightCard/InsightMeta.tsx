@@ -8,11 +8,12 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { areAlertsSupportedForInsight, insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { ManageAlertsModal } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
+import { CardMetaRefreshButton } from 'lib/components/Cards/CardMetaRefreshButton'
+import { DashboardTileRefreshDataButton } from 'lib/components/Cards/InsightCard/DashboardTileRefreshDataButton'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -68,7 +69,6 @@ interface InsightMetaProps extends Pick<
     | 'removeFromDashboard'
     | 'deleteWithUndo'
     | 'refresh'
-    | 'refreshEnabled'
     | 'loading'
     | 'loadingQueued'
     | 'rename'
@@ -105,7 +105,6 @@ export function InsightMeta({
     removeFromDashboard,
     deleteWithUndo,
     refresh,
-    refreshEnabled,
     loading,
     loadingQueued,
     rename,
@@ -281,12 +280,32 @@ export function InsightMeta({
         )
     }
 
-    const refreshDisabledReason =
+    // Suppress this tile's icon only while this tile itself is refreshing (a full-dashboard
+    // refresh marks every tile as loading, so it still hides them all). Other tiles stay
+    // refreshable — the batched refresh already caps concurrency, so there's no need to block.
+    const tileRefreshing = !!(loading || loadingQueued)
+    const nextRefreshFromNow =
         nextAllowedClientRefresh && dayjs(nextAllowedClientRefresh).isAfter(dayjs())
-            ? 'You are viewing the most recent calculated results.'
-            : loading || loadingQueued || !refreshEnabled
-              ? 'Refreshing...'
-              : undefined
+            ? dayjs(nextAllowedClientRefresh).fromNow()
+            : null
+    const refreshDisabledReason = nextRefreshFromNow
+        ? `These results are already up to date. The next refresh is available ${nextRefreshFromNow}.`
+        : undefined
+    // The always-visible "⋯" menu keeps refresh reachable on touch/keyboard. Unlike the hover
+    // icon (which hides while this tile refreshes) the menu item stays but disables.
+    const refreshMenuDisabledReason = tileRefreshing ? 'Refreshing…' : refreshDisabledReason
+
+    // Gate the hover icon on `showEditingControls` so it doesn't appear on public/export
+    // dashboards, matching the "⋯" menu (which is already gated there).
+    const refreshControl =
+        refresh && showEditingControls && !tileRefreshing ? (
+            <CardMetaRefreshButton
+                onRefresh={() => refresh()}
+                lastRefresh={insight.last_refresh}
+                disabledReason={refreshDisabledReason}
+                dataAttr="insight-card-refresh"
+            />
+        ) : null
 
     // On compact dashboard tiles the date just mirrors the dashboard's own range unless the
     // tile overrides it, so suppress the redundant label and only keep it for tile-level overrides.
@@ -572,34 +591,13 @@ export function InsightMeta({
                                 />
                             </>
                         ) : null}
-                        <>
-                            {refresh && (
-                                <LemonButton
-                                    onClick={() => {
-                                        refresh()
-                                    }}
-                                    disabledReason={refreshDisabledReason}
-                                    fullWidth
-                                >
-                                    {insight.last_refresh ? (
-                                        <div className="block my-1">
-                                            Refresh data
-                                            <p className="text-xs text-muted mt-0.5">
-                                                Last computed{' '}
-                                                <TZLabel
-                                                    time={insight.last_refresh}
-                                                    noStyles
-                                                    className="whitespace-nowrap border-dotted border-b"
-                                                />
-                                            </p>
-                                        </div>
-                                    ) : (
-                                        <>Refresh data</>
-                                    )}
-                                </LemonButton>
-                            )}
-                        </>
-
+                        {refresh && (
+                            <DashboardTileRefreshDataButton
+                                onRefresh={refresh}
+                                disabledReason={refreshMenuDisabledReason}
+                                lastRefresh={insight.last_refresh}
+                            />
+                        )}
                         {/* More */}
                         {moreButtons && (
                             <>
@@ -615,6 +613,7 @@ export function InsightMeta({
                         : 'Duplicate, export, refresh and more…'
                 }
                 extraControls={surveyOpportunityButton ?? feedbackButtons}
+                refreshControl={refreshControl}
             />
             {showDashboardAlertsMenuItem && insight.id ? (
                 <ManageAlertsModal
