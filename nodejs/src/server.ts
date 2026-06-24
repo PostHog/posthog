@@ -24,6 +24,7 @@ import { CdpApi } from './cdp/cdp-api'
 import { CdpConsumerBaseDeps } from './cdp/consumers/cdp-base.consumer'
 import { CdpBatchHogFlowRequestsConsumer } from './cdp/consumers/cdp-batch-hogflow.consumer'
 import { CdpCohortMembershipConsumer } from './cdp/consumers/cdp-cohort-membership.consumer'
+import { CdpCyclotronWorkerBatchResolve } from './cdp/consumers/cdp-cyclotron-worker-batch-resolve.consumer'
 import { CdpCyclotronWorkerEmail } from './cdp/consumers/cdp-cyclotron-worker-email.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
@@ -100,6 +101,7 @@ export class PluginServer implements NodeServer {
             capabilities.cdpPrecalculatedFilters ||
             capabilities.cdpCohortMembership ||
             capabilities.cdpBatchHogFlow ||
+            capabilities.cdpCyclotronWorkerBatchResolve ||
             capabilities.cdpHogflowSubscriptionMatcher ||
             capabilities.cdpRerunWorker
         )
@@ -367,6 +369,14 @@ export class PluginServer implements NodeServer {
         if (capabilities.cdpHogflowSubscriptionMatcher) {
             serviceLoaders.push(async () => {
                 const consumer = new CdpHogflowSubscriptionMatcherConsumer(this.config, cdpDeps!)
+                await consumer.start()
+                return consumer.service
+            })
+        }
+
+        if (capabilities.cdpCyclotronWorkerBatchResolve) {
+            serviceLoaders.push(async () => {
+                const consumer = new CdpCyclotronWorkerBatchResolve(this.config, cdpDeps!)
                 await consumer.start()
                 return consumer.service
             })

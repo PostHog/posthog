@@ -23,3 +23,15 @@ export const counterBatchHogFlowTriggerFailed = new Counter({
     help: 'A batch hog flow run failed during audience resolution and was skipped',
     labelNames: ['hog_flow_id', 'reason'],
 })
+
+export const counterBatchHogFlowAudienceTruncated = new Counter({
+    name: 'cdp_batch_hog_flow_audience_truncated',
+    help: 'A batch hog flow run hit the per-team maxAudienceSize cap before finishing the audience',
+    labelNames: ['hog_flow_id'],
+})
+
+export const counterBatchHogFlowResolverPagesProcessed = new Counter({
+    name: 'cdp_batch_hog_flow_resolver_pages_processed',
+    help: 'Total pages processed by the cyclotron-based batch resolver',
+    labelNames: ['outcome'], // success | fetch_failure | terminal_write_failure
+})

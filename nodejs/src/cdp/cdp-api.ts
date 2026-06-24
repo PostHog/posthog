@@ -27,7 +27,13 @@ import { BATCH_HOGFLOW_REQUESTS_OUTPUT } from './outputs/outputs'
 import { RerunJobManager } from './rerun/rerun-job.manager'
 import { RerunRequest } from './rerun/rerun-job.types'
 import { BatchExportHogFunctionService, NotFoundError, ParseError } from './services/batch-export-hog-function.service'
+import { CyclotronV2Manager } from './services/cyclotron-v2'
 import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
+import {
+    BatchResolverState,
+    HOGFLOW_BATCH_RESOLVE_QUEUE,
+    serializeResolverState,
+} from './services/hogflows/batch-resolver.types'
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { InvocationResultsService } from './services/invocation-results.service'
@@ -98,6 +104,7 @@ export class CdpApi {
     private outputs: CdpOutputs
     private batchExportHogFunctionService: BatchExportHogFunctionService
     private groupsManager: GroupsManagerService
+    private batchResolverCyclotronManager: CyclotronV2Manager | null = null
 
     constructor(
         private config: PluginsServerConfig,
@@ -179,7 +186,26 @@ export class CdpApi {
             this.cdpSourceWebhooksConsumer.stop(),
             this.batchExportHogFunctionService.stop(),
             this.rerunJobManager?.disconnect() ?? Promise.resolve(),
+            this.batchResolverCyclotronManager?.disconnect() ?? Promise.resolve(),
         ])
+    }
+
+    /**
+     * Lazy-initialized cyclotron manager for dispatching batch resolver jobs.
+     * Only used when `CDP_BATCH_RESOLVER_USE_CYCLOTRON` is on. Lazy so the API
+     * doesn't open a cyclotron connection pool just to leave it idle when the
+     * flag is off (the legacy Kafka path doesn't need it).
+     */
+    private getOrCreateBatchResolverCyclotronManager(): CyclotronV2Manager {
+        if (!this.batchResolverCyclotronManager) {
+            this.batchResolverCyclotronManager = new CyclotronV2Manager({
+                pool: {
+                    dbUrl: this.config.CYCLOTRON_DATABASE_URL,
+                    maxConnections: 5,
+                },
+            })
+        }
+        return this.batchResolverCyclotronManager
     }
 
     isHealthy(): HealthCheckResult {
@@ -779,12 +805,47 @@ export class CdpApi {
                 maxAudienceSize,
             }
 
+            if (this.config.CDP_BATCH_RESOLVER_USE_CYCLOTRON) {
+                // New path: dispatch as a cyclotron resolver job. The resolver
+                // pages through the audience one batch at a time, atomically
+                // enqueueing child workflow invocations alongside its own
+                // cursor state — no in-memory accumulation, no all-or-nothing
+                // failure mode. See docs/internal/cdp-batch-resolver-cyclotron-design.md.
+                const initialState: BatchResolverState = {
+                    batchJobId: parent_run_id,
+                    teamId: team.id,
+                    hogFlowId: hogFlow.id,
+                    filters: batchHogFlowRequest.filters,
+                    variables: req.body.variables ?? {},
+                    groupTypeIndex:
+                        typeof req.body.group_type_index === 'number' ? req.body.group_type_index : undefined,
+                    maxAudienceSize: maxAudienceSize ?? this.config.CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE,
+                    cursor: null,
+                    totalEnqueued: 0,
+                    pagesProcessed: 0,
+                    startedAt: new Date().toISOString(),
+                }
+
+                const manager = this.getOrCreateBatchResolverCyclotronManager()
+                await manager.createJob({
+                    teamId: team.id,
+                    queueName: HOGFLOW_BATCH_RESOLVE_QUEUE,
+                    parentRunId: parent_run_id,
+                    functionId: hogFlow.id,
+                    state: serializeResolverState(initialState),
+                })
+
+                res.json({ status: 'queued', dispatch: 'cyclotron' })
+                return
+            }
+
+            // Legacy path: Kafka topic, consumed by CdpBatchHogFlowRequestsConsumer.
             await this.outputs.produce(BATCH_HOGFLOW_REQUESTS_OUTPUT, {
                 value: Buffer.from(JSON.stringify(batchHogFlowRequest)),
                 key: `${team.id}_${hogFlow.id}`,
             })
 
-            res.json({ status: 'queued' })
+            res.json({ status: 'queued', dispatch: 'kafka' })
         } catch (e) {
             logger.error('Error handling hogflow batch invocation', { error: e })
             res.status(500).json({ error: [e.message] })

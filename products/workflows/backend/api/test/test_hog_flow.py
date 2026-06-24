@@ -22,6 +22,7 @@ from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_
 from products.cohorts.backend.models.cohort import Cohort
 from products.workflows.backend.api.hog_flow import _should_validate_strictly
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
 
@@ -2036,6 +2037,120 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "Feature flags can't be used as a batch audience condition" in response.json().get("error", "")
         mock_get_user_blast_radius_persons.assert_not_called()
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_update_batch_job_status_marks_completed(self):
+        hog_flow = HogFlow.objects.create(team=self.team, name="Test", trigger={}, actions=[], edges=[])
+        batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow, status="active")
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/{batch_job.id}/status",
+            {"status": "completed"},
+            content_type="application/json",
+            headers={"x-internal-api-secret": "test-secret-123"},
+        )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["status"] == "completed"
+        assert response.json()["no_op"] is False
+        batch_job.refresh_from_db()
+        assert batch_job.status == "completed"
+        assert batch_job.truncated_at_count is None
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_update_batch_job_status_records_truncated_at_count(self):
+        hog_flow = HogFlow.objects.create(team=self.team, name="Test", trigger={}, actions=[], edges=[])
+        batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow, status="active")
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/{batch_job.id}/status",
+            {"status": "completed", "truncated_at_count": 5000},
+            content_type="application/json",
+            headers={"x-internal-api-secret": "test-secret-123"},
+        )
+
+        assert response.status_code == 200, response.json()
+        batch_job.refresh_from_db()
+        assert batch_job.status == "completed"
+        assert batch_job.truncated_at_count == 5000
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_update_batch_job_status_is_idempotent_when_already_terminal(self):
+        hog_flow = HogFlow.objects.create(team=self.team, name="Test", trigger={}, actions=[], edges=[])
+        batch_job = HogFlowBatchJob.objects.create(
+            team=self.team, hog_flow=hog_flow, status="completed", truncated_at_count=42
+        )
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/{batch_job.id}/status",
+            {"status": "failed", "truncated_at_count": 99},
+            content_type="application/json",
+            headers={"x-internal-api-secret": "test-secret-123"},
+        )
+
+        # Already terminal → no-op, original values preserved
+        assert response.status_code == 200, response.json()
+        assert response.json()["no_op"] is True
+        assert response.json()["status"] == "completed"
+        assert response.json()["truncated_at_count"] == 42
+        batch_job.refresh_from_db()
+        assert batch_job.status == "completed"
+        assert batch_job.truncated_at_count == 42
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_update_batch_job_status_rejects_invalid_status(self):
+        hog_flow = HogFlow.objects.create(team=self.team, name="Test", trigger={}, actions=[], edges=[])
+        batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow, status="active")
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/{batch_job.id}/status",
+            {"status": "active"},  # not a terminal state
+            content_type="application/json",
+            headers={"x-internal-api-secret": "test-secret-123"},
+        )
+
+        assert response.status_code == 400, response.json()
+        batch_job.refresh_from_db()
+        assert batch_job.status == "active"  # unchanged
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_update_batch_job_status_rejects_negative_truncated_at_count(self):
+        hog_flow = HogFlow.objects.create(team=self.team, name="Test", trigger={}, actions=[], edges=[])
+        batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow, status="active")
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/{batch_job.id}/status",
+            {"status": "completed", "truncated_at_count": -1},
+            content_type="application/json",
+            headers={"x-internal-api-secret": "test-secret-123"},
+        )
+
+        assert response.status_code == 400, response.json()
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_update_batch_job_status_returns_404_for_missing_job(self):
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/00000000-0000-0000-0000-000000000000/status",
+            {"status": "completed"},
+            content_type="application/json",
+            headers={"x-internal-api-secret": "test-secret-123"},
+        )
+
+        assert response.status_code == 404, response.json()
+
+    def test_internal_update_batch_job_status_requires_internal_api_secret(self):
+        hog_flow = HogFlow.objects.create(team=self.team, name="Test", trigger={}, actions=[], edges=[])
+        batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow, status="active")
+
+        # No INTERNAL_API_SECRET header → unauthenticated
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/{batch_job.id}/status",
+            {"status": "completed"},
+            content_type="application/json",
+        )
+
+        # Endpoint requires internal auth — anything other than 200 is acceptable
+        assert response.status_code in (401, 403), response.json()
 
     def test_billable_action_types_computed_correctly(self):
         """Test that billable_action_types is computed correctly and cannot be overridden by clients"""
