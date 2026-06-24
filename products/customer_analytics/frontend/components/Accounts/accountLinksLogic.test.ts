@@ -1,5 +1,6 @@
 import { MOCK_DEFAULT_TEAM } from '~/lib/api.mock'
 
+import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
@@ -171,5 +172,25 @@ describe('accountLinksLogic', () => {
         expect(logic.values.editorOpen).toBe(true)
         expect(logic.values.savingLinks).toBe(false)
         expect(logic.values.account).toEqual(initial)
+    })
+
+    it('organization link opens the group and carries the accounts list as backUrl', async () => {
+        router.actions.push('/customer_analytics/accounts', {}, { view: { search: 'acme' } })
+        await mountWith(buildAccount({ external_id: 'ext-1' }))
+
+        const organization = logic.values.links.find((link) => link.key === 'organization')
+        const destination = combineUrl(organization!.to!)
+        expect(destination.pathname).toBe('/groups/0/ext-1')
+        expect(destination.searchParams.backName).toBe('Accounts')
+        expect(destination.searchParams.backUrl).toContain('/customer_analytics/accounts')
+        expect(destination.searchParams.backUrl).toContain('#view=')
+    })
+
+    it('organization link is disabled without an external_id', async () => {
+        await mountWith(buildAccount({ external_id: null }))
+
+        const organization = logic.values.links.find((link) => link.key === 'organization')
+        expect(organization?.to).toBeNull()
+        expect(organization?.disabledReason).toBe('No external ID set')
     })
 })
