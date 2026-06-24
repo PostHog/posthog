@@ -8,6 +8,24 @@ import { toolbarConfigLogic } from './toolbarConfigLogic'
 
 type OAuthTokens = { access_token: string; refresh_token: string; expires_in: number }
 
+// Transient server/availability statuses that aren't application-level errors. The backend
+// token-refresh path only ever returns 400/500/502; a 503/429/408 (and the proxy-emitted
+// flavours of 500/502) come from the load-balancer/proxy layer when upstream is briefly
+// unavailable. These are non-actionable, so we skip error tracking for them — the analytics
+// `toolbar token refresh` event and the user-facing re-auth path still fire.
+const TRANSIENT_REFRESH_STATUSES = new Set([408, 429, 500, 502, 503])
+
+const isTransientRefreshStatus = (status: number): boolean => TRANSIENT_REFRESH_STATUSES.has(status)
+
+class RefreshError extends Error {
+    status: number
+    constructor(status: number) {
+        super(`Refresh failed: ${status}`)
+        this.name = 'RefreshError'
+        this.status = status
+    }
+}
+
 let refreshPromise: Promise<OAuthTokens> | null = null
 
 export async function refreshOAuthTokens(
@@ -29,13 +47,15 @@ export async function refreshOAuthTokens(
             })
 
             if (!response.ok) {
-                const err = new Error(`Refresh failed: ${response.status}`)
+                const err = new RefreshError(response.status)
                 toolbarPosthogJS.capture('toolbar token refresh', {
                     status: 'error',
                     http_status: response.status,
                     duration_ms: Math.round(performance.now() - startTime),
                 })
-                captureToolbarException(err, 'token_refresh')
+                if (!isTransientRefreshStatus(response.status)) {
+                    captureToolbarException(err, 'token_refresh')
+                }
                 throw err
             }
 
@@ -93,7 +113,9 @@ export async function withTokenRefresh(
         return await retryRequest(access)
     } catch (e) {
         toolbarLogger.error('auth', 'Token refresh retry failed', { status: response.status })
-        captureToolbarException(e, 'token_refresh_retry')
+        if (!(e instanceof RefreshError && isTransientRefreshStatus(e.status))) {
+            captureToolbarException(e, 'token_refresh_retry')
+        }
         lemonToast.error('Please re-authenticate to continue using the toolbar.')
         toolbarConfigLogic.actions.tokenExpired()
         return response
