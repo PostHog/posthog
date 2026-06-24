@@ -2630,6 +2630,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
 
                 const count = createdTiles.length
+                createdTiles.forEach(() => eventUsageLogic.actions.reportDashboardTileAdded('widget'))
                 if (count > 1) {
                     lemonToast.success(`Added ${count} widgets`)
                 }

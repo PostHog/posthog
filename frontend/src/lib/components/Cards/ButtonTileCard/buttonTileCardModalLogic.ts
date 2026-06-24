@@ -4,6 +4,8 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardType, QueryBasedInsightModel } from '~/types'
 
@@ -71,6 +73,10 @@ export const buttonTileCardModalLogic = kea<buttonTileCardModalLogicType>([
         submitButtonTileSuccess: ({ buttonTile }: { buttonTile: ButtonTileForm }) => {
             actions.resetButtonTile()
             props?.onClose?.()
+
+            if (props.buttonTileId === 'new') {
+                eventUsageLogic.actions.reportDashboardTileAdded('button')
+            }
 
             posthog.capture('dashboard button tile saved', {
                 dashboard_id: props.dashboard.id,
