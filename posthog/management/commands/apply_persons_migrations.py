@@ -22,7 +22,7 @@ import psycopg
 from psycopg import sql
 from psycopg.conninfo import conninfo_to_dict
 
-from posthog.persons_db import persons_db_url
+from posthog.persons_db import persons_db_connection, persons_db_url
 
 # Migrations that must be skipped on hobby deploys.
 # These partition the posthog_person table, which is only needed in production
@@ -152,7 +152,7 @@ class Command(BaseCommand):
         skipped_count = 0
         already_applied_count = 0
 
-        with psycopg.connect(persons_url, autocommit=True) as conn, conn.cursor() as cursor:
+        with persons_db_connection(writer=True, autocommit=True) as conn, conn.cursor() as cursor:
             if not dry_run:
                 _ensure_tracking_table(cursor)
             already_applied = _get_applied_migrations(cursor) if not dry_run else set()
