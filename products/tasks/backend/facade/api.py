@@ -2872,11 +2872,16 @@ def _activate_warm_run(run: TaskRun, task: Task, team_id: int, *, message: str |
     """Activate an idling warm Run: set the draft Task's description (when empty), forward the first
     message to the already-running agent, and drop the ``await_user_message`` marker so the Run leaves
     the warm pool. Mirrors ``message_routing._handle_first_message``; no fresh agent start."""
+    from products.tasks.backend.metrics import (  # noqa: PLC0415 — keep prometheus deps off the api import path
+        observe_prewarmed_activated,
+    )
+
     if message and not (task.description or "").strip():
         task.description = message
         task.save(update_fields=["description", "updated_at"])
     signal_task_run_user_message(run.id, task.id, team_id, content=message, artifact_ids=artifact_ids)
     TaskRun.update_state_atomic(run.id, remove_keys=["await_user_message"])
+    observe_prewarmed_activated(run)
 
 
 def warm_task_sandbox(
