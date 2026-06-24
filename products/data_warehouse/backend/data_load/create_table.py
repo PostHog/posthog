@@ -2,6 +2,7 @@ import uuid
 import dataclasses
 
 from django.conf import settings
+from django.db import IntegrityError
 
 from asgiref.sync import sync_to_async
 from clickhouse_driver.errors import ServerException
@@ -51,6 +52,19 @@ async def calculate_table_size(saved_query: DataWarehouseSavedQuery, team_id: in
     return total_mib
 
 
+@database_sync_to_async
+def aget_live_backing_table_by_name(team_id: int, name: str) -> DataWarehouseTable | None:
+    # A materialized view's backing table is a self-managed table (no external data source) named
+    # after the view. Find the live one so repeated/concurrent materializations reuse a single row
+    # instead of leaking duplicates that shadow the view in query resolution.
+    return (
+        DataWarehouseTable.objects.filter(team_id=team_id, name=name, external_data_source__isnull=True)
+        .exclude(deleted=True)
+        .order_by("-created_at")
+        .first()
+    )
+
+
 async def create_table_from_saved_query(
     job_id: str,
     saved_query_id: str,
@@ -84,16 +98,31 @@ async def create_table_from_saved_query(
             "queryable_folder": queryable_folder,
         }
 
-        # create or update
+        # Reuse the existing live backing table for this saved query if there is one, so repeated or
+        # concurrent materializations update a single row instead of leaking duplicates. The saved
+        # query's own link is authoritative; fall back to a name lookup to absorb a row left unlinked
+        # by an interrupted prior run.
         table_created: DataWarehouseTable | None = await aget_table_by_saved_query_id(saved_query_id_converted, team_id)
-        if table_created:
-            table_created.format = table_format
-            table_created.url_pattern = url_pattern
-            table_created.queryable_folder = queryable_folder
-            await asave_datawarehousetable(table_created)
+        if table_created is not None and table_created.deleted:
+            # The linked row was soft-deleted (e.g. orphan cleanup); don't resurrect it.
+            table_created = None
+        if table_created is None:
+            table_created = await aget_live_backing_table_by_name(team_id, table_name)
 
-        if not table_created:
-            table_created = await acreate_datawarehousetable(**table_params)
+        if table_created is None:
+            try:
+                table_created = await acreate_datawarehousetable(**table_params)
+            except IntegrityError:
+                # A concurrent run won the unique-index race for this (team, name); reuse its row.
+                table_created = await aget_live_backing_table_by_name(team_id, table_name)
+                if table_created is None:
+                    raise
+
+        # Point the (possibly reused) row at this run's storage location.
+        table_created.format = table_format
+        table_created.url_pattern = url_pattern
+        table_created.queryable_folder = queryable_folder
+        await asave_datawarehousetable(table_created)
 
         assert isinstance(table_created, DataWarehouseTable) and table_created is not None
 
