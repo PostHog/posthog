@@ -117,6 +117,13 @@ def _call_stripe(method: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         raise
 
 
+def _is_stripe_resource_missing_error(error: stripe_lib.StripeError) -> bool:
+    """True for Stripe's ``resource_missing`` 404 — e.g. a customer deleted between when we
+    listed it and when we fetched its nested resources. The object is genuinely gone, so the
+    caller can skip it instead of failing the whole sync."""
+    return getattr(error, "code", None) == "resource_missing"
+
+
 def _stripe_base_addresses() -> BaseAddresses:
     # Redirect Stripe API calls to a local mock (e.g. STRIPE_API_BASE=http://localhost:12111)
     # when running the stripe-mock dev service. No-op in production where the var is unset.
@@ -267,25 +274,35 @@ def get_rows(
                 params={**default_params, **resource.parent.params, **resume_params},
             )
             for obj in stripe_parent_objects.auto_paging_iter():
-                stripe_nested_objects = _call_stripe(
-                    resource.method,
-                    **{resource.nested_parent_param: obj[resource.parent_id]},
-                    params={**default_params, **resource.params},
-                )
-                for nested_obj in stripe_nested_objects.auto_paging_iter():  # noqa: UP028
-                    batcher.batch(
-                        {
-                            **nested_obj,
-                            **{resource.nested_parent_param: obj[resource.parent_id]},
-                        }
+                parent_obj_id = obj[resource.parent_id]
+                try:
+                    stripe_nested_objects = _call_stripe(
+                        resource.method,
+                        **{resource.nested_parent_param: parent_obj_id},
+                        params={**default_params, **resource.params},
                     )
+                    for nested_obj in stripe_nested_objects.auto_paging_iter():
+                        batcher.batch(
+                            {
+                                **nested_obj,
+                                **{resource.nested_parent_param: parent_obj_id},
+                            }
+                        )
 
-                    if batcher.should_yield():
-                        py_table = batcher.get_table()
-                        yield py_table
+                        if batcher.should_yield():
+                            py_table = batcher.get_table()
+                            yield py_table
 
-                        last_cur = py_table.column(resource.nested_parent_param)[-1].as_py()
-                        resumable_source_manager.save_state(StripeResumeConfig(starting_after=last_cur))
+                            last_cur = py_table.column(resource.nested_parent_param)[-1].as_py()
+                            resumable_source_manager.save_state(StripeResumeConfig(starting_after=last_cur))
+                except stripe_lib.InvalidRequestError as e:
+                    # The parent was deleted between listing it and fetching its nested resources,
+                    # so Stripe 404s the nested call. Skip the now-gone parent and keep syncing the
+                    # rest rather than failing the whole import.
+                    if not _is_stripe_resource_missing_error(e):
+                        raise
+                    logger.debug(f"Stripe: skipping {resource.nested_parent_param}={parent_obj_id}, no longer exists")
+                    continue
         else:
             stripe_objects = _call_stripe(
                 resource.method, params={**default_params, **resource.params, **resume_params}
