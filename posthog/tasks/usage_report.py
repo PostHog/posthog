@@ -671,10 +671,10 @@ def _get_ai_sub_sdk_event_metric_counts(
 ) -> tuple[dict[str, list[tuple[int, int]]], dict[int, int]]:
     ai_lib_to_metric: dict[str, str] = {}
     ai_parent_libs: list[str] = []
-    for lib, ai_lib, metric in sdk_metrics:
+    for lib, ai_lib, metric_name in sdk_metrics:
         if ai_lib is None:
             continue
-        ai_lib_to_metric[ai_lib] = metric
+        ai_lib_to_metric[ai_lib] = metric_name
         if lib not in ai_parent_libs:
             ai_parent_libs.append(lib)
 
@@ -705,17 +705,19 @@ def _get_ai_sub_sdk_event_metric_counts(
         combine_results_func=_flatten_split_query_results,
     )
 
-    ai_counts_by_metric: dict[str, dict[int, int]] = {metric: {} for metric in ai_lib_to_metric.values()}
+    ai_counts_by_metric: dict[str, dict[int, int]] = {metric_name: {} for metric_name in ai_lib_to_metric.values()}
     node_subtractions: dict[int, int] = {}
     for team_id, ai_lib, count in ai_rows:
-        metric = ai_lib_to_metric.get(ai_lib)
-        if metric is None:
+        metric_name = ai_lib_to_metric.get(ai_lib)
+        if metric_name is None:
             continue
-        team_counts = ai_counts_by_metric[metric]
+        team_counts = ai_counts_by_metric[metric_name]
         team_counts[team_id] = team_counts.get(team_id, 0) + count
         node_subtractions[team_id] = node_subtractions.get(team_id, 0) + count
 
-    return {metric: list(team_counts.items()) for metric, team_counts in ai_counts_by_metric.items()}, node_subtractions
+    return {
+        metric_name: list(team_counts.items()) for metric_name, team_counts in ai_counts_by_metric.items()
+    }, node_subtractions
 
 
 @timed_log()
