@@ -93,7 +93,7 @@ interface FeatureFlagReleaseConditionsCollapsibleProps extends FeatureFlagReleas
     bucketingIdentifier?: FeatureFlagBucketingIdentifier | null
     onBucketingIdentifierChange?: (value: FeatureFlagBucketingIdentifier | null) => void
     evaluationRuntime?: FeatureFlagEvaluationRuntime
-    /** When true, hides the "Match by" User/Group selector. Use when the aggregation type is inherited from the parent flag. */
+    /** When true, hides the Properties/Device top-level selector. Use when the bucketing type is inherited from the parent flag. */
     hideMatchOptions?: boolean
     /** When true, hides the early exit toggle. Use in contexts where early_exit cannot be persisted (e.g. default release conditions). */
     hideEarlyExit?: boolean
