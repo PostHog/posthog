@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 35 enabled ops
+ * PostHog API - MCP 36 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -157,12 +157,9 @@ export const AgentApplicationsRevisionsCreateParams = /* @__PURE__ */ zod.object
 })
 
 export const agentApplicationsRevisionsCreateBodyBundleUriDefault = ``
-export const agentApplicationsRevisionsCreateBodySpecModelPolicyOneLevelDefault = `medium`
+export const agentApplicationsRevisionsCreateBodySpecModelsOneLevelDefault = `medium`
 
-export const agentApplicationsRevisionsCreateBodySpecModelPolicyDefault = {
-    mode: 'auto' as const,
-    level: 'medium' as const,
-}
+export const agentApplicationsRevisionsCreateBodySpecModelsDefault = { mode: 'auto' as const, level: 'medium' as const }
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
@@ -263,7 +260,6 @@ export const agentApplicationsRevisionsCreateBodySpecLimitsDefault = {
     max_memory_mb: 512,
     max_cpu_cores: 0.25,
 }
-export const agentApplicationsRevisionsCreateBodySpecEntrypointDefault = `agent.md`
 export const agentApplicationsRevisionsCreateBodySpecFrameworkPromptOmitDefault = []
 export const agentApplicationsRevisionsCreateBodySpecFrameworkPromptVersionPinExclusiveMin = 0
 export const agentApplicationsRevisionsCreateBodySpecFrameworkPromptVersionPinMax = 2147483647
@@ -283,13 +279,13 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
         ),
     spec: zod
         .object({
-            model_policy: zod
+            models: zod
                 .union([
                     zod.object({
                         mode: zod.literal('auto'),
                         level: zod
                             .enum(['low', 'medium', 'high'])
-                            .default(agentApplicationsRevisionsCreateBodySpecModelPolicyOneLevelDefault),
+                            .default(agentApplicationsRevisionsCreateBodySpecModelsOneLevelDefault),
                         reasoning: zod.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
                     }),
                     zod.object({
@@ -304,7 +300,7 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                             .min(1),
                     }),
                 ])
-                .default(agentApplicationsRevisionsCreateBodySpecModelPolicyDefault),
+                .default(agentApplicationsRevisionsCreateBodySpecModelsDefault),
             triggers: zod
                 .array(
                     zod.union([
@@ -759,7 +755,6 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                         .default(agentApplicationsRevisionsCreateBodySpecLimitsMaxCpuCoresDefault),
                 })
                 .default(agentApplicationsRevisionsCreateBodySpecLimitsDefault),
-            entrypoint: zod.string().default(agentApplicationsRevisionsCreateBodySpecEntrypointDefault),
             reasoning: zod.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
             framework_prompt: zod
                 .object({
@@ -869,9 +864,9 @@ export const AgentApplicationsRevisionsPartialUpdateParams = /* @__PURE__ */ zod
         ),
 })
 
-export const agentApplicationsRevisionsPartialUpdateBodySpecModelPolicyOneLevelDefault = `medium`
+export const agentApplicationsRevisionsPartialUpdateBodySpecModelsOneLevelDefault = `medium`
 
-export const agentApplicationsRevisionsPartialUpdateBodySpecModelPolicyDefault = {
+export const agentApplicationsRevisionsPartialUpdateBodySpecModelsDefault = {
     mode: 'auto' as const,
     level: 'medium' as const,
 }
@@ -975,7 +970,6 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecLimitsDefault = {
     max_memory_mb: 512,
     max_cpu_cores: 0.25,
 }
-export const agentApplicationsRevisionsPartialUpdateBodySpecEntrypointDefault = `agent.md`
 export const agentApplicationsRevisionsPartialUpdateBodySpecFrameworkPromptOmitDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecFrameworkPromptVersionPinExclusiveMin = 0
 export const agentApplicationsRevisionsPartialUpdateBodySpecFrameworkPromptVersionPinMax = 2147483647
@@ -995,13 +989,13 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
         ),
     spec: zod
         .object({
-            model_policy: zod
+            models: zod
                 .union([
                     zod.object({
                         mode: zod.literal('auto'),
                         level: zod
                             .enum(['low', 'medium', 'high'])
-                            .default(agentApplicationsRevisionsPartialUpdateBodySpecModelPolicyOneLevelDefault),
+                            .default(agentApplicationsRevisionsPartialUpdateBodySpecModelsOneLevelDefault),
                         reasoning: zod.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
                     }),
                     zod.object({
@@ -1016,7 +1010,7 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                             .min(1),
                     }),
                 ])
-                .default(agentApplicationsRevisionsPartialUpdateBodySpecModelPolicyDefault),
+                .default(agentApplicationsRevisionsPartialUpdateBodySpecModelsDefault),
             triggers: zod
                 .array(
                     zod.union([
@@ -1493,7 +1487,6 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                         .default(agentApplicationsRevisionsPartialUpdateBodySpecLimitsMaxCpuCoresDefault),
                 })
                 .default(agentApplicationsRevisionsPartialUpdateBodySpecLimitsDefault),
-            entrypoint: zod.string().default(agentApplicationsRevisionsPartialUpdateBodySpecEntrypointDefault),
             reasoning: zod.enum(['minimal', 'low', 'medium', 'high', 'xhigh']).optional(),
             framework_prompt: zod
                 .object({
@@ -2080,7 +2073,7 @@ export const AgentApplicationsRevisionsToolsDestroyParams = /* @__PURE__ */ zod.
 })
 
 /**
- * Pre-flight checks before freeze + promote: entrypoint file exists,
+ * Pre-flight checks before freeze + promote: agent.md exists,
  * every native tool id is registered, every custom tool has its
  * compiled.js + schema.json, every skill path exists, every declared
  * secret has a value set in this revision's env block. Returns
@@ -2357,6 +2350,17 @@ export const AgentApplicationsSessionLogsQueryParams = /* @__PURE__ */ zod.objec
         .default(agentApplicationsSessionLogsQueryLimitDefault)
         .describe('Maximum number of log entries to return (1-500, default 50).'),
     search: zod.string().min(1).optional().describe('Case-insensitive substring search across log messages.'),
+})
+
+/**
+ * Served-model catalog — each model's id, provider, context window, and USD-per-million-token pricing — plus the curated auto-level → model map. Project-agnostic; sourced from the AI gateway catalog. Powers the config UI model browser and the agent builder's model-choosing skill.
+ */
+export const AgentApplicationsModelsParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
 })
 
 /**

@@ -8070,7 +8070,7 @@ export namespace Schemas {
       tools: AgentNativeToolEntry[];
     }
 
-    export type AgentRevisionSpecModelPolicy = {
+    export type AgentRevisionSpecModels = {
       mode: 'auto';
       level?: 'low' | 'medium' | 'high';
       reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
@@ -8395,7 +8395,7 @@ export namespace Schemas {
     };
 
     export type AgentRevisionSpec = {
-      model_policy: AgentRevisionSpecModelPolicy;
+      models: AgentRevisionSpecModels;
       triggers: AgentRevisionSpecTriggersItem[];
       tools: AgentRevisionSpecToolsItem[];
       mcps: AgentRevisionSpecMcpsItem[];
@@ -8403,7 +8403,6 @@ export namespace Schemas {
       identity_providers?: AgentRevisionSpecIdentityProvidersItem[];
       secrets: AgentRevisionSpecSecretsItem[];
       limits: AgentRevisionSpecLimits;
-      entrypoint: string;
       reasoning?: AgentRevisionSpecReasoning;
       framework_prompt?: AgentRevisionSpecFrameworkPrompt;
       resume?: AgentRevisionSpecResume;
@@ -8513,7 +8512,7 @@ export namespace Schemas {
       revision_id: string;
       /** Active framework preamble version. Bumps when the platform's `# Platform guidance` content changes meaningfully (decision rules, sections renamed, behavioural defaults flipped). Authors can pin to a specific version via `spec.framework_prompt.version_pin`. */
       framework_prompt_version: number;
-      /** Fully-assembled system prompt the runner would pass to pi-ai for a session against this revision. Concatenates the platform framework preamble, the bundle's `agent.md` (or `spec.entrypoint`), and the skills index. Inspect before promotion to confirm the model will see what you expect. */
+      /** Fully-assembled system prompt the runner would pass to pi-ai for a session against this revision. Concatenates the platform framework preamble, the bundle's `agent.md`, and the skills index. Inspect before promotion to confirm the model will see what you expect. */
       system_prompt: string;
     }
 
@@ -34313,7 +34312,7 @@ export namespace Schemas {
       tags?: string[];
     }
 
-    export type PatchedAgentRevisionSpecModelPolicy = {
+    export type PatchedAgentRevisionSpecModels = {
       mode: 'auto';
       level?: 'low' | 'medium' | 'high';
       reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
@@ -34638,7 +34637,7 @@ export namespace Schemas {
     };
 
     export type PatchedAgentRevisionSpec = {
-      model_policy: PatchedAgentRevisionSpecModelPolicy;
+      models: PatchedAgentRevisionSpecModels;
       triggers: PatchedAgentRevisionSpecTriggersItem[];
       tools: PatchedAgentRevisionSpecToolsItem[];
       mcps: PatchedAgentRevisionSpecMcpsItem[];
@@ -34646,7 +34645,6 @@ export namespace Schemas {
       identity_providers?: PatchedAgentRevisionSpecIdentityProvidersItem[];
       secrets: PatchedAgentRevisionSpecSecretsItem[];
       limits: PatchedAgentRevisionSpecLimits;
-      entrypoint: string;
       reasoning?: PatchedAgentRevisionSpecReasoning;
       framework_prompt?: PatchedAgentRevisionSpecFrameworkPrompt;
       resume?: PatchedAgentRevisionSpecResume;
