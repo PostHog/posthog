@@ -107,6 +107,9 @@ class TestWidgetRegistry(APIBaseTest):
         [
             ("invalid_order_by", {"orderBy": "not_a_field"}),
             ("invalid_severity_level", {"severityLevels": ["not_a_level"]}),
+            ("invalid_timezone", {"timezone": "America/New_York"}),
+            ("invalid_wrap_lines", {"wrapLines": "yes"}),
+            ("invalid_saved_view_id", {"savedViewId": 123}),
         ]
     )
     def test_validate_logs_list_config_rejects_invalid_values(self, _label: str, config: dict) -> None:
@@ -182,17 +185,6 @@ class TestWidgetRegistry(APIBaseTest):
         assert validated["wrapLines"] is True
         assert validated["timezone"] == "local"
         assert validated["savedViewId"] == "abc123"
-
-    @parameterized.expand(
-        [
-            ("invalid_timezone", {"timezone": "America/New_York"}),
-            ("invalid_wrap_lines", {"wrapLines": "yes"}),
-            ("invalid_saved_view_id", {"savedViewId": 123}),
-        ]
-    )
-    def test_validate_logs_list_config_rejects_invalid_display_values(self, _label: str, config: dict) -> None:
-        with self.assertRaises(Exception):
-            validate_widget_config(LOGS_LIST_WIDGET_TYPE, config)
 
     @parameterized.expand(
         [("activity_events", ACTIVITY_EVENTS_LIST_WIDGET_TYPE, date_from) for date_from in ["-1h", "-3h", "-24h"]]
