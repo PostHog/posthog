@@ -300,7 +300,8 @@ class AgentRevisionSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text=(
             "Store-skill references for this draft, set via the `skill_refs` action and resolved into the "
-            "bundle at freeze. Empty on a frozen revision once derived into `spec.skills`."
+            "bundle at freeze. Preserved as the authoring record on the frozen revision (and carried forward "
+            "when forking a new draft); resolved provenance is stamped onto `spec.skills[].source_version_id`."
         ),
     )
     created_by = serializers.SerializerMethodField(

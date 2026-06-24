@@ -599,7 +599,7 @@ export interface AgentRevisionApi {
     /** @nullable */
     readonly bundle_sha256: string | null
     spec?: AgentRevisionApiSpec
-    /** Store-skill references for this draft, set via the `skill_refs` action and resolved into the bundle at freeze. Empty on a frozen revision once derived into `spec.skills`. */
+    /** Store-skill references for this draft, set via the `skill_refs` action and resolved into the bundle at freeze. Preserved as the authoring record on the frozen revision (and carried forward when forking a new draft); resolved provenance is stamped onto `spec.skills[].source_version_id`. */
     readonly skill_refs: readonly SkillRefApi[]
     /** @nullable */
     readonly created_by_id: number | null
@@ -1001,7 +1001,7 @@ export interface PatchedAgentRevisionApi {
     /** @nullable */
     readonly bundle_sha256?: string | null
     spec?: PatchedAgentRevisionApiSpec
-    /** Store-skill references for this draft, set via the `skill_refs` action and resolved into the bundle at freeze. Empty on a frozen revision once derived into `spec.skills`. */
+    /** Store-skill references for this draft, set via the `skill_refs` action and resolved into the bundle at freeze. Preserved as the authoring record on the frozen revision (and carried forward when forking a new draft); resolved provenance is stamped onto `spec.skills[].source_version_id`. */
     readonly skill_refs?: readonly SkillRefApi[]
     /** @nullable */
     readonly created_by_id?: number | null
