@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconArchive, IconFeedback, IconPullRequest, IconUndo } from '@posthog/icons'
+import { IconArchive, IconMessage, IconPullRequest, IconUndo } from '@posthog/icons'
 import { LemonButton, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -100,7 +100,7 @@ export function ReportDetailActions({ report }: { report: SignalReport }): JSX.E
         <LemonButton
             type="secondary"
             size="small"
-            icon={<IconFeedback />}
+            icon={<IconMessage />}
             tooltip="Tell us how useful this report was"
             onClick={() =>
                 openFeedbackReportDialog({

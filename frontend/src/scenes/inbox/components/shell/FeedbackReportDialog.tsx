@@ -51,7 +51,8 @@ const SENTIMENT_RADIO_OPTIONS: LemonRadioOption<InboxReportFeedbackSentiment>[] 
 export function openFeedbackReportDialog({ reportTitle, onConfirm }: OpenFeedbackReportDialogParams): void {
     LemonDialog.openForm({
         title: `Feedback on "${reportTitle?.trim() ? reportTitle : 'Untitled report'}"`,
-        description: 'Tell us how useful this report was. Your feedback helps the agent improve – it does not archive the report.',
+        description:
+            'Tell us how useful this report was. Your feedback helps the agent improve – it does not archive the report.',
         maxWidth: '30rem',
         initialValues: { sentiment: null as InboxReportFeedbackSentiment | null, note: '' },
         content: (
