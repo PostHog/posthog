@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { ReactNode } from 'react'
 
 import { IconCursorClick, IconGraph, IconGridMasonry, IconLetter } from '@posthog/icons'
 
@@ -21,47 +22,152 @@ interface TileOption {
     'data-attr': string
 }
 
-/** A small fake trend chart so the user can picture an insight tile. */
-function InsightPreview(): JSX.Element {
-    const bars = ['h-3', 'h-6', 'h-4', 'h-9', 'h-7', 'h-12', 'h-10']
+/**
+ * Chrome shared by the preview tiles: white card with the same compact header a real dashboard tile
+ * has (uppercase type • date row, title, ⋯). Header is omitted for freeform tiles (text / button).
+ */
+function MiniTile({
+    type,
+    title,
+    bodyClassName,
+    children,
+}: {
+    type?: string
+    title?: string
+    bodyClassName?: string
+    children: ReactNode
+}): JSX.Element {
     return (
-        <div className="flex h-full items-end justify-center gap-1 px-2 pb-1">
-            {bars.map((height, index) => (
-                <div key={index} className={`w-3 rounded-t-sm bg-accent ${height}`} />
-            ))}
+        <div className="flex h-full w-full flex-col overflow-hidden rounded border border-primary bg-surface-primary shadow-sm">
+            {type && (
+                <>
+                    <div className="px-1.5 pt-1">
+                        <div className="text-[0.5rem] font-bold uppercase leading-tight tracking-[0.03em] text-secondary">
+                            {type}
+                        </div>
+                        <div className="flex items-center justify-between gap-1">
+                            <span className="truncate text-[0.7rem] font-semibold leading-tight text-primary">
+                                {title}
+                            </span>
+                            <span className="shrink-0 text-[0.6rem] leading-none text-secondary">•••</span>
+                        </div>
+                    </div>
+                    <div className="mt-1 border-t border-primary" />
+                </>
+            )}
+            <div className={`min-h-0 flex-1 overflow-hidden ${bodyClassName ?? ''}`}>{children}</div>
         </div>
     )
 }
 
-/** Sample rendered text so the user can picture a text card. */
+/** A faithful-looking trends line tile — header, smooth line with area fill, faint gridlines, date axis. */
+function InsightPreview(): JSX.Element {
+    return (
+        <MiniTile
+            type="Trends • Last 7 days"
+            title="Weekly active users"
+            bodyClassName="flex flex-col px-1.5 pb-1 pt-1"
+        >
+            <svg viewBox="0 0 100 34" preserveAspectRatio="none" className="h-full w-full flex-1">
+                {[8, 17, 26].map((y) => (
+                    <line
+                        key={y}
+                        x1="0"
+                        y1={y}
+                        x2="100"
+                        y2={y}
+                        stroke="var(--color-border-primary)"
+                        strokeWidth="0.5"
+                    />
+                ))}
+                <polygon
+                    points="0,34 0,27 14,23 28,26 42,15 56,19 70,9 84,12 100,5 100,34"
+                    fill="var(--data-color-1)"
+                    fillOpacity="0.15"
+                />
+                <polyline
+                    points="0,27 14,23 28,26 42,15 56,19 70,9 84,12 100,5"
+                    fill="none"
+                    stroke="var(--data-color-1)"
+                    strokeWidth="1.5"
+                    strokeLinejoin="round"
+                    strokeLinecap="round"
+                    vectorEffect="non-scaling-stroke"
+                />
+            </svg>
+            <div className="flex justify-between pt-0.5 text-[0.45rem] text-secondary">
+                <span>Jun 1</span>
+                <span>Jun 8</span>
+                <span>Jun 15</span>
+                <span>Jun 22</span>
+            </div>
+        </MiniTile>
+    )
+}
+
+/** Sample rendered markdown so the user can picture a text card. */
 function TextCardPreview(): JSX.Element {
     return (
-        <div className="flex h-full flex-col justify-center gap-1 px-3 text-left">
-            <div className="text-sm font-semibold text-primary">Q2 launch goals</div>
-            <div className="text-xs text-secondary">
+        <MiniTile bodyClassName="flex flex-col justify-center gap-1 px-2">
+            <div className="text-[0.75rem] font-semibold text-primary">Q2 launch goals</div>
+            <div className="text-[0.55rem] leading-snug text-secondary">
                 Track weekly active users and conversion as we roll out the new onboarding flow.
             </div>
-        </div>
+        </MiniTile>
     )
 }
 
 /** A non-interactive mock of a button tile. */
 function ButtonPreview(): JSX.Element {
     return (
-        <div className="flex h-full items-center justify-center">
-            <span className="rounded bg-accent px-3 py-1.5 text-sm font-medium text-white">Read the docs →</span>
-        </div>
+        <MiniTile bodyClassName="flex items-center justify-center">
+            <span className="rounded bg-accent px-2 py-1 text-[0.65rem] font-medium text-white">Read the docs →</span>
+        </MiniTile>
     )
 }
 
-/** A small fake metric widget. */
+/** A faithful-looking "Top issues" error-tracking widget — ranked issues with sparklines and counts. */
 function WidgetPreview(): JSX.Element {
+    const issues = [
+        {
+            title: 'TypeError: Cannot read properties of undefined',
+            count: '42',
+            bars: ['h-1', 'h-2', 'h-1.5', 'h-2.5', 'h-2', 'h-3', 'h-2'],
+        },
+        {
+            title: 'NetworkError: Failed to fetch',
+            count: '18',
+            bars: ['h-1', 'h-1.5', 'h-2', 'h-1', 'h-2', 'h-1.5', 'h-1'],
+        },
+    ]
     return (
-        <div className="flex h-full flex-col items-center justify-center gap-0.5">
-            <div className="text-2xl font-bold text-primary">1,234</div>
-            <div className="text-xs text-secondary">Weekly active users</div>
-            <div className="text-xs font-medium text-success">▲ 12%</div>
-        </div>
+        <MiniTile type="Error tracking • Last 7 days" title="Top issues" bodyClassName="flex flex-col">
+            <div className="flex items-center justify-between border-b border-primary bg-surface-secondary px-1.5 py-0.5 text-[0.45rem] font-semibold uppercase tracking-wide text-secondary">
+                <span>Issue</span>
+                <span>Occurrences</span>
+            </div>
+            <div className="flex-1 divide-y divide-primary">
+                {issues.map((issue) => (
+                    <div key={issue.title} className="flex items-center gap-1 px-1.5 py-1">
+                        <span className="h-1 w-1 shrink-0 rounded-full bg-danger" />
+                        <span className="min-w-0 flex-1 truncate text-[0.55rem] font-medium text-primary">
+                            {issue.title}
+                        </span>
+                        <span className="flex h-2.5 items-end gap-px">
+                            {issue.bars.map((h, i) => (
+                                <span key={i} className={`w-0.5 rounded-sm bg-accent ${h}`} />
+                            ))}
+                        </span>
+                        <span className="w-4 shrink-0 text-right text-[0.55rem] font-semibold tabular-nums text-primary">
+                            {issue.count}
+                        </span>
+                    </div>
+                ))}
+            </div>
+            <div className="border-t border-primary px-1.5 py-0.5 text-center text-[0.45rem] text-secondary">
+                2 of 42 issues
+            </div>
+        </MiniTile>
     )
 }
 
@@ -146,7 +252,7 @@ export function AddTilePickerModal(): JSX.Element | null {
                         onClick={() => onSelect(option.type, proceedFor[option.type])}
                         className="flex flex-col gap-2 rounded-lg border border-primary bg-surface-primary p-3 text-left transition-colors hover:border-accent hover:bg-surface-secondary"
                     >
-                        <div className="h-24 w-full overflow-hidden rounded-md bg-surface-secondary">
+                        <div className="h-32 w-full overflow-hidden rounded-md bg-surface-secondary p-2">
                             {option.preview}
                         </div>
                         <div className="flex items-center gap-2">

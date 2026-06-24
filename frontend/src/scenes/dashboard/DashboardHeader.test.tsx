@@ -172,10 +172,9 @@ describe('DashboardHeader', () => {
         { variant: undefined, expectPicker: false },
     ])('add button opens picker only for the test variant (variant=$variant)', ({ variant, expectPicker }) => {
         if (variant) {
-            featureFlagLogic.actions.setFeatureFlags(
-                [FEATURE_FLAGS.DASHBOARD_ADD_TILE_PICKER_MODAL],
-                { [FEATURE_FLAGS.DASHBOARD_ADD_TILE_PICKER_MODAL]: variant }
-            )
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_ADD_TILE_PICKER_MODAL], {
+                [FEATURE_FLAGS.DASHBOARD_ADD_TILE_PICKER_MODAL]: variant,
+            })
         }
 
         const { logic } = renderHeader({})
