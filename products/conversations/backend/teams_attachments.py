@@ -247,8 +247,9 @@ def _is_expected_hosted_content_path(url: str, teams_team_id: str, channel_id: s
 
 def _extract_hosted_content_id(url: str) -> str | None:
     """Pull the hostedContent id from a Graph hostedContents URL."""
-    marker = "hostedContents/"
-    idx = url.find(marker)
+    marker = "hostedcontents/"
+    url_lower = url.lower()
+    idx = url_lower.find(marker)
     if idx == -1:
         return None
     rest = url[idx + len(marker) :]
