@@ -11,6 +11,8 @@ import {
 } from 'lib/components/AppMetrics/appMetricsLogic'
 import { dayjs } from 'lib/dayjs'
 
+import { LogEntryLevel } from '~/types'
+
 import { isEmailAction } from './hogflows/steps/types'
 import { EXIT_NODE_ID, workflowLogic } from './workflowLogic'
 import type { workflowMetricsSummaryLogicType } from './workflowMetricsSummaryLogicType'
@@ -125,6 +127,34 @@ export const WORKFLOW_EMAIL_METRICS: Record<
         color: getColorVar('danger'),
         metricNames: ['email_spam'],
     },
+}
+
+// Email metrics whose SES events also write per-invocation log entries (see the SES webhook
+// handler). Clicking the tile drills into the Invocations tab filtered to those log entries.
+// The `search` term matches the start of the log message the handler emits (e.g. "Permanent
+// bounce to …"), so it surfaces every invocation that logged that failure in the timeframe.
+export const EMAIL_METRIC_LOG_FILTERS: Partial<Record<EmailMetric, { search: string; levels: LogEntryLevel[] }>> = {
+    email_bounced: { search: 'bounce', levels: ['WARN', 'ERROR'] },
+    email_blocked: { search: 'Complaint', levels: ['WARN', 'ERROR'] },
+}
+
+// Build the router search params that point the Invocations (logs) tab at the invocations whose
+// log entries match the given email metric over the metrics view's current timeframe.
+export function buildEmailMetricLogSearchParams(
+    metricKey: EmailMetric,
+    dateFrom: string,
+    dateTo: string
+): Record<string, string | string[]> | null {
+    const filter = EMAIL_METRIC_LOG_FILTERS[metricKey]
+    if (!filter) {
+        return null
+    }
+    return {
+        search: filter.search,
+        levels: filter.levels,
+        date_from: dateFrom,
+        date_to: dateTo,
+    }
 }
 
 const SUMMARY_METRIC_KEYS = (Object.keys(WORKFLOW_SUMMARY_METRICS) as WorkflowSummaryMetric[]).filter(

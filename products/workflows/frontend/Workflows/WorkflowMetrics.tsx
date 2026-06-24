@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useMemo } from 'react'
 
 import { LemonCollapse, LemonSelect, ProfilePicture, Spinner } from '@posthog/lemon-ui'
@@ -11,6 +12,7 @@ import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 import { ListHog } from 'lib/components/hedgehogs'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { urls } from 'scenes/urls'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { EmailMetricsSummary } from './EmailMetricsSummary'
@@ -18,6 +20,7 @@ import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 import { HogFlowBatchJob } from './hogflows/types'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 import { WorkflowMetricsSummary } from './WorkflowMetricsSummary'
+import { buildEmailMetricLogSearchParams } from './workflowMetricsSummaryLogic'
 
 const OVERVIEW_OPTION_VALUE = '__workflow_overview__'
 
@@ -60,7 +63,8 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
 
     const { workflow, hogFunctionTemplatesById } = useValues(workflowLogic)
 
-    const { appMetricsTrendsLoading, appMetricsTrends, getSingleTrendSeries, params } = useValues(logic)
+    const { appMetricsTrendsLoading, appMetricsTrends, getSingleTrendSeries, params, getDateRangeAbsolute } =
+        useValues(logic)
     const { setParams } = useActions(logic)
 
     const selectedAction = workflow.actions.find((action) => action.id === params.instanceId)
@@ -123,7 +127,20 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
                     onSelectAction={(actionId) => setParams({ ...params, instanceId: actionId })}
                 />
             ) : selectedAction?.type === 'function_email' ? (
-                <EmailMetricsSummary logicKey={logicKey} />
+                <EmailMetricsSummary
+                    logicKey={logicKey}
+                    onMetricClick={(metricKey) => {
+                        const { dateFrom, dateTo } = getDateRangeAbsolute()
+                        const searchParams = buildEmailMetricLogSearchParams(
+                            metricKey,
+                            dateFrom.toISOString(),
+                            dateTo.toISOString()
+                        )
+                        if (searchParams && props.id) {
+                            router.actions.push(urls.workflow(props.id, 'logs'), searchParams)
+                        }
+                    }}
+                />
             ) : (
                 <>
                     <div className="flex flex-row gap-2 flex-wrap justify-center">
