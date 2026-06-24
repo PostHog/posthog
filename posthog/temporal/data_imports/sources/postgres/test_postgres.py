@@ -4173,12 +4173,23 @@ class _RecordingConnection:
 
 
 class TestGetTable:
+    def teardown_method(self):
+        # `_get_table` and `_schemas_from_conn` raise a session-level `statement_timeout` on the
+        # connection (production opens and closes its own, so the GUC is discarded with it). Here
+        # they run against the shared `django_connection`, which Postgres does not reset on
+        # transaction rollback — reset it after every test so a raised timeout can't leak onto
+        # later tests reusing the connection.
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("RESET statement_timeout")
+
     @pytest.mark.django_db
-    def test_schema_discovery_query_runs_under_scoped_statement_timeout(self):
-        """The `information_schema.columns` metadata query is wrapped in its own transaction that
-        first issues a `SET LOCAL statement_timeout`, so a short role/server default can't cancel
-        it mid-discovery — the QueryCanceled on `_pg_numeric_scale` we observed against pooled
-        Postgres. Pin that the timeout is scoped immediately before the query it protects."""
+    def test_schema_discovery_raises_statement_timeout_before_any_probe(self):
+        """`_get_table` raises a generous session-level `statement_timeout` before issuing any
+        discovery query, so a short role/server default can't cancel discovery with QueryCanceled.
+        The protection must precede every probe — the `pg_matviews`/`pg_views` lookups and the
+        transaction `BEGIN` that scopes the metadata query both ran under the inherited short
+        default before, which canceled the statement against pooled Postgres. Pin that the timeout
+        is the first statement issued, ahead of the metadata SELECT it ultimately protects."""
         logger = structlog.get_logger()
 
         with django_connection.cursor() as dj_cursor:
@@ -4191,17 +4202,19 @@ class TestGetTable:
             # Real execution still succeeds and returns the expected columns.
             assert {c.name for c in table.columns} >= {"id", "amount"}
 
-            set_local_idx = next(
+            set_timeout_idx = next(
                 i
                 for i, q in enumerate(spy.executed)
-                if "SET LOCAL" in q and "statement_timeout" in q and str(METADATA_STATEMENT_TIMEOUT_MS) in q
+                if "statement_timeout" in q and str(METADATA_STATEMENT_TIMEOUT_MS) in q
             )
-            # The metadata SELECT (not the best-effort EXPLAIN that precedes it) must run directly
-            # after the SET LOCAL, inside the same transaction.
+            # The protective timeout must come before the first discovery probe (the
+            # `pg_matviews` lookup) and the metadata SELECT — not midway through, where a
+            # short default would already have canceled an earlier statement.
+            first_probe_idx = next(i for i, q in enumerate(spy.executed) if "pg_matviews" in q)
             info_schema_idx = next(
                 i for i, q in enumerate(spy.executed) if "information_schema.columns" in q and "EXPLAIN" not in q
             )
-            assert info_schema_idx == set_local_idx + 1
+            assert set_timeout_idx < first_probe_idx < info_schema_idx
 
     @pytest.mark.django_db
     def test_schemas_from_conn_runs_under_scoped_statement_timeout(self):
@@ -4213,15 +4226,7 @@ class TestGetTable:
             dj_cursor.execute("CREATE TABLE test_schemas_from_conn_timeout (id INTEGER PRIMARY KEY, name TEXT)")
 
         conn = _RecordingConnection(django_connection)
-        try:
-            discovered = _schemas_from_conn(cast(Any, conn), "public", ["test_schemas_from_conn_timeout"])
-        finally:
-            # `_schemas_from_conn` issues a session-level `SET statement_timeout` (production opens and
-            # closes its own connection, so the GUC is discarded with it). Here it runs against the shared
-            # `django_connection`, which Postgres does not reset on transaction rollback — clear it so the
-            # raised timeout can't leak onto subsequent tests reusing the connection.
-            with django_connection.cursor() as dj_cursor:
-                dj_cursor.execute("RESET statement_timeout")
+        discovered = _schemas_from_conn(cast(Any, conn), "public", ["test_schemas_from_conn_timeout"])
 
         assert "test_schemas_from_conn_timeout" in discovered
         assert {col[0] for col in discovered["test_schemas_from_conn_timeout"].columns} >= {"id", "name"}
