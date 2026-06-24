@@ -983,7 +983,7 @@ class CohortSerializer(serializers.ModelSerializer):
         instance = cast(Cohort, self.instance)
         if instance.is_static and attrs.get("is_static") is False:
             effective_filters = self._effective_filters_after_update(attrs)
-            if cohort_filters_have_values(effective_filters):
+            if effective_filters is not None and cohort_filters_have_values(effective_filters):
                 self._validate_feature_flag_constraints(effective_filters, cohort_will_be_static=False)
 
         return attrs
