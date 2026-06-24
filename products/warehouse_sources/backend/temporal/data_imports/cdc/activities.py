@@ -83,6 +83,20 @@ RETENTION_CAP_SAFETY_FACTOR = 0.8
 # attempt a failure won't be retried, so it's the last chance to record a visible failed-run row.
 CDC_MAX_EXTRACTION_ATTEMPTS = 3
 
+# Per-peek bound on WAL changes. A large backlog is drained over several passes (and, if needed,
+# several scheduled runs) instead of one unbounded read that risks the 2h activity timeout and
+# re-decodes from the slot start on every retry. The slot advances after each pass, so the next
+# peek resumes where this one stopped.
+CDC_MAX_CHANGES_PER_READ = 100_000
+# Ceiling for the adaptive growth that lets a single transaction larger than one page complete.
+CDC_MAX_CHANGES_LIMIT_CAP = 1_600_000
+# Stop starting new peeks past this wall-clock so the final flush + slot advance fit inside the
+# activity's 2h start-to-close timeout (see CDCExtractionWorkflow). The remainder is picked up on
+# the next scheduled run.
+CDC_READ_SOFT_DEADLINE_SECONDS = 90 * 60
+# Heartbeat at most this often while fetching WAL rows (the activity heartbeat timeout is 10m).
+CDC_READ_HEARTBEAT_INTERVAL_SECONDS = 30.0
+
 
 @dataclasses.dataclass
 class CDCExtractInput:
@@ -831,73 +845,146 @@ class CDCExtractActivity:
     # ------------------------------------------------------------------
     # WAL read loop with periodic micro-batch flushes
     # ------------------------------------------------------------------
-    def _read_wal_loop(self) -> None:
-        """Read WAL events with periodic micro-batch flushes.
+    def _make_read_heartbeat(self) -> Callable[[], None]:
+        """Throttled ``activity.heartbeat`` for ``read_changes``' per-row callback.
 
-        Streaming schemas get Kafka messages immediately after each S3 write.
-        The slot is advanced after each successful flush so that long-running
-        extractions that hit the activity timeout don't have to replay events
-        on the next run.
+        The decoder yields nothing until a COMMIT, so a single large transaction would
+        otherwise starve the 10m heartbeat timeout while it is being fetched. Throttled by
+        wall-clock to avoid a heartbeat call on every WAL row.
         """
+        last_heartbeat = 0.0
+
+        def heartbeat() -> None:
+            nonlocal last_heartbeat
+            now = time.monotonic()
+            if now - last_heartbeat >= CDC_READ_HEARTBEAT_INTERVAL_SECONDS:
+                activity.heartbeat()
+                last_heartbeat = now
+
+        return heartbeat
+
+    def _read_wal_loop(self) -> None:
+        """Read WAL events with periodic micro-batch flushes, bounded per peek.
+
+        Each pass peeks at most ``CDC_MAX_CHANGES_PER_READ`` changes so a large backlog can't
+        push the activity past its 2h timeout. When a pass returns a full page, the slot is
+        advanced past everything it committed and another pass runs, until the backlog drains,
+        the soft deadline hits, or (defensively) the limit cap is reached.
+
+        Streaming schemas get Kafka messages immediately after each S3 write. The slot is
+        advanced after each successful flush so a long extraction never replays committed
+        events on the next run.
+        """
+        assert self._run_started_at is not None
         event_name_to_schema_name = self._build_event_name_map()
         self.batcher = ChangeEventBatcher()
+        on_row = self._make_read_heartbeat()
 
-        for event in self.reader.read_changes():
-            activity.heartbeat()
+        limit = CDC_MAX_CHANGES_PER_READ
+        while True:
+            for event in self.reader.read_changes(upto_nchanges=limit, on_row=on_row):
+                activity.heartbeat()
 
-            # Resolve to the schema's stored `name` so downstream keying lines up. Log
-            # unmatched drops: a silent drop here is how a name mismatch starves a table.
-            canonical_name = event_name_to_schema_name.get(event.table_name)
-            if canonical_name is None:
-                self.log.debug("cdc_event_dropped_unmatched_table", table=event.table_name)
-                continue
-            if canonical_name != event.table_name:
-                event = dataclasses.replace(event, table_name=canonical_name)
+                # Resolve to the schema's stored `name` so downstream keying lines up. Log
+                # unmatched drops: a silent drop here is how a name mismatch starves a table.
+                canonical_name = event_name_to_schema_name.get(event.table_name)
+                if canonical_name is None:
+                    self.log.debug("cdc_event_dropped_unmatched_table", table=event.table_name)
+                    continue
+                if canonical_name != event.table_name:
+                    event = dataclasses.replace(event, table_name=canonical_name)
 
-            event = self._project_event_columns(event)
-            self.batcher.add(event)
+                event = self._project_event_columns(event)
+                self.batcher.add(event)
 
-            # A change in position_serialized proves the previous transaction fully
-            # yielded — all of its events are now buffered or flushed. Record its end LSN
-            # as the high-water mark we may safely release the WAL up to.
-            if event.position_serialized != self.current_txn_lsn:
-                self.last_complete_txn_end_lsn = self.current_txn_lsn
-                self.current_txn_lsn = event.position_serialized
+                # A change in position_serialized proves the previous transaction fully
+                # yielded — all of its events are now buffered or flushed. Record its end LSN
+                # as the high-water mark we may safely release the WAL up to.
+                if event.position_serialized != self.current_txn_lsn:
+                    self.last_complete_txn_end_lsn = self.current_txn_lsn
+                    self.current_txn_lsn = event.position_serialized
 
-            self.last_end_lsn = event.position_serialized
-            self.event_count += 1
+                self.last_end_lsn = event.position_serialized
+                self.event_count += 1
 
-            if self.batcher.should_flush:
-                tables = self.batcher.flush()
-                self.all_table_names.update(tables.keys())
-                self._process_flush(tables, is_final=False)
-                metrics.get_micro_batches_flushed_metric(self.inputs.team_id, str(self.inputs.source_id)).add(1)
-                # Advance only to the end of the last FULLY-yielded transaction, never to
-                # last_end_lsn: a micro-flush can fire mid-transaction (the batcher
-                # threshold is checked per event), and every event of the in-flight
-                # transaction shares its commit end LSN. Confirming that LSN while the
-                # transaction's tail is still un-yielded in the generator would release
-                # the WAL past un-flushed events — a crash before the next flush then
-                # loses them permanently. Consequences of this conservative bound:
-                #   (a) a single giant transaction gets no micro-advance until it
-                #       completes (a retry re-decodes it — safe, slow);
-                #   (b) on crash-replay the already-flushed prefix of the in-flight
-                #       transaction is re-delivered — incremental_merge dedups by PK,
-                #       scd2_append may create duplicate history rows. Accepted vs. loss.
-                if (
-                    self.last_complete_txn_end_lsn is not None
-                    and self.last_complete_txn_end_lsn != self.last_confirmed_lsn
-                ):
-                    self._confirm_position(self.last_complete_txn_end_lsn)
-                    self.last_confirmed_lsn = self.last_complete_txn_end_lsn
-                self.log.info(
-                    "cdc_micro_batch_flushed",
+                if self.batcher.should_flush:
+                    tables = self.batcher.flush()
+                    self.all_table_names.update(tables.keys())
+                    self._process_flush(tables, is_final=False)
+                    metrics.get_micro_batches_flushed_metric(self.inputs.team_id, str(self.inputs.source_id)).add(1)
+                    # Advance only to the end of the last FULLY-yielded transaction, never to
+                    # last_end_lsn: a micro-flush can fire mid-transaction (the batcher
+                    # threshold is checked per event), and every event of the in-flight
+                    # transaction shares its commit end LSN. Confirming that LSN while the
+                    # transaction's tail is still un-yielded in the generator would release
+                    # the WAL past un-flushed events — a crash before the next flush then
+                    # loses them permanently. Consequences of this conservative bound:
+                    #   (a) a single giant transaction gets no micro-advance until it
+                    #       completes (a retry re-decodes it — safe, slow);
+                    #   (b) on crash-replay the already-flushed prefix of the in-flight
+                    #       transaction is re-delivered — incremental_merge dedups by PK,
+                    #       scd2_append may create duplicate history rows. Accepted vs. loss.
+                    if (
+                        self.last_complete_txn_end_lsn is not None
+                        and self.last_complete_txn_end_lsn != self.last_confirmed_lsn
+                    ):
+                        self._confirm_position(self.last_complete_txn_end_lsn)
+                        self.last_confirmed_lsn = self.last_complete_txn_end_lsn
+                    self.log.info(
+                        "cdc_micro_batch_flushed",
+                        events_so_far=self.event_count,
+                        trackers=len(self.write_trackers),
+                    )
+
+            # Capture remaining table names before deciding on the next pass / final flush.
+            self.all_table_names.update(self.batcher.table_names)
+
+            rows_consumed = self.reader.last_rows_consumed
+            # Drained: the peek returned less than a full page, so the backlog is exhausted.
+            # Leave any buffered tail for run()'s _final_flush (is_final=True) + advance.
+            if rows_consumed < limit:
+                return
+
+            if (time.monotonic() - self._run_started_at) >= CDC_READ_SOFT_DEADLINE_SECONDS:
+                self.log.warning(
+                    "cdc_read_soft_deadline_reached",
                     events_so_far=self.event_count,
-                    trackers=len(self.write_trackers),
+                    rows_consumed=rows_consumed,
                 )
+                return
 
-        # Capture remaining table names before final flush
-        self.all_table_names.update(self.batcher.table_names)
+            # Full page: drain the buffered (committed) events and advance the slot past every
+            # transaction this pass committed so the next peek resumes cleanly. A full page that
+            # advanced nothing means one transaction larger than the page that hasn't committed
+            # within it — grow the window so it can complete next pass; the decoder's
+            # MAX_TX_BUFFER_EVENTS guard fails it instead of looping if it is genuinely unbounded.
+            if not self._drain_and_advance_page():
+                limit = min(limit * 2, CDC_MAX_CHANGES_LIMIT_CAP)
+
+    def _drain_and_advance_page(self) -> bool:
+        """Between peeks: flush buffered events and advance the slot past every committed
+        transaction. Returns whether the slot advanced.
+
+        Safe to advance to the decoder's last commit end LSN here (not only to
+        last_complete_txn_end_lsn as the mid-loop micro-flush does): the peek has stopped at a
+        transaction boundary, so every event yielded this pass belongs to a committed
+        transaction and is now flushed. Unmatched-table commits carry the slot forward too —
+        their WAL is intentionally dropped. Re-reading instead would re-add already-flushed
+        events and duplicate SCD2 history rows.
+        """
+        if self.batcher.event_count > 0:
+            tables = self.batcher.flush()
+            self.all_table_names.update(tables.keys())
+            self._process_flush(tables, is_final=False)
+            metrics.get_micro_batches_flushed_metric(self.inputs.team_id, str(self.inputs.source_id)).add(1)
+
+        commit_lsn = self.reader.last_commit_end_lsn
+        if commit_lsn is not None and commit_lsn != self.last_confirmed_lsn:
+            self._confirm_position(commit_lsn)
+            self.last_confirmed_lsn = commit_lsn
+            self.last_end_lsn = commit_lsn
+            return True
+        return False
 
     # ------------------------------------------------------------------
     # Post-WAL handling
