@@ -1293,7 +1293,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             if channels is None:
                 pass
             elif isinstance(channels, list):
-                value["ai_resolution_channels"] = [c for c in channels if isinstance(c, str) and c in VALID_CHANNELS]
+                invalid = [c for c in channels if not isinstance(c, str) or c not in VALID_CHANNELS]
+                if invalid:
+                    raise serializers.ValidationError(
+                        {
+                            "ai_resolution_channels": f"Invalid channel(s): {', '.join(str(c) for c in invalid)}. "
+                            f"Valid options: {', '.join(sorted(VALID_CHANNELS))}."
+                        }
+                    )
+                value["ai_resolution_channels"] = channels
             else:
                 raise serializers.ValidationError(
                     {"ai_resolution_channels": "Must be a list of channel names or null."}

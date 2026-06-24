@@ -53,22 +53,23 @@ export function AISection(): JSX.Element {
                     knowledge source.
                 </p>
             </LemonCard>
-            <LemonCard hoverEffect={false} className="flex flex-col gap-y-3 max-w-[800px] px-4 py-3">
-                <LemonSwitch
-                    checked={aiDiagnosticsEnabled}
-                    onChange={(checked) => setAiDiagnosticsEnabled(checked)}
-                    loading={aiDiagnosticsLoading}
-                    disabledReason={!aiSuggestionsEnabled ? 'Enable AI suggestions first' : undefined}
-                    label="Allow the agent to investigate ticket data"
-                />
-                <p className="text-xs text-muted-alt mb-0">
-                    When enabled, tickets that report something broken let the agent query your project's data — events,
-                    error tracking, session recordings, and logs — to investigate the issue instead of relying on
-                    documentation alone. The agent has read-only access scoped to your project. Leave this off to keep
-                    suggestions grounded only in documentation and your business knowledge.
-                </p>
-            </LemonCard>
-
+            {aiSuggestionsEnabled && (
+                <LemonCard hoverEffect={false} className="flex flex-col gap-y-3 max-w-[800px] px-4 py-3">
+                    <LemonSwitch
+                        checked={aiDiagnosticsEnabled}
+                        onChange={(checked) => setAiDiagnosticsEnabled(checked)}
+                        loading={aiDiagnosticsLoading}
+                        disabledReason={!aiSuggestionsEnabled ? 'Enable AI suggestions first' : undefined}
+                        label="Allow the agent to investigate ticket data"
+                    />
+                    <p className="text-xs text-muted-alt mb-0">
+                        When enabled, tickets that report something broken let the agent query your project's data —
+                        events, error tracking, session recordings, and logs — to investigate the issue instead of
+                        relying on documentation alone. The agent has read-only access scoped to your project. Leave
+                        this off to keep suggestions grounded only in documentation and your business knowledge.
+                    </p>
+                </LemonCard>
+            )}
             {aiSuggestionsEnabled && aiEnabledChannels.length > 0 && (
                 <LemonCard hoverEffect={false} className="flex flex-col gap-y-3 max-w-[800px] px-4 py-3">
                     <h4 className="font-semibold text-sm mb-0">Allowed channels</h4>
