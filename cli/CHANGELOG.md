@@ -1,5 +1,11 @@
 # posthog-cli
 
+## 0.7.31 — 2026-06-24
+
+### Patch changes
+
+- [dfd1f66a9f](https://github.com/PostHog/posthog/commit/dfd1f66a9f0a5ae4e492887c79921b0692c97d51) Add `symbol-sets upload` for native (ELF) debug symbols: it scans a directory for executables, shared libraries, and `objcopy --only-keep-debug` companions that carry a GNU build id and uploads them to PostHog. — Thanks @cat-ph!
+
 ## 0.7.30 — 2026-06-22
 
 ### Patch changes
