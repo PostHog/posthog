@@ -385,9 +385,6 @@ start:
         description: Start only the frontend (Vite dev server, port 8234) — pair with Cloud login to develop against PostHog Cloud with no local backend
         services:
             - frontend
-    frontend:
-        extends: start:frontend
-        description: Alias for `hogli start:frontend`
     start:frontend-vite:
         bin_script: start-frontend-vite
         description: Start Vite dev server for frontend (runs pnpm start-vite)

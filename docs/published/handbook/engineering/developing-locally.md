@@ -155,7 +155,7 @@ By default, `hogli start` runs a minimal set of services (enough for product ana
 If you only need to work on the frontend, you can skip the local backend entirely and develop against PostHog Cloud:
 
 ```bash
-hogli start:frontend   # or the shorthand: hogli frontend
+hogli start:frontend
 ```
 
 This runs only the Vite dev server (port 8234) — no Django, Postgres, Kafka, or other services.
