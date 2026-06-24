@@ -404,7 +404,7 @@ class TestMarketingAnalyticsTableQueryRunner(ClickhouseTestMixin, BaseTest):
 
         filtered = runner._get_filtered_select_columns(source)
 
-        assert [col.alias for col in filtered] == ["Signups", "Cost"]
+        assert [col.alias if isinstance(col, ast.Alias) else str(col) for col in filtered] == ["Signups", "Cost"]
 
     @parameterized.expand(
         [

@@ -412,6 +412,10 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             # Names become SQL column aliases downstream, so a duplicate would collide
             # ("Cannot redefine an alias"). Keep the first, skip the rest with a warning.
             if goal_name in seen_names:
+                logger.warning(
+                    "filtering_out_duplicate_named_conversion_goal",
+                    goal_name=goal_name,
+                )
                 warnings.append(f"Conversion goal '{goal_name}' skipped: duplicate name")
                 continue
             seen_names.add(goal_name)
