@@ -1120,11 +1120,16 @@ class TestConnectWithDroppedRetry:
         good_conn = mock.MagicMock()
         connect = mock.MagicMock(
             side_effect=[
-                # The source is momentarily at its connection limit; a slot frees up by the
-                # next attempt, so the reconnect succeeds rather than failing the whole sync.
+                # The source is momentarily at its connection limit; slots free up by a
+                # later attempt, so the reconnect succeeds rather than failing the whole sync.
+                # Two consecutive refusals lock in that the loop keeps retrying past one attempt.
                 psycopg.OperationalError(
                     'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
                     "FATAL:  sorry, too many clients already"
+                ),
+                psycopg.OperationalError(
+                    'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                    "FATAL:  remaining connection slots are reserved for roles with the SUPERUSER attribute"
                 ),
                 good_conn,
             ]
@@ -1134,7 +1139,7 @@ class TestConnectWithDroppedRetry:
             result = _connect_with_dropped_retry(connect, logger, max_attempts=5)
 
         assert result is good_conn
-        assert connect.call_count == 2
+        assert connect.call_count == 3
 
     def test_permanent_error_is_not_retried(self, logger):
         connect = mock.MagicMock(
