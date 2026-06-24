@@ -624,6 +624,8 @@ class TestDashboardRunWidgets(APIBaseTest):
 
         matching_events_query = result["matchingEventsQuery"]
         assert matching_events_query["events"][0]["id"] == "$pageview"
+        # Same invariant as the widget-filter path: session_ids are supplied per recording by the client.
+        assert "session_ids" not in matching_events_query
 
     @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
     def test_session_replay_widget_omits_matching_events_query_without_event_filters(

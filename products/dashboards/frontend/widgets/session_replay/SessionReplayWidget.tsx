@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import api from 'lib/api'
 import { CardTopHeadingRow } from 'lib/components/Cards/CardTopHeadingRow'
@@ -57,9 +57,12 @@ function SessionReplayWidgetRecordingRow({
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const { reportRecordingOpenedFromRecentRecordingList } = useActions(sessionRecordingEventUsageLogic)
     const [isOpening, setIsOpening] = useState(false)
+    // Ref guard, not the state value: state updates aren't visible to a second click that fires
+    // before the next render, so two rapid clicks would otherwise both pass the guard.
+    const isOpeningRef = useRef(false)
 
     const openRecording = async (): Promise<void> => {
-        if (isOpening) {
+        if (isOpeningRef.current) {
             return
         }
         reportRecordingOpenedFromRecentRecordingList()
@@ -70,6 +73,7 @@ function SessionReplayWidgetRecordingRow({
             return
         }
 
+        isOpeningRef.current = true
         setIsOpening(true)
         try {
             const query: RecordingsQuery = { ...matchingEventsQuery, session_ids: [recording.id] }
@@ -84,6 +88,7 @@ function SessionReplayWidgetRecordingRow({
             posthog.captureException(error, { feature: 'session-replay-widget-matching-events' })
             openSessionPlayer({ id: recording.id })
         } finally {
+            isOpeningRef.current = false
             setIsOpening(false)
         }
     }
