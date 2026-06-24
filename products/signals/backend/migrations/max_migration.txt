@@ -1,1 +1,1 @@
-0049_signalreportartefact_reviewers_gin
+0048_signalreportartefact_latest_index
