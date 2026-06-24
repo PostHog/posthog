@@ -143,9 +143,9 @@ class TestSessionActivity(BaseTest):
         request.META["HTTP_USER_AGENT"] = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/120.0"
 
         with (
-            patch("posthog.session.activity.get_ip_address", return_value="8.8.8.8"),
+            patch("posthog.session.risk.get_ip_address", return_value="8.8.8.8"),
             patch(
-                "posthog.session.activity.get_geoip_location",
+                "posthog.session.risk.get_geoip_location",
                 return_value={"latitude": 40.7, "longitude": -74.0, "country_code": "US"},
             ),
             self.captureOnCommitCallbacks(execute=True),

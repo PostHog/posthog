@@ -4,9 +4,17 @@ from enum import Enum, IntEnum
 from math import asin, cos, radians, sin, sqrt
 from typing import Optional
 
-import posthoganalytics
+from django.contrib.auth import BACKEND_SESSION_KEY
+from django.http import HttpRequest
+from django.utils import timezone
 
+import posthoganalytics
+from loginas.utils import is_impersonated_session
+
+from posthog.geoip import get_geoip_location
 from posthog.models import User
+from posthog.session.models import Session
+from posthog.utils import _is_valid_ip_address, get_ip_address
 
 RISK_DISTANCE_FLOOR_KM = 500.0
 RISK_ELAPSED_FLOOR_S = 300.0
@@ -31,7 +39,7 @@ class Baseline:
     longitude: Optional[float]
     country_code: Optional[str]
     ua_signature: Optional[str]
-    last_activity: Optional[datetime]
+    baseline_at: Optional[datetime]  # when this known-good snapshot was recorded
 
 
 @dataclass
@@ -50,6 +58,19 @@ def ua_signature(user_agent: Optional[str]) -> Optional[str]:
     ua = parse(user_agent)
     device = "mobile" if ua.is_mobile else "tablet" if ua.is_tablet else "pc" if ua.is_pc else "other"
     return f"{ua.browser.family}|{ua.os.family}|{device}".lower()
+
+
+def current_request_context(request: HttpRequest) -> Context:
+    """Geo + UA signature for the current request. Shared by the metadata write and the risk
+    middleware so both derive the baseline the same way."""
+    ip = get_ip_address(request)
+    loc = get_geoip_location(ip) if _is_valid_ip_address(ip) else {}
+    return Context(
+        latitude=loc.get("latitude"),
+        longitude=loc.get("longitude"),
+        country_code=loc.get("country_code"),
+        ua_signature=ua_signature(request.headers.get("user-agent")),
+    )
 
 
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -71,12 +92,12 @@ def evaluate_signals(baseline: Baseline, ctx: Context, *, now: datetime) -> set[
     if (
         baseline.latitude is not None
         and baseline.longitude is not None
-        and baseline.last_activity is not None
+        and baseline.baseline_at is not None
         and ctx.latitude is not None
         and ctx.longitude is not None
     ):
         distance = haversine_km(baseline.latitude, baseline.longitude, ctx.latitude, ctx.longitude)
-        elapsed = (now - baseline.last_activity).total_seconds()
+        elapsed = (now - baseline.baseline_at).total_seconds()
         if distance > RISK_DISTANCE_FLOOR_KM and elapsed > RISK_ELAPSED_FLOOR_S:
             if distance / (elapsed / 3600.0) > RISK_VELOCITY_MAX_KMH:
                 signals.add(RiskSignal.IMPOSSIBLE_TRAVEL)
@@ -118,3 +139,102 @@ def risk_flags(user: User) -> RiskFlags:
         step_up=_enabled("session-risk-step-up", user),
         session_end=_enabled("session-risk-session-end", user),
     )
+
+
+def _baseline_for_session(session_key: str) -> Optional[Baseline]:
+    row = (
+        Session.objects.filter(session_key=session_key)
+        .values("latitude", "longitude", "country_code", "ua_signature", "baseline_at")
+        .first()
+    )
+    if row is None:
+        return None
+    return Baseline(**row)
+
+
+def advance_baseline(session_key: str, baseline: Baseline, ctx: Context, *, now: datetime) -> None:
+    """Record the current request as the new known-good baseline. Called only for low-risk (NONE)
+    requests, so a suspicious request can never become the reference it would be scored against.
+
+    Skips when the request has no usable geo fix (keeps the last good snapshot intact and its geo
+    paired with its timestamp), and throttles refreshes to RISK_BASELINE_REFRESH_S to avoid a write
+    on every request. A NULL baseline_at (fresh login, or detection just enabled) bypasses the
+    throttle so the anchor is established immediately.
+    """
+    if ctx.latitude is None or ctx.longitude is None:
+        return
+    if (
+        baseline.baseline_at is not None
+        and (now - baseline.baseline_at).total_seconds() < settings.RISK_BASELINE_REFRESH_S
+    ):
+        return
+    Session.objects.filter(session_key=session_key).update(
+        latitude=ctx.latitude,
+        longitude=ctx.longitude,
+        country_code=ctx.country_code,
+        ua_signature=ctx.ua_signature,
+        baseline_at=now,
+    )
+
+
+def evaluate_session_risk(request: HttpRequest) -> RiskTier:
+    """Per-request risk orchestrator. Returns the *effective* tier the middleware should act on.
+
+    Report-only by default: emits `session_risk_detected` telemetry for any non-NONE tier when
+    detection is on, and only returns HIGH (to end the session) or sets `step_up_required` when the
+    corresponding flag is on. The master `detection` flag gates everything — off ⇒ silent NONE.
+    """
+    user = request.user
+    if not isinstance(user, User) or not user.is_authenticated:
+        return RiskTier.NONE
+    if BACKEND_SESSION_KEY not in request.session:
+        return RiskTier.NONE
+    session_key = request.session.session_key
+    if not session_key:
+        return RiskTier.NONE
+    if is_impersonated_session(request):
+        return RiskTier.NONE
+
+    flags = risk_flags(user)
+    if not flags.detection:
+        return RiskTier.NONE
+
+    baseline = _baseline_for_session(session_key)
+    if baseline is None:
+        return RiskTier.NONE
+
+    ctx = current_request_context(request)
+    now = timezone.now()
+    signals = evaluate_signals(baseline, ctx, now=now)
+    tier = tier_for(signals)
+    if tier == RiskTier.NONE:
+        # Low-risk request: roll the known-good baseline forward (or establish it when NULL). A
+        # suspicious request never reaches here, so it can't poison the reference it's scored against.
+        advance_baseline(session_key, baseline, ctx, now=now)
+        return RiskTier.NONE
+
+    effective = RiskTier.NONE
+    enforced = False
+    if tier == RiskTier.HIGH and flags.session_end:
+        effective = RiskTier.HIGH
+        enforced = True
+    elif tier >= RiskTier.MEDIUM and flags.step_up:
+        # Step-up is a side effect gated elsewhere; the middleware does not short-circuit on it. This
+        # also catches a HIGH detection when session_end is off but step_up is on (graceful degradation).
+        request.session[settings.SESSION_STEP_UP_REQUIRED_KEY] = True
+        # Persist now rather than relying on SessionMiddleware, which skips save() on a 5xx response —
+        # otherwise a server error on this request would silently drop the step-up requirement.
+        request.session.save()
+        enforced = True
+
+    posthoganalytics.capture(
+        distinct_id=str(user.distinct_id),
+        event="session_risk_detected",
+        properties={
+            "signals": sorted(signal.value for signal in signals),
+            "tier": tier.name,
+            "enforced": enforced,
+        },
+    )
+
+    return effective

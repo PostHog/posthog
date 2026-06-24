@@ -169,6 +169,7 @@ MIDDLEWARE = [
     "posthog.middleware.SessionAgeMiddleware",
     "posthog.middleware.KnownLoginDeviceCookieMiddleware",
     "posthog.session.middleware.UserAuthSessionActivityMiddleware",
+    "posthog.session.middleware.SessionRiskMiddleware",
     "posthog.middleware.ActivityLoggingMiddleware",
     "posthog.middleware.user_logging_context_middleware",
     "django_otp.middleware.OTPMiddleware",
@@ -326,6 +327,10 @@ CAN_LOGIN_AS = lambda request, target_user: (
 LOGINAS_LOGIN_REASON_REQUIRED = True
 
 SESSION_COOKIE_CREATED_AT_KEY = get_from_env("SESSION_COOKIE_CREATED_AT_KEY", "session_created_at")
+# Session keys for risk-based step-up (posthog/session/risk.py). Named so every reader/writer shares
+# one source of truth, like SESSION_COOKIE_CREATED_AT_KEY above.
+SESSION_STEP_UP_REQUIRED_KEY = get_from_env("SESSION_STEP_UP_REQUIRED_KEY", "step_up_required")
+SESSION_LAST_REAUTH_AT_KEY = get_from_env("SESSION_LAST_REAUTH_AT_KEY", "last_reauth_at")
 
 PROJECT_SWITCHING_TOKEN_ALLOWLIST = get_list(os.getenv("PROJECT_SWITCHING_TOKEN_ALLOWLIST", "sTMFPsFhdP1Ssg"))
 

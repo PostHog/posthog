@@ -12,10 +12,9 @@ from django.utils import timezone
 from loginas.utils import is_impersonated_session
 
 from posthog.constants import AUTH_BACKEND_KEYS
-from posthog.geoip import get_geoip_location, get_geoip_properties
+from posthog.geoip import get_geoip_properties
 from posthog.models import User
 from posthog.session.models import Session
-from posthog.session.risk import Context, ua_signature
 from posthog.utils import _is_valid_ip_address, get_ip_address, get_short_user_agent
 
 # Fixed, arbitrary namespace for deriving a session's public id. We expose `uuid5(namespace, key)`
@@ -43,19 +42,6 @@ def _login_method(request: HttpRequest) -> Optional[str]:
     backend = request.session.get(BACKEND_SESSION_KEY)
     method = AUTH_BACKEND_KEYS.get(backend) if backend else None
     return method if isinstance(method, str) else None
-
-
-def current_request_context(request: HttpRequest) -> Context:
-    """Geo + UA signature for the current request. Shared by the metadata write and the risk
-    middleware so both derive the baseline the same way."""
-    ip = get_ip_address(request)
-    loc = get_geoip_location(ip) if _is_valid_ip_address(ip) else {}
-    return Context(
-        latitude=loc.get("latitude"),
-        longitude=loc.get("longitude"),
-        country_code=loc.get("country_code"),
-        ua_signature=ua_signature(request.headers.get("user-agent")),
-    )
 
 
 def list_user_sessions(user: User) -> list[Session]:
@@ -94,18 +80,16 @@ def sync_current_session_metadata(request: HttpRequest, force: bool = False) -> 
         return
 
     ip = get_ip_address(request)
-    ctx = current_request_context(request)
     fields = {
         "last_activity": timezone.now(),
         "ip": ip if _is_valid_ip_address(ip) else None,
         "short_user_agent": get_short_user_agent(request) or None,
         "location": _location_from_ip(ip),
         "login_method": _login_method(request),
-        "latitude": ctx.latitude,
-        "longitude": ctx.longitude,
-        "country_code": ctx.country_code,
-        "ua_signature": ctx.ua_signature,
     }
+    # Note: the risk baseline columns (latitude/longitude/country_code/ua_signature/baseline_at) are
+    # NOT written here. They are owned by evaluate_session_risk, which advances them only on low-risk
+    # requests so a suspicious request can't overwrite the known-good reference (posthog/session/risk.py).
 
     # Defer the write to commit. This metadata is best-effort display data, so the write must never
     # add a query to the caller's transaction (which would break assertNumQueries assertions across
