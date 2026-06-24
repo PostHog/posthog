@@ -139,27 +139,19 @@ describe('timeSensitiveAuthenticationLogic', () => {
             // Callsites (e.g. organizationLogic.updateOrganization) await checkReauthentication() inside a
             // kea-loader, and kea-loaders reads `.message` off the rejection value. Rejecting with `undefined`
             // threw "Cannot read properties of undefined (reading 'message')" and crashed the page.
-            const mockUser = {
-                ...MOCK_DEFAULT_USER,
-                sensitive_session_expires_at: dayjs().subtract(1, 'hour').toISOString(),
-            }
-            userLogic.actions.loadUserSuccess(mockUser)
+            const resolve = jest.fn()
+            const reject = jest.fn()
+            apiStatusLogic.actions.setTimeSensitiveAuthenticationRequired([resolve, reject])
 
-            const reauthPromise = logic.asyncActions.checkReauthentication()
-            const rejection = reauthPromise.then(
-                () => {
-                    throw new Error('expected reauthentication promise to reject')
-                },
-                (e: unknown) => e
-            )
+            await expectLogic(logic, () => {
+                logic.actions.setDismissedReauthentication(true)
+            }).toFinishAllListeners()
 
-            // Wait until the resolve/reject pair is registered before dismissing
-            await expectLogic(logic).toDispatchActions(['setTimeSensitiveAuthenticationRequired'])
-            logic.actions.setDismissedReauthentication(true)
-
-            const error = await rejection
-            expect(error).toBeInstanceOf(Error)
-            expect((error as Error).message).toBe('Re-authentication dismissed')
+            expect(resolve).not.toHaveBeenCalled()
+            expect(reject).toHaveBeenCalledTimes(1)
+            const rejectionReason = reject.mock.calls[0][0]
+            expect(rejectionReason).toBeInstanceOf(Error)
+            expect((rejectionReason as Error).message).toBe('Re-authentication dismissed')
         })
     })
 })
