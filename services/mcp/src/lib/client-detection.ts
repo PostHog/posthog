@@ -85,13 +85,13 @@ export const CODING_AGENT_CLIENT_NAME_FRAGMENTS = [
     'opencode',
 ] as const
 
-// Known `x-anthropic-client` (`vendorClient`) header values. Anthropic pools
-// MCP transports across all its products and reports the live one in this
-// header, so it's the reliable identifier for an Anthropic client (the
-// `initialize` body's `clientName` is the pool owner, e.g. `Anthropic/ClaudeAI`).
-// Every Anthropic product runs in CLI (single-exec) mode. Matched as normalized
-// substrings, so vendor-prefixed shapes like `Anthropic/ClaudeAI` resolve to
-// `claudeai`.
+// Anthropic client identifiers, matched against both the `x-anthropic-client`
+// (`vendorClient`) header and the self-reported `clientInfo.name`. Anthropic
+// pools MCP transports across its products and reports the live one in the
+// header, but the header is absent on many connector sessions, leaving the
+// pooled clientName (e.g. `Anthropic/ClaudeAI`) as the only signal. Every
+// Anthropic product runs in CLI (single-exec) mode. Matched as normalized
+// substrings, so shapes like `Anthropic/ClaudeAI` resolve to `claudeai`.
 export const ANTHROPIC_CLIENT_NAME_FRAGMENTS = ['claudecode', 'claudeai', 'cowork'] as const
 
 // Value sent in `x-posthog-mcp-consumer` by PostHog Code (the Tasks sandbox
@@ -180,16 +180,18 @@ export class MCPClientProfile {
     }
 
     isCliModeEnabled(): boolean {
-        // Every known Anthropic client runs in CLI (single-exec) mode. The
+        // Every Anthropic client runs in CLI (single-exec) mode. The
         // `x-anthropic-client` header names the live product across Anthropic's
-        // pooled MCP transports, but it is absent on many Claude.ai connector
-        // sessions, which then carry only the pooled `clientInfo.name` (e.g.
-        // `Anthropic/ClaudeAI`). Match either signal so a missing header doesn't
-        // drop the session into full tools mode; the Claude Code vs Claude.ai
-        // distinction the header adds is irrelevant here, both want CLI mode.
+        // pooled MCP transports, but it is absent on many connector sessions,
+        // which then carry only the pooled `clientInfo.name`. Match the known
+        // fragments against either signal, plus any `Anthropic/<product>`
+        // clientName, so a missing header doesn't drop a session into full tools
+        // mode and surfaces beyond Claude.ai (Toolbox, etc.) are covered too.
+        const isPooledAnthropicClientName = normalizeClientName(this.clientName ?? '').startsWith('anthropic/')
         if (
             matchesAnyFragment(this.vendorClient, ANTHROPIC_CLIENT_NAME_FRAGMENTS) ||
-            matchesAnyFragment(this.clientName, ANTHROPIC_CLIENT_NAME_FRAGMENTS)
+            matchesAnyFragment(this.clientName, ANTHROPIC_CLIENT_NAME_FRAGMENTS) ||
+            isPooledAnthropicClientName
         ) {
             return true
         }
