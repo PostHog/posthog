@@ -50,7 +50,10 @@ class ErrorTrackingExternalReferenceSerializer(serializers.Serializer):
         help_text=(
             "Provider-specific fields describing the external issue to create. Required keys depend on the "
             "integration kind: github -> {repository, title, body}; gitlab -> {title, body}; "
-            "linear -> {team_id, title, description}; jira -> {project_key, title, description}."
+            "linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: "
+            'github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; '
+            'linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; '
+            'jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}.'
         ),
     )
     issue = serializers.UUIDField(write_only=True, help_text="ID of the error tracking issue to link the reference to.")
@@ -114,7 +117,7 @@ class ErrorTrackingExternalReferenceViewSet(TeamAndOrgViewSetMixin, ForbidDestro
             )
         except ExternalReferenceValidationError as error:
             logger.warning("Failed to create external reference", exc_info=error)
-            raise ValidationError("Invalid external reference configuration") from error
+            raise ValidationError(str(error)) from error
 
         response_serializer = self.get_serializer(reference)
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)

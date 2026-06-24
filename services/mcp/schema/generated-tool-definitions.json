@@ -2417,7 +2417,7 @@
         }
     },
     "error-tracking-external-references-create": {
-        "description": "Link an error tracking issue to an external issue tracker (GitHub, GitLab, Linear, or Jira) by creating the external issue. Provide the error tracking issue id as `issue`, the connected integration as `integration_id`, and a `config` object with the provider-specific fields. Required `config` keys by integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Look up the project's integrations first to find the `integration_id` and its kind.",
+        "description": "Create a new external issue in GitHub, GitLab, Linear, or Jira, then link it to a PostHog error tracking issue as an external reference. This tool does not link an existing external issue by URL or key. Provide the error tracking issue id as `issue`, the connected integration as `integration_id`, and a `config` object with provider-specific fields. Examples: Jira config {\"project_key\":\"ENG\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace and reproduction details\"}; Linear config {\"team_id\":\"team-id\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace and reproduction details\"}; GitHub config {\"repository\":\"posthog\",\"title\":\"Checkout TypeError\",\"body\":\"Stack trace and reproduction details\"}; GitLab config {\"title\":\"Checkout TypeError\",\"body\":\"Stack trace and reproduction details\"}. Required `config` keys by integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Use integrations-list first to find the `integration_id` and kind; use integrations-jira-projects-retrieve, integrations-linear-teams-retrieve, or integrations-github-repos-retrieve when you need provider-specific IDs.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "Create error tracking external reference",
@@ -4043,6 +4043,34 @@
         "feature": "integrations",
         "summary": "List GitHub integration repositories",
         "title": "List GitHub integration repositories",
+        "required_scopes": ["integration:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "integrations-jira-projects-retrieve": {
+        "description": "List Jira projects available through a connected Jira integration. Use integrations-list with kind=jira first to find the integration id, then pass a returned project key as `config.project_key` when creating an error tracking external reference.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "List Jira projects",
+        "title": "List Jira projects",
+        "required_scopes": ["integration:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "integrations-linear-teams-retrieve": {
+        "description": "List Linear teams available through a connected Linear integration. Use integrations-list with kind=linear first to find the integration id, then pass a returned team id as `config.team_id` when creating an error tracking external reference.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "List Linear teams",
+        "title": "List Linear teams",
         "required_scopes": ["integration:read"],
         "annotations": {
             "destructiveHint": false,

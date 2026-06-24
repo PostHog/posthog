@@ -914,6 +914,64 @@ class TestIntegrationAPIKeyAccess:
             == "Unable to fetch GitHub teams. Please check integration settings and try again."
         )
 
+    @patch("posthog.api.integration._ensure_oauth_token_valid")
+    @patch("posthog.api.integration.JiraIntegration.list_projects")
+    def test_jira_projects_with_scope_succeeds(self, mock_list_projects, mock_ensure_token_valid, client: HttpClient):
+        mock_list_projects.return_value = [{"id": "10000", "key": "ENG", "name": "Engineering"}]
+        jira_integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.JIRA.value,
+            config={"cloud_id": "cloud-id"},
+            sensitive_config={"access_token": "test-token"},
+        )
+
+        key_value = "test_key_123"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{jira_integration.id}/jira_projects/",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"projects": [{"id": "10000", "key": "ENG", "name": "Engineering"}]}
+        mock_ensure_token_valid.assert_called_once_with(jira_integration)
+        mock_list_projects.assert_called_once_with()
+
+    @patch("posthog.api.integration._ensure_oauth_token_valid")
+    @patch("posthog.api.integration.LinearIntegration.list_teams")
+    def test_linear_teams_with_scope_succeeds(self, mock_list_teams, mock_ensure_token_valid, client: HttpClient):
+        mock_list_teams.return_value = [{"id": "team-id", "name": "Engineering"}]
+        linear_integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.LINEAR.value,
+            config={},
+            sensitive_config={"access_token": "test-token"},
+        )
+
+        key_value = "test_key_123"
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["integration:read"],
+        )
+
+        response = client.get(
+            f"/api/environments/{self.team.pk}/integrations/{linear_integration.id}/linear_teams/",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"teams": [{"id": "team-id", "name": "Engineering"}]}
+        mock_ensure_token_valid.assert_called_once_with(linear_integration)
+        mock_list_teams.assert_called_once_with()
+
     @patch("posthog.models.integration.GitHubIntegration.sync_repository_cache")
     def test_refresh_github_repos_with_write_scope_succeeds(self, mock_sync_repository_cache, client: HttpClient):
         mock_sync_repository_cache.return_value = [
