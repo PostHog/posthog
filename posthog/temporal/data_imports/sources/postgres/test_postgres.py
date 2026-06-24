@@ -5565,7 +5565,17 @@ class TestPartitionIterationConnectRetry:
         def __exit__(self, *args):
             return False
 
-    def test_window_connect_retries_transient_drop_in_process(self):
+    # Both branches changed by the fix are covered: get_partition_strategy=None keeps
+    # use_per_partition_chunking False -> iterate_date_windows (windowed path); a range strategy
+    # keyed on the incremental field flips it True -> iterate_partitions (per-partition path).
+    @pytest.mark.parametrize(
+        "partition_strategy",
+        [
+            pytest.param(None, id="windowed"),
+            pytest.param(PartitionStrategy(strategy="r", key_columns=["id"]), id="per_partition"),
+        ],
+    )
+    def test_partition_connect_retries_transient_drop_in_process(self, partition_strategy):
         @contextmanager
         def fake_tunnel():
             yield ("localhost", 5432)
@@ -5584,11 +5594,11 @@ class TestPartitionIterationConnectRetry:
                 # Setup connection (metadata probes are patched out).
                 return TestPartitionIterationConnectRetry._WindowConnection()
             if connect_calls["n"] == 2:
-                # First window connect: the setup commit() inside get_connection drops.
+                # First per-window/per-partition connect: the setup commit() inside get_connection drops.
                 return TestPartitionIterationConnectRetry._WindowConnection(
                     commit_error=psycopg.OperationalError("the connection is lost")
                 )
-            # The retried window connect succeeds and serves the rows.
+            # The retried connect succeeds and serves the rows.
             return TestPartitionIterationConnectRetry._WindowConnection(rows=[(1, 10), (2, 20), (3, 30)])
 
         child = ChildPartition(
@@ -5610,8 +5620,7 @@ class TestPartitionIterationConnectRetry:
             patch(f"{module}._get_primary_keys", return_value=["id"]),
             patch(f"{module}._is_partitioned_table", return_value=True),
             patch(f"{module}.list_child_partitions", return_value=[child]),
-            # None -> use_per_partition_chunking stays False, so the windowed path is taken.
-            patch(f"{module}.get_partition_strategy", return_value=None),
+            patch(f"{module}.get_partition_strategy", return_value=partition_strategy),
             patch(f"{module}._get_table_chunk_size", return_value=1000),
             patch(f"{module}._get_rows_to_sync", return_value=10),
             patch(f"{module}._role_subject_to_rls", return_value=False),
@@ -5633,9 +5642,9 @@ class TestPartitionIterationConnectRetry:
                 db_incremental_field_last_value=0,
                 team_id=1,
             )
-            # Before the fix the window-connect drop escaped iterate_date_windows and raised here.
+            # Before the fix the connect drop escaped iterate_date_windows / iterate_partitions here.
             tables = list(cast(Iterable[Any], response.items()))
 
-        # 1 setup + 2 window connects (1 dropped commit + 1 success).
+        # 1 setup + 2 per-window/per-partition connects (1 dropped commit + 1 success).
         assert connect_mock.call_count == 3
         assert sum(table.num_rows for table in tables) == 3
