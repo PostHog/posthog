@@ -92,6 +92,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         "pull_requests",
         "workflow_health",
         "pr_lifecycle",
+        "pr_runs",
         "workflow_run",
         "workflow_runs",
         "workflow_jobs",
@@ -250,6 +251,57 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         if result is None:
             return Response({"detail": "Pull request not found"}, status=status.HTTP_404_NOT_FOUND)
         return Response(PRLifecycleSerializer(instance=result).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_pr_runs",
+        parameters=[
+            OpenApiParameter(
+                name="pr_number",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Pull request number whose runs to list.",
+            ),
+            OpenApiParameter(
+                name="repo",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="'owner/name' repository the pull request belongs to.",
+            ),
+            _SOURCE_ID,
+        ],
+        responses={
+            200: WorkflowRunDetailSerializer(many=True),
+            400: OpenApiResponse(description="Missing pr_number/repo, or invalid repo or source_id."),
+        },
+        description=(
+            "Every workflow run attributed to a pull request, across all its commits (grouped by head SHA "
+            "client-side), newest first. Run-level only."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def pr_runs(self, request: Request, **kwargs) -> Response:
+        raw_pr_number = request.query_params.get("pr_number")
+        repo = request.query_params.get("repo")
+        if raw_pr_number is None or not repo:
+            return Response({"detail": "pr_number and repo are required"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            pr_number = int(raw_pr_number)
+        except ValueError:
+            return Response({"detail": "pr_number must be an integer"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            runs = api.list_pr_runs(
+                team=self.team,
+                pr_number=pr_number,
+                repo=repo,
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid repo or source_id")
+        return Response(WorkflowRunDetailSerializer(instance=runs, many=True).data)
 
     @extend_schema(
         operation_id="engineering_analytics_workflow_run",

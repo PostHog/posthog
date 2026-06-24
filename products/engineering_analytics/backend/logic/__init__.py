@@ -25,6 +25,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.ci_cards import query_ci_cards
 from products.engineering_analytics.backend.logic.queries.pr_lifecycle import query_pr_lifecycle
+from products.engineering_analytics.backend.logic.queries.pr_runs import query_pr_runs
 from products.engineering_analytics.backend.logic.queries.pull_request_list import query_pull_request_list
 from products.engineering_analytics.backend.logic.queries.workflow_health import query_workflow_health
 from products.engineering_analytics.backend.logic.queries.workflow_jobs import query_workflow_jobs
@@ -54,6 +55,13 @@ _MAX_WINDOW_DAYS = 366
 def build_pr_lifecycle(*, curated: CuratedGitHubSource, pr_number: int, repo: str | None) -> PRLifecycle | None:
     owner, name = _split_repo(repo)
     return query_pr_lifecycle(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
+
+
+def build_pr_runs(*, curated: CuratedGitHubSource, pr_number: int, repo: str | None) -> list[WorkflowRunDetail]:
+    owner, name = _split_repo(repo)
+    if not (owner and name):
+        raise ValueError("repo must be in 'owner/name' format")
+    return query_pr_runs(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
 
 
 def build_workflow_run(*, curated: CuratedGitHubSource, run_id: int) -> WorkflowRunDetail | None:

@@ -58584,6 +58584,21 @@ export namespace Schemas {
     source_id?: string;
     };
 
+    export type EngineeringAnalyticsPrRunsParams = {
+    /**
+     * Pull request number whose runs to list.
+     */
+    pr_number: number;
+    /**
+     * 'owner/name' repository the pull request belongs to.
+     */
+    repo: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
     export type EngineeringAnalyticsPullRequestsParams = {
     /**
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.

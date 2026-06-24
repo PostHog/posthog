@@ -12,6 +12,7 @@ import type {
     CICardSummaryApi,
     EngineeringAnalyticsCiCardsParams,
     EngineeringAnalyticsPrLifecycleParams,
+    EngineeringAnalyticsPrRunsParams,
     EngineeringAnalyticsPullRequestsParams,
     EngineeringAnalyticsWorkflowHealthParams,
     EngineeringAnalyticsWorkflowJobsParams,
@@ -83,6 +84,36 @@ export const engineeringAnalyticsPrLifecycle = async (
     options?: RequestInit
 ): Promise<PRLifecycleApi> => {
     return apiMutator<PRLifecycleApi>(getEngineeringAnalyticsPrLifecycleUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsPrRunsUrl = (projectId: string, params: EngineeringAnalyticsPrRunsParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/pr_runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/pr_runs/`
+}
+
+/**
+ * Every workflow run attributed to a pull request, across all its commits (grouped by head SHA client-side), newest first. Run-level only.
+ */
+export const engineeringAnalyticsPrRuns = async (
+    projectId: string,
+    params: EngineeringAnalyticsPrRunsParams,
+    options?: RequestInit
+): Promise<WorkflowRunDetailApi[]> => {
+    return apiMutator<WorkflowRunDetailApi[]>(getEngineeringAnalyticsPrRunsUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

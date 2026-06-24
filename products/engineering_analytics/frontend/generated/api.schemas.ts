@@ -151,6 +151,39 @@ export interface PRLifecycleApi {
     metric_quality?: MetricQualityEnumApi
 }
 
+export interface WorkflowRunDetailApi {
+    /** Repository the run belongs to. */
+    repo: RepoRefApi
+    /** GitHub Actions run id. */
+    id: number
+    /** GitHub Actions workflow name. */
+    workflow_name: string
+    /** Commit SHA the run was triggered on. */
+    head_sha: string
+    /** Git branch the run was triggered on. */
+    head_branch: string
+    /** Raw run status: 'queued', 'in_progress', 'completed', etc. */
+    status: string
+    /**
+     * Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', 'action_required', ...), or null while still in progress.
+     * @nullable
+     */
+    conclusion: string | null
+    /** When the run started. */
+    run_started_at: string
+    /** When the run was last updated (its finish time once completed). */
+    updated_at: string
+    /**
+     * Wall-clock duration in seconds; null until the run completes.
+     * @nullable
+     */
+    duration_seconds: number | null
+    /** Re-run attempt number; 1 for the first attempt. */
+    run_attempt: number
+    /** Attributed pull request number, or 0 when unattributed. */
+    pr_number: number
+}
+
 export interface CIStatusRollupApi {
     /** Distinct workflows run on the PR's head SHA. */
     runs: number
@@ -313,39 +346,6 @@ export interface WorkflowJobApi {
     estimated_cost_usd: number | null
 }
 
-export interface WorkflowRunDetailApi {
-    /** Repository the run belongs to. */
-    repo: RepoRefApi
-    /** GitHub Actions run id. */
-    id: number
-    /** GitHub Actions workflow name. */
-    workflow_name: string
-    /** Commit SHA the run was triggered on. */
-    head_sha: string
-    /** Git branch the run was triggered on. */
-    head_branch: string
-    /** Raw run status: 'queued', 'in_progress', 'completed', etc. */
-    status: string
-    /**
-     * Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', 'action_required', ...), or null while still in progress.
-     * @nullable
-     */
-    conclusion: string | null
-    /** When the run started. */
-    run_started_at: string
-    /** When the run was last updated (its finish time once completed). */
-    updated_at: string
-    /**
-     * Wall-clock duration in seconds; null until the run completes.
-     * @nullable
-     */
-    duration_seconds: number | null
-    /** Re-run attempt number; 1 for the first attempt. */
-    run_attempt: number
-    /** Attributed pull request number, or 0 when unattributed. */
-    pr_number: number
-}
-
 export type EngineeringAnalyticsCiCardsParams = {
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
@@ -362,6 +362,21 @@ export type EngineeringAnalyticsPrLifecycleParams = {
      * Optional 'owner/name' repository to disambiguate when the PR number exists in more than one connected repo.
      */
     repo?: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
+export type EngineeringAnalyticsPrRunsParams = {
+    /**
+     * Pull request number whose runs to list.
+     */
+    pr_number: number
+    /**
+     * 'owner/name' repository the pull request belongs to.
+     */
+    repo: string
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */

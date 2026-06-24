@@ -195,6 +195,37 @@ export const PRLifecycleApi = zod.object({
 export type PRLifecycleApi = zod.input<typeof PRLifecycleApi>
 export type PRLifecycleApiOutput = zod.output<typeof PRLifecycleApi>
 
+export const WorkflowRunDetailApi = zod.object({
+    repo: zod
+        .object({
+            provider: zod.string().describe("Code host provider, e.g. 'github'."),
+            owner: zod.string().describe('Repository owner or organization.'),
+            name: zod.string().describe('Repository name.'),
+        })
+        .describe('Repository the run belongs to.'),
+    id: zod.number().describe('GitHub Actions run id.'),
+    workflow_name: zod.string().describe('GitHub Actions workflow name.'),
+    head_sha: zod.string().describe('Commit SHA the run was triggered on.'),
+    head_branch: zod.string().describe('Git branch the run was triggered on.'),
+    status: zod.string().describe("Raw run status: 'queued', 'in_progress', 'completed', etc."),
+    conclusion: zod
+        .string()
+        .nullable()
+        .describe(
+            "Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', 'action_required', ...), or null while still in progress."
+        ),
+    run_started_at: zod.iso.datetime({ offset: true }).describe('When the run started.'),
+    updated_at: zod.iso
+        .datetime({ offset: true })
+        .describe('When the run was last updated (its finish time once completed).'),
+    duration_seconds: zod.number().nullable().describe('Wall-clock duration in seconds; null until the run completes.'),
+    run_attempt: zod.number().describe('Re-run attempt number; 1 for the first attempt.'),
+    pr_number: zod.number().describe('Attributed pull request number, or 0 when unattributed.'),
+})
+
+export type WorkflowRunDetailApi = zod.input<typeof WorkflowRunDetailApi>
+export type WorkflowRunDetailApiOutput = zod.output<typeof WorkflowRunDetailApi>
+
 export const CIStatusRollupApi = zod.object({
     runs: zod.number().describe("Distinct workflows run on the PR's head SHA."),
     passing: zod.number().describe("Latest runs that completed with conclusion 'success'."),
@@ -456,34 +487,3 @@ export const WorkflowJobApi = zod.object({
 
 export type WorkflowJobApi = zod.input<typeof WorkflowJobApi>
 export type WorkflowJobApiOutput = zod.output<typeof WorkflowJobApi>
-
-export const WorkflowRunDetailApi = zod.object({
-    repo: zod
-        .object({
-            provider: zod.string().describe("Code host provider, e.g. 'github'."),
-            owner: zod.string().describe('Repository owner or organization.'),
-            name: zod.string().describe('Repository name.'),
-        })
-        .describe('Repository the run belongs to.'),
-    id: zod.number().describe('GitHub Actions run id.'),
-    workflow_name: zod.string().describe('GitHub Actions workflow name.'),
-    head_sha: zod.string().describe('Commit SHA the run was triggered on.'),
-    head_branch: zod.string().describe('Git branch the run was triggered on.'),
-    status: zod.string().describe("Raw run status: 'queued', 'in_progress', 'completed', etc."),
-    conclusion: zod
-        .string()
-        .nullable()
-        .describe(
-            "Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', 'action_required', ...), or null while still in progress."
-        ),
-    run_started_at: zod.iso.datetime({ offset: true }).describe('When the run started.'),
-    updated_at: zod.iso
-        .datetime({ offset: true })
-        .describe('When the run was last updated (its finish time once completed).'),
-    duration_seconds: zod.number().nullable().describe('Wall-clock duration in seconds; null until the run completes.'),
-    run_attempt: zod.number().describe('Re-run attempt number; 1 for the first attempt.'),
-    pr_number: zod.number().describe('Attributed pull request number, or 0 when unattributed.'),
-})
-
-export type WorkflowRunDetailApi = zod.input<typeof WorkflowRunDetailApi>
-export type WorkflowRunDetailApiOutput = zod.output<typeof WorkflowRunDetailApi>

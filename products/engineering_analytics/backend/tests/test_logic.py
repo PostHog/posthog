@@ -714,6 +714,26 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         # A repo with no such workflow yields an empty list (not an error).
         assert api.list_workflow_runs(team=self.team, repo="PostHog/posthog", workflow_name="Nope") == []
 
+    def test_pr_runs_span_all_commits(self) -> None:
+        # The PR detail lists runs across all of the PR's commits (by association), not just head SHA.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(70, "alice", "open", 0, _ago(1), head_sha="shaA")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(9300, "CI", "shaA", "completed", "success", _ago(2), _ago(2), pr_number=70),
+                _run_row(9301, "CI", "shaB", "completed", "failure", _ago(1), _ago(1), pr_number=70),
+                _run_row(9302, "CI", "shaC", "completed", "success", _ago(1), _ago(1), pr_number=71),
+            ],
+        )
+        runs = api.list_pr_runs(team=self.team, pr_number=70, repo="PostHog/posthog")
+        assert {r.id for r in runs} == {9300, 9301}  # only PR 70's runs
+        assert {r.head_sha for r in runs} == {"shaA", "shaB"}  # across two commits
+
     def test_workflow_jobs_optional_and_costed(self) -> None:
         # Jobs are an optional source: absent → graceful empty; present → costed per runner tier.
         self._create_table(

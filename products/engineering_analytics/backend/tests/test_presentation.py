@@ -259,6 +259,21 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    def test_pr_runs_serializes(self) -> None:
+        with mock.patch(f"{_VIEWS}.list_pr_runs", return_value=[_workflow_run()]) as listing:
+            response = self.client.get(self._url("pr_runs"), {"pr_number": "9100", "repo": "PostHog/posthog"})
+
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert len(body) == 1 and body[0]["id"] == 7777
+        assert listing.call_args.kwargs["pr_number"] == 9100
+        assert listing.call_args.kwargs["repo"] == "PostHog/posthog"
+
+    def test_pr_runs_400_when_params_missing(self) -> None:
+        response = self.client.get(self._url("pr_runs"), {"pr_number": "10"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     def test_workflow_jobs_serializes(self) -> None:
         with mock.patch(f"{_VIEWS}.list_workflow_jobs", return_value=[_workflow_job()]) as listing:
             response = self.client.get(self._url("workflow_jobs"), {"run_id": "9100"})

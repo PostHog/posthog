@@ -71,6 +71,19 @@ def get_workflow_run(
     return logic.build_workflow_run(curated=_authorized_source(team, source_id, user_access_control), run_id=run_id)
 
 
+def list_pr_runs(
+    *,
+    team: Team,
+    pr_number: int,
+    repo: str,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> list[WorkflowRunDetail]:
+    return logic.build_pr_runs(
+        curated=_authorized_source(team, source_id, user_access_control), pr_number=pr_number, repo=repo
+    )
+
+
 def list_workflow_runs(
     *,
     team: Team,

@@ -25,7 +25,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import type { PullRequestApi, WorkflowJobApi } from '../generated/api.schemas'
-import { githubPrUrl, githubWorkflowUrl } from '../lib/github'
+import { githubCommitUrl, githubPrUrl, githubWorkflowUrl } from '../lib/github'
 import { LifecycleSummary, WorkflowRun, isPassingConclusion } from '../lib/lifecycle'
 import { verdictTag } from '../lib/runStatus'
 import { PullRequestDetailLogicProps, pullRequestDetailLogic } from './pullRequestDetailLogic'
@@ -299,30 +299,31 @@ function RunJobs({ jobs, loading }: { jobs: WorkflowJobApi[] | undefined; loadin
     return <LemonTable embedded size="small" columns={jobColumns} dataSource={jobs} rowKey={(job) => job.id} />
 }
 
-export function PullRequestDetailScene(): JSX.Element {
-    const {
-        lifecycle,
-        lifecycleLoading,
-        loadFailed,
-        summary,
-        runs,
-        sourceId,
-        runJobs,
-        runJobsLoading,
-        expandedRunKeys,
-    } = useValues(pullRequestDetailLogic)
-    const { loadLifecycle, setRunExpanded } = useActions(pullRequestDetailLogic)
+interface RunsTableProps {
+    runs: WorkflowRun[]
+    repoOwner: string
+    repoName: string
+    sourceId: string | null
+    loading: boolean
+    runJobs: Record<number, WorkflowJobApi[]>
+    runJobsLoading: boolean
+    expandedRunKeys: string[]
+    setRunExpanded: (rowKey: string, expanded: boolean, runId: number | null) => void
+}
 
-    const pullRequest = lifecycle?.pull_request
-    const githubUrl = pullRequest
-        ? githubPrUrl(pullRequest.repo.owner, pullRequest.repo.name, pullRequest.number)
-        : null
-
-    const passed = runs.filter((run) => run.conclusion !== null && isPassingConclusion(run.conclusion)).length
-    const failed = runs.filter((run) => run.conclusion !== null && !isPassingConclusion(run.conclusion)).length
-    const running = runs.filter((run) => run.conclusion === null).length
-
-    // Shared Gantt axis: earliest start → latest finish (running runs extend to now) across all runs.
+/** One commit's CI runs: Gantt on a shared axis, attempts labeled, expand a row for its jobs. */
+function RunsTable({
+    runs,
+    repoOwner,
+    repoName,
+    sourceId,
+    loading,
+    runJobs,
+    runJobsLoading,
+    expandedRunKeys,
+    setRunExpanded,
+}: RunsTableProps): JSX.Element {
+    // Shared Gantt axis for this commit's runs: earliest start → latest finish (running extends to now).
     const startMs = runs
         .map((run) => run.startedAt)
         .filter((at): at is string => !!at)
@@ -334,8 +335,7 @@ export function PullRequestDetailScene(): JSX.Element {
     const axisStart = startMs.length ? Math.min(...startMs) : null
     const axisEnd = endMs.length ? Math.max(...endMs) : null
 
-    // Re-runs share a runId; number the rows of each multi-attempt run by start order so the table can
-    // label them "attempt N". Single-attempt runs get no label.
+    // Re-runs share a runId; number each multi-attempt run by start order to label "attempt N".
     const attemptIndexByKey = new Map<string, number>()
     const runsByRunId = new Map<number, WorkflowRun[]>()
     runs.forEach((run) => {
@@ -363,18 +363,14 @@ export function PullRequestDetailScene(): JSX.Element {
             render: (_, run) => {
                 const attempt = attemptIndexByKey.get(runRowKey(run))
                 const attemptTag = attempt ? <LemonTag type="muted">attempt {attempt}</LemonTag> : null
-                // A run with an id links to its detail page (internal); without one, fall back to the
-                // workflow's GitHub Actions list (we have no run to point at).
+                // A run with an id links to its detail page; without one, fall back to the workflow's
+                // GitHub Actions list (we have no run to point at).
                 const label =
-                    pullRequest && run.runId != null ? (
+                    run.runId != null ? (
                         <Link
                             to={
                                 combineUrl(
-                                    urls.engineeringAnalyticsWorkflowRun(
-                                        pullRequest.repo.owner,
-                                        pullRequest.repo.name,
-                                        run.runId
-                                    ),
+                                    urls.engineeringAnalyticsWorkflowRun(repoOwner, repoName, run.runId),
                                     sourceId ? { source: sourceId } : {}
                                 ).url
                             }
@@ -383,17 +379,15 @@ export function PullRequestDetailScene(): JSX.Element {
                         >
                             {run.workflow}
                         </Link>
-                    ) : pullRequest ? (
+                    ) : (
                         <Link
-                            to={githubWorkflowUrl(pullRequest.repo.owner, pullRequest.repo.name, run.workflow)}
+                            to={githubWorkflowUrl(repoOwner, repoName, run.workflow)}
                             target="_blank"
                             className="font-medium"
                             onClick={(e) => e.stopPropagation()}
                         >
                             {run.workflow}
                         </Link>
-                    ) : (
-                        <span className="font-medium">{run.workflow}</span>
                     )
                 return (
                     <div className="flex items-center gap-2">
@@ -453,6 +447,70 @@ export function PullRequestDetailScene(): JSX.Element {
         },
     ]
 
+    return (
+        <LemonTable
+            data-attr="engineering-analytics-pr-runs-table"
+            size="small"
+            columns={columns}
+            dataSource={runs}
+            rowKey={runRowKey}
+            loading={loading}
+            useURLForSorting={false}
+            // Group by workflow by default (runs on one commit share a start, so chronological ties and
+            // looks scrambled); the Gantt column carries the timing. Headers re-sort.
+            defaultSorting={{ columnKey: 'workflow', order: 1 }}
+            // Whole-row click toggles the job breakdown (the logs-viewer pattern); in-row links
+            // stopPropagation so they still navigate.
+            onRow={(run) =>
+                run.runId != null
+                    ? {
+                          className: 'cursor-pointer',
+                          onClick: () =>
+                              setRunExpanded(runRowKey(run), !expandedRunKeys.includes(runRowKey(run)), run.runId),
+                      }
+                    : {}
+            }
+            expandable={{
+                showRowExpansionToggle: false,
+                rowExpandable: (run) => run.runId != null,
+                isRowExpanded: (run) => expandedRunKeys.includes(runRowKey(run)),
+                expandedRowRender: (run) => (
+                    <RunJobs jobs={run.runId != null ? runJobs[run.runId] : undefined} loading={runJobsLoading} />
+                ),
+            }}
+            emptyState="No CI runs for this commit."
+            nouns={['workflow run', 'workflow runs']}
+        />
+    )
+}
+
+export function PullRequestDetailScene(): JSX.Element {
+    const {
+        lifecycle,
+        lifecycleLoading,
+        loadFailed,
+        summary,
+        runs,
+        commitGroups,
+        prRunsLoading,
+        repoOwner,
+        repoName,
+        sourceId,
+        runJobs,
+        runJobsLoading,
+        expandedRunKeys,
+    } = useValues(pullRequestDetailLogic)
+    const { loadLifecycle, setRunExpanded } = useActions(pullRequestDetailLogic)
+
+    const pullRequest = lifecycle?.pull_request
+    const githubUrl = pullRequest
+        ? githubPrUrl(pullRequest.repo.owner, pullRequest.repo.name, pullRequest.number)
+        : null
+
+    const passed = runs.filter((run) => run.conclusion !== null && isPassingConclusion(run.conclusion)).length
+    const failed = runs.filter((run) => run.conclusion !== null && !isPassingConclusion(run.conclusion)).length
+    const running = runs.filter((run) => run.conclusion === null).length
+
     if (loadFailed) {
         return (
             <SceneContent>
@@ -499,61 +557,62 @@ export function PullRequestDetailScene(): JSX.Element {
 
             <div>
                 <div className="mb-2 flex items-baseline justify-between">
-                    <h3 className="mb-0">CI runs on the head commit</h3>
+                    <h3 className="mb-0">CI runs</h3>
                     {runs.length > 0 && (
                         <span className="text-xs text-secondary">
                             {pluralize(passed, 'run')} passed
                             {failed > 0 && <> · {failed} failed</>}
                             {running > 0 && <> · {running} still running</>}
+                            {commitGroups.length > 1 && <> · {pluralize(commitGroups.length, 'commit')}</>}
                         </span>
                     )}
                 </div>
-                <LemonTable
-                    data-attr="engineering-analytics-pr-runs-table"
-                    size="small"
-                    columns={columns}
-                    dataSource={runs}
-                    rowKey={runRowKey}
-                    loading={lifecycleLoading}
-                    useURLForSorting={false}
-                    // Group by workflow by default (runs on one commit share a start, so chronological
-                    // would tie and look scrambled); the Gantt column carries the timing. Headers re-sort.
-                    defaultSorting={{ columnKey: 'workflow', order: 1 }}
-                    // Whole-row click toggles the job breakdown (the logs-viewer pattern); links inside the
-                    // row stopPropagation so they still navigate.
-                    onRow={(run) =>
-                        run.runId != null
-                            ? {
-                                  className: 'cursor-pointer',
-                                  onClick: () =>
-                                      setRunExpanded(
-                                          runRowKey(run),
-                                          !expandedRunKeys.includes(runRowKey(run)),
-                                          run.runId
-                                      ),
-                              }
-                            : {}
-                    }
-                    expandable={{
-                        // No caret cell — the row itself is the toggle (see onRow above).
-                        showRowExpansionToggle: false,
-                        rowExpandable: (run) => run.runId != null,
-                        isRowExpanded: (run) => expandedRunKeys.includes(runRowKey(run)),
-                        expandedRowRender: (run) => (
-                            <RunJobs
-                                jobs={run.runId != null ? runJobs[run.runId] : undefined}
-                                loading={runJobsLoading}
-                            />
-                        ),
-                    }}
-                    emptyState="No CI runs on the head commit yet."
-                    nouns={['workflow run', 'workflow runs']}
-                />
+                {prRunsLoading && commitGroups.length === 0 ? (
+                    <LemonSkeleton className="h-24 w-full" />
+                ) : commitGroups.length === 0 ? (
+                    <div className="text-sm text-secondary">No CI runs attributed to this pull request yet.</div>
+                ) : (
+                    <div className="flex flex-col gap-4">
+                        {commitGroups.map((group) => (
+                            <div key={group.headSha} className="flex flex-col gap-1">
+                                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                                    <Link
+                                        to={githubCommitUrl(repoOwner, repoName, group.headSha)}
+                                        target="_blank"
+                                        className="font-mono text-xs font-medium"
+                                    >
+                                        {group.headSha.slice(0, 7)}
+                                    </Link>
+                                    {group.headBranch && (
+                                        <span className="font-mono text-xs text-secondary">{group.headBranch}</span>
+                                    )}
+                                    <span className="text-xs text-tertiary">{pluralize(group.runs.length, 'run')}</span>
+                                    {group.latestStart && (
+                                        <span className="text-xs text-tertiary">
+                                            · <TZLabel time={group.latestStart} />
+                                        </span>
+                                    )}
+                                </div>
+                                <RunsTable
+                                    runs={group.runs}
+                                    repoOwner={repoOwner}
+                                    repoName={repoName}
+                                    sourceId={sourceId}
+                                    loading={prRunsLoading}
+                                    runJobs={runJobs}
+                                    runJobsLoading={runJobsLoading}
+                                    expandedRunKeys={expandedRunKeys}
+                                    setRunExpanded={setRunExpanded}
+                                />
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
 
             <div className="text-xs text-tertiary">
-                CI events on the head commit only — review and comment activity isn't tracked yet. Runs can start after
-                the merge when workflows trigger on the merged commit.
+                CI runs attributed to this pull request across all its commits — review and comment activity isn't
+                tracked yet.
             </div>
         </SceneContent>
     )

@@ -16,6 +16,7 @@ import type {
     GitHubSourceApi,
     PullRequestListItemApi,
     WorkflowHealthItemApi,
+    WorkflowRunDetailApi,
 } from '../generated/api.schemas'
 import { ciStatusOf } from '../lib/ci'
 import { summarizeLifecycle, workflowRuns } from '../lib/lifecycle'
@@ -28,7 +29,7 @@ import {
     workflowFailureTrend,
 } from './engineeringAnalyticsLogic'
 import { engineeringAnalyticsSceneLogic } from './engineeringAnalyticsSceneLogic'
-import { sortRunsForTriage } from './pullRequestDetailLogic'
+import { groupRunsByCommit, sortRunsForTriage } from './pullRequestDetailLogic'
 
 jest.mock('../generated/api', () => ({
     engineeringAnalyticsCiCards: jest.fn(),
@@ -510,6 +511,32 @@ describe('engineeringAnalyticsLogic', () => {
         ])
         // The detail page triages: failures first, then still-running, then passes.
         expect(sortRunsForTriage(runs).map((run) => run.conclusion)).toEqual(['failure', null, 'success', 'success'])
+    })
+
+    it('groupRunsByCommit groups by head SHA, newest push first', () => {
+        const apiRun = (overrides: Partial<WorkflowRunDetailApi>): WorkflowRunDetailApi => ({
+            repo: { provider: 'github', owner: 'posthog', name: 'posthog' },
+            id: 1,
+            workflow_name: 'CI',
+            head_sha: 'sha',
+            head_branch: 'main',
+            status: 'completed',
+            conclusion: 'success',
+            run_started_at: '2026-06-01T00:00:00Z',
+            updated_at: '2026-06-01T00:05:00Z',
+            duration_seconds: 300,
+            run_attempt: 1,
+            pr_number: 10,
+            ...overrides,
+        })
+        const groups = groupRunsByCommit([
+            apiRun({ id: 1, head_sha: 'old', run_started_at: '2026-06-01T00:00:00Z' }),
+            apiRun({ id: 2, head_sha: 'old', run_started_at: '2026-06-01T00:01:00Z' }),
+            apiRun({ id: 3, head_sha: 'new', run_started_at: '2026-06-02T00:00:00Z' }),
+        ])
+        // Newest push (latest start) first; runs map into WorkflowRun shape under their commit.
+        expect(groups.map((g) => g.headSha)).toEqual(['new', 'old'])
+        expect(groups[1].runs.map((r) => r.runId)).toEqual([1, 2])
     })
 
     it('flags notConnected when no GitHub source is connected (cards 400s)', async () => {
