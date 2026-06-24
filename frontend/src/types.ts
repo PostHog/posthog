@@ -288,6 +288,7 @@ export enum AccessControlResourceType {
     Endpoint = 'endpoint',
     ProductTour = 'product_tour',
     Experiment = 'experiment',
+    ExperimentHoldout = 'experiment_holdout',
     ExperimentSavedMetric = 'experiment_saved_metric',
     Export = 'export',
     ExternalDataSource = 'external_data_source',
@@ -750,6 +751,7 @@ export interface ConversationsSettings {
     github_integration_id?: number | null
     github_repos?: string[] | null
     ai_suggestions_enabled?: boolean
+    ai_diagnostics_enabled?: boolean
 }
 
 export interface LogsSettings {
@@ -2862,6 +2864,8 @@ export interface RawAnnotationType {
     creation_type?: 'USR' | 'GIT'
     /** Optional emoji shown in place of the default badge when surfacing the annotation. */
     emoji?: string | null
+    /** When true, the annotation is hidden from the UI but still readable over the API and MCP. */
+    hidden_in_user_interface?: boolean | null
 }
 
 export interface AnnotationType extends Omit<RawAnnotationType, 'created_at' | 'date_marker'> {
@@ -4262,6 +4266,25 @@ export interface OrganizationFeatureFlag {
     evaluations_7d?: number | null
 }
 
+export interface OrganizationFeatureFlagRow {
+    id: number
+    team_id: number
+    key: string
+    name: string
+    // active + filters power the instant first paint of the current team's cell and are free
+    // (already on the row). created_by/created_at are omitted: the grid never renders them, and
+    // serializing created_by would force a per-row join.
+    active: boolean
+    filters: FeatureFlagFilters
+}
+
+export interface OrganizationFeatureFlagKeysResponse {
+    count: number
+    next: string | null
+    previous: string | null
+    results: OrganizationFeatureFlagRow[]
+}
+
 export interface OrganizationFeatureFlagsCopyBody {
     feature_flag_key: FeatureFlagType['key']
     from_project: TeamType['id']
@@ -4701,6 +4724,8 @@ export interface ExperimentHoldoutType {
     created_by: UserBasicType | null
     created_at: string | null
     updated_at: string | null
+    /** Read-only, server-computed effective access level; absent on a not-yet-created holdout. */
+    user_access_level?: AccessControlLevel
 }
 
 export enum ExperimentStatsMethod {
@@ -5561,6 +5586,7 @@ export type APIScopeObject =
     | 'evaluation'
     | 'event_definition'
     | 'experiment'
+    | 'experiment_holdout'
     | 'experiment_saved_metric'
     | 'external_data_source'
     | 'export'

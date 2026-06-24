@@ -16,6 +16,7 @@ from posthog.temporal.data_imports.sources.coda.coda import (
 )
 from posthog.temporal.data_imports.sources.coda.settings import ENDPOINTS
 from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import CodaSourceConfig
@@ -61,6 +62,11 @@ You can generate an API token in [Coda account settings](https://coda.io/account
                 ],
             ),
         )
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.coda.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
 
     def get_schemas(
         self,

@@ -485,11 +485,12 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         usesInChartLegend: [
             (s) => [s.featureFlags, s.isTrends, s.isStickiness, s.isLifecycle, s.display],
             (featureFlags, isTrends, isStickiness, isLifecycle, display): boolean => {
-                if (!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]) {
-                    return false
-                }
+                // Lifecycle always uses config.legend inside TimeSeriesBarChart — no flag gate needed.
                 if (isLifecycle) {
                     return true
+                }
+                if (!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]) {
+                    return false
                 }
                 return (isTrends || isStickiness) && (!display || DISPLAYS_WITH_IN_CHART_LEGEND.includes(display))
             },
