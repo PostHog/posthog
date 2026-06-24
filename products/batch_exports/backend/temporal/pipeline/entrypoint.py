@@ -177,6 +177,7 @@ async def execute_batch_export_using_internal_stage(
         # The stage activity's return type changed from `str` (just the folder) to
         # `InternalStageResult`. Guard with `workflow.patched` so workflows whose history
         # recorded the old bare-string result still replay correctly during a rolling deploy.
+        # TODO: clean up once new code is fully rolled out
         if workflow.patched("batch-exports-stage-result"):
             stage_result = await workflow.execute_activity(
                 insert_into_internal_stage_activity, stage_inputs, **stage_activity_kwargs
