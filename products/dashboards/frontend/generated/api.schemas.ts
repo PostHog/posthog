@@ -511,6 +511,8 @@ export interface ActivityEventsListWidgetConfigApi {
      * @maximum 50
      */
     limit?: number
+    /** Limit the feed to a single event name. Omit or null for all events. */
+    eventName?: string | null
 }
 
 /**
