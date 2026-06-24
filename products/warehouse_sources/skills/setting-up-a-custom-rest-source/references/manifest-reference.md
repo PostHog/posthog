@@ -59,7 +59,8 @@ an API with no auth, omit `auth` entirely.
 - **`json`** — request body (for POST query endpoints).
 - **`data_selector`** — JSONPath to the array of records inside the response. For `{ "data": [ ... ] }` use `"data"`;
   for `{ "results": { "items": [ ... ] } }` use `"results.items"`. Omit only if the response body **is** the array.
-- **`paginator`** — see below. Omit to let the engine auto-detect (`{ "type": "auto" }`).
+- **`paginator`** — see below. **Required for any paginated endpoint.** Omitting it (or `{ "type": "auto" }`) fetches
+  only the first response — there is no auto-detection — so a paginated API would silently import just page one.
 - **`incremental`** — see below.
 
 `primary_key` sits on the **resource**, not the endpoint: `"primary_key": "id"` or `"primary_key": ["org_id", "id"]`.
@@ -68,15 +69,15 @@ an API with no auth, omit `auth` entirely.
 
 Set `endpoint.paginator` (or `client.paginator`) to one of:
 
-| Type            | Config keys                                                            | Use when                                                         |
-| --------------- | ---------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| `json_response` | `next_url_path` (JSONPath to the next-page URL in the body)            | response carries a next-page URL/path                            |
-| `header_link`   | `links_next_key` (rel, default `next`)                                 | pagination via the `Link` response header                        |
-| `cursor`        | `cursor_path` (JSONPath to the next cursor), `cursor_param`            | response returns an opaque cursor you pass back as a query param |
-| `offset`        | `limit`, `offset_param`, `limit_param`, `total_path`, `maximum_offset` | classic `?offset=&limit=` pagination                             |
-| `page_number`   | `initial_page`, `page_param`, `total_path`, `maximum_page`             | classic `?page=N` pagination                                     |
-| `single_page`   | —                                                                      | endpoint returns everything in one response                      |
-| `auto`          | —                                                                      | let the engine guess (default)                                   |
+| Type            | Config keys                                                                                  | Use when                                                                        |
+| --------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `json_response` | `next_url_path` (JSONPath to the next-page URL in the body)                                  | response carries a next-page URL/path                                           |
+| `header_link`   | `links_next_key` (rel, default `next`)                                                       | pagination via the `Link` response header                                       |
+| `cursor`        | `cursor_path` (JSONPath to the next cursor), `cursor_param`                                  | response returns an opaque cursor you pass back as a query param                |
+| `offset`        | `limit`, `offset_param`, `limit_param`, `total_path`, `maximum_offset`                       | classic `?offset=&limit=` pagination                                            |
+| `page_number`   | `base_page` (first page number, e.g. `0` or `1`), `page_param`, `total_path`, `maximum_page` | classic `?page=N` pagination                                                    |
+| `single_page`   | —                                                                                            | endpoint returns everything in one response                                     |
+| `auto`          | —                                                                                            | fetches only the first response — no auto-detection; single-page endpoints only |
 
 ## Incremental sync
 
