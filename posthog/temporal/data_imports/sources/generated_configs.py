@@ -3093,7 +3093,8 @@ class ThinkificCoursesSourceConfig(config.Config):
 
 @config.config
 class ThinkificSourceConfig(config.Config):
-    pass
+    api_key: str
+    subdomain: str
 
 
 @config.config
