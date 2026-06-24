@@ -286,7 +286,7 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                                 type: zod.enum(['S3Compatible']),
                             })
                             .describe(
-                                'Typed configuration for an S3-compatible batch-export destination (R2, MinIO, Spaces, etc.).\n\nCredentials and the provider `endpoint_url` live in the linked s3-compatible Integration.\nMirrors the non-credential fields of `S3CompatibleBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
+                                'Typed configuration for an S3-compatible batch-export destination (Cloudflare R2,\nDigitalOcean Spaces, etc.).\n\nCredentials and the provider `endpoint_url` live in the linked s3-compatible Integration.\nMirrors the non-credential fields of `S3CompatibleBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
                     })
                     .describe('Request shape for creating or updating an S3-compatible batch-export destination.'),
@@ -853,7 +853,7 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                                 type: zod.enum(['S3Compatible']),
                             })
                             .describe(
-                                'Typed configuration for an S3-compatible batch-export destination (R2, MinIO, Spaces, etc.).\n\nCredentials and the provider `endpoint_url` live in the linked s3-compatible Integration.\nMirrors the non-credential fields of `S3CompatibleBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
+                                'Typed configuration for an S3-compatible batch-export destination (Cloudflare R2,\nDigitalOcean Spaces, etc.).\n\nCredentials and the provider `endpoint_url` live in the linked s3-compatible Integration.\nMirrors the non-credential fields of `S3CompatibleBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
                     })
                     .describe('Request shape for creating or updating an S3-compatible batch-export destination.'),
@@ -1175,7 +1175,7 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                                 type: zod.enum(['S3Compatible']),
                             })
                             .describe(
-                                'Typed configuration for an S3-compatible batch-export destination (R2, MinIO, Spaces, etc.).\n\nCredentials and the provider `endpoint_url` live in the linked s3-compatible Integration.\nMirrors the non-credential fields of `S3CompatibleBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
+                                'Typed configuration for an S3-compatible batch-export destination (Cloudflare R2,\nDigitalOcean Spaces, etc.).\n\nCredentials and the provider `endpoint_url` live in the linked s3-compatible Integration.\nMirrors the non-credential fields of `S3CompatibleBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
                     })
                     .describe('Request shape for creating or updating an S3-compatible batch-export destination.'),
@@ -1471,7 +1471,7 @@ export const BatchExportsPauseCreateBody = /* @__PURE__ */ zod
                                 type: zod.enum(['S3Compatible']),
                             })
                             .describe(
-                                'Typed configuration for an S3-compatible batch-export destination (R2, MinIO, Spaces, etc.).\n\nCredentials and the provider `endpoint_url` live in the linked s3-compatible Integration.\nMirrors the non-credential fields of `S3CompatibleBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
+                                'Typed configuration for an S3-compatible batch-export destination (Cloudflare R2,\nDigitalOcean Spaces, etc.).\n\nCredentials and the provider `endpoint_url` live in the linked s3-compatible Integration.\nMirrors the non-credential fields of `S3CompatibleBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
                     ])
                     .describe(
@@ -1802,7 +1802,7 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                                 type: zod.enum(['S3Compatible']),
                             })
                             .describe(
-                                'Typed configuration for an S3-compatible batch-export destination (R2, MinIO, Spaces, etc.).\n\nCredentials and the provider `endpoint_url` live in the linked s3-compatible Integration.\nMirrors the non-credential fields of `S3CompatibleBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
+                                'Typed configuration for an S3-compatible batch-export destination (Cloudflare R2,\nDigitalOcean Spaces, etc.).\n\nCredentials and the provider `endpoint_url` live in the linked s3-compatible Integration.\nMirrors the non-credential fields of `S3CompatibleBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
                     ])
                     .describe(
@@ -2126,7 +2126,7 @@ export const BatchExportsUnpauseCreateBody = /* @__PURE__ */ zod
                                 type: zod.enum(['S3Compatible']),
                             })
                             .describe(
-                                'Typed configuration for an S3-compatible batch-export destination (R2, MinIO, Spaces, etc.).\n\nCredentials and the provider `endpoint_url` live in the linked s3-compatible Integration.\nMirrors the non-credential fields of `S3CompatibleBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
+                                'Typed configuration for an S3-compatible batch-export destination (Cloudflare R2,\nDigitalOcean Spaces, etc.).\n\nCredentials and the provider `endpoint_url` live in the linked s3-compatible Integration.\nMirrors the non-credential fields of `S3CompatibleBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
                     ])
                     .describe(
@@ -2461,7 +2461,7 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                                 type: zod.enum(['S3Compatible']),
                             })
                             .describe(
-                                'Typed configuration for an S3-compatible batch-export destination (R2, MinIO, Spaces, etc.).\n\nCredentials and the provider `endpoint_url` live in the linked s3-compatible Integration.\nMirrors the non-credential fields of `S3CompatibleBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
+                                'Typed configuration for an S3-compatible batch-export destination (Cloudflare R2,\nDigitalOcean Spaces, etc.).\n\nCredentials and the provider `endpoint_url` live in the linked s3-compatible Integration.\nMirrors the non-credential fields of `S3CompatibleBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
                     ])
                     .describe(

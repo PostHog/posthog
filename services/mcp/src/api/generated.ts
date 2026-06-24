@@ -10645,7 +10645,8 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Typed configuration for an S3-compatible batch-export destination (R2, MinIO, Spaces, etc.).
+     * Typed configuration for an S3-compatible batch-export destination (Cloudflare R2,
+     * DigitalOcean Spaces, etc.).
      *
      * Credentials and the provider `endpoint_url` live in the linked s3-compatible Integration.
      * Mirrors the non-credential fields of `S3CompatibleBatchExportInputs` in
