@@ -237,10 +237,11 @@ tools:
             Body shape is `{ agent_md, tools, spec }` — **full replace**, anything not in the payload is deleted. Skills
             are NOT authored here: they come from the llma-skill store via `skill_refs` and are materialized at freeze
             (set them with `agent-applications-revisions-skill-refs-update`). For incremental edits use the
-            single-resource PUTs (`agent-applications-revisions-agent-md-update`, `agent-applications-revisions-tools-update`).
-            Each tool source is AST-checked + esbuild-compiled synchronously; a bad shape returns 422 before any S3
-            writes. Only `state=draft` revisions accept this. Playbook: read the `editing-agents-safely` playbook via
-            `agent-resolve-resource` for the branch → validate → freeze → promote workflow.
+            single-resource PUTs (`agent-applications-revisions-agent-md-update`,
+            `agent-applications-revisions-tools-update`). Each tool source is AST-checked + esbuild-compiled
+            synchronously; a bad shape returns 422 before any S3 writes. Only `state=draft` revisions accept this.
+            Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate →
+            freeze → promote workflow.
     agent-applications-revisions-clone-from-create:
         operation: agent_applications_revisions_clone_from_create
         enabled: true
@@ -416,14 +417,14 @@ tools:
             idempotent: true
         title: Set a draft's store-skill references
         description: >
-            Full-replace the draft revision's store-skill references (`skill_refs`). Each ref is
-            `{ from_template, alias, version? }`: `from_template` is the skill NAME in the llma-skill store, `alias`
-            is the folder it's materialized under in the bundle (`skills/<alias>/`, lowercase letters/digits/hyphens/
-            underscores, unique within the revision), and optional `version` pins a published version (omit to pin the
-            latest at freeze). At freeze each referenced skill is resolved and baked into the immutable bundle, so a
-            frozen agent never re-resolves a changed skill. Find skills with `skill-list`; author a new one with
-            `skill-create`. Not destructive — it only changes which skills the draft pins, never deletes skill content.
-            Draft-only. Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource`.
+            Full-replace the draft revision's store-skill references (`skill_refs`). Each ref is `{ from_template,
+            alias, version? }`: `from_template` is the skill NAME in the llma-skill store, `alias` is the folder it's
+            materialized under in the bundle (`skills/<alias>/`, lowercase letters/digits/hyphens/ underscores, unique
+            within the revision), and optional `version` pins a published version (omit to pin the latest at freeze). At
+            freeze each referenced skill is resolved and baked into the immutable bundle, so a frozen agent never
+            re-resolves a changed skill. Find skills with `skill-list`; author a new one with `skill-create`. Not
+            destructive — it only changes which skills the draft pins, never deletes skill content. Draft-only.
+            Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource`.
     agent-applications-revisions-slack-manifest:
         operation: agent_applications_revisions_slack_manifest
         enabled: true
