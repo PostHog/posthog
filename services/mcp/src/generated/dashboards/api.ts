@@ -297,7 +297,7 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                             )
                                             .describe('Maximum number of events to return.'),
                                         eventName: zod
-                                            .union([zod.string(), zod.null()])
+                                            .union([zod.string().min(1), zod.null()])
                                             .optional()
                                             .describe(
                                                 'Limit the feed to a single event name. Omit or null for all events.'
@@ -1094,7 +1094,7 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                     .default(dashboardsWidgetsBatchCreateBodyWidgetsItemOneConfigOneLimitDefault)
                                     .describe('Maximum number of events to return.'),
                                 eventName: zod
-                                    .union([zod.string(), zod.null()])
+                                    .union([zod.string().min(1), zod.null()])
                                     .optional()
                                     .describe('Limit the feed to a single event name. Omit or null for all events.'),
                             })

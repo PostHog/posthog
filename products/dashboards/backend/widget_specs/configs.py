@@ -74,6 +74,7 @@ class ActivityEventsListWidgetConfig(WidgetListConfigBase):
     )
     eventName: str | None = Field(
         default=None,
+        min_length=1,
         description="Limit the feed to a single event name. Omit or null for all events.",
     )
 
