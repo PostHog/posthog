@@ -16,7 +16,13 @@ jest.mock('./cdp-base.consumer', () => {
 })
 
 jest.mock('../../kafka/consumer', () => ({
-    createKafkaConsumer: jest.fn().mockReturnValue({}),
+    // Fresh stub per call: the matcher now constructs three consumers (events, person, internal
+    // events), and start()/stop()/isHealthy() touch all of them.
+    createKafkaConsumer: jest.fn(() => ({
+        connect: jest.fn().mockResolvedValue(undefined),
+        disconnect: jest.fn().mockResolvedValue(undefined),
+        isHealthy: jest.fn(),
+    })),
 }))
 
 jest.mock('pg', () => {

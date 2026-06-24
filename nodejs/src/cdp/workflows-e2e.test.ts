@@ -346,6 +346,13 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
     // bytecode (op 29). Unlike an events entry, the executor evaluates the condition on entry, so
     // without the guard this fires the wait immediately. Mirrors the serializer's compiled shape.
     const emptyConditionFilters = () => ({ bytecode: ['_H', 1, 29], properties: [] })
+    // A wait CONDITION on a person property: `person.properties[key] == value`. Mirrors the bytecode
+    // Django compiles for a single person-property equality filter. Used to prove that a person
+    // mutation (no analytics event) can satisfy a parked condition wait.
+    const personPropertyConditionFilters = (key: string, value: string): any => ({
+        bytecode: ['_H', 1, 32, value, 32, key, 32, 'properties', 32, 'person', 1, 3, 11],
+        properties: [{ key, value, type: 'person', operator: 'exact' }],
+    })
 
     describe('simple workflow: trigger → function → exit', () => {
         beforeEach(async () => {
@@ -993,6 +1000,67 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             }, 10000)
             // Exited on conversion — the after-delay step never ran.
             expect(mockFetch).not.toHaveBeenCalled()
+        })
+
+        it('wakes a parked condition wait on a person-property change with no analytics event', async () => {
+            // The core of removing the 10-minute poll: a property change that produces no analytics
+            // event (only a clickhouse_person mutation) must still wake the wait. The matcher's
+            // person stream synthesizes a $person_updated globals carrying the new person.properties,
+            // which the wait's property condition then matches.
+            await createWaitUntilWorkflow({
+                // Person-property condition only — never satisfied by the trigger event, so it parks.
+                condition: { filters: personPropertyConditionFilters('plan', 'enterprise') },
+                max_wait_duration: '5m',
+            })
+            // Trigger person has no `plan`, so the condition fails on entry and the job parks with
+            // person_id set to the trigger person's id ('uuid').
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            // A clickhouse_person mutation for that person — the person now matches `plan=enterprise`.
+            // No analytics event is involved; this comes straight off the person topic.
+            const personMessage = {
+                value: Buffer.from(
+                    JSON.stringify({
+                        id: 'uuid',
+                        team_id: team.id,
+                        properties: JSON.stringify({ email: 'test@posthog.com', plan: 'enterprise' }),
+                        is_deleted: 0,
+                        is_identified: 1,
+                        created_at: '2024-09-03 09:00:00.000',
+                        timestamp: '2024-09-03 09:00:00.000',
+                        version: 2,
+                    })
+                ),
+            }
+            const personGlobals = await matcher._parsePersonBatch([personMessage as any])
+            await matcher.processBatch(personGlobals)
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
+        it('parks once to the max_wait deadline instead of re-parking every 10 minutes', async () => {
+            // Pre-change, a wait re-parked on a 10-minute cap, churning dequeues. Now it parks once to
+            // its full max_wait deadline and relies on the matcher to wake it early. A 30-minute wait
+            // must therefore schedule ~30 minutes out, not ~10.
+            await createWaitUntilWorkflow({
+                condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
+                events: [eventNameFilter('never_fires')],
+                max_wait_duration: '30m',
+            })
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            const jobs = await queryCyclotronJobs()
+            const parked = jobs.find((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())
+            expect(parked).toBeDefined()
+            const minutesOut = (new Date(parked.scheduled).getTime() - Date.now()) / 60000
+            // Comfortably past the old 10-minute cap; well short of the 30-minute deadline only if
+            // it re-parked. A single deep park lands near 30 minutes.
+            expect(minutesOut).toBeGreaterThan(11)
         })
     })
 
