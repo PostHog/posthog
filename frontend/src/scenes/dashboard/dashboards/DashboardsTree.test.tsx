@@ -32,16 +32,18 @@ jest.mock('lib/lemon-ui/LemonTree/LemonTree', () => {
 
 describe('DashboardsTree', () => {
     const navigateToFolder = jest.fn()
+    const toggleFolder = jest.fn()
     const setExpandedFolders = jest.fn()
 
     afterEach(cleanup)
 
     beforeEach(() => {
         navigateToFolder.mockClear()
+        toggleFolder.mockClear()
         setExpandedFolders.mockClear()
         ;(useActions as jest.Mock).mockReturnValue({
             navigateToFolder,
-            toggleFolder: jest.fn(),
+            toggleFolder,
             setExpandedFolders,
             createFolder: jest.fn(),
         })
@@ -78,21 +80,15 @@ describe('DashboardsTree', () => {
         expect(screen.getByText(/Revenue/)).toBeInTheDocument()
     })
 
-    it('navigates to a folder when its tree node is clicked', () => {
+    it('navigates to a childless folder without toggling it (it never expands)', () => {
         mockValues({ folderTree: [{ path: 'Marketing', label: 'Marketing', children: [] }] })
         render(<DashboardsTree />)
         fireEvent.click(screen.getByText('Marketing'))
         expect(navigateToFolder).toHaveBeenCalledWith('Marketing')
+        expect(toggleFolder).not.toHaveBeenCalled()
     })
 
-    it('navigates to the root when the All dashboards node is clicked', () => {
-        mockValues({ folderTree: [{ path: 'Marketing', label: 'Marketing', children: [] }] })
-        render(<DashboardsTree />)
-        fireEvent.click(screen.getByText('All dashboards'))
-        expect(navigateToFolder).toHaveBeenCalledWith('')
-    })
-
-    it('expands every folder when "Expand all" is clicked', () => {
+    it('navigates to a folder with subfolders and toggles its expansion', () => {
         mockValues({
             folderTree: [
                 {
@@ -103,13 +99,43 @@ describe('DashboardsTree', () => {
             ],
         })
         render(<DashboardsTree />)
+        fireEvent.click(screen.getByText('Marketing'))
+        expect(navigateToFolder).toHaveBeenCalledWith('Marketing')
+        expect(toggleFolder).toHaveBeenCalledWith('Marketing')
+    })
+
+    it('navigates to the root when the All dashboards node is clicked', () => {
+        mockValues({ folderTree: [{ path: 'Marketing', label: 'Marketing', children: [] }] })
+        render(<DashboardsTree />)
+        fireEvent.click(screen.getByText('All dashboards'))
+        expect(navigateToFolder).toHaveBeenCalledWith('')
+    })
+
+    it('"Expand all" expands only folders that have subfolders (childless ones are skipped)', () => {
+        mockValues({
+            folderTree: [
+                {
+                    path: 'Marketing',
+                    label: 'Marketing',
+                    // Q1 is childless, so it isn't expandable and must not appear in the expanded map.
+                    children: [{ path: 'Marketing/Q1', label: 'Q1', children: [] }],
+                },
+            ],
+        })
+        render(<DashboardsTree />)
         fireEvent.click(screen.getByText('Expand all'))
-        expect(setExpandedFolders).toHaveBeenCalledWith({ Marketing: true, 'Marketing/Q1': true })
+        expect(setExpandedFolders).toHaveBeenCalledWith({ Marketing: true })
     })
 
     it('collapses every folder when "Collapse all" is clicked (all currently expanded)', () => {
         mockValues({
-            folderTree: [{ path: 'Marketing', label: 'Marketing', children: [] }],
+            folderTree: [
+                {
+                    path: 'Marketing',
+                    label: 'Marketing',
+                    children: [{ path: 'Marketing/Q1', label: 'Q1', children: [] }],
+                },
+            ],
             expandedFolders: { Marketing: true },
         })
         render(<DashboardsTree />)

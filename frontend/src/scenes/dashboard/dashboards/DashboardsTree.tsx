@@ -26,10 +26,15 @@ function toTreeData(nodes: FolderTreeNode[]): TreeDataItem[] {
     }))
 }
 
-function collectPaths(nodes: FolderTreeNode[], acc: string[] = []): string[] {
+// Only folders that actually contain subfolders are "expandable". A childless folder is a terminal node:
+// expanding it would reveal nothing in the tree (its dashboards live in the right-hand table), so it never
+// gets the open-folder icon or a chevron — you just click it to scope the table.
+function collectExpandablePaths(nodes: FolderTreeNode[], acc: string[] = []): string[] {
     for (const node of nodes) {
-        acc.push(node.path)
-        collectPaths(node.children, acc)
+        if (node.children.length > 0) {
+            acc.push(node.path)
+            collectExpandablePaths(node.children, acc)
+        }
     }
     return acc
 }
@@ -55,10 +60,11 @@ export function DashboardsTree(): JSX.Element {
         },
     ]
 
-    // The root is always open; folders are closed until the user expands them.
-    const folderPaths = collectPaths(folderTree)
-    const expandedItemIds = [ROOT_ID, ...folderPaths.filter((id) => expandedFolders[id])]
-    const allExpanded = folderPaths.length > 0 && folderPaths.every((id) => expandedFolders[id])
+    // The root is always open; folders with subfolders are closed until expanded. Childless folders are never
+    // expandable, so they stay closed-icon terminal nodes.
+    const expandablePaths = collectExpandablePaths(folderTree)
+    const expandedItemIds = [ROOT_ID, ...expandablePaths.filter((id) => expandedFolders[id])]
+    const allExpanded = expandablePaths.length > 0 && expandablePaths.every((id) => expandedFolders[id])
 
     const folderForDashboard = (dashboard: DashboardBasicType): string => {
         const entry = entryByRef[String(dashboard.id)]
@@ -76,10 +82,10 @@ export function DashboardsTree(): JSX.Element {
                         type="tertiary"
                         onClick={() =>
                             setExpandedFolders(
-                                allExpanded ? {} : Object.fromEntries(folderPaths.map((id) => [id, true]))
+                                allExpanded ? {} : Object.fromEntries(expandablePaths.map((id) => [id, true]))
                             )
                         }
-                        disabledReason={folderPaths.length === 0 ? 'No folders yet' : undefined}
+                        disabledReason={expandablePaths.length === 0 ? 'No nested folders' : undefined}
                     >
                         {allExpanded ? 'Collapse all' : 'Expand all'}
                     </LemonButton>
@@ -98,7 +104,7 @@ export function DashboardsTree(): JSX.Element {
                             // Keyboard expand/collapse: mirror the one folder whose state changed into the
                             // reducer (the root is always open, so it's excluded from the diff).
                             const expanded = new Set(newIds)
-                            const toggled = folderPaths.find((id) => !!expandedFolders[id] !== expanded.has(id))
+                            const toggled = expandablePaths.find((id) => !!expandedFolders[id] !== expanded.has(id))
                             if (toggled) {
                                 toggleFolder(toggled)
                             }
@@ -107,10 +113,10 @@ export function DashboardsTree(): JSX.Element {
                             if (!folder) {
                                 return
                             }
-                            // A folder click selects it (scopes the table); for non-root folders it also
-                            // toggles expansion. The root stays open.
+                            // A folder click selects it (scopes the table); a folder that has subfolders also
+                            // toggles expansion. The root stays open; childless folders don't expand at all.
                             navigateToFolder((folder.record?.path as string) ?? '')
-                            if (folder.id !== ROOT_ID) {
+                            if (folder.id !== ROOT_ID && folder.children && folder.children.length > 0) {
                                 toggleFolder(folder.id)
                             }
                         }}
