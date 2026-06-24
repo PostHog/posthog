@@ -150,6 +150,20 @@ You can now change PostHog in any way you want. See [Project structure](./projec
 
 By default, `hogli start` runs a minimal set of services (enough for product analytics). To customize which services start, run `hogli dev:setup` which lets you select intents based on the products you're working on. Your choices are saved and used automatically by `hogli start`.
 
+### Frontend-only against PostHog Cloud
+
+If you only need to work on the frontend, you can skip the local backend entirely and develop against PostHog Cloud:
+
+```bash
+hogli start:frontend   # or the shorthand: hogli frontend
+```
+
+This runs only the Vite dev server (port 8234) — no Django, Postgres, Kafka, or other services.
+It runs independently of the intent system, so it doesn't touch the config saved by `hogli dev:setup`; your full-stack setup is unchanged the next time you run `hogli start`.
+
+Open <a href="http://localhost:8234" target="_blank">http://localhost:8234</a> and use the **Cloud login** buttons on the dev login panel to authenticate against US or EU Cloud.
+All API requests are then routed to the chosen Cloud region, so you're developing the frontend against real data without a local backend.
+
 ### Setting environment variables
 
 Three env files come into play when `hogli start` runs:
