@@ -162,6 +162,16 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
     class Meta:
         db_table = "posthog_datawarehousetable"
+        constraints = [
+            # A materialized view has one live backing table; enforce at most one live self-managed
+            # table per (team, name) so an interrupted/concurrent materialization can't leave a
+            # duplicate that shadows the view. "Live" mirrors `queryable()`: deleted is false or null.
+            models.UniqueConstraint(
+                fields=["team", "name"],
+                condition=Q(external_data_source__isnull=True) & (Q(deleted=False) | Q(deleted__isnull=True)),
+                name="unique_live_self_managed_dwh_table",
+            )
+        ]
 
     @property
     def name_chain(self) -> list[str]:

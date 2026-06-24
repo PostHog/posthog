@@ -1,7 +1,9 @@
+import uuid
 import datetime as dt
 
 import pytest
 
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
@@ -10,7 +12,9 @@ from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 
 from products.data_warehouse.backend.data_load.create_table import aget_live_backing_table_by_name
+from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 pytestmark = [pytest.mark.django_db]
@@ -51,3 +55,36 @@ def test_aget_live_backing_table_by_name_returns_newest_live_self_managed(team, 
     found = async_to_sync(aget_live_backing_table_by_name)(team.id, "v")
     assert found is not None
     assert found.id == newest.id
+
+
+def test_unique_constraint_blocks_a_second_live_self_managed_table(team, credential):
+    _make_table(team, "tb_p3a_agg_torrent", credential)
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        _make_table(team, "tb_p3a_agg_torrent", credential)
+
+
+@pytest.mark.parametrize(
+    "first_deleted,second_source",
+    [
+        (True, None),  # first soft-deleted -> a new live self-managed row is fine
+        (None, "stripe"),  # second is source-backed -> partial index excludes it
+    ],
+)
+def test_unique_constraint_scope(team, credential, first_deleted, second_source):
+    _make_table(team, "ride_duration", credential, deleted=first_deleted)
+
+    source = None
+    if second_source:
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            team=team,
+            status="Completed",
+            source_type=ExternalDataSourceType.STRIPE,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            job_inputs={},
+        )
+
+    _make_table(team, "ride_duration", credential, source=source)
