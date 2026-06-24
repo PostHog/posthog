@@ -278,3 +278,38 @@ class TestValidateCredentials:
         ok, error = validate_credentials("tok")
         assert ok is False
         assert error is not None
+
+
+class TestTokenRedaction:
+    """The token rides in a custom `Authorization: token …` scheme the tracked transport's
+    scrubber doesn't recognise, so every session it builds must redact the token by value."""
+
+    def test_validate_credentials_redacts_token(self, monkeypatch: Any) -> None:
+        captured: dict[str, Any] = {}
+
+        def fake_make_session(*args: Any, **kwargs: Any) -> Any:
+            captured.update(kwargs)
+            return _FakeSession([_make_response(200, body=[])])
+
+        monkeypatch.setattr(bugsnag, "make_tracked_session", fake_make_session)
+        validate_credentials("super-secret-token")
+        assert captured.get("redact_values") == ("super-secret-token",)
+
+    def test_get_rows_redacts_token(self, monkeypatch: Any) -> None:
+        captured: dict[str, Any] = {}
+
+        def fake_make_session(*args: Any, **kwargs: Any) -> Any:
+            captured.update(kwargs)
+            return MagicMock()
+
+        monkeypatch.setattr(bugsnag, "make_tracked_session", fake_make_session)
+        monkeypatch.setattr(bugsnag, "_fetch_list_page", lambda *args, **kwargs: ([], None))
+        list(
+            get_rows(
+                auth_token="super-secret-token",
+                endpoint="organizations",
+                logger=MagicMock(),
+                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+            )
+        )
+        assert captured.get("redact_values") == ("super-secret-token",)

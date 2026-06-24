@@ -266,8 +266,10 @@ def get_rows(
     headers = _get_headers(auth_token)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
     # One session reused across every page (and every fan-out parent) so urllib3 keeps the
-    # connection alive instead of re-handshaking per request.
-    session = make_tracked_session()
+    # connection alive instead of re-handshaking per request. Redact the token: it rides in the
+    # `Authorization: token …` header under BugSnag's custom scheme, which the tracked transport's
+    # built-in scrubber doesn't recognise, so a logged/sampled request would otherwise leak it.
+    session = make_tracked_session(redact_values=(auth_token,))
 
     if config.scope == BugsnagScope.ORGANIZATION:
         yield from _iter_top_level(session, headers, config, logger, batcher, resumable_source_manager)
@@ -309,7 +311,9 @@ def validate_credentials(auth_token: str) -> tuple[bool, str | None]:
     The token is org-scoped (not per-endpoint), so a single cheap probe is enough."""
     url = _build_url(f"{BUGSNAG_BASE_URL}/user/organizations", {"per_page": 1})
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(auth_token), timeout=10)
+        # Redact the token here too — see get_rows() for why BugSnag's custom auth scheme needs it.
+        session = make_tracked_session(redact_values=(auth_token,))
+        response = session.get(url, headers=_get_headers(auth_token), timeout=10)
     except requests.exceptions.RequestException as e:
         return False, str(e)
 
