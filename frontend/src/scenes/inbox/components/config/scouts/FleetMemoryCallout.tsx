@@ -14,7 +14,7 @@ import { scratchpadLogic } from '../../../logics/scratchpadLogic'
  * project isn't nudged toward an empty page.
  */
 export function FleetMemoryCallout({ onOpen }: { onOpen: () => void }): JSX.Element | null {
-    const { entries, totalCount, lastUpdatedAt, latestKey } = useValues(scratchpadLogic)
+    const { entries, totalCount, lastUpdatedAt } = useValues(scratchpadLogic)
 
     // Hold until the first load settles, then only show when there's something to read.
     if (entries === null || !totalCount) {
@@ -38,7 +38,6 @@ export function FleetMemoryCallout({ onOpen }: { onOpen: () => void }): JSX.Elem
                             <TZLabel time={lastUpdatedAt} />
                         </>
                     ) : null}
-                    {latestKey ? <span className="text-muted"> · latest “{latestKey}”</span> : null}
                 </span>
             </div>
             <span className="flex-1" />

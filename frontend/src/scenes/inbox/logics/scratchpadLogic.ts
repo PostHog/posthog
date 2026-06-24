@@ -95,9 +95,7 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
 
     selectors({
         totalCount: [(s) => [s.entries], (entries): number | null => (entries ? entries.length : null)],
-        // Entries are newest-first, so the head is the most recently touched entry — its key and
-        // timestamp drive the callout's "what the fleet last learned / when" hints.
-        latestKey: [(s) => [s.entries], (entries): string | null => entries?.[0]?.key ?? null],
+        // Entries are newest-first, so the head's timestamp drives the callout's "updated when" hint.
         lastUpdatedAt: [(s) => [s.entries], (entries): string | null => entries?.[0]?.updated_at ?? null],
         // Entries arrive newest-first; preserve that order within each namespace cluster, and order
         // the clusters by their most recently touched entry so the liveliest topic floats to the top.
