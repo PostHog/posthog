@@ -1,14 +1,13 @@
-from django.db import migrations, models
+from django.db import migrations
 from django.db.models import Count
-
-from posthog.migration_helpers.concurrent_index import CreateIndexConcurrently
 
 
 def dedupe_internal_sandbox_envs(apps, schema_editor):
     """Collapse pre-existing internal-env duplicates before the unique index is built.
 
     Concurrent runs could previously INSERT duplicate ``(team_id, name)`` internal envs; keep
-    the oldest row per group and delete the rest so the partial unique index can be created.
+    the oldest row per group and delete the rest so the partial unique index added in the
+    following migration can be created. Internal envs are few per team, so this is small.
     """
     SandboxEnvironment = apps.get_model("tasks", "SandboxEnvironment")
     duplicate_groups = (
@@ -32,33 +31,10 @@ def noop_reverse(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    atomic = False
-
     dependencies = [
         ("tasks", "0041_taskrun_created_at_idx"),
     ]
 
     operations = [
         migrations.RunPython(dedupe_internal_sandbox_envs, noop_reverse),
-        migrations.SeparateDatabaseAndState(
-            state_operations=[
-                migrations.AddConstraint(
-                    model_name="sandboxenvironment",
-                    constraint=models.UniqueConstraint(
-                        fields=["team", "name"],
-                        condition=models.Q(internal=True),
-                        name="unique_internal_sandbox_env_team_name",
-                    ),
-                ),
-            ],
-            database_operations=[
-                CreateIndexConcurrently(
-                    index_name="unique_internal_sandbox_env_team_name",
-                    table_name="posthog_sandbox_environment",
-                    columns="(team_id, name)",
-                    unique=True,
-                    where='WHERE "internal"',
-                ),
-            ],
-        ),
     ]
