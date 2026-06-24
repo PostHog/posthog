@@ -1,5 +1,3 @@
-import './DashboardsTree.scss'
-
 import { useActions, useValues } from 'kea'
 
 import { LemonTree, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -36,14 +34,12 @@ function collectPaths(nodes: FolderTreeNode[], acc: string[] = []): string[] {
 
 // Tree arm (variant=tree): the sidebar's LemonTree as a persistent folder panel on the left, beside the
 // familiar dashboards table on the right scoped to everything at or below the selected folder (root = all).
-// Expansion is controlled (like the sidebar): folders are expanded by default — expandedItemIds is "every
-// folder minus the ones the user collapsed" — and both the chevron (onSetExpandedItemIds) and a folder-row
-// click (onFolderClick) toggle that state, so collapsing sticks and the open/close animation plays. A
-// folder click also selects it, scoping the table. The table's Folder column reads the same entryByRef the
-// scoping uses, so the displayed folder always matches where the dashboard actually is.
+// Expansion is controlled: the tree opens collapsed except for the root (so you see the top-level folders),
+// and clicking a folder expands it — both the chevron and a folder-row click mirror the toggle into the
+// expandedFolders reducer so collapsing sticks and the open/close animation plays. The table's Folder column
+// reads the same entryByRef the scoping uses, so the displayed folder always matches where the dashboard is.
 export function DashboardsTree(): JSX.Element {
-    const { folderTree, currentFolder, currentSubtreeDashboards, entryByRef, collapsedFolders } =
-        useValues(dashboardsFileSystemLogic)
+    const { folderTree, currentSubtreeDashboards, entryByRef, expandedFolders } = useValues(dashboardsFileSystemLogic)
     const { navigateToFolder, toggleFolder } = useActions(dashboardsFileSystemLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
 
@@ -56,10 +52,9 @@ export function DashboardsTree(): JSX.Element {
         },
     ]
 
-    // Every folder id (root included). Expanded = all of these except the ones explicitly collapsed, so
-    // the tree opens fully by default and newly-loaded folders come in expanded.
-    const allFolderIds = [ROOT_ID, ...collectPaths(folderTree)]
-    const expandedItemIds = allFolderIds.filter((id) => !collapsedFolders[id])
+    // The root is always open; folders are closed until the user expands them.
+    const folderPaths = collectPaths(folderTree)
+    const expandedItemIds = [ROOT_ID, ...folderPaths.filter((id) => expandedFolders[id])]
 
     const folderForDashboard = (dashboard: DashboardBasicType): string => {
         const entry = entryByRef[String(dashboard.id)]
@@ -74,29 +69,31 @@ export function DashboardsTree(): JSX.Element {
                     <NewFolderButton />
                 </div>
                 <LemonTree
-                    className="px-0 py-1 dashboards-tree-panel"
+                    // Folder rows are accordion triggers; ButtonPrimitives shades any open / expanded trigger,
+                    // which in this panel makes every folder look selected. Neutralize the row background here
+                    // (Tailwind so HMR picks it up, unlike a new SCSS import), keeping hover.
+                    className="px-0 py-1 [&_.button-primitive]:!bg-transparent [&_.button-primitive:hover]:!bg-fill-button-tertiary-hover"
                     data={treeData}
                     expandedItemIds={expandedItemIds}
                     onSetExpandedItemIds={(newIds) => {
-                        // Keyboard expand/collapse: LemonTree hands back the full expanded set; mirror the one
-                        // folder whose state changed into collapsedFolders so the controlled prop stays in sync.
+                        // Keyboard expand/collapse: mirror the one folder whose state changed into the reducer
+                        // (the root is always open, so it's excluded from the diff).
                         const expanded = new Set(newIds)
-                        const toggled = allFolderIds.find((id) => !collapsedFolders[id] !== expanded.has(id))
+                        const toggled = folderPaths.find((id) => !!expandedFolders[id] !== expanded.has(id))
                         if (toggled) {
                             toggleFolder(toggled)
                         }
                     }}
-                    defaultSelectedFolderOrNodeId={ROOT_ID}
-                    // Mark only the selected folder (rendered as bold via the panel SCSS, not a background).
-                    isItemActive={(item) => !!currentFolder && item.record?.path === currentFolder}
                     onFolderClick={(folder) => {
                         if (!folder) {
                             return
                         }
-                        // A folder-row click both selects (scopes the table) and toggles its expansion; mirror
-                        // the toggle so the controlled prop agrees with LemonTree and the collapse sticks.
+                        // A folder click selects it (scopes the table); for non-root folders it also toggles
+                        // expansion. The root stays open.
                         navigateToFolder((folder.record?.path as string) ?? '')
-                        toggleFolder(folder.id)
+                        if (folder.id !== ROOT_ID) {
+                            toggleFolder(folder.id)
+                        }
                     }}
                 />
             </div>

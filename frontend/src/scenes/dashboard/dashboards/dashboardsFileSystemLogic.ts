@@ -31,7 +31,7 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
     actions({
         // Tree arm: select a folder ('' = the dashboards root).
         navigateToFolder: (folder: string) => ({ folder }),
-        // Toggle a folder's expand/collapse state in the panel (folders start expanded — see collapsedFolders).
+        // Toggle a folder's expand/collapse state in the panel (folders start collapsed — see expandedFolders).
         toggleFolder: (folder: string) => ({ folder }),
         // Create a folder inside the current folder (the UI prompts for the name).
         createFolder: (name: string) => ({ name }),
@@ -78,9 +78,9 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
                 navigateToFolder: (_, { folder }) => folder,
             },
         ],
-        // Folders the user has explicitly collapsed. Everything else is expanded by default (the tree
-        // derives expandedItemIds as "all folders minus these"), so newly-loaded folders appear open.
-        collapsedFolders: [
+        // Folders the user has explicitly expanded. The tree starts collapsed except for the root, so it
+        // opens with just the top-level folders; clicking a folder expands it.
+        expandedFolders: [
             {} as Record<string, boolean>,
             {
                 toggleFolder: (state, { folder }) => ({ ...state, [folder]: !state[folder] }),
