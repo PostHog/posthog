@@ -11,39 +11,19 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { InputSuggestion, InputWithSuggestionsDropdown } from './InputWithSuggestionsDropdown'
 
 export interface IntegrationAccountSelectorProps {
-    /** Form field name this selector binds to, e.g. "account_id". */
     fieldName: string
-    /** Field label shown above the input, e.g. "Account ID". */
     fieldLabel: string
-    /** Which OAuth field of the form's payload holds the integration id, e.g. "bing_ads_integration_id". */
+    /** Which OAuth id field of the form payload to read, e.g. "bing_ads_integration_id". */
     integrationField: string
-    /** Integration `kind` to validate against and route the account fetcher, e.g. "bing-ads". */
+    /** Integration kind used to validate and route the account fetcher, e.g. "bing-ads". */
     integrationKind: string
     placeholder?: string
 }
 
-/**
- * Renders an integration's `{fieldName}` field as a dropdown of the connected integration's
- * accessible accounts (the shared `{ accounts }` contract), so the user picks the stored value
- * instead of typing it. Generic across every ad platform — parametrized by `integrationField`
- * (which OAuth id to read) and `integrationKind` (which integration to validate + fetcher to route).
- *
- * Falls back to a plain text input before the user picks an OAuth account (or when the form's
- * stored integration ID points at a stale integration), so the field stays usable while the
- * integration choice above is being fixed.
- *
- * Works in both contexts that render this field:
- *   - The new-source wizard (`sourceWizardLogic`, form key `sourceConnectionDetails`)
- *   - The existing-source Config tab (`sourceSettingsLogic`, form key `sourceConfig`)
- *
- * We read the OAuth integration ID via `FormContext` from kea-forms instead of binding
- * directly to a specific logic, so this stays decoupled from which scene renders it.
- */
+/** Generic account/resource picker for OAuth ad sources: a dropdown of the connected integration's
+ *  accounts (shared IntegrationAccount contract), falling back to a text input until one is connected. */
 export function IntegrationAccountSelector(props: IntegrationAccountSelectorProps): JSX.Element {
-    // FormContext.logic is set whenever this field renders inside a kea <Form> (both the
-    // new-source wizard and the existing-source config tab do). Only mount the hook-using
-    // inner component when it's present, so we never pass a null logic into useValues — and
-    // calling the hook conditionally here would itself violate the rules of hooks.
+    // Only mount the hook-using inner component once inside a kea <Form>, to avoid a null logic.
     const formContext = useContext(FormContext)
     if (!formContext.logic) {
         return <AccountTextField {...props} />
@@ -93,14 +73,11 @@ function AccountTextField({ fieldName, fieldLabel, placeholder }: IntegrationAcc
 }
 
 function useFormIntegrationId(formLogic: any, formKey: string, integrationField: string): number | undefined {
-    // formLogic is guaranteed non-null by the caller, so useValues always runs with a valid logic.
     const values = useValues(formLogic) as Record<string, any> | null
     if (!values) {
         return undefined
     }
-    // Coerce to number — when the form is hydrated from a saved source's `job_inputs`
-    // the integration ID arrives as a string from JSONB. Without the cast, downstream
-    // `integration.id === id` lookups in `integrationsLogic` silently miss the match.
+    // Saved job_inputs store the id as a JSONB string; coerce so `integration.id === id` matches.
     const raw = values[formKey]?.payload?.[integrationField]
     const id = raw === undefined || raw === null || raw === '' ? undefined : Number(raw)
     return id && Number.isFinite(id) ? id : undefined
@@ -125,8 +102,7 @@ function IntegrationAccountFieldWithDropdown({
     const suggestions = useMemo<InputSuggestion[]>(() => {
         const sorted = [...accounts].sort((a, b) => Number(b.is_primary) - Number(a.is_primary))
         return sorted.map((account) => {
-            // When the display name already is the stored value (e.g. Search Console, where both are
-            // the site URL) showing "value (value)" is redundant — collapse to a single label.
+            // When display_name === value (e.g. GSC site url), "value (value)" is redundant.
             const labelText =
                 account.display_name === account.value
                     ? account.display_name

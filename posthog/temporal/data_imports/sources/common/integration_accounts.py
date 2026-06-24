@@ -4,27 +4,22 @@ from typing import Protocol, runtime_checkable
 
 @dataclasses.dataclass(frozen=True)
 class IntegrationAccount:
-    """A selectable account/resource exposed by an OAuth integration (a Bing Ads account, a Search
-    Console site, a Google Ads customer, ...).
-
-    Every ad-platform client maps its API response onto this single shape, so one frontend selector
-    and one endpoint serializer work for all of them. Platform-specific richness (lifecycle status,
-    customer hierarchy) is flattened into ``badges`` / ``group`` here, in the client code that already
-    has the context — keeping the shared frontend dumb.
+    """A selectable account/resource an OAuth integration exposes (a Bing account, a Search Console
+    site, ...). Each platform's client maps its API onto this shape so one frontend selector and one
+    serializer cover all of them; platform-specific richness flattens into ``badges`` / ``group``.
     """
 
     value: str
-    """What gets stored in the source config (numeric account id as a string, site url, etc.)."""
+    """Stored in the source config (numeric account id as a string, site url, etc.)."""
     display_name: str
-    """Primary human-readable label."""
     is_primary: bool = False
-    """Whether this belongs to the user's own/primary account context (sorted/marked first)."""
+    """Belongs to the user's own/primary account context (sorted first)."""
     badges: tuple[str, ...] = ()
-    """Short status chips, e.g. ("Active",) or ("Pause",)."""
+    """Status chips, e.g. ("Active",)."""
     group: str | None = None
-    """Optional grouping label for hierarchical platforms (e.g. the owning customer/manager name)."""
+    """Grouping for hierarchical platforms (e.g. the owning customer name)."""
     secondary_text: str | None = None
-    """Extra identifier shown in parentheses and searchable, e.g. the alphanumeric account number."""
+    """Extra searchable identifier shown in parentheses, e.g. the account number."""
 
 
 @runtime_checkable

@@ -128,15 +128,10 @@ class BingAdsClient:
         return self._customer_id
 
     def list_accounts(self) -> list[IntegrationAccount]:
-        """List every Bing Ads account the connected user can access, across all their customers.
+        """Every account the user can access, across all their customers, as ``IntegrationAccount``.
 
-        A user can belong to more than one customer (e.g. an agency managing several advertisers),
-        and ``GetAccountsInfo`` is scoped to a single customer — so enumerate the customers first
-        (``GetCustomersInfo``) and collect each one's accounts. The account whose customer matches
-        the user's own customer (from ``GetUser``) is flagged ``is_primary``.
-
-        Each account is mapped onto the shared :class:`IntegrationAccount` contract so one endpoint
-        serializer and one frontend selector work across every ad platform.
+        A user can belong to multiple customers (agencies) and ``GetAccountsInfo`` is per-customer,
+        so enumerate customers first (``GetCustomersInfo``) and collect each one's accounts.
         """
         primary_customer_id = self.get_customer_id()
         original_customer_id = self.authorization_data.customer_id

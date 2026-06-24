@@ -13,11 +13,8 @@ import type {
 
 import type { integrationAccountsLogicType } from './integrationAccountsLogicType'
 
-/**
- * Per-platform fetcher for the shared `{ accounts }` account contract. Every ad platform that
- * exposes a selectable-account endpoint adds its entry here (keyed by integration `kind`) and the
- * generic logic + selector work unchanged.
- */
+/** Per-platform account fetcher keyed by integration kind. A new platform adds one entry here; the
+ *  generic logic + selector work unchanged. */
 const ACCOUNT_FETCHERS: Record<string, (projectId: string, id: number) => Promise<IntegrationAccountsResponseApi>> = {
     'bing-ads': integrationsBingAdsAccountsRetrieve,
     'google-search-console': integrationsGoogleSearchConsoleSitesRetrieve,
