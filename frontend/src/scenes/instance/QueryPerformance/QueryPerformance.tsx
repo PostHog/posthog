@@ -186,10 +186,14 @@ export function QueryPerformance(): JSX.Element {
         {
             title: 'Metric',
             render: function Metric(_, item) {
+                const metricTypeLabel =
+                    item.experiment_metric_type === 'funnel' && item.experiment_funnel_order_type
+                        ? `funnel:${item.experiment_funnel_order_type}`
+                        : item.experiment_metric_type
                 return (
                     <div className="flex items-center gap-1">
                         <span>{item.experiment_metric_name}</span>
-                        {item.experiment_metric_type && <LemonTag type="muted">{item.experiment_metric_type}</LemonTag>}
+                        {item.experiment_metric_type && <LemonTag type="muted">{metricTypeLabel}</LemonTag>}
                     </div>
                 )
             },
