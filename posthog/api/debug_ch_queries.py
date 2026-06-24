@@ -40,13 +40,20 @@ def _nest_subqueries(records: list[dict]) -> list[dict]:
     the SQL guarantees — dict insertion order is then preserved as the output order.
     """
     groups: dict[str, dict] = {}
+    extra_parents: list[dict] = []
     for record in records:
         key = record["experiment_query_group_id"] or record["query_id"]
         bucket = groups.setdefault(key, {"parent": None, "children": []})
         if record["experiment_query_surface"] == "precompute_build":
             bucket["children"].append(record)
-        else:
+        elif bucket["parent"] is None:
             bucket["parent"] = record
+        else:
+            # The runner mints one group id per evaluation, so >1 top-level read per group isn't
+            # expected. If it happens, keep the first as the group's parent and surface the rest
+            # standalone rather than dropping them.
+            logger.warning("slowest_queries: multiple top-level reads share group %s", key)
+            extra_parents.append(record)
 
     results: list[dict] = []
     for bucket in groups.values():
@@ -57,6 +64,7 @@ def _nest_subqueries(records: list[dict]) -> list[dict]:
             continue
         parent["sub_queries"] = bucket["children"]
         results.append(parent)
+    results.extend(extra_parents)
     return results
 
 
