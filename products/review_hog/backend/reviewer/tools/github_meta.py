@@ -13,6 +13,16 @@ from products.review_hog.backend.reviewer.models.github_meta import PRComment, P
 logger = logging.getLogger(__name__)
 
 
+def _format_diff_section(filename: str, status: str, patch: str) -> str:
+    """One reviewed file's raw GitHub patch behind a clear header, for the point-in-time snapshot.
+
+    GitHub omits the patch for binary or very large files, so an empty patch is recorded explicitly
+    rather than silently dropped.
+    """
+    body = patch if patch.strip() else "(no patch available — file too large or binary)"
+    return f"=== {filename} [{status}] ===\n{body}"
+
+
 class PRFilter:
     @staticmethod
     def is_test_file(filename: str) -> bool:
@@ -213,7 +223,7 @@ class PRParser:
 
 
 class PRFetcher:
-    def __init__(self, owner: str, repo: str, pr_number: int, review_dir: str):
+    def __init__(self, owner: str, repo: str, pr_number: int, review_dir: str) -> None:
         self.owner = owner
         self.repo = repo
         self.pr_number = pr_number
@@ -258,6 +268,7 @@ class PRFetcher:
             author_association=pr.raw_data.get("author_association", "NONE"),
             base_branch=pr.base.ref,
             head_branch=pr.head.ref,
+            head_sha=pr.head.sha,
             mergeable_state=pr.mergeable_state,
             requested_reviewers=[r.login for r in pr.get_review_requests()[0]],  # users
             assignee=pr.assignee.login if pr.assignee else None,
@@ -289,6 +300,7 @@ class PRFetcher:
                     if pr_filter.is_test_file(comment.path):
                         continue
                     comment_obj = PRComment(
+                        id=comment.id,
                         path=comment.path,
                         line=comment.line,
                         start_line=comment.start_line,
@@ -313,6 +325,10 @@ class PRFetcher:
                 pr_files = [PRFile.model_validate_json(x) for x in f.readlines()]
         else:
             pr_files = []
+            # Raw per-file patch for the point-in-time diff snapshot (step 7). Captured here because
+            # this is the only place with `file.patch`; kept out of `PRFile` so it doesn't bloat the
+            # prompts that dump pr_files. Written to its own `pr_diff.patch` alongside pr_files.jsonl.
+            diff_sections: list[str] = []
             try:
                 for file in pr.get_files():
                     # Skip filtered files
@@ -329,8 +345,13 @@ class PRFetcher:
                         changes=pr_parser.parse_patch(file.patch) if file.patch else [],
                     )
                     pr_files.append(file_obj)
+                    diff_sections.append(_format_diff_section(file.filename, file.status, file.patch or ""))
             except GithubException as e:
                 raise ValueError(f"Failed to fetch PR files: {e.data.get('message', str(e))}") from e
+            # Write the diff snapshot before pr_files.jsonl so the cache key (pr_files.jsonl) is the
+            # last write: an interrupted fetch re-runs fully next time instead of leaving a cached
+            # state whose diff snapshot is missing (which would otherwise never regenerate).
+            (self.review_path / "pr_diff.patch").write_text("\n\n".join(diff_sections))
             with pr_files_path.open("w") as f:
                 f.write("\n".join([x.model_dump_json() for x in pr_files]))
         return pr_files

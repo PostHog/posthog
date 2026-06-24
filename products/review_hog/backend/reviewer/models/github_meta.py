@@ -19,6 +19,9 @@ class PRMetadata(BaseModel):
     author_association: str = "NONE"
     base_branch: str
     head_branch: str
+    # The PR head commit SHA — the exact code a review judges. Anchors the per-turn diff snapshot
+    # and the report's head_sha watermark. Optional so a pre-snapshot cached pr_meta.json still parses.
+    head_sha: str | None = None
     mergeable_state: str | None = None
     requested_reviewers: list[str] = Field(default_factory=list)
     assignee: str | None = None
@@ -30,6 +33,9 @@ class PRMetadata(BaseModel):
 
 
 class PRComment(BaseModel):
+    # GitHub review-comment id — feeds the report's last_seen_comment_id watermark so a later turn
+    # knows which comments are new. Optional so a pre-watermark cached pr_comments.jsonl still parses.
+    id: int | None = None
     path: str
     line: int | None = None
     start_line: int | None = None

@@ -286,6 +286,9 @@ class Commit(BaseModel):
     artefact per commit), so the report log shows exactly what landed, when, and from which task.
     A `commit` artefact only ever records a commit that has already been pushed to a remote branch;
     recording an unpushed or local-only commit is always a mistake.
+
+    `diff` is an optional point-in-time snapshot of the reviewed code, set only by consumers that
+    snapshot what they reviewed (e.g. ReviewHog's per-turn diff); the Signals pipeline never sets it.
     """
 
     repository: str = Field(description="GitHub repository the commit was pushed to, as `owner/repo`.")
@@ -293,6 +296,11 @@ class Commit(BaseModel):
     commit_sha: str = Field(description="Full or abbreviated SHA of the pushed commit.")
     message: str = Field(description="The commit message headline.")
     note: str | None = Field(default=None, description="Optional short note on what this commit does.")
+    diff: str | None = Field(
+        default=None,
+        description="Optional point-in-time unified diff of the reviewed code, set only by "
+        "snapshotting consumers (e.g. ReviewHog); the Signals pipeline never populates it.",
+    )
 
     @field_validator("repository", "branch", "commit_sha", "message")
     @classmethod

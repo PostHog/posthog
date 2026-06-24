@@ -177,13 +177,15 @@ state + cloud persistence is its own effort — now **Stage 3** below.
 
 ### 🔭 Stage 3 — durable persistence & the loop-y review (cloud)
 
-> **Status: foundation + persist-after-success + explicit team/user identity built (steps 1–6); step 7 not yet started.**
-> The two tables, the artefact funnel/registry, the Signals leaf move, the tach block, the `0001`
-> migration, the persistence layer (`reviewer/persistence.py`), and now explicit `team_id`/`user_id`
-> threading (`run_review` CLI → `main` → a run-scoped sandbox identity) are in place and green
-> (lint + tach + 134 ReviewHog backend tests pass). What remains is persisting each turn's point-in-time
-> diff snapshot in Postgres (step 7) — as a per-turn `commit` artefact, coupled with the turn-tracking
-> watermark plumbing. No object storage. See the checklist below.
+> **Status: Stage 3 complete (steps 1–7 built & green).** Foundation, persist-after-success, explicit
+> team/user identity, and the per-turn **point-in-time diff snapshot** are all in place: the two tables,
+> the artefact funnel/registry, the Signals leaf move, the tach block, the `0001` migration, the
+> persistence layer (`reviewer/persistence.py`), explicit `team_id`/`user_id` threading, and now the
+> `commit`-artefact diff snapshot — captured at review time, gated on the `head_sha` watermark, with both
+> watermarks (`head_sha` + `last_seen_comment_id`) advanced per turn. No object storage. Lint + tach + the
+> ReviewHog backend suite (incl. the new snapshot tests) pass. What remains is the **loop itself**
+> (Temporal + the re-check) and the deferred `task_run` / `note` work-log artefacts — see
+> _Deferred / future_ below.
 
 **Why.** Today every run writes Pydantic-serialized JSON/MD to a gitignored `reviews/<pr_number>/` tree — no
 DB, no `team_id`, no run identity (a "run" is just the PR-number directory). That blocks two things: running
@@ -310,13 +312,14 @@ and `.defer()` / `.only()` keep those columns off hot reads. **The reviewed diff
 re-fetched on demand.** A review is a point-in-time judgment: a finding's line numbers only make sense against
 the code as of the reviewed commit. Re-fetching later returns the _current_ code (wrong once new commits land),
 and even re-fetching pinned at `head_sha` isn't durable — a force-push can orphan and GC that commit. So each
-turn stores its own snapshot (the parsed diff at that turn's `head_sha` — today's ephemeral `pr_files.jsonl`)
-as an **append-only per-turn `commit` artefact**. This is identical for a single review (turn 1) and the loop
-(turn N appends its own snapshot), so the full per-turn history is reconstructable regardless of later
-force-pushes. The snapshot rides on a per-turn `commit` artefact: the reused Signals `Commit` schema gains one
-minor optional `diff` field (default `None`, Signals-neutral — see step 7) to carry the point-in-time diff
-alongside the head-commit metadata. `get_diff` re-fetch is reserved for the **next** turn's _current_ diff —
-never for reconstructing a past turn. The data is moderate (tens–hundreds of KB per turn) and Postgres handles
+turn stores its own snapshot (the reviewed files' raw unified patch at that turn's `head_sha`, captured to
+`pr_diff.patch` at fetch time) as an **append-only per-turn `commit` artefact**, the append gated on the
+report's `head_sha` watermark so re-runs of an unchanged PR are idempotent. This is identical for a single
+review (turn 1) and the loop (turn N appends its own snapshot only when the head moved), so the full per-turn
+history is reconstructable regardless of later force-pushes. The snapshot rides on a per-turn `commit`
+artefact: the reused Signals `Commit` schema gained one minor optional `diff` field (default `None`,
+Signals-neutral — see step 7) to carry the point-in-time diff alongside the head-commit metadata. `get_diff`
+re-fetch is reserved for the **next** turn's _current_ diff — never for reconstructing a past turn. The data is moderate (tens–hundreds of KB per turn) and Postgres handles
 it comfortably (the team-scoped worktree cache stores far larger blobs in Postgres successfully); object storage
 is reserved for a blob that is both large _and_ irreproducible, of which ReviewHog has none. Per-stage
 prompt/JSON scratch stays on sandbox disk.
@@ -359,21 +362,34 @@ prompt/JSON scratch stays on sandbox disk.
    fan-out inherits it); every sandbox call builds its context via `_sandbox_context_for(repository)`, which
    reads the identity. The 5 review tools are unchanged — they still thread only `repository`. (The Temporal
    trigger will later supply the PR's author + their team; for now the CLI does.)
-7. **Point-in-time review snapshot (Postgres, per-turn).** Persist each turn's reviewed diff snapshot (the
-   parsed PR diff at its `head_sha`, today's ephemeral `pr_files.jsonl`) so a finding stays anchored to the
-   exact code reviewed even after later force-pushes — which holds **only** because the snapshot is captured
-   _at review time, in the same fetch boundary_ that produced the findings (today the synchronous fetch→persist
-   in `run.py`; under Temporal, inside the single fetching activity, returning only the row id), never
-   re-fetched afterward. Record it as a per-turn **`commit` artefact**: the reused
-   Signals `Commit` schema already holds the head commit's `commit_sha` / `branch` / `message`, and it gains
-   **one minor, optional, Signals-neutral field** — `diff: str | None = None` (default `None`; Signals never
-   sets it, so no behavior change and old rows still parse) — to carry the point-in-time PR diff. (Editing
-   Signals is allowed only for exactly this kind of additive optional field; the fallback, if that ever became
-   undesirable, is a ReviewHog-owned `diff_snapshot` schema/type — but reuse is preferred.) It must work both
-   **now** (a single review is turn 1) and **under looping** (turn N appends its own `commit` artefact, never
-   mutating earlier ones) — so the per-turn append model is the design from the start, not a retrofit. Stays in
-   Postgres (`TextField` + TOAST); **no object storage**. Build it with the turn-tracking plumbing (per-turn
-   `head_sha` / `task_run` / `commit` / `note` + the `head_sha` / `last_seen_comment_id` watermark).
+7. ✅ **Point-in-time review snapshot (Postgres, per-turn).** Each turn's reviewed diff is captured _at review
+   time, in the fetch boundary_ and persisted as a per-turn **`commit` artefact**, so a finding stays anchored
+   to the exact code reviewed even after later force-pushes (never re-fetched). Concretely:
+   - **Capture (fetch layer).** `PRMetadata` gained `head_sha` (`pr.head.sha` — the exact commit a review
+     judges) and `PRComment` gained `id` (`comment.id`, for the comment watermark); both optional so a stale
+     pre-snapshot `pr_meta.json` / `pr_comments.jsonl` still parses. `PRFetcher.fetch_pr_files` writes the
+     reviewed (filtered) files' **raw unified patch** (`file.patch`) to a dedicated **`pr_diff.patch`** —
+     deliberately _not_ a field on `PRFile`, which `split_pr_into_chunks` dumps wholesale into a prompt
+     (`PR_FILES=[x.model_dump_json() …]`), so the raw patch never bloats the prompts. It is written **before**
+     `pr_files.jsonl` (the idempotency cache key) so an interrupted fetch re-runs fully next time rather than
+     caching a snapshot-less state.
+   - **Schema.** Signals' `Commit` gained **one optional, Signals-neutral `diff: str | None = None`** field
+     (default `None`; the Signals pipeline never sets it, old rows still parse) to carry that patch. The
+     fallback, if that ever became undesirable, is a ReviewHog-owned `diff_snapshot` type — but reuse is
+     preferred.
+   - **Persist (`persist_commit_snapshot`, called in `run.py` right after `upsert_review_report`).** Appends
+     the `commit` artefact — `commit_sha = head_sha`, `branch` / `message` from PR metadata, `diff` =
+     `pr_diff.patch`, `system()` attribution — **only when `head_sha` differs from the report's watermark**
+     (a re-run with no new commits records nothing; a real new commit appends its own snapshot, never mutating
+     earlier ones — exactly the loop's "new commits → new turn" trigger), advancing **both** `head_sha` and
+     `last_seen_comment_id` in the same transaction. Missing `head_sha` skips cleanly. A genuinely **missing**
+     `pr_diff.patch` (incomplete capture) **defers** — appends nothing and leaves the watermark unadvanced, so
+     a later fresh run still captures that commit (advancing past it would lose the diff forever); a
+     legitimately **empty** patch (all files filtered) records the commit with `diff=None`.
+
+   Works for a single review (turn 1) and under looping (turn N appends). Stays in Postgres (`TextField` +
+   TOAST); **no object storage**. The remaining per-turn `task_run` / `note` work-log artefacts are deferred to
+   the loop — they need per-call task ids / comment-driven notes the pipeline doesn't surface yet.
 
 ##### Cloud host, Temporal & GitHub (assumed / later)
 
@@ -459,9 +475,12 @@ flowchart TD
 2. **Create output dir** — `reviews/<pr_number>/` under `_REVIEW_HOG_DIR` (which resolves to
    `products/review_hog/backend/`, so artifacts land in `backend/reviews/<pr_number>/`).
 3. **Fetch PR data** — `PRFetcher.fetch_pr_data` (`tools/github_meta.py`, PyGithub, needs `GITHUB_TOKEN`)
-   writes `pr_meta.json`, `pr_comments.jsonl`, `pr_files.jsonl`, `pr_files_scope.jsonl`. Lockfiles, minified
-   assets, snapshots, `*.schema.py`, `*.txt`, build dirs, and test files are filtered out. `branch =
-pr_metadata.head_branch` is threaded into every sandbox step so the agent reviews the PR branch.
+   writes `pr_meta.json` (incl. `head_sha`), `pr_comments.jsonl` (incl. comment `id`), `pr_files.jsonl`,
+   `pr_files_scope.jsonl`, and `pr_diff.patch` (the reviewed files' raw unified patch, for the durable diff
+   snapshot). Lockfiles, minified assets, snapshots, `*.schema.py`, `*.txt`, build dirs, and test files are
+   filtered out. `branch = pr_metadata.head_branch` is threaded into every sandbox step so the agent reviews
+   the PR branch. Immediately after fetch, `run.py` opens/updates the living `ReviewReport` and calls
+   `persist_commit_snapshot` to record this turn's point-in-time diff (gated on the `head_sha` watermark).
 4. **Generate schemas** — `generate_all_schemas()` materializes `Model.model_json_schema()` for the five
    LLM-facing models into `prompts/<stage>/schema.json`; the prompt templates embed these. Must run before
    any prompt rendering.
@@ -629,7 +648,9 @@ content". Most begin with `{{ CLAUDE_CODE_CONTEXT | safe }}` (the `@path#L…` r
 Root: `products/review_hog/backend/reviews/<pr_number>/` (gitignored via the product-root `.gitignore`
 entry `reviews/`). Per-run files:
 
-- **Fetch:** `pr_meta.json`, `pr_comments.jsonl`, `pr_files.jsonl`, `pr_files_scope.jsonl`
+- **Fetch:** `pr_meta.json` (incl. `head_sha`), `pr_comments.jsonl` (incl. comment `id`), `pr_files.jsonl`,
+  `pr_files_scope.jsonl`, `pr_diff.patch` (the reviewed files' raw unified patch — source for the durable
+  per-turn diff snapshot)
 - **Chunking:** `chunking_prompt.md`, `chunks.json`
 - **Analysis:** `prompts/chunk-{id}-prompt.md`, `chunk-{id}-analysis.json`
 - **Review passes:** `pass{N}_prompts/chunk-{id}-code-prompt.md`,

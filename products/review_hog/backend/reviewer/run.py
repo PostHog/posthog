@@ -9,6 +9,7 @@ from products.review_hog.backend.reviewer.models import generate_all_schemas
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
 from products.review_hog.backend.reviewer.persistence import (
     finalize_review_report,
+    persist_commit_snapshot,
     persist_findings,
     persist_verdicts,
     upsert_review_report,
@@ -94,6 +95,18 @@ async def main(pr_url: str, *, team_id: int, user_id: int) -> None:
     report_id = await sync_to_async(upsert_review_report)(
         team_id=team_id, repository=repository, pr_url=pr_url, pr_metadata=pr_metadata
     )
+
+    # Snapshot the point-in-time diff this turn reviews, in the same fetch boundary that produced it
+    # (idempotent on the PR's head_sha — a re-run with no new commits records nothing).
+    snapshotted = await sync_to_async(persist_commit_snapshot)(
+        team_id=team_id,
+        report_id=report_id,
+        repository=repository,
+        pr_metadata=pr_metadata,
+        pr_comments=pr_comments,
+        review_dir=review_dir,
+    )
+    _emit("Captured point-in-time diff snapshot" if snapshotted else "No new diff snapshot this turn")
 
     # 4. Generate schemas
     logger.info("Generating schemas...")

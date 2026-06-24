@@ -1,5 +1,6 @@
 """Pytest configuration and shared fixtures for tests."""
 
+import copy
 import json
 from pathlib import Path
 from typing import Any
@@ -98,8 +99,6 @@ def sample_chunk_analysis_complex(
     sample_chunk_analysis_simple: ChunkAnalysis,
 ) -> ChunkAnalysis:
     """Create a complex ChunkAnalysis for testing."""
-    import copy
-
     complex_analysis = copy.deepcopy(sample_chunk_analysis_simple)
     complex_analysis.goal = "Fix authentication logic and improve security architecture"
     complex_analysis.chunk_meta.chunk_id = 1

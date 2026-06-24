@@ -9,19 +9,21 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ValidationVerdict,
     parse_artefact_content,
 )
-from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
+from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_combination import IssueCombination
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.persistence import (
     finalize_review_report,
+    persist_commit_snapshot,
     persist_findings,
     persist_verdicts,
     upsert_review_report,
 )
+from products.signals.backend.artefact_schemas import Commit
 
 
-def _pr_metadata(pr_number: int = 123) -> PRMetadata:
+def _pr_metadata(pr_number: int = 123, head_sha: str | None = None) -> PRMetadata:
     return PRMetadata(
         number=pr_number,
         title="t",
@@ -32,6 +34,7 @@ def _pr_metadata(pr_number: int = 123) -> PRMetadata:
         author="a",
         base_branch="main",
         head_branch="feat",
+        head_sha=head_sha,
         commits=1,
         additions=1,
         deletions=0,
@@ -265,3 +268,176 @@ class TestPersistResults(BaseTest):
             report_id=report_id, type=ReviewReportArtefact.ArtefactType.ISSUE_FINDING
         )
         assert rows.count() == 1
+
+
+class TestPersistCommitSnapshot(BaseTest):
+    def _commits(self, report_id: str):
+        return ReviewReportArtefact.objects.for_team(self.team.id).filter(
+            report_id=report_id, type=ReviewReportArtefact.ArtefactType.COMMIT
+        )
+
+    def test_snapshot_stores_the_diff_at_head_sha_and_advances_both_watermarks(self) -> None:
+        # The point-in-time guarantee: the reviewed diff is captured against the exact head_sha and
+        # the watermark advances so a later turn knows what was reviewed. A dropped diff, a wrong
+        # sha, or a forgotten watermark bump would all surface here.
+        with tempfile.TemporaryDirectory() as d:
+            review_dir = Path(d)
+            (review_dir / "pr_diff.patch").write_text("=== a.py [modified] ===\n@@ -1 +1 @@\n-old\n+new")
+            comments = [PRComment(id=11, path="a.py", body="hi", diff_hunk="", user="u", created_at="t")]
+
+            report_id = upsert_review_report(
+                team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(head_sha="sha-aaa")
+            )
+            appended = persist_commit_snapshot(
+                team_id=self.team.id,
+                report_id=report_id,
+                repository="o/r",
+                pr_metadata=_pr_metadata(head_sha="sha-aaa"),
+                pr_comments=comments,
+                review_dir=review_dir,
+            )
+
+        assert appended is True
+        row = self._commits(report_id).get()
+        commit = parse_artefact_content(row.type, row.content)
+        assert isinstance(commit, Commit)
+        assert commit.commit_sha == "sha-aaa"
+        assert commit.diff == "=== a.py [modified] ===\n@@ -1 +1 @@\n-old\n+new"
+        # System attribution: the orchestrator's fetch produced it, not a sandbox task.
+        assert row.created_by_id is None
+        assert row.task_id is None
+        report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
+        assert report.head_sha == "sha-aaa"
+        assert report.last_seen_comment_id == 11
+
+    def test_snapshot_is_idempotent_when_head_sha_is_unchanged(self) -> None:
+        # A re-run with no new commits must not duplicate the snapshot — this is exactly the loop's
+        # no-op turn. Without the watermark guard the report would accrete identical snapshots forever.
+        with tempfile.TemporaryDirectory() as d:
+            review_dir = Path(d)
+            (review_dir / "pr_diff.patch").write_text("@@ -1 +1 @@")
+            report_id = upsert_review_report(
+                team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(head_sha="sha-aaa")
+            )
+            first = persist_commit_snapshot(
+                team_id=self.team.id,
+                report_id=report_id,
+                repository="o/r",
+                pr_metadata=_pr_metadata(head_sha="sha-aaa"),
+                pr_comments=[],
+                review_dir=review_dir,
+            )
+            second = persist_commit_snapshot(
+                team_id=self.team.id,
+                report_id=report_id,
+                repository="o/r",
+                pr_metadata=_pr_metadata(head_sha="sha-aaa"),
+                pr_comments=[],
+                review_dir=review_dir,
+            )
+
+        assert first is True
+        assert second is False
+        assert self._commits(report_id).count() == 1
+
+    def test_new_head_sha_appends_a_second_snapshot(self) -> None:
+        # When the PR head actually moves, the new turn must append its own snapshot (never mutate
+        # the prior one) so the per-turn history survives later force-pushes. Too-aggressive guarding
+        # would silently lose the later turn's diff.
+        with tempfile.TemporaryDirectory() as d:
+            review_dir = Path(d)
+            (review_dir / "pr_diff.patch").write_text("turn-1 diff")
+            report_id = upsert_review_report(
+                team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(head_sha="sha-aaa")
+            )
+            persist_commit_snapshot(
+                team_id=self.team.id,
+                report_id=report_id,
+                repository="o/r",
+                pr_metadata=_pr_metadata(head_sha="sha-aaa"),
+                pr_comments=[],
+                review_dir=review_dir,
+            )
+            (review_dir / "pr_diff.patch").write_text("turn-2 diff")
+            appended = persist_commit_snapshot(
+                team_id=self.team.id,
+                report_id=report_id,
+                repository="o/r",
+                pr_metadata=_pr_metadata(head_sha="sha-bbb"),
+                pr_comments=[],
+                review_dir=review_dir,
+            )
+
+        assert appended is True
+        diffs = {parse_artefact_content(r.type, r.content).diff for r in self._commits(report_id)}
+        assert diffs == {"turn-1 diff", "turn-2 diff"}
+        report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
+        assert report.head_sha == "sha-bbb"
+
+    def test_snapshot_skipped_when_head_sha_missing(self) -> None:
+        # A stale pre-snapshot cache leaves head_sha unset; the snapshot must skip cleanly rather
+        # than build a Commit with a blank sha (which the schema rejects).
+        with tempfile.TemporaryDirectory() as d:
+            review_dir = Path(d)
+            report_id = upsert_review_report(
+                team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(head_sha=None)
+            )
+            appended = persist_commit_snapshot(
+                team_id=self.team.id,
+                report_id=report_id,
+                repository="o/r",
+                pr_metadata=_pr_metadata(head_sha=None),
+                pr_comments=[],
+                review_dir=review_dir,
+            )
+
+        assert appended is False
+        assert self._commits(report_id).count() == 0
+        assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).head_sha is None
+
+    def test_snapshot_deferred_and_recoverable_when_patch_file_missing(self) -> None:
+        # If the raw patch wasn't captured (partial fetch / pre-snapshot scratch dir), the snapshot
+        # must DEFER — append nothing and NOT advance head_sha — so the un-captured diff stays
+        # recoverable on a later fresh run. Advancing past it would lock the diff out forever.
+        with tempfile.TemporaryDirectory() as d:
+            review_dir = Path(d)
+            report_id = upsert_review_report(
+                team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(head_sha="sha-aaa")
+            )
+            appended = persist_commit_snapshot(
+                team_id=self.team.id,
+                report_id=report_id,
+                repository="o/r",
+                pr_metadata=_pr_metadata(head_sha="sha-aaa"),
+                pr_comments=[],
+                review_dir=review_dir,
+            )
+
+        assert appended is False
+        assert self._commits(report_id).count() == 0
+        # head_sha not advanced: a later run (with the diff captured) can still snapshot this commit.
+        assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).head_sha is None
+
+    def test_snapshot_records_empty_diff_when_no_reviewable_files(self) -> None:
+        # An empty pr_diff.patch is a legitimate "everything filtered out" turn (not a missing file):
+        # record the commit with diff=None and advance the watermark, rather than defer forever.
+        with tempfile.TemporaryDirectory() as d:
+            review_dir = Path(d)
+            (review_dir / "pr_diff.patch").write_text("")
+            report_id = upsert_review_report(
+                team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata(head_sha="sha-aaa")
+            )
+            appended = persist_commit_snapshot(
+                team_id=self.team.id,
+                report_id=report_id,
+                repository="o/r",
+                pr_metadata=_pr_metadata(head_sha="sha-aaa"),
+                pr_comments=[],
+                review_dir=review_dir,
+            )
+
+        assert appended is True
+        commit = parse_artefact_content(*self._commits(report_id).values_list("type", "content").get())
+        assert commit.diff is None
+        assert commit.commit_sha == "sha-aaa"
+        assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).head_sha == "sha-aaa"

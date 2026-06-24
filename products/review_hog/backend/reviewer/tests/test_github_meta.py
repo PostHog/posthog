@@ -401,6 +401,7 @@ class TestFetchPrData:
         mock_pr.raw_data = {"author_association": "CONTRIBUTOR"}
         mock_pr.base.ref = "main"
         mock_pr.head.ref = "feature-branch"
+        mock_pr.head.sha = "abc123def456"
         mock_pr.mergeable_state = "clean"
         mock_pr.get_review_requests.return_value = ([], [])  # users, teams
         mock_pr.assignee = None
@@ -422,14 +423,16 @@ class TestFetchPrData:
         assert metadata.number == 123
         assert metadata.title == "Test PR"
         assert metadata.author == "test-user"
+        assert metadata.head_sha == "abc123def456"
         assert len(comments) == 0
         assert len(files) == 0
 
-        # Check files were created
+        # Check files were created, including the point-in-time diff snapshot
         assert (temp_review_dir / "pr_meta.json").exists()
         assert (temp_review_dir / "pr_comments.jsonl").exists()
         assert (temp_review_dir / "pr_files.jsonl").exists()
         assert (temp_review_dir / "pr_files_scope.jsonl").exists()
+        assert (temp_review_dir / "pr_diff.patch").exists()
 
     @patch.dict(os.environ, {"GITHUB_TOKEN": "test-token"})
     @patch("products.review_hog.backend.reviewer.tools.github_meta.Github")
@@ -454,6 +457,7 @@ class TestFetchPrData:
         mock_pr.raw_data = {"author_association": "MEMBER"}
         mock_pr.base.ref = "main"
         mock_pr.head.ref = "feature"
+        mock_pr.head.sha = "feat0sha123"
         mock_pr.mergeable_state = "clean"
         mock_pr.get_review_requests.return_value = ([], [])
         mock_pr.assignee = None
@@ -465,6 +469,7 @@ class TestFetchPrData:
 
         # Mock comment
         mock_comment = MagicMock()
+        mock_comment.id = 9001
         mock_comment.path = "file.py"
         mock_comment.line = 10
         mock_comment.start_line = None
@@ -492,6 +497,7 @@ class TestFetchPrData:
         # Verify
         assert metadata.number == 456
         assert len(comments) == 1
+        assert comments[0].id == 9001
         assert comments[0].body == "Review comment"
         assert len(files) == 1
         assert files[0].filename == "src/module.py"
@@ -622,6 +628,7 @@ class TestFetchPrData:
         mock_pr.raw_data = {"author_association": "MEMBER"}
         mock_pr.base.ref = "main"
         mock_pr.head.ref = "feature"
+        mock_pr.head.sha = "test0sha789"
         mock_pr.mergeable_state = "clean"
         mock_pr.get_review_requests.return_value = ([], [])
         mock_pr.assignee = None
@@ -697,6 +704,7 @@ class TestEndToEnd:
         mock_pr.raw_data = {"author_association": "OWNER"}
         mock_pr.base.ref = "main"
         mock_pr.head.ref = "e2e-feature-branch"
+        mock_pr.head.sha = "e2e0headsha0"
         mock_pr.mergeable_state = "clean"
 
         # Add assignee and labels for more complete test
@@ -722,6 +730,7 @@ class TestEndToEnd:
 
         # Add multiple comments
         mock_comment1 = MagicMock()
+        mock_comment1.id = 5001
         mock_comment1.path = "src/main.py"
         mock_comment1.line = 25
         mock_comment1.start_line = 20
@@ -731,6 +740,7 @@ class TestEndToEnd:
         mock_comment1.created_at.isoformat.return_value = "2024-01-01T10:00:00"
 
         mock_comment2 = MagicMock()
+        mock_comment2.id = 5002
         mock_comment2.path = "src/utils.py"
         mock_comment2.line = 50
         mock_comment2.start_line = None
@@ -793,6 +803,7 @@ class TestEndToEnd:
         assert metadata.requested_reviewers == ["reviewer1"]
 
         assert len(comments) == 2
+        assert comments[0].id == 5001
         assert comments[0].body == "This needs refactoring"
         assert comments[1].body == "Add error handling"
 
@@ -821,3 +832,12 @@ class TestEndToEnd:
             # All changes should have no code field
             for change in scope_file.get("changes", []):
                 assert "code" not in change
+
+        # The point-in-time diff snapshot holds the reviewed files' raw patches (test file excluded,
+        # a removed file with no patch recorded explicitly).
+        diff_snapshot = (temp_review_dir / "pr_diff.patch").read_text()
+        assert "=== src/main.py [modified] ===" in diff_snapshot
+        assert "new_code = False" in diff_snapshot
+        assert "tests/test_main.py" not in diff_snapshot
+        assert "=== old_module.py [removed] ===" in diff_snapshot
+        assert "(no patch available" in diff_snapshot

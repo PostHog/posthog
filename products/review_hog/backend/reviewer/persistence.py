@@ -6,13 +6,13 @@ canonical outputs into rows after each stage succeeds, the same shape as Signals
 
 - the post-dedup findings (`issues_found.json`) → `issue_finding` artefacts,
 - their validation verdicts → `validation_verdict` artefacts (paired to a finding by `issue_key`),
+- this turn's point-in-time reviewed diff → a per-turn `commit` artefact (+ the report watermark),
 - the rendered report markdown → `ReviewReport.report_markdown`.
 
 Findings and verdicts are attributed to the **system**: a combined/deduped finding is aggregated
 across many sandbox tasks (chunking, the parallel lenses, dedup), so no single task produced it.
-The work-log artefacts (`task_run` / `commit` / `note`) and the `head_sha` / `last_seen_comment_id`
-watermark are deferred to the loop-y turn tracking — the data they need (per-call task ids, commit
-SHAs, comment ids) isn't surfaced by the current pipeline.
+The remaining work-log artefacts (`task_run` / `note`) are deferred to the loop-y turn tracking —
+the data they need (per-call task ids, comment-driven notes) isn't surfaced by the current pipeline.
 """
 
 import logging
@@ -26,11 +26,12 @@ from pydantic import ValidationError
 
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
-from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
+from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_combination import IssueCombination
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue
 from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.artefact_schemas import Commit
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,66 @@ def upsert_review_report(*, team_id: int, repository: str, pr_url: str, pr_metad
             status=ReviewReport.Status.ACTIVE,
         )
     return str(report.id)
+
+
+def persist_commit_snapshot(
+    *,
+    team_id: int,
+    report_id: str,
+    repository: str,
+    pr_metadata: PRMetadata,
+    pr_comments: list[PRComment],
+    review_dir: Path,
+) -> bool:
+    """Append this turn's point-in-time reviewed diff as a `commit` artefact; return whether it did.
+
+    A review judges the code at one specific commit, so the reviewed diff is captured here at review
+    time (in the fetch boundary, never re-fetched) and stored on the `commit` artefact's `diff`
+    field. The append is idempotent on the report's `head_sha` watermark: a re-run with no new
+    commits records nothing, and under looping a new turn appends only when the PR head actually
+    moved — the same "new commits → new turn" trigger the loop will use. The watermark (`head_sha`
+    + `last_seen_comment_id`) is advanced in the same transaction. System-attributed: the orchestrator
+    captures the diff from GitHub, not a sandbox task.
+    """
+    head_sha = pr_metadata.head_sha
+    if not head_sha:
+        logger.warning("No head_sha for PR #%s; skipping diff snapshot", pr_metadata.number)
+        return False
+
+    report = ReviewReport.objects.for_team(team_id).get(id=report_id)
+    if report.head_sha == head_sha:
+        # This exact commit was already snapshotted — the loop's no-op turn.
+        return False
+
+    diff_path = review_dir / "pr_diff.patch"
+    if not diff_path.exists():
+        # The diff wasn't captured (a partial prior fetch / pre-snapshot scratch dir). Defer rather
+        # than record a diff-less snapshot AND advance the watermark past it — advancing would make
+        # the un-captured diff permanently unrecoverable. A later fresh run will capture it.
+        logger.warning(
+            "No diff snapshot at %s for PR #%s; deferring the commit snapshot", diff_path, pr_metadata.number
+        )
+        return False
+
+    # An empty file is a legitimate "no reviewable diff" (all files filtered out), recorded as None.
+    commit = Commit(
+        repository=repository,
+        branch=pr_metadata.head_branch,
+        commit_sha=head_sha,
+        message=pr_metadata.title or f"PR #{pr_metadata.number}",
+        note=f"Reviewed PR diff snapshot at {head_sha[:12]}",
+        diff=diff_path.read_text() or None,
+    )
+    last_seen_comment_id = max((c.id for c in pr_comments if c.id is not None), default=None)
+    with transaction.atomic():
+        ReviewReportArtefact.add_log(
+            team_id=team_id, report_id=report_id, content=commit, attribution=ArtefactAttribution.system()
+        )
+        watermark: dict[str, object] = {"head_sha": head_sha}
+        if last_seen_comment_id is not None:
+            watermark["last_seen_comment_id"] = last_seen_comment_id
+        ReviewReport.objects.for_team(team_id).filter(id=report_id).update(**watermark)
+    return True
 
 
 def persist_findings(*, team_id: int, report_id: str, review_dir: Path) -> int:
