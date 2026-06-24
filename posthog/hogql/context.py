@@ -60,6 +60,10 @@ class HogQLContext:
     direct_postgres_connection_metadata: dict[str, Any] | None = None
     # If set, will save string constants to this dict. Inlines strings into the query if None.
     values: dict = field(default_factory=dict)
+    # Query-scoped ClickHouse external data tables accumulated during printing (keyed by table name,
+    # value is clickhouse_driver's `{"structure", "data"}`). Lets `system.information_schema` ship its
+    # rows out-of-band instead of inlining them; read by the executor and passed to `sync_execute`.
+    external_tables: dict[str, Any] = field(default_factory=dict, compare=False, repr=False)
     # Are we small part of a non-HogQL query? If so, use custom syntax for accessed person properties.
     within_non_hogql_query: bool = False
     # Temporary (June 2026 MaxMind incident): the geoip dict fallback decision, evaluated exactly once per query in
@@ -110,9 +114,9 @@ class HogQLContext:
     # Workload detected during AST resolution (set by prepare_ast_for_printing)
     workload: Optional[Workload] = None
     # Per-query cache of the `system.information_schema` introspection result (populated lazily in
-    # posthog/hogql/database/schema/information_schema.py). Shared across the information_schema
-    # tables so a single query touching several of them walks the database (and fires the warehouse
-    # metadata ORM queries) only once.
+    # posthog/hogql/database/schema/information_schema.py). A dict keyed by the pushed-down table
+    # filter, so information_schema tables resolving to the same bound within one query walk the
+    # database (and fire the warehouse metadata ORM queries) only once.
     information_schema_introspection: Optional[Any] = field(default=None, compare=False, repr=False)
     # Property-level access control: set of (property_name, PropertyDefinition.Type) tuples
     # that the current user is denied access to. Populated before type resolution so that

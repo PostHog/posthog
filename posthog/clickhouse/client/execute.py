@@ -259,6 +259,7 @@ def sync_execute(
     readonly=False,
     sync_client: Optional[SyncClient] = None,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+    external_tables: Optional[list[dict]] = None,
 ):
     """
     Executes a synchronous query on the ClickHouse database based on predefined workloads and tags.
@@ -294,6 +295,8 @@ def sync_execute(
     sync_client (Optional[SyncClient]): A specific ClickHouse client to use for the query.
     ch_user (ClickHouseUser): The user context for the query execution. Defaults to
         ClickHouseUser.DEFAULT.
+    external_tables (Optional[list[dict]]): Query-scoped external data tables (clickhouse_driver
+        format: ``{"name", "structure", "data"}``) sent alongside the query instead of inlined.
 
     Returns:
     Union[List[Tuple], int, None]: The result of the query. For select queries, it returns a list of
@@ -455,6 +458,7 @@ def sync_execute(
                 settings=settings,
                 with_column_types=with_column_types,
                 query_id=query_id,
+                external_tables=external_tables,
             )
             if (
                 "INSERT INTO" in prepared_sql

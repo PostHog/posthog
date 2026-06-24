@@ -632,6 +632,7 @@ class HogQLQueryExecutor:
                     workload=workload,
                     team_id=self.team.pk,
                     readonly=True,
+                    external_tables=list(clickhouse_context.external_tables.values()) or None,
                 )
             except Exception as e:
                 if self.debug:
