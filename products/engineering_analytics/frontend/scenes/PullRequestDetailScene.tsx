@@ -357,7 +357,9 @@ export function PullRequestDetailScene(): JSX.Element {
         {
             title: 'Workflow',
             key: 'workflow',
-            sorter: (a, b) => a.workflow.localeCompare(b.workflow),
+            // Tiebreak by start so a workflow's re-run attempts stay in order under it.
+            sorter: (a, b) =>
+                a.workflow.localeCompare(b.workflow) || (a.startedAt ?? '').localeCompare(b.startedAt ?? ''),
             render: (_, run) => {
                 const attempt = attemptIndexByKey.get(runRowKey(run))
                 const attemptTag = attempt ? <LemonTag type="muted">attempt {attempt}</LemonTag> : null
@@ -514,8 +516,9 @@ export function PullRequestDetailScene(): JSX.Element {
                     rowKey={runRowKey}
                     loading={lifecycleLoading}
                     useURLForSorting={false}
-                    // Chronological by default so the table reads top→bottom like the Gantt; headers re-sort.
-                    defaultSorting={{ columnKey: 'timeline', order: 1 }}
+                    // Group by workflow by default (runs on one commit share a start, so chronological
+                    // would tie and look scrambled); the Gantt column carries the timing. Headers re-sort.
+                    defaultSorting={{ columnKey: 'workflow', order: 1 }}
                     // Whole-row click toggles the job breakdown (the logs-viewer pattern); links inside the
                     // row stopPropagation so they still navigate.
                     onRow={(run) =>
