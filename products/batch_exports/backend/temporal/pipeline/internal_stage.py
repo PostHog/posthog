@@ -188,6 +188,15 @@ class S3StagingFolder:
 
 
 @dataclass
+class InternalStageResult:
+    """Result of staging a batch export run's data in the internal S3 area."""
+
+    stage_folder: str
+    # Total rows written to the stage (from ClickHouse's query summary), or None if unknown.
+    records_total: int | None = None
+
+
+@dataclass
 class BatchExportInsertIntoInternalStageInputs:
     """Base dataclass for batch export insert inputs containing common fields."""
 
@@ -224,11 +233,13 @@ class BatchExportInsertIntoInternalStageInputs:
 
 
 @activity.defn
-async def insert_into_internal_stage_activity(inputs: BatchExportInsertIntoInternalStageInputs) -> str:
+async def insert_into_internal_stage_activity(
+    inputs: BatchExportInsertIntoInternalStageInputs,
+) -> InternalStageResult:
     """Write record batches to our own internal S3 staging area.
 
     Returns:
-        The S3 staging folder where the data was written to.
+        The S3 staging folder where the data was written to, and the total number of rows staged.
     """
     bind_contextvars(
         team_id=inputs.team_id,
@@ -291,7 +302,7 @@ async def insert_into_internal_stage_activity(inputs: BatchExportInsertIntoInter
             )
             query_or_model = query
 
-        await _write_batch_export_record_batches_to_internal_stage(
+        records_total = await _write_batch_export_record_batches_to_internal_stage(
             query_or_model=query_or_model,
             full_range=full_range,
             query_parameters=query_parameters,
@@ -302,8 +313,8 @@ async def insert_into_internal_stage_activity(inputs: BatchExportInsertIntoInter
             s3_staging_folder_url=s3_staging_folder.url,
             num_partitions=num_partitions,
         )
-    logger.info("Staging data completed successfully")
-    return s3_staging_folder.folder
+    logger.info("Staging data completed successfully", records_total=records_total)
+    return InternalStageResult(stage_folder=s3_staging_folder.folder, records_total=records_total)
 
 
 async def compute_num_partitions(
@@ -542,8 +553,12 @@ async def _write_batch_export_record_batches_to_internal_stage(
     data_interval_end: str,
     s3_staging_folder_url: str,
     num_partitions: int | None = None,
-):
-    """Write record batches to our own internal S3 staging area."""
+) -> int | None:
+    """Write record batches to our own internal S3 staging area.
+
+    Returns the total number of rows written to the stage, or None if the count couldn't be
+    determined.
+    """
     logger = LOGGER.bind()
 
     clickhouse_url = None
@@ -583,6 +598,7 @@ async def _write_batch_export_record_batches_to_internal_stage(
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
+        total_written_rows: int | None = 0
         # TODO - in future we might want to catch any ClickHouse memory usage errors and break down the interval into
         # sub-intervals to reduce memory usage
         for interval_start, interval_end in generate_query_ranges(full_range, done_ranges):
@@ -623,32 +639,61 @@ async def _write_batch_export_record_batches_to_internal_stage(
                 raise
 
             try:
-                await _execute_query(client, query, query_parameters)
+                written_rows = await _execute_query(client, query, query_parameters)
             except ClickHouseError:
                 logger.exception(
                     "ClickHouse error occurred while writing record batches to internal S3 staging bucket",
                 )
                 raise
 
+            # if any query fails to return written rows then set total to None so that we don't
+            # return a partial result
+            if written_rows is None:
+                total_written_rows = None
+            elif total_written_rows is not None:
+                total_written_rows += written_rows
 
-async def _execute_query(client: ClickHouseClient, query: str, query_parameters: dict[str, typing.Any]) -> None:
+    return total_written_rows
+
+
+def _written_rows_from_summary(summary: dict[str, typing.Any] | None) -> int | None:
+    """Extract `written_rows` from a ClickHouse query summary (its values are strings)."""
+    if not summary or "written_rows" not in summary:
+        return None
+    try:
+        return int(summary["written_rows"])
+    except (TypeError, ValueError):
+        return None
+
+
+async def _execute_query(client: ClickHouseClient, query: str, query_parameters: dict[str, typing.Any]) -> int | None:
     """Execute the batch exports query and wait for it to complete.
 
     If the query takes longer than 300 seconds, we time out and wait for the query to complete by checking the query log
     and process list.
     If the query fails, we will raise an error.
+
+    Returns the number of rows the query wrote to the stage, or None if it couldn't be
+    determined. On the happy path this comes from ClickHouse's response summary; on the
+    timeout path (where the summary is lost) we recover it from the query log.
     """
     query_id = str(uuid.uuid4())
     logger = LOGGER.bind(query_id=query_id)
     with log_query_duration(logger=logger, query_id=query_id, query_type="insert_into_internal_stage"):
         try:
-            await client.execute_query(query, query_parameters=query_parameters, query_id=query_id, timeout=300)
+            summary = await client.execute_query_with_summary(
+                query, query_parameters=query_parameters, query_id=query_id, timeout=300
+            )
         except ClickHouseClientTimeoutError:
             logger.warning(
                 "Timed-out waiting for insert into S3. Will attempt to check query status and wait for completion",
                 timeout=300,
             )
             await _wait_for_query_completion(client, query_id)
+            # The summary is gone with the timed-out response, but the query has finished, so
+            # recover the written-row count from its query log entry.
+            return await client.aget_written_rows_from_query_log(query_id)
+    return _written_rows_from_summary(summary)
 
 
 async def _wait_for_query_completion(client: ClickHouseClient, query_id: str) -> None:

@@ -8,6 +8,7 @@ from posthog.temporal.data_imports.sources.common.sql import Table, TableStats
 from posthog.temporal.data_imports.sources.common.sql.predicates import ColumnTypeCategory, ValidatedRowFilter
 from posthog.temporal.data_imports.sources.generated_configs import MSSQLSourceConfig
 from posthog.temporal.data_imports.sources.mssql.mssql import (
+    _SSH_HANDSHAKE_EOF_ERROR,
     MSSQLColumn,
     MSSQLImplementation,
     _build_query,
@@ -518,6 +519,36 @@ class TestBuildPipeline:
         assert streaming_cursor.execute.called
 
 
+class _RaisingTunnel:
+    """Context manager whose `__enter__` raises, standing in for paramiko's handshake EOFError."""
+
+    def __enter__(self):
+        raise EOFError()
+
+    def __exit__(self, *args):
+        return False
+
+
+class TestConnectSSHTunnel:
+    def test_bare_handshake_eof_is_translated_and_non_retryable(self, mocker):
+        mocker.patch(
+            "posthog.temporal.data_imports.sources.mssql.mssql.open_ssh_tunnel",
+            return_value=_RaisingTunnel(),
+        )
+        mock_connect = mocker.patch("posthog.temporal.data_imports.sources.mssql.mssql.pymssql.connect")
+
+        with pytest.raises(Exception, match=_SSH_HANDSHAKE_EOF_ERROR) as exc_info:
+            with MSSQLImplementation().connect(_make_config()):
+                pass
+
+        # Cause preserved, the database connection is never attempted, and the translated
+        # message is classified non-retryable so the sync stops instead of retrying forever.
+        assert isinstance(exc_info.value.__cause__, EOFError)
+        mock_connect.assert_not_called()
+        non_retryable = MSSQLSource().get_non_retryable_errors()
+        assert any(pattern in str(exc_info.value) for pattern in non_retryable.keys())
+
+
 class TestMSSQLSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
@@ -542,6 +573,8 @@ class TestMSSQLSourceNonRetryableErrors:
             # Raised by the sshtunnel library when the customer's SSH bastion can't be reached
             # (wrong host/port, rejected key, firewall) — the import goes through `open_ssh_tunnel`.
             "BaseSSHTunnelForwarderError: Could not establish session to SSH gateway",
+            # `connect` translates paramiko's bare handshake EOFError into this message.
+            _SSH_HANDSHAKE_EOF_ERROR,
         ],
     )
     def test_connection_errors_are_non_retryable(self, error_msg):

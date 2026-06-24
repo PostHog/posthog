@@ -15,7 +15,10 @@ from posthog.temporal.data_imports.cdc.activities import (
     cdc_extract_activity,
     cleanup_orphan_slots_activity,
 )
+from posthog.temporal.data_imports.cdc.errors import CDCErrorCategory, cdc_error_info
 from posthog.temporal.data_imports.cdc.types import ChangeEvent
+from posthog.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
+from posthog.temporal.data_imports.util import NonRetryableException
 
 
 def _make_event(
@@ -94,6 +97,36 @@ def _make_schema(
     return schema
 
 
+def _fake_update_schema_sync_type_config(schema, *, updates=None, removes=None, mutate=None, extra_model_fields=None):
+    """Stand-in for CDCExtractActivity._update_schema_sync_type_config that merges onto the
+    in-memory mock schema. The real helper re-reads the row from Postgres under a lock, which these
+    mock-only tests don't have; this mirrors its merge order (updates, then removes, then mutate)
+    and its post-merge application of `extra_model_fields` onto the schema."""
+    config = schema.sync_type_config or {}
+    if updates:
+        config.update(updates)
+    if removes:
+        for key in removes:
+            config.pop(key, None)
+    if mutate is not None:
+        mutate(config)
+    schema.sync_type_config = config
+    if extra_model_fields:
+        for field, value in extra_model_fields.items():
+            setattr(schema, field, value)
+
+
+@pytest.fixture(autouse=True)
+def _stub_sync_type_config_merge():
+    """Route every activity sync_type_config write onto the in-memory mock schema (no DB)."""
+    with patch.object(
+        CDCExtractActivity,
+        "_update_schema_sync_type_config",
+        side_effect=_fake_update_schema_sync_type_config,
+    ):
+        yield
+
+
 # Shared patch decorator for CDC activity tests
 _CDC_ACTIVITY_PATCHES = [
     "posthog.temporal.data_imports.cdc.activities.close_old_connections",
@@ -131,6 +164,7 @@ def _setup_mocks(
     mock_adapter = MagicMock()
     mock_adapter.create_reader.return_value = mock_reader
     mock_adapter.is_slot_invalidation_error.return_value = False
+    mock_adapter.classify_error.return_value = None  # default: unrecognized -> unknown/retryable
     mock_get_adapter.return_value = mock_adapter
 
     mock_s3 = MagicMock()
@@ -284,7 +318,6 @@ class TestFlushDeferredRuns:
         mock_producer.flush.assert_called_once()
 
         assert schema.sync_type_config["cdc_deferred_runs"] == []
-        schema.save.assert_called()
 
     @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
     def test_no_op_when_no_deferred_runs(self, MockProducer):
@@ -756,6 +789,7 @@ class TestCDCExtractActivity:
         mock_adapter = MagicMock()
         mock_adapter.create_reader.return_value = mock_reader
         mock_adapter.is_slot_invalidation_error.return_value = False
+        mock_adapter.classify_error.return_value = None
         mock_get_adapter.return_value = mock_adapter
 
         inputs = CDCExtractInput(team_id=1, source_id=source.id)
@@ -810,9 +844,10 @@ class TestCDCExtractActivity:
         with pytest.raises(RuntimeError, match="S3 write failed"):
             cdc_extract_activity(inputs)
 
-        # Schema should be marked as FAILED
+        # Schema is marked FAILED with the friendly message — the raw error never reaches the user.
         assert schema.status == "Failed"
-        assert "S3 write failed" in schema.latest_error
+        assert schema.latest_error == cdc_error_info(CDCErrorCategory.UNKNOWN).friendly_message
+        assert "S3 write failed" not in schema.latest_error
 
         # Slot should NOT have been advanced
         mock_reader.confirm_position.assert_not_called()
@@ -900,6 +935,7 @@ class TestCDCExtractActivity:
         cdc_extract_activity(inputs)
 
         assert schema.sync_type_config["cdc_mode"] == "snapshot"
+        assert schema.sync_type_config["reset_pipeline"] is True
         assert schema.initial_sync_complete is False
         mock_reader.confirm_position.assert_called_once_with("0/500")
 
@@ -948,8 +984,9 @@ class TestCDCExtractActivity:
         inputs = CDCExtractInput(team_id=1, source_id=source.id)
         cdc_extract_activity(inputs)
 
-        # Schema should be set back to snapshot mode
+        # Schema should be set back to snapshot mode and forced to re-snapshot from scratch
         assert schema.sync_type_config["cdc_mode"] == "snapshot"
+        assert schema.sync_type_config["reset_pipeline"] is True
         assert schema.initial_sync_complete is False
         assert "cdc_last_log_position" not in schema.sync_type_config
 
@@ -1107,6 +1144,7 @@ class TestCDCExtractActivity:
         cdc_extract_activity(inputs)
 
         assert schema.sync_type_config.get("cdc_mode") == "snapshot"
+        assert schema.sync_type_config.get("reset_pipeline") is True
         assert schema.sync_type_config.get("cdc_last_log_position") is None
 
     @patch("posthog.temporal.data_imports.cdc.activities.activity")
@@ -1594,6 +1632,149 @@ class TestSlotAdvanceTransactionSafety:
         assert advanced_positions == expected_advances
 
 
+class TestErrorClassification:
+    """Failures store a friendly, credential-safe message; non-retryable ones stop Temporal retries."""
+
+    @patch("posthog.temporal.data_imports.cdc.activities.get_machine_id", return_value="machine-1")
+    @patch("posthog.temporal.data_imports.cdc.activities.posthoganalytics")
+    @patch("posthog.temporal.data_imports.cdc.activities.activity")
+    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_non_retryable_error_raises_nonretryable_and_captures(
+        self,
+        mock_close_conns,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        mock_activity,
+        mock_posthoganalytics,
+        mock_get_machine_id,
+    ):
+        source = _make_source()
+        MockSourceModel.objects.get.return_value = source
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        mock_get_schemas.return_value = [schema]
+
+        mock_reader = MagicMock()
+        mock_reader.read_changes.side_effect = psycopg.errors.InvalidPassword(
+            'password authentication failed for user "test"'
+        )
+        mock_reader.truncated_tables = []
+        mock_adapter = MagicMock()
+        mock_adapter.create_reader.return_value = mock_reader
+        mock_adapter.is_slot_invalidation_error.return_value = False
+        mock_adapter.classify_error = PostgresCDCAdapter().classify_error  # exercise real classification
+        mock_get_adapter.return_value = mock_adapter
+
+        mock_activity.heartbeat = MagicMock()
+        mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1")
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+        with pytest.raises(NonRetryableException):
+            cdc_extract_activity(inputs)
+
+        assert schema.status == "Failed"
+        assert schema.latest_error == cdc_error_info(CDCErrorCategory.AUTH_FAILED).friendly_message
+
+        mock_posthoganalytics.capture.assert_called_once()
+        captured = mock_posthoganalytics.capture.call_args.kwargs
+        assert captured["event"] == "cdc extraction non-retryable error"
+        assert captured["properties"]["category"] == "auth_failed"
+        assert captured["properties"]["source_id"] == str(source.id)
+        mock_reader.close.assert_called_once()
+
+    @patch("posthog.temporal.data_imports.cdc.activities.get_machine_id", return_value="machine-1")
+    @patch("posthog.temporal.data_imports.cdc.activities.posthoganalytics")
+    @patch("posthog.temporal.data_imports.cdc.activities.activity")
+    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_analytics_failure_does_not_mask_nonretryable(
+        self,
+        mock_close_conns,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        mock_activity,
+        mock_posthoganalytics,
+        mock_get_machine_id,
+    ):
+        source = _make_source()
+        MockSourceModel.objects.get.return_value = source
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        mock_get_schemas.return_value = [schema]
+
+        mock_reader = MagicMock()
+        mock_reader.read_changes.side_effect = psycopg.errors.InvalidPassword(
+            'password authentication failed for user "test"'
+        )
+        mock_reader.truncated_tables = []
+        mock_adapter = MagicMock()
+        mock_adapter.create_reader.return_value = mock_reader
+        mock_adapter.is_slot_invalidation_error.return_value = False
+        mock_adapter.classify_error = PostgresCDCAdapter().classify_error
+        mock_get_adapter.return_value = mock_adapter
+
+        mock_activity.heartbeat = MagicMock()
+        mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1")
+
+        # Analytics is down — it must not swallow or replace the NonRetryableException.
+        mock_posthoganalytics.capture.side_effect = RuntimeError("analytics down")
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+        with pytest.raises(NonRetryableException):
+            cdc_extract_activity(inputs)
+
+        assert schema.latest_error == cdc_error_info(CDCErrorCategory.AUTH_FAILED).friendly_message
+
+    @patch("posthog.temporal.data_imports.cdc.activities.get_machine_id", return_value="machine-1")
+    @patch("posthog.temporal.data_imports.cdc.activities.posthoganalytics")
+    @patch("posthog.temporal.data_imports.cdc.activities.activity")
+    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_retryable_error_reraises_original_and_does_not_capture(
+        self,
+        mock_close_conns,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        mock_activity,
+        mock_posthoganalytics,
+        mock_get_machine_id,
+    ):
+        source = _make_source()
+        MockSourceModel.objects.get.return_value = source
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        mock_get_schemas.return_value = [schema]
+
+        mock_reader = MagicMock()
+        mock_reader.read_changes.side_effect = psycopg.OperationalError(
+            'connection to server at "db" failed: Connection refused'
+        )
+        mock_reader.truncated_tables = []
+        mock_adapter = MagicMock()
+        mock_adapter.create_reader.return_value = mock_reader
+        mock_adapter.is_slot_invalidation_error.return_value = False
+        mock_adapter.classify_error = PostgresCDCAdapter().classify_error
+        mock_get_adapter.return_value = mock_adapter
+
+        mock_activity.heartbeat = MagicMock()
+        mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1")
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+        # Retryable: the ORIGINAL error propagates so Temporal retries — not NonRetryableException.
+        with pytest.raises(psycopg.OperationalError, match="Connection refused"):
+            cdc_extract_activity(inputs)
+
+        assert schema.latest_error == cdc_error_info(CDCErrorCategory.CONNECTION_FAILED).friendly_message
+        mock_posthoganalytics.capture.assert_not_called()
+
+
 class TestSlotInvalidationRecovery:
     """When the replication slot is invalidated/dropped on the source DB, the activity
     must recreate it and reset all CDC schemas to snapshot mode instead of failing forever."""
@@ -1618,6 +1799,7 @@ class TestSlotInvalidationRecovery:
         mock_adapter = MagicMock()
         mock_adapter.create_reader.return_value = mock_reader
         mock_adapter.is_slot_invalidation_error.return_value = True
+        mock_adapter.classify_error.return_value = None
         mock_get_adapter.return_value = mock_adapter
 
         mock_activity.heartbeat = MagicMock()
@@ -1659,6 +1841,7 @@ class TestSlotInvalidationRecovery:
         source.save.assert_called()
 
         assert schema.sync_type_config["cdc_mode"] == "snapshot"
+        assert schema.sync_type_config["reset_pipeline"] is True
         assert "cdc_last_log_position" not in schema.sync_type_config
         assert "cdc_deferred_runs" not in schema.sync_type_config
         assert schema.initial_sync_complete is False
@@ -1721,7 +1904,9 @@ class TestSlotInvalidationRecovery:
             cdc_extract_activity(inputs)
 
         assert schema.status == "Failed"
-        assert "cannot recreate slot" in schema.latest_error
+        # The raw recovery error stays in the logs; the user-facing column gets friendly copy.
+        assert schema.latest_error == cdc_error_info(CDCErrorCategory.UNKNOWN).friendly_message
+        assert "cannot recreate slot" not in schema.latest_error
         mock_reader.close.assert_called_once()
 
     @patch("posthog.temporal.data_imports.cdc.activities.activity")
