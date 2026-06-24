@@ -367,19 +367,17 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                                                     },
                                                 ]}
                                             >
-                                                <AccessControlAction
-                                                    resourceType={AccessControlResourceType.EarlyAccessFeature}
-                                                    minAccessLevel={AccessControlLevel.Editor}
-                                                    userAccessLevel={userAccessLevel}
+                                                {/* The trigger must stay the direct child of LemonMenu — it
+                                                    clones the trigger to inject the menu-toggle onClick, which an
+                                                    AccessControlAction wrapper would swallow. Gate via disabledReason. */}
+                                                <LemonButton
+                                                    tooltip="Publish this feature to make it available"
+                                                    type="primary"
+                                                    size="small"
+                                                    disabledReason={accessControlDisabledReason ?? undefined}
                                                 >
-                                                    <LemonButton
-                                                        tooltip="Publish this feature to make it available"
-                                                        type="primary"
-                                                        size="small"
-                                                    >
-                                                        Release
-                                                    </LemonButton>
-                                                </AccessControlAction>
+                                                    Release
+                                                </LemonButton>
                                             </LemonMenu>
                                         )}
                                         {earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability && (

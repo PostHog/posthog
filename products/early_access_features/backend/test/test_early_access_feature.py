@@ -1477,9 +1477,25 @@ class TestEarlyAccessFeatureResourceAccessControl(APIBaseTest):
         # No creator concept on this model, so the effective level is the resource-level floor.
         self.assertEqual(response.json()["user_access_level"], "viewer")
 
+    def test_user_access_level_reflects_object_level(self) -> None:
+        # An object-level grant for one feature should win over the lower resource-level floor.
+        feature = self._create_feature()
+        self._set_resource_level("viewer")
+        AccessControl.objects.create(
+            resource="early_access_feature",
+            resource_id=str(feature.id),
+            organization_member=self.member.organization_memberships.get(organization=self.organization),
+            team=self.team,
+            access_level="editor",
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/{feature.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["user_access_level"], "editor")
+
     def test_access_controls_endpoint_route_exists(self) -> None:
         feature = self._create_feature()
-        self.client.force_login(self.user)
+        # Grant the member viewer so the read still exercises the access_control:read gate as a non-admin.
+        self._set_resource_level("viewer")
         response = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/{feature.id}/access_controls")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -1492,3 +1508,19 @@ class TestEarlyAccessFeatureResourceAccessControl(APIBaseTest):
             {"access_level": "viewer"},
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_manager_can_modify_object_access_controls(self) -> None:
+        # A member with manager access to the object can change its access controls.
+        feature = self._create_feature()
+        AccessControl.objects.create(
+            resource="early_access_feature",
+            resource_id=str(feature.id),
+            organization_member=self.member.organization_memberships.get(organization=self.organization),
+            team=self.team,
+            access_level="manager",
+        )
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature.id}/access_controls",
+            {"access_level": "viewer"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
