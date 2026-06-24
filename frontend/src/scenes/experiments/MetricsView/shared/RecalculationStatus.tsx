@@ -32,9 +32,12 @@ export function RecalculationStatus({ experiment }: { experiment: Experiment }):
     const { completed, total } = recalculationProgress
     const failed = currentRecalculation?.failed_metrics ?? 0
 
-    const metricsLabel = isRecalculating
-        ? `Calculating metrics ${completed}/${total}`
-        : `${totalMetricsCount} ${totalMetricsCount === 1 ? 'metric' : 'metrics'}`
+    const metricsLabel = !isRecalculating
+        ? `${totalMetricsCount} ${totalMetricsCount === 1 ? 'metric' : 'metrics'}`
+        : // No run loaded yet (latest is still being fetched), so there's no real progress to show.
+          total > 0
+          ? `Calculating metrics ${completed}/${total}`
+          : 'Loading metrics…'
 
     return (
         <div className="inline-flex items-center gap-2.5 rounded border border-primary bg-surface-secondary px-2.5 py-1 text-xs">
