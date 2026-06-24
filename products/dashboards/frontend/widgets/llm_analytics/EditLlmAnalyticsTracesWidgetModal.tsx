@@ -130,7 +130,10 @@ function EditLlmAnalyticsTracesWidgetModalContents(): JSX.Element {
                                     fullWidth
                                     value={limit}
                                     onChange={(value) => {
-                                        setLimit(Number(value))
+                                        // Empty input yields NaN (valueAsNumber); keep the last valid
+                                        // limit so Save doesn't lock behind a cryptic "received nan".
+                                        const next = Number(value)
+                                        setLimit(Number.isNaN(next) ? limit : next)
                                         clearFieldError('limit')
                                     }}
                                 />

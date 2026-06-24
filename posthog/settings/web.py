@@ -614,6 +614,7 @@ SPECTACULAR_SETTINGS = {
         "SessionReplayListWidgetTypeEnum": ["session_replay_list"],
         "ExperimentsListWidgetTypeEnum": ["experiments_list"],
         "ExperimentResultsWidgetTypeEnum": ["experiment_results"],
+        "LlmAnalyticsTracesListWidgetTypeEnum": ["llm_analytics_traces"],
         "OrderByEnum": ["latest", "earliest"],
         "PropertyGroupTypeEnum": ["cohort", "person", "group"],
         "ExistenceOperatorEnum": ["is_set", "is_not_set"],

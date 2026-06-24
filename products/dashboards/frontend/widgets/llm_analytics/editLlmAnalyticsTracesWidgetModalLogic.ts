@@ -1,8 +1,8 @@
 import { actions, connect, defaults, kea, listeners, path, props, reducers, selectors } from 'kea'
 
-import { dataTableSavedFiltersLogic } from '~/queries/nodes/DataTable/dataTableSavedFiltersLogic'
-import { NodeKind, type DataTableNode } from '~/queries/schema/schema-general'
+import type { DataTableSavedFilter } from '~/queries/nodes/DataTable/dataTableSavedFiltersLogic'
 
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 
 import type { LlmAnalyticsTracesWidgetConfig } from '../../generated/widget-configs.zod'
@@ -32,12 +32,19 @@ import {
 // AIO Traces saved filters share this storage key (see AIObservabilityTracesScene).
 export const LLM_ANALYTICS_TRACES_SAVED_FILTERS_KEY = 'llm-analytics-traces'
 
-// We mount dataTableSavedFiltersLogic only to read its persisted `savedFilters`; query/setQuery
-// are never exercised here (no `saved_filter_id` in a dashboard URL), so a minimal valid node is enough.
-const SAVED_FILTERS_READ_ONLY_QUERY: DataTableNode = {
-    kind: NodeKind.DataTableNode,
-    source: { kind: NodeKind.TracesQuery },
-    columns: [],
+// Read the persisted saved filters directly rather than mounting dataTableSavedFiltersLogic, which is a
+// route-aware logic (it pushes URL state on mount) keyed identically to the Traces scene's instance.
+// The key mirrors that logic's getStorageKey: `datatable-saved-filters.<teamId>.<uniqueKey>`.
+function readSavedTraceFilters(): DataTableSavedFilter[] {
+    try {
+        const raw = window.localStorage.getItem(
+            `datatable-saved-filters.${getCurrentTeamId()}.${LLM_ANALYTICS_TRACES_SAVED_FILTERS_KEY}`
+        )
+        const parsed = raw ? JSON.parse(raw) : []
+        return Array.isArray(parsed) ? parsed : []
+    } catch {
+        return []
+    }
 }
 
 export type EditLlmAnalyticsTracesWidgetModalLogicProps = Omit<DashboardWidgetEditModalProps, 'isOpen'>
@@ -55,16 +62,7 @@ export const editLlmAnalyticsTracesWidgetModalLogic = kea<editLlmAnalyticsTraces
     } as EditLlmAnalyticsTracesWidgetModalLogicProps),
 
     connect(() => ({
-        values: [
-            filterTestAccountsDefaultsLogic,
-            ['filterTestAccountsDefault'],
-            dataTableSavedFiltersLogic({
-                uniqueKey: LLM_ANALYTICS_TRACES_SAVED_FILTERS_KEY,
-                query: SAVED_FILTERS_READ_ONLY_QUERY,
-                setQuery: () => {},
-            }),
-            ['savedFilters'],
-        ],
+        values: [filterTestAccountsDefaultsLogic, ['filterTestAccountsDefault']],
     })),
 
     actions({
@@ -105,6 +103,8 @@ export const editLlmAnalyticsTracesWidgetModalLogic = kea<editLlmAnalyticsTraces
                     filterSupportTraces,
             },
         ],
+        // Read once at mount from localStorage (see readSavedTraceFilters); never mutated here.
+        savedFilters: [[] as DataTableSavedFilter[], {}],
         appliedSavedFilterId: [
             null as string | null,
             {
@@ -191,6 +191,7 @@ export const editLlmAnalyticsTracesWidgetModalLogic = kea<editLlmAnalyticsTraces
                 values.filterTestAccountsDefault
             ),
             filterSupportTraces: baseConfig.filterSupportTraces ?? false,
+            savedFilters: readSavedTraceFilters(),
             appliedSavedFilterId: null,
             fieldErrors: {},
             saving: false,

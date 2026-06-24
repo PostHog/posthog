@@ -9,7 +9,7 @@ export const llmAnalyticsTracesSampleTraces: LlmAnalyticsTracesWidgetTrace[] = [
         totalCost: 0.0123,
         inputTokens: 1840,
         outputTokens: 412,
-        person: { distinct_id: 'user-1', properties: { email: 'alex@example.test' } },
+        distinctId: 'user-1',
     },
     {
         id: 'overview-trace-2',
@@ -20,7 +20,7 @@ export const llmAnalyticsTracesSampleTraces: LlmAnalyticsTracesWidgetTrace[] = [
         inputTokens: 9120,
         outputTokens: 1303,
         errorCount: 1,
-        person: { distinct_id: 'user-2', properties: { email: 'sam@example.test' } },
+        distinctId: 'user-2',
     },
     {
         id: 'overview-trace-3',
@@ -30,6 +30,6 @@ export const llmAnalyticsTracesSampleTraces: LlmAnalyticsTracesWidgetTrace[] = [
         totalCost: 0.0039,
         inputTokens: 640,
         outputTokens: 188,
-        person: { distinct_id: 'user-3', properties: { email: 'jordan@example.test' } },
+        distinctId: 'user-3',
     },
 ]

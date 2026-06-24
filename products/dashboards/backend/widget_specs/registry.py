@@ -184,7 +184,8 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             product_access_denied_message="You do not have access to AI observability.",
             availability_requirements=(),
             form_fields=("limit", "dateRange", "filterTestAccounts", "filterSupportTraces"),
-            filter_fields=("widgetFilters",),
+            # Date-range-only on-tile UI (no widgetFilters picker), like activity_events_list.
+            filter_fields=(),
         ),
     }
 

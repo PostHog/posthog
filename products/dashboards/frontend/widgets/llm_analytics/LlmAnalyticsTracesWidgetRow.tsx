@@ -28,7 +28,6 @@ export type LlmAnalyticsTracesWidgetTrace = {
     outputTokens?: number | null
     errorCount?: number | null
     distinctId?: string | null
-    person?: { distinct_id?: string; uuid?: string; properties?: Record<string, unknown> } | null
 }
 
 export function LlmAnalyticsTracesWidgetRowSkeleton(): JSX.Element {
@@ -66,12 +65,9 @@ export function LlmAnalyticsTracesWidgetRow({ trace }: { trace: LlmAnalyticsTrac
                 {/* Fixed person + date columns keep the avatar at a constant x and the name truncation
                     consistent across rows regardless of the relative-time length. */}
                 <div className="flex w-44 shrink-0 items-center gap-2 text-xs">
-                    {trace.person || trace.distinctId ? (
+                    {trace.distinctId ? (
                         <PersonDisplay
-                            person={{
-                                distinct_id: trace.person?.distinct_id ?? trace.distinctId ?? undefined,
-                                properties: trace.person?.properties ?? {},
-                            }}
+                            person={{ distinct_id: trace.distinctId, properties: {} }}
                             className="flex min-w-0 flex-1 [&>span]:min-w-0"
                             withIcon
                             noLink

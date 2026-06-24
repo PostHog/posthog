@@ -23,6 +23,8 @@ DEFAULT_LLM_ANALYTICS_TRACES_DATE_FROM = "-7d"
 # Compact subset of LLMTrace shown in the tile. The full trace carries heavy `events`,
 # `inputState`, and `outputState` payloads — those are dropped so each tile refresh stays small.
 # `id` is handled separately (required) so the optional fields can be omitted when absent.
+# `person` is intentionally absent: TracesQueryRunner never maps it (the Traces scene hydrates
+# person client-side), so the tile identifies traces by `distinctId`.
 LLM_ANALYTICS_TRACE_FIELDS = [
     "traceName",
     "createdAt",
@@ -31,7 +33,6 @@ LLM_ANALYTICS_TRACE_FIELDS = [
     "inputTokens",
     "outputTokens",
     "errorCount",
-    "person",
     "distinctId",
 ]
 
