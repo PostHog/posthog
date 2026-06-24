@@ -204,6 +204,55 @@ Thinking...`)
         expect(logic.values.notebookPresenceParticipants).toHaveLength(1)
     })
 
+    it('does not let an older save response roll back newer notebook content', () => {
+        const version2Markdown = `${BASE_MARKDOWN}\n\nnewer save`
+        const version3Markdown = `${BASE_MARKDOWN}\n\nnewest save`
+        const version2Notebook = {
+            ...cachedNotebook,
+            version: 2,
+            content: buildMarkdownNotebookContent(version2Markdown),
+            text_content: version2Markdown,
+        }
+        const version3Notebook = {
+            ...cachedNotebook,
+            version: 3,
+            content: buildMarkdownNotebookContent(version3Markdown),
+            text_content: version3Markdown,
+        }
+
+        logic.actions.saveNotebookSuccess(version3Notebook)
+        logic.actions.saveNotebookSuccess(version2Notebook)
+
+        expect(logic.values.notebook?.version).toBe(3)
+        expect(logic.values.notebook?.content).toEqual(version3Notebook.content)
+    })
+
+    it('keeps the highest notebook version during shuffled remote update bursts', () => {
+        const remoteNotebooks = Array.from({ length: 40 }, (_, index) => {
+            const version = index + 2
+            const markdown = `${BASE_MARKDOWN}\n\nremote update ${version}`
+            return {
+                ...cachedNotebook,
+                version,
+                content: buildMarkdownNotebookContent(markdown),
+                text_content: markdown,
+            }
+        })
+        const shuffledRemoteNotebooks = [
+            ...remoteNotebooks.filter((_, index) => index % 2 === 0).reverse(),
+            ...remoteNotebooks.filter((_, index) => index % 2 === 1),
+        ]
+
+        for (const notebook of shuffledRemoteNotebooks) {
+            logic.actions.loadNotebookSuccess(notebook)
+            logic.actions.applyRemoteNotebookContent(notebook.content, notebook.version)
+        }
+
+        const latestNotebook = remoteNotebooks[remoteNotebooks.length - 1]
+        expect(logic.values.notebook?.version).toBe(latestNotebook.version)
+        expect(logic.values.notebook?.content).toEqual(latestNotebook.content)
+    })
+
     it('does not surface legacy left-column state for markdown notebooks', () => {
         logic.unmount()
         logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook' })
