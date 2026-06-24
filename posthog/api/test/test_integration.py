@@ -29,6 +29,7 @@ from posthog.models.integration import (
     GitHubIntegration,
     GitHubIntegrationError,
     Integration,
+    MetaAdsIntegration,
     SlackIntegration,
     StripeIntegration,
 )
@@ -3242,6 +3243,49 @@ class TestAnthropicIntegration:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "is not an Anthropic integration" in str(response.json())
         mock_anthropic_class.assert_not_called()
+
+
+class TestMetaAdsIntegration:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.user = User.objects.create(email="test@posthog.com")
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+
+    def _make_integration(self, config=None):
+        return Integration.objects.create(
+            team=self.team,
+            kind="meta-ads",
+            integration_id="12345",
+            config=config or {"refreshed_at": int(time.time())},
+            sensitive_config={"access_token": "meta-access-token"},
+            created_by=self.user,
+        )
+
+    @patch("posthog.models.integration.requests.post")
+    def test_refresh_access_token_uses_default_expiry_when_meta_omits_expires_in(self, mock_post):
+        integration = self._make_integration(
+            config={"expires_in": 1, "refreshed_at": int(time.time()) - MetaAdsIntegration.default_expires_in}
+        )
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "new-meta-access-token"}
+
+        MetaAdsIntegration(integration).refresh_access_token()
+
+        integration.refresh_from_db()
+        assert integration.sensitive_config["access_token"] == "new-meta-access-token"
+        assert integration.config["expires_in"] == MetaAdsIntegration.default_expires_in
+        assert integration.errors == ""
+
+    @patch("posthog.models.integration.requests.post")
+    def test_refresh_access_token_skips_recent_token_when_meta_omitted_expires_in(self, mock_post):
+        integration = self._make_integration(config={"refreshed_at": int(time.time())})
+
+        MetaAdsIntegration(integration).refresh_access_token()
+
+        mock_post.assert_not_called()
+        integration.refresh_from_db()
+        assert integration.errors == ""
 
     @patch("anthropic.Anthropic")
     def test_anthropic_managed_agent_environments_action(self, mock_anthropic_class, client: HttpClient):

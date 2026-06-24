@@ -2964,6 +2964,7 @@ class GitLabIntegration:
 class MetaAdsIntegration:
     integration: Integration
     api_version: str = "v25.0"
+    default_expires_in: int = 60 * 24 * 60 * 60
 
     def __init__(self, integration: Integration) -> None:
         if integration.kind != "meta-ads":
@@ -2974,10 +2975,11 @@ class MetaAdsIntegration:
         oauth_config = OauthIntegration.oauth_config_for_kind(self.integration.kind)
 
         # skip refresh if more than 7 days until expiry
-        if self.integration.config.get("expires_in") and self.integration.config.get("refreshed_at"):
+        expires_in = self.integration.config.get("expires_in") or self.default_expires_in
+        if expires_in and self.integration.config.get("refreshed_at"):
             if (
                 time.time()
-                < self.integration.config.get("refreshed_at") + self.integration.config.get("expires_in") - 604800
+                < self.integration.config.get("refreshed_at") + expires_in - 604800
             ):
                 return
 
@@ -3002,7 +3004,7 @@ class MetaAdsIntegration:
             logger.info(f"Refreshed access token for {self}")
             self.integration.sensitive_config["access_token"] = config["access_token"]
             self.integration.errors = ""
-            self.integration.config["expires_in"] = config.get("expires_in")
+            self.integration.config["expires_in"] = config.get("expires_in") or self.default_expires_in
             self.integration.config["refreshed_at"] = int(time.time())
             # not used in CDP yet
             # reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
