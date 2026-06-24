@@ -607,6 +607,23 @@ function classifyFetchError(error: unknown): string {
 }
 
 /**
+ * HTTP statuses from the uiHost reachability check that mean the host simply
+ * doesn't serve `/toolbar_oauth/check` (reverse-proxied or older self-hosted
+ * instances). These are expected, handled by the auth/config fallback, and must
+ * not be reported as exceptions — only tracked as analytics.
+ */
+const EXPECTED_UI_HOST_CHECK_STATUSES = new Set([404, 405])
+
+/** Extract the HTTP status from an `HTTP <status>` error, or null if not one. */
+function httpStatusFromError(error: unknown): number | null {
+    if (error instanceof Error && error.message.startsWith('HTTP ')) {
+        const status = Number(error.message.slice('HTTP '.length))
+        return Number.isNaN(status) ? null : status
+    }
+    return null
+}
+
+/**
  * Run a CORS HEAD check against the PostHog app to verify uiHost is reachable.
  * If a pending OAuth code exchange exists, it runs after the check succeeds
  * (or shows the config modal on failure).
@@ -657,13 +674,21 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            const errorType = classifyFetchError(error)
+            const httpStatus = httpStatusFromError(error)
+            // A missing-route response (404/405) just means this uiHost doesn't serve
+            // `/toolbar_oauth/check` — expected and handled below, so don't report it as
+            // an exception (it floods error tracking). Genuinely unexpected failures still are.
+            if (httpStatus === null || !EXPECTED_UI_HOST_CHECK_STATUSES.has(httpStatus)) {
+                captureToolbarException(error, 'ui_host_check', {
+                    error_type: errorType,
+                })
+            }
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',
-                error_type: classifyFetchError(error),
+                error_type: errorType,
+                http_status: httpStatus ?? undefined,
                 duration_ms: Date.now() - checkStart,
             })
 

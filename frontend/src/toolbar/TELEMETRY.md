@@ -33,7 +33,12 @@ Fired after the CORS reachability check to the PostHog app.
 | `is_authenticated` | `boolean`         | Auth state at time of check                                          |
 | `status`           | `'ok' \| 'error'` | Check result                                                         |
 | `error_type`       | `string`          | Only on error: `timeout`, `network_or_cors`, `http_error`, `unknown` |
+| `http_status`      | `number`          | Only on `http_error`: the response status (e.g. 404, 405, 500)       |
 | `duration_ms`      | `number`          | Time taken for the check                                             |
+
+Expected missing-route statuses (404/405) are tracked here as `status: 'error'` but are
+deliberately **not** reported to error tracking — they just mean the uiHost doesn't serve
+`/toolbar_oauth/check` (common on reverse-proxied or older self-hosted instances).
 
 **File:** `toolbarConfigLogic.ts`
 
