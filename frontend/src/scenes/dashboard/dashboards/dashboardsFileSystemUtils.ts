@@ -29,7 +29,9 @@ export function buildEntryByRef(entries: FileSystemEntry[]): Record<string, File
 // dashboard (plus all its ancestors), unioned with the explicit `folderPaths` (real folder rows) so empty
 // folders also appear. Unfiled dashboards contribute the Unfiled subtree.
 export function buildFolderTree(
-    dashboards: DashboardBasicType[],
+    // `dashboards` is connected from dashboardsLogic and can be momentarily undefined while a mutation
+    // (e.g. a cascading folder delete) reloads the model — tolerate it rather than crash the recompute.
+    dashboards: DashboardBasicType[] | undefined,
     entryByRef: Record<string, FileSystemEntry>,
     folderPaths: string[] = []
 ): FolderTreeNode[] {
@@ -39,7 +41,7 @@ export function buildFolderTree(
             allFolderPaths.add(joinPath(segments.slice(0, i)))
         }
     }
-    for (const dashboard of dashboards) {
+    for (const dashboard of dashboards ?? []) {
         const entry = entryByRef[String(dashboard.id)]
         const parentSegments = entry?.path ? splitPath(entry.path).slice(0, -1) : []
         addWithAncestors(parentSegments.length > 0 ? parentSegments : UNFILED_SEGMENTS)
@@ -73,11 +75,11 @@ export function buildFolderTree(
 // you select it. Each dashboard contributes to its containing folder, every ancestor, and the root ('').
 // Mirrors buildFolderTree's Unfiled handling so the counts line up with the rendered tree.
 export function buildFolderDashboardCounts(
-    dashboards: DashboardBasicType[],
+    dashboards: DashboardBasicType[] | undefined,
     entryByRef: Record<string, FileSystemEntry>
 ): Record<string, number> {
     const counts: Record<string, number> = {}
-    for (const dashboard of dashboards) {
+    for (const dashboard of dashboards ?? []) {
         const entry = entryByRef[String(dashboard.id)]
         const parentSegments = entry?.path ? splitPath(entry.path).slice(0, -1) : []
         const segments = parentSegments.length > 0 ? parentSegments : UNFILED_SEGMENTS
@@ -93,12 +95,12 @@ export function buildFolderDashboardCounts(
 // Every dashboard at or below `currentFolder`, recursively. Root ('') returns all dashboards. The tree
 // arm feeds these to the dashboards table, scoped to the selected folder's subtree.
 export function subtreeDashboards(
-    dashboards: DashboardBasicType[],
+    dashboards: DashboardBasicType[] | undefined,
     entryByRef: Record<string, FileSystemEntry>,
     currentFolder: string
 ): DashboardBasicType[] {
     const prefix = currentFolder ? splitPath(currentFolder) : []
-    return dashboards.filter((dashboard) => {
+    return (dashboards ?? []).filter((dashboard) => {
         const entry = entryByRef[String(dashboard.id)]
         const segments = entry?.path ? splitPath(entry.path).slice(0, -1) : UNFILED_SEGMENTS
         return prefix.every((segment, index) => segments[index] === segment)

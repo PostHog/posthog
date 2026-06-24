@@ -38,6 +38,12 @@ describe('dashboardsFileSystemUtils', () => {
         expect(buildFolderTree([], {})).toEqual([])
     })
 
+    it('tolerates an undefined dashboards list (transient during a cascading delete) without throwing', () => {
+        expect(buildFolderTree(undefined, {})).toEqual([])
+        expect(buildFolderDashboardCounts(undefined, {})).toEqual({})
+        expect(subtreeDashboards(undefined, {}, 'Marketing')).toEqual([])
+    })
+
     it('buildFolderTree includes empty folder rows (no dashboards beneath) and their ancestors', () => {
         const byRef = buildEntryByRef([entry('1', 'Marketing/A')])
         const tree = buildFolderTree([dash(1, 'A')], byRef, ['Ideas', 'Archive/2024'])
