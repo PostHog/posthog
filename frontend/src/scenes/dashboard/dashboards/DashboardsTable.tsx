@@ -301,16 +301,44 @@ export function DashboardsTable({
                             : { disabledReason: DASHBOARD_CANNOT_EDIT_MESSAGE },
                     rowAriaLabel: (dashboard: DashboardType) => `Select dashboard ${dashboard.name}`,
                     headerAriaLabel: 'Select all dashboards on this page',
-                    renderActions: (ctx) => (
-                        <BulkUpdateTagsButton
-                            resource="dashboards"
-                            selectedIds={ctx.selectedKeys}
-                            onSuccess={() => {
-                                ctx.clearSelection()
-                                dashboardsModel.actions.loadDashboards()
-                            }}
-                        />
-                    ),
+                    renderActions: (ctx) => {
+                        // Resolve each selected dashboard's FileSystem entry (same complete-vs-lazy source as
+                        // the per-row Move action) so we can move the whole selection at once.
+                        const moveEntries = ctx.selectedKeys
+                            .map((id) => {
+                                const dashboard = dashboards.find((d) => d.id === id)
+                                return (dashboard && dashboardFsEntry?.(dashboard)) ?? itemsByRef[`dashboard::${id}`]
+                            })
+                            .filter((entry): entry is FileSystemEntry => !!entry)
+                        return (
+                            <>
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    onClick={() => {
+                                        openMoveToModal(moveEntries)
+                                        ctx.clearSelection()
+                                    }}
+                                    disabledReason={
+                                        moveEntries.length === 0
+                                            ? 'None of the selected dashboards can be moved to a folder'
+                                            : undefined
+                                    }
+                                    data-attr="dashboards-bulk-move-to-folder"
+                                >
+                                    Move to folder
+                                </LemonButton>
+                                <BulkUpdateTagsButton
+                                    resource="dashboards"
+                                    selectedIds={ctx.selectedKeys}
+                                    onSuccess={() => {
+                                        ctx.clearSelection()
+                                        dashboardsModel.actions.loadDashboards()
+                                    }}
+                                />
+                            </>
+                        )
+                    },
                 }}
             />
         </>
