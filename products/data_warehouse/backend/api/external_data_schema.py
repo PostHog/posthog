@@ -1074,8 +1074,11 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             # Always force a full re-snapshot on re-enable: while removed from the
             # publication the replication slot kept advancing, so any changes made
             # during that window are permanently lost regardless of how short it was.
+            # reset_pipeline wipes the warehouse table first — otherwise the snapshot
+            # merges current rows over the stale pre-disable ones and never drops deletes.
             if should_sync is True and not newly_set_to_cdc:
                 instance.sync_type_config["cdc_mode"] = "snapshot"
+                instance.sync_type_config["reset_pipeline"] = True
                 instance.initial_sync_complete = False
                 instance.save(update_fields=["sync_type_config", "initial_sync_complete", "updated_at"])
 
