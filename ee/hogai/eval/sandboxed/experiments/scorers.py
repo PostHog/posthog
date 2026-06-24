@@ -45,6 +45,12 @@ The next three back the ``diagnosing-experiment-results`` skill (groups A–E).
   ``CitesDiagnosticGroup``: the latter checks "did the agent identify
   the small-sample / guardrail issue", this one checks "did the agent
   actually translate that diagnosis into 'don't ship yet' guidance".
+
+* ``FirstUpdateMetricShape`` — deterministic. Did the agent's *first*
+  ``experiment-update`` call carry a correctly shaped metric (per a
+  case-supplied validator), rather than discovering the shape via a
+  pydantic rejection and retrying? Backs the
+  ``configuring-experiment-analytics`` skill's proactive schema guidance.
 """
 
 from __future__ import annotations
@@ -673,6 +679,116 @@ Did the agent point to ship-variant (not end) as the right action? Answer `yes` 
             max_completion_tokens=256,
             **kwargs,
         )
+
+
+class FirstUpdateMetricShape(Scorer):
+    """Deterministic: did the agent's *first* experiment-update call carry a correctly shaped metric?
+
+    Opt-in via ``expected = {"first_update_metric_shape": <validator>}`` where
+    ``<validator>`` is a callable ``(metrics: list[dict]) -> tuple[bool, str]``
+    returning ``(passed, reason)``. The validator runs against the ``metrics``
+    array of the FIRST experiment-update call — successful or failed — so the
+    score reflects whether the agent assembled the right payload up-front,
+    not whether it eventually recovered after a pydantic validation error.
+
+    Use to assert that proactive schema guidance in a skill prevented the
+    "fail, read error, retry" pattern from being the only path to success.
+    """
+
+    def _name(self) -> str:
+        return "first_update_metric_shape"
+
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        return self._evaluate(output, expected)
+
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        return self._evaluate(output, expected)
+
+    def _evaluate(self, output: dict | None, expected: Any) -> Score:
+        validator = expected.get(self._name()) if isinstance(expected, dict) else None
+        if not callable(validator):
+            return Score(
+                name=self._name(), score=1.0, metadata={"skipped": True, "reason": "Not applicable to this case"}
+            )
+        if not output:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No output"})
+
+        parser = _parser_for(output)
+        if parser is None:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
+
+        updates = sorted(parser.get_tool_calls("experiment-update"), key=lambda c: c.position)
+        if not updates:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={"reason": "Agent never called experiment-update"},
+            )
+
+        first = updates[0]
+        raw_input = first.input if isinstance(first.input, dict) else {}
+        metrics = raw_input.get("metrics") or raw_input.get("metrics_secondary") or []
+        if not isinstance(metrics, list) or not metrics:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={"reason": "First experiment-update had no metrics array", "call_count": len(updates)},
+            )
+
+        try:
+            passed, reason = validator(metrics)
+        except Exception as exc:
+            return Score(name=self._name(), score=0.0, metadata={"reason": f"validator error: {exc}"})
+
+        return Score(
+            name=self._name(),
+            score=1.0 if passed else 0.0,
+            metadata={
+                "reason": reason,
+                "call_count": len(updates),
+                "first_call_is_error": first.is_error,
+                "first_metric": metrics[0] if metrics else None,
+            },
+        )
+
+
+def validate_ratio_revenue_metric(metrics: list[dict]) -> tuple[bool, str]:
+    """Ratio metric: numerator must aggregate revenue via math='sum' + math_property='revenue'.
+
+    The is_set-filter-instead-of-aggregation failure mode is caught by the math
+    check: a property filter leaves math at its count default.
+    """
+    ratios = [m for m in metrics if isinstance(m, dict) and m.get("metric_type") == "ratio"]
+    if not ratios:
+        return (False, f"No ratio metric in payload (saw metric_types: {[m.get('metric_type') for m in metrics]})")
+    ratio = ratios[0]
+    numerator = ratio.get("numerator")
+    if not isinstance(numerator, dict):
+        return (False, "Ratio metric missing numerator")
+    if numerator.get("math") != "sum":
+        return (
+            False,
+            f"Numerator math is {numerator.get('math')!r}, expected 'sum' (a property filter does not aggregate)",
+        )
+    if numerator.get("math_property") != "revenue":
+        return (False, f"Numerator math_property is {numerator.get('math_property')!r}, expected 'revenue'")
+    return (True, "Numerator correctly uses math='sum' + math_property='revenue'")
+
+
+def validate_retention_metric(metrics: list[dict]) -> tuple[bool, str]:
+    """Retention metric: must include retention_window_start and start_handling on the first try."""
+    retentions = [m for m in metrics if isinstance(m, dict) and m.get("metric_type") == "retention"]
+    if not retentions:
+        return (False, f"No retention metric in payload (saw metric_types: {[m.get('metric_type') for m in metrics]})")
+    retention = retentions[0]
+    missing: list[str] = []
+    if "retention_window_start" not in retention:
+        missing.append("retention_window_start")
+    if "start_handling" not in retention:
+        missing.append("start_handling")
+    if missing:
+        return (False, f"Retention metric missing required fields: {missing}")
+    return (True, "Retention metric carries retention_window_start and start_handling")
 
 
 class AdvisesAgainstShipping(_BinaryJudge):

@@ -180,7 +180,7 @@ def test_create_batch_export_with_different_intervals_timezones_and_interval_off
     """
 
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -326,7 +326,7 @@ def test_create_batch_export_with_different_intervals_timezones_and_interval_off
 
 def test_cannot_create_a_batch_export_for_another_organization(client: HttpClient, temporal, organization, user):
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -361,7 +361,7 @@ def test_cannot_create_a_batch_export_with_higher_frequencies_if_not_enabled(
     client: HttpClient, temporal, organization, team, user
 ):
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -426,7 +426,7 @@ def test_create_batch_export_with_custom_schema(
     """
 
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -524,7 +524,7 @@ def test_create_batch_export_fails_with_invalid_query(
     """Test creating a BatchExport should fail with an invalid query."""
 
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -571,7 +571,7 @@ def test_create_batch_export_fails_with_invalid_query(
             "invalid type: got 'int', expected 'str'",
         ),
         (
-            "S3",
+            "AwsS3",
             {
                 "bucket_name": "my-s3-bucket",
                 "region": "us-east-1",
@@ -672,7 +672,7 @@ def test_creating_batch_export_with_filters(
     """Test validation of the filters field when creating a batch export."""
 
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": _S3_FILTER_TEST_CONFIG,
     }
 
@@ -708,38 +708,41 @@ def test_creating_batch_export_with_filters(
         "localhost",
     ],
 )
-def test_create_redshift_or_postgres_batch_export_fails_with_invalid_host(
+def test_create_redshift_batch_export_fails_with_invalid_host(
     client: HttpClient, temporal, organization, team, user, host
 ):
-    """Test creating a BatchExport with Redshift destination validates inputs for 'COPY'."""
+    """Test creating a BatchExport with Redshift destination validates inputs for 'COPY'.
 
-    for type in ("Redshift", "Postgres"):
-        destination_data = {
-            "type": type,
-            "config": {
-                "user": "user",
-                "password": "my-password",
-                "database": "my-db",
-                "host": host,
-                "schema": "public",
-                "table_name": "my_events",
-            },
-        }
+    Postgres host validation is covered separately in test_create_postgres.py, where the host
+    comes from the linked Integration rather than from inline config.
+    """
 
-        batch_export_data = {
-            "name": "my-production-destination",
-            "destination": destination_data,
-            "interval": "hour",
-        }
+    destination_data = {
+        "type": "Redshift",
+        "config": {
+            "user": "user",
+            "password": "my-password",
+            "database": "my-db",
+            "host": host,
+            "schema": "public",
+            "table_name": "my_events",
+        },
+    }
 
-        client.force_login(user)
+    batch_export_data = {
+        "name": "my-production-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
 
-        with override_settings(TEST=0, DEBUG=0):
-            response = create_batch_export(
-                client,
-                team.pk,
-                batch_export_data,
-            )
+    client.force_login(user)
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert f"Invalid host: '{host}'" in response.json()["detail"]
+    with override_settings(TEST=0, DEBUG=0):
+        response = create_batch_export(
+            client,
+            team.pk,
+            batch_export_data,
+        )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert f"Invalid host: '{host}'" in response.json()["detail"]

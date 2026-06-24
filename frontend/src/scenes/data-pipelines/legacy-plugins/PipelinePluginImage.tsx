@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { IconTerminal } from '@posthog/icons'
 
-import { parseGithubRepoURL } from 'lib/utils'
+import { parseGithubRepoURL } from 'lib/utils/url'
 
 import { PluginType } from '~/types'
 

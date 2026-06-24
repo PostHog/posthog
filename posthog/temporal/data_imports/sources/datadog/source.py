@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -12,6 +13,7 @@ from posthog.schema import (
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -33,6 +35,8 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DatadogSource(ResumableSource[DatadogSourceConfig, DatadogResumeConfig]):
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.DATADOG
@@ -47,9 +51,9 @@ class DatadogSource(ResumableSource[DatadogSourceConfig, DatadogResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.DATADOG,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Datadog",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Connect your Datadog account to sync logs, events, monitors, dashboards, and more into the PostHog Data warehouse.
 
 Create an API key and an application key in your [Datadog organization settings](https://app.datadoghq.com/organization-settings/api-keys). The application key should be granted read scopes for the data you want to sync, for example:
@@ -105,6 +109,11 @@ Logs, audit logs, and events read access is governed by your Datadog account's d
             "401 Client Error": "Invalid Datadog API key. Generate a valid key and reconnect.",
             "403 Client Error": "Your Datadog application key is missing the required read scopes for this data. Grant the scopes and reconnect.",
         }
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.datadog.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
 
     def get_schemas(
         self,

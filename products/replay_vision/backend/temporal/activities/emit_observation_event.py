@@ -65,7 +65,7 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         else replay_vision_distinct_id(observation.team_id)
     )
 
-    response = capture_internal(
+    result = capture_internal(
         token=team.api_token,
         event_name=_EVENT_NAME,
         event_source=_EVENT_SOURCE,
@@ -76,4 +76,4 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         # Make the captured event UUID equal to observation.id so the admin UI can link back to it directly.
         event_uuid=str(observation.id),
     )
-    response.raise_for_status()
+    result.raise_for_status()

@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class InstagramSource(SimpleSource[InstagramSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.INSTAGRAM,
+            category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Instagram",
             iconPath="/static/services/instagram.png",
             fields=cast(list[FieldType], []),

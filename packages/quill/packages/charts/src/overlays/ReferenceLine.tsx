@@ -2,6 +2,7 @@
 import React, { useMemo } from 'react'
 
 import { useChartLayout } from '../core/chart-context'
+import { TOOLTIP_FALLBACK_BG, TOOLTIP_FALLBACK_COLOR } from './TooltipSurface'
 
 export type ReferenceLineOrientation = 'horizontal' | 'vertical'
 export type ReferenceLineVariant = 'goal' | 'alert' | 'marker'
@@ -43,7 +44,8 @@ export interface ReferenceLineProps {
     yAxisId?: string
     /** Chart axis orientation. When `'horizontal'`, a `'horizontal'`-orientation reference
      *  line at a numeric value is drawn as a vertical stripe at `scales.y(value)` — matching
-     *  the value axis of horizontal bar charts. Defaults to `'vertical'`. */
+     *  the value axis of horizontal bar charts. Defaults to the chart's own axis orientation
+     *  (from context), so it's correct without the caller having to thread it through. */
     axisOrientation?: ReferenceLineOrientation
 }
 
@@ -64,11 +66,6 @@ const VARIANT_DEFAULTS: Record<ReferenceLineVariant, ResolvedStyle> = {
 const LABEL_HEIGHT = 20
 /** Padding between the label and the plot edge. */
 const LABEL_PADDING = 4
-
-// Match the chart tooltip look (see DefaultTooltip) so the label bubble reads as part of the
-// chart's own theming rather than depending on the host app's CSS variables.
-const DEFAULT_TOOLTIP_BG = '#1d2330'
-const DEFAULT_TOOLTIP_COLOR = '#ffffff'
 
 function resolveStyle(variant: ReferenceLineVariant, style: ReferenceLineStyle | undefined): ResolvedStyle {
     const defaults = VARIANT_DEFAULTS[variant]
@@ -94,7 +91,8 @@ export function ReferenceLines({ lines }: { lines: ReferenceLineProps[] }): Reac
  *  type narrowing, scale lookup, and bounds check, then hands pre-computed styles to
  *  {@link ReferenceLineView}. */
 export function ReferenceLine(props: ReferenceLineProps): React.ReactElement | null {
-    const { orientation = 'horizontal', variant = 'goal', style, axisOrientation = 'vertical' } = props
+    const { axis } = useChartLayout()
+    const { orientation = 'horizontal', variant = 'goal', style, axisOrientation = axis.orientation } = props
     const resolved = useMemo(
         () => resolveStyle(variant, style),
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -309,8 +307,8 @@ function ReferenceLineView({
     const { theme } = useChartLayout()
     const resolvedLabelStyle: React.CSSProperties = {
         ...labelStyle,
-        backgroundColor: theme.tooltipBackground ?? DEFAULT_TOOLTIP_BG,
-        color: theme.tooltipColor ?? DEFAULT_TOOLTIP_COLOR,
+        backgroundColor: theme.tooltipBackground ?? TOOLTIP_FALLBACK_BG,
+        color: theme.tooltipColor ?? TOOLTIP_FALLBACK_COLOR,
     }
     return (
         <>

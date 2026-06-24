@@ -1,11 +1,11 @@
-import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers } from 'kea'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiError, RateLimitError } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 
 import type { ModelOption } from '../modelPickerLogic'
 import { llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
@@ -147,30 +147,26 @@ export interface ComparisonItem {
     latencyMs?: number | null
 }
 
-// Per-key abort controllers so each tab can independently cancel its own in-flight run
-// without affecting other tabs. Using a Map instead of Kea state avoids storing
-// non-serializable objects in reducers.
-const abortControllersByKey = new Map<string, AbortController>()
+// Module-level abort controller so an in-flight run can be cancelled. Using a ref instead of
+// Kea state avoids storing a non-serializable object in reducers.
+let currentAbortController: AbortController | null = null
 
-export interface LLMPlaygroundRunLogicProps {
-    tabId?: string
-}
+export type LLMPlaygroundRunLogicProps = Record<string, never>
 
 export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
     path(['products', 'ai_observability', 'frontend', 'playground', 'llmPlaygroundRunLogic']),
     props({} as LLMPlaygroundRunLogicProps),
-    key((props) => props.tabId ?? 'default'),
 
-    connect(({ tabId }: LLMPlaygroundRunLogicProps) => ({
+    connect(() => ({
         values: [
-            llmPlaygroundPromptsLogic({ tabId }),
+            llmPlaygroundPromptsLogic,
             ['promptConfigs'],
-            llmPlaygroundModelLogic({ tabId }),
+            llmPlaygroundModelLogic,
             ['effectiveModelOptions', 'activeProviderKeyId'],
             llmProviderKeysLogic,
             ['providerKeys'],
         ],
-        actions: [llmPlaygroundPromptsLogic({ tabId }), ['resetPlayground']],
+        actions: [llmPlaygroundPromptsLogic, ['resetPlayground']],
     })),
 
     actions({
@@ -218,11 +214,10 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values }) => ({
         abortRun: () => {
             posthog.capture('llma playground prompt aborted')
-            const key = props.tabId ?? 'default'
-            abortControllersByKey.get(key)?.abort()
+            currentAbortController?.abort()
         },
         setRateLimited: ({ retryAfterSeconds }) => {
             posthog.capture('llma playground rate limited', { retry_after_seconds: retryAfterSeconds })
@@ -258,9 +253,8 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
                 ),
             })
 
-            const key = props.tabId ?? 'default'
             const abortController = new AbortController()
-            abortControllersByKey.set(key, abortController)
+            currentAbortController = abortController
             try {
                 const runs = runnablePrompts.map(async ({ prompt, index, messagesToSend }) => {
                     const liveItemId = uuid()
@@ -483,7 +477,9 @@ export const llmPlaygroundRunLogic = kea<llmPlaygroundRunLogicType>([
 
                 await Promise.allSettled(runs)
             } finally {
-                abortControllersByKey.delete(key)
+                if (currentAbortController === abortController) {
+                    currentAbortController = null
+                }
                 abortController.abort()
                 actions.finishSubmitPrompt()
             }

@@ -25,8 +25,8 @@ class TestIntercomSource:
         config = self.source.get_source_config
 
         assert config.name.value == "Intercom"
-        assert config.releaseStatus == "alpha"
-        assert config.unreleasedSource is True
+        assert config.releaseStatus == "beta"
+        assert not config.unreleasedSource
 
         oauth_field = config.fields[0]
         assert isinstance(oauth_field, SourceFieldOauthConfig)
@@ -34,10 +34,32 @@ class TestIntercomSource:
         assert oauth_field.kind == "intercom"
         assert oauth_field.required is True
 
-    def test_get_non_retryable_errors(self):
-        errors = self.source.get_non_retryable_errors()
-        assert "401 Client Error" in errors
-        assert "403 Client Error" in errors
+    @pytest.mark.parametrize(
+        "key",
+        [
+            "401 Client Error",
+            "403 Client Error",
+            "Missing integration ID",
+            "Integration not found",
+            "Intercom access token not found",
+        ],
+    )
+    def test_get_non_retryable_errors(self, key):
+        assert key in self.source.get_non_retryable_errors()
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "Integration not found: 172567",
+            "Missing integration ID",
+            "Intercom access token not found for job job-123",
+        ],
+    )
+    def test_oauth_config_errors_are_non_retryable(self, error_msg):
+        # Matching in import_data_sync is substring-based, so the curated keys must be stable
+        # prefixes of the raised messages (the integration ID / job ID are volatile).
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(key in error_msg for key in non_retryable_errors)
 
     def test_get_schemas_covers_all_endpoints(self):
         schemas = self.source.get_schemas(self.config, self.team_id)

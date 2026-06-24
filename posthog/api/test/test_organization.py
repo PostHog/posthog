@@ -5,16 +5,13 @@ from uuid import uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
-from django.conf import settings
 from django.core.cache import cache
-from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
-from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.api.organization import OrganizationSerializer, _fetch_member_count, _org_serializer_cache_version
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team
@@ -359,12 +356,6 @@ class TestOrganizationAPI(APIBaseTest):
             "Only the scoped organization should be listed, the other one should be excluded",
         )
 
-    @override_settings(
-        OAUTH2_PROVIDER={
-            **settings.OAUTH2_PROVIDER,
-            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-        }
-    )
     def test_projects_outside_oauth_scoped_organizations_causes_401(self):
         # TODO: This should filter out the organizations to the scoped organizations, but it causes a 401 due to a bug in APIScopePermission for list endpoints.
         other_org, _, _ = Organization.objects.bootstrap(self.user)
@@ -397,12 +388,6 @@ class TestOrganizationAPI(APIBaseTest):
             ("is_ai_data_processing_approved",),
             ("is_ai_training_opted_in",),
         ]
-    )
-    @override_settings(
-        OAUTH2_PROVIDER={
-            **settings.OAUTH2_PROVIDER,
-            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-        }
     )
     def test_org_scoped_oauth_token_can_patch_current_organization(self, field: str):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -1245,3 +1230,66 @@ class TestOrganizationRbacMigrations(APIBaseTest):
                 "rbac_team_migration_failed",
                 {"user": self.admin_user.distinct_id, "error": "Test error"},
             )
+
+
+class TestOrganizationRequestAIAccessAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # The endpoint is members-only, so default the requester to a plain member.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        # AI is requestable only while it's disabled.
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+        # Throttles key off the django cache, which persists across tests.
+        cache.clear()
+
+    def _url(self) -> str:
+        return f"/api/organizations/{self.organization.id}/request_ai_access/"
+
+    @patch("posthog.api.organization.send_posthog_ai_access_request")
+    def test_member_can_request_ai_access(self, mock_task):
+        response = self.client.post(self._url())
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json() == {"success": True}
+        mock_task.delay.assert_called_once_with(
+            organization_id=str(self.organization.id),
+            requesting_user_id=self.user.id,
+        )
+
+    @parameterized.expand(
+        [
+            ("admin", OrganizationMembership.Level.ADMIN),
+            ("owner", OrganizationMembership.Level.OWNER),
+        ]
+    )
+    @patch("posthog.api.organization.send_posthog_ai_access_request")
+    def test_admins_cannot_request_ai_access(self, _name, level, mock_task):
+        self.organization_membership.level = level
+        self.organization_membership.save()
+
+        response = self.client.post(self._url())
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        mock_task.delay.assert_not_called()
+
+    @patch("posthog.api.organization.send_posthog_ai_access_request")
+    def test_cannot_request_ai_access_when_already_enabled(self, mock_task):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+        response = self.client.post(self._url())
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        mock_task.delay.assert_not_called()
+
+    @patch("posthog.api.organization.send_posthog_ai_access_request")
+    def test_request_ai_access_is_rate_limited(self, mock_task):
+        first = self.client.post(self._url())
+        assert first.status_code == status.HTTP_200_OK, first.content
+
+        second = self.client.post(self._url())
+        assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS, second.content
+        # Only the first request reached the task.
+        mock_task.delay.assert_called_once()

@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -17,6 +18,7 @@ from posthog.temporal.data_imports.sources.braze.braze import (
 )
 from posthog.temporal.data_imports.sources.braze.settings import BRAZE_ENDPOINTS, ENDPOINTS, INCREMENTAL_FIELDS
 from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -27,17 +29,24 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class BrazeSource(ResumableSource[BrazeSourceConfig, BrazeResumeConfig]):
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.BRAZE
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.braze.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.BRAZE,
+            category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Braze",
             releaseStatus=ReleaseStatus.ALPHA,
-            unreleasedSource=True,
             caption="""Enter your Braze REST API key and endpoint to sync your Braze data into the PostHog Data warehouse.
 
 You can create a REST API key in your Braze dashboard under **Settings → API Keys**. Grant the following endpoint permissions for the data you want to sync:

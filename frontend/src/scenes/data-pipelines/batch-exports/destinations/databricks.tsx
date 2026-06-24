@@ -15,6 +15,7 @@ export const databricksDefinition: DestinationDefinition = {
         http_path: '/sql/1.0/warehouses/',
     }),
     requiredFields: () => ['integration_id', 'http_path', 'catalog', 'schema', 'table_name'],
+    configKeys: ['http_path', 'catalog', 'schema', 'table_name', 'use_variant_type', 'use_automatic_schema_evolution'],
     eventTableExtraFields: {
         team_id: {
             name: 'team_id',

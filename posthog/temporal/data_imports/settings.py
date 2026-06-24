@@ -22,9 +22,18 @@ from posthog.temporal.data_imports.signals.conversations_coordinator import (
     emit_conversations_signals_activity,
     get_conversations_signals_enabled_teams_activity,
 )
+from posthog.temporal.data_imports.workflow_activities.acquire_v3_lock import (
+    acquire_v3_pipeline_lock_activity,
+    check_pipeline_version_activity,
+    release_v3_pipeline_lock_activity,
+)
 from posthog.temporal.data_imports.workflow_activities.emit_signals import (
     EmitDataImportSignalsWorkflow,
     emit_data_import_signals_activity,
+)
+from posthog.temporal.data_imports.workflow_activities.enrich_table_semantics import (
+    EnrichTableSemanticsWorkflow,
+    enrich_table_semantics_activity,
 )
 from posthog.temporal.data_imports.workflow_activities.sync_new_schemas import sync_new_schemas_activity
 
@@ -34,6 +43,7 @@ WORKFLOWS = [
     CDCExtractionWorkflow,
     CDCSlotCleanupWorkflow,
     DiscoverSchemasWorkflow,
+    EnrichTableSemanticsWorkflow,
 ]
 
 ACTIVITIES = [
@@ -49,6 +59,10 @@ ACTIVITIES = [
     cdc_extract_activity,
     validate_cdc_prerequisites_activity,
     cleanup_orphan_slots_activity,
+    check_pipeline_version_activity,
+    acquire_v3_pipeline_lock_activity,
+    release_v3_pipeline_lock_activity,
+    enrich_table_semantics_activity,
 ]
 
 # Workflow + activities that run on the VIDEO_EXPORT_TASK_QUEUE (signals worker)

@@ -1,7 +1,7 @@
 import { actions, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
 
 import { performQuery } from '~/queries/query'
 import {

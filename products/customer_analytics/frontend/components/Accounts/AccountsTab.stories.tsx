@@ -7,6 +7,7 @@ import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import type { MockResolverInfo } from '~/mocks/utils'
 
 const QUERY_ENDPOINT = '/api/environments/:team_id/query/:kind/'
 const ACCOUNT_RETRIEVE_ENDPOINT = 'api/projects/:team_id/accounts/:account_id/'
@@ -145,9 +146,10 @@ const USAGE_QUERY_RESPONSE = {
 function mockAccountsAndBillingQuery(
     rows: AccountRow[],
     billingResponse: Record<string, unknown>
-): (req: { body: unknown }) => [number, unknown] | undefined {
-    return (req) => {
-        const kind = (req.body as { query?: { kind?: string } })?.query?.kind
+): (info: MockResolverInfo) => Promise<[number, unknown] | undefined> {
+    return async ({ request }) => {
+        const body = (await request.json()) as { query?: { kind?: string } }
+        const kind = body?.query?.kind
         if (kind === 'AccountsQuery') {
             return [200, buildAccountsQueryResponse(rows)]
         }
@@ -161,7 +163,7 @@ function mockAccountsAndBillingQuery(
 // Billing tab stories share the same account + notebooks mocks; they differ only in the insight and query responses.
 function billingTabDecorators(
     insightsGet: Record<string, unknown>,
-    queryPost: (req: { body: unknown }) => [number, unknown] | undefined
+    queryPost: (info: MockResolverInfo) => Promise<[number, unknown] | undefined>
 ): ReturnType<typeof mswDecorator>[] {
     return [
         mswDecorator({
@@ -199,9 +201,10 @@ async function expandAndOpenTab(canvasElement: HTMLElement, tab: 'Usage' | 'Spen
     await userEvent.click(await canvas.findByRole('tab', { name: tab }))
 }
 
-function mockAccountsQuery(rows: AccountRow[]): (req: { body: unknown }) => [number, unknown] | undefined {
-    return (req) => {
-        const kind = (req.body as { query?: { kind?: string } })?.query?.kind
+function mockAccountsQuery(rows: AccountRow[]): (info: MockResolverInfo) => Promise<[number, unknown] | undefined> {
+    return async ({ request }) => {
+        const body = (await request.json()) as { query?: { kind?: string } }
+        const kind = body?.query?.kind
         if (kind === 'AccountsQuery') {
             return [200, buildAccountsQueryResponse(rows)]
         }

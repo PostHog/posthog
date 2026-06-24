@@ -4,10 +4,11 @@ import { router } from 'kea-router'
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { BigLeaguesHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -16,6 +17,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { Endpoints } from './Endpoints'
 import { endpointsLogic } from './endpointsLogic'
@@ -63,32 +65,37 @@ export function EndpointsScene(): JSX.Element {
                             type: sceneConfigurations[Scene.EndpointsScene].iconType || 'default_icon_type',
                         }}
                         actions={
-                            <AppShortcut
+                            <Shortcut
                                 name="EndpointsNew"
                                 keybind={[keyBinds.new]}
                                 intent="New endpoint"
                                 interaction="click"
                                 scope={Scene.EndpointsScene}
                             >
-                                <LemonButton
-                                    type="primary"
-                                    to={urls.sqlEditor({ source: 'endpoint' })}
-                                    sideAction={{
-                                        dropdown: {
-                                            placement: 'bottom-end',
-                                            className: 'new-endpoint-overlay',
-                                            actionable: true,
-                                            overlay: <OverlayForNewEndpointMenu />,
-                                        },
-                                        'data-attr': 'new-endpoint-dropdown',
-                                    }}
-                                    data-attr="new-endpoint-button"
-                                    size="small"
-                                    icon={<IconPlusSmall />}
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Endpoint}
+                                    minAccessLevel={AccessControlLevel.Editor}
                                 >
-                                    New
-                                </LemonButton>
-                            </AppShortcut>
+                                    <LemonButton
+                                        type="primary"
+                                        to={urls.sqlEditor({ source: 'endpoint' })}
+                                        sideAction={{
+                                            dropdown: {
+                                                placement: 'bottom-end',
+                                                className: 'new-endpoint-overlay',
+                                                actionable: true,
+                                                overlay: <OverlayForNewEndpointMenu />,
+                                            },
+                                            'data-attr': 'new-endpoint-dropdown',
+                                        }}
+                                        data-attr="new-endpoint-button"
+                                        size="small"
+                                        icon={<IconPlusSmall />}
+                                    >
+                                        New
+                                    </LemonButton>
+                                </AccessControlAction>
+                            </Shortcut>
                         }
                     />
                     <ProductIntroduction

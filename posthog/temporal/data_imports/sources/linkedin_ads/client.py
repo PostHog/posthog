@@ -7,6 +7,7 @@ from typing import Any, Optional
 import requests
 import structlog
 from linkedin_api.clients.restli.client import RestliClient
+from linkedin_api.common.errors import ResponseFormattingError
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from .schemas import (
@@ -119,7 +120,7 @@ class LinkedinAdsClient:
 
     def get_campaigns(
         self, account_id: str, starting_page_token: Optional[str] = None
-    ) -> Generator[tuple[list[dict[str, Any]], Optional[str]], None, None]:
+    ) -> Generator[tuple[list[dict[str, Any]], Optional[str]]]:
         """Get campaigns with pagination, yielding each page with its nextPageToken."""
         account_endpoint = LINKEDIN_ADS_ENDPOINTS[LinkedinAdsResource.Accounts]
         campaigns_endpoint = LINKEDIN_ADS_ENDPOINTS[LinkedinAdsResource.Campaigns]
@@ -131,7 +132,7 @@ class LinkedinAdsClient:
 
     def get_campaign_groups(
         self, account_id: str, starting_page_token: Optional[str] = None
-    ) -> Generator[tuple[list[dict[str, Any]], Optional[str]], None, None]:
+    ) -> Generator[tuple[list[dict[str, Any]], Optional[str]]]:
         """Get campaign groups with pagination, yielding each page with its nextPageToken."""
         account_endpoint = LINKEDIN_ADS_ENDPOINTS[LinkedinAdsResource.Accounts]
         groups_endpoint = LINKEDIN_ADS_ENDPOINTS[LinkedinAdsResource.CampaignGroups]
@@ -143,7 +144,7 @@ class LinkedinAdsClient:
 
     def get_creatives(
         self, account_id: str, starting_page_token: Optional[str] = None
-    ) -> Generator[tuple[list[dict[str, Any]], Optional[str]], None, None]:
+    ) -> Generator[tuple[list[dict[str, Any]], Optional[str]]]:
         """Get creatives with pagination. Uses `q=criteria` and reduced page size
         (the creatives backend 500s on heavier requests)."""
         account_endpoint = LINKEDIN_ADS_ENDPOINTS[LinkedinAdsResource.Accounts]
@@ -162,7 +163,7 @@ class LinkedinAdsClient:
         pivot: LinkedinAdsPivot = LinkedinAdsPivot.CAMPAIGN,
         date_start: Optional[str] = None,
         date_end: Optional[str] = None,
-    ) -> Generator[tuple[list[dict[str, Any]], None], None, None]:
+    ) -> Generator[tuple[list[dict[str, Any]], None]]:
         """Fetch analytics in adaptive date-range chunks sized to stay under the 15k-element
         response cap. The window starts wide and shrinks (halving) only when a response comes
         back truncated, then carries the learned size forward. A truncated response is silently
@@ -240,7 +241,7 @@ class LinkedinAdsClient:
         date_start: Optional[str] = None,
         date_end: Optional[str] = None,
         starting_page_token: Optional[str] = None,
-    ) -> Generator[tuple[list[dict[str, Any]], Optional[str]], None, None]:
+    ) -> Generator[tuple[list[dict[str, Any]], Optional[str]]]:
         """Get data by resource, yielding each page and its nextPageToken (if any).
 
         `starting_page_token` applies to the paginated entity endpoints (campaigns,
@@ -285,13 +286,20 @@ class LinkedinAdsClient:
         so we fail fast instead of burning the remaining budget on doomed retries. Short-window
         429s stay retryable and honour the Retry-After header when present.
         """
-        response = self.client.finder(
-            resource_path=resource_path,
-            finder_name=finder,
-            access_token=self.access_token,
-            query_params=params,
-            version_string=self.api_version,
-        )
+        try:
+            response = self.client.finder(
+                resource_path=resource_path,
+                finder_name=finder,
+                access_token=self.access_token,
+                query_params=params,
+                version_string=self.api_version,
+            )
+        except ResponseFormattingError as e:
+            # The Restli client parses the body as JSON before returning, so a non-JSON response
+            # (an empty payload or an HTML error page from a 5xx gateway/proxy) raises here as a
+            # wrapped JSONDecodeError rather than a status code we can branch on below. These are
+            # transient edge responses — retry them like the 5xx path instead of failing the sync.
+            raise LinkedinAdsRetryableError(f"LinkedIn API returned a malformed (non-JSON) response: {e}") from e
 
         if response.status_code == 429:
             body = response.response.text
@@ -332,7 +340,7 @@ class LinkedinAdsClient:
         finder: str = "search",
         page_size: int = MAX_PAGE_SIZE,
         extra_params: Optional[dict[str, Any]] = None,
-    ) -> Generator[tuple[list[dict[str, Any]], Optional[str]], None, None]:
+    ) -> Generator[tuple[list[dict[str, Any]], Optional[str]]]:
         """Yield each page as `(elements, next_page_token)` (None on the last page).
         Callers persist `next_page_token` to resume without re-fetching."""
         page_token = starting_page_token

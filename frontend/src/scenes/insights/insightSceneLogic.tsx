@@ -6,8 +6,8 @@ import api from 'lib/api'
 import { AlertType } from 'lib/components/Alerts/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
-import { isEmptyObject, isObject } from 'lib/utils'
 import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { isEmptyObject, isObject } from 'lib/utils/guards'
 import { isDashboardFilterEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
@@ -480,18 +480,21 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             const alertChanged = (alert_id ?? null) !== values.alertId
             const isExistingInsight = shortId !== 'new'
 
-            const itemIdChanged =
-                (currentScene?.activeSceneLogic as BuiltLogic<insightSceneLogicType>)?.values.itemId !==
-                normalizeItemId(itemId)
+            // `activeSceneLogic` can unmount mid-transition (e.g. navigating dashboard ↔ insight edit).
+            // Reading `.values` on an unmounted logic throws `[KEA] Can not find path`, so only read it
+            // while it's still mounted — otherwise treat the scene as changed and re-process below.
+            const activeSceneLogic = currentScene?.activeSceneLogic as BuiltLogic<insightSceneLogicType> | undefined
+            const activeSceneValues = activeSceneLogic?.isMounted() ? activeSceneLogic.values : undefined
+
+            const itemIdChanged = activeSceneValues?.itemId !== normalizeItemId(itemId)
 
             if (
                 isExistingInsight &&
                 method !== 'PUSH' &&
                 currentScene?.activeSceneId === Scene.Insight &&
-                currentScene.activeSceneLogic &&
-                (currentScene.activeSceneLogic as BuiltLogic<insightSceneLogicType>).values.insightId === insightId &&
-                (currentScene.activeSceneLogic as BuiltLogic<insightSceneLogicType>).values.insightMode ===
-                    insightMode &&
+                activeSceneValues &&
+                activeSceneValues.insightId === insightId &&
+                activeSceneValues.insightMode === insightMode &&
                 !alertChanged &&
                 !itemIdChanged
             ) {
@@ -593,7 +596,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         actions.setFreshQuery(true)
                     }
 
-                    eventUsageLogic.actions.reportInsightCreated(query)
+                    eventUsageLogic.actions.reportInsightStarted(query)
                 }
             }
         },
@@ -610,7 +613,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             | [string, Record<string, any> | string | undefined, Record<string, any> | string | undefined]
             | undefined => {
             if (!insightId || insightId === 'new' || insightId.startsWith('new-')) {
-                return [urls.insightNew(), undefined, undefined]
+                // Preserve search + hash (e.g. the `#q=` query) so post-load URL sync doesn't strip the drill-down query
+                return [urls.insightNew(), window.location.search, window.location.hash]
             }
 
             const baseUrl = insightMode === ItemMode.View ? urls.insightView(insightId) : urls.insightEdit(insightId)

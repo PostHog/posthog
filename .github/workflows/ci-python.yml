@@ -43,17 +43,19 @@ jobs:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
                       python:
+                        # ruff/mypy/ty run repo-wide (`.`) in code-quality, so any Python
+                        # file anywhere must trigger this workflow — otherwise an unformatted
+                        # file lands undetected and trips the next unrelated PR that does run.
+                        - '**/*.py'
+                        - '*.py' # root-level scripts (e.g. manage.py); '**/' alone may not match root
                         - 'pyproject.toml'
                         - 'uv.lock'
-                        - 'ee/**/*.py'
                         - 'posthog/**/*'
-                        - 'products/**/*.py'
                         # Make sure we run if someone is explicitly change the workflows
                         - .github/workflows/ci-python.yml
                         - .github/workflows/ci-dagster.yml
                         - .github/workflows/ci-backend.yml
                         - .flox/env/manifest.toml
-                        - bin/check_uv_python_compatibility.py
                         # Schema changes need to trigger Python CI to validate schema.py is regenerated
                         - 'frontend/src/queries/schema.json'
                         # Products changes need to trigger Python CI to validate the json usage is still valid
@@ -63,13 +65,8 @@ jobs:
                         - 'tools/hogli-commands/hogli_commands/**'
                         - 'hogli.yaml'
                         - 'bin/**'
-                        # LLM Gateway service
-                        - 'services/llm-gateway/**/*.py'
-                        # GitHub scripts
-                        - '.github/scripts/**/*.py'
-                        # PR approval agent
+                        # Dev tools with dedicated pytest steps below
                         - 'tools/pr-approval-agent/**'
-                        # query-performance-ai dev tool
                         - 'tools/query-performance-ai/**'
 
     code-quality:

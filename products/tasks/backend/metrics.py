@@ -12,7 +12,8 @@ TaskWorkflowStartOutcome = Literal["attempted", "blocked", "failed", "started"]
 #   stream_error      — Redis/stream error sentinel ended the connection
 #   unavailable       — stream key never appeared within the wait timeout
 #   client_disconnect — client went away (GeneratorExit) before completion
-StreamConnectionOutcome = Literal["completed", "stream_error", "unavailable", "client_disconnect"]
+#   rotated           — per-connection cap reached; clean EOF, client resumes
+StreamConnectionOutcome = Literal["completed", "stream_error", "unavailable", "client_disconnect", "rotated"]
 _ALLOWED_MODES = {"background", "interactive"}
 _ALLOWED_RUN_SOURCES = {"manual", "signal_report"}
 _ALLOWED_RUNTIME_ADAPTERS = {"claude", "codex"}
@@ -21,7 +22,7 @@ _ALLOWED_RUNTIME_ADAPTERS = {"claude", "codex"}
 TASK_RUN_CREATED_TOTAL = Counter(
     "posthog_tasks_task_run_created_total",
     "TaskRun rows created by the Tasks product",
-    labelnames=["origin_product", "run_environment", "mode", "run_source", "runtime_adapter"],
+    labelnames=["origin_product", "run_environment", "mode", "run_source", "runtime_adapter", "prewarmed"],
 )
 
 TASK_RUN_WORKFLOW_START_TOTAL = Counter(
@@ -33,9 +34,16 @@ TASK_RUN_WORKFLOW_START_TOTAL = Counter(
         "mode",
         "run_source",
         "runtime_adapter",
+        "prewarmed",
         "outcome",
         "reason",
     ],
+)
+
+PREWARMED_ACTIVATED_TOTAL = Counter(
+    "posthog_tasks_prewarmed_activated_total",
+    "Pre-warmed Runs that received their first user message (the warm sandbox got used, not reaped)",
+    labelnames=["origin_product"],
 )
 
 TASK_RUN_FAILED_TOTAL = Counter(
@@ -54,9 +62,9 @@ TASK_RUN_FAILED_TOTAL = Counter(
 )
 
 
-# Connection lifetimes span a few seconds (cold reconnect) to the 6h sandbox TTL.
-# The 120s bucket is deliberate: it isolates connections cut at the Envoy/Contour
-# response_timeout boundary from genuinely long-lived ones.
+# Connection lifetimes range from a few seconds (cold reconnect) to the
+# per-connection cap. The 120s bucket isolates connections cut at the
+# Envoy/Contour response_timeout boundary from genuinely long-lived ones.
 STREAM_CONNECTION_DURATION_BUCKETS = [
     1.0,
     5.0,
@@ -66,6 +74,7 @@ STREAM_CONNECTION_DURATION_BUCKETS = [
     120.0,
     300.0,
     600.0,
+    960.0,
     1_800.0,
     3_600.0,
     7_200.0,
@@ -107,6 +116,12 @@ TASK_RUN_STREAM_RESUME_GAP_TOTAL = Counter(
     labelnames=["origin_product"],
 )
 
+PUSH_DISPATCHER_FAILURES_TOTAL = Counter(
+    "posthog_tasks_push_dispatcher_failures_total",
+    "Push-notification dispatch attempts that failed and were swallowed by the best-effort dispatcher",
+    labelnames=["kind", "reason"],
+)
+
 
 def _metric_label(value: object | None) -> str:
     if value is None:
@@ -138,6 +153,7 @@ def _task_run_labels(task_run: "TaskRun | None") -> dict[str, str]:
             "mode": "unknown",
             "run_source": "unknown",
             "runtime_adapter": "unknown",
+            "prewarmed": "unknown",
         }
 
     state = task_run.state if isinstance(task_run.state, dict) else {}
@@ -147,6 +163,7 @@ def _task_run_labels(task_run: "TaskRun | None") -> dict[str, str]:
         "mode": _bounded_metric_label(state.get("mode"), _ALLOWED_MODES),
         "run_source": _bounded_metric_label(state.get("run_source"), _ALLOWED_RUN_SOURCES),
         "runtime_adapter": _bounded_metric_label(state.get("runtime_adapter"), _ALLOWED_RUNTIME_ADAPTERS),
+        "prewarmed": "true" if state.get("prewarmed") else "false",
     }
 
 
@@ -165,6 +182,10 @@ def observe_task_run_workflow_start(
         outcome=outcome,
         reason=reason,
     ).inc()
+
+
+def observe_prewarmed_activated(task_run: "TaskRun") -> None:
+    PREWARMED_ACTIVATED_TOTAL.labels(origin_product=origin_product_label(task_run)).inc()
 
 
 def origin_product_label(task_run: "TaskRun | None") -> str:

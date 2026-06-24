@@ -7,9 +7,9 @@ import { TriggerExportProps, downloadBlob, downloadExportedAsset } from 'lib/com
 import { isLongRunningExportFormat } from 'lib/components/ExportButton/exportStatus'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { delay } from 'lib/utils'
+import { delay } from 'lib/utils/async'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import type { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
@@ -61,6 +61,7 @@ export const exportsLogic = kea<exportsLogicType>([
                 height?: number
                 css_selector?: string
                 filename?: string
+                skip_inactivity?: boolean
             }
         ) => ({ sessionRecordingId, format, timestamp, duration, mode, options }),
         startHeatmapExport: (export_context: ExportContext) => ({ export_context }),
@@ -113,22 +114,13 @@ export const exportsLogic = kea<exportsLogicType>([
             actions.createExport({ exportData })
         },
         createExportSuccess: () => {
-            lemonToast.info('Export starting...', {
-                button: {
-                    label: 'View exports',
-                    action: () => newInternalTab(urls.exports()),
-                },
-                autoClose: false,
-            })
             actions.loadExports()
         },
-        loadExportsSuccess: async (_, breakpoint) => {
-            // Check if any exports haven't completed
-            const donePolling = exportsLogic.values.exports.every((asset) => asset.has_content || asset.exception)
-            if (!donePolling) {
-                await breakpoint(pickPollDelayMs(exportsLogic.values.exports))
+        loadExportsSuccess: async ({ exports: exportsList }, breakpoint) => {
+            // Keep the list fresh while any export is still rendering, so the panel reflects completion.
+            if (exportsList.some((asset) => !asset.has_content && !asset.exception)) {
+                await breakpoint(pickPollDelayMs(exportsList))
                 actions.loadExports()
-                return
             }
         },
         createStaticCohort: async ({ query, name }) => {
@@ -174,7 +166,7 @@ export const exportsLogic = kea<exportsLogicType>([
                     height: options?.height || 600,
                     filename: options?.filename || `replay-${sessionRecordingId}${timestamp ? `-t${timestamp}` : ''}`,
                     duration: duration,
-                    skip_inactivity: false,
+                    skip_inactivity: options?.skip_inactivity ?? true,
                 },
             }
 
@@ -229,11 +221,22 @@ export const exportsLogic = kea<exportsLogicType>([
                             const updatedExports = [response, ...currentExports.filter((e) => e.id !== response.id)]
                             actions.loadExportsSuccess(updatedExports)
 
-                            // If this was a blocking export, we should download it now
                             if (response && response.has_content) {
+                                // Blocking export already finished in the request — download and confirm.
                                 await downloadExportedAsset(response)
+                                lemonToast.success('Export complete!')
                             } else if (response && response.exception) {
                                 lemonToast.error('Export failed: ' + response.exception)
+                            } else if (response) {
+                                // Async export (e.g. video render) is a background job: acknowledge the
+                                // kickoff right away. It surfaces in the Exports panel once the render finishes.
+                                lemonToast.success('Export started', {
+                                    button: {
+                                        label: 'View exports',
+                                        action: () => newInternalTab(urls.exports()),
+                                    },
+                                })
+                                actions.addFresh(response)
                             }
                         } catch (error) {
                             const apiError = error as { data?: APIErrorType }

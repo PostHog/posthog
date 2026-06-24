@@ -18,6 +18,28 @@ _RE_FENCE = re.compile(r"^\s*(```|~~~)")
 _RE_INLINE_MARKDOWN_MARKERS = re.compile(r"\*\*|__|\*|_|~~|`")
 _RE_MD_LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
 
+# Repair pattern: bold/italic markers placed *inside* the close of a Slack-style
+# angle-bracket link, e.g. ``**<https://example.com**>`` instead of
+# ``**<https://example.com>**``. The agent hand-rolls Slack mrkdwn occasionally
+# and types the closing marker before ``>``; the standard converter has no way
+# to recover, so the asterisks end up adjacent to ``>`` in the final output and
+# Slack renders neither the bold nor the link. The flanking lookbehind/lookahead
+# require the opening and closing marker runs to be balanced — they refuse to
+# half-match a longer asterisk run, so unbalanced edge cases like ``**<url*>``
+# are left alone rather than silently rewritten into a different broken shape.
+_RE_LINK_TRAILING_MARKER = re.compile(r"(?<![*_~])(\*+|_+|~+)<([^<>]+?)\1>(?![*_~])")
+
+# Repair pattern: a bare ``http(s)`` URL wrapped directly in emphasis markers,
+# e.g. ``**https://example.com**``. The converter halves the markers in place
+# and emits ``*https://example.com*``; Slack then auto-links the URL but
+# renders the surrounding ``*`` as literal text because there is no whitespace
+# flanking the markers. Pre-wrapping the URL in ``<>`` lets the converter emit
+# the well-formed ``*<https://example.com>*`` — a clean bolded clickable link.
+# The URL group excludes whitespace and angle brackets so already well-formed
+# links (``**<url>**``) and bracketed markdown links (``**[text](url)**``) are
+# left alone.
+_RE_BARE_URL_IN_EMPHASIS = re.compile(r"(?<![*_~])(\*+|_+|~+)(https?://[^\s<>]+?)\1(?![*_~])")
+
 
 class _RelayAlreadyRecorded(Exception):
     """Raised when a relay was already recorded while holding the row lock."""
@@ -29,10 +51,37 @@ def _markdown_to_slack_mrkdwn(text: str) -> str:
     Tables are pre-converted to fenced code blocks before the library runs because
     Slack ``mrkdwn`` is rendered in a proportional font — pipe-separated rows do
     not line up. A fenced code block forces monospace and the columns align.
+
+    Misplaced link markers (e.g. ``**<url**>``) and bare URLs wrapped in
+    emphasis (e.g. ``**https://example.com**``) are normalized first so the
+    converter sees well-formed input.
     """
     if not text:
         return text
-    return _CONVERTER.convert(_tables_to_fenced_code_blocks(text))
+    repaired = _wrap_bare_urls_in_emphasis(_repair_link_trailing_markers(text))
+    return _CONVERTER.convert(_tables_to_fenced_code_blocks(repaired))
+
+
+def _repair_link_trailing_markers(text: str) -> str:
+    """Move emphasis markers from inside a Slack-style link close to outside.
+
+    Handles ``**<url**>``/``*<url*>``/``_<url_>`` (and the ``<url|label>``
+    variants) by relocating the closing marker after ``>``. The negated
+    character class stops the match at the next ``<`` or ``>``, so adjacent
+    links don't cross-contaminate.
+    """
+    return _RE_LINK_TRAILING_MARKER.sub(r"\1<\2>\1", text)
+
+
+def _wrap_bare_urls_in_emphasis(text: str) -> str:
+    """Wrap bare ``http(s)`` URLs adjacent to emphasis markers with angle brackets.
+
+    ``**https://example.com**`` becomes ``**<https://example.com>**`` so the
+    downstream converter produces a properly formatted Slack link. Already
+    bracketed URLs (``**<url>**``) and markdown links (``**[label](url)**``)
+    are left untouched because the URL group rejects ``<`` and ``[``.
+    """
+    return _RE_BARE_URL_IN_EMPHASIS.sub(r"\1<\2>\1", text)
 
 
 def _tables_to_fenced_code_blocks(text: str) -> str:
@@ -276,7 +325,8 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     )
     handler = SlackThreadHandler(context)
 
-    mention_prefix = f"<@{mapping.mentioning_slack_user_id}> " if mapping.mentioning_slack_user_id else ""
+    target = mapping.latest_actor_slack_user_id or mapping.mentioning_slack_user_id
+    mention_prefix = f"<@{target}> " if target else ""
     if input.delete_progress:
         handler.delete_progress()
     for index, chunk in enumerate(chunks):

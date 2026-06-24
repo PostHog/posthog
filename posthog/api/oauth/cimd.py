@@ -35,7 +35,7 @@ from posthog.models.oauth import (
 )
 from posthog.ph_client import ph_scoped_capture
 from posthog.rate_limit import IPThrottle
-from posthog.scopes import UNPRIVILEGED_SCOPES
+from posthog.scopes import filter_to_unprivileged_scopes
 from posthog.security.url_validation import is_url_allowed
 
 from .dcr import validate_client_name
@@ -343,16 +343,16 @@ def _resolve_verification_token(metadata: CIMDMetadataDocument) -> CIMDVerificat
 
 
 def _resolve_scopes(metadata: CIMDMetadataDocument) -> list[str] | None:
-    """Read com.posthog.scopes if present, keeping only legitimately user-grantable scopes.
+    """Resolve the allow-listed `com.posthog.scopes` for an app, or None when the field
+    is absent so callers leave existing scopes untouched. A present field returns a
+    (possibly empty) list, capped to grantable scopes by `filter_to_unprivileged_scopes`.
 
-    Uses an allow-list (UNPRIVILEGED_SCOPES) rather than a deny-list so that
-    privileged, hidden, internal, and unknown/garbage scope strings are all
-    dropped in one check. Mirrors the DCR scope filter on #61225 — consolidate
-    with filter_dcr_scopes once that PR merges to master.
-
-    Returns None when the field is absent — callers treat that as a no-op
-    (leave existing scopes untouched). Returns a (possibly empty) list when
-    the field is present, even after non-grantable entries are filtered out.
+    Raises CIMDValidationError when the field is present and non-empty but every entry is
+    non-grantable. An empty ceiling falls back to the broad UNPRIVILEGED_SCOPES default
+    (`effective_ceiling`), so silently storing `[]` here would widen a misconfigured app
+    to the full default surface — broader than it asked for. Reject it the way DCR rejects
+    an all-stripped `scope` string, so the partner fixes their metadata. An explicitly empty
+    list is left as the legitimate "use default" signal, same as an absent field.
     """
     com_posthog = metadata.get("com.posthog")
     if not isinstance(com_posthog, dict):
@@ -361,7 +361,31 @@ def _resolve_scopes(metadata: CIMDMetadataDocument) -> list[str] | None:
     raw_scopes: object = com_posthog.get("scopes")
     if not isinstance(raw_scopes, list):
         return None
-    return [s for s in raw_scopes if isinstance(s, str) and s in UNPRIVILEGED_SCOPES]
+    filtered = filter_to_unprivileged_scopes(raw_scopes)
+    if raw_scopes and not filtered:
+        raise CIMDValidationError(
+            "None of the declared com.posthog.scopes are available to self-registered clients. "
+            "Remove the field to register with the default scope set."
+        )
+    return filtered
+
+
+def _resolve_optional_scopes(metadata: CIMDMetadataDocument) -> list[str] | None:
+    """Resolve `com.posthog.optional_scopes` — the declinable subset a partner offers on top
+    of its required `scopes`, so a CIMD client gets the same required/optional consent split as
+    any other app. Returns None when the field is absent (leave existing scopes untouched),
+    otherwise the grantable-filtered list. Unlike `scopes`, an empty result is benign (it just
+    means no optional scopes, with no widen-to-default fallback), so a fully non-grantable list
+    resolves to `[]` rather than rejecting the registration.
+    """
+    com_posthog = metadata.get("com.posthog")
+    if not isinstance(com_posthog, dict):
+        return None
+    # Untrusted partner JSON: guard the real type rather than trust the TypedDict.
+    raw_optional: object = com_posthog.get("optional_scopes")
+    if not isinstance(raw_optional, list):
+        return None
+    return filter_to_unprivileged_scopes(raw_optional)
 
 
 def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthApplication:
@@ -376,6 +400,7 @@ def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthA
     logo_uri = metadata.get("logo_uri") or None
     verification = _resolve_verification_token(metadata)
     resolved_scopes = _resolve_scopes(metadata)
+    resolved_optional_scopes = _resolve_optional_scopes(metadata)
 
     app = OAuthApplication(
         name=client_name,
@@ -391,6 +416,7 @@ def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthA
         logo_uri=logo_uri,
         organization=verification.organization if verification else None,
         scopes=resolved_scopes if resolved_scopes is not None else [],
+        optional_scopes=resolved_optional_scopes if resolved_optional_scopes is not None else [],
         user=None,
     )
     app.full_clean()
@@ -441,6 +467,12 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
     if resolved_scopes is not None:
         app.scopes = resolved_scopes
         update_fields.append("scopes")
+    # Refresh `optional_scopes` from the same metadata so the required/optional split never
+    # drifts: both fields are rewritten together on every fetch.
+    resolved_optional_scopes = _resolve_optional_scopes(metadata)
+    if resolved_optional_scopes is not None:
+        app.optional_scopes = resolved_optional_scopes
+        update_fields.append("optional_scopes")
     old_org_id = app.organization_id
     new_org_id = new_org.id if new_org else None
     if old_org_id != new_org_id:

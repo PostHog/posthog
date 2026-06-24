@@ -21,7 +21,7 @@ export interface TileLayout {
 
 const MIN_TILE_HEIGHT_ROWS = 2
 const MIN_TEXT_TILE_HEIGHT_ROWS = 1
-const MIN_WIDGET_TILE_WIDTH_COLS = 6
+const MIN_WIDGET_TILE_WIDTH_COLS = 3
 const MIN_WIDGET_TILE_HEIGHT_ROWS = 4
 
 type WidgetCatalogLayout = DashboardWidgetCatalogEntry['defaultLayout']
@@ -206,6 +206,9 @@ export const calculateLayouts = (
             } else if (isTrendsQuery(query) && query.trendsFilter?.display === ChartDisplayType.BoldNumber) {
                 defaultW = 2
                 defaultH = 2
+            } else if (isTrendsQuery(query) && query.trendsFilter?.display === ChartDisplayType.Metric) {
+                defaultW = 3
+                defaultH = 3
             }
             // Single-column layout width override
             if (breakpoint === 'xs') {

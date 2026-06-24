@@ -41,7 +41,8 @@ python manage.py list_signal_reports --team-id 1 --signals --json
 7. On reaching `ready`, the summary workflow starts `signal-report-inbox-notification` to post the Slack
    inbox notification. If the report auto-started an implementation task, that workflow waits for the PR to
    open (bounded by `SIGNALS_INBOX_PR_NOTIFICATION_TIMEOUT_SECONDS`) so the card can show a "Review PR"
-   button; reports with no auto-start task notify immediately.
+   button; if that task never opens a PR (fails, is cancelled, or the wait times out) no notification is
+   sent. Reports with no auto-start task notify immediately.
 8. `ready` reports accumulate new signals silently. After enough new signals (`signal_count >= signals_at_run`),
    the report is re-promoted and the summary workflow runs again — reusing the previous repo selection and
    lightly validating previous findings instead of re-researching from scratch.
@@ -152,6 +153,30 @@ left alone), `tombstoned` (rows the team already soft-deleted — left alone, ne
 `pruned` (live rows whose canonical skill was removed from disk — soft-deleted so the
 coordinator stops dispatching them). Same function the coordinator and runner call lazily —
 this command is just the impatient path.
+
+## Backfilling task_run artefacts
+
+One-off data migration: turn legacy `SignalReportTask` rows (those carrying the old `relationship`
+label) into `task_run` log artefacts so the research / implementation / repo-selection runs tied to
+a report show up in its artefact timeline. `SignalReportTask` lives on as the unlabelled
+task↔report association; rows without a legacy label are skipped — their `task_run` artefact is
+written at creation time.
+
+```bash
+# Preview, scoped to one team
+python manage.py backfill_task_run_artefacts --team-id 1 --dry-run
+
+# Backfill for real (all teams, or add --team-id N)
+python manage.py backfill_task_run_artefacts
+```
+
+Idempotent — skips any report that already has a `task_run` artefact referencing the same task, so it
+is safe to re-run. Each artefact carries a `(product, type)` pair: these are signals-pipeline runs, so
+`product` is `signals` and `type` is the legacy relationship label (`research` / `implementation` /
+`repo_selection`). Backfilled artefacts are attributed to their task and backdated to their
+`SignalReportTask.created_at` so the log stays chronologically correct (the artefact row is created
+now, but the run happened earlier). Live creation paths append the same artefacts at run time going
+forward — custom agents instead use their own `identifier()` `(product, type)` pair.
 
 ## Tips
 

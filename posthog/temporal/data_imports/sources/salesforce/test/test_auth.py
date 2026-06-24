@@ -100,14 +100,21 @@ def test_get_salesforce_access_token_from_code_raises_on_server_failure():
     assert response_body in str(exc.value)
 
 
-def test_expired_refresh_token_error_is_non_retryable():
-    """The SalesforceAuthRequestError raised for an expired refresh token must match a
-    non-retryable pattern, otherwise the job retries a permanent auth failure forever."""
+@pytest.mark.parametrize(
+    "error_description",
+    [
+        "expired access/refresh token",
+        "inactive user",
+    ],
+)
+def test_auth_error_is_non_retryable(error_description: str):
+    """SalesforceAuthRequestErrors raised for permanent auth failures (expired/revoked token,
+    deactivated user) must match a non-retryable pattern, otherwise the job retries forever."""
     from posthog.temporal.data_imports.sources.salesforce.source import SalesforceSource
 
     response = requests.Response()
     response.status_code = 400
-    response._content = json.dumps({"error_description": "expired access/refresh token"}).encode("utf-8")
+    response._content = json.dumps({"error_description": error_description}).encode("utf-8")
 
     with (
         unittest.mock.patch(

@@ -1,7 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {

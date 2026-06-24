@@ -8,8 +8,10 @@ from parameterized import parameterized
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
-from products.endpoints.backend.materialization import (
+from products.endpoints.backend.materialization_transforms import (
     DownstreamCTEShape,
+    MaterializableVariable,
+    MaterializationNotSupportedError,
     _build_cte_read_graph,
     _classify_downstream_cte,
     _downstream_ctes,
@@ -227,18 +229,59 @@ class TestVariableAnalysis(APIBaseTest):
         assert len(var_infos) == 1
         assert var_infos[0].column_chain == ["event"]
 
-    def test_variable_in_or_condition_blocked(self):
-        query = {
-            "kind": "HogQLQuery",
-            "query": "SELECT count() FROM events WHERE event = {variables.event_name} OR event = '$pageview'",
-            "variables": {"var-1": {"code_name": "event_name", "value": "$identify"}},
-        }
+    @parameterized.expand(
+        [
+            # Variable inside an OR can't be lifted into a single materialized key column.
+            (
+                "or_condition",
+                "SELECT count() FROM events WHERE event = {variables.event_name} OR event = '$pageview'",
+                {"var-1": {"code_name": "event_name", "value": "$identify"}},
+                False,
+                "OR conditions",
+                0,
+            ),
+            # Reproduction of a real failure: same variable across two OR branches, two
+            # different columns, one branch using ILIKE.
+            (
+                "or_with_multiple_columns",
+                "SELECT count() FROM events\n"
+                "WHERE (event = '$pageview' AND properties.$current_url ILIKE CONCAT('%/refer?p_ref=', {variables.playeruuid}, '%'))\n"
+                "   OR (event = 'referral-impression' AND properties.referrer_uuid = {variables.playeruuid})",
+                {"var-1": {"code_name": "playeruuid", "value": "191e674e"}},
+                False,
+                "OR conditions",
+                0,
+            ),
+            # Same variable, two AND'd branches, but two different columns — no single bucket key.
+            (
+                "multiple_columns",
+                "SELECT count() FROM events WHERE properties.a = {variables.v} AND properties.b = {variables.v}",
+                {"var-1": {"code_name": "v", "value": "x"}},
+                False,
+                "multiple columns",
+                0,
+            ),
+            # An OR that doesn't contain the variable must not trip the OR guard.
+            (
+                "or_without_variable_allowed",
+                "SELECT count() FROM events WHERE event = {variables.event_name} AND (properties.a = '1' OR properties.b = '2')",
+                {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+                True,
+                "OK",
+                1,
+            ),
+        ]
+    )
+    def test_or_and_multi_column_variable_analysis(
+        self, _name, query_str, variables, expected_can_materialize, expected_reason, expected_var_count
+    ):
+        query = {"kind": "HogQLQuery", "query": query_str, "variables": variables}
 
         can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
 
-        if can_materialize and var_infos:
-            with pytest.raises(ValueError, match="OR conditions not supported"):
-                transform_query_for_materialization(query, var_infos, self.team)
+        assert can_materialize is expected_can_materialize
+        assert expected_reason in reason
+        assert len(var_infos) == expected_var_count
 
     def test_variable_with_parentheses(self):
         query = {
@@ -747,7 +790,7 @@ class TestCombinatorReaggregation(APIBaseTest):
         ]
     )
     def test_reaggregatable_combinators_allowed(self, func_name, expected_reagg):
-        from products.endpoints.backend.materialization import get_reaggregation
+        from products.endpoints.backend.materialization_transforms import get_reaggregation
 
         reagg = get_reaggregation(func_name)
         assert reagg is not None, f"{func_name} should be re-aggregatable"
@@ -767,7 +810,7 @@ class TestCombinatorReaggregation(APIBaseTest):
         ]
     )
     def test_non_reaggregatable_functions_rejected(self, func_name):
-        from products.endpoints.backend.materialization import get_reaggregation
+        from products.endpoints.backend.materialization_transforms import get_reaggregation
 
         reagg = get_reaggregation(func_name)
         assert reagg is None, f"{func_name} should NOT be re-aggregatable"
@@ -819,7 +862,7 @@ class TestStripCombinators(APIBaseTest):
         ]
     )
     def test_strips_to_known_base(self, func_name, expected_base):
-        from products.endpoints.backend.materialization import _strip_combinators
+        from products.endpoints.backend.materialization_transforms import _strip_combinators
 
         assert _strip_combinators(func_name) == expected_base
 
@@ -835,13 +878,13 @@ class TestStripCombinators(APIBaseTest):
         ]
     )
     def test_returns_none_for_unknown(self, func_name):
-        from products.endpoints.backend.materialization import _strip_combinators
+        from products.endpoints.backend.materialization_transforms import _strip_combinators
 
         result = _strip_combinators(func_name)
         # Should return the base but it won't be in REAGGREGATABLE_BASE_FUNCTIONS
         # For truly unknown functions, returns None
         if result is not None:
-            from products.endpoints.backend.materialization import REAGGREGATABLE_BASE_FUNCTIONS
+            from products.endpoints.backend.materialization_transforms import REAGGREGATABLE_BASE_FUNCTIONS
 
             # The base was found but it's not in the registry — that's the expected path
             # for functions like uniq, avg whose base is known but not re-aggregatable
@@ -989,6 +1032,50 @@ class TestQueryTransformation(APIBaseTest):
         transformed_query = transformed["query"]
         assert "GROUP BY" in transformed_query
         assert "event_name" in transformed_query or "event" in transformed_query
+
+    def test_transform_variable_column_already_aliased_in_select(self):
+        # Regression: enabling materialization raised "Cannot redefine an alias" when the
+        # query already selects the variable's column aliased by the variable's code_name.
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "SELECT properties.profile_id AS profile_id, properties.card_id AS card_id, count() AS tap_count "
+                "FROM events "
+                "WHERE event = 'card_tapped' AND properties.profile_id = {variables.profile_id} "
+                "GROUP BY profile_id, card_id"
+            ),
+            "variables": {
+                "var-1": {"variableId": "var-1", "code_name": "profile_id", "value": ""},
+            },
+        }
+
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        assert can_materialize is True, reason
+
+        transformed = transform_query_for_materialization(query, var_infos, self.team)
+
+        transformed_query = transformed["query"]
+        assert "{variables" not in transformed_query
+        assert transformed_query.count("AS profile_id") == 1
+
+    def test_transform_variable_alias_collision_with_different_expression(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "SELECT properties.card_id AS profile_id, count() AS tap_count "
+                "FROM events "
+                "WHERE properties.profile_id = {variables.profile_id} "
+                "GROUP BY profile_id"
+            ),
+            "variables": {
+                "var-1": {"variableId": "var-1", "code_name": "profile_id", "value": ""},
+            },
+        }
+
+        _, _, var_infos = analyze_variables_for_materialization(query)
+
+        with pytest.raises(ValueError, match="conflicts with an existing SELECT alias"):
+            transform_query_for_materialization(query, var_infos, self.team)
 
     def test_transform_preserves_order_by(self):
         query = {
@@ -1185,10 +1272,18 @@ class TestQueryTransformation(APIBaseTest):
             },
         }
 
-        _, _, var_infos = analyze_variables_for_materialization(query)
-        assert len(var_infos) >= 1
+        # Analysis now rejects OR up-front, so feed the transform a hand-built var_info to
+        # confirm the transform itself still guards against OR as a backstop.
+        var_infos = [
+            MaterializableVariable(
+                variable_id="var-123",
+                code_name="event_name",
+                column_chain=["event"],
+                column_expression="event",
+            )
+        ]
 
-        with pytest.raises(ValueError, match="OR conditions not supported"):
+        with pytest.raises(MaterializationNotSupportedError, match="OR conditions not supported"):
             transform_query_for_materialization(query, var_infos, self.team)
 
     def test_transform_preserves_specific_columns_in_select(self):
@@ -1363,7 +1458,7 @@ class TestMaterializedQueryExecution(APIBaseTest):
         assert True  # See _transform_select_for_materialized_table implementation
 
     def test_select_transformation_with_alias(self):
-        from products.endpoints.backend.materialization import transform_select_for_materialized_table
+        from products.endpoints.backend.materialization_transforms import transform_select_for_materialized_table
 
         query_str = "SELECT count() as total, toStartOfDay(timestamp) as date FROM events"
         parsed = parse_select(query_str)
@@ -1385,7 +1480,7 @@ class TestMaterializedQueryExecution(APIBaseTest):
         assert transformed[1].is_aggregate is False
 
     def test_select_transformation_without_alias(self):
-        from products.endpoints.backend.materialization import transform_select_for_materialized_table
+        from products.endpoints.backend.materialization_transforms import transform_select_for_materialized_table
 
         query_str = "SELECT count() FROM events"
         parsed = parse_select(query_str)
@@ -1640,7 +1735,7 @@ class TestTransformQuerySnapshots(APIBaseTest):
         assert group_by_columns.count("event") == 1, f"GROUP BY has duplicate 'event': {group_by_columns}"
 
     def test_ast_node_not_shared_between_select_and_group_by(self):
-        from products.endpoints.backend.materialization import MaterializationTransformer
+        from products.endpoints.backend.materialization_transforms import MaterializationTransformer
 
         query_str = "SELECT count() FROM events WHERE toDate(timestamp) >= {variables.from_date}"
         variables = {"var-1": {"code_name": "from_date", "value": "2024-01-01"}}
@@ -1677,7 +1772,7 @@ class TestMaterializedReadPath(APIBaseTest):
 
     def _build_read_query(self, query_str: str, variables_meta: dict, variable_values: dict) -> str:
         """Simulate the materialized read path: analyze variables, then build a SELECT with filters."""
-        from products.endpoints.backend.api import EndpointViewSet
+        from products.endpoints.backend.services.strategies import apply_where_filter
 
         hogql_query = {"kind": "HogQLQuery", "query": query_str, "variables": variables_meta}
         _, _, var_infos = analyze_variables_for_materialization(hogql_query)
@@ -1687,11 +1782,10 @@ class TestMaterializedReadPath(APIBaseTest):
             select_from=ast.JoinExpr(table=ast.Field(chain=["materialized_table"])),
         )
 
-        viewset = EndpointViewSet()
         for mat_var in var_infos:
             var_value = variable_values.get(mat_var.code_name)
             if var_value is not None:
-                viewset._apply_where_filter(
+                apply_where_filter(
                     select_query,
                     mat_var.code_name,
                     var_value,
@@ -1788,9 +1882,9 @@ class TestCTEVariableAnalysis(APIBaseTest):
 
         can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
 
-        if can_materialize and var_infos:
-            with pytest.raises(ValueError, match="OR conditions not supported"):
-                transform_query_for_materialization(query, var_infos, self.team)
+        assert can_materialize is False
+        assert "OR conditions" in reason
+        assert var_infos == []
 
     def test_two_ctes_one_variable_each_different_vars_allowed(self):
         query = {
@@ -2565,7 +2659,7 @@ class TestDownstreamCTEClassifier(APIBaseTest):
     def test_extract_aggregate_name_canonicalizes_count_distinct(self, src, expected):
         from posthog.hogql.parser import parse_expr as _parse_expr
 
-        from products.endpoints.backend.materialization import _extract_aggregate_name as _extract
+        from products.endpoints.backend.materialization_transforms import _extract_aggregate_name as _extract
 
         assert _extract(_parse_expr(src)) == expected
 
@@ -2581,7 +2675,7 @@ class TestDownstreamCTEClassifier(APIBaseTest):
     def test_extract_aggregate_name_canonicalizes_base_aggregates(self, src, expected):
         from posthog.hogql.parser import parse_expr as _parse_expr
 
-        from products.endpoints.backend.materialization import _extract_aggregate_name as _extract
+        from products.endpoints.backend.materialization_transforms import _extract_aggregate_name as _extract
 
         assert _extract(_parse_expr(src)) == expected
 

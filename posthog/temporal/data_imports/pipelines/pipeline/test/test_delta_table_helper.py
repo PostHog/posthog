@@ -15,6 +15,7 @@ from parameterized import parameterized
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from posthog.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
     DeltaTableHelper,
+    _first_per_pk_table,
     _realign_decimal_buffers,
 )
 from posthog.temporal.data_imports.pipelines.pipeline.utils import evolve_pyarrow_schema
@@ -370,6 +371,70 @@ class TestLegacyDltTableReconciliation:
         final = result.to_pyarrow_table()
         assert final.num_rows == 3
         assert set(final.column("id").to_pylist()) == {1, 2, 3}
+
+
+class TestIncrementalBatchDeduplication:
+    """Duplicate PKs in a source batch must never reach the Delta write.
+
+    `when_not_matched_insert_all` inserts every unmatched source row, so a batch with a
+    repeated PK seeds duplicate rows in the table; every later merge then multi-matches
+    those rows and the join blows up (the OOM loop seen with sources whose primary keys
+    aren't actually unique).
+    """
+
+    @parameterized.expand(
+        [
+            ("keep_first", "first", ["a1", "b1"]),
+            ("keep_last", "last", ["a2", "b1"]),
+        ]
+    )
+    def test_first_per_pk_table_keep_modes(self, _name, keep, expected_names):
+        table = pa.table({"id": [1, 1, 2], "name": ["a1", "a2", "b1"]})
+
+        result = _first_per_pk_table(table, ["id"], keep=keep).sort_by("id")
+
+        assert result.column("id").to_pylist() == [1, 2]
+        assert result.column("name").to_pylist() == expected_names
+
+    @pytest.mark.asyncio
+    async def test_incremental_merge_dedupes_duplicate_source_rows(self, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "table")
+        deltalake.write_deltalake(delta_path, pa.table({"id": [1], "name": ["old"]}))
+
+        helper = _make_local_helper(delta_path)
+        # id=2 appears twice in one batch — without dedup both copies get inserted.
+        batch = pa.table({"id": [1, 2, 2], "name": ["updated", "first_copy", "second_copy"]})
+
+        result = await helper.write_to_deltalake(
+            data=batch,
+            write_type="incremental",
+            should_overwrite_table=False,
+            primary_keys=["id"],
+        )
+
+        final = result.to_pyarrow_table().sort_by("id")
+        assert final.column("id").to_pylist() == [1, 2]
+        # The last occurrence of a duplicated key carries the freshest data.
+        assert final.column("name").to_pylist() == ["updated", "second_copy"]
+        cast(AsyncMock, helper._logger.awarning).assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_first_sync_append_dedupes_duplicate_source_rows(self, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "table")
+
+        helper = _make_local_helper(delta_path)
+        batch = pa.table({"id": [1, 1], "name": ["first_copy", "second_copy"]})
+
+        result = await helper.write_to_deltalake(
+            data=batch,
+            write_type="incremental",
+            should_overwrite_table=False,
+            primary_keys=["id"],
+        )
+
+        final = result.to_pyarrow_table()
+        assert final.column("id").to_pylist() == [1]
+        assert final.column("name").to_pylist() == ["second_copy"]
 
 
 class TestRealignDecimalBuffers:

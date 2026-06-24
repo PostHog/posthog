@@ -41,6 +41,8 @@ import type {
     _LogsCountRangesResponseApi,
     _LogsCountRequestApi,
     _LogsCountResponseApi,
+    _LogsFacetValuesRequestApi,
+    _LogsFacetValuesResponseApi,
     _LogsQueryRequestApi,
     _LogsQueryResponseApi,
     _LogsServicesRequestApi,
@@ -72,7 +74,7 @@ export const getLogsAlertsListUrl = (projectId: string, params?: LogsAlertsListP
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -220,7 +222,7 @@ export const getLogsAlertsEventsListUrl = (projectId: string, id: string, params
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -289,7 +291,7 @@ export const getLogsAttributesRetrieveUrl = (projectId: string, params?: LogsAtt
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -351,8 +353,8 @@ export const getLogsExplainLogWithAICreateUrl = (projectId: string) => {
 
 /**
  * Explain a log entry using AI.
-
-POST /api/environments/:id/logs/explainLogWithAI/
+ *
+ * POST /api/environments/:id/logs/explainLogWithAI/
  */
 export const logsExplainLogWithAICreate = async (
     projectId: string,
@@ -375,6 +377,23 @@ export const logsExportCreate = async (projectId: string, options?: RequestInit)
     return apiMutator<LogsExportCreate201>(getLogsExportCreateUrl(projectId), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getLogsFacetValuesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/facet_values/`
+}
+
+export const logsFacetValuesCreate = async (
+    projectId: string,
+    _logsFacetValuesRequestApi: _LogsFacetValuesRequestApi,
+    options?: RequestInit
+): Promise<_LogsFacetValuesResponseApi> => {
+    return apiMutator<_LogsFacetValuesResponseApi>(getLogsFacetValuesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_logsFacetValuesRequestApi),
     })
 }
 
@@ -414,7 +433,7 @@ export const getLogsSamplingRulesListUrl = (projectId: string, params?: LogsSamp
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -541,7 +560,7 @@ export const getLogsSamplingRulesReorderCreateUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -608,7 +627,7 @@ export const getLogsValuesRetrieveUrl = (projectId: string, params: LogsValuesRe
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -635,7 +654,7 @@ export const getLogsViewsListUrl = (projectId: string, params?: LogsViewsListPar
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 

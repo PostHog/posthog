@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class NetSuiteSource(SimpleSource[NetSuiteSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.NET_SUITE,
+            category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="NetSuite",
             iconPath="/static/services/netsuite.png",
             fields=cast(list[FieldType], []),

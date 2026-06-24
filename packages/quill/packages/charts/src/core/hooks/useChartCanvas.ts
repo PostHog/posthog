@@ -98,7 +98,12 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
         return () => {
             observer.disconnect()
         }
-    }, [marginsRef.current])
+        // Bind the observer once. `marginsRef` is a ref so `updateSize` always reads the
+        // latest margins; depending on `marginsRef.current` here would disconnect and re-run
+        // `updateSize` on every margins change, synchronously clearing the canvas bitmap
+        // (a visible blank flash). The effect below handles margins-only updates instead.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
 
     // When margins change without a resize, recompute dimensions from the cached rect.
     useEffect(() => {

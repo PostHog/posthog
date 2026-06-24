@@ -38,7 +38,6 @@ describe('LLM analytics URL split', () => {
         expect(urls.aiObservabilityTags()).toBe('/ai-evals/taggers')
         expect(urls.aiObservabilityEvaluations()).toBe('/ai-evals/evaluations')
         expect(urls.aiObservabilityPrompts()).toBe('/prompt-management/prompts')
-        expect(urls.aiObservabilitySkills()).toBe('/prompt-management/skills')
     })
 
     it('redirects legacy LLM analytics URLs to their new product areas', () => {
@@ -63,9 +62,6 @@ describe('LLM analytics URL split', () => {
         expect(redirectUrl('/llm-analytics/prompts/:name', { name: 'prompt-1' })).toBe(
             '/prompt-management/prompts/prompt-1'
         )
-        expect(redirectUrl('/llm-analytics/skills/:name', { name: 'skill-1' })).toBe(
-            '/prompt-management/skills/skill-1'
-        )
     })
 
     it('redirects AI observability settings to the project-level BYOK setting', () => {
@@ -82,7 +78,7 @@ describe('aiObservabilitySharedLogic', () => {
         initKeaTests()
         sceneLogic.mount()
         router.actions.push(urls.aiObservabilityTraces())
-        logic = aiObservabilitySharedLogic({ tabId: sceneLogic.values.activeTabId || '' })
+        logic = aiObservabilitySharedLogic({})
         logic.mount()
     })
 
@@ -117,6 +113,34 @@ describe('aiObservabilitySharedLogic', () => {
             },
             shouldFilterTestAccounts: true,
         })
+    })
+
+    it('preserves params owned by other logics when rewriting the URL', () => {
+        // review_* / human_reviews_tab ride along on tab links — applying shared
+        // state must not strip them
+        router.actions.push(urls.aiObservabilityGenerations(), {
+            date_from: '-14d',
+            review_search: 'needs review',
+            human_reviews_tab: 'reviews',
+        })
+
+        expectLogic(logic).toMatchValues({
+            dateFilter: { dateFrom: '-14d', dateTo: null },
+        })
+        expect(router.values.searchParams).toMatchObject({
+            review_search: 'needs review',
+            human_reviews_tab: 'reviews',
+        })
+    })
+
+    it('strips stale trace-view params while keeping foreign params', () => {
+        router.actions.push(urls.aiObservabilityTraces(), {
+            event: 'event-1',
+            timestamp: '2026-01-01',
+            review_search: 'abc',
+        })
+
+        expect(router.values.searchParams).toEqual({ review_search: 'abc' })
     })
 
     it('should reset filters when switching tabs without params', () => {
@@ -413,14 +437,14 @@ describe('AI observability persisted preferences', () => {
         window.localStorage.clear()
     })
 
-    it('keeps generation column preferences stable across tab ids', () => {
+    it('persists generation column preferences across remount', () => {
         const columns = ['uuid', 'timestamp']
-        const firstLogic = aiObservabilityGenerationsLogic({ tabId: 'first-tab' })
+        const firstLogic = aiObservabilityGenerationsLogic()
         firstLogic.mount()
         firstLogic.actions.setGenerationsColumns(columns)
         firstLogic.unmount()
 
-        const secondLogic = aiObservabilityGenerationsLogic({ tabId: 'second-tab' })
+        const secondLogic = aiObservabilityGenerationsLogic()
         secondLogic.mount()
 
         expect(secondLogic.values.generationsColumns).toEqual(columns)
@@ -428,13 +452,13 @@ describe('AI observability persisted preferences', () => {
         secondLogic.unmount()
     })
 
-    it('keeps traces table preferences stable across tab ids', () => {
-        const firstLogic = aiObservabilityTracesTabLogic({ tabId: 'first-tab' })
+    it('persists traces table preferences across remount', () => {
+        const firstLogic = aiObservabilityTracesTabLogic()
         firstLogic.mount()
         firstLogic.actions.setShowInputOutputColumns(false)
         firstLogic.unmount()
 
-        const secondLogic = aiObservabilityTracesTabLogic({ tabId: 'second-tab' })
+        const secondLogic = aiObservabilityTracesTabLogic()
         secondLogic.mount()
 
         expect(secondLogic.values.showInputOutputColumns).toBe(false)
@@ -442,13 +466,13 @@ describe('AI observability persisted preferences', () => {
         secondLogic.unmount()
     })
 
-    it('keeps selected dashboard stable across tab ids', () => {
-        const firstLogic = aiObservabilityDashboardLogic({ tabId: 'first-tab' })
+    it('persists selected dashboard across remount', () => {
+        const firstLogic = aiObservabilityDashboardLogic()
         firstLogic.mount()
         firstLogic.actions.loadLLMDashboardsSuccess([{ id: 42, name: 'AI dashboard', description: '' }])
         firstLogic.unmount()
 
-        const secondLogic = aiObservabilityDashboardLogic({ tabId: 'second-tab' })
+        const secondLogic = aiObservabilityDashboardLogic()
         secondLogic.mount()
 
         expect(secondLogic.values.selectedDashboardId).toBe(42)
@@ -456,8 +480,8 @@ describe('AI observability persisted preferences', () => {
         secondLogic.unmount()
     })
 
-    it('keeps trace display preferences stable across tab ids', () => {
-        const firstLogic = aiObservabilityTraceLogic({ tabId: 'first-tab' })
+    it('persists trace display preferences across remount', () => {
+        const firstLogic = aiObservabilityTraceLogic()
         firstLogic.mount()
         firstLogic.actions.setIsRenderingMarkdown(false)
         firstLogic.actions.setIsRenderingXml(true)
@@ -465,7 +489,7 @@ describe('AI observability persisted preferences', () => {
         firstLogic.actions.setTraceReviewPanelExpanded(true)
         firstLogic.unmount()
 
-        const secondLogic = aiObservabilityTraceLogic({ tabId: 'second-tab' })
+        const secondLogic = aiObservabilityTraceLogic()
         secondLogic.mount()
 
         expect(secondLogic.values.isRenderingMarkdown).toBe(false)
@@ -477,7 +501,7 @@ describe('AI observability persisted preferences', () => {
     })
 
     it('scopes explicit storage keys to the current team', () => {
-        const logic = aiObservabilityTraceLogic({ tabId: 'team-scoped-tab' })
+        const logic = aiObservabilityTraceLogic()
         logic.mount()
         logic.actions.setIsRenderingMarkdown(false)
 

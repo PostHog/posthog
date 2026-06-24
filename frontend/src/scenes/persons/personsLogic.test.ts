@@ -16,11 +16,12 @@ import { personsLogic } from './personsLogic'
 describe('personsLogic', () => {
     let logic: ReturnType<typeof personsLogic.build>
 
-    const mockPersonsApiHandler: MockSignature = (req) => {
-        if (['+', 'abc', 'xyz'].includes(req.url.searchParams.get('distinct_id') ?? '')) {
+    const mockPersonsApiHandler: MockSignature = ({ request }) => {
+        const url = new URL(request.url)
+        if (['+', 'abc', 'xyz'].includes(url.searchParams.get('distinct_id') ?? '')) {
             return [200, { results: ['person from api'] }]
         }
-        if (['test@test.com'].includes(req.url.searchParams.get('distinct_id') ?? '')) {
+        if (['test@test.com'].includes(url.searchParams.get('distinct_id') ?? '')) {
             return [
                 200,
                 {

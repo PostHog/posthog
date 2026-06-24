@@ -57,7 +57,7 @@ regression_11204 = "api/projects/6642/insights/trend/?events=%5B%7B%22id%22%3A%2
 @override_settings(SITE_URL="http://testserver")
 class TestCSVExporter(APIBaseTest):
     @pytest.fixture(autouse=True)
-    def patched_request(self) -> Generator[Any, None, None]:
+    def patched_request(self) -> Generator[Any]:
         with patch("products.exports.backend.tasks.csv_exporter.requests.request") as patched_request:
             mock_response = Mock()
             mock_response.status_code = 200
@@ -359,6 +359,47 @@ class TestCSVExporter(APIBaseTest):
 
             assert patched_make_api_call.call_count == 4
             patched_make_api_call.assert_called_with(mock.ANY, mock.ANY, 64, mock.ANY, mock.ANY, mock.ANY)
+
+    @patch("products.exports.backend.tasks.csv_exporter.logger")
+    def test_404_mid_export_returns_rows_already_fetched(self, _mock_logger: MagicMock) -> None:
+        # A cohort can be deleted mid-export, surfacing as a 404 partway through pagination.
+        # We should return what we already fetched rather than failing the whole export.
+        with patch("products.exports.backend.tasks.csv_exporter.make_api_call") as patched_make_api_call:
+            exported_asset = self._create_asset()
+
+            first_page = Mock()
+            first_page.json.return_value = {
+                "next": "http://testserver/api/cohort/1/persons?offset=512",
+                "results": [{"id": "abc", "distinct_id": "1"}],
+            }
+
+            not_found_error = HTTPError("404 Client Error")  # type: ignore[call-arg]
+            not_found_error.response = Mock()
+            not_found_error.response.status_code = 404
+            not_found_error.response.text = "Not found."
+
+            patched_make_api_call.side_effect = [first_page, not_found_error]
+
+            with self.settings(OBJECT_STORAGE_ENABLED=False):
+                csv_exporter.export_tabular(exported_asset)
+
+            assert patched_make_api_call.call_count == 2
+            assert exported_asset.content is not None
+            assert b"abc" in exported_asset.content
+
+    @patch("products.exports.backend.tasks.csv_exporter.logger")
+    def test_non_404_http_error_still_raises(self, _mock_logger: MagicMock) -> None:
+        with patch("products.exports.backend.tasks.csv_exporter.make_api_call") as patched_make_api_call:
+            exported_asset = self._create_asset()
+
+            server_error = HTTPError("500 Server Error")  # type: ignore[call-arg]
+            server_error.response = Mock()
+            server_error.response.status_code = 500
+            server_error.response.text = "Internal server error"
+            patched_make_api_call.side_effect = server_error
+
+            with pytest.raises(HTTPError):
+                csv_exporter.export_tabular(exported_asset)
 
     def test_limiting_query_as_expected(self) -> None:
         with self.settings(SITE_URL="https://app.posthog.com"):

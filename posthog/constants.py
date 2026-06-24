@@ -49,6 +49,7 @@ class AvailableFeature(StrEnum):
     SESSION_REPLAY_DATA_RETENTION = "session_replay_data_retention"
     AUDIT_LOGS = "audit_logs"
     APPROVALS = "approvals"
+    XAA_AUTHENTICATION = "xaa_authentication"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
@@ -65,6 +66,7 @@ TRENDS_BAR = "ActionsBar"
 TRENDS_BAR_VALUE = "ActionsBarValue"
 TRENDS_WORLD_MAP = "WorldMap"
 TRENDS_BOLD_NUMBER = "BoldNumber"
+TRENDS_METRIC = "Metric"
 TRENDS_CALENDAR_HEATMAP = "CalendarHeatmap"
 TRENDS_BOX_PLOT = "BoxPlot"
 
@@ -78,7 +80,7 @@ NON_TIME_SERIES_DISPLAY_TYPES = [
     TRENDS_CALENDAR_HEATMAP,
 ]
 # Sync with frontend NON_BREAKDOWN_DISPLAY_TYPES
-NON_BREAKDOWN_DISPLAY_TYPES = [TRENDS_BOLD_NUMBER, TRENDS_CALENDAR_HEATMAP, TRENDS_BOX_PLOT]
+NON_BREAKDOWN_DISPLAY_TYPES = [TRENDS_BOLD_NUMBER, TRENDS_METRIC, TRENDS_CALENDAR_HEATMAP, TRENDS_BOX_PLOT]
 
 # CONSTANTS
 INSIGHT_TRENDS = "TRENDS"
@@ -108,6 +110,7 @@ DISPLAY_TYPES = Literal[
     "ActionsBarValue",
     "WorldMap",
     "BoldNumber",
+    "Metric",
     "CalendarHeatmap",
 ]
 

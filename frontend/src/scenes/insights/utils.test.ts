@@ -214,12 +214,25 @@ describe('formatBreakdownLabel()', () => {
             breakdown_type: 'cohort',
         }
         expect(formatBreakdownLabel(cohort.id, breakdownFilter1, [cohort as any], identity)).toEqual(cohort.name)
+    })
 
-        const breakdownFilter2: BreakdownFilter = {
+    it('falls back to a human-readable label when the cohort is not in the list', () => {
+        const breakdownFilter: BreakdownFilter = {
             breakdown: [3],
             breakdown_type: 'cohort',
         }
-        expect(formatBreakdownLabel(3, breakdownFilter2, [], identity)).toEqual('3')
+        // When the cohorts list isn't loaded/found, never render the bare id — use `Cohort <id>`.
+        expect(formatBreakdownLabel(3, breakdownFilter, [], identity)).toEqual('Cohort 3')
+        expect(formatBreakdownLabel(3, breakdownFilter, undefined, identity)).toEqual('Cohort 3')
+        expect(formatBreakdownLabel('3', breakdownFilter, [], identity)).toEqual('Cohort 3')
+    })
+
+    it('resolves the cohort name when the cohort is present in the list', () => {
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: [cohort.id],
+            breakdown_type: 'cohort',
+        }
+        expect(formatBreakdownLabel(cohort.id, breakdownFilter, [cohort as any], identity)).toEqual(cohort.name)
     })
 
     it('handles cohort breakdowns with all users', () => {
@@ -344,6 +357,17 @@ describe('formatBreakdownLabel()', () => {
             breakdown_type: 'event',
         }
         expect(formatBreakdownLabel(input, breakdownFilter, [], identity)).toEqual(expected)
+    })
+
+    it.each([
+        ['201 chars stays intact', 'b'.repeat(201)],
+        ['very long HTML error page stays intact', '<html>' + 'x'.repeat(22000) + '</html>'],
+    ])('keeps full label when truncation is disabled: %s', (_desc, input) => {
+        const breakdownFilter: BreakdownFilter = {
+            breakdown: 'error_message',
+            breakdown_type: 'event',
+        }
+        expect(formatBreakdownLabel(input, breakdownFilter, [], identity, undefined, undefined, false)).toEqual(input)
     })
 
     it('handles multi-breakdowns', () => {

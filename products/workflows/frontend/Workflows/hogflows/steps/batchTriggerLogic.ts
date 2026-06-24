@@ -2,14 +2,12 @@ import { actions, afterMount, kea, key, listeners, path, props, propsChanged, re
 import { loaders } from 'kea-loaders'
 
 import api, { ApiError } from 'lib/api'
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
 
 import { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { HogFlowAction } from '../types'
 import type { batchTriggerLogicType } from './batchTriggerLogicType'
-
-export const BLAST_RADIUS_LIMIT = 5000
 
 export interface BatchTriggerLogicProps {
     id?: string | 'new'

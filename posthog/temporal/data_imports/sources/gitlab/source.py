@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -10,6 +11,7 @@ from posthog.schema import (
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -28,6 +30,8 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class GitLabSource(ResumableSource[GitLabSourceConfig, GitLabResumeConfig]):
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.GITLAB
@@ -41,6 +45,7 @@ class GitLabSource(ResumableSource[GitLabSourceConfig, GitLabResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.GIT_LAB,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="GitLab",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Sync issues, merge requests, commits, pipelines, and more from a GitLab project.
@@ -49,7 +54,6 @@ Create a personal access token in your GitLab **User settings > Access tokens** 
 For self-managed GitLab, set the instance URL (for example `https://gitlab.example.com`); leave it as `https://gitlab.com` for GitLab.com.""",
             iconPath="/static/services/gitlab.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/gitlab",
-            unreleasedSource=True,
             fields=cast(
                 list[FieldType],
                 [
@@ -80,6 +84,11 @@ For self-managed GitLab, set the instance URL (for example `https://gitlab.examp
                 ],
             ),
         )
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.gitlab.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {

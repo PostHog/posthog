@@ -1,7 +1,9 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -16,6 +18,7 @@ from posthog.temporal.data_imports.sources.common.base import (
     FieldType,
     ResumableSource,
 )
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -32,6 +35,8 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PinterestAdsSource(ResumableSource[PinterestAdsSourceConfig, PinterestAdsResumeConfig], OAuthMixin):
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.PINTERESTADS
@@ -48,9 +53,10 @@ class PinterestAdsSource(ResumableSource[PinterestAdsSourceConfig, PinterestAdsR
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.PINTEREST_ADS,
+            category=DataWarehouseSourceCategory.ADVERTISING,
             label="Pinterest Ads",
             caption="Collect campaign data, ad performance, and advertising metrics from Pinterest Ads. Ensure you have granted PostHog access to your Pinterest Ads account, learn how to do this in [the documentation](https://posthog.com/docs/cdp/sources/pinterest-ads).",
-            releaseStatus="beta",
+            releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/pinterest_ads.png",
             docsUrl="https://posthog.com/docs/cdp/sources/pinterest-ads",
             fields=cast(
@@ -96,6 +102,11 @@ class PinterestAdsSource(ResumableSource[PinterestAdsSourceConfig, PinterestAdsR
         except Exception as e:
             capture_exception(e)
             return False, f"Failed to validate Pinterest Ads credentials: {str(e)}"
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.pinterest_ads.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
 
     def get_schemas(
         self,

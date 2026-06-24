@@ -92,79 +92,36 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         experiment.save()
         return holdout
 
+    def test_deleted_feature_flag_tombstone_uses_original_key_in_prepared_query(self):
+        feature_flag = self.create_feature_flag(key="deleted-funnels-flag")
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        original_key = feature_flag.key
+        feature_flag.key = f"{original_key}:deleted:{feature_flag.id}"
+        feature_flag.deleted = True
+        feature_flag.save(update_fields=["key", "deleted"])
+
+        query_runner = ExperimentFunnelsQueryRunner(
+            query=ExperimentFunnelsQuery(
+                experiment_id=experiment.id,
+                kind="ExperimentFunnelsQuery",
+                funnels_query=FunnelsQuery(
+                    series=[EventsNode(event="$pageview"), EventsNode(event="purchase")],
+                    dateRange={"date_from": "2020-01-01", "date_to": "2020-01-14"},
+                ),
+            ),
+            team=self.team,
+        )
+
+        assert query_runner.prepared_funnels_query.breakdownFilter is not None
+        self.assertEqual(
+            query_runner.prepared_funnels_query.breakdownFilter.breakdown,
+            f"$feature/{original_key}",
+        )
+
     @freeze_time("2020-01-01T12:00:00Z")
     def test_query_runner(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-
-        feature_flag_property = f"$feature/{feature_flag.key}"
-
-        funnels_query = FunnelsQuery(
-            series=[EventsNode(event="$pageview"), EventsNode(event="purchase")],
-            dateRange={"date_from": "2020-01-01", "date_to": "2020-01-14"},
-        )
-        experiment_query = ExperimentFunnelsQuery(
-            experiment_id=experiment.id,
-            kind="ExperimentFunnelsQuery",
-            funnels_query=funnels_query,
-        )
-
-        experiment.metrics = [{"type": "primary", "query": experiment_query.model_dump()}]
-        experiment.save()
-
-        for variant, purchase_count in [("control", 6), ("test", 8)]:
-            for i in range(10):
-                _create_person(distinct_ids=[f"user_{variant}_{i}"], team_id=self.team.pk)
-                _create_event(
-                    team=self.team,
-                    event="$pageview",
-                    distinct_id=f"user_{variant}_{i}",
-                    timestamp="2020-01-02T12:00:00Z",
-                    properties={feature_flag_property: variant},
-                )
-                if i < purchase_count:
-                    _create_event(
-                        team=self.team,
-                        event="purchase",
-                        distinct_id=f"user_{variant}_{i}",
-                        timestamp="2020-01-02T12:01:00Z",
-                        properties={feature_flag_property: variant},
-                    )
-
-        flush_persons_and_events()
-
-        query_runner = ExperimentFunnelsQueryRunner(
-            query=ExperimentFunnelsQuery(**experiment.metrics[0]["query"]), team=self.team
-        )
-        result = query_runner.calculate()
-
-        self.assertEqual(len(result.variants), 2)
-
-        control_variant = next(variant for variant in result.variants if variant.key == "control")
-        test_variant = next(variant for variant in result.variants if variant.key == "test")
-
-        self.assertEqual(control_variant.success_count, 6)
-        self.assertEqual(control_variant.failure_count, 4)
-        self.assertEqual(test_variant.success_count, 8)
-        self.assertEqual(test_variant.failure_count, 2)
-
-        self.assertAlmostEqual(result.probability["control"], 0.2, delta=0.1)
-        self.assertAlmostEqual(result.probability["test"], 0.8, delta=0.1)
-
-        self.assertEqual(result.significant, False)
-        self.assertEqual(result.significance_code, ExperimentSignificanceCode.NOT_ENOUGH_EXPOSURE)
-        self.assertEqual(result.expected_loss, 1.0)
-
-        self.assertAlmostEqual(result.credible_intervals["control"][0], 0.3, delta=0.1)
-        self.assertAlmostEqual(result.credible_intervals["control"][1], 0.8, delta=0.1)
-        self.assertAlmostEqual(result.credible_intervals["test"][0], 0.5, delta=0.1)
-        self.assertAlmostEqual(result.credible_intervals["test"][1], 0.9, delta=0.1)
-
-    @freeze_time("2020-01-01T12:00:00Z")
-    def test_query_runner_v2(self):
-        feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.save()
 
         feature_flag_property = f"$feature/{feature_flag.key}"
 

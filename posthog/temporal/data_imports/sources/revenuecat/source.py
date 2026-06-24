@@ -6,6 +6,7 @@ import pyarrow as pa
 from asgiref.sync import async_to_sync
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -23,6 +24,7 @@ from posthog.temporal.data_imports.sources.common.base import (
     WebhookDeletionResult,
     WebhookSource,
 )
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -92,6 +94,8 @@ class RevenueCatSource(
     ResumableSource[RevenueCatSourceConfig, RevenueCatResumeConfig],
     WebhookSource[RevenueCatSourceConfig],
 ):
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.REVENUECAT
@@ -110,6 +114,7 @@ class RevenueCatSource(
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.REVENUE_CAT,
+            category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="RevenueCat",
             caption=(
                 "Connect your RevenueCat project using a "
@@ -142,13 +147,15 @@ class RevenueCatSource(
                         required=True,
                         placeholder="proj1a2b3c4d5e",
                         caption=(
-                            "Find this in your RevenueCat dashboard URL: `app.revenuecat.com/projects/<project_id>`."
+                            "The id that starts with `proj`, found in your RevenueCat dashboard URL: "
+                            "`app.revenuecat.com/projects/<project_id>`. You can paste either the id "
+                            "or the full URL."
                         ),
                         secret=False,
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             featureFlag="dwh-revenuecat",
             webhookSetupCaption=(
                 "PostHog tries to register a webhook integration in RevenueCat using your "
@@ -181,6 +188,11 @@ class RevenueCatSource(
                 ],
             ),
         )
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.revenuecat.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {

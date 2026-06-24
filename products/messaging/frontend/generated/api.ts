@@ -17,6 +17,7 @@ import type {
     MessagingTemplatesListParams,
     PaginatedMessageCategoryListApi,
     PaginatedMessageTemplateListApi,
+    PatchedDesignPatchApi,
     PatchedMessageCategoryApi,
     PatchedMessageTemplateApi,
 } from './api.schemas'
@@ -43,7 +44,7 @@ export const getMessagingCategoriesListUrl = (projectId: string, params?: Messag
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -157,8 +158,8 @@ export const getMessagingCategoriesImportFromCustomerioCreateUrl = (projectId: s
 
 /**
  * Import subscription topics and globally unsubscribed users from Customer.io API.
-Persists the App API key in Integration(kind="customerio-app").
-If no app_api_key is provided, reuses the stored Integration key.
+ * Persists the App API key in Integration(kind="customerio-app").
+ * If no app_api_key is provided, reuses the stored Integration key.
  */
 export const messagingCategoriesImportFromCustomerioCreate = async (
     projectId: string,
@@ -179,7 +180,7 @@ export const getMessagingCategoriesImportPreferencesCsvCreateUrl = (projectId: s
 
 /**
  * Import customer preferences from CSV file
-Expected CSV columns: id, email, cio_subscription_preferences
+ * Expected CSV columns: id, email, cio_subscription_preferences
  */
 export const messagingCategoriesImportPreferencesCsvCreate = async (
     projectId: string,
@@ -215,7 +216,7 @@ export const getMessagingCategoriesOptoutSyncConfigRetrieveUrl = (projectId: str
 
 /**
  * Get the Customer.io sync configuration state for this team.
-Used by the frontend to derive step completion.
+ * Used by the frontend to derive step completion.
  */
 export const messagingCategoriesOptoutSyncConfigRetrieve = async (
     projectId: string,
@@ -284,12 +285,12 @@ export const getMessagingCategoriesSaveTrackConfigCreateUrl = (projectId: string
 
 /**
  * Save Customer.io Track API credentials and/or toggle outbound sync.
-
-Accepts:
-  - site_id (optional): set on first creation only
-  - api_key (optional): set on first creation only
-  - region (optional): "us" or "eu", set on first creation only
-  - track_enabled (required): enable or disable outbound sync
+ *
+ * Accepts:
+ *   - site_id (optional): set on first creation only
+ *   - api_key (optional): set on first creation only
+ *   - region (optional): "us" or "eu", set on first creation only
+ *   - track_enabled (required): enable or disable outbound sync
  */
 export const messagingCategoriesSaveTrackConfigCreate = async (
     projectId: string,
@@ -310,10 +311,10 @@ export const getMessagingCategoriesSaveWebhookConfigCreateUrl = (projectId: stri
 
 /**
  * Save webhook signing secret and/or toggle the Customer.io webhook sync.
-
-Accepts:
-  - webhook_signing_secret (optional): set on first creation only
-  - webhook_enabled (required): enable or disable the webhook
+ *
+ * Accepts:
+ *   - webhook_signing_secret (optional): set on first creation only
+ *   - webhook_enabled (required): enable or disable the webhook
  */
 export const messagingCategoriesSaveWebhookConfigCreate = async (
     projectId: string,
@@ -402,7 +403,7 @@ export const getMessagingTemplatesListUrl = (projectId: string, params?: Messagi
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -507,5 +508,23 @@ export const messagingTemplatesDestroy = async (
     return apiMutator<unknown>(getMessagingTemplatesDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getMessagingTemplatesDesignPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/messaging_templates/${id}/design/`
+}
+
+export const messagingTemplatesDesignPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedDesignPatchApi?: PatchedDesignPatchApi,
+    options?: RequestInit
+): Promise<MessageTemplateApi> => {
+    return apiMutator<MessageTemplateApi>(getMessagingTemplatesDesignPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedDesignPatchApi),
     })
 }

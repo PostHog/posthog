@@ -13,6 +13,10 @@ import type {
     AccountNotebookApi,
     AccountsListParams,
     AccountsNotebooksListParams,
+    CustomPropertyDefinitionApi,
+    CustomPropertyDefinitionsListParams,
+    CustomPropertyValueApi,
+    CustomPropertyValueWriteApi,
     CustomerJourneyApi,
     CustomerJourneysListParams,
     CustomerProfileConfigApi,
@@ -21,10 +25,12 @@ import type {
     GroupsTypesMetricsListParams,
     PaginatedAccountListApi,
     PaginatedAccountNotebookListApi,
+    PaginatedCustomPropertyDefinitionListApi,
     PaginatedCustomerJourneyListApi,
     PaginatedCustomerProfileConfigListApi,
     PaginatedGroupUsageMetricListApi,
     PatchedAccountApi,
+    PatchedCustomPropertyDefinitionApi,
     PatchedCustomerJourneyApi,
     PatchedCustomerProfileConfigApi,
     PatchedGroupUsageMetricApi,
@@ -52,7 +58,7 @@ export const getAccountsListUrl = (projectId: string, params?: AccountsListParam
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -91,6 +97,39 @@ export const accountsCreate = async (
     })
 }
 
+export const getAccountsCustomPropertyValuesListUrl = (projectId: string, accountId: string) => {
+    return `/api/projects/${projectId}/accounts/${accountId}/custom_property_values/`
+}
+
+export const accountsCustomPropertyValuesList = async (
+    projectId: string,
+    accountId: string,
+    options?: RequestInit
+): Promise<CustomPropertyValueApi[]> => {
+    return apiMutator<CustomPropertyValueApi[]>(getAccountsCustomPropertyValuesListUrl(projectId, accountId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountsCustomPropertyValuesCreateUrl = (projectId: string, accountId: string) => {
+    return `/api/projects/${projectId}/accounts/${accountId}/custom_property_values/`
+}
+
+export const accountsCustomPropertyValuesCreate = async (
+    projectId: string,
+    accountId: string,
+    customPropertyValueWriteApi: CustomPropertyValueWriteApi,
+    options?: RequestInit
+): Promise<CustomPropertyValueApi> => {
+    return apiMutator<CustomPropertyValueApi>(getAccountsCustomPropertyValuesCreateUrl(projectId, accountId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(customPropertyValueWriteApi),
+    })
+}
+
 export const getAccountsNotebooksListUrl = (
     projectId: string,
     accountId: string,
@@ -100,7 +139,7 @@ export const getAccountsNotebooksListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -231,12 +270,128 @@ export const accountsDestroy = async (projectId: string, id: string, options?: R
     })
 }
 
+export const getCustomPropertyDefinitionsListUrl = (
+    projectId: string,
+    params?: CustomPropertyDefinitionsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/custom_property_definitions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/custom_property_definitions/`
+}
+
+export const customPropertyDefinitionsList = async (
+    projectId: string,
+    params?: CustomPropertyDefinitionsListParams,
+    options?: RequestInit
+): Promise<PaginatedCustomPropertyDefinitionListApi> => {
+    return apiMutator<PaginatedCustomPropertyDefinitionListApi>(
+        getCustomPropertyDefinitionsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getCustomPropertyDefinitionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/custom_property_definitions/`
+}
+
+export const customPropertyDefinitionsCreate = async (
+    projectId: string,
+    customPropertyDefinitionApi: NonReadonly<CustomPropertyDefinitionApi>,
+    options?: RequestInit
+): Promise<CustomPropertyDefinitionApi> => {
+    return apiMutator<CustomPropertyDefinitionApi>(getCustomPropertyDefinitionsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(customPropertyDefinitionApi),
+    })
+}
+
+export const getCustomPropertyDefinitionsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/custom_property_definitions/${id}/`
+}
+
+export const customPropertyDefinitionsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CustomPropertyDefinitionApi> => {
+    return apiMutator<CustomPropertyDefinitionApi>(getCustomPropertyDefinitionsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCustomPropertyDefinitionsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/custom_property_definitions/${id}/`
+}
+
+export const customPropertyDefinitionsUpdate = async (
+    projectId: string,
+    id: string,
+    customPropertyDefinitionApi: NonReadonly<CustomPropertyDefinitionApi>,
+    options?: RequestInit
+): Promise<CustomPropertyDefinitionApi> => {
+    return apiMutator<CustomPropertyDefinitionApi>(getCustomPropertyDefinitionsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(customPropertyDefinitionApi),
+    })
+}
+
+export const getCustomPropertyDefinitionsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/custom_property_definitions/${id}/`
+}
+
+export const customPropertyDefinitionsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedCustomPropertyDefinitionApi?: NonReadonly<PatchedCustomPropertyDefinitionApi>,
+    options?: RequestInit
+): Promise<CustomPropertyDefinitionApi> => {
+    return apiMutator<CustomPropertyDefinitionApi>(getCustomPropertyDefinitionsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedCustomPropertyDefinitionApi),
+    })
+}
+
+export const getCustomPropertyDefinitionsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/custom_property_definitions/${id}/`
+}
+
+export const customPropertyDefinitionsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getCustomPropertyDefinitionsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getCustomerJourneysListUrl = (projectId: string, params?: CustomerJourneysListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -342,7 +497,7 @@ export const getCustomerProfileConfigsListUrl = (projectId: string, params?: Cus
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -456,7 +611,7 @@ export const getGroupsTypesMetricsListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 

@@ -6,9 +6,10 @@ import api, { PaginatedResponse } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { GENERATED_DASHBOARD_PREFIX } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { idToKey, isUserLoggedIn } from 'lib/utils'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { isUserLoggedIn } from 'lib/utils/getAppContext'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+import { idToKey } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -186,6 +187,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                 const updatedAttribute = Object.keys(payload)[0]
                 if (updatedAttribute === 'name' || updatedAttribute === 'description' || updatedAttribute === 'tags') {
                     eventUsageLogic.actions.reportDashboardFrontEndUpdate(
+                        id,
                         updatedAttribute,
                         values.rawDashboards[id]?.[updatedAttribute]?.length || 0,
                         payload[updatedAttribute].length
@@ -247,7 +249,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                         pinned: true,
                     }
                 )
-                eventUsageLogic.actions.reportDashboardPinToggled(true, source)
+                eventUsageLogic.actions.reportDashboardPinToggled(id, true, source)
                 return getQueryBasedDashboard(response)!
             },
             unpinDashboard: async ({ id, source }) => {
@@ -257,7 +259,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
                         pinned: false,
                     }
                 )
-                eventUsageLogic.actions.reportDashboardPinToggled(false, source)
+                eventUsageLogic.actions.reportDashboardPinToggled(id, false, source)
                 return getQueryBasedDashboard(response)!
             },
             duplicateDashboard: async ({ id, name, show, duplicateTiles }) => {
