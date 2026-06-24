@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -46,6 +46,7 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
         setHoursBack: (hours: number) => ({ hours }),
         setTeamIdFilter: (teamId: string) => ({ teamId }),
         setExperimentIdFilter: (experimentId: string) => ({ experimentId }),
+        setShowSubQueries: (show: boolean) => ({ show }),
     }),
     reducers({
         search: [
@@ -70,6 +71,12 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
             '',
             {
                 setExperimentIdFilter: (_, { experimentId }) => experimentId,
+            },
+        ],
+        showSubQueries: [
+            false,
+            {
+                setShowSubQueries: (_, { show }) => show,
             },
         ],
     }),
@@ -115,6 +122,17 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
             },
         ],
     })),
+    selectors({
+        // The precompute-build INSERTs are sub-queries of a top-level read; hide them by default so the
+        // table reflects what a user actually waited for, with a toggle to surface them for debugging.
+        visibleSlowestQueries: [
+            (s) => [s.slowestQueries, s.showSubQueries],
+            (slowestQueries, showSubQueries): SlowestQuery[] =>
+                showSubQueries
+                    ? slowestQueries
+                    : slowestQueries.filter((query) => query.experiment_query_surface !== 'precompute_build'),
+        ],
+    }),
     listeners(({ actions }) => ({
         setSearch: async (_, breakpoint) => {
             await breakpoint(300)

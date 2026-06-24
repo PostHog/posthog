@@ -36,14 +36,22 @@ export function QueryPerformance(): JSX.Element {
         precomputationTeams,
         precomputationTeamsLoading,
         search,
-        slowestQueries,
+        visibleSlowestQueries,
         slowestQueriesLoading,
+        showSubQueries,
         hoursBack,
         teamIdFilter,
         experimentIdFilter,
     } = useValues(queryPerformanceLogic)
-    const { setSearch, setPrecomputation, setHoursBack, loadSlowestQueries, setTeamIdFilter, setExperimentIdFilter } =
-        useActions(queryPerformanceLogic)
+    const {
+        setSearch,
+        setPrecomputation,
+        setHoursBack,
+        loadSlowestQueries,
+        setTeamIdFilter,
+        setExperimentIdFilter,
+        setShowSubQueries,
+    } = useActions(queryPerformanceLogic)
 
     if (!user?.is_staff) {
         return (
@@ -306,10 +314,17 @@ export function QueryPerformance(): JSX.Element {
                                     >
                                         Refresh
                                     </LemonButton>
+                                    <LemonSwitch
+                                        label="Show sub-queries"
+                                        checked={showSubQueries}
+                                        onChange={setShowSubQueries}
+                                        size="small"
+                                        bordered
+                                    />
                                 </div>
                                 <LemonTable
                                     columns={slowestQueryColumns}
-                                    dataSource={slowestQueries}
+                                    dataSource={visibleSlowestQueries}
                                     loading={slowestQueriesLoading}
                                     emptyState="No queries found in this time range"
                                     pagination={{ pageSize: 20 }}
