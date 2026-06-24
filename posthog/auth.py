@@ -596,7 +596,7 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
             # Function-level import keeps the heavier id_jag module off auth.py's foundational import path.
             from posthog.api.id_jag import get_allowed_resources  # noqa: PLC0415
 
-            allowed_audiences = get_allowed_resources()
+            allowed_resources = get_allowed_resources()
 
             # Try the active signing key first, then any keys being rotated out. A wrong
             # key fails the signature check, so we move on; a key that matches but fails
@@ -608,7 +608,7 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
                         token,
                         verification_key,
                         algorithms=["RS256"],
-                        audience=allowed_audiences,
+                        audience=allowed_resources,
                         issuer=site_url,
                         leeway=settings.ID_JAG_CLOCK_SKEW_SECONDS,
                         options={

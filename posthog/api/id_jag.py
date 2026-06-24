@@ -343,8 +343,11 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
     resource = claims.get("resource")
     if not resource:
         raise InvalidGrantError("ID-JAG is missing the resource claim (RFC 8707)")
-    if resource.rstrip("/") not in get_allowed_resources():
+    resource = resource.rstrip("/")
+    if resource not in get_allowed_resources():
         raise InvalidTargetError(f"ID-JAG resource {resource!r} does not match this resource server")
+    # Store the normalized value back so the minted token's `aud` is consistent.
+    claims["resource"] = resource
 
     client_id = claims.get("client_id")
     if not client_id:
@@ -418,7 +421,7 @@ def _construct_access_token_payload(
         "iss": _get_site_url(),
         "sub": _get_sub(provider_name, cast(str, claims.get("sub"))),
         "email": verified_email,
-        "aud": claims["resource"].rstrip("/"),
+        "aud": claims.get("resource"),
         "client_id": claims.get("client_id"),
         "scope": " ".join(granted_scopes),
         "app_org": provider_name,
