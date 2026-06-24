@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal, Union
+from typing import Literal, Optional, Union
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
@@ -238,7 +238,7 @@ def conversion_window_to_seconds(conversion_window: int, conversion_window_unit:
     return conversion_window * multipliers[conversion_window_unit]
 
 
-def experiment_window_end(experiment: Experiment, as_of: datetime) -> datetime:
+def analysis_window_end(end_date: Optional[datetime], as_of: datetime) -> datetime:
     """Upper edge of an experiment's analysis window, evaluated at ``as_of``.
 
     The window can't extend past the evaluation point ``as_of`` nor past the experiment's
@@ -248,47 +248,61 @@ def experiment_window_end(experiment: Experiment, as_of: datetime) -> datetime:
     - ``as_of`` at/after ``end_date``  -> ``end_date`` (stopped; the common "view it later" case)
     - ``as_of`` before ``end_date``    -> ``as_of`` (a timeseries point taken mid-experiment)
 
-    For an ordinary "current results" query the runner passes ``as_of = end_date or now`` (see
-    :class:`ExperimentQueryRunner`), so a stopped experiment resolves to ``end_date`` and a running
-    one to ``now``. A recalc passes its frozen run snapshot; a timeseries backfill passes each
-    historical day — which is why an ``as_of`` *below* ``end_date`` must win, so per-day points stay
-    distinct instead of all collapsing onto ``end_date``.
+    For an ordinary "current results" query the caller passes ``as_of = end_date or now``, so a stopped
+    experiment resolves to ``end_date`` and a running one to ``now``. A recalc passes its frozen run
+    snapshot; a timeseries backfill passes each historical day — which is why an ``as_of`` *below*
+    ``end_date`` must win, so per-day points stay distinct instead of all collapsing onto ``end_date``.
 
     The historical "results keep growing after end_date" bug: the run snapshot (``now``, always at or
     after a stopped experiment's ``end_date``) was used as the edge *instead of* ``end_date``, so the
     window kept extending to now. Capping at ``end_date`` fixes it while preserving the sub-window.
 
-    ``as_of`` must be timezone-aware.
+    Value-based on purpose. A caller holding a serialized query whose result is cached under a key
+    hashed from that query (the exposure runner) must pass the query's ``end_date`` here, not live
+    model state — otherwise the key can describe a window the result wasn't computed for. Callers that
+    hold the model use the :func:`experiment_window_end` wrapper.
+
+    ``as_of`` (and ``end_date`` when set) must be timezone-aware.
     """
-    if experiment.end_date is None:
+    if end_date is None:
         return as_of
-    return min(as_of, experiment.end_date)
+    return min(as_of, end_date)
 
 
-def experiment_window(experiment: Experiment, team: Team, as_of: datetime) -> DateRange:
-    """Single source of truth for an experiment's analysis ``DateRange``.
+def analysis_window(
+    start_date: Optional[datetime], end_date: Optional[datetime], team: Team, as_of: datetime
+) -> DateRange:
+    """Single source of truth for an experiment's analysis ``DateRange``, from raw start/end dates.
 
-    Replaces the scattered ``override_end_date or end_date or now`` derivations. The upper edge
-    always comes from :func:`experiment_window_end` (earlier of ``as_of`` and ``end_date``), so no
-    call site can extend the window past ``end_date``. A draft experiment (no ``start_date``) has no
-    window.
+    Replaces the scattered ``override_end_date or end_date or now`` derivations. The upper edge always
+    comes from :func:`analysis_window_end` (earlier of ``as_of`` and ``end_date``), so no call site can
+    extend the window past ``end_date``. A draft experiment (no ``start_date``) has no window.
     """
-    if experiment.start_date is None:
+    if start_date is None:
         return DateRange(date_from=None, date_to=None, explicitDate=True)
 
-    start_date = experiment.start_date
-    end_date = experiment_window_end(experiment, as_of)
+    resolved_end = analysis_window_end(end_date, as_of)
 
     if team.timezone:
         tz = ZoneInfo(team.timezone)
         start_date = start_date.astimezone(tz)
-        end_date = end_date.astimezone(tz)
+        resolved_end = resolved_end.astimezone(tz)
 
     return DateRange(
         date_from=start_date.isoformat(),
-        date_to=end_date.isoformat(),
+        date_to=resolved_end.isoformat(),
         explicitDate=True,
     )
+
+
+def experiment_window_end(experiment: Experiment, as_of: datetime) -> datetime:
+    """:func:`analysis_window_end` for a caller that holds the experiment model."""
+    return analysis_window_end(experiment.end_date, as_of)
+
+
+def experiment_window(experiment: Experiment, team: Team, as_of: datetime) -> DateRange:
+    """:func:`analysis_window` for a caller that holds the experiment model."""
+    return analysis_window(experiment.start_date, experiment.end_date, team, as_of)
 
 
 def get_source_time_window(

@@ -33,7 +33,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 )
 from products.experiments.backend.analysis_health import evaluate_bias_risk
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
-from products.experiments.backend.hogql_queries.base_query_utils import experiment_window, experiment_window_end
+from products.experiments.backend.hogql_queries.base_query_utils import analysis_window, analysis_window_end
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
 from products.experiments.backend.hogql_queries.experiment_query_builder import (
     ExperimentQueryBuilder,
@@ -72,10 +72,14 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
         self.feature_flag_key: str = self.experiment.feature_flag.key_without_tombstone()
 
-        # Evaluation point for the analysis window. The exposure chart always shows the experiment's
-        # own window — [start, end_date] once stopped, [start, now] while running — so it shares the
-        # same default as_of and primitive as ExperimentQueryRunner (experiment_window caps at end_date).
-        self.as_of = self.experiment.end_date or datetime.now(UTC)
+        # The analysis window comes from the query, not live model state: this runner's result is
+        # cached under a key hashed from self.query (see get_cache_payload), so the window it computes
+        # must match the window the query declares — otherwise the key can describe a window the result
+        # wasn't computed for. A running experiment serializes end_date=None; expand that to now() here
+        # (lazily, so the moving instant stays out of the cache key and the 24h TTL governs refresh).
+        self.window_start = datetime.fromisoformat(self.query.start_date) if self.query.start_date else None
+        self.window_end_date = datetime.fromisoformat(self.query.end_date) if self.query.end_date else None
+        self.as_of = self.window_end_date or datetime.now(UTC)
 
         # Holdout is intentionally not appended: holdout users were never exposed to
         # the experiment, so they don't belong in the exposure chart. self.query.holdout
@@ -97,17 +101,17 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         )
 
     def _get_date_range(self) -> DateRange:
-        """Returns the experiment's analysis DateRange from the model (see experiment_window)."""
-        return experiment_window(self.experiment, self.team, self.as_of)
+        """The experiment's analysis DateRange, derived from the query (see analysis_window)."""
+        return analysis_window(self.window_start, self.window_end_date, self.team, self.as_of)
 
     def _ensure_exposures_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
         query_string, placeholders = builder.get_exposure_query_for_precomputation()
 
-        if not self.experiment.start_date:
+        if not self.window_start:
             raise ValidationError("Experiment must have a start date for lazy computation")
 
-        date_from = self.experiment.start_date
-        date_to = experiment_window_end(self.experiment, self.as_of)
+        date_from = self.window_start
+        date_to = analysis_window_end(self.window_end_date, self.as_of)
 
         return ensure_precomputed(
             team=self.team,
@@ -253,8 +257,9 @@ class ExperimentExposuresQueryRunner(QueryRunner):
     def _evaluate_bias_risk(self, total_exposures: dict[str, int]) -> BiasRisk | None:
         # Shipping a variant rewrites the flag to 100/0, which would falsely trip the
         # uneven-split check on data collected under the original split. The warning is
-        # also unactionable post-stop — both CTAs only help while running.
-        if self.experiment.end_date is not None:
+        # also unactionable post-stop — both CTAs only help while running. Read end from the
+        # query (the cache key), so the running/stopped decision matches the cached window.
+        if self.window_end_date is not None:
             return None
         multivariate_data = self.query.feature_flag.get("filters", {}).get("multivariate", {})
         flag_variants = multivariate_data.get("variants", [])
