@@ -40,8 +40,8 @@ jobs:
 
                   # Collect every outdated, unresolved, single-comment thread authored by a known bot.
                   # gh --paginate follows the GraphQL cursor (needs the $endCursor variable + pageInfo),
-                  # so PRs with more than 100 review threads are fully covered. A fetch or filter error
-                  # fails the pipeline (pipefail) rather than masquerading as "nothing to resolve".
+                  # so PRs with more than 100 review threads are fully covered. Best-effort: a fetch or
+                  # parse error logs a warning and exits cleanly (pipefail surfaces it; the check stays green).
                   ids=$(gh api graphql --paginate \
                       -f query='
                         query($owner: String!, $repo: String!, $pr: Int!, $endCursor: String) {
@@ -66,7 +66,10 @@ jobs:
                           .data.repository.pullRequest.reviewThreads.nodes[]
                           | select(.isOutdated == true and .isResolved == false and .comments.totalCount == 1)
                           | select(.comments.nodes[0].author.login as $author | ($bots | split(" ") | any(. == $author)))
-                          | .id')
+                          | .id') || {
+                    echo "::warning::failed to fetch or parse review threads; skipping"
+                    exit 0
+                  }
 
                   if [ -z "$ids" ]; then
                     echo "No outdated bot threads to resolve"
