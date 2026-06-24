@@ -45,23 +45,41 @@ export function lastAssistantTextPreview(
 export const SEARCH_TEXT_MAX = 10_000
 
 /**
+ * Strip the routing/context envelopes the triggers prepend to a user message so
+ * the digest captures what was actually said, not channel ids / page JSON:
+ *  - `[slack]` + `key: value` lines, ended by a blank line (ingress slack trigger)
+ *  - `[console-context] … [/console-context]` JSON block (the console chat client)
+ *  - `<@U…>` Slack mention tokens
+ */
+function stripInjectedContext(text: string): string {
+    return text
+        .replace(/^\s*\[([a-z][a-z0-9-]*)\][\s\S]*?\[\/\1\]\s*/i, '')
+        .replace(/^\s*\[slack\][\s\S]*?\n[ \t]*\n/i, '')
+        .replace(/<@[A-Z0-9]+>/g, ' ')
+        .trim()
+}
+
+/**
  * Plain-text digest of a conversation (user + assistant text, in order,
  * whitespace-collapsed and truncated): the value persisted to `search_text` so
- * search + the list preview never touch the full JSONB transcript. Tool results
- * and thinking are skipped — noisy and unbounded.
+ * search + the list preview never touch the full JSONB transcript. User
+ * messages have their injected context envelope stripped; tool results and
+ * thinking are skipped — noisy and unbounded.
  */
 export function buildSearchText(conversation: ConversationMessage[], max: number = SEARCH_TEXT_MAX): string {
     const parts: string[] = []
     for (const m of conversation) {
         if (m.role === 'user') {
-            if (typeof m.content === 'string') {
-                parts.push(m.content)
-            } else {
-                for (const c of m.content) {
-                    if (c.type === 'text') {
-                        parts.push(c.text)
-                    }
-                }
+            const raw =
+                typeof m.content === 'string'
+                    ? m.content
+                    : m.content
+                          .filter((c) => c.type === 'text')
+                          .map((c) => c.text)
+                          .join(' ')
+            const cleaned = stripInjectedContext(raw)
+            if (cleaned) {
+                parts.push(cleaned)
             }
         } else if (m.role === 'assistant') {
             for (const c of m.content) {

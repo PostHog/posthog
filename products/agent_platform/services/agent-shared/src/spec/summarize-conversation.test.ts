@@ -128,6 +128,38 @@ describe('buildSearchText', () => {
         ]
         expect(buildSearchText(c)).toBe('hello')
     })
+
+    it('strips the slack envelope + mention, keeping the real message', () => {
+        const slack = user(
+            [
+                '[slack]',
+                'channel: C0BA3AC9TT2',
+                'ts: 1782215525.31',
+                'thread_ts: 1782215525.31',
+                'user: U03DCBD92JX',
+                'mention: true',
+                'dm: false',
+                '',
+                '<@U0BCBQVL62G> what happened today?',
+            ].join('\n')
+        )
+        expect(buildSearchText([slack, assistant({ text: 'A few things.' })])).toBe(
+            'what happened today? A few things.'
+        )
+    })
+
+    it('strips the [console-context] block, keeping the real message', () => {
+        const consoleMsg = user(
+            '[console-context]\n{"page":"agent","project_id":1}\n[/console-context]\n\ncan you test out this agent'
+        )
+        expect(buildSearchText([consoleMsg])).toBe('can you test out this agent')
+    })
+
+    it('leaves cron / plain messages untouched', () => {
+        expect(buildSearchText([user('Build the morning briefing for 2026-06-23.')])).toBe(
+            'Build the morning briefing for 2026-06-23.'
+        )
+    })
 })
 
 describe('previewText', () => {
