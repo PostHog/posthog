@@ -16,7 +16,14 @@
 
 import cronParser from 'cron-parser'
 
-import { AgentRevision, AgentSpec, BundleStore, getSecretAllowedHosts } from '@posthog/agent-shared'
+import {
+    AgentRevision,
+    AgentSpec,
+    BundleStore,
+    type CatalogModel,
+    getSecretAllowedHosts,
+    validateModelPolicy,
+} from '@posthog/agent-shared'
 import { hasNativeTool } from '@posthog/agent-tools'
 
 export type ValidationCode =
@@ -29,6 +36,7 @@ export type ValidationCode =
     | 'duplicate_cron_name'
     | 'unknown_cron_placeholder'
     | 'secret_no_host_binding'
+    | 'invalid_model'
 
 /**
  * Non-blocking soft signals — surface to the author before freeze, but the
@@ -97,7 +105,11 @@ export interface ValidationReport {
     resolved_natives: string[]
 }
 
-export async function validateRevisionBundle(rev: AgentRevision, bundle: BundleStore): Promise<ValidationReport> {
+export async function validateRevisionBundle(
+    rev: AgentRevision,
+    bundle: BundleStore,
+    catalogModels: CatalogModel[] = []
+): Promise<ValidationReport> {
     const errors: ValidationError[] = []
     const warnings: ValidationWarning[] = []
     const resolvedNatives: string[] = []
@@ -119,6 +131,17 @@ export async function validateRevisionBundle(rev: AgentRevision, bundle: BundleS
             code: 'missing_entrypoint',
             message: `entrypoint "${entrypoint}" is not present in the bundle`,
             pointer: 'spec.entrypoint',
+        })
+    }
+
+    // model_policy must reference models the gateway serves — catch it at freeze,
+    // not as a runtime 400 in a user's session. Fails open on an empty
+    // (unreachable) catalog; see gateway-catalog.ts.
+    for (const issue of validateModelPolicy(rev.spec.model_policy, catalogModels)) {
+        errors.push({
+            code: 'invalid_model',
+            message: `model_policy: "${issue.model}" ${issue.reason}`,
+            pointer: issue.pointer,
         })
     }
 

@@ -52,6 +52,7 @@ import {
     AgentSpec,
     AgentSpecSchema,
     ApprovalRequest,
+    GatewayCatalog,
     ApprovalStore,
     applyApprovalDecision,
     BundleEntry,
@@ -125,6 +126,9 @@ export interface JanitorServerOpts {
      * non-`/healthz` request. Unset → middleware is skipped (dev / harness).
      */
     internalSigningKey?: string
+    /** Served-model catalog. When set, `validate` + freeze reject a model_policy
+     *  the gateway doesn't serve; omitted → the model check is skipped. */
+    gatewayCatalog?: GatewayCatalog
 }
 
 const SessionStateSchema = z.enum(['queued', 'running', 'completed', 'closed', 'failed'])
@@ -887,8 +891,9 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                     })
             )
             const validateInput: AgentRevision = { ...ok.rev!, spec: derivedSpec }
+            const freezeCatalog = opts.gatewayCatalog ? await opts.gatewayCatalog.list() : []
             const report = await instrument({ key: 'freeze.validate', log, context: ctx }, () =>
-                validateRevisionBundle(validateInput, opts.bundles!)
+                validateRevisionBundle(validateInput, opts.bundles!, freezeCatalog)
             )
             if (!report.ok) {
                 res.status(422).json({ error: 'validation_failed', report })
@@ -922,7 +927,8 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 res.status(404).json({ error: 'revision_not_found' })
                 return
             }
-            const report = await validateRevisionBundle(rev, opts.bundles!)
+            const validateCatalog = opts.gatewayCatalog ? await opts.gatewayCatalog.list() : []
+            const report = await validateRevisionBundle(rev, opts.bundles!, validateCatalog)
             res.json(report)
         })
     )

@@ -693,11 +693,13 @@ export const ModelPolicySchema = z.discriminatedUnion('mode', [
 ])
 
 /** `auto` level → priority-ordered, cross-provider list (also the fallback chain).
- *  v1 constant; could move to DB/gateway later. Ids must be gateway-advertisable. */
+ *  The curated grouping layer over the gateway catalog: ids here MUST be
+ *  gateway-served. `validateModelLevels` (gateway-catalog.ts) guards that in
+ *  CI; the runner filters this against the live catalog at session start. */
 export const MODEL_POLICY_LEVELS: Record<z.infer<typeof ModelLevelSchema>, readonly string[]> = {
     low: ['anthropic/claude-haiku-4-5', 'openai/gpt-5-mini'],
     medium: ['anthropic/claude-sonnet-4-6', 'openai/gpt-5'],
-    high: ['anthropic/claude-opus-4-7', 'openai/gpt-5-thinking', 'anthropic/claude-sonnet-4-6'],
+    high: ['anthropic/claude-opus-4-7', 'openai/gpt-5-pro', 'anthropic/claude-sonnet-4-6'],
 }
 
 /**

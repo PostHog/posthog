@@ -20,6 +20,7 @@ import { Static, TSchema, Type } from 'typebox'
 import type { MemoryStore } from '../memory/store'
 import type { TabularStore } from '../memory/tabular-store'
 import type { Credential } from '../runtime/credential-broker'
+import type { GatewayCatalog } from '../runtime/gateway-catalog'
 import type { HttpFetcher } from '../runtime/http-client'
 
 export type { Static, TSchema }
@@ -157,6 +158,13 @@ export interface ToolContext {
      * true` to exercise the noop branch.
      */
     isPreview: boolean
+    /**
+     * Served-model catalog for the `@posthog/agent-applications-models` tool.
+     * Read it here, not via `ctx.http` — the catalog routes through a
+     * DirectHttpClient (the gateway is cluster-internal; smokescreen would deny
+     * a proxy-bound call). Absent when the gateway is off.
+     */
+    gatewayCatalog?: GatewayCatalog
 }
 
 /** Outcome of `ctx.identity.resolve`: a usable credential, a link to send, or no-go.

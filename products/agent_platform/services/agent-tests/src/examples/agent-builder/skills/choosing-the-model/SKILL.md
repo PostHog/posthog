@@ -167,12 +167,11 @@ The user might ask for the wrong policy. Push back gently:
 ## Cost estimation when the user asks
 
 Don't ballpark from a hardcoded table — prices and the models behind
-each `auto` level move. **Read the live gateway catalog**: `GET
-/v1/models` returns every model the gateway serves with its per-token
-input / output pricing. Pull it, find the model(s) the policy resolves
-to, and quote from that. For an `auto` level, the catalog plus the
-maintained level→list mapping is your ground truth for which models
-are actually in play.
+each `auto` level move. **Call `@posthog/agent-applications-models`**: it
+returns every served model with its provider, context window, and
+per-million-token pricing. Find the model(s) the policy resolves to and
+quote from that. It's also the source of truth for which model ids are
+valid in a `model_policy` — promote rejects any that aren't served.
 
 For actual billed spend on an existing agent, use
 `@posthog/get-llm-total-costs-for-project`.

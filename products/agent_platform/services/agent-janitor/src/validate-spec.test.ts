@@ -5,6 +5,7 @@ import {
     AgentRevision,
     AgentSpecSchema,
     buildTestBundleStore,
+    type CatalogModel,
     newTestPrefix,
     S3BundleStore,
     wipeTestPrefix,
@@ -64,6 +65,38 @@ describe('validateRevisionBundle', () => {
         expect(report.ok).toBe(true)
         expect(report.errors).toEqual([])
         expect(report.resolved_natives).toEqual([])
+    })
+
+    it('flags a manual model the gateway does not serve; passes one it does', async () => {
+        const bundles = makeBundles()
+        await bundles.write('rev1', 'agent.md', 'hi')
+        const catalog: CatalogModel[] = [
+            {
+                canonical: 'anthropic/claude-haiku-4.5',
+                id: 'claude-haiku-4-5-20251001',
+                aliases: ['claude-haiku-4-5'],
+                owned_by: 'anthropic',
+                context_window: 200_000,
+                pricing: { prompt: 0.000001, completion: 0.000005 },
+            },
+        ]
+        const bad = mkRev({ model_policy: { mode: 'manual', models: [{ model: 'openai/gpt-nope' }] } })
+        const badReport = await validateRevisionBundle(bad, bundles, catalog)
+        expect(badReport.ok).toBe(false)
+        expect(badReport.errors).toContainEqual(
+            expect.objectContaining({ code: 'invalid_model', pointer: 'spec.model_policy.models[0].model' })
+        )
+        // the default rev's haiku model resolves against this catalog
+        const good = await validateRevisionBundle(mkRev(), bundles, catalog)
+        expect(good.errors.filter((e) => e.code === 'invalid_model')).toEqual([])
+    })
+
+    it('fails open on the model check when no catalog is supplied', async () => {
+        const bundles = makeBundles()
+        await bundles.write('rev1', 'agent.md', 'hi')
+        const rev = mkRev({ model_policy: { mode: 'manual', models: [{ model: 'made/up' }] } })
+        const report = await validateRevisionBundle(rev, bundles)
+        expect(report.errors.filter((e) => e.code === 'invalid_model')).toEqual([])
     })
 
     it('reports missing_entrypoint when agent.md is absent', async () => {

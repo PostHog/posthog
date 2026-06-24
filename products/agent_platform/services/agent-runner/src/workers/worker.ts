@@ -35,6 +35,8 @@ import {
     IdentityLinkStateStore,
     IdentityStore,
     FailureNotifier,
+    filterServableEntries,
+    GatewayCatalog,
     GatewayClient,
     getSecretAllowedHosts,
     HttpFetcher,
@@ -73,6 +75,9 @@ export interface WorkerDeps {
      * or test faux models. Applied per-entry across `modelPolicyToList(spec)`.
      */
     resolveModel?: (specModel: string) => Model<string>
+    /** Served-model catalog. Filters the resolved model list to servable models
+     *  before dispatch and feeds `ToolContext` for the models tool. */
+    gatewayCatalog?: GatewayCatalog
     /**
      * Per-session API key resolver. The resolved key is passed to the driver's
      * loop config; defaults to no key. On the ai-gateway path this returns
@@ -520,12 +525,13 @@ export class Worker {
                         )
                 }
             }
-            // Resolve the full priority-ordered model list once per session.
-            // `modelPolicyToList` expands the policy (auto level or manual list).
-            // Each entry resolves through the same path as before (gateway or
-            // direct), carrying its per-entry reasoning for the fallback wrapper.
+            // Expand the policy to a priority list, then drop entries the gateway
+            // no longer serves (no-op without a catalog; never empties a non-empty
+            // list — see `filterServableEntries`).
             const resolveModel = this.deps.resolveModel ?? resolveModelCached
-            const models = modelPolicyToList(rev.spec).map((entry) => ({
+            const catalogModels = this.deps.gatewayCatalog ? await this.deps.gatewayCatalog.list() : []
+            const policyEntries = filterServableEntries(modelPolicyToList(rev.spec), catalogModels)
+            const models = policyEntries.map((entry) => ({
                 model: resolveModel(entry.model),
                 reasoning: entry.reasoning,
             }))
@@ -561,6 +567,7 @@ export class Worker {
                 mcpFailures,
                 http: this.deps.http,
                 posthogApiBaseUrl: this.deps.posthogApiBaseUrl,
+                gatewayCatalog: this.deps.gatewayCatalog,
                 maxOutputTokensOverride: this.deps.maxOutputTokens,
                 inputs: this.deps.queue,
                 onTurnPersist: async (s) => {

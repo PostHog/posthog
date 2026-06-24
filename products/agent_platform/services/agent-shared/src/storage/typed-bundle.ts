@@ -83,7 +83,7 @@ export type TypedTool = z.infer<typeof TypedToolSchema>
  */
 export const TypedSpecSchema = z
     .object({
-        model: z.string().min(1).optional(),
+        model_policy: z.unknown().optional(),
         triggers: z.array(z.unknown()).optional(),
         mcps: z.array(z.unknown()).optional(),
         identity_providers: z.array(z.unknown()).optional(),

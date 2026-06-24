@@ -158,19 +158,31 @@ class JanitorUpstreamError(APIException):
         # still see the upstream payload.
         if isinstance(e.body, dict):
             msg = e.body.get("error") or e.body.get("detail") or e.body.get("message")
-            # Append structured upstream errors (custom-tool compile failures carry
-            # errors=[{kind, message, line}]) so the caller + concierge model see the
-            # concrete reason, not just the opaque `tool_compile_failed` code.
+            # Append structured upstream errors so the caller + concierge model
+            # see the concrete reason, not just the opaque code. Two shapes:
+            # custom-tool compile -> top-level errors=[{kind, message, line}];
+            # freeze/validate -> report.errors=[{code, message, pointer}] (e.g.
+            # invalid_model from the model_policy gate).
             sub_errors = e.body.get("errors")
+            if not sub_errors:
+                report = e.body.get("report")
+                sub_errors = report.get("errors") if isinstance(report, dict) else None
             if isinstance(sub_errors, list) and sub_errors:
                 parts: list[str] = []
                 for er in sub_errors:
                     if not isinstance(er, dict) or not isinstance(er.get("message"), str):
                         continue
-                    kind = er.get("kind")
+                    kind = er.get("kind") or er.get("code")
                     line = er.get("line")
+                    pointer = er.get("pointer")
                     prefix = f"{kind}: " if isinstance(kind, str) else ""
-                    suffix = f" (line {line})" if isinstance(line, int) else ""
+                    suffix = (
+                        f" (line {line})"
+                        if isinstance(line, int)
+                        else f" [{pointer}]"
+                        if isinstance(pointer, str)
+                        else ""
+                    )
                     parts.append(f"{prefix}{er['message']}{suffix}")
                 if parts:
                     joined = "; ".join(parts)

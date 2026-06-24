@@ -54,6 +54,7 @@ import {
     CredentialBroker,
     createLogger,
     FRAMEWORK_PROMPT_VERSION,
+    GatewayCatalog,
     GatewayClient,
     generationSpanId,
     HttpFetcher,
@@ -213,6 +214,8 @@ export interface RunSessionDeps {
     http: HttpFetcher
     /** Base URL for the PostHog API. Forwarded into `ToolContext.posthogApiBaseUrl`. */
     posthogApiBaseUrl: string
+    /** Gateway model catalog; forwarded into `ToolContext.gatewayCatalog`. */
+    gatewayCatalog?: GatewayCatalog
     /** Operator override (AGENT_MAX_OUTPUT_TOKENS); clamps below model.maxTokens. */
     maxOutputTokensOverride?: number
     /**
@@ -457,6 +460,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             mcpClients: deps.mcpClients,
             http: deps.http,
             posthogApiBaseUrl: deps.posthogApiBaseUrl,
+            gatewayCatalog: deps.gatewayCatalog,
         }
         const { tools, nameToId } = await buildAgentTools(rev, toolDeps)
 
