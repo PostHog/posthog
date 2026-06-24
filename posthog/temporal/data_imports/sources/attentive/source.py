@@ -31,6 +31,7 @@ from posthog.temporal.data_imports.sources.common.base import (
     WebhookSource,
     WebhookSyncResult,
 )
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
@@ -139,6 +140,11 @@ class AttentiveSource(
         self, config: AttentiveSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
         return api_client.validate_credentials(config.api_key)
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.attentive.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {

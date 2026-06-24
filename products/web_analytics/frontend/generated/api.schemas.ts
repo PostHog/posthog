@@ -431,6 +431,11 @@ export interface AchievementDefinitionApi {
     stages: AchievementStageApi[]
 }
 
+/**
+ * Map of unlocked stage number (as a string, '1'-'5') to the ISO timestamp it was unlocked.
+ */
+export type AchievementProgressApiUnlockedAt = { [key: string]: string }
+
 export interface AchievementProgressApi {
     /** Track this progress row belongs to. */
     track_key: string
@@ -443,6 +448,8 @@ export interface AchievementProgressApi {
      * @nullable
      */
     last_computed_at: string | null
+    /** Map of unlocked stage number (as a string, '1'-'5') to the ISO timestamp it was unlocked. */
+    unlocked_at: AchievementProgressApiUnlockedAt
 }
 
 export interface PendingCelebrationApi {

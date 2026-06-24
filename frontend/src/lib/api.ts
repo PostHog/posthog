@@ -1,5 +1,10 @@
 import { EventSourceMessage, fetchEventSource } from '@microsoft/fetch-event-source'
 import { encodeParams } from 'kea-router'
+
+// Re-exported so code outside frontend/ (e.g. products/*/frontend) can type stream
+// callbacks without importing @microsoft/fetch-event-source directly — that package
+// only resolves from frontend/node_modules, not the repo root.
+export type { EventSourceMessage } from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
@@ -172,6 +177,7 @@ import {
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
     ObjectMediaPreview,
+    OrganizationFeatureFlagKeysResponse,
     OrganizationFeatureFlags,
     OrganizationFeatureFlagsCopyBody,
     OrganizationMemberScopedApiKeysResponse,
@@ -260,7 +266,7 @@ import type {
 
 import { AgentMode } from '../queries/schema'
 import type { AttachedContext, MaxUIContext } from '../scenes/max/maxTypes'
-import { AlertSimulationResult, AlertType, AlertTypeWrite } from './components/Alerts/types'
+import { AlertConfig, AlertSimulationResult, AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
     ErrorTrackingFingerprint,
     ErrorTrackingRelease,
@@ -478,6 +484,10 @@ export class ApiRequest {
             .addPathComponent(orgId)
             .addPathComponent('feature_flags')
             .addPathComponent('copy_flags')
+    }
+
+    public organizationFeatureFlagKeys(orgId: OrganizationType['id']): ApiRequest {
+        return this.organizations().addPathComponent(orgId).addPathComponent('feature_flags').addPathComponent('keys')
     }
 
     // # Projects
@@ -2627,6 +2637,15 @@ const api = {
         ): Promise<{ success: FeatureFlagType[]; failed: any }> {
             return await new ApiRequest().copyOrganizationFeatureFlags(orgId).create({ data })
         },
+        async keys(
+            orgId: OrganizationType['id'] = ApiConfig.getCurrentOrganizationId(),
+            params: { team_ids: number[]; search?: string; limit?: number; offset?: number }
+        ): Promise<OrganizationFeatureFlagKeysResponse> {
+            return await new ApiRequest()
+                .organizationFeatureFlagKeys(orgId)
+                .withQueryString(toParams(params, true))
+                .get()
+        },
     },
 
     actions: {
@@ -4141,12 +4160,17 @@ const api = {
         ): Promise<RawAnnotationType> {
             return await new ApiRequest().annotation(annotationId).update({ data })
         },
-        async list(params?: { limit?: number; offset?: number }): Promise<PaginatedResponse<RawAnnotationType>> {
+        async list(params?: {
+            limit?: number
+            offset?: number
+            hidden_in_user_interface?: boolean
+        }): Promise<PaginatedResponse<RawAnnotationType>> {
             return await new ApiRequest()
                 .annotations()
                 .withQueryString({
                     limit: params?.limit,
                     offset: params?.offset,
+                    hidden_in_user_interface: params?.hidden_in_user_interface,
                 })
                 .get()
         },
@@ -5334,13 +5358,38 @@ const api = {
             async openStream(
                 taskId: Task['id'],
                 runId: TaskRun['id'],
-                options: { signal: AbortSignal; lastEventId?: string; startLatest?: boolean }
+                options: {
+                    signal: AbortSignal
+                    lastEventId?: string
+                    startLatest?: boolean
+                    /**
+                     * When set, read the stream from the standalone agent-proxy instead of the Django
+                     * endpoint. `baseUrl` is the proxy origin the server resolved via `stream_token`,
+                     * and the run-scoped `token` is sent as a Bearer header. Absent ⇒ the same-origin
+                     * Django stream (session auth) — the pre-proxy behavior.
+                     */
+                    proxyTarget?: { baseUrl: string; token: string }
+                }
             ): Promise<Response> {
                 const headers: Record<string, string> = {}
-                let request = new ApiRequest().taskRun(taskId, runId).withAction('stream')
                 if (options.lastEventId) {
                     headers['Last-Event-ID'] = options.lastEventId
-                } else if (options.startLatest) {
+                }
+                if (options.proxyTarget) {
+                    // Absolute proxy URL with a run-scoped Bearer token — `ApiRequest` only builds
+                    // Django-relative paths, so assemble the proxy URL directly. `start=latest` applies
+                    // only on a first connect (no resume cursor); the Last-Event-ID header, when
+                    // present, takes precedence and an exact resume ignores `start`.
+                    const base = options.proxyTarget.baseUrl.replace(/\/+$/, '')
+                    const url =
+                        !options.lastEventId && options.startLatest
+                            ? `${base}/v1/runs/${runId}/stream?start=latest`
+                            : `${base}/v1/runs/${runId}/stream`
+                    headers['Authorization'] = `Bearer ${options.proxyTarget.token}`
+                    return api.getResponse(url, { signal: options.signal, headers })
+                }
+                let request = new ApiRequest().taskRun(taskId, runId).withAction('stream')
+                if (!options.lastEventId && options.startLatest) {
                     request = request.withQueryString({ start: 'latest' })
                 }
                 return request.getResponse({ signal: options.signal, headers })
@@ -6401,6 +6450,7 @@ const api = {
             detector_config: Record<string, any>
             series_index?: number
             date_from?: string
+            config?: AlertConfig | null
         }): Promise<AlertSimulationResult> {
             return await new ApiRequest().alerts().withAction('simulate').create({ data })
         },

@@ -72,17 +72,23 @@ import type {
     ProjectSecretApiKeysListParams,
     PromotedProductIntentApi,
     PropertyDefinitionsListParams,
+    RevokeOtherSessionsResponseApi,
     SharingConfigurationApi,
     UserApi,
+    UserAuthSessionApi,
     UserGitHubLinkStartRequestApi,
     UserGitHubLinkStartResponseApi,
     UserPushTokenItemApi,
     UserPushTokenRegisterRequestApi,
     UserPushTokenUnregisterRequestApi,
+    UserSlackLinkStartRequestApi,
+    UserSlackLinkStartResponseApi,
+    UserSlackLinkableWorkspaceListResponseApi,
     UsersIntegrationsGithubBranchesRetrieveParams,
     UsersIntegrationsGithubReposRetrieveParams,
     UsersIntegrationsListParams,
     UsersListParams,
+    UsersLoginSessionsListParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -3179,8 +3185,21 @@ export const getUsersIntegrationsListUrl = (uuid: string, params?: UsersIntegrat
 }
 
 /**
- * `/api/users/@me/integrations/` — manage the user's personal GitHub integrations.
- * @summary List personal GitHub integrations
+ * Return the authenticated user's personal integrations of a given
+ * ``kind`` (``github`` or ``slack``).
+ *
+ * The response shape varies per kind because the underlying ``UserIntegration``
+ * rows carry different identity fields — GitHub rows expose
+ * ``installation_id`` / ``account`` / ``uses_shared_installation``; Slack
+ * rows expose ``slack_user_id`` / ``slack_team_id`` / ``slack_team_name``.
+ * Kind-specific destroy and start actions remain split so their distinct
+ * semantics (e.g. Slack's lack of "uninstall on last reference") stay
+ * explicit at the URL layer.
+ *
+ * Default of ``kind=github`` is load-bearing: mobile (``apps/mobile/...``)
+ * and the Code SDK (``packages/api-client/...``) both call this endpoint
+ * without a query param today and rely on receiving GitHub rows.
+ * @summary List the user's personal integrations of a given kind
  */
 export const usersIntegrationsList = async (
     uuid: string,
@@ -3348,6 +3367,155 @@ export const usersIntegrationsGithubStartCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(userGitHubLinkStartRequestApi),
+    })
+}
+
+export const getUsersIntegrationsSlackDestroyUrl = (uuid: string, slackUserId: string) => {
+    return `/api/users/${uuid}/integrations/slack/${slackUserId}/`
+}
+
+/**
+ * Remove a Slack identity link by Slack user id. Idempotent and
+ * flag-agnostic — users must always be able to unlink even after the
+ * feature flag is turned off.
+ * @summary Unlink a Slack identity
+ */
+export const usersIntegrationsSlackDestroy = async (
+    uuid: string,
+    slackUserId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getUsersIntegrationsSlackDestroyUrl(uuid, slackUserId), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getUsersIntegrationsSlackLinkableWorkspacesRetrieveUrl = (uuid: string) => {
+    return `/api/users/${uuid}/integrations/slack/linkable_workspaces/`
+}
+
+/**
+ * Return Slack workspaces in the user's organizations that they have
+ * not yet linked. The settings UI uses this list to decide whether to
+ * show a "Link my Slack account" button (non-empty list) and what to
+ * offer in the picker when several are connectable.
+ * @summary List Slack workspaces this user could link to
+ */
+export const usersIntegrationsSlackLinkableWorkspacesRetrieve = async (
+    uuid: string,
+    options?: RequestInit
+): Promise<UserSlackLinkableWorkspaceListResponseApi> => {
+    return apiMutator<UserSlackLinkableWorkspaceListResponseApi>(
+        getUsersIntegrationsSlackLinkableWorkspacesRetrieveUrl(uuid),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getUsersIntegrationsSlackStartCreateUrl = (uuid: string) => {
+    return `/api/users/${uuid}/integrations/slack/start/`
+}
+
+/**
+ * Mint a Sign-in-with-Slack invite URL initiated from settings, without
+ * Slack-DM context. The returned URL takes the user through PostHog login
+ * (already satisfied here), then to Slack OAuth, then back to our callback
+ * which writes the ``UserIntegration`` row.
+ *
+ * Without body params, falls back to the user's ``current_team`` and that
+ * team's first Slack ``Integration`` — works when there's exactly one
+ * linkable workspace. With ``team_id`` + ``slack_team_id``, links against
+ * the exact pair (what the frontend uses when a picker is shown).
+ *
+ * Refuses if the target team has no matching Slack workspace, if the
+ * feature flag is off for the workspace, or if the user is already linked
+ * to it.
+ * @summary Start Slack identity link from settings
+ */
+export const usersIntegrationsSlackStartCreate = async (
+    uuid: string,
+    userSlackLinkStartRequestApi?: UserSlackLinkStartRequestApi,
+    options?: RequestInit
+): Promise<UserSlackLinkStartResponseApi> => {
+    return apiMutator<UserSlackLinkStartResponseApi>(getUsersIntegrationsSlackStartCreateUrl(uuid), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(userSlackLinkStartRequestApi),
+    })
+}
+
+export const getUsersLoginSessionsListUrl = (uuid: string, params?: UsersLoginSessionsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/users/${uuid}/login_sessions/?${stringifiedParams}`
+        : `/api/users/${uuid}/login_sessions/`
+}
+
+/**
+ * List the cookie-auth login sessions for the current user. Self-only — never another user.
+ */
+export const usersLoginSessionsList = async (
+    uuid: string,
+    params?: UsersLoginSessionsListParams,
+    options?: RequestInit
+): Promise<UserAuthSessionApi[]> => {
+    return apiMutator<UserAuthSessionApi[]>(getUsersLoginSessionsListUrl(uuid, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getUsersLoginSessionsDestroyUrl = (uuid: string, sessionId: string) => {
+    return `/api/users/${uuid}/login_sessions/${sessionId}/`
+}
+
+/**
+ * Revoke a single login session belonging to the current user. Self-only.
+ *
+ * Requires recent auth (TimeSensitiveActionPermission) so a stolen cookie can't weaponize
+ * revocation, and is blocked while impersonating via ImpersonationBlockedPathsMiddleware.
+ */
+export const usersLoginSessionsDestroy = async (
+    uuid: string,
+    sessionId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getUsersLoginSessionsDestroyUrl(uuid, sessionId), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getUsersLoginSessionsRevokeOthersCreateUrl = (uuid: string) => {
+    return `/api/users/${uuid}/login_sessions/revoke_others/`
+}
+
+/**
+ * Revoke every login session for the current user except the one making this request. Self-only.
+ *
+ * Requires recent auth (TimeSensitiveActionPermission) so a stolen cookie can't weaponize the
+ * "log out everywhere else" lock-out, and is blocked while impersonating.
+ */
+export const usersLoginSessionsRevokeOthersCreate = async (
+    uuid: string,
+    options?: RequestInit
+): Promise<RevokeOtherSessionsResponseApi> => {
+    return apiMutator<RevokeOtherSessionsResponseApi>(getUsersLoginSessionsRevokeOthersCreateUrl(uuid), {
+        ...options,
+        method: 'POST',
     })
 }
 
