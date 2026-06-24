@@ -1002,7 +1002,7 @@ class EbaySourceConfig(config.Config):
 
 @config.config
 class ElasticemailSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1589,7 +1589,9 @@ class JobberSourceConfig(config.Config):
 
 @config.config
 class JotformSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu", "hipaa"] = config.value(default="us")
+    enterprise_domain: str | None = None
 
 
 @config.config
@@ -1790,7 +1792,7 @@ class MailerLiteSourceConfig(config.Config):
 
 @config.config
 class MailerSendSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -1945,7 +1947,8 @@ class MongoDBSourceConfig(config.Config):
 
 @config.config
 class MuxSourceConfig(config.Config):
-    pass
+    access_token_id: str
+    secret_key: str
 
 
 @config.config
@@ -2158,7 +2161,7 @@ class OracleSourceConfig(config.Config):
 
 @config.config
 class OrbSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2456,7 +2459,7 @@ class PyPISourceConfig(config.Config):
 
 @config.config
 class PylonSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -2913,7 +2916,8 @@ class SonarCloudSourceConfig(config.Config):
 
 @config.config
 class SparkPostSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -2949,7 +2953,7 @@ class StatsigSourceConfig(config.Config):
 
 @config.config
 class StatuspageSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2993,6 +2997,11 @@ class SupabaseSourceConfig(config.Config):
     connection_string: str | None = None
     schema: str | None = None
     ssh_tunnel: SSHTunnelConfig | None = None
+
+
+@config.config
+class SuperwallSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -3050,7 +3059,8 @@ class TeamtailorSourceConfig(config.Config):
 
 @config.config
 class TeamworkSourceConfig(config.Config):
-    pass
+    site: str
+    api_key: str
 
 
 @config.config
@@ -3302,7 +3312,8 @@ class WorkOSSourceConfig(config.Config):
 
 @config.config
 class WorkableSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_token: str
 
 
 @config.config
@@ -4047,6 +4058,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.STREAMLABS: StreamlabsSourceConfig,
         ExternalDataSourceType.STRIPE: StripeSourceConfig,
         ExternalDataSourceType.SUPABASE: SupabaseSourceConfig,
+        ExternalDataSourceType.SUPERWALL: SuperwallSourceConfig,
         ExternalDataSourceType.SURVEYMONKEY: SurveyMonkeySourceConfig,
         ExternalDataSourceType.SURVEYSPARROW: SurveySparrowSourceConfig,
         ExternalDataSourceType.SURVICATE: SurvicateSourceConfig,

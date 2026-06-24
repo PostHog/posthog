@@ -47,6 +47,7 @@ APIScopeObject = Literal[
     "element",
     "event_definition",
     "experiment",
+    "experiment_holdout",
     "experiment_saved_metric",
     "export",
     "external_data_schema",

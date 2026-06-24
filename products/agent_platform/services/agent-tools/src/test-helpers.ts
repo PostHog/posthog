@@ -15,6 +15,7 @@ export function makeCtx(overrides?: Partial<ToolContext>): ToolContext {
         },
         http: new HttpClient(),
         posthogApiBaseUrl: DEFAULT_POSTHOG_API_BASE_URL,
+        isPreview: false,
         ...overrides,
     }
 }
@@ -36,6 +37,7 @@ export function makeCapturingCtx(): {
         },
         http: new HttpClient(),
         posthogApiBaseUrl: DEFAULT_POSTHOG_API_BASE_URL,
+        isPreview: false,
     }
     return { ctx, logs }
 }

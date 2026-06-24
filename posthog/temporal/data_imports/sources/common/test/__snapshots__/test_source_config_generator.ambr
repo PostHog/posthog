@@ -588,6 +588,7 @@
           ExternalDataSourceType.STREAMLABS: StreamlabsSourceConfig,
           ExternalDataSourceType.STRIPE: StripeSourceConfig,
           ExternalDataSourceType.SUPABASE: SupabaseSourceConfig,
+          ExternalDataSourceType.SUPERWALL: SuperwallSourceConfig,
           ExternalDataSourceType.SURVEYMONKEY: SurveyMonkeySourceConfig,
           ExternalDataSourceType.SURVEYSPARROW: SurveySparrowSourceConfig,
           ExternalDataSourceType.SURVICATE: SurvicateSourceConfig,
