@@ -1343,6 +1343,8 @@ class FeatureFlagSerializer(
                         for cohort in [initial_cohort, *dependency_cohorts]:
                             if cohort.is_static:
                                 continue
+                            # Static cohorts have materialized membership, any preserved behavioral
+                            # filters are display-only and never evaluated, so skip them.
                             if any(cohort_prop.type == "behavioral" for cohort_prop in cohort.properties.flat):
                                 _validate_behavioral_cohort_for_feature_flag(
                                     cohort, allow_realtime_backfilled=self._allow_realtime_backfilled
