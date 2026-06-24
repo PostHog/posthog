@@ -15,7 +15,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { resolveAggregationGroupTypeIndex } from './constants'
+import { resolveAggregationGroupTypeIndex } from './aggregation'
 import { featureFlagReleaseConditionsLogic } from './featureFlagReleaseConditionsLogic'
 
 jest.mock('uuid', () => ({

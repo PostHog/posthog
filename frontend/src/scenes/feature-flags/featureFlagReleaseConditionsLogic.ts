@@ -33,7 +33,7 @@ import {
     UserBlastRadiusType,
 } from '~/types'
 
-import { resolveAggregationGroupTypeIndex } from './constants'
+import { resolveAggregationGroupTypeIndex } from './aggregation'
 import type { featureFlagReleaseConditionsLogicType } from './featureFlagReleaseConditionsLogicType'
 
 // A property filter targets people by their raw distinct id.
