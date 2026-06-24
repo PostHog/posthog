@@ -99,14 +99,20 @@ def resolve_skill_ref(team: Team, ref: dict) -> ResolvedSkill:
     name = ref.get("from_template")
     alias = ref.get("alias")
     version = ref.get("version")
+    # `source_version_id` is the immutable per-version row UUID a prior freeze
+    # stamped back onto the ref. When present it pins the exact version row —
+    # the truly immortal anchor — so a forked re-freeze can't drift to "latest".
+    source_version_id = ref.get("source_version_id")
     if not name or not alias:
         raise ValidationError(f"Skill reference is missing 'from_template' or 'alias': {ref!r}")
     if version is not None and not isinstance(version, int):
         raise ValidationError(f"Skill reference '{alias}' has a non-integer version: {version!r}")
 
-    skill = get_skill_by_name_from_db(team, name, version)
+    skill = get_skill_by_name_from_db(team, name, version, source_version_id)
     if skill is None:
-        pinned = f" v{version}" if version is not None else " (latest)"
+        pinned = (
+            f" {source_version_id}" if source_version_id else f" v{version}" if version is not None else " (latest)"
+        )
         raise ValidationError(f"Skill '{name}'{pinned} referenced by '{alias}' was not found in the store.")
 
     export = load_skill_export(skill)

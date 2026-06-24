@@ -100,12 +100,13 @@ class TestFreezeResolvesSkillRefs(APIBaseTest):
         client.put_skill = MagicMock(return_value={"ok": True})
         client.delete_skill = MagicMock(return_value={"ok": True})
         # A prior freeze materialized `skills/old/` from a store ref (its carried
-        # spec entry keeps `from_template` provenance); the author has since
-        # dropped it from refs, leaving just `triage`, so `old` must be swept.
+        # spec entry keeps server-stamped `source_version_id` provenance); the
+        # author has since dropped it from refs, leaving just `triage`, so `old`
+        # must be swept.
         self.revision.spec = {
             "model": "x",
             "triggers": [],
-            "skills": [{"id": "old", "path": "skills/old/SKILL.md", "from_template": "old-skill"}],
+            "skills": [{"id": "old", "path": "skills/old/SKILL.md", "source_version_id": "019e0000-0000-0000"}],
         }
         self.revision.save(update_fields=["spec"])
         client.manifest.return_value = {
@@ -145,6 +146,50 @@ class TestFreezeResolvesSkillRefs(APIBaseTest):
         client.freeze.assert_not_called()
         self.revision.refresh_from_db()
         self.assertEqual(self.revision.state, "draft")
+
+    @patch("products.agent_platform.backend.presentation.views._janitor")
+    def test_freeze_legacy_guard_not_bypassed_by_spoofed_from_template(self, mock_janitor: MagicMock) -> None:
+        client = mock_janitor.return_value
+        client.delete_skill = MagicMock(return_value={"ok": True})
+        # `from_template` is author-writable on a draft spec, so an attacker could
+        # add a fake one to a legacy inline entry to slip it past the guard and have
+        # the sweep silently drop it. The discriminant is the server-only
+        # `source_version_id`, which the write schema rejects — so the spoof still
+        # refuses.
+        self.revision.skill_refs = []
+        self.revision.spec = {
+            "model": "x",
+            "triggers": [],
+            "skills": [{"id": "legacy", "path": "skills/legacy/SKILL.md", "from_template": "spoofed"}],
+        }
+        self.revision.save(update_fields=["skill_refs", "spec"])
+
+        res = self.client.post(self.url)
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertIn("legacy", str(res.content))
+        client.delete_skill.assert_not_called()
+        client.freeze.assert_not_called()
+
+    @patch("products.agent_platform.backend.presentation.views._janitor")
+    def test_freeze_pins_unpinned_ref_version_back_into_skill_refs(self, mock_janitor: MagicMock) -> None:
+        client = mock_janitor.return_value
+        client.put_skill = MagicMock(return_value={"ok": True})
+        client.delete_skill = MagicMock(return_value={"ok": True})
+        client.manifest.return_value = {"files": [{"path": "agent.md"}]}
+        client.freeze.return_value = {
+            "bundle_sha256": "a" * 64,
+            "derived_spec": {"model": "x", "triggers": [], "skills": [], "tools": []},
+        }
+        # The default ref omits `version` (tracks latest). After freeze the row's
+        # skill_refs must carry the resolved version + source_version_id so a fork
+        # inherits a concrete pin instead of re-resolving latest.
+        res = self.client.post(self.url)
+        self.assertEqual(res.status_code, 200, res.content)
+        self.revision.refresh_from_db()
+        pinned = self.revision.skill_refs[0]
+        self.assertEqual(pinned["from_template"], "triage-helper")
+        self.assertEqual(pinned["version"], self.skill.version)
+        self.assertEqual(pinned["source_version_id"], str(self.skill.id))
 
     @patch("products.agent_platform.backend.presentation.views._janitor")
     def test_freeze_sweeps_leftover_folder_without_misclassifying_as_legacy(self, mock_janitor: MagicMock) -> None:

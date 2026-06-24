@@ -2109,8 +2109,19 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             scopes=get_authenticator_scopes(getattr(request, "successful_authenticator", None)),
             user_access_control=self.user_access_control,
         )
-        revision.skill_refs = [dict(r) for r in refs]
-        revision.save(update_fields=["skill_refs"])
+        # Lock the row and re-check state before writing: a concurrent freeze
+        # could have sealed the bundle and flipped this revision to `ready`
+        # between our first read and this write — writing `skill_refs` onto a
+        # frozen revision would leave the column describing skills the sealed
+        # bundle doesn't contain.
+        with transaction.atomic(using=WRITER_DB):
+            locked = AgentRevision.all_teams.using(WRITER_DB).select_for_update().get(pk=revision.pk)
+            if locked.state != "draft":
+                raise ValidationError(
+                    f"Cannot set skill references on a {locked.state} revision; only 'draft' is mutable."
+                )
+            locked.skill_refs = [dict(r) for r in refs]
+            locked.save(update_fields=["skill_refs"])
         revision.refresh_from_db()
         return Response(AgentRevisionSerializer(revision).data)
 
@@ -2359,17 +2370,21 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             for r in resolved_skills
         }
         # Migration guard for pre-store agents: a revision forked from one authored
-        # before the store became canonical carries inline skill entries (no
-        # `from_template`) in its spec. Detect them from the **spec** — the stable
-        # authoring record — not the bundle: a skill folder left behind by a failed
-        # prior freeze is not in the spec, so it is correctly swept on retry rather
-        # than misclassified as legacy and refused forever. If a legacy inline skill
-        # isn't covered by a current ref, refuse — silently dropping it would lose
-        # real content; the author must recreate it in the store and reference it.
+        # before the store became canonical carries inline skill entries in its
+        # spec with no store provenance. Discriminate on `source_version_id`, NOT
+        # `from_template`: `from_template` is author-writable on a draft spec (via
+        # partial_update), so trusting it lets an author spoof provenance and make
+        # the sweep silently drop the inline content this guard protects.
+        # `source_version_id` is only ever server-stamped at freeze and is rejected
+        # by the write spec schema (`additionalProperties: false`), so it can't be
+        # forged. Detect from the spec (stable record) not the bundle, so a folder
+        # left by a failed prior freeze — absent from the spec — is swept on retry
+        # rather than misclassified as legacy. An unreferenced inline skill is
+        # refused: silently dropping it would lose real content.
         legacy_orphans = sorted(
             sid
             for s in ((revision.spec or {}).get("skills") or [])
-            if (sid := s.get("id")) and not s.get("from_template") and sid not in aliases
+            if (sid := s.get("id")) and not s.get("source_version_id") and sid not in aliases
         )
         if legacy_orphans:
             raise ValidationError(
@@ -2405,16 +2420,32 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if not _is_sealed_bundle_conflict(e):
                 raise JanitorUpstreamError(e) from e
         result = self._call(janitor_client.freeze, str(revision.id))
-        revision.state = "ready"
-        revision.bundle_sha256 = result["bundle_sha256"]
+        # Pin resolved versions back into `skill_refs` so an unpinned ref becomes a
+        # concrete pin after its first freeze. A fork copies `skill_refs` verbatim,
+        # so without this an unpinned ref would re-resolve "latest" on the fork's
+        # freeze — drifting away from the bytes the parent shipped. `source_version_id`
+        # makes the pin immortal (resolve_skill_ref prefers it over `version`).
+        pinned_refs = [
+            {**ref, "version": r.version, "source_version_id": r.source_version_id}
+            for ref, r in zip(skill_refs, resolved_skills)
+        ]
+        fields: dict[str, Any] = {
+            "state": "ready",
+            "bundle_sha256": result["bundle_sha256"],
+            "skill_refs": pinned_refs,
+        }
         derived_spec = result.get("derived_spec")
         if derived_spec is not None:
             stamp_skill_provenance(derived_spec, provenance_by_alias)
-            revision.spec = derived_spec
-            revision.save(update_fields=["state", "bundle_sha256", "spec"])
-        else:
-            revision.save(update_fields=["state", "bundle_sha256"])
+            fields["spec"] = derived_spec
+        # Conditional draft→ready flip: only the first freeze of a draft wins, so
+        # two concurrent freezes can't both stamp the row, and a `set_skill_refs`
+        # that raced in can't leave `skill_refs` describing skills the sealed
+        # bundle doesn't contain (this write reasserts the materialized set).
+        updated = AgentRevision.all_teams.filter(pk=revision.pk, state="draft").update(**fields)
         revision.refresh_from_db()
+        if not updated and revision.state not in ("ready", "live"):
+            raise ValidationError(f"Revision is in state '{revision.state}'; only a 'draft' can be frozen.")
         return Response(
             {
                 **result,
