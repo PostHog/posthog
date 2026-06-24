@@ -137,7 +137,7 @@ export function AccountNotebooksExpansion({
         {
             title: 'Created by',
             key: 'created_by',
-            width: 220,
+            width: 160,
             sorter: true,
             render: (_, notebook) => {
                 const user = notebook.created_by
@@ -159,15 +159,15 @@ export function AccountNotebooksExpansion({
         {
             title: 'Created at',
             key: 'created_at',
-            width: 180,
+            width: 140,
             sorter: true,
             render: (_, notebook) => <TZLabel time={notebook.created_at} />,
         },
     ]
 
     return (
-        <div className="sticky left-0 w-[100cqw] p-3 bg-bg-light">
-            <div className="flex gap-8">
+        <div className="sticky left-0 w-[100cqw] max-w-full overflow-x-hidden p-3 bg-bg-light">
+            <div className="flex gap-4">
                 <div className="w-fit shrink-0">
                     <UsefulLinks accountId={accountId} />
                 </div>
@@ -182,13 +182,14 @@ export function AccountNotebooksExpansion({
                                 label: 'Notes',
                                 content: (
                                     <div className="flex flex-col gap-2">
-                                        <div className="flex items-center justify-between gap-2">
+                                        <div className="flex flex-wrap items-center justify-between gap-2">
                                             <LemonInput
                                                 type="search"
-                                                placeholder="Search notes by title or content"
+                                                placeholder="Search notes by title or content..."
                                                 value={searchTerm}
                                                 onChange={setSearchTerm}
-                                                className="max-w-xs"
+                                                size="small"
+                                                className="min-w-64"
                                             />
                                             <LemonButton
                                                 type="primary"

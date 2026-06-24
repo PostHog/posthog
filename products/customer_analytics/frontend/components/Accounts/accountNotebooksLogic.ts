@@ -18,7 +18,7 @@ import type {
 import type { accountNotebooksLogicType } from './accountNotebooksLogicType'
 import { AccountsEvents } from './constants'
 
-export const NOTES_PER_PAGE = 10
+export const NOTES_PER_PAGE = 5
 
 export const DEFAULT_NOTES_SORTING: Sorting = { columnKey: 'created_at', order: -1 }
 
