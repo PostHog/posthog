@@ -12,6 +12,7 @@ from posthog.temporal.data_imports.sources.segment.segment import (
     _build_url,
     _extract_rows,
     _next_cursor,
+    _redact_rows,
     get_rows,
     segment_source,
 )
@@ -87,6 +88,20 @@ class TestExtractRows:
         # `pagination` is a dict, not a list, so it must not be mistaken for the resource array.
         body = {"data": {"pagination": {"next": "x"}, "sources": [{"id": "s1"}]}}
         assert _extract_rows(body) == [{"id": "s1"}]
+
+
+class TestRedactRows:
+    def test_no_redacted_fields_returns_rows_unchanged(self) -> None:
+        rows = [{"id": "1", "settings": {"k": "v"}}]
+        assert _redact_rows(rows, frozenset()) == rows
+
+    def test_drops_only_the_named_fields(self) -> None:
+        rows = [{"id": "1", "settings": {"apiKey": "secret"}, "name": "keep"}]
+        assert _redact_rows(rows, frozenset({"settings"})) == [{"id": "1", "name": "keep"}]
+
+    def test_non_dict_rows_pass_through(self) -> None:
+        # Defensive: a malformed row that isn't a dict should not raise.
+        assert _redact_rows(["not-a-dict"], frozenset({"settings"})) == ["not-a-dict"]  # type: ignore[list-item]
 
 
 class TestNextCursor:
@@ -176,6 +191,19 @@ class TestGetRows:
 
         assert rows == [{"id": "s9"}]
         assert "pagination[cursor]=resumed" in captured_urls[0]
+
+    def test_credential_fields_are_redacted(self, monkeypatch: Any) -> None:
+        # Credential-like config must never reach the queryable warehouse table.
+        cases = [
+            ("destinations", {"id": "d1", "settings": {"apiKey": "secret"}}, {"id": "d1"}),
+            ("warehouses", {"id": "w1", "settings": {"password": "secret"}}, {"id": "w1"}),
+            ("sources", {"id": "s1", "writeKeys": ["wk_secret"]}, {"id": "s1"}),
+        ]
+        for endpoint, raw_row, expected_row in cases:
+            manager = _FakeResumableManager()
+            pages = [{"data": {endpoint: [raw_row], "pagination": {"next": None}}}]
+            rows = self._collect(endpoint, manager, monkeypatch, pages)
+            assert rows == [expected_row], endpoint
 
     def test_single_object_endpoint_yields_one_row_and_no_pagination(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()

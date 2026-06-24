@@ -93,6 +93,18 @@ def _extract_rows(data: dict[str, Any]) -> list[dict[str, Any]]:
     return []
 
 
+def _redact_rows(rows: list[dict[str, Any]], redacted_fields: frozenset[str]) -> list[dict[str, Any]]:
+    """Drop credential-like top-level fields (e.g. destination `settings`, source `writeKeys`) so
+    they never land in a queryable warehouse table. See `SegmentEndpointConfig.redacted_fields`.
+    """
+    if not redacted_fields:
+        return rows
+    return [
+        {key: value for key, value in row.items() if key not in redacted_fields} if isinstance(row, dict) else row
+        for row in rows
+    ]
+
+
 def _next_cursor(data: dict[str, Any]) -> str | None:
     payload = data.get("data", {})
     pagination = payload.get("pagination", {}) if isinstance(payload, dict) else {}
@@ -118,7 +130,7 @@ def get_rows(
         data = _fetch(session, f"{base_url}{config.path}", headers, logger)
         obj = data.get("data", {}).get(config.single_object_key)
         if obj:
-            yield [obj]
+            yield _redact_rows([obj], config.redacted_fields)
         return
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -132,7 +144,7 @@ def get_rows(
 
         rows = _extract_rows(data)
         if rows:
-            yield rows
+            yield _redact_rows(rows, config.redacted_fields)
 
         cursor = _next_cursor(data)
         if not cursor:

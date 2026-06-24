@@ -27,6 +27,12 @@ class SegmentEndpointConfig:
     partition_key: Optional[str] = None
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     should_sync_default: bool = True
+    # Top-level fields stripped from every row before it's persisted. Segment's config endpoints
+    # embed credential-like blobs — destination/warehouse connection `settings` (third-party API
+    # keys, DB passwords) and source `writeKeys`. These are free-form per integration, so there's
+    # no reliable allowlist of safe sub-keys; we drop the whole field rather than risk leaking
+    # secrets into a queryable warehouse table.
+    redacted_fields: frozenset[str] = field(default_factory=frozenset)
 
 
 # The Segment Public API is a workspace configuration/admin/usage API (not the event/Profile data
@@ -42,9 +48,11 @@ SEGMENT_ENDPOINTS: dict[str, SegmentEndpointConfig] = {
         path="/",
         single_object_key="workspace",
     ),
-    "sources": SegmentEndpointConfig(name="sources", path="/sources"),
-    "destinations": SegmentEndpointConfig(name="destinations", path="/destinations"),
-    "warehouses": SegmentEndpointConfig(name="warehouses", path="/warehouses"),
+    "sources": SegmentEndpointConfig(name="sources", path="/sources", redacted_fields=frozenset({"writeKeys"})),
+    "destinations": SegmentEndpointConfig(
+        name="destinations", path="/destinations", redacted_fields=frozenset({"settings"})
+    ),
+    "warehouses": SegmentEndpointConfig(name="warehouses", path="/warehouses", redacted_fields=frozenset({"settings"})),
     "tracking_plans": SegmentEndpointConfig(name="tracking_plans", path="/tracking-plans"),
     "transformations": SegmentEndpointConfig(name="transformations", path="/transformations"),
     "reverse_etl_models": SegmentEndpointConfig(name="reverse_etl_models", path="/reverse-etl-models"),

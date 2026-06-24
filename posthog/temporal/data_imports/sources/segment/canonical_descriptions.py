@@ -21,7 +21,6 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "name": "Human-readable name of the source.",
             "workspaceId": "Identifier of the workspace the source belongs to.",
             "enabled": "Whether the source is currently enabled.",
-            "writeKeys": "Write keys used to send data to this source.",
             "metadata": "Catalog metadata describing the source type (id, slug, name, categories, logos).",
             "settings": "Source-specific configuration settings.",
             "labels": "Labels applied to the source.",
@@ -36,7 +35,6 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "sourceId": "Identifier of the source feeding this destination.",
             "enabled": "Whether the destination is currently enabled.",
             "metadata": "Catalog metadata describing the destination type.",
-            "settings": "Destination-specific configuration settings.",
         },
     },
     "warehouses": {
@@ -47,7 +45,6 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "workspaceId": "Identifier of the workspace the warehouse belongs to.",
             "enabled": "Whether the warehouse connection is currently enabled.",
             "metadata": "Catalog metadata describing the warehouse type.",
-            "settings": "Warehouse-specific connection settings.",
         },
     },
     "tracking_plans": {
