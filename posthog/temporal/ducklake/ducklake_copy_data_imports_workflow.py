@@ -17,6 +17,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.ducklake.common import (
     _get_org_id_for_team,
     attach_catalog,
+    duckgres_data_imports_schema,
     get_config,
     get_duckgres_server_for_organization,
     get_ducklake_catalog_by_team_org,
@@ -218,6 +219,11 @@ async def prepare_data_imports_ducklake_metadata_activity(
         await logger.ainfo("DuckLake copy requested but no schema_ids were provided - skipping")
         return []
 
+    # Resolve the same per-team schema the v3 sink uses (table_suffix-aware), so the
+    # historical copy and the live sink never diverge on schema name. All schemas in the
+    # batch belong to one team, so this is loop-invariant — resolve it once.
+    ducklake_schema_name = await database_sync_to_async(duckgres_data_imports_schema)(inputs.team_id)
+
     model_list: list[DuckLakeCopyDataImportsMetadata] = []
 
     for schema_id in inputs.schema_ids:
@@ -244,7 +250,7 @@ async def prepare_data_imports_ducklake_metadata_activity(
                 source_schema_name=schema.name,
                 source_normalized_name=normalized_name,
                 source_table_uri=source_table_uri,
-                ducklake_schema_name=f"posthog_data_imports_team_{inputs.team_id}",
+                ducklake_schema_name=ducklake_schema_name,
                 ducklake_table_name=sanitize_ducklake_identifier(
                     f"{source_type}_{schema.source.prefix}_{normalized_name}"
                     if schema.source.prefix

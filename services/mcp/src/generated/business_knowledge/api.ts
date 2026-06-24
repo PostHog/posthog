@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 5 enabled ops
+ * PostHog API - MCP 6 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -81,6 +81,8 @@ export const BusinessKnowledgeSourcesCreateParams = /* @__PURE__ */ zod.object({
 
 export const businessKnowledgeSourcesCreateBodyNameMax = 255
 
+export const businessKnowledgeSourcesCreateBodyAlwaysIncludeDefault = false
+
 export const BusinessKnowledgeSourcesCreateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
@@ -90,6 +92,12 @@ export const BusinessKnowledgeSourcesCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .describe(
             'Raw text to index. Capped at 1 MB; larger payloads should be split into multiple sources or wait for URL/file support in Stage 2/3.'
+        ),
+    always_include: zod
+        .boolean()
+        .default(businessKnowledgeSourcesCreateBodyAlwaysIncludeDefault)
+        .describe(
+            "When true, this source's content is injected into every support reply prompt as general context (tone, policies, direction)."
         ),
 })
 
@@ -101,3 +109,33 @@ export const BusinessKnowledgeSourcesRetrieveParams = /* @__PURE__ */ zod.object
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
 })
+
+export const BusinessKnowledgeSourcesPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this knowledge source.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const businessKnowledgeSourcesPartialUpdateBodyNameMax = 255
+
+export const BusinessKnowledgeSourcesPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        name: zod
+            .string()
+            .max(businessKnowledgeSourcesPartialUpdateBodyNameMax)
+            .optional()
+            .describe('New human label for the source.'),
+        text: zod.string().optional().describe('Replacement text. Omit to keep the existing content.'),
+        always_include: zod
+            .boolean()
+            .optional()
+            .describe(
+                "When true, this source's content is injected into every support reply prompt as general context."
+            ),
+    })
+    .describe(
+        'PATCH payload for text sources. All fields optional, at least one\nrequired. `text` triggers a re-chunk; `name` or `always_include` alone does not.'
+    )

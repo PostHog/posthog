@@ -160,6 +160,9 @@ tools:
     agent-applications-preview-token:
         operation: agent_applications_preview_token
         enabled: false
+    agent-applications-preview-token-mint:
+        operation: agent_applications_preview_token_mint
+        enabled: false
     agent-applications-retrieve:
         operation: agent_applications_retrieve
         enabled: true
@@ -532,7 +535,23 @@ tools:
             workflow.
     agent-applications-session-logs:
         operation: agent_applications_session_logs
-        enabled: false
+        enabled: true
+        scopes:
+            - agents:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a session's structured event log
+        description: >
+            The append-only event log for one session — the runner's own record of what happened, separate from the
+            conversation transcript. Entries carry a level (info / warn / error), a message, and structured metadata:
+            tool executions + results, MCP open successes / failures (with a coarse failure category), identity
+            resolution decisions (`identity.resolved` — which credential source acted as whom, never the token),
+            approval gates, and errors. Use this to debug WHY a session behaved as it did when the transcript alone
+            isn't enough (e.g. a tool degraded, an MCP failed to open, or an asker's identity resolved unexpectedly).
+            Pair with `agent-applications-sessions-retrieve` for the transcript. Playbook: read the `debugging-sessions`
+            playbook via `agent-resolve-resource` for the failure taxonomy and how to read the logs.
     agent-applications-sessions-list:
         operation: agent_applications_sessions_list
         enabled: true
@@ -575,6 +594,12 @@ tools:
         enabled: false
     agent-applications-update:
         operation: agent_applications_update
+        enabled: false
+    agent-applications-users-connection-delete:
+        operation: agent_applications_users_connection_delete
+        enabled: false
+    agent-applications-users-list:
+        operation: agent_applications_users_list
         enabled: false
     agent-fleet-approvals-list:
         operation: agent_fleet_approvals_list

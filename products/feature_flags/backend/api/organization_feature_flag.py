@@ -1,24 +1,31 @@
 import copy
 from typing import cast
 
+from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
+
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.response import Response
+from rest_framework.utils.urls import replace_query_param
 
 from posthog.api.cohort import CohortSerializer
 from posthog.api.documentation import _FallbackSerializer, extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.filters.filter import Filter
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.user_permissions import UserPermissions
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
-from products.feature_flags.backend.encrypted_flag_payloads import get_decrypted_flag_payloads
+from products.feature_flags.backend.encrypted_flag_payloads import (
+    get_decrypted_flag_payloads,
+    get_decrypted_flag_payloads_protected,
+)
 from products.feature_flags.backend.flag_analytics import get_cached_evaluations_7d_by_team
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
@@ -63,6 +70,24 @@ class CopyFlagsResponseSerializer(serializers.Serializer):
     failed = CopyFlagsResultSerializer(many=True, help_text="List of failed copy attempts")
 
 
+class OrganizationFeatureFlagRowSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="ID of the representative feature flag for this key")
+    team_id = serializers.IntegerField(help_text="Team ID the representative feature flag belongs to")
+    key = serializers.CharField(help_text="Feature flag key, unique within the compared projects")
+    name = serializers.CharField(allow_blank=True, help_text="Human-readable name of the representative feature flag")
+    active = serializers.BooleanField(help_text="Whether the representative feature flag is enabled")
+    filters = serializers.JSONField(help_text="Release condition filters of the representative feature flag")
+
+
+class OrganizationFeatureFlagKeysResponseSerializer(serializers.Serializer):
+    count = serializers.IntegerField(help_text="Total number of distinct flag keys across the compared projects")
+    next = serializers.CharField(allow_null=True, help_text="URL for the next page of results, or null if none")
+    previous = serializers.CharField(allow_null=True, help_text="URL for the previous page of results, or null if none")
+    results = OrganizationFeatureFlagRowSerializer(
+        many=True, help_text="One representative flag per distinct key across the compared projects"
+    )
+
+
 logger = structlog.get_logger(__name__)
 
 
@@ -79,6 +104,17 @@ class OrganizationFeatureFlagView(
 
     lookup_field = "feature_flag_key"
 
+    @staticmethod
+    def _redact_encrypted_payloads(request, flag: FeatureFlag) -> None:
+        """Replace encrypted remote-config payload ciphertext with a redacted placeholder, in place.
+
+        Mirrors the project-scoped flag read paths: only requests authenticated with a personal API
+        key get decrypted values; everyone else (session, OAuth) sees the redacted placeholder, so the
+        ciphertext is never returned over the org-wide endpoints.
+        """
+        if flag.has_encrypted_payloads:
+            flag.filters["payloads"] = get_decrypted_flag_payloads_protected(request, flag.filters.get("payloads", {}))
+
     @extend_schema(
         operation_id="org_feature_flags_retrieve",
         parameters=[OpenApiParameter("feature_flag_key", OpenApiTypes.STR, OpenApiParameter.PATH)],
@@ -92,10 +128,14 @@ class OrganizationFeatureFlagView(
         org_team_ids = set(self.organization.teams.values_list("id", flat=True))
         team_ids = list(org_team_ids & set(accessible_team_ids))
 
-        flags = FeatureFlag.objects.filter(
+        flags_qs = FeatureFlag.objects.filter(
             key=feature_flag_key,
             team_id__in=team_ids,
         )
+        flags_qs = self._filter_flags_by_rbac(flags_qs, team_ids)
+        flags = list(flags_qs)
+        for flag in flags:
+            self._redact_encrypted_payloads(request, flag)
 
         counts_by_team = get_cached_evaluations_7d_by_team(
             cast(str, feature_flag_key), [flag.team_id for flag in flags]
@@ -117,6 +157,94 @@ class OrganizationFeatureFlagView(
         ]
 
         return Response(flags_data)
+
+    @extend_schema(
+        operation_id="org_feature_flags_keys",
+        parameters=[
+            OpenApiParameter("search", OpenApiTypes.STR, OpenApiParameter.QUERY, description="Filter by key or name"),
+            OpenApiParameter("limit", OpenApiTypes.INT, OpenApiParameter.QUERY, description="Page size (max 100)"),
+            OpenApiParameter("offset", OpenApiTypes.INT, OpenApiParameter.QUERY, description="Pagination offset"),
+            OpenApiParameter(
+                "team_ids",
+                OpenApiTypes.INT,
+                OpenApiParameter.QUERY,
+                many=True,
+                description="Teams to compare, in priority order. Defaults to all accessible teams in the org.",
+            ),
+        ],
+        responses={200: OrganizationFeatureFlagKeysResponseSerializer},
+    )
+    @action(detail=False, methods=["get"], url_path="keys")
+    def keys(self, request, *args, **kwargs):
+        """Paginated, de-duplicated list of feature flag keys across the org's compared projects.
+
+        Unlike the project-scoped flag list, this enumerates the union of flag keys across every
+        compared project, so flags that exist only in another project still appear as rows.
+        """
+        # Restrict to teams in this org that the user can access.
+        user_permissions = UserPermissions(user=request.user)
+        accessible_team_ids = set(user_permissions.team_ids_visible_for_user)
+        org_team_ids = set(self.organization.teams.values_list("id", flat=True))
+        allowed_team_ids = org_team_ids & accessible_team_ids
+
+        # Accept team_ids as repeated params (?team_ids=1&team_ids=2) or comma-separated (?team_ids=1,2).
+        try:
+            requested_team_ids = [
+                int(part) for value in request.query_params.getlist("team_ids") for part in value.split(",") if part
+            ]
+            limit = max(min(int(request.query_params.get("limit") or 25), 100), 1)
+            offset = max(int(request.query_params.get("offset") or 0), 0)
+        except ValueError:
+            return Response({"error": "Invalid query parameter."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Preserve the caller's team ordering, de-duplicated (used to pick the representative per key).
+        ordered_team_ids: list[int] = []
+        seen_teams: set[int] = set()
+        for team_id in requested_team_ids:
+            if team_id in allowed_team_ids and team_id not in seen_teams:
+                seen_teams.add(team_id)
+                ordered_team_ids.append(team_id)
+        if not ordered_team_ids:
+            ordered_team_ids = sorted(allowed_team_ids)
+        if not ordered_team_ids:
+            return Response({"count": 0, "next": None, "previous": None, "results": []})
+
+        search = (request.query_params.get("search") or "").strip()
+        flags_qs = FeatureFlag.objects.filter(team_id__in=ordered_team_ids, deleted=False)
+        flags_qs = self._filter_flags_by_rbac(flags_qs, ordered_team_ids)
+        if search:
+            flags_qs = flags_qs.filter(Q(key__icontains=search) | Q(name__icontains=search))
+
+        distinct_keys_qs = flags_qs.order_by("key").values_list("key", flat=True).distinct()
+        count = distinct_keys_qs.count()
+        page_keys = list(distinct_keys_qs[offset : offset + limit])
+
+        # Choose one representative flag per key, preferring earlier teams in the requested order.
+        # Select from the search-filtered queryset so the representative always matches the search,
+        # and let Postgres do the per-key dedup (DISTINCT ON key, ordered by team rank) so we load
+        # one row per key instead of every team's copy. Ordering by key matches page_keys' order.
+        rank_whens = [When(team_id=team_id, then=Value(rank)) for rank, team_id in enumerate(ordered_team_ids)]
+        representatives = list(
+            flags_qs.filter(key__in=page_keys)
+            .annotate(_rank=Case(*rank_whens, output_field=IntegerField()))
+            .order_by("key", "_rank")
+            .distinct("key")
+        )
+        for flag in representatives:
+            self._redact_encrypted_payloads(request, flag)
+        # OrganizationFeatureFlagRowSerializer is the single source of truth for the row shape.
+        results = OrganizationFeatureFlagRowSerializer(representatives, many=True).data
+
+        next_url = (
+            replace_query_param(request.build_absolute_uri(), "offset", offset + limit)
+            if offset + limit < count
+            else None
+        )
+        previous_url = (
+            replace_query_param(request.build_absolute_uri(), "offset", max(offset - limit, 0)) if offset > 0 else None
+        )
+
+        return Response({"count": count, "next": next_url, "previous": previous_url, "results": results})
 
     @extend_schema(
         request=CopyFlagsRequestSerializer,
@@ -413,6 +541,28 @@ class OrganizationFeatureFlagView(
                             continue
 
         return updated_payload
+
+    def _filter_flags_by_rbac(self, flags_qs: QuerySet, team_ids: list[int]) -> QuerySet:
+        """Apply per-team RBAC object-level filtering to a cross-team flag queryset.
+
+        For each team, instantiate a UserAccessControl scoped to that team and apply
+        filter_queryset_by_access_level so that flags the user has been explicitly denied
+        (via resource-level or object-level access controls) are excluded.  Org admins
+        always pass through — filter_queryset_by_access_level short-circuits for them.
+        """
+        teams = {t.id: t for t in Team.objects.filter(id__in=team_ids)}
+
+        allowed_ids: set[int] = set()
+        for team_id in team_ids:
+            team = teams.get(team_id)
+            if team is None:
+                continue
+            uac = UserAccessControl(user=cast(User, self.request.user), team=team)
+            team_qs = flags_qs.filter(team_id=team_id)
+            filtered_qs = uac.filter_queryset_by_access_level(team_qs, include_all_if_admin=True)
+            allowed_ids.update(filtered_qs.values_list("id", flat=True))
+
+        return flags_qs.filter(id__in=allowed_ids)
 
     def _extract_cohort_ids_from_schedules(self, schedules):
         """Extract all cohort IDs referenced in pending scheduled changes."""

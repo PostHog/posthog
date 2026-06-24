@@ -1,6 +1,5 @@
 import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { encodeParams } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { windowValues } from 'kea-window-values'
 import { PostHog } from 'posthog-js'
@@ -13,12 +12,13 @@ import { createVersionChecker } from 'lib/utils/semver'
 
 import { DOMIndex, buildDOMIndex, matchEventToElementUsingIndex } from '~/toolbar/elements/domElementIndex'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
-import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import { toolbarApi } from '~/toolbar/toolbarApi'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
 import { elementIsVisible, invalidateZoomCache, trimElement } from '~/toolbar/utils'
-import { FilterType, PropertyFilterType, PropertyOperator } from '~/types'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { heatmapToolbarMenuLogicType } from './heatmapToolbarMenuLogicType'
 
@@ -233,51 +233,50 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                     await breakpoint(150)
 
                     const { href, wildcardHref } = values
-                    let defaultUrl: string = ''
-                    if (!url) {
-                        const params: Partial<FilterType> = {
-                            properties: [
-                                wildcardHref === href
-                                    ? {
-                                          key: '$current_url',
-                                          value: href,
-                                          operator: PropertyOperator.Exact,
-                                          type: PropertyFilterType.Event,
-                                      }
-                                    : {
-                                          key: '$current_url',
-                                          value: `^${wildcardHref.split('*').map(escapeUnescapedRegex).join('.*')}$`,
-                                          operator: PropertyOperator.Regex,
-                                          type: PropertyFilterType.Event,
-                                      },
-                            ],
-                            date_from: values.commonFilters.date_from,
-                            date_to: values.commonFilters.date_to,
-                        }
-
-                        defaultUrl = `/api/element/stats/${encodeParams(
-                            { ...params, paginate_response: true, sampling_factor: values.samplingFactor },
-                            '?'
-                        )}`
+                    // We re-raise below to drive getElementStatsFailure; let the global
+                    // loader handler report it once rather than capturing twice.
+                    const options = {
+                        context: 'load_heatmap_stats',
+                        reauthenticateOnForbidden: true,
+                        captureOnError: false,
                     }
-
-                    // toolbar fetch collapses queryparams but this URL has multiple with the same name
-                    const response = await toolbarFetch(
-                        url || defaultUrl,
-                        'GET',
-                        undefined,
-                        url ? 'use-as-provided' : 'full'
-                    )
+                    const result = url
+                        ? // Paginating — the URL came from a previous response body.
+                          await toolbarApi.elementStats.page(url, options)
+                        : await toolbarApi.elementStats.list(
+                              {
+                                  properties: [
+                                      wildcardHref === href
+                                          ? {
+                                                key: '$current_url',
+                                                value: href,
+                                                operator: PropertyOperator.Exact,
+                                                type: PropertyFilterType.Event,
+                                            }
+                                          : {
+                                                key: '$current_url',
+                                                value: `^${wildcardHref
+                                                    .split('*')
+                                                    .map(escapeUnescapedRegex)
+                                                    .join('.*')}$`,
+                                                operator: PropertyOperator.Regex,
+                                                type: PropertyFilterType.Event,
+                                            },
+                                  ],
+                                  date_from: values.commonFilters.date_from,
+                                  date_to: values.commonFilters.date_to,
+                                  paginate_response: true,
+                                  sampling_factor: values.samplingFactor,
+                              },
+                              options
+                          )
                     breakpoint()
 
-                    if (response.status === 403) {
-                        toolbarConfigLogic.actions.authenticate()
+                    if (result.status === 403) {
                         return emptyElementsStatsPages
                     }
 
-                    const paginatedResults = await response.json()
-
-                    if (!Array.isArray(paginatedResults.results)) {
+                    if (!result.ok || !Array.isArray(result.data.results)) {
                         throw new Error('Error loading HeatMap data!')
                     }
 
@@ -285,10 +284,10 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                         results: [
                             // if url is present we are paginating and merge results, otherwise we only use the new results
                             ...(url ? values.elementStats?.results || [] : []),
-                            ...(paginatedResults.results || []),
+                            ...(result.data.results || []),
                         ],
-                        next: paginatedResults.next,
-                        previous: paginatedResults.previous,
+                        next: result.data.next,
+                        previous: result.data.previous,
                     } as PaginatedResponse<ElementsEventType>
                 },
             },

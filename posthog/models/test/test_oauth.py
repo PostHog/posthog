@@ -69,6 +69,52 @@ class TestOAuthModels(TestCase):
         app.refresh_from_db()
         self.assertEqual(app.scopes, ["insight:read", "llm_gateway:read"])
 
+    @parameterized.expand(
+        [
+            ("empty_scopes_broad", [], [], [], []),
+            ("explicit_no_optional_all_required", ["insight:read"], [], ["insight:read"], ["insight:read"]),
+            ("split", ["insight:read"], ["dashboard:read"], ["insight:read", "dashboard:read"], ["insight:read"]),
+            (
+                "overlap_deduped",
+                ["insight:read", "dashboard:write"],
+                ["dashboard:write", "experiment:read"],
+                ["insight:read", "dashboard:write", "experiment:read"],
+                ["insight:read", "dashboard:write"],
+            ),
+        ]
+    )
+    def test_ceiling_and_required_scope_properties(self, _name, scopes, optional, expected_ceiling, expected_required):
+        app = self._make_app(f"Split {_name}", f"split_{_name}_client", scopes=scopes, optional_scopes=optional)
+        self.assertEqual(app.ceiling_scopes, expected_ceiling)
+        self.assertEqual(app.required_scopes, expected_required)
+
+    @parameterized.expand(
+        [
+            ("optional_without_required", [], ["dashboard:read"], "optional_scopes"),
+            ("wildcard_in_required", ["*"], ["dashboard:read"], "scopes"),
+            ("identity_scope_in_required", ["openid", "insight:read"], ["dashboard:read"], "scopes"),
+            ("identity_scope_in_optional", ["insight:read"], ["openid"], "optional_scopes"),
+        ]
+    )
+    def test_scope_split_validation_rejects_invalid_configs(self, _name, scopes, optional, error_field):
+        with self.assertRaises(ValidationError) as ctx:
+            self._make_app(f"Invalid {_name}", f"invalid_{_name}_client", scopes=scopes, optional_scopes=optional)
+        self.assertIn(error_field, ctx.exception.message_dict)
+
+    def test_cimd_application_can_declare_optional_scopes(self):
+        # CIMD partners declare the required/optional split in their metadata; both fields are
+        # refreshed together, so the split is a first-class CIMD feature, not a forbidden one.
+        app = self._make_app(
+            "CIMD Split",
+            "cimd_split_client",
+            is_cimd_client=True,
+            cimd_metadata_url="https://example.com/oauth-client",
+            scopes=["insight:read"],
+            optional_scopes=["dashboard:read"],
+        )
+        self.assertEqual(app.required_scopes, ["insight:read"])
+        self.assertEqual(app.ceiling_scopes, ["insight:read", "dashboard:read"])
+
     def test_oauth_access_token_label_defaults_to_empty_string(self):
         app = self._make_app("Token Label Default", "token_label_default_client")
         token = OAuthAccessToken.objects.create(
@@ -300,6 +346,7 @@ class TestOAuthModels(TestCase):
         ("reverse domain style", "com.posthog.code://oauth"),
         ("cursor scheme", "cursor://oauth"),
         ("vscode scheme", "vscode://oauth"),
+        ("authority-less native scheme", "com.example.app:/oauth"),
     ]
 
     @parameterized.expand(valid_custom_scheme_uris)
@@ -317,7 +364,13 @@ class TestOAuthModels(TestCase):
         )
         self.assertEqual(app.redirect_uris, redirect_uri)
 
-    def test_custom_scheme_with_fragment_still_rejected(self):
+    @parameterized.expand(
+        [
+            ("authority form", "myapp://callback#fragment"),
+            ("authority-less native", "com.example.app:/oauth#fragment"),
+        ]
+    )
+    def test_custom_scheme_with_fragment_still_rejected(self, _name, redirect_uri):
         with self.assertRaises(ValidationError):
             OAuthApplication.objects.create(
                 name="Invalid Custom Scheme App",
@@ -325,7 +378,7 @@ class TestOAuthModels(TestCase):
                 client_secret="invalid_custom_scheme_client_secret",
                 client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
                 authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-                redirect_uris="myapp://callback#fragment",
+                redirect_uris=redirect_uri,
                 organization=self.organization,
                 algorithm="RS256",
             )
@@ -377,6 +430,19 @@ class TestOAuthModels(TestCase):
                 client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
                 authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
                 redirect_uris="https://example.com/callback#fragment",
+                organization=self.organization,
+                algorithm="RS256",
+            )
+
+    def test_code_grant_application_requires_redirect_uri(self):
+        with self.assertRaises(ValidationError):
+            OAuthApplication.objects.create(
+                name="No Redirect App",
+                client_id="no_redirect_client_id",
+                client_secret="no_redirect_client_secret",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="",
                 organization=self.organization,
                 algorithm="RS256",
             )

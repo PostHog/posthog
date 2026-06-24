@@ -967,6 +967,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
     def test_create_task_with_signal_report_same_team(self):
         from products.signals.backend.models import SignalReport, SignalReportTask
+        from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION, signals_task_ids
 
         report = SignalReport.objects.create(team=self.team)
         response = self.client.post(
@@ -976,18 +977,23 @@ class TestTaskAPI(BaseTaskAPITest):
                 "description": "From a signal report",
                 "origin_product": "signal_report",
                 "signal_report": str(report.id),
-                "signal_report_task_relationship": SignalReportTask.Relationship.IMPLEMENTATION.value,
+                # Legacy field old clients still send — accepted and ignored.
+                "signal_report_task_relationship": "implementation",
             },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         data = response.json()
         self.assertEqual(data["signal_report"], str(report.id))
-        link = SignalReportTask.objects.get(
-            report=report,
-            relationship=SignalReportTask.Relationship.IMPLEMENTATION,
+        # A manual "start implementation" records the implementation task_run artefact (the
+        # task↔report association and work-log entry) and writes the legacy SignalReportTask gate
+        # row that blocks the auto-start pipeline from double-starting.
+        self.assertEqual(signals_task_ids(report_id=str(report.id), type=TASK_RUN_TYPE_IMPLEMENTATION), [data["id"]])
+        self.assertTrue(
+            SignalReportTask.objects.filter(
+                report=report, task_id=data["id"], relationship=TASK_RUN_TYPE_IMPLEMENTATION
+            ).exists()
         )
-        self.assertEqual(str(link.task_id), data["id"])
 
     def test_create_task_with_signal_report_different_team_rejected(self):
         from products.signals.backend.models import SignalReport
@@ -1194,7 +1200,8 @@ class TestTaskAPI(BaseTaskAPITest):
         [
             ("run_source_omitted", None, "full"),
             ("manual", {"run_source": "manual"}, "full"),
-            ("signal_report", {"run_source": "signal_report"}, "read_only"),
+            # signal_report implementation runs log their work as report artefacts (task:write tools).
+            ("signal_report", {"run_source": "signal_report"}, "full"),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -4963,6 +4970,103 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertIn("distinct_id", decoded)
         self.assertEqual(decoded["distinct_id"], self.user.distinct_id)
 
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    @override_settings(SANDBOX_JWT_PUBLIC_KEY=None)
+    def test_stream_token_returns_run_scoped_jwt(self):
+        reset_sandbox_jwt_key_cache()
+
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/stream_token/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertIn("token", data)
+        # No proxy URL configured for this environment, so clients read from Django directly.
+        self.assertIsNone(data["stream_base_url"])
+
+        public_key = get_sandbox_jwt_public_key()
+        decoded = jwt.decode(
+            data["token"],
+            public_key,
+            audience="posthog:stream_read",
+            algorithms=["RS256"],
+        )
+
+        self.assertEqual(decoded["run_id"], str(run.id))
+        self.assertEqual(decoded["task_id"], str(task.id))
+        self.assertEqual(decoded["team_id"], self.team.id)
+        self.assertNotIn("user_id", decoded)
+        self.assertIn("exp", decoded)
+
+    def test_stream_token_returns_proxy_url_when_configured_and_flag_enabled(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        with (
+            self.settings(TASKS_AGENT_PROXY_PUBLIC_URL="https://agent-proxy.example.com", DEBUG=False),
+            patch("products.tasks.backend.facade.api.posthoganalytics.feature_enabled", return_value=True),
+        ):
+            response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/stream_token/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["stream_base_url"], "https://agent-proxy.example.com")
+
+    def test_stream_token_omits_proxy_url_when_flag_disabled(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        # Disable only the stream-via-proxy flag; leave other flags at their real values so the
+        # request's own access checks still pass.
+        def flag_enabled(key, *args, **kwargs):
+            return key != "tasks-stream-via-proxy"
+
+        with (
+            self.settings(TASKS_AGENT_PROXY_PUBLIC_URL="https://agent-proxy.example.com", DEBUG=False),
+            patch(
+                "products.tasks.backend.facade.api.posthoganalytics.feature_enabled",
+                side_effect=flag_enabled,
+            ),
+        ):
+            response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/stream_token/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.json()["stream_base_url"])
+
+    def test_stream_token_returns_proxy_url_in_debug_without_flag(self):
+        # Local dev (DEBUG) disables the analytics SDK, so the URL setting alone opts in.
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        with self.settings(TASKS_AGENT_PROXY_PUBLIC_URL="http://localhost:8003", DEBUG=True):
+            response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/stream_token/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["stream_base_url"], "http://localhost:8003")
+
+    def test_stream_token_omits_proxy_url_when_flag_evaluation_fails(self):
+        # A flag-service outage must fall back to reading from Django, not break token issuance.
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        def flag_enabled(key, *args, **kwargs):
+            if key == "tasks-stream-via-proxy":
+                raise RuntimeError("flag service unavailable")
+            return True
+
+        with (
+            self.settings(TASKS_AGENT_PROXY_PUBLIC_URL="https://agent-proxy.example.com", DEBUG=False),
+            patch(
+                "products.tasks.backend.facade.api.posthoganalytics.feature_enabled",
+                side_effect=flag_enabled,
+            ),
+        ):
+            response = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/stream_token/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.json()["stream_base_url"])
+
     def test_connection_token_cannot_access_other_team_run(self):
         other_org = Organization.objects.create(name="Other Org")
         other_team = Team.objects.create(organization=other_org, name="Other Team")
@@ -4977,6 +5081,20 @@ class TestTaskRunAPI(BaseTaskAPITest):
         response = self.client.get(
             f"/api/projects/@current/tasks/{other_task.id}/runs/{other_run.id}/connection_token/"
         )
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_stream_token_cannot_access_other_team_run(self):
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        other_task = Task.objects.create(
+            team=other_team,
+            title="Other Task",
+            description="Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+        )
+        other_run = TaskRun.objects.create(task=other_task, team=other_team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.get(f"/api/projects/@current/tasks/{other_task.id}/runs/{other_run.id}/stream_token/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
 
@@ -5300,8 +5418,10 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         events = self._collect_sse_events(response)
-        self.assertEqual(len(events), 1)
-        self.assertEqual(events[0]["data"]["notification"]["method"], "_posthog/sandbox_output")
+        data_events = [event for event in events if event["event"] != "stream-end"]
+        self.assertEqual(len(data_events), 1)
+        self.assertEqual(data_events[0]["data"]["notification"]["method"], "_posthog/sandbox_output")
+        self.assertEqual(events[-1]["event"], "stream-end")
 
     def test_stream_start_latest_only_yields_new_events(self):
         task = self.create_task()
@@ -5333,9 +5453,13 @@ class TestTaskRunStreamAPI(BaseTaskAPITest):
             events = self._collect_sse_events(response)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertGreaterEqual(len(events), 1)
-        self.assertTrue(all(event["data"]["notification"]["method"] == "_posthog/console" for event in events), events)
-        self.assertEqual(events[-1]["data"]["notification"]["params"]["message"], "late hello")
+        data_events = [event for event in events if event["event"] not in ("stream-end", "keepalive")]
+        self.assertGreaterEqual(len(data_events), 1)
+        self.assertTrue(
+            all(event["data"]["notification"]["method"] == "_posthog/console" for event in data_events), data_events
+        )
+        self.assertEqual(data_events[-1]["data"]["notification"]["params"]["message"], "late hello")
+        self.assertEqual(events[-1]["event"], "stream-end")
 
 
 class TestTaskRunRedisStreamKeepalive(TestCase):
@@ -5586,12 +5710,16 @@ class TestTaskRunStreamConnectionCapAPI(BaseTaskAPITest):
 
         self.assertEqual(second_response.status_code, status.HTTP_200_OK)
         second_events = self._collect_sse_events(second_response)
+        # The run was marked complete, so the resumed connection ends with the in-band
+        # completion sentinel (id-less, so it can't poison the resume cursor) rather than
+        # a bare EOF or a rotation marker.
+        self.assertEqual(second_events[-1]["event"], "stream-end")
+        second_data_events = [event for event in second_events if event["event"] != "stream-end"]
         # Resuming from the rotated connection's last id delivers the remaining
-        # events exactly once — no gap, no duplicate — then completes without a
-        # rotation marker.
-        self.assertEqual([event["id"] for event in second_events], stream_ids[1:])
+        # events exactly once — no gap, no duplicate.
+        self.assertEqual([event["id"] for event in second_data_events], stream_ids[1:])
         self.assertEqual(
-            [event["data"]["notification"]["params"]["message"] for event in second_events],
+            [event["data"]["notification"]["params"]["message"] for event in second_data_events],
             ["first message", "second message"],
         )
 

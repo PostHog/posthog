@@ -43,6 +43,7 @@ from posthog.schema import (
     LifecycleQuery,
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
+    MCPHarnessBreakdownQuery,
     NodeKind,
     PathsQuery,
     PropertyGroupFilter,
@@ -308,6 +309,7 @@ RunnableQueryNode = Union[
     EndpointsUsageOverviewQuery,
     EndpointsUsageTableQuery,
     EndpointsUsageTrendsQuery,
+    MCPHarnessBreakdownQuery,
 ]
 
 
@@ -931,6 +933,17 @@ def get_query_runner(
 
         return TracesQueryRunner(
             query=cast(TracesQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPHarnessBreakdownQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPHarnessBreakdownQueryRunner
+
+        return MCPHarnessBreakdownQueryRunner(
+            query=cast(MCPHarnessBreakdownQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,

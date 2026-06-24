@@ -1,3 +1,4 @@
+import re
 import hmac
 import json
 import time
@@ -84,6 +85,37 @@ oauth_refresh_counter = Counter(
 
 GITHUB_API_VERSION = "2022-11-28"
 
+# `owner/repo`, single slash, no traversal. Used to keep repo/ref/sha values out of GitHub API URL
+# paths where a crafted value (e.g. `../../other-repo/contents/x?ref=y`) could redirect the
+# authenticated request to a different endpoint.
+_GITHUB_REPO_PATH_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
+_GITHUB_REF_RE = re.compile(r"^[A-Za-z0-9._\-/]+$")
+_GITHUB_COMMIT_SHA_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
+
+# Upper bound on the diff text we return, to keep a pathological diff (generated/vendored
+# files) from bloating the JSON response and worker memory. ~1 MB of text.
+_MAX_DIFF_CHARS = 1_000_000
+
+
+def _is_safe_github_repo_path(repo_path: str) -> bool:
+    return ".." not in repo_path and bool(_GITHUB_REPO_PATH_RE.fullmatch(repo_path))
+
+
+def _is_safe_github_ref(ref: str) -> bool:
+    """A git ref safe to interpolate into a GitHub API URL path (no traversal / URL-control chars)."""
+    return (
+        bool(ref)
+        and ".." not in ref
+        and not ref.startswith("/")
+        and not ref.endswith("/")
+        and bool(_GITHUB_REF_RE.fullmatch(ref))
+    )
+
+
+def _is_safe_github_sha(sha: str) -> bool:
+    return bool(_GITHUB_COMMIT_SHA_RE.fullmatch(sha))
+
+
 PRIVATE_CHANNEL_WITHOUT_ACCESS = "PRIVATE_CHANNEL_WITHOUT_ACCESS"
 
 
@@ -150,6 +182,7 @@ class Integration(models.Model):
     class IntegrationKind(models.TextChoices):
         ANTHROPIC = "anthropic"
         APPLE_PUSH = "apns"
+        AWS_S3 = "aws-s3"
         AZURE_BLOB = "azure-blob"
         BING_ADS = "bing-ads"
         CLICKUP = "clickup"
@@ -177,6 +210,7 @@ class Integration(models.Model):
         PINTEREST_ADS = "pinterest-ads"
         POSTGRESQL = "postgresql"
         REDDIT_ADS = "reddit-ads"
+        S3_COMPATIBLE = "s3-compatible"
         SALESFORCE = "salesforce"
         SLACK = "slack"
         # Deprecated — kept in choices to avoid a no-op migration. The runtime no longer creates
@@ -231,6 +265,19 @@ class Integration(models.Model):
             return dot_get(self.config, "account.name", self.integration_id)
         if self.kind == "databricks":
             return self.integration_id or "unknown ID"
+        if self.kind == Integration.IntegrationKind.AWS_S3:
+            name = self.integration_id or "unknown ID"
+            # config["auth_type"] leaves room for a future OIDC / IAM-role mode; only keys exist today.
+            auth_label = self.config.get("auth_type", "access key")
+            account_id = self.config.get("aws_account_id")
+            detail = f"{auth_label}, AWS account {account_id}" if account_id else auth_label
+            return f"{name} ({detail})"
+        if self.kind == Integration.IntegrationKind.S3_COMPATIBLE:
+            name = self.integration_id or "unknown ID"
+            auth_label = self.config.get("auth_type", "access key")
+            endpoint_url = self.config.get("endpoint_url")
+            detail = f"{auth_label}, {endpoint_url}" if endpoint_url else auth_label
+            return f"{name} ({detail})"
         if self.kind == "gitlab":
             return self.integration_id or "unknown ID"
         if self.kind == "email":
@@ -2471,7 +2518,15 @@ class GitHubIntegration(GitHubIntegrationBase):
 
     @classmethod
     def first_for_team_repository(cls, team_id: int, repository: str) -> "GitHubIntegration | None":
-        """First GitHub integration for the team whose installation can access ``repository`` (``owner/name``)."""
+        """First GitHub integration for the team whose installation can access ``repository`` (``owner/name``).
+
+        ``repository`` reaches us from team-writable content (e.g. artefact payloads), and the access
+        check below interpolates it into an authenticated ``GET /repos/{repository}``. Reject anything
+        that isn't a plain ``owner/repo`` first, so a crafted value (``owner/repo/contents/x?ref=y``)
+        can't steer that authenticated request to a different GitHub endpoint as a probe.
+        """
+        if not _is_safe_github_repo_path(repository):
+            return None
         for integration in Integration.objects.filter(team_id=team_id, kind="github").order_by("id"):
             github = cls(integration)
             if github.installation_can_access_repository(repository):
@@ -2581,6 +2636,70 @@ class GitHubIntegration(GitHubIntegrationBase):
                 "error": f"Failed to create branch: {response.text}",
                 "status_code": response.status_code,
             }
+
+    def get_diff(
+        self,
+        repository: str,
+        target_branch: str,
+        base_branch: str,
+        target_sha: str | None = None,
+        base_sha: str | None = None,
+    ) -> dict[str, Any]:
+        """Return the unified diff of one branch/commit against another for ``repository``.
+
+        ``repository`` may be ``owner/name`` or a bare name (resolved against the installation's
+        org). The diff is ``base...target``: ``target_branch`` compared against ``base_branch``.
+        A SHA, when supplied, pins that side to an exact commit; otherwise the side tracks the
+        branch tip (``None`` means "use latest"). The branch is what's used when no SHA pins the
+        point — diffing branch tips keeps the result useful as a branch keeps moving (e.g. after PR
+        babysitting or customer tweaks), which a single pinned commit would not.
+
+        Uses the GitHub compare API with the ``diff`` media type, so the response body is raw
+        unified-diff text. Repository / ref / SHA values come from team-writable artefact content,
+        so they're validated before interpolation — a crafted value could otherwise redirect the
+        authenticated request to a different GitHub endpoint.
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        if not _is_safe_github_repo_path(repo_path):
+            return {"success": False, "error": f"Invalid repository '{repository}'.", "status_code": 400}
+        for ref in (target_branch, base_branch):
+            if not _is_safe_github_ref(ref):
+                return {"success": False, "error": f"Invalid branch '{ref}'.", "status_code": 400}
+        for sha in (target_sha, base_sha):
+            if sha is not None and not _is_safe_github_sha(sha):
+                return {"success": False, "error": f"Invalid commit SHA '{sha}'.", "status_code": 400}
+
+        # Pin to the SHA when we have one, else compare branch tips. Both sides are now built from
+        # validated values, so the compare path can't be steered off-endpoint.
+        base_ref = base_sha or base_branch
+        target_ref = target_sha or target_branch
+        access_token = self.integration.sensitive_config["access_token"]
+
+        try:
+            response = self._github_api_get(
+                f"https://api.github.com/repos/{repo_path}/compare/{base_ref}...{target_ref}",
+                endpoint="/repos/{owner}/{repo}/compare/{basehead}",
+                headers={
+                    "Accept": "application/vnd.github.diff",
+                    "Authorization": f"Bearer {access_token}",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
+                },
+                timeout=10,
+            )
+        except requests.RequestException:
+            # Don't let a slow/unreachable GitHub hang a worker or 500 the caller.
+            return {"success": False, "error": "Could not reach GitHub.", "status_code": 502}
+        if response.status_code != 200:
+            return {"success": False, "error": response.text, "status_code": response.status_code}
+        # Cap the diff we return: a branch touching generated/vendored files can produce a diff of
+        # many MB, which would bloat the JSON response and worker memory. Truncate with a marker so
+        # the consumer can tell the diff was cut rather than silently showing a partial diff.
+        diff_text = response.text
+        truncated = len(diff_text) > _MAX_DIFF_CHARS
+        if truncated:
+            diff_text = diff_text[:_MAX_DIFF_CHARS] + "\n\n… diff truncated (too large to display in full) …\n"
+        return {"success": True, "diff": diff_text, "truncated": truncated}
 
     def update_file(
         self, repository: str, file_path: str, content: str, commit_message: str, branch: str, sha: str | None = None
@@ -3296,6 +3415,210 @@ class AzureBlobIntegration:
             if part.startswith("AccountName="):
                 return part.split("=", 1)[1]
         return None
+
+
+class S3CredentialIntegrationError(Exception):
+    """Error raised when an S3-family credential integration is not valid."""
+
+    pass
+
+
+def _read_s3_credentials(integration: Integration) -> tuple[str, str]:
+    try:
+        return (
+            integration.sensitive_config["aws_access_key_id"],
+            integration.sensitive_config["aws_secret_access_key"],
+        )
+    except KeyError as e:
+        raise S3CredentialIntegrationError(f"S3 integration is not valid: {str(e)} missing")
+
+
+def _build_s3_sensitive_config(aws_access_key_id: str, aws_secret_access_key: str) -> dict[str, str]:
+    return {
+        "aws_access_key_id": aws_access_key_id,
+        "aws_secret_access_key": aws_secret_access_key,
+    }
+
+
+def _create_unique_s3_integration(
+    *,
+    team_id: int,
+    kind: str,
+    name: str,
+    config: dict[str, Any],
+    sensitive_config: dict[str, str],
+    created_by: "User | None",
+) -> Integration:
+    """Create an S3-family integration, rejecting a name already taken for this team and kind.
+
+    Unlike most integrations, `name` is a free-form user-supplied identifier rather than one derived
+    from the external connection (an OAuth account id, service-account email, etc.). So we create
+    rather than upsert — re-using a name is a 400, not a silent overwrite of an unrelated credential
+    set.
+    """
+    try:
+        # Savepoint so the unique-constraint IntegrityError aborts only this INSERT, not the
+        # surrounding transaction (e.g. the test wrapper, or any outer atomic block).
+        with transaction.atomic():
+            return Integration.objects.create(
+                team_id=team_id,
+                kind=kind,
+                integration_id=name,
+                config=config,
+                sensitive_config=sensitive_config,
+                created_by=created_by,
+            )
+    except IntegrityError:
+        raise S3CredentialIntegrationError(f"An integration named '{name}' already exists")
+
+
+class AwsS3Integration:
+    """An AWS S3 integration storing reusable AWS credentials.
+
+    Holds only credentials; bucket, region, prefix and other export-specific settings stay on the
+    batch export destination config, so one credential can be reused across many buckets/regions —
+    and, in future, by Redshift COPY-mode exports that stage to S3.
+
+    Unlike `S3CompatibleIntegration` it has no `endpoint_url` — an AWS
+    integration must never be pointed at an arbitrary endpoint (SSRF boundary).
+    """
+
+    integration: Integration
+    aws_access_key_id: str
+    aws_secret_access_key: str
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != Integration.IntegrationKind.AWS_S3.value:
+            raise S3CredentialIntegrationError(
+                f"Integration provided is not an AWS S3 integration (got kind='{integration.kind}')"
+            )
+        self.integration = integration
+        self.aws_access_key_id, self.aws_secret_access_key = _read_s3_credentials(integration)
+
+    @property
+    def aws_account_id(self) -> str | None:
+        """The AWS account id resolved from the credentials at create time, if available."""
+        return self.integration.config.get("aws_account_id")
+
+    @staticmethod
+    def validate_credentials(aws_access_key_id: str, aws_secret_access_key: str) -> str:
+        """Validate AWS credentials via STS GetCallerIdentity, returning the AWS account id.
+
+        GetCallerIdentity requires no IAM permissions, so it verifies the credentials are valid
+        without assuming any particular S3 policy. It hits the fixed global AWS STS endpoint, so
+        there is no user-controlled endpoint and no SSRF surface (unlike S3-compatible).
+
+        This runs synchronously on the request thread, so the timeout budget is kept tight:
+        a single attempt (no retry) bounds the worst case at ~10s (connect + read) if STS is
+        unreachable, rather than blocking the worker while botocore retries.
+        """
+        import boto3  # noqa: PLC0415 — keeps botocore off the module import path (startup time)
+        from botocore.config import Config  # noqa: PLC0415
+        from botocore.exceptions import BotoCoreError, ClientError  # noqa: PLC0415
+
+        client = boto3.client(
+            "sts",
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+            config=Config(connect_timeout=5, read_timeout=5, retries={"max_attempts": 1}),
+        )
+        try:
+            identity = client.get_caller_identity()
+        except ClientError as e:
+            message = e.response.get("Error", {}).get("Message") or str(e)
+            raise S3CredentialIntegrationError(f"AWS credentials are not valid: {message}")
+        except BotoCoreError as e:
+            raise S3CredentialIntegrationError(f"Could not validate AWS credentials: {e}")
+
+        return identity["Account"]
+
+    @classmethod
+    def integration_from_config(
+        cls,
+        team_id: int,
+        name: str,
+        aws_access_key_id: str,
+        aws_secret_access_key: str,
+        created_by: "User | None" = None,
+    ) -> Integration:
+        if not name:
+            raise S3CredentialIntegrationError("A name is required for an AWS S3 integration")
+
+        # Fail fast on invalid/expired credentials, and capture the (non-sensitive) account id.
+        account_id = cls.validate_credentials(aws_access_key_id, aws_secret_access_key)
+
+        # `name` is the unencrypted, frontend-visible identifier — never an AWS credential, which is
+        # treated as a secret. The account id is non-sensitive and kept for display/debugging.
+        return _create_unique_s3_integration(
+            team_id=team_id,
+            kind=Integration.IntegrationKind.AWS_S3.value,
+            name=name,
+            config={"name": name, "aws_account_id": account_id},
+            sensitive_config=_build_s3_sensitive_config(aws_access_key_id, aws_secret_access_key),
+            created_by=created_by,
+        )
+
+
+class S3CompatibleIntegration:
+    """An S3-compatible storage integration (Cloudflare R2, DigitalOcean Spaces, Hetzner, etc.).
+
+    Holds the same credentials as `AwsS3Integration` plus the provider `endpoint_url` (non-sensitive),
+    since credentials are bound to a specific S3-compatible provider. `integration_from_config`
+    SSRF-validates `endpoint_url`, so callers don't have to.
+
+    bucket, region, prefix and other export-specific settings stay on the batch export destination
+    config, so one credential can be reused across many buckets/regions.
+    """
+
+    integration: Integration
+    # The `aws_` prefix applies even to these non-AWS providers: they are AWS Signature V4
+    # credentials, which every S3-compatible provider (R2, MinIO, Spaces, ...) uses. The names also
+    # match boto3's kwargs and the existing S3-family batch export config fields, so they pass
+    # through unchanged.
+    aws_access_key_id: str
+    aws_secret_access_key: str
+    endpoint_url: str
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != Integration.IntegrationKind.S3_COMPATIBLE.value:
+            raise S3CredentialIntegrationError(
+                f"Integration provided is not an S3-compatible integration (got kind='{integration.kind}')"
+            )
+        self.integration = integration
+        self.aws_access_key_id, self.aws_secret_access_key = _read_s3_credentials(integration)
+        try:
+            self.endpoint_url = integration.config["endpoint_url"]
+        except KeyError:
+            raise S3CredentialIntegrationError("S3-compatible integration is missing required field: 'endpoint_url'")
+
+    @classmethod
+    def integration_from_config(
+        cls,
+        team_id: int,
+        name: str,
+        endpoint_url: str,
+        aws_access_key_id: str,
+        aws_secret_access_key: str,
+        created_by: "User | None" = None,
+    ) -> Integration:
+        if not name:
+            raise S3CredentialIntegrationError("A name is required for an S3-compatible integration")
+        if not endpoint_url:
+            raise S3CredentialIntegrationError("An endpoint URL is required for an S3-compatible integration")
+
+        # SSRF protection — credentials must not be testable against an attacker-controlled endpoint.
+        allowed, error = is_url_allowed(endpoint_url)
+        if not allowed:
+            raise S3CredentialIntegrationError(f"Invalid endpoint URL: {error}")
+
+        return _create_unique_s3_integration(
+            team_id=team_id,
+            kind=Integration.IntegrationKind.S3_COMPATIBLE.value,
+            name=name,
+            config={"name": name, "endpoint_url": endpoint_url},
+            sensitive_config=_build_s3_sensitive_config(aws_access_key_id, aws_secret_access_key),
+            created_by=created_by,
+        )
 
 
 class StripeIntegration:
