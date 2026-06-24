@@ -60,6 +60,8 @@ Sort safety: removing the sorted column drops the sort (`clearSortIfColumnRemove
 
 The Usage tab renders an existing saved billing-usage insight — **point users to it, don't rebuild usage as a new insight.**
 
+Clicking a note in the Notes tab opens it in the global notebook **side panel** (`notebookPanelLogic.selectNotebook`), keeping the Accounts list mounted — not the full `NotebookScene`. The note `<Link>` still points at `urls.notebook(shortId)` so cmd/ctrl-click opens the full page in a new tab; a plain click `preventDefault()`s the router push and opens the panel instead.
+
 ## Shareable view state
 
 `accountsLogic` mirrors the full view (search, tags, unassigned, assigned-to, sort, columns, tile filter) into the URL hash `#view=...` via `actionToUrl`/`urlToAction`, so a copied URL reproduces the exact list. Only non-default values are serialized. The "assigned to" filter persists as concrete `assignedTo` ids (not a `mine` flag), so a link shared with a colleague resolves to the **same** accounts for them as for the sharer; the legacy `mine: true` hash is still read and resolved to the current user's id for backward compatibility. A shared link's `columns` win over the per-user saved column config (`accountsColumnConfigLogic` enforces this when its async saved-config load resolves by checking the live URL).
