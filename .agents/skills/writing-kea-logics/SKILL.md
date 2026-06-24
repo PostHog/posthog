@@ -27,10 +27,8 @@ When in doubt about whether to use it, read here.
 
 - [using-kea-disposables](../using-kea-disposables/SKILL.md) — `setInterval`, `addEventListener`,
   and any other resource that needs cleanup.
-- [making-scenes-tab-aware](../making-scenes-tab-aware/SKILL.md) — scene root logics keyed by
-  `tabId`, `tabAwareUrlToAction`/`tabAwareActionToUrl`, `useAttachedLogic`.
 
-If your work overlaps either of those, read the companion skill first.
+If your work overlaps it, read the companion skill first.
 
 ## Core principles
 

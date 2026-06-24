@@ -50642,6 +50642,11 @@ export namespace Schemas {
     export interface UserAuthSession {
       /** Identifier used to revoke this login session. */
       readonly id: string;
+      /**
+         * When this login session was first created — the original sign-in time.
+         * @nullable
+         */
+      readonly created_at: string | null;
       /** When this login session last made a request (refreshed periodically). */
       readonly last_activity: string;
       /** Approximate city and country derived from the IP address, if known. */
