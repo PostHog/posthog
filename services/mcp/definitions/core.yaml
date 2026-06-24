@@ -723,6 +723,15 @@ tools:
     users-integrations-list:
         operation: users_integrations_list
         enabled: false
+    users-integrations-slack-destroy:
+        operation: users_integrations_slack_destroy
+        enabled: false
+    users-integrations-slack-linkable-workspaces-retrieve:
+        operation: users_integrations_slack_linkable_workspaces_retrieve
+        enabled: false
+    users-integrations-slack-start-create:
+        operation: users_integrations_slack_start_create
+        enabled: false
     users-list:
         operation: users_list
         enabled: false

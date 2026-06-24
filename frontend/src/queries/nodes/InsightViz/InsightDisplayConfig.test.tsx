@@ -239,7 +239,12 @@ describe('InsightDisplayConfig', () => {
                 makeLifecycleQuery(),
                 {
                     sections: ['Display'],
-                    displayItems: ['Stack bars', 'Show values on series', 'Show percentages on series', 'Show legend'],
+                    displayItems: [
+                        'Stack bars',
+                        'Show values on series',
+                        'Show percentages on series',
+                        'Show legendBottom',
+                    ],
                 },
             ],
         ]

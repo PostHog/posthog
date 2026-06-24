@@ -112,6 +112,7 @@ export interface BuildTrendsLifecycleConfigOpts {
     allDays?: string[]
     valueLabels?: TimeSeriesBarChartConfig['valueLabels']
     tooltip?: TimeSeriesBarChartConfig['tooltip']
+    legend?: TimeSeriesBarChartConfig['legend']
 }
 
 export function buildTrendsLifecycleConfig(opts: BuildTrendsLifecycleConfigOpts): TimeSeriesBarChartConfig {
@@ -131,6 +132,7 @@ export function buildTrendsLifecycleConfig(opts: BuildTrendsLifecycleConfigOpts)
         // Only meaningful in stacked layout — dormant stacks below 0.
         divergingStack: opts.isStacked,
         tooltip: opts.tooltip,
+        legend: opts.legend,
     }
 }
 

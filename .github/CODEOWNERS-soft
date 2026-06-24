@@ -175,6 +175,8 @@ frontend/src/scenes/settings/ @PostHog/team-growth
 frontend/src/scenes/organization/ @PostHog/team-growth
 frontend/src/scenes/project/ @PostHog/team-growth
 frontend/src/scenes/instance/ @PostHog/team-growth
+# ...except the query performance scene, owned by @PostHog/team-experiments
+frontend/src/scenes/instance/QueryPerformance/ @PostHog/team-experiments
 
 # Weekly digest - owned by @PostHog/team-growth
 posthog/temporal/weekly_digest @PostHog/team-growth

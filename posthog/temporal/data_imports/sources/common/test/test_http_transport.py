@@ -134,6 +134,24 @@ def test_send_defaults_redact_values_to_empty(mock_record, fake_http_send):
     assert mock_record.call_args.kwargs["redact_values"] == ()
 
 
+def test_send_captures_by_default(mock_record, fake_http_send):
+    session = make_tracked_session()
+
+    with fake_http_send(_fake_response(status_code=200, body=b"ok")):
+        session.get("https://api.example.com/v1/ok")
+
+    assert mock_record.call_args.kwargs["capture"] is True
+
+
+def test_send_forwards_capture_disabled_to_record(mock_record, fake_http_send):
+    session = make_tracked_session(capture=False)
+
+    with fake_http_send(_fake_response(status_code=200, body=b"ok")):
+        session.get("https://api.example.com/v1/ok")
+
+    assert mock_record.call_args.kwargs["capture"] is False
+
+
 def test_send_records_request_for_2xx(mock_record, fake_http_send):
     session = make_tracked_session()
 

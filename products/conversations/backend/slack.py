@@ -1019,7 +1019,8 @@ def _handle_member_event(event: dict, team: Team, *, joined: bool) -> None:
 
     Fires for any channel the bot is in (Slack only delivers member_joined_channel /
     member_left_channel for channels the bot belongs to). Gated per-direction by the
-    team's settings.
+    team's settings. Members of the team's own organization are skipped — the alert is
+    meant to surface external participants, not internal teammates.
     """
     settings_dict = team.conversations_settings or {}
 
@@ -1051,6 +1052,12 @@ def _handle_member_event(event: dict, team: Team, *, joined: bool) -> None:
 
     # Slack also fires member_joined_channel for the bot's own join — skip it to avoid noise.
     if user == own_bot_user_id:
+        return
+
+    # Members of the team's own organization are internal teammates, not the external
+    # participants these alerts surface — skip them.
+    slack_user = resolve_slack_user(client, user)
+    if resolve_posthog_user_for_slack(slack_user.get("email"), team):
         return
 
     verb = "joined" if joined else "left"

@@ -20,6 +20,7 @@ from django.db import close_old_connections
 
 import pyarrow as pa
 import structlog
+import posthoganalytics
 from temporalio import activity
 
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
@@ -32,12 +33,15 @@ from posthog.temporal.data_imports.cdc.batcher import (
     deduplicate_table,
     enrich_delete_rows,
 )
+from posthog.temporal.data_imports.cdc.errors import MAX_FRIENDLY_MESSAGE_LENGTH, CDCErrorInfo, classify_cdc_error
 from posthog.temporal.data_imports.cdc.types import ChangeEvent
 from posthog.temporal.data_imports.pipelines.helpers import resolve_table_and_folder_names
 from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.common import SyncTypeLiteral
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import PostgresProducer
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3.writer import S3BatchWriter
+from posthog.temporal.data_imports.util import NonRetryableException
 from posthog.temporal.data_imports.workflow_activities.create_job_model import _build_schema_snapshot
+from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -563,10 +567,8 @@ class CDCExtractActivity:
                     return
                 except Exception as recovery_exc:
                     self.log.exception("cdc_slot_recovery_failed")
-                    self._handle_failure(recovery_exc)
-                    raise
-            self._handle_failure(exc)
-            raise
+                    self._fail(recovery_exc)
+            self._fail(exc)
         finally:
             if self.reader is not None:
                 self.reader.close()
@@ -816,6 +818,12 @@ class CDCExtractActivity:
         """Put a schema back into snapshot mode so its own schedule re-syncs it from scratch."""
         schema.sync_type_config["cdc_mode"] = "snapshot"
         schema.sync_type_config.pop("cdc_last_log_position", None)
+        # A source TRUNCATE (or a lost slot) leaves the warehouse table in place, so without
+        # reset_pipeline the re-snapshot takes the incremental-merge path and upserts the
+        # current rows over the stale ones — pre-truncate rows never deleted. Forcing it makes
+        # the batch import wipe the table first (handle_reset_or_full_refresh, which also clears
+        # the flag). The {name}_cdc companion is reset independently by the snapshot seed.
+        schema.sync_type_config["reset_pipeline"] = True
         if clear_deferred_runs:
             schema.sync_type_config.pop("cdc_deferred_runs", None)
         schema.initial_sync_complete = False
@@ -940,7 +948,6 @@ class CDCExtractActivity:
         for job in self.created_jobs:
             if job.status == ExternalDataJob.Status.RUNNING:
                 job.status = ExternalDataJob.Status.FAILED
-                # NOTE: may need to truncate if stack traces grow unwieldy
                 job.latest_error = error
                 job.finished_at = dt.datetime.now(tz=dt.UTC)
                 job.save(update_fields=["status", "latest_error", "finished_at", "updated_at"])
@@ -985,16 +992,50 @@ class CDCExtractActivity:
 
         self.log.info("cdc_slot_recovery_complete", schemas_reset=len(self.cdc_schemas))
 
-    def _handle_failure(self, exc: Exception) -> None:
+    def _fail(self, exc: Exception) -> typing.NoReturn:
+        """Persist a friendly failure, emit analytics, and re-raise.
+
+        Non-retryable classifications raise ``NonRetryableException`` so the workflow's retry
+        policy stops re-running a deterministic failure; retryable ones re-raise as-is to let
+        Temporal retry.
+        """
+        info = self._handle_failure(exc)
+        if not info.retryable:
+            self._capture_non_retryable(info)
+            raise NonRetryableException(info.friendly_message) from exc
+        raise exc
+
+    def _handle_failure(self, exc: Exception) -> CDCErrorInfo:
+        """Classify the failure, store the friendly message on the jobs/schemas, return the info."""
         self.log.exception("cdc_extract_failed")
-        self._fail_created_jobs(str(exc))
+        info = classify_cdc_error(exc, self.adapter)
+        friendly = info.friendly_message[:MAX_FRIENDLY_MESSAGE_LENGTH]
+        self._fail_created_jobs(friendly)
         for schema in self.cdc_schemas:
             schema.status = ExternalDataSchema.Status.FAILED
-            # NOTE: may need to truncate if stack traces grow unwieldy
-            schema.latest_error = str(exc)
+            schema.latest_error = friendly
             schema.save(update_fields=["status", "latest_error", "updated_at"])
-            # Mirror the failure as a per-schema log line so it shows up in the Syncs panel.
-            self._schema_log(schema).error("cdc_extract_schema_failed", error=str(exc))
+            # User-facing column gets the friendly copy; the raw error still routes to structured
+            # logs / the Syncs log viewer for debugging.
+            self._schema_log(schema).error(
+                "cdc_extract_schema_failed", error=str(exc), category=info.category, retryable=info.retryable
+            )
+        return info
+
+    def _capture_non_retryable(self, info: CDCErrorInfo) -> None:
+        # Best-effort: analytics must never mask the NonRetryableException the caller is about to raise.
+        try:
+            posthoganalytics.capture(
+                distinct_id=get_machine_id(),
+                event="cdc extraction non-retryable error",
+                properties={
+                    "team_id": self.inputs.team_id,
+                    "source_id": str(self.inputs.source_id),
+                    "category": str(info.category),
+                },
+            )
+        except Exception:
+            self.log.warning("cdc_non_retryable_capture_failed", exc_info=True)
 
     def _finalize_success(self) -> None:
         now = dt.datetime.now(tz=dt.UTC)
@@ -1061,6 +1102,9 @@ def cleanup_orphan_slots_activity() -> None:
     sources = ExternalDataSource.objects.filter(source_type__in=cdc_supported_source_types()).iterator(chunk_size=100)
 
     sources_checked = 0
+    sources_errored = 0
+    slots_dropped = 0
+    sweep_started = dt.datetime.now(tz=dt.UTC)
     # A single source's management connection (10s connect_timeout × several ops) can stall the
     # loop, so heartbeat from a background thread rather than once per iteration — otherwise a
     # stalled source would starve heartbeats and Temporal would kill the whole sweep.
@@ -1075,6 +1119,7 @@ def cleanup_orphan_slots_activity() -> None:
                 cdc_config = adapter.parse_cdc_config(source)
             except Exception:
                 log.exception("failed_to_parse_cdc_config", source_id=str(source.id))
+                sources_errored += 1
                 continue
 
             # Restore the original filter semantics on decrypted values: skip sources that
@@ -1106,17 +1151,21 @@ def cleanup_orphan_slots_activity() -> None:
                     try:
                         with adapter.management_connection(source, connect_timeout=10) as conn:
                             adapter.drop_resources(conn, cdc_config.slot_name, cdc_config.publication_name)
+                        slots_dropped += 1
                     except Exception:
                         source_log.exception("failed_to_cleanup_deleted_source_slot")
+                        sources_errored += 1
                 continue
 
             # 2. Active sources — check WAL lag
+            source_started = dt.datetime.now(tz=dt.UTC)
             try:
                 with adapter.management_connection(source, connect_timeout=10) as conn:
                     lag_bytes = adapter.get_lag_bytes(conn, cdc_config.slot_name)
                     retention_cap_mb = adapter.get_retention_cap_mb(conn)
             except Exception:
                 source_log.exception("failed_to_check_slot_lag")
+                sources_errored += 1
                 continue
 
             if lag_bytes is None:
@@ -1143,13 +1192,19 @@ def cleanup_orphan_slots_activity() -> None:
                         with adapter.management_connection(source, connect_timeout=10) as conn:
                             adapter.drop_resources(conn, cdc_config.slot_name, cdc_config.publication_name)
 
+                        slots_dropped += 1
                         source.status = ExternalDataSource.Status.ERROR
                         source.save(update_fields=["status", "updated_at"])
                     except Exception:
                         source_log.exception("failed_to_auto_drop_slot")
+                        sources_errored += 1
                 elif cdc_config.management_mode == "self_managed":
-                    source.status = ExternalDataSource.Status.ERROR
-                    source.save(update_fields=["status", "updated_at"])
+                    try:
+                        source.status = ExternalDataSource.Status.ERROR
+                        source.save(update_fields=["status", "updated_at"])
+                    except Exception:
+                        source_log.exception("failed_to_update_source_status")
+                        sources_errored += 1
 
             elif lag_mb >= cdc_config.lag_warning_threshold_mb:
                 source_log.warning(
@@ -1158,4 +1213,16 @@ def cleanup_orphan_slots_activity() -> None:
                     threshold_mb=cdc_config.lag_warning_threshold_mb,
                 )
 
-    log.info("cleanup_orphan_slots_completed", sources_checked=sources_checked)
+            source_log.info(
+                "slot_lag_checked",
+                lag_mb=round(lag_mb, 1),
+                duration_ms=round((dt.datetime.now(tz=dt.UTC) - source_started).total_seconds() * 1000),
+            )
+
+    log.info(
+        "cleanup_orphan_slots_completed",
+        sources_checked=sources_checked,
+        sources_errored=sources_errored,
+        slots_dropped=slots_dropped,
+        duration_s=round((dt.datetime.now(tz=dt.UTC) - sweep_started).total_seconds(), 1),
+    )
