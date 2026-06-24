@@ -69,13 +69,22 @@ logger = structlog.get_logger(__name__)
 
 # A finished request that grew the worker's RSS by at least this many MiB is logged as
 # `request_memory_growth`. Tunable via env so the threshold can be tightened/relaxed in
-# prod without a deploy. Set to 0 to log every request's growth (noisy — debugging only).
-# Parsed defensively: a malformed value must never crash the module at import (which would
-# take the worker down before it serves a request) — fall back to the default instead.
+# prod without a worker restart / code change. Set to 0 to log every request's growth
+# (noisy — debugging only). Parsed defensively: a malformed value must never crash the
+# module at import (which would take the worker down before it serves a request) — fall
+# back to the default instead.
 try:
     REQUEST_RSS_GROWTH_LOG_MB = float(os.getenv("WEB_REQUEST_RSS_GROWTH_LOG_MB", "100"))
 except ValueError:
     REQUEST_RSS_GROWTH_LOG_MB = 100.0
+
+# Page size is invariant for the lifetime of the process — hoist it so current_rss_mb()
+# doesn't pay the sysconf syscall on every call. Fall back to 4096 (the common default)
+# if sysconf is unavailable on the host (e.g. an exotic OS).
+try:
+    _PAGE_SIZE_BYTES: int = os.sysconf("SC_PAGE_SIZE")
+except (OSError, ValueError):
+    _PAGE_SIZE_BYTES = 4096
 
 
 def current_rss_mb() -> float | None:
@@ -85,10 +94,9 @@ def current_rss_mb() -> float | None:
     try:
         with open("/proc/self/statm") as statm:
             resident_pages = int(statm.read().split()[1])
-        page_size = os.sysconf("SC_PAGE_SIZE")
     except (OSError, ValueError, IndexError):
         return None
-    return resident_pages * page_size / (1024 * 1024)
+    return resident_pages * _PAGE_SIZE_BYTES / (1024 * 1024)
 
 
 ALWAYS_ALLOWED_ENDPOINTS = [
@@ -742,25 +750,31 @@ def per_request_logging_context_middleware(
             if mcp_conversation_id:
                 span.set_attribute("mcp.conversation_id", mcp_conversation_id)
 
-        response = get_response(request)
-
-        # Flag requests that materially grew this worker's footprint. Steady accumulation
-        # of these on a pod is the in-app fingerprint of the request mix that walks RSS up
-        # to the cgroup limit and triggers the OOM kill.
-        rss_mb_end = current_rss_mb()
-        if (
-            rss_mb_start is not None
-            and rss_mb_end is not None
-            and rss_mb_end - rss_mb_start >= REQUEST_RSS_GROWTH_LOG_MB
-        ):
-            logger.warning(
-                "request_memory_growth",
-                rss_mb_start=round(rss_mb_start, 1),
-                rss_mb_end=round(rss_mb_end, 1),
-                rss_mb_delta=round(rss_mb_end - rss_mb_start, 1),
-                request_path=request.path,
-                method=request.method,
-            )
+        try:
+            response = get_response(request)
+        finally:
+            # Flag requests that materially grew this worker's footprint. Steady
+            # accumulation of these on a pod is the in-app fingerprint of the request
+            # mix that walks RSS up to the cgroup limit and triggers the OOM kill.
+            # This runs even when get_response raises — exception paths (large error
+            # payloads, failed serialisation) are exactly the requests most likely to
+            # spike RSS. worker_pid is added explicitly because django_structlog's
+            # RequestMiddleware clears contextvars before this finally block fires.
+            rss_mb_end = current_rss_mb()
+            if (
+                rss_mb_start is not None
+                and rss_mb_end is not None
+                and rss_mb_end - rss_mb_start >= REQUEST_RSS_GROWTH_LOG_MB
+            ):
+                logger.warning(
+                    "request_memory_growth",
+                    rss_mb_start=round(rss_mb_start, 1),
+                    rss_mb_end=round(rss_mb_end, 1),
+                    rss_mb_delta=round(rss_mb_end - rss_mb_start, 1),
+                    request_path=request.path,
+                    method=request.method,
+                    worker_pid=os.getpid(),
+                )
 
         return response
 
