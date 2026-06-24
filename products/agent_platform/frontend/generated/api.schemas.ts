@@ -457,20 +457,29 @@ export type AgentRevisionApiSpecSkillsItem = {
 }
 
 export type AgentRevisionApiSpecIdentityProvidersItem =
-    | (unknown & {
+    | {
           kind: 'posthog'
           /** @minLength 1 */
           id?: string
-          binding?: 'principal' | 'agent'
+          binding?: 'principal'
           acknowledge_shared_credential?: boolean
           scopes?: string[]
           client_id?: string
-      })
-    | (unknown & {
+      }
+    | {
+          kind: 'posthog'
+          /** @minLength 1 */
+          id?: string
+          binding: 'agent'
+          acknowledge_shared_credential: true
+          scopes?: string[]
+          client_id?: string
+      }
+    | {
           kind: 'oauth2'
           /** @minLength 1 */
           id: string
-          binding?: 'principal' | 'agent'
+          binding?: 'principal'
           acknowledge_shared_credential?: boolean
           authorize_url: string
           token_url: string
@@ -479,7 +488,21 @@ export type AgentRevisionApiSpecIdentityProvidersItem =
           client_secret_ref?: string
           scopes?: string[]
           userinfo_url?: string
-      })
+      }
+    | {
+          kind: 'oauth2'
+          /** @minLength 1 */
+          id: string
+          binding: 'agent'
+          acknowledge_shared_credential: true
+          authorize_url: string
+          token_url: string
+          /** @minLength 1 */
+          client_id: string
+          client_secret_ref?: string
+          scopes?: string[]
+          userinfo_url?: string
+      }
 
 export type AgentRevisionApiSpecSecretsItem =
     | string
@@ -837,20 +860,29 @@ export type PatchedAgentRevisionApiSpecSkillsItem = {
 }
 
 export type PatchedAgentRevisionApiSpecIdentityProvidersItem =
-    | (unknown & {
+    | {
           kind: 'posthog'
           /** @minLength 1 */
           id?: string
-          binding?: 'principal' | 'agent'
+          binding?: 'principal'
           acknowledge_shared_credential?: boolean
           scopes?: string[]
           client_id?: string
-      })
-    | (unknown & {
+      }
+    | {
+          kind: 'posthog'
+          /** @minLength 1 */
+          id?: string
+          binding: 'agent'
+          acknowledge_shared_credential: true
+          scopes?: string[]
+          client_id?: string
+      }
+    | {
           kind: 'oauth2'
           /** @minLength 1 */
           id: string
-          binding?: 'principal' | 'agent'
+          binding?: 'principal'
           acknowledge_shared_credential?: boolean
           authorize_url: string
           token_url: string
@@ -859,7 +891,21 @@ export type PatchedAgentRevisionApiSpecIdentityProvidersItem =
           client_secret_ref?: string
           scopes?: string[]
           userinfo_url?: string
-      })
+      }
+    | {
+          kind: 'oauth2'
+          /** @minLength 1 */
+          id: string
+          binding: 'agent'
+          acknowledge_shared_credential: true
+          authorize_url: string
+          token_url: string
+          /** @minLength 1 */
+          client_id: string
+          client_secret_ref?: string
+          scopes?: string[]
+          userinfo_url?: string
+      }
 
 export type PatchedAgentRevisionApiSpecSecretsItem =
     | string

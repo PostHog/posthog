@@ -422,20 +422,26 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
         "identity_providers": {
             "default": [],
             "type": "array",
+            # Flat oneOf over (kind × binding) rather than per-kind + an
+            # `allOf`/`if`/`then` ack rule. drf-spectacular elides if/then
+            # (collapsing it to `allOf: [{}, …]`), which makes orval emit
+            # `z.unknown().and(…)` and drops the acknowledge_shared_credential
+            # constraint from the generated client + MCP tool schemas. Explicit
+            # per-binding branches survive codegen as a clean union with the
+            # `binding`/`acknowledge_shared_credential` literals preserved.
+            # Mirrors the zod `discriminatedUnion('kind')` + `superRefine` in
+            # services/agent-shared/src/spec/spec.ts — keep the two in lockstep.
             "items": {
                 "oneOf": [
+                    # posthog · principal (default binding; per-asker link)
                     {
                         "type": "object",
                         "properties": {
                             "kind": {"type": "string", "const": "posthog"},
                             "id": {"type": "string", "minLength": 1, "default": "posthog"},
-                            # `agent` = one credential shared by the whole agent (every
-                            # asker acts as it; requires acknowledge_shared_credential).
-                            # `principal` (default) = per-asker. Keep in lockstep with
-                            # the zod enum in spec.ts.
-                            "binding": {"type": "string", "enum": ["principal", "agent"], "default": "principal"},
-                            # Must be true when binding is "agent" (enforced by the
-                            # allOf/if-then below). Ignored for principal binding.
+                            "binding": {"type": "string", "enum": ["principal"], "default": "principal"},
+                            # Optional + ignored for principal binding (kept so a spec
+                            # carrying it still validates, matching the zod optional).
                             "acknowledge_shared_credential": {"type": "boolean"},
                             "scopes": {"type": "array", "items": {"type": "string"}, "default": []},
                             # Backend-injected on promote (the provisioned
@@ -444,30 +450,28 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                         },
                         "required": ["kind"],
                         "additionalProperties": False,
-                        # binding: 'agent' must explicitly acknowledge the shared
-                        # credential — mirrors the zod superRefine in spec.ts.
-                        "allOf": [
-                            {
-                                "if": {"properties": {"binding": {"const": "agent"}}, "required": ["binding"]},
-                                "then": {
-                                    "properties": {"acknowledge_shared_credential": {"const": True}},
-                                    "required": ["acknowledge_shared_credential"],
-                                },
-                            }
-                        ],
                     },
+                    # posthog · agent (one shared credential; explicit ack required)
+                    {
+                        "type": "object",
+                        "properties": {
+                            "kind": {"type": "string", "const": "posthog"},
+                            "id": {"type": "string", "minLength": 1, "default": "posthog"},
+                            "binding": {"type": "string", "const": "agent"},
+                            "acknowledge_shared_credential": {"type": "boolean", "const": True},
+                            "scopes": {"type": "array", "items": {"type": "string"}, "default": []},
+                            "client_id": {"type": "string"},
+                        },
+                        "required": ["kind", "binding", "acknowledge_shared_credential"],
+                        "additionalProperties": False,
+                    },
+                    # oauth2 · principal (default binding; per-asker link)
                     {
                         "type": "object",
                         "properties": {
                             "kind": {"type": "string", "const": "oauth2"},
                             "id": {"type": "string", "minLength": 1},
-                            # `agent` = one credential shared by the whole agent (every
-                            # asker acts as it; requires acknowledge_shared_credential).
-                            # `principal` (default) = per-asker. Keep in lockstep with
-                            # the zod enum in spec.ts.
-                            "binding": {"type": "string", "enum": ["principal", "agent"], "default": "principal"},
-                            # Must be true when binding is "agent" (enforced by the
-                            # allOf/if-then below). Ignored for principal binding.
+                            "binding": {"type": "string", "enum": ["principal"], "default": "principal"},
                             "acknowledge_shared_credential": {"type": "boolean"},
                             "authorize_url": {"type": "string", "format": "uri"},
                             "token_url": {"type": "string", "format": "uri"},
@@ -478,17 +482,32 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                         },
                         "required": ["kind", "id", "authorize_url", "token_url", "client_id"],
                         "additionalProperties": False,
-                        # binding: 'agent' must explicitly acknowledge the shared
-                        # credential — mirrors the zod superRefine in spec.ts.
-                        "allOf": [
-                            {
-                                "if": {"properties": {"binding": {"const": "agent"}}, "required": ["binding"]},
-                                "then": {
-                                    "properties": {"acknowledge_shared_credential": {"const": True}},
-                                    "required": ["acknowledge_shared_credential"],
-                                },
-                            }
+                    },
+                    # oauth2 · agent (one shared credential; explicit ack required)
+                    {
+                        "type": "object",
+                        "properties": {
+                            "kind": {"type": "string", "const": "oauth2"},
+                            "id": {"type": "string", "minLength": 1},
+                            "binding": {"type": "string", "const": "agent"},
+                            "acknowledge_shared_credential": {"type": "boolean", "const": True},
+                            "authorize_url": {"type": "string", "format": "uri"},
+                            "token_url": {"type": "string", "format": "uri"},
+                            "client_id": {"type": "string", "minLength": 1},
+                            "client_secret_ref": {"type": "string"},
+                            "scopes": {"type": "array", "items": {"type": "string"}, "default": []},
+                            "userinfo_url": {"type": "string", "format": "uri"},
+                        },
+                        "required": [
+                            "kind",
+                            "id",
+                            "authorize_url",
+                            "token_url",
+                            "client_id",
+                            "binding",
+                            "acknowledge_shared_credential",
                         ],
+                        "additionalProperties": False,
                     },
                 ]
             },
