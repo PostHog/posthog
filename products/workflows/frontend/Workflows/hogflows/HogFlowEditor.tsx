@@ -80,9 +80,7 @@ function HogFlowEditorContent(): JSX.Element {
                     <Panel position="top-center">
                         <div className="flex items-center gap-1.5 px-3 py-1.5 rounded border shadow-sm bg-surface-primary text-sm">
                             <IconInfo className="text-base text-muted shrink-0" />
-                            <span>
-                                Click a highlighted spot to {isMovingNode ? 'move' : 'copy'} this step
-                            </span>
+                            <span>Click a highlighted spot to {isMovingNode ? 'move' : 'copy'} this step</span>
                             <span className="text-muted">· press Esc to cancel</span>
                         </div>
                     </Panel>
