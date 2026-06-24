@@ -30,7 +30,7 @@ RECOVERY_GRACE_SECONDS = 300
 # Reconcile sweep: catch runs whose queue batch failed but whose ExternalDataJob was left non-terminal.
 RECONCILE_INTERVAL_SECONDS = 300.0
 RECONCILE_GRACE_SECONDS = 120  # don't race a _fail_run that is still in flight
-RECONCILE_LOOKBACK_SECONDS = 6 * 60 * 60  # keep the queue scan cheap
+RECONCILE_LOOKBACK_SECONDS = 24 * 60 * 60  # wide enough to catch jobs orphaned by consumer outages
 
 
 class OwnershipLostError(Exception):

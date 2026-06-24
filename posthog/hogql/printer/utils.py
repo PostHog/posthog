@@ -32,11 +32,18 @@ from posthog.hogql.transforms.geoip_dict_fallback import (
     geoip_dict_fallback_enabled_for_team,
 )
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
+from posthog.hogql.transforms.json_property_pushdown import (
+    has_rewritable_json_extract,
+    rewrite_json_extract_to_property,
+)
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.logical_property_lowering import lower_property_access
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
-from posthog.hogql.transforms.type_aware_simplification import simplify_redundant_type_operations
+from posthog.hogql.transforms.type_aware_simplification import (
+    simplify_argmax_over_non_nullable,
+    simplify_redundant_type_operations,
+)
 from posthog.hogql.visitor import clone_expr
 from posthog.hogql.workload import WorkloadCollector
 
@@ -160,6 +167,22 @@ def prepare_ast_for_printing(
             resolver_factory=resolver_factory,
         )
 
+    # Project constant-key JSONExtractString on argMax lazy tables (groups/persons) into the
+    # aggregate, so it does not materialize the whole JSON blob per row. Rewrites the call to a
+    # property access and re-resolves, so the resolver assigns types rather than us building them.
+    # Must run after type resolution and before lazy-table resolution.
+    if dialect == "clickhouse" and has_rewritable_json_extract(node, context):
+        with context.timings.measure("rewrite_json_extract_to_property"):
+            node = rewrite_json_extract_to_property(node, context)
+        with context.timings.measure("resolve_types_after_json_pushdown"):
+            node = resolve_types(
+                node,
+                context,
+                dialect=dialect,
+                scopes=[scope.type for scope in stack if scope.type is not None] if stack else None,
+                resolver_factory=resolver_factory,
+            )
+
     if context.enable_type_aware_cast_simplification:
         with context.timings.measure("type_aware_cast_simplification"):
             node = simplify_redundant_type_operations(node, context, dialect)
@@ -274,6 +297,11 @@ def prepare_ast_for_printing(
     if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN:
         with context.timings.measure("resolve_in_cohorts"):
             resolve_in_cohorts(node, dialect, stack, context, resolver_factory=resolver_factory)
+
+    # Drop argmax_select's tuple()/tupleElement() wrap for non-nullable columns; runs last so resolved nullability is final. ClickHouse-only.
+    if dialect == "clickhouse":
+        with context.timings.measure("simplify_argmax_over_non_nullable"):
+            node = simplify_argmax_over_non_nullable(node, context)
 
     # We add a team_id guard right before printing. It's not a separate step here.
     return node

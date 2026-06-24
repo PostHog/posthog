@@ -1010,9 +1010,34 @@ class TestClearDashboardFromGroupTypeMapping(SimpleTestCase):
     @patch("posthog.models.group_type_mapping.invalidate_group_types_cache")
     @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
     @patch(_CLIENT_PATCH)
+    def test_personhog_group_type_index_zero_still_clears(self, mock_get_client, mock_routing_counter, mock_invalidate):
+        """group_type_index=0 is falsy but valid — HasField must not skip it."""
+        mock_mapping = MagicMock(spec=["project_id", "group_type_index"])
+        mock_mapping.project_id = 1
+        mock_mapping.group_type_index = 0
+
+        mock_resp = MagicMock()
+        mock_resp.HasField.return_value = True
+        mock_resp.mapping = mock_mapping
+
+        mock_client = MagicMock()
+        mock_client.get_group_type_mapping_by_dashboard_id.return_value = mock_resp
+        mock_client.update_group_type_mapping.return_value = MagicMock()
+        mock_get_client.return_value = mock_client
+
+        clear_dashboard_from_group_type_mapping(team_id=10, dashboard_id=42)
+
+        mock_client.update_group_type_mapping.assert_called_once()
+        update_req = mock_client.update_group_type_mapping.call_args[0][0]
+        assert update_req.group_type_index == 0
+        mock_invalidate.assert_called_once_with(1)
+
+    @patch("posthog.models.group_type_mapping.invalidate_group_types_cache")
+    @patch("posthog.models.group_type_mapping.PERSONHOG_ROUTING_TOTAL")
+    @patch(_CLIENT_PATCH)
     def test_personhog_no_matching_mapping_skips_update(self, mock_get_client, mock_routing_counter, mock_invalidate):
         mock_resp = MagicMock()
-        mock_resp.mapping = None
+        mock_resp.HasField.return_value = False
 
         mock_client = MagicMock()
         mock_client.get_group_type_mapping_by_dashboard_id.return_value = mock_resp

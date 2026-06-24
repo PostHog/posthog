@@ -10,7 +10,7 @@ import structlog
 import temporalio
 from structlog.contextvars import bind_contextvars
 
-from posthog.api.capture_dispatch import capture_internal_routed
+from posthog.api.capture import capture_internal
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_llm_judge import DEFAULT_JUDGE_MODEL
@@ -383,7 +383,7 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
 
         event_timestamp = datetime.now(UTC)
 
-        capture_result = capture_internal_routed(
+        capture_result = capture_internal(
             token=team.api_token,
             event_name="$ai_evaluation",
             event_source="llm_analytics_evaluation",

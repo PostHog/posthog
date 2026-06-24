@@ -159,13 +159,13 @@
          ifNull(argMinIf(ifNull(nullIf(ai_events.span_name, ''), nullIf(ai_events.trace_name, '')), toTimeZone(ai_events.timestamp, 'UTC'), equals(ai_events.event, '$ai_trace')), argMin(ifNull(nullIf(ai_events.span_name, ''), nullIf(ai_events.trace_name, '')), toTimeZone(ai_events.timestamp, 'UTC'))) AS trace_name
   FROM ai_events
   INNER JOIN
-    (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS ai_events__pdi___person_id,
-            tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
+    (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS ai_events__pdi___person_id,
+            argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
             person_distinct_id2.distinct_id AS distinct_id
      FROM person_distinct_id2
      WHERE equals(person_distinct_id2.team_id, 99999)
      GROUP BY person_distinct_id2.distinct_id
-     HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS ai_events__pdi ON equals(ai_events.distinct_id, ai_events__pdi.distinct_id)
+     HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) SETTINGS optimize_aggregation_in_order=1) AS ai_events__pdi ON equals(ai_events.distinct_id, ai_events__pdi.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'bar'), ''), 'null'), '^"|"$', '') AS properties___bar
@@ -212,13 +212,13 @@
          ifNull(argMinIf(ifNull(nullIf(ai_events.span_name, ''), nullIf(ai_events.trace_name, '')), toTimeZone(ai_events.timestamp, 'UTC'), equals(ai_events.event, '$ai_trace')), argMin(ifNull(nullIf(ai_events.span_name, ''), nullIf(ai_events.trace_name, '')), toTimeZone(ai_events.timestamp, 'UTC'))) AS trace_name
   FROM ai_events
   INNER JOIN
-    (SELECT tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS ai_events__pdi___person_id,
-            tupleElement(argMax(tuple(person_distinct_id2.person_id), person_distinct_id2.version), 1) AS person_id,
+    (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS ai_events__pdi___person_id,
+            argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
             person_distinct_id2.distinct_id AS distinct_id
      FROM person_distinct_id2
      WHERE equals(person_distinct_id2.team_id, 99999)
      GROUP BY person_distinct_id2.distinct_id
-     HAVING equals(tupleElement(argMax(tuple(person_distinct_id2.is_deleted), person_distinct_id2.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS ai_events__pdi ON equals(ai_events.distinct_id, ai_events__pdi.distinct_id)
+     HAVING equals(argMax(person_distinct_id2.is_deleted, person_distinct_id2.version), 0) SETTINGS optimize_aggregation_in_order=1) AS ai_events__pdi ON equals(ai_events.distinct_id, ai_events__pdi.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'bar'), ''), 'null'), '^"|"$', '') AS properties___bar
@@ -265,12 +265,12 @@
          ifNull(argMinIf(ifNull(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), ''), nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', ''), '')), toTimeZone(events.timestamp, 'UTC'), equals(events.event, '$ai_trace')), argMin(ifNull(nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_span_name'), ''), 'null'), '^"|"$', ''), ''), nullIf(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$ai_trace_name'), ''), 'null'), '^"|"$', ''), '')), toTimeZone(events.timestamp, 'UTC'))) AS trace_name
   FROM events
   LEFT OUTER JOIN
-    (SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
+    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
             person_distinct_id_overrides.distinct_id AS distinct_id
      FROM person_distinct_id_overrides
      WHERE equals(person_distinct_id_overrides.team_id, 99999)
      GROUP BY person_distinct_id_overrides.distinct_id
-     HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
   LEFT JOIN
     (SELECT person.id AS id,
             replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'bar'), ''), 'null'), '^"|"$', '') AS properties___bar

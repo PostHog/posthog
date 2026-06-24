@@ -231,13 +231,14 @@ jobs:
                   REF: ${{ github.ref }}
                   SCHEDULE: ${{ github.event.schedule }}
               run: |
-                  # Per-day cache key → one new entry per day. Restores match by prefix and only
-                  # ever touch the newest entry, so each prior day's entry ages out 7 days after
-                  # it stops being newest: up to ~7 daily entries (~1 MB zstd each, ~7 MB total)
-                  # coexist before eviction. Tiny, self-pruning, no shared-budget pressure.
-                  TODAY=$(date -u +%F)
-                  echo "date=$TODAY" >> "$GITHUB_OUTPUT"
-                  echo "cache_key=posthog-test-durations-$TODAY" >> "$GITHUB_OUTPUT"
+                  # Full ISO-8601 cache key → each run writes its own entry. Restores match by
+                  # prefix and only ever touch the newest entry, so prior entries age out 7 days
+                  # after they stop being newest. This ensures a manual workflow_dispatch can
+                  # refresh the cache intra-day (GitHub Actions cache keys are immutable, so a
+                  # per-day key blocked same-day updates). ~1 MB zstd each; tiny footprint.
+                  NOW=$(date -u +%FT%H%M%SZ)
+                  echo "date=$NOW" >> "$GITHUB_OUTPUT"
+                  echo "cache_key=posthog-test-durations-$NOW" >> "$GITHUB_OUTPUT"
                   # Every run refreshes the cache; only the monthly cron (or a manual dispatch)
                   # also commits the repo fallback, so the daily runs don't churn the 11 MB file.
                   # SCHEDULE is the cron that triggered the run — keep it in sync with the monthly
@@ -275,7 +276,7 @@ jobs:
                   path: |
                       .test_durations.core
                       .test_durations.temporal
-                  key: posthog-segment-durations-${{ steps.durations-meta.outputs.date }}
+                  key: posthog-segment-durations-${{ steps.durations-meta.outputs.date }}-${{ github.run_id }}
 
             - name: Check for changes
               id: check-changes

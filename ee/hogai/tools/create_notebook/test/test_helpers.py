@@ -6,7 +6,7 @@ from parameterized import parameterized
 
 from posthog.schema import TrendsQuery, VisualizationMessage
 
-from products.notebooks.backend.markdown_collab import apply_utf16_text_changes, markdown_crc
+from products.notebooks.backend.facade.collab import apply_utf16_text_changes, markdown_crc
 from products.notebooks.backend.models import Notebook
 from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
 
@@ -178,7 +178,7 @@ class TestSaveNotebookToDb(BaseTest):
         original_version = notebook.version
         original_last_modified_at = notebook.last_modified_at
 
-        with patch("ee.hogai.tools.create_notebook.helpers.markdown_collab.apublish_notebook_update") as mock_publish:
+        with patch("ee.hogai.tools.create_notebook.helpers.collab.apublish_notebook_update") as mock_publish:
             async_to_sync(save_notebook_to_db)(
                 team=self.team,
                 user=self.user,
@@ -230,7 +230,7 @@ class TestSaveNotebookToDb(BaseTest):
         )
         original_version = notebook.version
 
-        with patch("ee.hogai.tools.create_notebook.helpers.markdown_collab.apublish_notebook_update") as mock_publish:
+        with patch("ee.hogai.tools.create_notebook.helpers.collab.apublish_notebook_update") as mock_publish:
             async_to_sync(save_notebook_to_db)(
                 team=self.team,
                 user=self.user,
