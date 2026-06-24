@@ -141,6 +141,10 @@ export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourLimitMax 
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourOrderByDefault = `created_at`
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourOrderDirectionDefault = `DESC`
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourStatusDefault = `all`
+
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSixLimitDefault = 10
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSixLimitMax = 25
+
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneNameMax = 400
 
 export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
@@ -200,14 +204,15 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                     'error_tracking_list',
                                     'experiment_results',
                                     'experiments_list',
+                                    'llm_analytics_traces',
                                     'session_replay_list',
                                 ])
                                 .describe(
-                                    '* `activity_events_list` - activity_events_list\n* `error_tracking_list` - error_tracking_list\n* `experiment_results` - experiment_results\n* `experiments_list` - experiments_list\n* `session_replay_list` - session_replay_list'
+                                    '* `activity_events_list` - activity_events_list\n* `error_tracking_list` - error_tracking_list\n* `experiment_results` - experiment_results\n* `experiments_list` - experiments_list\n* `llm_analytics_traces` - llm_analytics_traces\n* `session_replay_list` - session_replay_list'
                                 )
                                 .optional()
                                 .describe(
-                                    'Widget type identifier (cannot be changed on update).\n\n* `activity_events_list` - activity_events_list\n* `error_tracking_list` - error_tracking_list\n* `experiment_results` - experiment_results\n* `experiments_list` - experiments_list\n* `session_replay_list` - session_replay_list'
+                                    'Widget type identifier (cannot be changed on update).\n\n* `activity_events_list` - activity_events_list\n* `error_tracking_list` - error_tracking_list\n* `experiment_results` - experiment_results\n* `experiments_list` - experiments_list\n* `llm_analytics_traces` - llm_analytics_traces\n* `session_replay_list` - session_replay_list'
                                 ),
                             config: zod
                                 .union([
@@ -569,6 +574,98 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                             .optional()
                                             .describe(
                                                 'Experiment to show results for. Null until the user picks one in the widget settings.'
+                                            ),
+                                    }),
+                                    zod.object({
+                                        dateRange: zod
+                                            .union([
+                                                zod.object({
+                                                    date_from: zod
+                                                        .union([
+                                                            zod.enum([
+                                                                '-1M',
+                                                                '-30M',
+                                                                '-1h',
+                                                                '-3h',
+                                                                '-24h',
+                                                                '-7d',
+                                                                '-14d',
+                                                                '-30d',
+                                                                '-90d',
+                                                            ]),
+                                                            zod.null(),
+                                                        ])
+                                                        .optional(),
+                                                }),
+                                                zod.null(),
+                                            ])
+                                            .optional(),
+                                        filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
+                                        widgetFilters: zod
+                                            .union([
+                                                zod.record(
+                                                    zod.string(),
+                                                    zod.object({
+                                                        filterId: zod.string().min(1),
+                                                        propertyName: zod.string().min(1),
+                                                        optionId: zod.string().min(1),
+                                                        operator: zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        value: zod
+                                                            .union([zod.string(), zod.array(zod.string()), zod.null()])
+                                                            .optional(),
+                                                    })
+                                                ),
+                                                zod.null(),
+                                            ])
+                                            .optional(),
+                                        limit: zod
+                                            .number()
+                                            .min(1)
+                                            .max(dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSixLimitMax)
+                                            .default(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSixLimitDefault
+                                            )
+                                            .describe('Maximum number of traces to return.'),
+                                        filterSupportTraces: zod
+                                            .union([zod.boolean(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'When true, exclude impersonated support traces from the results.'
                                             ),
                                     }),
                                 ])
@@ -937,6 +1034,11 @@ export const dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneOrderByDefa
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneOrderDirectionDefault = `DESC`
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemFourConfigOneStatusDefault = `all`
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemFiveNameMax = 400
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemSixNameMax = 400
+
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemSixConfigOneLimitDefault = 10
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemSixConfigOneLimitMax = 25
 
 export const dashboardsWidgetsBatchCreateBodyWidgetsMax = 10
 
@@ -1583,12 +1685,161 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                             })
                             .describe('Configuration for the experiment results widget.'),
                     }),
+                    zod.object({
+                        name: zod
+                            .string()
+                            .max(dashboardsWidgetsBatchCreateBodyWidgetsItemSixNameMax)
+                            .nullish()
+                            .describe('Optional custom display name for the widget tile.'),
+                        description: zod
+                            .string()
+                            .optional()
+                            .describe('Optional markdown description shown when show_description is enabled.'),
+                        layouts: zod
+                            .object({
+                                sm: zod
+                                    .object({
+                                        x: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Column position in the dashboard grid (0-indexed).'),
+                                        y: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Row position in the dashboard grid (0-indexed).'),
+                                        w: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                        h: zod.number().optional().describe('Height in grid rows.'),
+                                    })
+                                    .optional()
+                                    .describe(
+                                        'Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'
+                                    ),
+                                xs: zod
+                                    .object({
+                                        x: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Column position in the dashboard grid (0-indexed).'),
+                                        y: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Row position in the dashboard grid (0-indexed).'),
+                                        w: zod
+                                            .number()
+                                            .optional()
+                                            .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                        h: zod.number().optional().describe('Height in grid rows.'),
+                                    })
+                                    .optional()
+                                    .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+                            })
+                            .optional()
+                            .describe('Optional react-grid-layout positions keyed by breakpoint (sm, xs).'),
+                        show_description: zod
+                            .boolean()
+                            .optional()
+                            .describe('Whether to show the description on the dashboard tile.'),
+                        widget_type: zod.enum(['llm_analytics_traces']),
+                        config: zod
+                            .object({
+                                dateRange: zod
+                                    .union([
+                                        zod.object({
+                                            date_from: zod
+                                                .union([
+                                                    zod.enum([
+                                                        '-1M',
+                                                        '-30M',
+                                                        '-1h',
+                                                        '-3h',
+                                                        '-24h',
+                                                        '-7d',
+                                                        '-14d',
+                                                        '-30d',
+                                                        '-90d',
+                                                    ]),
+                                                    zod.null(),
+                                                ])
+                                                .optional(),
+                                        }),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                                filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
+                                widgetFilters: zod
+                                    .union([
+                                        zod.record(
+                                            zod.string(),
+                                            zod.object({
+                                                filterId: zod.string().min(1),
+                                                propertyName: zod.string().min(1),
+                                                optionId: zod.string().min(1),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                value: zod
+                                                    .union([zod.string(), zod.array(zod.string()), zod.null()])
+                                                    .optional(),
+                                            })
+                                        ),
+                                        zod.null(),
+                                    ])
+                                    .optional(),
+                                limit: zod
+                                    .number()
+                                    .min(1)
+                                    .max(dashboardsWidgetsBatchCreateBodyWidgetsItemSixConfigOneLimitMax)
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemSixConfigOneLimitDefault)
+                                    .describe('Maximum number of traces to return.'),
+                                filterSupportTraces: zod
+                                    .union([zod.boolean(), zod.null()])
+                                    .optional()
+                                    .describe('When true, exclude impersonated support traces from the results.'),
+                            })
+                            .describe('Configuration for the traces widget.'),
+                    }),
                 ])
             )
             .min(1)
             .max(dashboardsWidgetsBatchCreateBodyWidgetsMax)
             .describe(
-                'Widget tiles to add atomically. Supported widget_type values: activity_events_list, error_tracking_list, experiment_results, experiments_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).'
+                'Widget tiles to add atomically. Supported widget_type values: activity_events_list, error_tracking_list, experiment_results, experiments_list, llm_analytics_traces, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).'
             ),
     })
     .describe('OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.')

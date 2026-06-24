@@ -58,17 +58,17 @@ export const experimentsWidgetFormSchema = experimentsWidgetConfigSchema.pick({
     createdBy: true,
 })
 
+export const llmAnalyticsTracesWidgetFormSchema = llmAnalyticsTracesWidgetConfigSchema.pick({
+    limit: true,
+    dateRange: true,
+    filterTestAccounts: true,
+    filterSupportTraces: true,
+})
+
 export const sessionReplayWidgetFormSchema = sessionReplayWidgetConfigSchema.pick({
     limit: true,
     orderBy: true,
     orderDirection: true,
     dateRange: true,
     filterTestAccounts: true,
-})
-
-export const llmAnalyticsTracesWidgetFormSchema = llmAnalyticsTracesWidgetConfigSchema.pick({
-    limit: true,
-    dateRange: true,
-    filterTestAccounts: true,
-    filterSupportTraces: true,
 })

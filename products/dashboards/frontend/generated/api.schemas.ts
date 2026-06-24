@@ -416,6 +416,7 @@ export interface DashboardFiltersOpenApiApi {
  * * `error_tracking_list` - error_tracking_list
  * * `experiment_results` - experiment_results
  * * `experiments_list` - experiments_list
+ * * `llm_analytics_traces` - llm_analytics_traces
  * * `session_replay_list` - session_replay_list
  */
 export type DashboardPatchWidgetOpenApiWidgetTypeEnumApi =
@@ -426,6 +427,7 @@ export const DashboardPatchWidgetOpenApiWidgetTypeEnumApi = {
     ErrorTrackingList: 'error_tracking_list',
     ExperimentResults: 'experiment_results',
     ExperimentsList: 'experiments_list',
+    LlmAnalyticsTraces: 'llm_analytics_traces',
     SessionReplayList: 'session_replay_list',
 } as const
 
@@ -692,12 +694,29 @@ export interface ExperimentResultsWidgetConfigApi {
     experimentId?: number | null
 }
 
+export type LlmAnalyticsTracesListWidgetConfigApiWidgetFilters = { [key: string]: WidgetFilterEntryApi } | null
+
+export interface LlmAnalyticsTracesListWidgetConfigApi {
+    dateRange?: WidgetDateRangeApi | null
+    filterTestAccounts?: boolean | null
+    widgetFilters?: LlmAnalyticsTracesListWidgetConfigApiWidgetFilters
+    /**
+     * Maximum number of traces to return.
+     * @minimum 1
+     * @maximum 25
+     */
+    limit?: number
+    /** When true, exclude impersonated support traces from the results. */
+    filterSupportTraces?: boolean | null
+}
+
 export type DashboardWidgetConfigApi =
     | ActivityEventsListWidgetConfigApi
     | ErrorTrackingListWidgetConfigApi
     | SessionReplayListWidgetConfigApi
     | ExperimentsListWidgetConfigApi
     | ExperimentResultsWidgetConfigApi
+    | LlmAnalyticsTracesListWidgetConfigApi
 
 export interface DashboardPatchWidgetOpenApiApi {
     /** Existing widget row ID when updating a widget tile via dashboard PATCH. */
@@ -708,6 +727,7 @@ export interface DashboardPatchWidgetOpenApiApi {
      * * `error_tracking_list` - error_tracking_list
      * * `experiment_results` - experiment_results
      * * `experiments_list` - experiments_list
+     * * `llm_analytics_traces` - llm_analytics_traces
      * * `session_replay_list` - session_replay_list */
     widget_type?: DashboardPatchWidgetOpenApiWidgetTypeEnumApi
     /** Widget-specific configuration. Shape depends on the tile's widget_type. */
@@ -8212,19 +8232,45 @@ export interface ExperimentResultsWidgetAddRequestOpenApiApi {
     config: ExperimentResultsWidgetConfigApi
 }
 
+export type LlmAnalyticsTracesListWidgetAddRequestOpenApiApiWidgetType =
+    (typeof LlmAnalyticsTracesListWidgetAddRequestOpenApiApiWidgetType)[keyof typeof LlmAnalyticsTracesListWidgetAddRequestOpenApiApiWidgetType]
+
+export const LlmAnalyticsTracesListWidgetAddRequestOpenApiApiWidgetType = {
+    LlmAnalyticsTraces: 'llm_analytics_traces',
+} as const
+
+export interface LlmAnalyticsTracesListWidgetAddRequestOpenApiApi {
+    /**
+     * Optional custom display name for the widget tile.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** Optional markdown description shown when show_description is enabled. */
+    description?: string
+    /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+    layouts?: _WidgetTileLayoutsOpenApiApi
+    /** Whether to show the description on the dashboard tile. */
+    show_description?: boolean
+    widget_type: LlmAnalyticsTracesListWidgetAddRequestOpenApiApiWidgetType
+    /** Configuration for the traces widget. */
+    config: LlmAnalyticsTracesListWidgetConfigApi
+}
+
 export type AddDashboardWidgetRequestApi =
     | ActivityEventsListWidgetAddRequestOpenApiApi
     | ErrorTrackingListWidgetAddRequestOpenApiApi
     | SessionReplayListWidgetAddRequestOpenApiApi
     | ExperimentsListWidgetAddRequestOpenApiApi
     | ExperimentResultsWidgetAddRequestOpenApiApi
+    | LlmAnalyticsTracesListWidgetAddRequestOpenApiApi
 
 /**
  * OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.
  */
 export interface AddDashboardWidgetsBatchRequestOpenApiApi {
     /**
-     * Widget tiles to add atomically. Supported widget_type values: activity_events_list, error_tracking_list, experiment_results, experiments_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+     * Widget tiles to add atomically. Supported widget_type values: activity_events_list, error_tracking_list, experiment_results, experiments_list, llm_analytics_traces, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
      * @minItems 1
      * @maxItems 10
      */
@@ -8375,12 +8421,32 @@ export interface ExperimentResultsWidgetCatalogEntryOpenApiApi {
     required_product_access?: string | null
 }
 
+export type LlmAnalyticsTracesListWidgetCatalogEntryOpenApiApiWidgetType =
+    (typeof LlmAnalyticsTracesListWidgetCatalogEntryOpenApiApiWidgetType)[keyof typeof LlmAnalyticsTracesListWidgetCatalogEntryOpenApiApiWidgetType]
+
+export const LlmAnalyticsTracesListWidgetCatalogEntryOpenApiApiWidgetType = {
+    LlmAnalyticsTraces: 'llm_analytics_traces',
+} as const
+
+export interface LlmAnalyticsTracesListWidgetCatalogEntryOpenApiApi {
+    widget_type: LlmAnalyticsTracesListWidgetCatalogEntryOpenApiApiWidgetType
+    group_id: string
+    group_label: string
+    label: string
+    description: string
+    /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+    readonly config_schema: LlmAnalyticsTracesListWidgetConfigApi
+    /** @nullable */
+    required_product_access?: string | null
+}
+
 export type WidgetCatalogEntryApi =
     | ActivityEventsListWidgetCatalogEntryOpenApiApi
     | ErrorTrackingListWidgetCatalogEntryOpenApiApi
     | SessionReplayListWidgetCatalogEntryOpenApiApi
     | ExperimentsListWidgetCatalogEntryOpenApiApi
     | ExperimentResultsWidgetCatalogEntryOpenApiApi
+    | LlmAnalyticsTracesListWidgetCatalogEntryOpenApiApi
 
 export interface WidgetCatalogResponseApi {
     /** Registered dashboard widget types available when dashboard-widgets is enabled. */
@@ -8466,6 +8532,16 @@ export type ExperimentResultsWidgetTypeEnumApi =
 
 export const ExperimentResultsWidgetTypeEnumApi = {
     ExperimentResults: 'experiment_results',
+} as const
+
+/**
+ * * `llm_analytics_traces` - llm_analytics_traces
+ */
+export type LlmAnalyticsTracesListWidgetTypeEnumApi =
+    (typeof LlmAnalyticsTracesListWidgetTypeEnumApi)[keyof typeof LlmAnalyticsTracesListWidgetTypeEnumApi]
+
+export const LlmAnalyticsTracesListWidgetTypeEnumApi = {
+    LlmAnalyticsTraces: 'llm_analytics_traces',
 } as const
 
 export type DashboardTemplatesListParams = {
