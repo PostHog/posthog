@@ -7364,6 +7364,7 @@ const api = {
             data_url?: string | null
             width?: number
             type?: HeatmapType
+            block_consent_modals?: boolean
         }): Promise<HeatmapScreenshotType> {
             return await new ApiRequest().heatmapScreenshotsSaved().create({ data })
         },
@@ -7379,6 +7380,7 @@ const api = {
                 data_url: string | null
                 width: number
                 type: HeatmapType
+                block_consent_modals: boolean
             }>
         ): Promise<HeatmapScreenshotType> {
             return await new ApiRequest().heatmapScreenshotSaved(id).update({ data })

@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+import requests
 from requests.exceptions import ChunkedEncodingError
 from tenacity import Future, RetryCallState, Retrying
 
@@ -116,12 +117,53 @@ def test_request_retries_connection_broken_mid_stream_then_succeeds(_mock_sleep)
     assert sess.post.call_count == 2
 
 
+@pytest.mark.parametrize(
+    "transient_error",
+    [
+        # The observed failure: a 504 from the egress proxy tunnel surfaces as ProxyError.
+        requests.exceptions.ProxyError("Tunnel connection failed: 504 Gateway timeout"),
+        requests.exceptions.ConnectionError("Connection reset by peer"),
+        requests.exceptions.ReadTimeout("Read timed out"),
+    ],
+)
+@patch("tenacity.nap.time.sleep")
+def test_request_retries_transient_connection_error_then_succeeds(_mock_sleep, transient_error):
+    # Transient network errors escaping `post` (proxy hiccup, reset, timeout) are reissued
+    # rather than failing the import.
+    sess = MagicMock()
+    sess.post.side_effect = [transient_error, _ok_page()]
+
+    batches = list(
+        _make_paginated_shopify_request(
+            "https://example.invalid/graphql", sess, SHOPIFY_GRAPHQL_OBJECTS[ABANDONED_CHECKOUTS], MagicMock()
+        )
+    )
+
+    assert batches == [[{"id": "1"}]]
+    assert sess.post.call_count == 2
+
+
 @patch("tenacity.nap.time.sleep")
 def test_request_reraises_retryable_after_persistent_connection_broken(_mock_sleep):
     sess = MagicMock()
     sess.post.side_effect = ChunkedEncodingError("Connection broken: InvalidChunkLength(got length b'', 0 bytes read)")
 
     with pytest.raises(ShopifyRetryableError):
+        list(
+            _make_paginated_shopify_request(
+                "https://example.invalid/graphql", sess, SHOPIFY_GRAPHQL_OBJECTS[ABANDONED_CHECKOUTS], MagicMock()
+            )
+        )
+
+    assert sess.post.call_count == 5
+
+
+@patch("tenacity.nap.time.sleep")
+def test_request_reraises_after_persistent_connection_error(_mock_sleep):
+    sess = MagicMock()
+    sess.post.side_effect = requests.exceptions.ProxyError("Tunnel connection failed: 504 Gateway timeout")
+
+    with pytest.raises(requests.exceptions.ProxyError):
         list(
             _make_paginated_shopify_request(
                 "https://example.invalid/graphql", sess, SHOPIFY_GRAPHQL_OBJECTS[ABANDONED_CHECKOUTS], MagicMock()

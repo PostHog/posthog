@@ -8236,6 +8236,145 @@ export interface AddDashboardWidgetsBatchResponseApi {
     tiles: DashboardTileApi[]
 }
 
+export type ActivityEventsListWidgetUpdateRequestOpenApiApiWidgetType =
+    (typeof ActivityEventsListWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof ActivityEventsListWidgetUpdateRequestOpenApiApiWidgetType]
+
+export const ActivityEventsListWidgetUpdateRequestOpenApiApiWidgetType = {
+    ActivityEventsList: 'activity_events_list',
+} as const
+
+export interface ActivityEventsListWidgetUpdateRequestOpenApiApi {
+    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+    tile_id: number
+    /**
+     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** New markdown description for the widget. Omit to leave unchanged. */
+    description?: string
+    widget_type: ActivityEventsListWidgetUpdateRequestOpenApiApiWidgetType
+    /** New configuration for the recent events widget. Omit to leave unchanged. */
+    config?: ActivityEventsListWidgetConfigApi
+}
+
+export type ErrorTrackingListWidgetUpdateRequestOpenApiApiWidgetType =
+    (typeof ErrorTrackingListWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof ErrorTrackingListWidgetUpdateRequestOpenApiApiWidgetType]
+
+export const ErrorTrackingListWidgetUpdateRequestOpenApiApiWidgetType = {
+    ErrorTrackingList: 'error_tracking_list',
+} as const
+
+export interface ErrorTrackingListWidgetUpdateRequestOpenApiApi {
+    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+    tile_id: number
+    /**
+     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** New markdown description for the widget. Omit to leave unchanged. */
+    description?: string
+    widget_type: ErrorTrackingListWidgetUpdateRequestOpenApiApiWidgetType
+    /** New configuration for the top issues widget. Omit to leave unchanged. */
+    config?: ErrorTrackingListWidgetConfigApi
+}
+
+export type SessionReplayListWidgetUpdateRequestOpenApiApiWidgetType =
+    (typeof SessionReplayListWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof SessionReplayListWidgetUpdateRequestOpenApiApiWidgetType]
+
+export const SessionReplayListWidgetUpdateRequestOpenApiApiWidgetType = {
+    SessionReplayList: 'session_replay_list',
+} as const
+
+export interface SessionReplayListWidgetUpdateRequestOpenApiApi {
+    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+    tile_id: number
+    /**
+     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** New markdown description for the widget. Omit to leave unchanged. */
+    description?: string
+    widget_type: SessionReplayListWidgetUpdateRequestOpenApiApiWidgetType
+    /** New configuration for the recent recordings widget. Omit to leave unchanged. */
+    config?: SessionReplayListWidgetConfigApi
+}
+
+export type ExperimentsListWidgetUpdateRequestOpenApiApiWidgetType =
+    (typeof ExperimentsListWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof ExperimentsListWidgetUpdateRequestOpenApiApiWidgetType]
+
+export const ExperimentsListWidgetUpdateRequestOpenApiApiWidgetType = {
+    ExperimentsList: 'experiments_list',
+} as const
+
+export interface ExperimentsListWidgetUpdateRequestOpenApiApi {
+    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+    tile_id: number
+    /**
+     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** New markdown description for the widget. Omit to leave unchanged. */
+    description?: string
+    widget_type: ExperimentsListWidgetUpdateRequestOpenApiApiWidgetType
+    /** New configuration for the experiments list widget. Omit to leave unchanged. */
+    config?: ExperimentsListWidgetConfigApi
+}
+
+export type ExperimentResultsWidgetUpdateRequestOpenApiApiWidgetType =
+    (typeof ExperimentResultsWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof ExperimentResultsWidgetUpdateRequestOpenApiApiWidgetType]
+
+export const ExperimentResultsWidgetUpdateRequestOpenApiApiWidgetType = {
+    ExperimentResults: 'experiment_results',
+} as const
+
+export interface ExperimentResultsWidgetUpdateRequestOpenApiApi {
+    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+    tile_id: number
+    /**
+     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** New markdown description for the widget. Omit to leave unchanged. */
+    description?: string
+    widget_type: ExperimentResultsWidgetUpdateRequestOpenApiApiWidgetType
+    /** New configuration for the experiment results widget. Omit to leave unchanged. */
+    config?: ExperimentResultsWidgetConfigApi
+}
+
+export type UpdateDashboardWidgetRequestApi =
+    | ActivityEventsListWidgetUpdateRequestOpenApiApi
+    | ErrorTrackingListWidgetUpdateRequestOpenApiApi
+    | SessionReplayListWidgetUpdateRequestOpenApiApi
+    | ExperimentsListWidgetUpdateRequestOpenApiApi
+    | ExperimentResultsWidgetUpdateRequestOpenApiApi
+
+/**
+ * OpenAPI-only batch-update schema with widget_type-discriminated config shapes for agents.
+ */
+export interface PatchedUpdateDashboardWidgetsBatchRequestOpenApiApi {
+    /**
+     * Widget tiles to update atomically, each identified by its tile_id. config shape is per widget_type; see dashboard-widget-catalog-list for per-type config_schema (1–10 per request).
+     * @minItems 1
+     * @maxItems 10
+     */
+    widgets?: UpdateDashboardWidgetRequestApi[]
+}
+
+export interface UpdateDashboardWidgetsBatchResponseApi {
+    /** Updated dashboard widget tiles in request order. */
+    tiles: DashboardTileApi[]
+}
+
 /**
  * * `add` - add
  * * `remove` - remove
@@ -8775,6 +8914,18 @@ export type DashboardsWidgetsBatchCreateFormat =
     (typeof DashboardsWidgetsBatchCreateFormat)[keyof typeof DashboardsWidgetsBatchCreateFormat]
 
 export const DashboardsWidgetsBatchCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsUpdateWidgetsBatchParams = {
+    format?: DashboardsUpdateWidgetsBatchFormat
+}
+
+export type DashboardsUpdateWidgetsBatchFormat =
+    (typeof DashboardsUpdateWidgetsBatchFormat)[keyof typeof DashboardsUpdateWidgetsBatchFormat]
+
+export const DashboardsUpdateWidgetsBatchFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const

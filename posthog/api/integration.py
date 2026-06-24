@@ -49,6 +49,7 @@ from posthog.models.integration import (
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
     SLACK_INTEGRATION_KINDS,
     AnthropicIntegration,
+    AwsS3Integration,
     AzureBlobIntegration,
     AzureBlobIntegrationError,
     ClickUpIntegration,
@@ -68,6 +69,8 @@ from posthog.models.integration import (
     LinkedInAdsIntegration,
     OauthIntegration,
     PostgreSQLIntegration,
+    S3CompatibleIntegration,
+    S3CredentialIntegrationError,
     SlackIntegration,
     StripeIntegration,
     TwilioIntegration,
@@ -562,6 +565,57 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                     created_by=request.user,
                 )
             except AzureBlobIntegrationError as e:
+                raise ValidationError(str(e))
+            return instance
+
+        elif validated_data["kind"] == "aws-s3":
+            config = validated_data.get("config", {})
+            name = config.get("name")
+            aws_access_key_id = config.get("aws_access_key_id")
+            aws_secret_access_key = config.get("aws_secret_access_key")
+
+            if not (name and aws_access_key_id and aws_secret_access_key):
+                raise ValidationError("Name, access key ID, and secret access key must be provided")
+            if not all(isinstance(value, str) for value in (name, aws_access_key_id, aws_secret_access_key)):
+                raise ValidationError("Name, access key ID, and secret access key must be strings")
+
+            try:
+                instance = AwsS3Integration.integration_from_config(
+                    team_id=team_id,
+                    name=name,
+                    aws_access_key_id=aws_access_key_id,
+                    aws_secret_access_key=aws_secret_access_key,
+                    created_by=request.user,
+                )
+            except S3CredentialIntegrationError as e:
+                raise ValidationError(str(e))
+            return instance
+
+        elif validated_data["kind"] == "s3-compatible":
+            config = validated_data.get("config", {})
+            name = config.get("name")
+            endpoint_url = config.get("endpoint_url")
+            aws_access_key_id = config.get("aws_access_key_id")
+            aws_secret_access_key = config.get("aws_secret_access_key")
+
+            if not (name and endpoint_url and aws_access_key_id and aws_secret_access_key):
+                raise ValidationError("Name, endpoint URL, access key ID, and secret access key must be provided")
+            if not all(
+                isinstance(value, str) for value in (name, endpoint_url, aws_access_key_id, aws_secret_access_key)
+            ):
+                raise ValidationError("Name, endpoint URL, access key ID, and secret access key must be strings")
+
+            try:
+                # SSRF validation of `endpoint_url` happens inside `integration_from_config`.
+                instance = S3CompatibleIntegration.integration_from_config(
+                    team_id=team_id,
+                    name=name,
+                    endpoint_url=endpoint_url,
+                    aws_access_key_id=aws_access_key_id,
+                    aws_secret_access_key=aws_secret_access_key,
+                    created_by=request.user,
+                )
+            except S3CredentialIntegrationError as e:
                 raise ValidationError(str(e))
             return instance
 

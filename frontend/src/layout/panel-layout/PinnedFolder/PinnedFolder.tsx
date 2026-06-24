@@ -58,11 +58,11 @@ export function PinnedFolder(): JSX.Element {
             {pinnedFolder === 'custom-products://' ? (
                 <ButtonPrimitive
                     iconOnly
-                    tooltip="Edit my sidebar apps"
+                    tooltip="Edit sidebar tools"
                     tooltipPlacement="top"
                     onClick={openEditCustomProductsModal}
                     size="xs"
-                    data-attr="edit-sidebar-apps-button"
+                    data-attr="edit-sidebar-tools-button"
                 >
                     <CustomProductsIcon className="size-3 text-secondary" />
                 </ButtonPrimitive>
@@ -94,7 +94,7 @@ export function PinnedFolder(): JSX.Element {
                                 data-attr="tree-item-menu-open-link-button"
                             >
                                 <ButtonPrimitive menuItem>
-                                    All apps&nbsp;
+                                    All tools&nbsp;
                                     <SelectedIcon checked={!pinnedFolder || pinnedFolder === 'products://'} />
                                 </ButtonPrimitive>
                             </DropdownMenuItem>

@@ -9,13 +9,17 @@ from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
 
-from products.signals.backend.temporal.signal_queries import EMBEDDING_MODEL, fetch_source_products_for_reports
+from products.signals.backend.temporal.signal_queries import (
+    EMBEDDING_MODEL,
+    fetch_signals_for_report_sync,
+    fetch_source_products_for_reports,
+)
 
 _MODEL_TABLE = f"distributed_posthog_document_embeddings_{EMBEDDING_MODEL.value.replace('-', '_')}"
 _EMBEDDING = [0.0] * 1536
 
 
-class TestFetchSourceProductsForReports(ClickhouseTestMixin, APIBaseTest):
+class _SignalEmbeddingsTestBase(ClickhouseTestMixin, APIBaseTest):
     def _emit_version(
         self,
         *,
@@ -24,6 +28,7 @@ class TestFetchSourceProductsForReports(ClickhouseTestMixin, APIBaseTest):
         source_product: str,
         inserted_at: datetime,
         deleted: bool = False,
+        content: str = "the signal content",
     ) -> None:
         """Write one version of a signal document straight to the model-specific embeddings table.
 
@@ -54,7 +59,7 @@ class TestFetchSourceProductsForReports(ClickhouseTestMixin, APIBaseTest):
                     document_id,
                     inserted_at,
                     inserted_at,
-                    "the signal content",
+                    content,
                     json.dumps(metadata),
                     _EMBEDDING,
                     inserted_at,
@@ -73,6 +78,8 @@ class TestFetchSourceProductsForReports(ClickhouseTestMixin, APIBaseTest):
         self.base = datetime.now(UTC) - timedelta(days=2)
         sync_execute(f"TRUNCATE TABLE {_MODEL_TABLE}", flush=False, team_id=self.team.pk)
 
+
+class TestFetchSourceProductsForReports(_SignalEmbeddingsTestBase):
     def test_empty_report_ids_returns_empty_without_querying(self) -> None:
         # Guards the early return: an empty list would otherwise compile to `report_id IN ()` and raise.
         assert fetch_source_products_for_reports(self.team, []) == {}
@@ -134,3 +141,70 @@ class TestFetchSourceProductsForReports(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert fetch_source_products_for_reports(self.team, report_ids) == expected
+
+
+class TestFetchSignalsForReportSync(_SignalEmbeddingsTestBase):
+    def _signal_ids(self, report_id: str) -> set[str]:
+        return {s["signal_id"] for s in fetch_signals_for_report_sync(self.team, report_id)}
+
+    def test_returns_only_the_reports_non_deleted_signals(self) -> None:
+        self._emit_version(document_id="a", report_id="rA", source_product="errors", inserted_at=self.base)
+        self._emit_version(document_id="b", report_id="rA", source_product="replay", inserted_at=self.base)
+        self._emit_version(document_id="c", report_id="rB", source_product="surveys", inserted_at=self.base)
+
+        assert self._signal_ids("rA") == {"a", "b"}
+
+    @parameterized.expand(
+        [
+            # A re-grouped signal belongs to its latest report only — the candidate prefilter finds it
+            # (it once carried rOld) but the outer report filter keeps it under rNew, never rOld.
+            ("regrouped_to_new_report", ("rOld", False), ("rNew", False), "rOld", set()),
+            ("regrouped_visible_under_new", ("rOld", False), ("rNew", False), "rNew", {"moving"}),
+            # The latest version's deleted flag wins.
+            ("deleted_in_latest_version", ("rA", False), ("rA", True), "rA", set()),
+            ("revived_in_latest_version", ("rA", True), ("rA", False), "rA", {"moving"}),
+        ]
+    )
+    def test_latest_version_wins(
+        self,
+        _name: str,
+        first: tuple[str, bool],
+        latest: tuple[str, bool],
+        query_report: str,
+        expected_ids: set[str],
+    ) -> None:
+        first_report, first_deleted = first
+        latest_report, latest_deleted = latest
+        self._emit_version(
+            document_id="moving",
+            report_id=first_report,
+            source_product="errors",
+            inserted_at=self.base,
+            deleted=first_deleted,
+        )
+        self._emit_version(
+            document_id="moving",
+            report_id=latest_report,
+            source_product="errors",
+            inserted_at=self.base + timedelta(hours=1),
+            deleted=latest_deleted,
+        )
+
+        assert self._signal_ids(query_report) == expected_ids
+
+    def test_returns_latest_content_for_a_revised_signal(self) -> None:
+        # The dedup must surface the newest version's content, not an arbitrary one.
+        self._emit_version(
+            document_id="x", report_id="rA", source_product="errors", inserted_at=self.base, content="old text"
+        )
+        self._emit_version(
+            document_id="x",
+            report_id="rA",
+            source_product="errors",
+            inserted_at=self.base + timedelta(hours=1),
+            content="new text",
+        )
+
+        signals = fetch_signals_for_report_sync(self.team, "rA")
+
+        assert [s["content"] for s in signals] == ["new text"]
