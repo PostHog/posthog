@@ -18,8 +18,6 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 
-from products.marketing_analytics.backend.hogql_queries.marketing_analytics_config import MarketingAnalyticsConfig
-
 from .constants import (
     BASE_COLUMN_MAPPING,
     DEFAULT_LIMIT,
@@ -44,8 +42,7 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=self.limit_context, limit=self.query.limit, offset=self.query.offset
         )
-        # Initialize configuration with team-specific settings
-        self.config = MarketingAnalyticsConfig.from_team(self.team)
+        # self.config is built from team in the base runner's __init__.
 
     # Implementation of abstract methods from base class
 
@@ -72,6 +69,7 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            context=self._shared_hogql_context,
         )
 
         results = response.results or []
@@ -237,6 +235,9 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             modifiers=self.modifiers,
             limit_context=self.limit_context,
         )
+        # Share the prebuilt HogQL database across both periods so the compare query pays the ~1s
+        # Database.create_for once, not twice. Pre-populates the previous runner's cached_property.
+        previous_runner.__dict__["_shared_hogql_database"] = self._shared_hogql_database
 
         previous_period_query = previous_runner.to_query()
         current_period_query = self.to_query()

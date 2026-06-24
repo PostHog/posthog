@@ -48,6 +48,10 @@ from posthog.temporal.data_imports.workflow_activities.emit_signals import (
     EmitDataImportSignalsWorkflow,
     EmitSignalsActivityInputs,
 )
+from posthog.temporal.data_imports.workflow_activities.enrich_table_semantics import (
+    EnrichTableSemanticsInputs,
+    EnrichTableSemanticsWorkflow,
+)
 from posthog.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportDataActivityInputs,
     import_data_activity_sync,
@@ -68,6 +72,12 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 LOGGER = get_logger(__name__)
+
+# Cap retries at 3 in local dev so failing syncs don't loop for tens of minutes while developers
+# iterate; prod cadence is unchanged. Defined at module level so tests can patch them to keep the
+# expensive retry-exhaustion paths fast.
+MAX_RESUMABLE_SOURCE_RETRIES = 3 if settings.DEBUG else 15
+MAX_INCREMENTAL_SOURCE_RETRIES = 3 if settings.DEBUG else 9
 
 Any_Source_Errors: dict[str, str | None] = {
     "Could not establish session to SSH gateway": None,
@@ -355,6 +365,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             if isinstance(create_job_result, tuple):
                 job_id, incremental_or_append, source_type = create_job_result
                 schema_name, last_synced_at, emit_signals_enabled = None, None, False
+                enrichment_enabled = False
             else:
                 job_id = create_job_result.job_id
                 incremental_or_append = create_job_result.incremental_or_append
@@ -362,6 +373,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 schema_name = create_job_result.schema_name
                 last_synced_at = create_job_result.last_synced_at
                 emit_signals_enabled = create_job_result.emit_signals_enabled
+                enrichment_enabled = create_job_result.enrichment_enabled
             update_inputs.job_id = str(job_id) if job_id is not None else None
 
             # Check billing limits
@@ -393,11 +405,8 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
                 is_resumable_source = isinstance(source, ResumableSource)
 
-            # Cap retries at 3 in local dev so failing syncs don't loop for
-            # tens of minutes while developers iterate. Prod cadence is
-            # unchanged.
-            max_resumable_attempts = 3 if settings.DEBUG else 15
-            max_incremental_attempts = 3 if settings.DEBUG else 9
+            max_resumable_attempts = MAX_RESUMABLE_SOURCE_RETRIES
+            max_incremental_attempts = MAX_INCREMENTAL_SOURCE_RETRIES
 
             if is_resumable_source:
                 timeout_params = {
@@ -481,6 +490,25 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     # Let the child workflow finish even if the parent completes or fails
                     parent_close_policy=ParentClosePolicy.ABANDON,
                     execution_timeout=dt.timedelta(hours=2),
+                )
+
+            # Generate semantic descriptions for the synced table. Gated up front (feature flag + AI
+            # data-processing consent, resolved in create_external_data_job_model_activity) so we don't
+            # spawn a child that would immediately no-op; the activity re-checks as a safety net and is
+            # idempotent. Fire-and-forget child on the data-warehouse queue; ABANDON means it never
+            # blocks or fails the import.
+            if enrichment_enabled:
+                await workflow.start_child_workflow(
+                    EnrichTableSemanticsWorkflow.run,
+                    EnrichTableSemanticsInputs(
+                        team_id=inputs.team_id,
+                        schema_id=inputs.external_data_schema_id,
+                    ),
+                    id=f"enrich-warehouse-table-semantics-{job_id}",
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                    task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                    parent_close_policy=ParentClosePolicy.ABANDON,
+                    execution_timeout=dt.timedelta(minutes=30),
                 )
 
             # Create source templates

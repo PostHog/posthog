@@ -14,7 +14,14 @@ import {
     OverflowOutput,
     TophogOutput,
 } from '~/common/outputs'
-import { AiEventOutput, AsyncOutput, EventOutput, PersonDistinctIdsOutput, PersonsOutput } from '~/common/outputs'
+import {
+    AiEventOutput,
+    AsyncOutput,
+    EventOutput,
+    PersonDistinctIdsOutput,
+    PersonMergeEventsOutput,
+    PersonsOutput,
+} from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PersonRepository } from '~/common/persons/repositories/person-repository'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
@@ -47,6 +54,10 @@ import { TeamManager } from '~/utils/team-manager'
 import { AiEventSubpipelineFactory } from './common/ai-subpipeline.contract'
 import { EventFilterManager, EventFilterManagerComponent } from './common/event-filters'
 import { IngestionConsumerConfig } from './config'
+import {
+    FeatureFlagCalledDedupService,
+    createFeatureFlagCalledDedupService,
+} from './utils/feature-flag-called-dedup/feature-flag-called-dedup-service'
 import { MainLaneOverflowRedirect } from './utils/overflow-redirect/main-lane-overflow-redirect'
 import { OverflowLaneOverflowRedirect } from './utils/overflow-redirect/overflow-lane-overflow-redirect'
 import { OverflowRedirectService } from './utils/overflow-redirect/overflow-redirect-service'
@@ -58,6 +69,8 @@ export type IngestionConsumerFullConfig = IngestionConsumerConfig &
 export interface IngestionConsumerDeps {
     postgres: PostgresRouter
     redisPool: RedisPool
+    /** Dedicated pool for $feature_flag_called dedup claims; reuses redisPool when unset */
+    featureFlagCalledDedupRedisPool?: RedisPool
     outputs: IngestionOutputs<
         | EventOutput
         | AiEventOutput
@@ -68,6 +81,7 @@ export interface IngestionConsumerDeps {
         | GroupsOutput
         | PersonsOutput
         | PersonDistinctIdsOutput
+        | PersonMergeEventsOutput
         | AppMetricsOutput
         | TophogOutput
     >
@@ -111,6 +125,7 @@ export class IngestionConsumer {
     public hogTransformer: HogTransformer
     private overflowRedirectService?: OverflowRedirectService
     private overflowLaneTTLRefreshService?: OverflowRedirectService
+    private featureFlagCalledDedupService?: FeatureFlagCalledDedupService
     private tokenDistinctIdsToDrop: string[] = []
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
@@ -187,6 +202,11 @@ export class IngestionConsumer {
                 redisRepository: overflowRedisRepository,
             })
         }
+
+        this.featureFlagCalledDedupService = createFeatureFlagCalledDedupService(
+            this.deps.featureFlagCalledDedupRedisPool ?? this.deps.redisPool,
+            this.config
+        )
 
         this.hogTransformer = deps.hogTransformer
 
@@ -269,6 +289,8 @@ export class IngestionConsumer {
                 PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: this.config.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
                 PERSON_MERGE_ASYNC_ENABLED: this.config.PERSON_MERGE_ASYNC_ENABLED,
                 PERSON_MERGE_SYNC_BATCH_SIZE: this.config.PERSON_MERGE_SYNC_BATCH_SIZE,
+                PERSON_MERGE_EVENTS_ENABLED: this.config.PERSON_MERGE_EVENTS_ENABLED,
+                PERSON_MERGE_EVENTS_PARTITION_COUNT: this.config.PERSON_MERGE_EVENTS_PARTITION_COUNT,
                 PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
                 PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
                 FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: this.config.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
@@ -286,6 +308,7 @@ export class IngestionConsumer {
             promiseScheduler: this.promiseScheduler,
             overflowRedirectService: this.overflowRedirectService,
             overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
+            featureFlagCalledDedupService: this.featureFlagCalledDedupService,
             teamManager: this.deps.teamManager,
             cookielessManager: this.deps.cookielessManager,
             groupTypeManager: this.deps.groupTypeManager,
