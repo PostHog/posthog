@@ -345,7 +345,8 @@ def _external_table_name(table_label: str, allowed: Optional[frozenset[str]]) ->
     if allowed is None:
         suffix = "all"
     else:
-        suffix = "f" + hashlib.md5("\x01".join(sorted(allowed)).encode()).hexdigest()[:12]
+        # Non-cryptographic: just a stable, collision-resistant suffix for the table name.
+        suffix = "f" + hashlib.sha256("\x01".join(sorted(allowed)).encode()).hexdigest()[:12]
     return f"__ph_information_schema_{table_label}_{suffix}"
 
 
