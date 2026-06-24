@@ -2192,7 +2192,7 @@ class OrttoSourceConfig(config.Config):
 
 @config.config
 class OuraSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config

@@ -153,6 +153,7 @@ the row lists both.
 | omnisend          | HTTP                        | requests                                                        | ✅                          |
 | orb               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ortto             | HTTP                        | requests                                                        | ✅                          |
+| oura              | HTTP                        | requests                                                        | ✅                          |
 | outbrain          | HTTP                        | requests                                                        | ✅                          |
 | paddle            | HTTP                        | requests                                                        | ✅                          |
 | optimizely        | HTTP                        | requests                                                        | ✅                          |
@@ -533,7 +534,6 @@ doesn't conflict with concurrent PRs.
 - oracle_ebs
 - oracle_fusion
 - orbit
-- oura
 - outlook
 - outreach
 - oveit
