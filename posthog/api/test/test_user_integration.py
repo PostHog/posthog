@@ -1,6 +1,6 @@
 import time
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -10,7 +10,11 @@ from django.test import override_settings
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.github_callback.state import store_unified_authorize_state
+from posthog.api.github_callback.state import (
+    load_authorize_state,
+    parse_github_authorize_state_param,
+    store_unified_authorize_state,
+)
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
 from posthog.models import OrganizationMembership, User
 from posthog.models.integration import GitHubInstallationAccess, GitHubUserAuthorization, Integration
@@ -657,6 +661,36 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         response = self.client.get("/complete/github-link/", {"code": "test_code"})
         self.assertEqual(response.status_code, 302)
         self.assertIn("github_link_error=missing_params", response["Location"])
+
+    @override_settings(GITHUB_APP_CLIENT_ID="client_id", SITE_URL="https://us.posthog.com")
+    def test_github_link_personal_install_without_code_recovers_via_oauth_discover(self):
+        # GitHub omits the OAuth code when the App is already installed, returning a
+        # setup update (installation_id, setup_action=update) instead. The callback
+        # must bounce through OAuth-discover to obtain a code rather than erroring.
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token="tok_already_installed",
+                flow=FlowKind.PERSONAL_INSTALL,
+                user_id=self.user.id,
+                connect_from="posthog_code",
+            ),
+        )
+
+        response = self.client.get(
+            "/complete/github-link/",
+            {"installation_id": "75826265", "setup_action": "update", "state": "token=tok_already_installed"},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("github.com/login/oauth/authorize", response["Location"])
+
+        discover_state_param = parse_qs(urlparse(response["Location"]).query)["state"][0]
+        discover_token, _ = parse_github_authorize_state_param(discover_state_param)
+        assert discover_token is not None
+        discover_state = load_authorize_state(discover_token, user_id=self.user.id)
+        assert discover_state is not None
+        self.assertEqual(discover_state.flow, FlowKind.OAUTH_DISCOVER)
+        self.assertEqual(discover_state.connect_from, "posthog_code")
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
     @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")

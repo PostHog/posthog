@@ -14,6 +14,7 @@ from posthog.api.github_callback.types import (
     FlowKind,
     GitHubAuthorizeState,
     github_app_install_url,
+    github_oauth_authorize_url,
     github_oauth_redirect_uri,
     is_valid_github_installation_id,
 )
@@ -45,7 +46,7 @@ def finish_personal(request: HttpRequest) -> FinishResult:
     code = request.GET.get("code")
     state_raw = request.GET.get("state")
 
-    if not code or not state_raw:
+    if not state_raw:
         return _error("missing_params")
 
     token = _github_state_token(state_raw)
@@ -56,6 +57,25 @@ def finish_personal(request: HttpRequest) -> FinishResult:
     connect_from_value = authorize_state.connect_from
     flow = authorize_state.flow
     installation_ids: list[str] = []
+
+    if not code:
+        # GitHub omits the OAuth `code` when the App is already installed on the
+        # account: the install URL returns a setup update (installation_id, no code)
+        # instead of a fresh-install authorization. Bounce through OAuth-discover to
+        # mint a code, then link the installation(s) the user can already access.
+        if flow == FlowKind.PERSONAL_INSTALL and request.GET.get("installation_id"):
+            discover_token = get_random_string(48)
+            discover_state = urlencode({"token": discover_token, "source": "user_integration"})
+            state.store_unified_authorize_state(
+                GitHubAuthorizeState(
+                    token=discover_token,
+                    flow=FlowKind.OAUTH_DISCOVER,
+                    user_id=user.id,
+                    connect_from=connect_from_value,
+                ),
+            )
+            return FinishResult(redirect_kind="oauth_url", oauth_url=github_oauth_authorize_url(discover_state))
+        return _error("missing_params")
 
     match flow:
         case FlowKind.PERSONAL_OAUTH:
