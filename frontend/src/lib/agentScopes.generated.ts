@@ -41,6 +41,8 @@ export const AGENT_USE_CASE_SCOPES = [
     'event_definition:write',
     'experiment:read',
     'experiment:write',
+    'experiment_holdout:read',
+    'experiment_holdout:write',
     'experiment_saved_metric:read',
     'experiment_saved_metric:write',
     'external_data_source:read',

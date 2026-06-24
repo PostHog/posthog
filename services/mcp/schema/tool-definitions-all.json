@@ -2929,7 +2929,7 @@
         "feature": "experiments",
         "summary": "Create experiment holdout",
         "title": "Create experiment holdout",
-        "required_scopes": ["experiment:write"],
+        "required_scopes": ["experiment_holdout:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -2943,7 +2943,7 @@
         "feature": "experiments",
         "summary": "Delete experiment holdout",
         "title": "Delete experiment holdout",
-        "required_scopes": ["experiment:write"],
+        "required_scopes": ["experiment_holdout:write"],
         "annotations": {
             "destructiveHint": true,
             "idempotentHint": true,
@@ -2957,7 +2957,7 @@
         "feature": "experiments",
         "summary": "List experiment holdouts",
         "title": "List experiment holdouts",
-        "required_scopes": ["experiment:read"],
+        "required_scopes": ["experiment_holdout:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -2971,7 +2971,7 @@
         "feature": "experiments",
         "summary": "Update experiment holdout",
         "title": "Update experiment holdout",
-        "required_scopes": ["experiment:write"],
+        "required_scopes": ["experiment_holdout:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -2985,7 +2985,7 @@
         "feature": "experiments",
         "summary": "Get experiment holdout details",
         "title": "Get experiment holdout details",
-        "required_scopes": ["experiment:read"],
+        "required_scopes": ["experiment_holdout:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

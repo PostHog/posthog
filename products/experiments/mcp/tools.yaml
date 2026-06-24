@@ -347,7 +347,7 @@ tools:
         operation: experiment_holdouts_create
         enabled: true
         scopes:
-            - experiment:write
+            - experiment_holdout:write
         annotations:
             readOnly: false
             destructive: false
@@ -377,7 +377,7 @@ tools:
         operation: experiment_holdouts_destroy
         enabled: true
         scopes:
-            - experiment:write
+            - experiment_holdout:write
         annotations:
             readOnly: false
             destructive: true
@@ -398,7 +398,7 @@ tools:
         operation: experiment_holdouts_list
         enabled: true
         scopes:
-            - experiment:read
+            - experiment_holdout:read
         annotations:
             readOnly: true
             destructive: false
@@ -427,7 +427,7 @@ tools:
         operation: experiment_holdouts_partial_update
         enabled: true
         scopes:
-            - experiment:write
+            - experiment_holdout:write
         annotations:
             readOnly: false
             destructive: false
@@ -455,7 +455,7 @@ tools:
         operation: experiment_holdouts_retrieve
         enabled: true
         scopes:
-            - experiment:read
+            - experiment_holdout:read
         annotations:
             readOnly: true
             destructive: false
