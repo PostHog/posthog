@@ -67,6 +67,26 @@ class TestUserAuthSessionAPI(APIBaseTest):
         self.assertEqual(sum(1 for s in data if s["is_current"]), 1)
         self.assertTrue(data[0]["is_current"])  # current session listed first
 
+    def test_list_includes_created_at_from_session_payload(self):
+        session = self._other_session()
+        store = self.engine.SessionStore(session_key=session.session_key)
+        store[settings.SESSION_COOKIE_CREATED_AT_KEY] = 1_700_000_000  # 2023-11-14T22:13:20+00:00
+        store.save()
+
+        data = self.client.get("/api/users/@me/login_sessions/").json()
+        entry = next(s for s in data if s["id"] == str(session_public_id(session.session_key)))
+
+        self.assertEqual(entry["created_at"], "2023-11-14T22:13:20+00:00")
+
+    def test_list_created_at_is_null_when_session_has_no_created_timestamp(self):
+        # _other_session() never runs through SessionAgeMiddleware, so it carries no created-at stamp.
+        session = self._other_session()
+
+        data = self.client.get("/api/users/@me/login_sessions/").json()
+        entry = next(s for s in data if s["id"] == str(session_public_id(session.session_key)))
+
+        self.assertIsNone(entry["created_at"])
+
     def test_list_excludes_sensitive_fields(self):
         self._other_session()
 
