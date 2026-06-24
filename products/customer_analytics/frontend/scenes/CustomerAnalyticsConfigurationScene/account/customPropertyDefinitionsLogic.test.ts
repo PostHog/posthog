@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from '~/lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { userLogic } from 'scenes/userLogic'
 
@@ -9,6 +10,7 @@ import { initKeaTests } from '~/test/init'
 
 import type { CustomPropertyDefinitionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { CustomPropertyEvents } from './constants'
 import { customPropertyDefinitionsLogic } from './customPropertyDefinitionsLogic'
 
 const DEFINITIONS_URL = '/api/projects/:team_id/custom_property_definitions/'
@@ -50,6 +52,11 @@ describe('customPropertyDefinitionsLogic', () => {
         } as any
         initKeaTests()
         userLogic.mount()
+        jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
+    })
+
+    afterEach(() => {
+        jest.restoreAllMocks()
     })
 
     it('loads definitions on mount', async () => {
@@ -93,6 +100,11 @@ describe('customPropertyDefinitionsLogic', () => {
             'closeModal',
         ])
         expect(logic.values.modalVisible).toBe(false)
+        expect(posthog.capture).toHaveBeenCalledWith(CustomPropertyEvents.Created, {
+            display_type: 'text',
+            is_big_number: false,
+            has_description: false,
+        })
     })
 
     it('drops the big-number flag when switching to a non-numeric type', async () => {
@@ -116,6 +128,12 @@ describe('customPropertyDefinitionsLogic', () => {
             'submitCustomPropertyFormSuccess',
         ])
         expect(patchedBody).toMatchObject({ display_type: 'text', is_big_number: false })
+        // The captured flag mirrors the persisted payload — dropped for the now-non-numeric type.
+        expect(posthog.capture).toHaveBeenCalledWith(CustomPropertyEvents.Updated, {
+            display_type: 'text',
+            is_big_number: false,
+            has_description: false,
+        })
     })
 
     it('surfaces a name conflict on the name field', async () => {
@@ -143,5 +161,6 @@ describe('customPropertyDefinitionsLogic', () => {
         await expectLogic(logic, () => logic.actions.deleteDefinition({ id: 'def-1' }))
             .toDispatchActions(['deleteDefinitionSuccess'])
             .toMatchValues({ definitions: [] })
+        expect(posthog.capture).toHaveBeenCalledWith(CustomPropertyEvents.Deleted)
     })
 })

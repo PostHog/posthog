@@ -17,6 +17,7 @@ import type {
     CustomPropertyDisplayTypeEnumApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { CustomPropertyEvents } from './constants'
 import type { customPropertyDefinitionsLogicType } from './customPropertyDefinitionsLogicType'
 import { isNumericDisplayType } from './customPropertyTypes'
 
@@ -121,7 +122,14 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
             })
         },
         submitCustomPropertyFormSuccess: () => {
-            lemonToast.success(values.editingDefinition ? 'Custom property updated' : 'Custom property created')
+            const editing = values.editingDefinition
+            const { displayType, isBigNumber, description } = values.customPropertyForm
+            posthog.capture(editing ? CustomPropertyEvents.Updated : CustomPropertyEvents.Created, {
+                display_type: displayType,
+                is_big_number: isNumericDisplayType(displayType) ? isBigNumber : false,
+                has_description: !!description?.trim(),
+            })
+            lemonToast.success(editing ? 'Custom property updated' : 'Custom property created')
             actions.loadDefinitions()
             actions.closeModal()
         },
@@ -136,6 +144,7 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
             lemonToast.error('Failed to save custom property')
         },
         deleteDefinitionSuccess: () => {
+            posthog.capture(CustomPropertyEvents.Deleted)
             lemonToast.success('Custom property deleted')
         },
         deleteDefinitionFailure: ({ error }) => {
