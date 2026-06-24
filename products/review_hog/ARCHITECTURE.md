@@ -19,12 +19,19 @@ This document is the living architecture reference for the product and the worki
 multi-stage effort to bring this (originally March 2026) branch up to date with `master`. See
 [Current state & roadmap](#current-state--roadmap) for what is done and what is next.
 
+> **Keep this doc in sync.** It is the source of truth for ReviewHog's architecture and its merge
+> tracker, so if something it describes is seriously updated, update the doc in the same change.
+> That covers the pipeline shape, the sandbox/contract surface it binds to in `products/tasks`, the
+> data models, the prompts, the artifacts layout, and the roadmap stages. A merge or refactor that
+> moves or renames what ReviewHog depends on is exactly such a change — re-point the affected
+> sections here, don't leave them stale.
+
 ---
 
 ## Current state & roadmap
 
-This branch (`signals/custom-prompt-to-sandbox`) predates ~3 months of `master` evolution. The work is
-staged; keep this section updated as stages land.
+This work (now on `signals/reviewhog`, originally `signals/custom-prompt-to-sandbox`) predates several
+months of `master` evolution. The work is staged; keep this section updated as stages land.
 
 ### ✅ Stage 1 — mergeability + docs (current)
 
@@ -37,16 +44,39 @@ staged; keep this section updated as stages land.
   `pygithub==2.7.0` (ReviewHog needs it; master had dropped it); `uv.lock` relocked with `uv lock`.
 - **Rewired the sandbox runner integration** (this was the "won't run end-to-end" breakage): master deleted
   `custom_prompt_runner.py` + `custom_prompt_executor.py` and replaced them with `custom_prompt_internals.py`
-  + `custom_prompt_multi_turn_runner.py`. `sandbox/executor.py` now uses `MultiTurnSession.start_raw(...)`
-  (single-turn: `start_raw` + `session.end()`) and imports `CustomPromptSandboxContext` +
-  `extract_json_from_text` from `custom_prompt_internals`. The removed `resolve_sandbox_context_for_local_dev`
-  helper is inlined into `executor.py`. The `_run_prompt` seam returns just the agent's final message — it
-  does **not** re-read the S3 log (the runner already reads `task_run.log_url` internally; the old local
-  `_logs.txt` artifact was dropped as a redundant second read). Imports cleanly under Django;
-  `tests/test_executor.py` passes (7/7); lint clean. **Note: this is still single-turn-per-call — Stage 2
-  replaces it (below).**
+  - `custom_prompt_multi_turn_runner.py`. `sandbox/executor.py` now uses `MultiTurnSession.start_raw(...)`
+    (single-turn: `start_raw` + `session.end()`) and imports `CustomPromptSandboxContext` +
+    `extract_json_from_text` from `custom_prompt_internals`. The `resolve_sandbox_context_for_local_dev`
+    helper (not on master's import path at the time) is inlined into `executor.py` — later re-exposed via the
+    Tasks facade, see Stage 1.5. The `_run_prompt` seam returns just the agent's final message — it
+    does **not** re-read the S3 log (the runner already reads `task_run.log_url` internally; the old local
+    `_logs.txt` artifact was dropped as a redundant second read). Imports cleanly under Django;
+    `tests/test_executor.py` passes (7/7); lint clean. **Note: this is still single-turn-per-call — Stage 2
+    replaces it (below).**
 - **Replaced the stale `AGENTS.md`** (it referenced a `sandbox/runner.py` that never existed) with this
   `ARCHITECTURE.md`, modeled on `products/signals/ARCHITECTURE.md`.
+
+### ✅ Stage 1.5 — re-merge with `master`: Tasks moved behind a facade
+
+A later `origin/master` merge (commit `adc5cbe79b6`, _"feat(tasks): isolate behind a facade with
+contracts"_) made `products/tasks` an **isolated product** and **relocated** the custom-prompt agent
+machinery from `products/tasks/backend/services/` to `products/tasks/backend/logic/services/`, exposing it
+through a facade at **`products/tasks/backend/facade/agents.py`**. The sole merge conflict
+(`products/tasks/backend/temporal/client.py`) kept **both** newly-added params — master's `prewarmed` and
+the branch's `workflow_id_prefix` (the merged function bodies already referenced both). ReviewHog was
+re-pointed accordingly:
+
+- `sandbox/executor.py` and `tests/test_executor.py` now import `MultiTurnSession`,
+  `CustomPromptSandboxContext`, and `extract_json_from_text` from **`products.tasks.backend.facade.agents`**
+  — the only sanctioned cross-product path now that Tasks is isolated. `tach check --dependencies
+--interfaces` enforces it; importing the `logic/services` internals directly would fail the boundary check.
+- The facade also **re-exports `resolve_sandbox_context_for_local_dev`**, so the executor's inlined
+  `_resolve_context_for_local_dev` is now redundant — Stage 2 can drop it and call the facade helper.
+- `tests/test_run.py` gained the missing `publish_review` mock. Its absence was a **pre-existing branch
+  gap, not a merge effect**: a later branch commit wired real `publish_review` into `main()` without
+  updating the integration fixture, so 6 tests hit the real publish and failed on a missing
+  `pr_files.jsonl`. With the mock added, the full reviewer suite is green (**119 passed**); the touched
+  files lint clean and `tach check` passes.
 
 ### ⏭️ What's next — Stage 2 (START HERE on "continue")
 
@@ -58,7 +88,7 @@ staged; keep this section updated as stages land.
 **Decided design principles (do not re-litigate):**
 
 - **Isolation over reuse.** Every LLM call is its own fresh sandbox session: `MultiTurnSession.start(prompt,
-  context, model=Shape)` then `await session.end()`. A **single-turn** session is intended and fine — clean
+context, model=Shape)` then `await session.end()`. A **single-turn** session is intended and fine — clean
   isolation, no cross-talk between reviewers/chunks. We are **not** sharing a warm clone across steps, and the
   higher sandbox count is an accepted tradeoff for isolation.
 - **Specialists run in parallel with no shared context.** The three reviewers (Logic & Correctness,
@@ -79,8 +109,8 @@ staged; keep this section updated as stages land.
    that chunk's reviewers (analysis finishes before the chunk's reviewers start).
 4. **Parallel specialist review** — for each `(chunk × specialty)` spawn an isolated single-turn sandbox
    (≈ `3 × num_chunks`, all concurrent, bounded by the semaphore). Each reviewer gets the chunk's files + diff
-   + `@path#L…` code-context refs + the chunk analysis + its specialty focus. **No** cross-specialty /
-   cross-chunk context.
+   - `@path#L…` code-context refs + the chunk analysis + its specialty focus. **No** cross-specialty /
+     cross-chunk context.
 5. **Combine** all findings (local).
 6. **Scope-clean** (KEEP, local) — drop findings off the PR's changed lines.
 7. **Dedupe** (sandbox) — across all chunks/specialties (and vs prior bot comments). This is what absorbs the
@@ -108,8 +138,8 @@ staged; keep this section updated as stages land.
 - Config: delete `_resolve_context`, `_resolve_context_for_local_dev`, and `_CLOUD_TEAM_ID` / `_CLOUD_USER_ID`
   / `_CLOUD_REPOSITORY` / `_LOCAL_REPOSITORY`. Add `--team-id` / `--user-id` / `--repository` to `run_review`
   (or settings) and thread them `run.py` → executor. The sandbox repo to clone is a real input, not a
-  `DEBUG`-switched default. *(This is the direct answer to "why do we need `_resolve_context_for_local_dev`" —
-  we don't, once ids are explicit.)*
+  `DEBUG`-switched default. _(This is the direct answer to "why do we need `_resolve_context_for_local_dev`" —
+  we don't, once ids are explicit.)_
 
 **Helpers — drop vs keep:**
 
@@ -118,9 +148,9 @@ staged; keep this section updated as stages land.
 - **Keep:** `sandbox/code_context.py` (`@path#L…` refs), `run_sandbox_review` (simplified to `start(model=)`),
   the three specialist focus templates, scope-cleaning, combine, dedupe, markdown, publish.
 
-**Read these first (reference implementations):** `products/tasks/backend/services/mts_example/runner.py`
+**Read these first (reference implementations):** `products/tasks/backend/logic/services/mts_example/runner.py`
 (canonical `MultiTurnSession.start(model=)` + `end()`), and
-`products/tasks/backend/services/custom_prompt_multi_turn_runner.py` (`start(model=)` returns a validated
+`products/tasks/backend/logic/services/custom_prompt_multi_turn_runner.py` (`start(model=)` returns a validated
 model; `start_raw` for raw text). `products/signals/backend/report_generation/research.py` shows the
 production pattern — it's multi-turn; here we use the **single-turn subset**.
 
@@ -172,7 +202,7 @@ flowchart TD
 3. **Fetch PR data** — `PRFetcher.fetch_pr_data` (`tools/github_meta.py`, PyGithub, needs `GITHUB_TOKEN`)
    writes `pr_meta.json`, `pr_comments.jsonl`, `pr_files.jsonl`, `pr_files_scope.jsonl`. Lockfiles, minified
    assets, snapshots, `*.schema.py`, `*.txt`, build dirs, and test files are filtered out. `branch =
-   pr_metadata.head_branch` is threaded into every sandbox step so the agent reviews the PR branch.
+pr_metadata.head_branch` is threaded into every sandbox step so the agent reviews the PR branch.
 4. **Generate schemas** — `generate_all_schemas()` materializes `Model.model_json_schema()` for the five
    LLM-facing models into `prompts/<stage>/schema.json`; the prompt templates embed these. Must run before
    any prompt rendering.
@@ -191,6 +221,7 @@ flowchart TD
    `load_previous_pass_results` → `PREVIOUS_PASSES_CONTEXT`, and each chunk's `ChunkAnalysis.goal` is
    injected as `CHUNK_ANALYSIS_CONTEXT`. The prompt also instructs cross-pass duplicate avoidance. Output:
    `pass{N}_results/chunk-{id}-issues-review.json`.
+
 8. **Combine** — `combine_issues` (local) flattens every pass×chunk `Issue` into `issues_found_raw.json`.
 9. **Scope clean** — `clean_issues` (local) drops issues whose file/lines don't overlap the PR diff. Writes
    `issues_cleaned.json` + `issues_outside_scope.json`.
@@ -227,11 +258,12 @@ deduplication, validation) call it with a prompt, the Pydantic model to validate
 3. Resolves a `CustomPromptSandboxContext` via `_resolve_context()`:
    - **Local dev** (`settings.DEBUG`): `_resolve_context_for_local_dev("sortafreel/posthog")` picks the first
      `Team` and first org membership's user from the DB and requires a `kind="github"` `Integration`
-     (raising with setup guidance if absent). *(Inlined into `executor.py` in Stage 2; master removed the
-     shared helper.)*
+     (raising with setup guidance if absent). _(Inlined in `executor.py`; the Tasks facade also re-exports
+     `resolve_sandbox_context_for_local_dev`, so Stage 2 can switch to it.)_
    - **Cloud** (`DEBUG=False`): hardcoded `team_id=2, user_id=196695, repository="posthog/posthog"`.
 4. Spawns the agent via `_run_prompt(...)` → **`MultiTurnSession.start_raw(prompt, context, branch, step_name)`**
-   (from `products.tasks.backend.services.custom_prompt_multi_turn_runner`), then **always `session.end()`s**
+   (imported from the Tasks facade `products.tasks.backend.facade.agents`; the implementation lives at
+   `products.tasks.backend.logic.services.custom_prompt_multi_turn_runner`), then **always `session.end()`s**
    the session — the runner keeps the workflow/sandbox alive between turns, so a single-turn caller must end
    it. Returns the agent's final message (`last_message`). The runner already persists the full agent log at
    `task_run.log_url` (S3 / Tasks UI), so the executor does **not** re-read or copy it locally.
@@ -245,10 +277,12 @@ adjacent ranges), so the agent reads exactly the changed lines. These are embedd
 
 ### Downstream chain (owned by `products/tasks`, current `master`)
 
-```
+```python
 run_sandbox_review (executor.py)
-  → MultiTurnSession.start_raw            (custom_prompt_multi_turn_runner.py)
-    → create_task_and_trigger             (custom_prompt_internals.py)
+  → imports MultiTurnSession / CustomPromptSandboxContext / extract_json_from_text
+      from products.tasks.backend.facade.agents   (facade re-export; impl under logic/services/)
+  → MultiTurnSession.start_raw            (logic/services/custom_prompt_multi_turn_runner.py)
+    → create_task_and_trigger             (logic/services/custom_prompt_internals.py)
       → Task.create_and_run(..., create_pr=False, mode="background", branch=…)
         → Temporal ProcessTaskWorkflow
           → get_sandbox_for_repository activity
@@ -261,9 +295,11 @@ run_sandbox_review (executor.py)
 
 The PR-branch checkout that ReviewHog depends on is performed by master's
 `get_sandbox_for_repository.py` block (driven by `ctx.branch`, which originates from `TaskRun.branch`), **not**
-by ReviewHog. The contract surface ReviewHog binds to (and that any future merge must preserve):
-`MultiTurnSession.start_raw(...) -> (session, last_message)`, `CustomPromptSandboxContext(team_id, user_id,
-repository)`, `session.end()`, and `extract_json_from_text(text, label)`.
+by ReviewHog. The contract surface ReviewHog binds to — **imported only through the Tasks facade
+`products.tasks.backend.facade.agents`** (Tasks is an isolated product; `tach` enforces the boundary) and
+that any future merge must preserve: `MultiTurnSession.start_raw(...) -> (session, last_message)`,
+`CustomPromptSandboxContext(team_id, user_id, repository)`, `session.end()`, and
+`extract_json_from_text(text, label)`.
 
 ---
 
@@ -273,23 +309,23 @@ All Pydantic. `models/__init__.py` is the authoritative registry that generates 
 `schema.json` files from `Model.model_json_schema()` — **`schema.json` files are generated artifacts; edit
 the model and regenerate, never hand-edit.**
 
-| Model | File | Schema-backed? | Role |
-| --- | --- | --- | --- |
-| `ChunksList` / `Chunk` / `FileInfo` | `models/split_pr_into_chunks.py` | ✅ chunking | PR → reviewable chunks (`chunk_type`, `key_changes`) |
-| `ChunkAnalysis` / `ChunkMeta` | `models/chunk_analysis.py` | ✅ chunk_analysis | per-chunk `goal` narrative |
-| `Issue` / `IssuesReview` / `LineRange` / `IssuePriority` / `PassType` / `PassContext` | `models/issues_review.py` | ✅ issues_review (`IssuesReview`) | **`Issue` is the shared currency** of stages 7–12 |
-| `IssueDeduplication` / `DuplicateIssue` | `models/issue_deduplicator.py` | ✅ issue_deduplicator | ids of issues to drop |
-| `IssueValidation` | `models/issue_validation.py` | ✅ issue_validation | `is_valid` + `category` per issue |
-| `IssueCombination` | `models/issue_combination.py` | — internal | flat merged issue list |
-| `ValidationMarkdownReport*` | `models/prepare_validation_markdown.py` | — internal | report tree (Chunk × Analysis × Issue × Validation) |
-| `PRMetadata` / `PRComment` / `PRFile` / `PRFileUpdate` | `models/github_meta.py` | — internal | raw GitHub ingestion |
+| Model                                                                                 | File                                    | Schema-backed?                    | Role                                                 |
+| ------------------------------------------------------------------------------------- | --------------------------------------- | --------------------------------- | ---------------------------------------------------- |
+| `ChunksList` / `Chunk` / `FileInfo`                                                   | `models/split_pr_into_chunks.py`        | ✅ chunking                       | PR → reviewable chunks (`chunk_type`, `key_changes`) |
+| `ChunkAnalysis` / `ChunkMeta`                                                         | `models/chunk_analysis.py`              | ✅ chunk_analysis                 | per-chunk `goal` narrative                           |
+| `Issue` / `IssuesReview` / `LineRange` / `IssuePriority` / `PassType` / `PassContext` | `models/issues_review.py`               | ✅ issues_review (`IssuesReview`) | **`Issue` is the shared currency** of stages 7–12    |
+| `IssueDeduplication` / `DuplicateIssue`                                               | `models/issue_deduplicator.py`          | ✅ issue_deduplicator             | ids of issues to drop                                |
+| `IssueValidation`                                                                     | `models/issue_validation.py`            | ✅ issue_validation               | `is_valid` + `category` per issue                    |
+| `IssueCombination`                                                                    | `models/issue_combination.py`           | — internal                        | flat merged issue list                               |
+| `ValidationMarkdownReport*`                                                           | `models/prepare_validation_markdown.py` | — internal                        | report tree (Chunk × Analysis × Issue × Validation)  |
+| `PRMetadata` / `PRComment` / `PRFile` / `PRFileUpdate`                                | `models/github_meta.py`                 | — internal                        | raw GitHub ingestion                                 |
 
 `Issue.id` encodes provenance as `"{pass_number}-{chunk_id}-{issue_number}"` and is parsed back throughout
 the pipeline to route validations and group the report. `IssuePriority` is `MUST_FIX` / `SHOULD_FIX` /
 `CONSIDER`.
 
 `utils/json_utils.py` holds JSONL helpers (`load_jsonl`, `process_jsonl`, `filter_jsonl`) and a local
-`extract_json_from_text` (note: the executor uses the Tasks-layer one, not this).
+`extract_json_from_text` (note: the executor uses the Tasks-layer one via the facade, not this).
 
 ---
 
@@ -354,7 +390,7 @@ entry `reviews/`). Per-run files:
   `load_dotenv()`, so a `.env` works.
 - `settings.DEBUG` — selects local-dev vs cloud sandbox context.
 - Hardcoded in `executor.py`: cloud `team_id=2`, `user_id=196695`, `repository="posthog/posthog"`; local
-  default repo `sortafreel/posthog`. *(Stage 2 candidate: de-hardcode.)*
+  default repo `sortafreel/posthog`. _(Stage 2 candidate: de-hardcode.)_
 
 ---
 
@@ -363,7 +399,7 @@ entry `reviews/`). Per-run files:
 Found during the Stage 1 analysis; **documented, not fixed** (most are Stage 2+ work):
 
 - **Neutered validation parallelism** — `issue_validation.create_validation_task` is `async` and `await`s
-  `run_validation` while the task list is being *built*, so the "batches of 10" `asyncio.gather` operates on
+  `run_validation` while the task list is being _built_, so the "batches of 10" `asyncio.gather` operates on
   already-resolved booleans. Effective per-issue concurrency is only the global semaphore (5); the batching
   does nothing.
 - **Duplicate report generation** — step 12 (`prepare_validation_markdown`) and step 13 (`publish_review`)
