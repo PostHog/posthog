@@ -1170,6 +1170,36 @@ def _report_dashboard_tile_removed(
     )
 
 
+def _report_dashboard_widget_updated(
+    *,
+    user: User,
+    dashboard: Dashboard,
+    tile: DashboardTile,
+    fields_changed: builtins.list[str],
+    request: Request | None = None,
+) -> None:
+    # Fired only by the dedicated widgets/batch_update endpoint, so it doubles as the signal for
+    # whether agents reach for this path rather than the generic dashboard PATCH.
+    if tile.widget is None:
+        return
+    properties: dict[str, Any] = {
+        "widget_type": tile.widget.widget_type,
+        "dashboard_id": dashboard.id,
+        "tile_id": tile.id,
+        "fields_changed": fields_changed,
+    }
+    if tile.widget_id is not None:
+        properties["widget_id"] = str(tile.widget_id)
+
+    report_user_action(
+        user,
+        "dashboard widget updated",
+        properties,
+        team=dashboard.team,
+        request=request,
+    )
+
+
 class DashboardSerializer(DashboardMetadataSerializer):
     tiles = serializers.SerializerMethodField()
     use_template = serializers.CharField(
@@ -3038,6 +3068,16 @@ class DashboardsViewSet(
 
         for tile in tiles:
             tile.refresh_from_db()
+
+        # Report after the transaction commits so a rolled-back batch never emits events.
+        for tile, payload in zip(tiles, widget_payloads):
+            _report_dashboard_widget_updated(
+                user=user,
+                dashboard=dashboard,
+                tile=tile,
+                fields_changed=[field for field in ("config", "name", "description") if field in payload],
+                request=request,
+            )
 
         tile_context = {**self.get_serializer_context(), "dashboard": dashboard}
         return Response({"tiles": DashboardTileSerializer(tiles, context=tile_context, many=True).data})
