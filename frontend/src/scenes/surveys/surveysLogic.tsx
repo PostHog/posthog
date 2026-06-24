@@ -494,8 +494,9 @@ export const surveysLogic = kea<surveysLogicType>([
             if (tab) {
                 actions.setTab(tab)
             }
-            if (search !== undefined && search !== values.searchTerm) {
-                actions.setSearchTerm(search)
+            const nextSearchTerm = search ?? ''
+            if (nextSearchTerm !== values.searchTerm) {
+                actions.setSearchTerm(nextSearchTerm)
             }
             actions.addProductIntent({
                 product_type: ProductKey.SURVEYS,
