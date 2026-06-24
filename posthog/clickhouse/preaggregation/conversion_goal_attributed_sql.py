@@ -1,12 +1,8 @@
-# Legacy: this module exists only to keep migration 0261 loadable on fresh DBs.
-# The runtime attribution path no longer reads or writes this table — it was superseded by the
-# reusable touchpoints precompute (marketing_touchpoints_preaggregated). Migration 0282 drops
-# the table on the AUX cluster. Do not add new callers here.
-#
-# Original purpose: pre-attributed output of the conversion-goal pipeline — one row per
-# (team, job, person, conversion_timestamp, touchpoint_timestamp) with the attribution weight
-# for that touchpoint. Single-touch emitted weight=1.0; multi-touch emitted N rows per
-# conversion with fractional weights summing to 1.
+# Pre-attributed output of the conversion-goal pipeline: one row per
+# (team, job, person, conversion_timestamp, touchpoint_timestamp) with the
+# attribution weight for that touchpoint. Single-touch emits weight=1.0 and one
+# row per conversion; multi-touch emits N rows per conversion with fractional
+# weights that sum to 1.
 
 from django.conf import settings
 
