@@ -203,7 +203,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
         }),
         movedItem: (item: FileSystemEntry, oldPath: string, newPath: string) => ({ item, oldPath, newPath }),
         // Emitted after an undo-delete restores items, so consumers (e.g. the dashboards tree) can refetch.
-        restoredItems: (paths: string[]) => ({ paths }),
+        restoredItems: true,
         queueAction: (action: ProjectTreeAction, projectTreeLogicKey: string) => ({ action, projectTreeLogicKey }),
         removeQueuedAction: (action: ProjectTreeAction) => ({ action }),
 
@@ -426,11 +426,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                                                       }
                                                   }
                                                   // Signal non-sidebar consumers (the dashboards tree) to refetch.
-                                                  actions.restoredItems(
-                                                      undoableEntries
-                                                          .map((entry) => entry.path)
-                                                          .filter((path): path is string => !!path)
-                                                  )
+                                                  actions.restoredItems()
                                                   const restoreCountsByType = new Map<string, number>()
                                                   for (const entry of undoableEntries) {
                                                       restoreCountsByType.set(

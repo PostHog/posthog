@@ -200,8 +200,12 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
                 await api.fileSystem.move(entry.id, newPath)
                 // movedItem syncs the sidebar's store and (via our own listener below) refetches this tree.
                 actions.movedItem(entry, entry.path, newPath)
+                // Re-point the scope if we were inside the renamed folder — or a descendant of it, which moves
+                // with it. (deleteSavedItem falls back to root because the folder is gone; rename keeps it.)
                 if (values.currentFolder === entry.path) {
                     actions.navigateToFolder(newPath)
+                } else if (values.currentFolder.startsWith(`${entry.path}/`)) {
+                    actions.navigateToFolder(newPath + values.currentFolder.slice(entry.path.length))
                 }
                 lemonToast.success(`Renamed to "${trimmed}"`)
             } catch (error) {
@@ -215,6 +219,11 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
             actions.deleteItem(entry, DASHBOARDS_TREE_PROJECT_LOGIC_KEY)
         },
         [projectTreeDataLogic.actionTypes.deleteSavedItem]: ({ savedItem }) => {
+            // Only dashboards/folders affect this view — ignore unrelated sidebar deletes (insights, notebooks),
+            // matching the movedItem listener's type-gate.
+            if (savedItem.type !== 'dashboard' && savedItem.type !== 'folder') {
+                return
+            }
             // Deleting a folder cascades to its dashboards (soft-deleted server-side, undoable). Refetch our
             // FileSystem rows AND the dashboards list itself — without the latter the soft-deleted dashboards
             // linger in dashboardsModel and the folder looks like it didn't delete.

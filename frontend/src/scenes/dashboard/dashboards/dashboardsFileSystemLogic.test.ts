@@ -202,7 +202,17 @@ describe('dashboardsFileSystemLogic', () => {
     it('refetches on undo (restoredItems) so restored items reappear without a reload', async () => {
         await expectLogic(logic).toDispatchActions(['loadFolderEntriesSuccess'])
         await expectLogic(logic, () => {
-            projectTreeDataLogic.actions.restoredItems(['Marketing/Q1/X'])
+            projectTreeDataLogic.actions.restoredItems()
         }).toDispatchActions(['loadFolderEntries', 'loadDashboardFileSystemEntries'])
+    })
+
+    it('renameFolder re-points a descendant scope onto the renamed path', async () => {
+        jest.spyOn(api.fileSystem, 'move').mockResolvedValue({} as any)
+        await expectLogic(logic).toDispatchActions(['loadFolderEntriesSuccess'])
+        logic.actions.navigateToFolder('Marketing/Q1')
+        logic.actions.renameFolder({ id: 'fld', type: 'folder', path: 'Marketing' } as any, 'Growth')
+        await expectLogic(logic).toFinishAllListeners()
+        // Renaming the ancestor 'Marketing' → 'Growth' moves the descendant scope to 'Growth/Q1'.
+        expect(logic.values.currentFolder).toEqual('Growth/Q1')
     })
 })

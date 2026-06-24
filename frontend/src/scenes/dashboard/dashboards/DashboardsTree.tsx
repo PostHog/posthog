@@ -136,13 +136,11 @@ export function DashboardsTree(): JSX.Element {
                             )
                         }}
                         onSetExpandedItemIds={(newIds) => {
-                            // Keyboard expand/collapse: mirror the one folder whose state changed into the
-                            // reducer (the root is always open, so it's excluded from the diff).
+                            // Sync the whole expandable set to LemonTree's new state. (Find-first missed batch
+                            // keyboard collapses where a parent and its expanded children change at once;
+                            // rebuilding from the live set also drops stale paths of since-deleted folders.)
                             const expanded = new Set(newIds)
-                            const toggled = expandablePaths.find((id) => !!expandedFolders[id] !== expanded.has(id))
-                            if (toggled) {
-                                toggleFolder(toggled)
-                            }
+                            setExpandedFolders(Object.fromEntries(expandablePaths.map((id) => [id, expanded.has(id)])))
                         }}
                         onFolderClick={(folder) => {
                             if (!folder) {
