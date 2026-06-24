@@ -194,15 +194,18 @@ def _mint_preview_jwt(
     revision: AgentRevision,
     user: Any,
 ) -> tuple[str, int] | None:
-    """Mint a short-lived HS256 JWT scoped to (app, rev) for non-live invokes.
+    """Mint a short-lived HS256 JWT scoped to (app, rev) for a preview/MOCKED run.
 
     Returns `(token, ttl_seconds)` or `None` when no shared signing key is
     configured (dev / harness path — ingress's gate is then also bypassed).
 
-    Bound to (app, rev) so a captured token can't be replayed against a
-    different draft, and to `aud = agent-ingress.preview` so it can't be
-    replayed against any other agent-platform service. The token only admits
-    the non-live revision through routing; the revision runs against its own
+    `revision` may be a non-live (draft/ready) revision OR the live revision:
+    for a non-live revision the token is what admits it through routing at all;
+    for the live revision the token is what flips the run into mocked mode
+    (side effects suppressed) instead of a real production run. Bound to
+    (app, rev) so a captured token can't be replayed against a different
+    revision, and to `aud = agent-ingress.preview` so it can't be replayed
+    against any other agent-platform service. The revision runs against its own
     `encrypted_env`, so there's no per-session secret payload to carry.
     """
     if not settings.AGENT_INTERNAL_SIGNING_KEY:
@@ -625,7 +628,11 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             OpenApiTypes.UUID,
             OpenApiParameter.QUERY,
             required=True,
-            description="Target draft revision. Must belong to this application and not be live.",
+            description=(
+                "Target revision. Must belong to this application. May be a draft/ready "
+                "revision, or the live revision to drive a mocked run of the live agent "
+                "(side effects suppressed)."
+            ),
         ),
     ]
 
@@ -652,11 +659,16 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         renderer_classes=[*api_settings.DEFAULT_RENDERER_CLASSES, EventStreamRenderer],
     )
     def preview_proxy(self, request: Request, rest: str = "", **kwargs) -> StreamingHttpResponse | Response:
-        """Authoring-side proxy for invoking a *draft* (or any non-live) revision.
+        """Authoring-side proxy for a preview/MOCKED invoke of any revision.
 
-        Closes the anonymous-draft-invoke gap: the public ingress URL refuses
-        non-live invokes that don't carry the `x-agent-preview-secret` header;
-        this proxy attaches it after authenticating the Django caller.
+        Two uses, both authenticated as the Django caller and given a minted
+        preview JWT this proxy attaches:
+          - a *draft* (non-live) revision — closes the anonymous-draft-invoke
+            gap: the public ingress URL refuses non-live invokes without a
+            valid preview token; this proxy supplies one.
+          - the *live* revision — drives a mocked run of the live agent (side
+            effects suppressed, `$ai_*` tagged) so an author can safely
+            reproduce / investigate live behavior without firing real writes.
 
         URL: `/api/projects/<team>/agent_applications/<app>/preview-proxy/<rest>`
         Auth: standard PAT / session — `agents:write` scope (POST run/send/cancel
@@ -677,10 +689,11 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         revision = AgentRevision.all_teams.filter(application=application, pk=revision_id).first()
         if not revision:
             raise NotFound("Revision not found in this application")
-        if application.live_revision_id == revision.id:
-            raise ValidationError(
-                "preview-proxy is for non-live revisions only; invoke the live revision via its public ingress URL"
-            )
+        # The live revision is allowed here on purpose: routing it via the
+        # `<slug>-<rev-hex>` form WITH the minted preview token flips the run
+        # into mocked mode (side effects suppressed) rather than a real
+        # production run. A real live run is what the bare public ingress URL
+        # (no token) is for.
 
         ingress_base = os.environ.get("AGENT_INGRESS_URL", "http://localhost:3030").rstrip("/")
         # Single URL contract for revision routing: `<slug>-<rev-hex>` in path
@@ -822,7 +835,11 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             OpenApiTypes.UUID,
             OpenApiParameter.QUERY,
             required=True,
-            description="Target draft revision. Must belong to this application and not be live.",
+            description=(
+                "Target revision. Must belong to this application. May be a draft/ready "
+                "revision, or the live revision to mint a token for a mocked run of the "
+                "live agent (side effects suppressed)."
+            ),
         ),
     ]
 
@@ -845,10 +862,9 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         revision = AgentRevision.all_teams.filter(application=application, pk=revision_id).first()
         if not revision:
             raise NotFound("Revision not found in this application")
-        if application.live_revision_id == revision.id:
-            raise ValidationError(
-                "preview-token is for non-live revisions only; the live revision is reachable without a token via its public ingress URL"
-            )
+        # The live revision is allowed: a token minted for it turns a run into
+        # a mocked one (side effects suppressed). A real live run needs no token
+        # — it's reachable via the bare public ingress URL.
         spec = revision.spec if isinstance(revision.spec, dict) else {}
         token_pair = _mint_preview_jwt(application, revision, request.user)
         ingress_slug = f"{application.slug}-{revision.id.hex}"
@@ -870,11 +886,12 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=True, methods=["post"], url_path="preview-token")
     def preview_token_mint(self, request: Request, **kwargs) -> Response:
-        """Mint a short-lived JWT for talking to a non-live revision
-        directly via the public ingress URL. The caller attaches it as
-        the `x-agent-preview-token` header (or `?preview_token=` query
-        param for `EventSource`). See `_mint_preview_jwt` for the
-        payload + claim binding.
+        """Mint a short-lived JWT for a preview/MOCKED invoke directly via
+        the public ingress URL — either a non-live (draft/ready) revision, or
+        the live revision to mock a run of the live agent. The caller attaches
+        it as the `x-agent-preview-token` header (or `?preview_token=` query
+        param for `EventSource`). See `_mint_preview_jwt` for the payload +
+        claim binding.
 
         The response also includes `endpoints`, `auth`, and
         `preview_proxy` blocks so the caller can wire a preview

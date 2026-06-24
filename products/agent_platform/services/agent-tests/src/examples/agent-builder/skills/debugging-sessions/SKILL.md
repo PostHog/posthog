@@ -46,7 +46,16 @@ completed | closed | failed`. There is no separate
    reason about the agent's design, not just the symptom) — same
    calls as `skills/reading-an-agent` step 2 + 4.
 
-6. **Produce a structured report** — see the report shape at the
+6. **Reproduce it if you need to** — when the conversation + logs
+   aren't enough to be sure of the cause, re-run the SAME input
+   against the **live** revision as a **mocked run** (side effects
+   suppressed, reads real). You get the real decision path without
+   re-firing whatever real write the original session did. Load
+   `skills/running-mocked-preview-runs` (target the live revision id
+   via `posthog__agent-applications-preview-proxy`). Reproducing on
+   live is safe precisely because the run is mocked.
+
+7. **Produce a structured report** — see the report shape at the
    bottom.
 
 For evidence beyond the conversation JSON — what the model actually

@@ -3,15 +3,17 @@
 How to write test specs, run them, read results, and self-evaluate
 before promoting. Load before any non-trivial edit's promote step.
 
-> **Status note:** the test-run endpoints
+> **Status note:** the scripted test-run endpoints
 > (`agent-applications-revisions-test-run`,
 > `-test-results-retrieve`, `-test-replay-retrieve`) are designed
 > in `agent-authoring-flow.md` §5 but **not yet shipped**. Until
-> they are, "testing" means: open a chat session against the
-> ready revision yourself (as a one-off via the chat trigger),
-> drive a representative input, and read the resulting session
-> manually. This skill teaches the eventual flow; substitute the
-> manual analog where noted.
+> they are, the way to actually exercise a revision is a **mocked
+> run**: drive a representative input against the `ready` (or live)
+> revision with side effects suppressed and read the resulting
+> session. See `skills/running-mocked-preview-runs` — that is the
+> "manual analog" referenced throughout this skill. This skill
+> teaches the eventual scripted flow; substitute the mocked run
+> where noted.
 
 ## When to run tests
 

@@ -140,6 +140,11 @@ Load `skills/running-and-evaluating-tests`. At minimum:
   then run it.
 - For non-trivial edits, run a real-inference test (a separate
   test type, more expensive — confirm cost with the user first).
+- **Offer a mocked run** of the `ready` revision so the user can
+  drive a real conversation with side effects suppressed (reads
+  real, writes mocked) — load `skills/running-mocked-preview-runs`.
+  This is the "manual" half of testing: it catches behavior the
+  scripted cases didn't anticipate.
 
 If tests fail, you cannot edit the ready revision. Branch a new
 draft from the just-frozen ready, fix, re-freeze, re-test. Yes,

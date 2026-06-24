@@ -10,6 +10,9 @@ Concise, diagram-led docs for the v2 agent platform. Read in this order:
    user → linked identities → tools, credentials, approvals, and MCP.
 4. **[local-dev.md](local-dev.md)** — bringing the stack up locally, driving it,
    and the e2e harness.
+5. **[preview-mode.md](preview-mode.md)** — "preview" (really MOCKED) runs: what
+   they suppress vs run for real, how they work against a draft OR the live
+   revision, and why the name is a misnomer.
 
 Authoritative sources these summarize: `AgentSpecSchema` in
 [agent-shared/src/spec/](../services/agent-shared/src/spec/), and the per-service

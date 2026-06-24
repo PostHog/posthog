@@ -71,7 +71,12 @@ function makeFakeMcp(
     ref: McpRef,
     handlers: Record<
         string,
-        { description: string; inputSchema?: unknown; handler: (args: Record<string, unknown>) => Promise<unknown> }
+        {
+            description: string
+            inputSchema?: unknown
+            annotations?: RemoteMcpTool['annotations']
+            handler: (args: Record<string, unknown>) => Promise<unknown>
+        }
     >
 ): OpenedMcp {
     const calls: Array<{ name: string; args: Record<string, unknown> }> = []
@@ -81,7 +86,12 @@ function makeFakeMcp(
         listTools: async () => {
             const out: RemoteMcpTool[] = []
             for (const [name, h] of Object.entries(handlers)) {
-                out.push({ name, description: h.description, inputSchema: h.inputSchema ?? { type: 'object' } })
+                out.push({
+                    name,
+                    description: h.description,
+                    inputSchema: h.inputSchema ?? { type: 'object' },
+                    annotations: h.annotations,
+                })
             }
             return out
         },
@@ -355,6 +365,55 @@ describe('buildAgentTools', () => {
             const built = await buildAgentTools(rev, makeDeps(rev, { mcpClients: [mcp], session: previewSession() }))
             const result = await byId(built, 'linear__create-issue').execute('c1', { title: 'x' })
             expect(result.details?.output).toEqual({ preview_skipped: true, tool: 'linear__create-issue' })
+        })
+
+        it('runs a read-only MCP tool for real in preview, still suppresses the write one', async () => {
+            // The read/write split: a tool annotated `readOnlyHint: true` runs
+            // for real even in a mocked run (so authors can verify read paths);
+            // a write/destructive one is suppressed. The write handler throws,
+            // so a regression that let it through would fail the test loudly.
+            const ref: McpRef = { id: 'ph', url: 'https://example.com/ph', secrets: [] }
+            const mcp = makeFakeMcp('ph', ref, {
+                'list-issues': {
+                    description: 'List issues. Read-only.',
+                    annotations: { readOnlyHint: true },
+                    handler: async () => ({ items: ['a', 'b'] }),
+                },
+                'create-issue': {
+                    description: 'Create an issue. Write.',
+                    annotations: { readOnlyHint: false, destructiveHint: true },
+                    handler: async () => {
+                        throw new Error('write MCP must not be called in a mocked run')
+                    },
+                },
+            })
+            const rev = makeRev([], [], [ref])
+            const built = await buildAgentTools(rev, makeDeps(rev, { mcpClients: [mcp], session: previewSession() }))
+
+            // Read-only tool reaches the remote and returns real data.
+            const read = await byId(built, 'ph__list-issues').execute('c1', {})
+            expect(read.details?.output).toMatchObject({ structuredContent: { items: ['a', 'b'] } })
+
+            // Write tool is suppressed — synthetic skip, handler never runs.
+            const write = await byId(built, 'ph__create-issue').execute('c2', { title: 'x' })
+            expect(write.details?.output).toEqual({ preview_skipped: true, tool: 'ph__create-issue' })
+        })
+
+        it('suppresses an UNANNOTATED MCP tool in preview (fail-closed)', async () => {
+            // No annotations → must be treated as "may write" and suppressed.
+            const ref: McpRef = { id: 'ph', url: 'https://example.com/ph', secrets: [] }
+            const mcp = makeFakeMcp('ph', ref, {
+                'do-thing': {
+                    description: 'Unannotated tool.',
+                    handler: async () => {
+                        throw new Error('unannotated MCP must not be called in a mocked run')
+                    },
+                },
+            })
+            const rev = makeRev([], [], [ref])
+            const built = await buildAgentTools(rev, makeDeps(rev, { mcpClients: [mcp], session: previewSession() }))
+            const result = await byId(built, 'ph__do-thing').execute('c1', {})
+            expect(result.details?.output).toEqual({ preview_skipped: true, tool: 'ph__do-thing' })
         })
 
         it('suppresses custom-tool calls in preview before touching the sandbox', async () => {

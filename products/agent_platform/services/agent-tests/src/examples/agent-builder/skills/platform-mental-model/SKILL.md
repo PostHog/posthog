@@ -158,6 +158,32 @@ only when loaded. Push depth into skills, keep `agent.md` lean.
   team's integration table. You don't issue them; the team
   installs them via the PostHog integrations UI.
 
+## Mocked ("preview") runs — a misnamed but useful mode
+
+A session can run in **mocked mode** (the codebase calls it
+`is_preview` / "preview"). In a mocked run the model loop, prompts,
+skills, read tools and approvals all run for real, but anything that
+touches the outside world is faked: write/destructive MCP tools,
+custom (sandbox) tools, Slack posts, and webhook deliveries return
+synthetic success instead of happening. Read-only tools still hit live
+data. Every `$ai_*` event is tagged `$agent_is_preview: true` so author
+iteration stays out of prod observability.
+
+**The name "preview" is a misnomer** — it does NOT mean "a draft
+revision." It means "side effects are mocked." Two ways a run lands in
+this mode:
+
+- routing to a **non-live** (draft/ready) revision — always mocked, and
+  always requires a preview token (running unpublished code needs auth);
+- targeting the **live** revision **with** a preview token — a mocked
+  run of the live agent, used to safely reproduce/debug live behavior.
+
+So you can mock a draft OR live; a real production run is the live
+revision with no token. When you explain this to a user, say "mocked
+run (no real side effects)", not "preview" — "preview" makes people
+think it only works on drafts. To actually drive one, load
+`skills/running-mocked-preview-runs`.
+
 ## Revisions vs sessions — the lifetime distinction
 
 A revision is a static artifact — the agent definition. A session

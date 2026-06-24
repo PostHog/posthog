@@ -182,7 +182,7 @@ describe('RevisionResolver', () => {
         })
     })
 
-    describe('preview-token gate (non-live revision invokes)', () => {
+    describe('preview-token gate (non-live + mocked-live invokes)', () => {
         const SECRET = 'matching-shared-secret'
         const DRAFT_UUID = '019e6fa3-0000-0000-0000-aaaaaaaaaaaa'
         const DRAFT_PREFIX = '019e6fa3'
@@ -316,6 +316,55 @@ describe('RevisionResolver', () => {
             await seedAppAndDraft(store, 'gated')
             const out = await mkResolver(store).resolveBySlug(`gated-${DRAFT_PREFIX}`)
             expect(out!.revision.id).toBe(DRAFT_UUID)
+        })
+
+        // ── mocked run against the LIVE revision ──────────────────────────
+        // A valid preview token attached to the live URL flips the run into
+        // mocked mode (side effects suppressed) WITHOUT routing to a draft.
+
+        it('marks a LIVE invoke carrying a valid token as a mocked run (isPreview)', async () => {
+            const store = new PgRevisionStore(pool)
+            const { app } = await seedAppAndDraft(store, 'gated')
+            const liveId = (await store.getApplication(app.id))!.live_revision_id!
+            const token = await mintToken(SECRET, { app: app.id, rev: liveId })
+            const out = await mkResolver(store, { internalSigningKey: SECRET }).resolveBySlug('gated', {
+                providedToken: token,
+            })
+            expect(out!.revision.id).toBe(liveId)
+            expect(out!.revision.state).toBe('live')
+            expect(out!.isPreview).toBe(true)
+        })
+
+        it('a LIVE invoke with NO token is a real run (isPreview false)', async () => {
+            const store = new PgRevisionStore(pool)
+            await seedAppAndDraft(store, 'gated')
+            const out = await mkResolver(store, { internalSigningKey: SECRET }).resolveBySlug('gated')
+            expect(out!.revision.state).toBe('live')
+            expect(out!.isPreview).toBe(false)
+        })
+
+        it('refuses a LIVE mocked-run when the token is bound to a different revision', async () => {
+            const store = new PgRevisionStore(pool)
+            const { app } = await seedAppAndDraft(store, 'gated')
+            // Token bound to the DRAFT, presented against the live URL → the
+            // rev-claim check fails. A draft token can't mock live (or vice versa).
+            const draftBoundToken = await mintToken(SECRET, { app: app.id, rev: DRAFT_UUID })
+            await expect(
+                mkResolver(store, { internalSigningKey: SECRET }).resolveBySlug('gated', {
+                    providedToken: draftBoundToken,
+                })
+            ).rejects.toBeInstanceOf(MissingPreviewSecretError)
+        })
+
+        it('marks a LIVE invoke with a token as mocked even on the dev-bypass path', async () => {
+            const store = new PgRevisionStore(pool)
+            await seedAppAndDraft(store, 'gated')
+            // No signing key configured: a token can't be verified, but its mere
+            // presence signals mocked-run intent — and mocking only suppresses
+            // side effects, so honoring it in dev is safe.
+            const out = await mkResolver(store).resolveBySlug('gated', { providedToken: 'unverifiable.dev.token' })
+            expect(out!.revision.state).toBe('live')
+            expect(out!.isPreview).toBe(true)
         })
     })
 

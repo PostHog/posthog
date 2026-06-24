@@ -386,12 +386,14 @@ function makeCustomTool(
         description,
         parameters,
         execute: async (_callId, args): Promise<AgentToolResult<ToolResultDetails>> => {
-            // Preview-mode stopgap: custom tools run author-supplied code in the
+            // Preview/MOCKED run: custom tools run author-supplied code in the
             // sandbox and can perform arbitrary external writes, with no
-            // read-vs-write signal to gate on. Suppress every custom-tool call in
-            // preview (fail-closed) before resolving identity or touching the
-            // sandbox. Same accepted trade as MCP — blinds read-only custom tools
-            // too until the dispatch boundary gains a real classification.
+            // read-vs-write signal to gate on (unlike MCP tools, which now gate
+            // on the server's `readOnlyHint` annotation). Suppress every
+            // custom-tool call in a mocked run (fail-closed) before resolving
+            // identity or touching the sandbox. This still blinds read-only
+            // custom tools — accepted until custom-tool schemas can declare a
+            // read/write hint of their own.
             if (isPreviewSideEffect(buildToolContext(deps), id, args as Record<string, unknown>)) {
                 const skipped = { preview_skipped: true, tool: id }
                 return { content: [{ type: 'text', text: JSON.stringify(skipped) }], details: { output: skipped } }
@@ -486,15 +488,18 @@ function makeMcpTool(
         parameters: remote.inputSchema as TSchema,
         execute: async (_callId, args): Promise<AgentToolResult<ToolResultDetails>> => {
             const callArgs = (args ?? {}) as Record<string, unknown>
-            // Preview-mode stopgap: remote MCP servers can perform arbitrary
-            // external side effects and aren't yet classified read-vs-write, so
-            // suppress every MCP call in preview (fail-closed) rather than let a
-            // write reach the real world. Returns a shape-valid synthetic
-            // envelope so the model's next turn keeps reasoning; logs
-            // `tool_preview_skipped`. This also blinds MCP *reads* in preview —
-            // an accepted, temporary trade until the dispatch boundary gates on
-            // a real read/write signal (tracked follow-up).
-            if (isPreviewSideEffect(buildToolContext(deps), exposedName, callArgs)) {
+            // Preview/MOCKED-run gate, classified by the server's MCP
+            // annotations: a remote tool runs for real ONLY when it's
+            // explicitly `readOnlyHint: true`. Writes, destructive ops, and
+            // UNANNOTATED tools all fail closed — suppressed so no real side
+            // effect escapes a mocked run, returning a shape-valid synthetic
+            // envelope so the model's next turn keeps reasoning (logged as
+            // `tool_preview_skipped`). Read-only tools execute against live
+            // data so the author can verify the agent's read paths. The
+            // `!readOnly &&` short-circuit means read-only tools never reach
+            // `isPreviewSideEffect`, so they're not logged as skipped.
+            const readOnly = remote.annotations?.readOnlyHint === true
+            if (!readOnly && isPreviewSideEffect(buildToolContext(deps), exposedName, callArgs)) {
                 const skipped = { preview_skipped: true, tool: exposedName }
                 return { content: [{ type: 'text', text: JSON.stringify(skipped) }], details: { output: skipped } }
             }

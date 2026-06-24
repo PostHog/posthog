@@ -58,6 +58,21 @@ export interface RemoteMcpTool {
      * shape per the MCP protocol.
      */
     inputSchema: unknown
+    /**
+     * MCP tool annotations as advertised by the server in `tools/list`. The
+     * only field the runner acts on is `readOnlyHint`: in a preview/MOCKED run
+     * a remote tool is executed for real ONLY when it's explicitly annotated
+     * read-only — every write/destructive/UNANNOTATED tool is suppressed
+     * (fail-closed) so a real side effect can't escape a mocked run. The MCP
+     * spec types these as all-optional hints, so treat a missing or `false`
+     * `readOnlyHint` as "may write." See `makeMcpTool` in `build-agent-tools`.
+     */
+    annotations?: {
+        readOnlyHint?: boolean
+        destructiveHint?: boolean
+        idempotentHint?: boolean
+        openWorldHint?: boolean
+    }
 }
 
 /** Raw MCP `CallToolResult` — `buildAgentTools` shapes this into an
@@ -328,6 +343,9 @@ async function openOne(ref: McpRef, deps: OpenOneDeps): Promise<OpenedMcp> {
                 name: t.name,
                 description: t.description ?? '',
                 inputSchema: t.inputSchema,
+                // Carry the server's annotations through so preview/mocked runs
+                // can gate write-side tools on `readOnlyHint` (see makeMcpTool).
+                annotations: t.annotations,
             }))
         },
         callTool: async (name, args) => client.callTool({ name, arguments: args }),

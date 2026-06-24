@@ -319,14 +319,17 @@ fix, re-freeze, re-test. (Same loop as
 
 ## Phase 8 — promote
 
-Explicit confirmation, as always.
-`posthog__agent-applications-revisions-promote-create`.
+Before promoting, **offer a mocked run** so the user sees real
+behavior, not just green test cases. Load
+`skills/running-mocked-preview-runs`: drive a representative input
+against the `ready` draft via
+`posthog__agent-applications-preview-proxy` (side effects suppressed,
+reads real). Especially for high-stakes agents (production-traffic-
+affecting, customer-visible, money-moving) — let the user watch one
+real conversation against the draft first.
 
-For high-stakes agents (production-traffic-affecting, customer-
-visible, money-moving), **suggest a preview link first** (per
-`agent-authoring-flow.md` §2 phase 6, when the feature ships).
-The user can drive a real conversation against the `ready`
-revision before promoting.
+Then promote, with explicit confirmation as always:
+`posthog__agent-applications-revisions-promote-create`.
 
 ## Anti-patterns to spot
 

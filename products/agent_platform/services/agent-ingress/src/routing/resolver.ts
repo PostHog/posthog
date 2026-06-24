@@ -34,15 +34,24 @@ export interface ResolvedAgent {
     application: AgentApplication
     revision: AgentRevision
     /**
-     * True when the resolved revision is NOT the application's
-     * `live_revision_id` — i.e. the request reached us through the preview
-     * path (Django preview-proxy or a direct ingress call carrying a valid
-     * `aud=agent-ingress.preview` JWT). `assertPreviewGate` has already run
-     * by the time this is set on a non-live resolution, so the field
-     * doubles as "request was authenticated for preview." Triggers forward
-     * it to `enqueueOrResume` as `isPreview` so it lands on
-     * `agent_session.is_preview` and the runner's output adapters can
-     * noop external publishes for the session.
+     * True when this is a "preview" (better: MOCKED) run — the runner
+     * suppresses real-world side effects (Slack writes, webhook delivery,
+     * write-side MCP/custom tools) and tags `$ai_*` events so author
+     * iteration stays out of prod observability. Two ways to land here, both
+     * decided by `assertPreviewGate` before this is set:
+     *   1. The resolved revision is NOT the application's `live_revision_id`
+     *      (a draft/ready revision). These ALWAYS require a valid preview JWT
+     *      — running unpublished code anonymously would be a hole.
+     *   2. The resolved revision IS live, but the request carried a valid
+     *      `aud=agent-ingress.preview` JWT. The live spec is already public,
+     *      so mocking it exposes nothing new — this is the "safely test /
+     *      reproduce the live agent without firing real side effects" path.
+     *
+     * NB the name is a misnomer kept for wire/schema compatibility: it does
+     * NOT mean "a draft" — it means "side effects are mocked." See
+     * `agent_session.is_preview` and `docs/preview-mode.md`. Triggers forward
+     * this to `enqueueOrResume` as `isPreview` so it lands on
+     * `agent_session.is_preview`.
      */
     isPreview: boolean
     /**
@@ -76,10 +85,11 @@ export class AmbiguousRevisionError extends Error {
 }
 
 /**
- * Thrown when a non-live revision is invoked without a valid preview JWT.
- * Django mints the token on each proxy call (short-lived, bound to the
- * (application, revision) it's invoking). Captured tokens expire in seconds
- * and can't be replayed against a different draft.
+ * Thrown when a preview JWT is required but missing/invalid: a non-live
+ * revision invoked without one, or a live-revision mocked run that attached a
+ * token which failed verification. Django mints the token on each proxy call
+ * (short-lived, bound to the (application, revision) it's invoking). Captured
+ * tokens expire in seconds and can't be replayed against a different revision.
  */
 export class MissingPreviewSecretError extends Error {
     constructor(readonly reason: string = 'missing_or_invalid_preview_token') {
@@ -134,13 +144,15 @@ export class RevisionResolver {
         if (!resolved) {
             return null
         }
+        // The gate is now the single authority on `isPreview`: it knows
+        // whether the revision is live, and whether a valid preview JWT was
+        // attached. A non-live revision is always preview (token required); a
+        // live revision is preview only when the caller opted in with a token
+        // (a mocked run), otherwise it's a real production run.
         const gateResult = await this.assertPreviewGate(resolved, opts?.providedToken)
-        // `assertPreviewGate` either short-circuited on the live revision or
-        // verified a valid preview JWT for a non-live one. Either way, the
-        // revision-id comparison is now the authoritative preview signal.
         return {
             ...resolved,
-            isPreview: resolved.revision.id !== resolved.application.live_revision_id,
+            isPreview: gateResult.isPreview,
             previewJwtExp: gateResult.exp,
         }
     }
@@ -200,27 +212,47 @@ export class RevisionResolver {
     }
 
     /**
-     * Refuse non-live invokes unless the request carries a valid preview JWT
-     * signed with the internal signing key. Token must (a) verify against
-     * the HMAC, (b) carry the `agent-ingress.preview` audience, (c) not be
-     * expired, and (d) carry `app` + `rev` claims that match the resolved
-     * revision. The check is bypassed when `internalSigningKey` isn't
-     * configured (dev / harness path).
+     * Decide whether this resolution is a preview/MOCKED run, and verify the
+     * preview JWT when one is required or supplied. Rules:
+     *
+     *   - Non-live revision: a valid preview JWT is REQUIRED (running
+     *     unpublished code anonymously would be a hole). Always preview.
+     *   - Live revision + no token: a real production run. Nothing to verify,
+     *     not preview.
+     *   - Live revision + token: the caller opted into a mocked run of the
+     *     live agent (safe — the live spec is already public; we only suppress
+     *     side effects). The token is verified like any other; preview.
+     *
+     * A presented token must (a) verify against the HMAC, (b) carry the
+     * `agent-ingress.preview` audience, (c) not be expired, and (d) carry
+     * `app` + `rev` claims matching the resolved revision. The check is
+     * bypassed when `internalSigningKey` isn't configured (dev / harness): a
+     * non-live revision is preview by definition, and a live revision is
+     * treated as a mocked run whenever a token is attached (unverifiable
+     * there, but mocking only suppresses side effects, so honoring the intent
+     * in dev is safe).
      */
-    // Returns the JWT's `exp` claim (unix seconds) when a preview token was
-    // validated, or `{exp: null}` when the request was live / the signing key
-    // isn't configured. Callers attach `exp` to `ResolvedAgent.previewJwtExp`
-    // for SSE expiry scheduling.
+    // Returns the authoritative `isPreview` plus the JWT's `exp` claim (unix
+    // seconds) when a preview token was validated, or `exp: null` for a real
+    // live run / the dev bypass. Callers attach `exp` to
+    // `ResolvedAgent.previewJwtExp` for SSE expiry scheduling.
     private async assertPreviewGate(
         resolved: { application: AgentApplication; revision: AgentRevision },
         providedToken: string | undefined
-    ): Promise<{ exp: number | null }> {
+    ): Promise<{ exp: number | null; isPreview: boolean }> {
+        const isLive = resolved.revision.id === resolved.application.live_revision_id
+
         if (!this.opts.internalSigningKey) {
-            return { exp: null }
+            // Dev / harness bypass — can't verify, so derive intent: non-live
+            // is always preview; live is a mocked run iff a token is attached.
+            return { exp: null, isPreview: !isLive || providedToken !== undefined }
         }
-        if (resolved.revision.id === resolved.application.live_revision_id) {
-            return { exp: null }
+        if (isLive && providedToken === undefined) {
+            // Real production run against the live revision.
+            return { exp: null, isPreview: false }
         }
+        // Either non-live (token required) or live-with-token (mocked run
+        // opt-in). Both must present a valid preview JWT bound to (app, rev).
         if (!providedToken) {
             throw new MissingPreviewSecretError('missing_token')
         }
@@ -246,7 +278,7 @@ export class RevisionResolver {
         // return null and skip the scheduled expiry event (live-style stream
         // behavior) rather than crash the request.
         const exp = typeof payload.exp === 'number' ? payload.exp : null
-        return { exp }
+        return { exp, isPreview: true }
     }
 
     /**

@@ -17,8 +17,9 @@ Verifies:
   * Domain routing mode (`AGENT_INGRESS_ROUTING_MODE=domain`): URLs put
     the slug in the host (`https://<slug><suffix>/...`), matching what the
     domain-mode ingress serves; empty when the suffix is unset.
-  * Hard requirements that already existed: live revision rejected,
-    cross-app revision rejected, missing query param rejected.
+  * Hard requirements: the live revision is allowed (it mints a token for a
+    MOCKED run of the live agent), cross-app revision rejected, missing query
+    param rejected.
 """
 
 from __future__ import annotations
@@ -177,16 +178,19 @@ class TestPreviewTokenResponse(APIBaseTest):
         assert "auth" in body
         assert "preview_proxy" in body
 
-    def test_live_revision_rejected(self) -> None:
+    def test_live_revision_mints_for_mocked_run(self) -> None:
+        # The live revision is allowed: a token minted for it drives a MOCKED
+        # run of the live agent (side effects suppressed), not a real one. A
+        # real live run needs no token at all.
         app = self._app()
         rev = self._revision(app, _base_spec())
-        # Promote the revision so it's live; preview-token then refuses.
         app.live_revision = rev
         app.save(update_fields=["live_revision"])
 
         res = self.client.get(self._url(app, rev))
-        assert res.status_code == 400, res.content
-        assert "non-live revisions only" in res.content.decode()
+        assert res.status_code == 200, res.content
+        body = res.json()
+        assert body["ingress_slug"] == f"{app.slug}-{rev.id.hex}"
 
     def test_revision_id_required(self) -> None:
         app = self._app()
@@ -319,7 +323,8 @@ class TestSlackUrlSerializer(APIBaseTest):
 class TestPreviewTokenMintPost(APIBaseTest):
     """POST mint verb (the contract-faithful one — minting is a write). It takes
     no body: secrets are per-revision now, so there's no per-session override to
-    pass. The token only admits the non-live revision through routing."""
+    pass. The token admits a non-live revision through routing, or flips a live
+    revision into a mocked run."""
 
     databases = {
         "default",
@@ -350,14 +355,19 @@ class TestPreviewTokenMintPost(APIBaseTest):
         assert body["expires_in"] > 0
         assert body["ingress_slug"] == f"{app.slug}-{rev.id.hex}"
 
-    def test_post_on_live_revision_rejected(self) -> None:
+    def test_post_on_live_revision_mints_for_mocked_run(self) -> None:
+        # The live revision is allowed: POST mints a token bound to it for a
+        # MOCKED run of the live agent (side effects suppressed).
         app = self._app()
         rev = self._revision(app)
         app.live_revision = rev
         app.save(update_fields=["live_revision"])
         res = self.client.post(self._url(app, rev))
-        assert res.status_code == 400, res.content
-        assert "non-live revisions only" in res.content.decode()
+        assert res.status_code == 200, res.content
+        body = res.json()
+        assert body["token"], "POST mint must return a non-empty token for the live revision"
+        assert body["expires_in"] > 0
+        assert body["ingress_slug"] == f"{app.slug}-{rev.id.hex}"
 
     def test_post_revision_from_different_app_in_same_team_rejected(self) -> None:
         # Same contract as the GET path: minting under one app's slug with a

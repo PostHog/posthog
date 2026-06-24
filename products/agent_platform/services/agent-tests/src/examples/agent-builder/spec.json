@@ -236,6 +236,8 @@
                 "agent-applications-session-logs",
                 "agent-applications-env-keys-list",
                 "agent-applications-env-keys-get",
+                "agent-applications-preview-proxy",
+                "agent-applications-preview-token-mint",
                 "agent-native-tools-list",
                 "agent-resolve-resource",
                 "execute-sql",
@@ -316,6 +318,11 @@
             "id": "running-and-evaluating-tests",
             "path": "skills/running-and-evaluating-tests/SKILL.md",
             "description": "Writing test specs, kicking off test runs, reading results, self-evaluation, judge skills. Load before any promote on a non-trivial change, and whenever the user asks to test an agent."
+        },
+        {
+            "id": "running-mocked-preview-runs",
+            "path": "skills/running-mocked-preview-runs/SKILL.md",
+            "description": "Drive a real conversation against an agent with side effects suppressed — a 'preview' (really MOCKED) run. Works against a draft/ready revision OR the LIVE revision. Read-only tools run for real against live data; writes / destructive MCP tools / custom tools / Slack + webhook publishes are mocked. Load whenever you want to TRY an agent before promoting, REPRODUCE a live agent's behavior to debug it, or the user asks to 'test it for real' / 'see what it would do' / 'preview' without affecting production."
         },
         {
             "id": "using-the-console-ui",
