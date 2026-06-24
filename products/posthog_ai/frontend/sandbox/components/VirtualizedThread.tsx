@@ -95,6 +95,9 @@ function Root<T>({
     virtualized = true,
     children,
 }: VirtualizedThreadRootProps<T>): JSX.Element {
+    // Shared per-row height cache (Map keyed by row index). Survives re-renders and react-window's
+    // row recycling, so scrolling back to an already-measured row reuses its height without a flash;
+    // rows are re-measured on resize via `observeRowElements` (see `Row`).
     const dynamicRowHeight = useDynamicRowHeight({ defaultRowHeight })
     const listRef = useListRef(null)
 
@@ -254,6 +257,12 @@ function Row({ children, className }: { children: ReactNode; className?: string 
     const { style, ariaAttributes, index } = row
     const rowRef = useRef<HTMLDivElement>(null)
 
+    // Cache + recalc: `observeRowElements` attaches a ResizeObserver to the measured row element and
+    // writes its border-box height into the shared cache. So when this row's content changes height —
+    // tool output expand/collapse, streaming markdown, a late-loading image — it is re-measured and the
+    // list re-lays-out automatically. We observe the outer element (which is never given a fixed height,
+    // only react-window's position/transform), and the gap padding lives on its child, so the cached
+    // height always includes inter-row spacing and content growth.
     useEffect(() => {
         if (virtualized && rowRef.current) {
             return dynamicRowHeight.observeRowElements([rowRef.current])
