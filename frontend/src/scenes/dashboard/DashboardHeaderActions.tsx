@@ -82,6 +82,9 @@ export function DashboardAddTileButton(): JSX.Element | null {
                             : {
                                   label: 'Widget',
                                   tag: 'beta' as const,
+                                  // Widgets are gated behind a feature preview. Make the redirect explicit
+                                  // so the click doesn't feel like it did nothing — users were re-clicking.
+                                  tooltip: 'Opens settings to enable the Dashboard widgets beta',
                                   onClick: () => push(urls.featurePreview(FEATURE_FLAGS.DASHBOARD_WIDGETS)),
                                   'data-attr': 'dashboard-add-widget-preview',
                               },

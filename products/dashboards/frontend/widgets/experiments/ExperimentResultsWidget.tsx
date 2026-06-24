@@ -15,6 +15,8 @@ import type { ExperimentStatus } from '~/types'
 
 import { WidgetCardBodyMessage, WidgetCardContent } from '../../components/WidgetCard'
 import type { DashboardWidgetComponentProps } from '../registry'
+import { ExperimentPickerSelect } from './ExperimentPickerSelect'
+import { patchExperimentResultsWidgetConfig } from './experimentsWidgetConfigValidation'
 import { NotebookCompactTable } from './LazyNotebookCompactTable'
 
 export type ExperimentResultsWidgetMetricEntry = {
@@ -163,6 +165,7 @@ function ExperimentResultsLoadingSkeleton(): JSX.Element {
 
 export function ExperimentResultsWidget({
     tileId,
+    config,
     result,
     loading,
     onUpdateConfig,
@@ -172,6 +175,22 @@ export function ExperimentResultsWidget({
     if (loading) {
         return <ExperimentResultsLoadingSkeleton />
     }
+
+    // Editable tile with no experiment chosen yet: let the user pick one right here instead of
+    // hunting for the selector in the tile header. Shares the tile picker's key so state stays in sync.
+    const inlineExperimentPicker = onUpdateConfig ? (
+        <div className="w-64 max-w-full">
+            <ExperimentPickerSelect
+                pickerKey={`results-tile-${tileId}`}
+                value={null}
+                fullWidth
+                onChange={(value) => {
+                    void onUpdateConfig(patchExperimentResultsWidgetConfig(config, value))
+                }}
+                dataAttr="experiment-results-widget-empty-state-select"
+            />
+        </div>
+    ) : undefined
 
     if (!payload || payload.needsConfiguration) {
         // No experiments in the project yet — mirror the list widget's "create one" CTA.
@@ -204,9 +223,10 @@ export function ExperimentResultsWidget({
                 title="No experiment selected"
                 message={
                     onUpdateConfig
-                        ? 'Pick an experiment from the selector above to see its results here.'
+                        ? 'Pick an experiment to see its results here.'
                         : 'No experiment has been selected for this tile yet.'
                 }
+                cta={inlineExperimentPicker}
             />
         )
     }
