@@ -42,9 +42,11 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
+from posthog.errors import ExposedCHQueryError
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import (
@@ -610,6 +612,37 @@ class TestQueryRunner(BaseTest):
             assert QUERY_EXECUTION_TOTAL.labels(**label_kwargs)._value.get() - before == 1
         finally:
             reset_query_tags()
+
+    @parameterized.expand(
+        [
+            ("exposed_hogql_error", ExposedHogQLError, False),
+            ("exposed_ch_query_error", ExposedCHQueryError, False),
+            ("unexpected_error", ValueError, True),
+        ]
+    )
+    def test_run_excludes_expected_query_errors_from_error_tracking(
+        self, _name: str, error_class: type[Exception], should_capture: bool
+    ) -> None:
+        # Expected user-facing query errors (ExposedHogQLError / ExposedCHQueryError) are surfaced to
+        # the user as an HTTP 400, so run()'s new_context() wrapper must not auto-capture them into
+        # error tracking. Unexpected errors must still be captured. Guards the noise regression where
+        # invalid user SQL (e.g. Postgres-incompatible count()) showed up as a backend exception.
+        TestQueryRunner = self.setup_test_query_runner_class()
+
+        def calculate_raises(self: Any) -> Any:
+            raise error_class("boom")
+
+        TestQueryRunner.calculate = calculate_raises
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        with (
+            mock.patch("posthoganalytics.api_key", "test-key"),
+            mock.patch("posthoganalytics.capture_exception") as mock_capture,
+            pytest.raises(error_class),
+        ):
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        assert mock_capture.called is should_capture
 
     @parameterized.expand(
         [

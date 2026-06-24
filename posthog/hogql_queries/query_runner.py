@@ -76,6 +76,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
@@ -95,7 +96,7 @@ from posthog.clickhouse.client.limit import (
     get_org_app_concurrency_limit,
 )
 from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method, tag_queries
-from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
+from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error, clickhouse_error_type
 from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
@@ -1491,7 +1492,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.query_id = query_id or self.query_id
         self._cache_age_override = cache_age_seconds
 
-        with posthoganalytics.new_context():
+        # Auto-capture is disabled here so we can capture exceptions ourselves below, excluding
+        # expected user-facing query errors (ExposedHogQLError / ExposedCHQueryError). Those are
+        # already converted to an HTTP 400 at the API layer, so letting new_context() auto-capture
+        # them would pollute error tracking with what is really invalid user input.
+        with posthoganalytics.new_context(capture_exceptions=False):
             query_type = getattr(self.query, "kind", "Other")
             distinct_id = str(user.distinct_id) if user else str(self.team.uuid)
 
@@ -1670,6 +1675,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         slo.succeed(error_category=category.value)
                     else:
                         slo.fail(error_category=category.value)
+                    # new_context() auto-capture is disabled, so capture here instead — but skip
+                    # expected user-facing query errors, which surface as an HTTP 400 and would
+                    # otherwise show up in error tracking as spurious backend exceptions.
+                    if not isinstance(exc, (ExposedHogQLError, ExposedCHQueryError)):
+                        capture_exception(exc)
                     raise
 
     def _execute_and_cache_blocking(
