@@ -50,11 +50,13 @@ def _resolve_context_for_local_dev(repository: str) -> CustomPromptSandboxContex
     return CustomPromptSandboxContext(team_id=team.id, user_id=user.id, repository=repository)
 
 
-async def _resolve_context(repository: str) -> CustomPromptSandboxContext:
+async def resolve_sandbox_context(repository: str) -> CustomPromptSandboxContext:
     """Return sandbox context based on environment (cloud vs local dev).
 
     The sandbox clones ``repository`` (the PR's own ``owner/repo``) and checks out the
     PR branch, so reviews run against the real repo — same as Signals report research.
+    The orchestrator also calls this to resolve the ``team_id`` it persists under, so the
+    review's rows and its sandboxes share one team.
     """
     if settings.DEBUG:
         return await sync_to_async(_resolve_context_for_local_dev)(repository)
@@ -112,7 +114,7 @@ async def run_sandbox_review(
         logger.info(f"Acquired sandbox semaphore (limit={MAX_CONCURRENT_SANDBOXES})")
 
         full_prompt = f"{system_prompt}\n\n{prompt}"
-        context = await _resolve_context(repository)
+        context = await resolve_sandbox_context(repository)
 
         try:
             last_message = await _run_prompt(prompt=full_prompt, context=context, branch=branch, step_name=step_name)

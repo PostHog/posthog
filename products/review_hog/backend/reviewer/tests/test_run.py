@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from pydantic import ValidationError
 
@@ -35,6 +35,13 @@ def mock_tool_functions(tmp_path: Path) -> Generator[dict[str, Mock]]:
         patch(f"{_RUN}.prepare_validation_markdown") as mock_prepare_validation,
         patch(f"{_RUN}.publish_review") as mock_publish,
         patch(f"{_RUN}._REVIEW_HOG_DIR", tmp_path),
+        # Persistence is exercised by test_persistence.py; these orchestration tests stub it out so
+        # they stay DB-free and focused on pipeline wiring.
+        patch(f"{_RUN}.resolve_sandbox_context", AsyncMock(return_value=Mock(team_id=1))),
+        patch(f"{_RUN}.upsert_review_report", Mock(return_value="report-1")),
+        patch(f"{_RUN}.persist_findings", Mock(return_value=0)),
+        patch(f"{_RUN}.persist_verdicts", Mock(return_value=0)),
+        patch(f"{_RUN}.finalize_review_report", Mock(return_value=None)),
     ):
         yield {
             "parser_class": mock_parser_class,

@@ -32,7 +32,7 @@ class TestRunSandboxReview:
 
         with (
             patch(f"{_EXECUTOR_PREFIX}._run_prompt", mock_run),
-            patch(f"{_EXECUTOR_PREFIX}._resolve_context", _MOCK_RESOLVE_CTX),
+            patch(f"{_EXECUTOR_PREFIX}.resolve_sandbox_context", _MOCK_RESOLVE_CTX),
         ):
             result = await run_sandbox_review(
                 prompt="user prompt",
@@ -61,7 +61,7 @@ class TestRunSandboxReview:
 
         with (
             patch(f"{_EXECUTOR_PREFIX}._run_prompt", mock_run),
-            patch(f"{_EXECUTOR_PREFIX}._resolve_context", _MOCK_RESOLVE_CTX),
+            patch(f"{_EXECUTOR_PREFIX}.resolve_sandbox_context", _MOCK_RESOLVE_CTX),
         ):
             result = await run_sandbox_review(
                 prompt="p",
@@ -82,7 +82,7 @@ class TestRunSandboxReview:
 
         with (
             patch(f"{_EXECUTOR_PREFIX}._run_prompt", mock_run),
-            patch(f"{_EXECUTOR_PREFIX}._resolve_context", _MOCK_RESOLVE_CTX),
+            patch(f"{_EXECUTOR_PREFIX}.resolve_sandbox_context", _MOCK_RESOLVE_CTX),
         ):
             result = await run_sandbox_review(
                 prompt="p",
@@ -102,7 +102,7 @@ class TestRunSandboxReview:
 
         with (
             patch(f"{_EXECUTOR_PREFIX}._run_prompt", mock_run),
-            patch(f"{_EXECUTOR_PREFIX}._resolve_context", _MOCK_RESOLVE_CTX),
+            patch(f"{_EXECUTOR_PREFIX}.resolve_sandbox_context", _MOCK_RESOLVE_CTX),
         ):
             result = await run_sandbox_review(
                 prompt="p",
@@ -127,7 +127,7 @@ class TestRunSandboxReview:
 
         with (
             patch(f"{_EXECUTOR_PREFIX}._run_prompt", mock_run),
-            patch(f"{_EXECUTOR_PREFIX}._resolve_context", _MOCK_RESOLVE_CTX),
+            patch(f"{_EXECUTOR_PREFIX}.resolve_sandbox_context", _MOCK_RESOLVE_CTX),
         ):
             result = await run_sandbox_review(
                 prompt="p",
@@ -160,7 +160,7 @@ class TestSemaphore:
         with (
             patch(f"{_EXECUTOR_PREFIX}._run_prompt", side_effect=tracked_run),
             patch(f"{_EXECUTOR_PREFIX}._sandbox_semaphore", asyncio.Semaphore(2)),
-            patch(f"{_EXECUTOR_PREFIX}._resolve_context", _MOCK_RESOLVE_CTX),
+            patch(f"{_EXECUTOR_PREFIX}.resolve_sandbox_context", _MOCK_RESOLVE_CTX),
         ):
             tasks = []
             for i in range(5):
@@ -194,7 +194,7 @@ class TestSemaphore:
         with (
             patch(f"{_EXECUTOR_PREFIX}._run_prompt", side_effect=failing_then_succeeding),
             patch(f"{_EXECUTOR_PREFIX}._sandbox_semaphore", asyncio.Semaphore(1)),
-            patch(f"{_EXECUTOR_PREFIX}._resolve_context", _MOCK_RESOLVE_CTX),
+            patch(f"{_EXECUTOR_PREFIX}.resolve_sandbox_context", _MOCK_RESOLVE_CTX),
         ):
             # First call fails
             result1 = await run_sandbox_review(

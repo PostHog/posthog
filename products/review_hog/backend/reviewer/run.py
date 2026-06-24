@@ -2,9 +2,18 @@ import sys
 import logging
 from pathlib import Path
 
+from asgiref.sync import sync_to_async
+
 from products.review_hog.backend.reviewer.constants import PUBLISH_REVIEW_ENABLED
 from products.review_hog.backend.reviewer.models import generate_all_schemas
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
+from products.review_hog.backend.reviewer.persistence import (
+    finalize_review_report,
+    persist_findings,
+    persist_verdicts,
+    upsert_review_report,
+)
+from products.review_hog.backend.reviewer.sandbox.executor import resolve_sandbox_context
 from products.review_hog.backend.reviewer.tools.chunk_analysis import analyze_chunks
 from products.review_hog.backend.reviewer.tools.github_meta import PRFetcher, PRParser
 from products.review_hog.backend.reviewer.tools.issue_cleaner import clean_issues
@@ -73,6 +82,14 @@ async def main(pr_url: str) -> None:
 
     branch = pr_metadata.head_branch
 
+    # Resolve the team this review persists under (same team its sandboxes run under) and open the
+    # living report for this PR. A re-run reuses the report keyed by (team, repository, pr_number).
+    sandbox_context = await resolve_sandbox_context(repository)
+    team_id = sandbox_context.team_id
+    report_id = await sync_to_async(upsert_review_report)(
+        team_id=team_id, repository=repository, pr_url=pr_url, pr_metadata=pr_metadata
+    )
+
     # 4. Generate schemas
     logger.info("Generating schemas...")
     generate_all_schemas()
@@ -136,6 +153,9 @@ async def main(pr_url: str) -> None:
     )
     logger.info("Issue deduplication completed successfully!")
 
+    findings_count = await sync_to_async(persist_findings)(team_id=team_id, report_id=report_id, review_dir=review_dir)
+    _emit(f"Persisted {findings_count} finding(s) to the review report")
+
     # 12. Validate issues found in all passes
     _stage(7, "Validate issues")
     await validate_issues(
@@ -148,6 +168,9 @@ async def main(pr_url: str) -> None:
     )
     logger.info("Issue validation completed successfully!")
 
+    verdicts_count = await sync_to_async(persist_verdicts)(team_id=team_id, report_id=report_id, review_dir=review_dir)
+    _emit(f"Persisted {verdicts_count} validation verdict(s) to the review report")
+
     # 13. Prepare validation markdown documents
     _stage(8, "Build report")
     await prepare_validation_markdown(
@@ -156,6 +179,9 @@ async def main(pr_url: str) -> None:
         pr_metadata=pr_metadata.model_dump(),
     )
     logger.info("Validation markdown preparation completed successfully!")
+
+    # Turn complete: store the rendered markdown and bump the report's run watermark.
+    await sync_to_async(finalize_review_report)(team_id=team_id, report_id=report_id, review_dir=review_dir)
 
     # 14. Publish review to GitHub
     _stage(9, "Publish review")
