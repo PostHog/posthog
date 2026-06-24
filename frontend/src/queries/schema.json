@@ -11937,6 +11937,9 @@
                 "leftYAxisSettings": {
                     "$ref": "#/definitions/YAxisSettings"
                 },
+                "pie": {
+                    "$ref": "#/definitions/PieChartSettings"
+                },
                 "resultCustomizations": {
                     "additionalProperties": {
                         "$ref": "#/definitions/ResultCustomizationByValue"
@@ -11954,9 +11957,6 @@
                     "type": "boolean"
                 },
                 "showNullsAsZero": {
-                    "type": "boolean"
-                },
-                "showPieTotal": {
                     "type": "boolean"
                 },
                 "showTotalRow": {
@@ -30527,6 +30527,26 @@
                 }
             },
             "required": ["description", "extra", "source_id", "source_product", "source_type", "weight"],
+            "type": "object"
+        },
+        "PieChartSettings": {
+            "additionalProperties": false,
+            "properties": {
+                "showTotal": {
+                    "description": "Whether to show the aggregation total below the chart. Defaults to on.",
+                    "type": "boolean"
+                },
+                "sliceContent": {
+                    "description": "What to render on each slice. Defaults to labels.",
+                    "enum": ["labels", "values", "none"],
+                    "type": "string"
+                },
+                "valueDisplay": {
+                    "description": "Whether slice values show as absolute amounts or shares of the total. Only applies when `sliceContent` is `values`.",
+                    "enum": ["absolute", "percentage"],
+                    "type": "string"
+                }
+            },
             "type": "object"
         },
         "PinterestAdsDefaultSources": {

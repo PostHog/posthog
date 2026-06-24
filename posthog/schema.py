@@ -237,6 +237,7 @@ from posthog.schema_enums import (
     SlackIntegrationScope as SlackIntegrationScope,
     SlackIntegrationScopeInReview as SlackIntegrationScopeInReview,
     SlashCommandName as SlashCommandName,
+    SliceContent as SliceContent,
     SnapchatAdsConversionFields as SnapchatAdsConversionFields,
     SnapchatAdsConversionValueFields as SnapchatAdsConversionValueFields,
     SnapchatAdsDefaultSources as SnapchatAdsDefaultSources,
@@ -280,6 +281,7 @@ from posthog.schema_enums import (
     UsageMetricDisplay as UsageMetricDisplay,
     UsageMetricFormat as UsageMetricFormat,
     UserProductListReason as UserProductListReason,
+    ValueDisplay as ValueDisplay,
     WebAnalyticsItemKind as WebAnalyticsItemKind,
     WebAnalyticsOrderByDirection as WebAnalyticsOrderByDirection,
     WebAnalyticsOrderByFields as WebAnalyticsOrderByFields,
@@ -2172,6 +2174,26 @@ class PgAnalyzeIssueSignalExtra(BaseModel):
     server_name: str | None = None
     severity: str | None = None
     synced_at: str
+
+
+class PieChartSettings(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    showTotal: bool | None = Field(
+        default=None,
+        description=("Whether to show the aggregation total below the chart. Defaults to on."),
+    )
+    sliceContent: SliceContent | None = Field(
+        default=None, description="What to render on each slice. Defaults to labels."
+    )
+    valueDisplay: ValueDisplay | None = Field(
+        default=None,
+        description=(
+            "Whether slice values show as absolute amounts or shares of the total. Only"
+            " applies when `sliceContent` is `values`."
+        ),
+    )
 
 
 class Mark(BaseModel):
@@ -12948,6 +12970,7 @@ class ChartSettings(BaseModel):
     goalLines: list[GoalLine] | None = None
     heatmap: HeatmapSettings | None = None
     leftYAxisSettings: YAxisSettings | None = None
+    pie: PieChartSettings | None = None
     resultCustomizations: dict[str, ResultCustomizationByValue] | None = Field(
         default=None,
         description=("Per-breakdown-value color customizations. Keyed by the raw breakdown column value."),
@@ -12956,7 +12979,6 @@ class ChartSettings(BaseModel):
     seriesBreakdownColumn: str | None = None
     showLegend: bool | None = None
     showNullsAsZero: bool | None = None
-    showPieTotal: bool | None = None
     showTotalRow: bool | None = None
     showValuesOnSeries: bool | None = None
     showXAxisBorder: bool | None = None

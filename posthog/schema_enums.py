@@ -2567,6 +2567,17 @@ class PathType(StrEnum):
     HOGQL = "hogql"
 
 
+class SliceContent(StrEnum):
+    LABELS = "labels"
+    VALUES = "values"
+    NONE = "none"
+
+
+class ValueDisplay(StrEnum):
+    ABSOLUTE = "absolute"
+    PERCENTAGE = "percentage"
+
+
 class PinterestAdsDefaultSources(StrEnum):
     PINTEREST = "pinterest"
 
