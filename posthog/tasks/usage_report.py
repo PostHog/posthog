@@ -671,10 +671,10 @@ def _get_ai_sub_sdk_event_metric_counts(
 ) -> tuple[dict[str, list[tuple[int, int]]], dict[int, int]]:
     ai_lib_to_metric: dict[str, str] = {}
     ai_parent_libs: list[str] = []
-    for lib, ai_lib, metric_name in sdk_metrics:
+    for lib, ai_lib, sdk_metric in sdk_metrics:
         if ai_lib is None:
             continue
-        ai_lib_to_metric[ai_lib] = metric_name
+        ai_lib_to_metric[ai_lib] = sdk_metric
         if lib not in ai_parent_libs:
             ai_parent_libs.append(lib)
 
