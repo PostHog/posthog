@@ -1,7 +1,7 @@
 import pytest
 from unittest import mock
 
-from requests.exceptions import SSLError
+from requests.exceptions import ChunkedEncodingError, SSLError
 
 from posthog.temporal.data_imports.sources.shopify.shopify import (
     SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
@@ -22,6 +22,13 @@ def _patched_token_call(response: mock.MagicMock):
     return mock.patch(
         "posthog.temporal.data_imports.sources.shopify.shopify.make_tracked_session",
         return_value=mock.MagicMock(post=mock.MagicMock(return_value=response)),
+    )
+
+
+def _patched_token_post(post: mock.MagicMock):
+    return mock.patch(
+        "posthog.temporal.data_imports.sources.shopify.shopify.make_tracked_session",
+        return_value=mock.MagicMock(post=post),
     )
 
 
@@ -67,10 +74,7 @@ def test_get_access_token_retries_ssl_error_then_succeeds(_mock_sleep):
             _mock_response(200, ok=True, json_data={"access_token": "tok"}),
         ]
     )
-    with mock.patch(
-        "posthog.temporal.data_imports.sources.shopify.shopify.make_tracked_session",
-        return_value=mock.MagicMock(post=post),
-    ):
+    with _patched_token_post(post):
         assert _get_shopify_access_token("store", "client-id", "client-secret") == "tok"
     assert post.call_count == 2
 
@@ -80,13 +84,25 @@ def test_get_access_token_reraises_after_persistent_ssl_error(_mock_sleep):
     # A persistent connection failure must exhaust the retry budget and re-raise the original
     # error rather than being swallowed, so the import still fails (and Temporal retries it).
     post = mock.MagicMock(side_effect=SSLError("[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred"))
-    with mock.patch(
-        "posthog.temporal.data_imports.sources.shopify.shopify.make_tracked_session",
-        return_value=mock.MagicMock(post=post),
-    ):
+    with _patched_token_post(post):
         with pytest.raises(SSLError):
             _get_shopify_access_token("store", "client-id", "client-secret")
     assert post.call_count == 5
+
+
+@mock.patch("tenacity.nap.time.sleep")
+def test_get_access_token_retries_connection_broken_then_succeeds(_mock_sleep):
+    # A connection dropped mid-response surfaces from `post` as ChunkedEncodingError; it's
+    # transient, so reissue the request rather than letting it fail the import.
+    post = mock.MagicMock(
+        side_effect=[
+            ChunkedEncodingError("Connection broken: InvalidChunkLength(got length b'', 0 bytes read)"),
+            _mock_response(200, ok=True, json_data={"access_token": "tok"}),
+        ]
+    )
+    with _patched_token_post(post):
+        assert _get_shopify_access_token("store", "client-id", "client-secret") == "tok"
+    assert post.call_count == 2
 
 
 @pytest.mark.parametrize(
