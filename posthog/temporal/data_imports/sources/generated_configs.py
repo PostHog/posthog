@@ -730,7 +730,8 @@ class CoinApiSourceConfig(config.Config):
 
 @config.config
 class CoinGeckoSourceConfig(config.Config):
-    pass
+    api_key: str
+    plan: Literal["demo", "pro"] = config.value(default="demo")
 
 
 @config.config
