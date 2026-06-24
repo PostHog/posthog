@@ -1771,6 +1771,7 @@ dependencies = [
  "flate2",
  "futures",
  "hex",
+ "hmac",
  "http-body-util",
  "httparse",
  "hyper 1.9.0",

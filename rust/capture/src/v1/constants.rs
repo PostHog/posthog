@@ -21,6 +21,16 @@ pub const POSTHOG_REQUEST_ID: &str = "PostHog-Request-Id";
 /// Header carrying the SDK-side timestamp of the request.
 pub const POSTHOG_REQUEST_TIMESTAMP: &str = "PostHog-Request-Timestamp";
 
+/// AI-gateway provenance: lowercase-hex HMAC-SHA256 over
+/// `token \n distinct_id \n request_id \n signed_at`.
+pub const POSTHOG_AI_GATEWAY_SIGNATURE: &str = "PostHog-Ai-Gateway-Signature";
+
+/// AI-gateway provenance: RFC3339 timestamp the gateway signed at.
+pub const POSTHOG_AI_GATEWAY_SIGNED_AT: &str = "PostHog-Ai-Gateway-Signed-At";
+
+/// AI-gateway provenance: per-event nonce, single-use within the freshness window.
+pub const POSTHOG_AI_GATEWAY_REQUEST_ID: &str = "PostHog-Ai-Gateway-Request-Id";
+
 // ---------------------------------------------------------------------------
 // Supported content encodings
 // ---------------------------------------------------------------------------

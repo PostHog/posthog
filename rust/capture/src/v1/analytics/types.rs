@@ -110,6 +110,9 @@ pub struct WrappedEvent {
     pub details: Option<&'static str>,
     pub destination: Destination,
     pub force_disable_person_processing: bool,
+    /// Set by the gateway-provenance step when a valid signature was verified;
+    /// read by the quota shim to exempt the event from the llm_events limiter.
+    pub is_gateway_verified: bool,
 }
 
 impl SinkEvent for WrappedEvent {
@@ -1064,6 +1067,7 @@ mod tests {
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            is_gateway_verified: false,
         }
     }
 
@@ -1244,6 +1248,7 @@ mod tests {
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            is_gateway_verified: false,
         };
 
         let ctx = serialize_ctx();
@@ -1284,6 +1289,7 @@ mod tests {
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            is_gateway_verified: false,
         };
 
         let ctx = serialize_ctx();
@@ -1323,6 +1329,7 @@ mod tests {
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            is_gateway_verified: false,
         };
 
         let ctx = serialize_ctx();
@@ -1359,6 +1366,7 @@ mod tests {
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            is_gateway_verified: false,
         };
 
         let ctx = serialize_ctx();
@@ -1398,6 +1406,7 @@ mod tests {
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            is_gateway_verified: false,
         };
 
         let ctx = serialize_ctx();
@@ -1515,6 +1524,7 @@ mod tests {
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: true,
+            is_gateway_verified: false,
         };
 
         let ctx = serialize_ctx();
@@ -1556,6 +1566,7 @@ mod tests {
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            is_gateway_verified: false,
         };
 
         let ctx = serialize_ctx();
@@ -1595,6 +1606,7 @@ mod tests {
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            is_gateway_verified: false,
         };
 
         let ctx = serialize_ctx();
@@ -1630,6 +1642,7 @@ mod tests {
             details: None,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            is_gateway_verified: false,
         };
 
         let ctx = serialize_ctx();

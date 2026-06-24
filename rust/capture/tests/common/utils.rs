@@ -149,6 +149,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     ai_s3_region: "us-east-1".to_string(),
     ai_s3_access_key_id: None,
     ai_s3_secret_access_key: None,
+    ai_gateway_signing_secret: None,
     http1_header_read_timeout_ms: Some(5000), // 5 seconds default
     body_chunk_read_timeout_ms: None,         // disabled by default in tests
     body_read_chunk_size_kb: 256,             // 256KB default

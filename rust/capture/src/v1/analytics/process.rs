@@ -63,6 +63,10 @@ pub async fn process_batch(
         return Ok(BatchResponse::build(context, &events));
     }
 
+    // Verify gateway provenance before the quota limiter so verified events can
+    // be exempted from the llm_events meter (they're wallet-billed, not AIO).
+    apply_gateway_provenance(state, context, &mut events);
+
     crate::v1::quota_limiter_shim::apply_quota_limits(
         &state.quota_limiter,
         &context.api_token,
@@ -122,6 +126,51 @@ pub async fn process_batch(
     merge_sink_results(&mut events, &all_results);
 
     Ok(BatchResponse::build(context, &events))
+}
+
+// Verifies the gateway provenance signature on `$ai_*` events. A valid, fresh
+// signature stamps the trusted `$ai_gateway_verified` and marks the event for
+// quota exemption; anything else (no secret, no/invalid signature) has its
+// `$ai_gateway*` props stripped so a forged marker can't reach billing. Only
+// `$ai_*` events are considered — the only namespace the llm_events meter counts
+// — and the strip path skips the parse unless the raw props plausibly carry a
+// gateway key, so ordinary traffic stays off the parse hot path.
+fn apply_gateway_provenance(state: &router::State, context: &Context, events: &mut [WrappedEvent]) {
+    use crate::v1::gateway_provenance as gp;
+
+    let secret = state
+        .ai_gateway_signing_secret
+        .as_deref()
+        .filter(|s| !s.is_empty());
+    let now = context.server_received_at;
+
+    for ev in events.iter_mut() {
+        if ev.result != EventResult::Ok || !ev.event.event.starts_with("$ai_") {
+            continue;
+        }
+
+        let verified = match (secret, context.gateway_signature.as_ref()) {
+            (Some(secret), Some(sig)) => gp::verify(
+                secret.as_bytes(),
+                &context.api_token,
+                &ev.event.distinct_id,
+                sig,
+                now,
+            ),
+            _ => false,
+        };
+
+        if verified {
+            if let Some(props) = gp::stamp_verified_raw(&ev.event.properties) {
+                ev.event.properties = props;
+                ev.is_gateway_verified = true;
+            }
+        } else if gp::has_gateway_props(&ev.event.properties) {
+            if let Some(props) = gp::strip_gateway_raw(&ev.event.properties) {
+                ev.event.properties = props;
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -222,6 +271,7 @@ fn validate_events(context: &RequestContext, batch: Batch) -> Result<Vec<Wrapped
                     },
                     destination,
                     force_disable_person_processing: illegal,
+                    is_gateway_verified: false,
                 });
             }
             Err(err) => {
@@ -233,6 +283,7 @@ fn validate_events(context: &RequestContext, batch: Batch) -> Result<Vec<Wrapped
                     details: Some(err.tag()),
                     destination,
                     force_disable_person_processing: false,
+                    is_gateway_verified: false,
                 });
             }
         }
@@ -1013,6 +1064,7 @@ mod tests {
             created_at: None,
             capture_internal: false,
             historical_migration: false,
+            gateway_signature: None,
         }
     }
 
@@ -2298,6 +2350,115 @@ mod tests {
 
         assert_eq!(events[0].destination, Destination::AnalyticsMain);
     }
+    // =========================================================================
+    // apply_gateway_provenance tests — the verify→billing wiring
+    // =========================================================================
+
+    use crate::v1::gateway_provenance::{sign_for_test, GatewaySignature};
+    use crate::v1::test_utils::TestStateBuilder;
+
+    const GW_SECRET: &str = "test-signing-secret";
+
+    /// Analytics context with `now` as the capture time, an api_token, and an
+    /// optional gateway signature — the inputs `apply_gateway_provenance` reads.
+    fn gateway_context(token: &str, now: DateTime<Utc>, sig: Option<GatewaySignature>) -> Context {
+        let mut ctx = test_utils::test_analytics_context();
+        ctx.req.api_token = token.to_string();
+        ctx.req.server_received_at = now;
+        ctx.req.gateway_signature = sig;
+        ctx
+    }
+
+    fn ai_event(distinct_id: &str, properties: &str) -> WrappedEvent {
+        wrapped_event("$ai_generation", distinct_id).with_properties(properties)
+    }
+
+    #[tokio::test]
+    async fn gateway_provenance_leaves_non_ai_events_untouched() {
+        let token = "phc_test_token";
+        let now = Utc::now();
+        let state = TestStateBuilder::new()
+            .with_ai_gateway_signing_secret(GW_SECRET)
+            .build()
+            .state;
+        let signed_at = now.to_rfc3339();
+        let sig = GatewaySignature {
+            signature: sign_for_test(GW_SECRET.as_bytes(), token, "user-1", "req-1", &signed_at),
+            signed_at,
+            request_id: "req-1".to_string(),
+        };
+        let ctx = gateway_context(token, now, Some(sig));
+
+        // A valid signature is present, but a non-$ai_ event must be skipped: its
+        // client `$ai_gateway*` props are neither stamped nor stripped.
+        let mut events =
+            vec![wrapped_event("$pageview", "user-1").with_properties(r#"{"$ai_gateway": true}"#)];
+        apply_gateway_provenance(&state, &ctx, &mut events);
+
+        assert!(!events[0].is_gateway_verified);
+        assert!(events[0].event.properties.get().contains("$ai_gateway"));
+    }
+
+    #[tokio::test]
+    async fn gateway_provenance_verifies_and_stamps_a_valid_signature() {
+        let token = "phc_test_token";
+        let distinct_id = "user-1";
+        let now = Utc::now();
+        let state = TestStateBuilder::new()
+            .with_ai_gateway_signing_secret(GW_SECRET)
+            .build()
+            .state;
+        let signed_at = now.to_rfc3339();
+        let sig = GatewaySignature {
+            signature: sign_for_test(
+                GW_SECRET.as_bytes(),
+                token,
+                distinct_id,
+                "req-1",
+                &signed_at,
+            ),
+            signed_at,
+            request_id: "req-1".to_string(),
+        };
+        let ctx = gateway_context(token, now, Some(sig));
+
+        let mut events = vec![ai_event(distinct_id, r#"{"$ai_model": "claude"}"#)];
+        apply_gateway_provenance(&state, &ctx, &mut events);
+
+        assert!(events[0].is_gateway_verified);
+        let props: serde_json::Value =
+            serde_json::from_str(events[0].event.properties.get()).unwrap();
+        assert_eq!(props["$ai_gateway_verified"], serde_json::Value::Bool(true));
+    }
+
+    #[tokio::test]
+    async fn gateway_provenance_strips_forged_props_and_does_not_verify() {
+        let token = "phc_test_token";
+        let distinct_id = "user-1";
+        let now = Utc::now();
+        let state = TestStateBuilder::new()
+            .with_ai_gateway_signing_secret(GW_SECRET)
+            .build()
+            .state;
+        // No signature on the request: a client-set `$ai_gateway_verified` must be
+        // stripped and the event must not be marked verified.
+        let ctx = gateway_context(token, now, None);
+
+        let mut events = vec![ai_event(
+            distinct_id,
+            r#"{"$ai_gateway_verified": true, "$ai_gateway": "forged", "$ai_model": "claude"}"#,
+        )];
+        apply_gateway_provenance(&state, &ctx, &mut events);
+
+        assert!(!events[0].is_gateway_verified);
+        let raw = events[0].event.properties.get();
+        assert!(
+            !raw.contains("$ai_gateway"),
+            "gateway props must be stripped"
+        );
+        assert!(raw.contains("$ai_model"), "non-gateway props must survive");
+    }
+
     // =========================================================================
     // merge_sink_results tests
     // =========================================================================
