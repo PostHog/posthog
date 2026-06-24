@@ -30,7 +30,6 @@ Partition Strategy:
 """
 
 import os
-import json
 import math
 import time
 import calendar
