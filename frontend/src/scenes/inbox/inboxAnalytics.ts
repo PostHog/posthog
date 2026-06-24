@@ -205,7 +205,7 @@ export function captureInboxReportFeedback(params: {
         ...baseReportProperties(params.report),
         sentiment: params.sentiment,
         has_pr: !!params.report.implementation_pr_url,
-        note: params.note,
+        ...(params.note ? { note: params.note } : {}),
         surface: params.surface,
     })
 }

@@ -47,7 +47,7 @@ export function useReportArchive({
                     report: report ?? null,
                     actionType: 'dismiss',
                     surface: surface ?? 'list_row',
-                    extra: { dismissal_reason: reason, dismissal_note: note },
+                    extra: { dismissal_reason: reason, ...(note ? { dismissal_note: note } : {}) },
                 })
                 if (onArchive) {
                     onArchive(reason, note)
