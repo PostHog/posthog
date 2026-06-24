@@ -33,6 +33,7 @@ from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTab
 from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import (
     _breakdown_value_expr,
     _entry_breakdown_value_expr,
+    _top_k_ranking_expr,
 )
 
 
@@ -395,8 +396,6 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     def test_top_k_ranking_expr_matches_sort(self, _name: str, order_by, expected_metric):
-        from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import _top_k_ranking_expr
-
         runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query(order_by=order_by))
         expr = _top_k_ranking_expr(runner)
         if expected_metric is None:
