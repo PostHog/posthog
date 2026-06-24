@@ -684,6 +684,8 @@ class TestWebAuthnCredentialManagement(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertFalse(Session.objects.filter(session_key=other.session_key).exists())
+        # The current session is kept — only OTHER sessions are revoked.
+        self.assertTrue(Session.objects.filter(session_key=self.client.session.session_key).exists())
 
     @parameterized.expand(
         [
