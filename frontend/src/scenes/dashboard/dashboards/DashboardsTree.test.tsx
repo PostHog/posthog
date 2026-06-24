@@ -38,6 +38,7 @@ describe('DashboardsTree', () => {
     const navigateToFolder = jest.fn()
     const toggleFolder = jest.fn()
     const setExpandedFolders = jest.fn()
+    const reportDashboardsTreeFolderNavigated = jest.fn()
 
     afterEach(cleanup)
 
@@ -45,11 +46,13 @@ describe('DashboardsTree', () => {
         navigateToFolder.mockClear()
         toggleFolder.mockClear()
         setExpandedFolders.mockClear()
+        reportDashboardsTreeFolderNavigated.mockClear()
         ;(useActions as jest.Mock).mockReturnValue({
             navigateToFolder,
             toggleFolder,
             setExpandedFolders,
             createFolder: jest.fn(),
+            reportDashboardsTreeFolderNavigated,
         })
     })
 
@@ -92,6 +95,8 @@ describe('DashboardsTree', () => {
         fireEvent.click(screen.getByText('Marketing'))
         expect(navigateToFolder).toHaveBeenCalledWith('Marketing')
         expect(toggleFolder).not.toHaveBeenCalled()
+        // Adoption signal fires with the folder's depth and whether it has subfolders.
+        expect(reportDashboardsTreeFolderNavigated).toHaveBeenCalledWith(1, false)
     })
 
     it('navigates to a folder with subfolders and toggles its expansion', () => {
@@ -108,6 +113,7 @@ describe('DashboardsTree', () => {
         fireEvent.click(screen.getByText('Marketing'))
         expect(navigateToFolder).toHaveBeenCalledWith('Marketing')
         expect(toggleFolder).toHaveBeenCalledWith('Marketing')
+        expect(reportDashboardsTreeFolderNavigated).toHaveBeenCalledWith(1, true)
     })
 
     it('navigates to the root when the All dashboards node is clicked', () => {
@@ -115,6 +121,8 @@ describe('DashboardsTree', () => {
         render(<DashboardsTree />)
         fireEvent.click(screen.getByText('All dashboards'))
         expect(navigateToFolder).toHaveBeenCalledWith('')
+        // Root is depth 0 and (here) has subfolders.
+        expect(reportDashboardsTreeFolderNavigated).toHaveBeenCalledWith(0, true)
     })
 
     const clickExpandToggle = (container: HTMLElement): void => {

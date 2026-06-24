@@ -16,7 +16,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
-import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
@@ -78,6 +78,7 @@ export function DashboardsTable({
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
     const { openMoveToModal } = useActions(moveToLogic)
+    const { reportDashboardMoveInitiated } = useActions(eventUsageLogic)
     const { itemsByRef } = useValues(projectTreeDataLogic)
 
     const columns: LemonTableColumns<DashboardType> = [
@@ -217,7 +218,10 @@ export function DashboardsTable({
                                               userAccessLevel={user_access_level}
                                           >
                                               <LemonButton
-                                                  onClick={() => openMoveToModal([moveEntry as any])}
+                                                  onClick={() => {
+                                                      reportDashboardMoveInitiated('single', 1)
+                                                      openMoveToModal([moveEntry as any])
+                                                  }}
                                                   fullWidth
                                                   data-attr="dashboard-move-to-folder"
                                               >
@@ -316,6 +320,7 @@ export function DashboardsTable({
                                     size="small"
                                     type="secondary"
                                     onClick={() => {
+                                        reportDashboardMoveInitiated('bulk', moveEntries.length)
                                         openMoveToModal(moveEntries)
                                         ctx.clearSelection()
                                     }}

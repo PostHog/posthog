@@ -527,6 +527,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         reportDashboardMovedToFolder: (fromPath: string, toPath: string) => ({ fromPath, toPath }),
         reportDashboardListSearched: (searchLength: number, resultsCount: number) => ({ searchLength, resultsCount }),
+        reportDashboardsTreeFolderNavigated: (depth: number, hasSubfolders: boolean) => ({ depth, hasSubfolders }),
+        reportDashboardMoveInitiated: (method: 'single' | 'bulk', count: number) => ({ method, count }),
         reportDashboardFrontEndUpdate: (
             dashboardId: number | undefined,
             attribute: 'name' | 'description' | 'tags',
@@ -1493,6 +1495,16 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 search_length: searchLength,
                 results_count: resultsCount,
             })
+        },
+        reportDashboardsTreeFolderNavigated: async ({ depth, hasSubfolders }) => {
+            // Treatment-adoption signal for the tree arm: did users actually navigate the folder tree? Makes a
+            // flat experiment result interpretable (tree unused vs tree ineffective). Depth only, no folder names.
+            posthog.capture('dashboards tree folder navigated', { depth, has_subfolders: hasSubfolders })
+        },
+        reportDashboardMoveInitiated: async ({ method, count }) => {
+            // Attributes folder organization to the affordance (single row action vs bulk select) so we can tell
+            // whether bulk move drives organization. Pairs with the 'dashboard moved to folder' completion event.
+            posthog.capture('dashboard move initiated', { method, multi_select_count: count })
         },
         reportDashboardFrontEndUpdate: async ({ dashboardId, attribute, originalLength, newLength }) => {
             posthog.capture(`dashboard frontend updated`, {

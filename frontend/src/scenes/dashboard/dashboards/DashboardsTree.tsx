@@ -5,8 +5,9 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonTree, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { DropdownMenuGroup } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import { joinPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardBasicType } from '~/types'
 
@@ -58,6 +59,7 @@ export function DashboardsTree(): JSX.Element {
         folderDashboardCounts,
     } = useValues(dashboardsFileSystemLogic)
     const { navigateToFolder, toggleFolder, setExpandedFolders } = useActions(dashboardsFileSystemLogic)
+    const { reportDashboardsTreeFolderNavigated } = useActions(eventUsageLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
 
     const treeData: TreeDataItem[] = [
@@ -148,8 +150,11 @@ export function DashboardsTree(): JSX.Element {
                             }
                             // A folder click selects it (scopes the table); a folder that has subfolders also
                             // toggles expansion. The root stays open; childless folders don't expand at all.
-                            navigateToFolder((folder.record?.path as string) ?? '')
-                            if (folder.id !== ROOT_ID && folder.children && folder.children.length > 0) {
+                            const path = (folder.record?.path as string) ?? ''
+                            const hasSubfolders = !!folder.children && folder.children.length > 0
+                            reportDashboardsTreeFolderNavigated(path ? splitPath(path).length : 0, hasSubfolders)
+                            navigateToFolder(path)
+                            if (folder.id !== ROOT_ID && hasSubfolders) {
                                 toggleFolder(folder.id)
                             }
                         }}
