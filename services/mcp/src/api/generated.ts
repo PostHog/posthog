@@ -570,6 +570,11 @@ export namespace Schemas {
       stages: AchievementStage[];
     }
 
+    /**
+     * Map of unlocked stage number (as a string, '1'-'5') to the ISO timestamp it was unlocked.
+     */
+    export type AchievementProgressUnlockedAt = {[key: string]: string};
+
     export interface AchievementProgress {
       /** Track this progress row belongs to. */
       track_key: string;
@@ -582,6 +587,8 @@ export namespace Schemas {
          * @nullable
          */
       last_computed_at: string | null;
+      /** Map of unlocked stage number (as a string, '1'-'5') to the ISO timestamp it was unlocked. */
+      unlocked_at: AchievementProgressUnlockedAt;
     }
 
     export interface PendingCelebration {
@@ -7547,6 +7554,8 @@ export namespace Schemas {
       team_id: number;
       /** Revision the gated call was proposed against. */
       revision_id: string;
+      /** Mirrors the owning session's `is_preview`. True when the request originated from a draft revision running in preview mode — render a preview badge in the approvals queue so reviewers can tell author-iteration approvals apart from production traffic. */
+      is_preview: boolean;
       /** Turn number within the session that emitted the call. */
       turn: number;
       /** pi-ai ToolCall.id from the original assistant message; matched into the synthetic tool_result. */
@@ -7724,6 +7733,8 @@ export namespace Schemas {
          */
       preview: string | null;
       retry_count: number;
+      /** True when the session ran against a draft revision in preview mode. Output adapters (Slack writes, failure notifier) no-op; `$ai_*` analytics events are tagged with `$agent_is_preview: true`. Surface a preview badge on the row so authors can distinguish iteration from live traffic. */
+      is_preview: boolean;
       created_at: string;
       updated_at: string;
     }
@@ -7837,6 +7848,8 @@ export namespace Schemas {
       pending_inputs: AgentConversationMessage[];
       /** Times the janitor has re-queued this session after a stuck-running detection. */
       retry_count: number;
+      /** True when the session ran against a draft revision in preview mode. Output adapters (Slack writes, failure notifier) no-op; `$ai_*` analytics events are tagged with `$agent_is_preview: true`. Surface a preview badge on session detail so authors can distinguish iteration from live traffic. */
+      is_preview: boolean;
       created_at: string;
       updated_at: string;
       /** True when `?last_n=` was supplied AND the full conversation exceeded it. */
@@ -7910,6 +7923,8 @@ export namespace Schemas {
          * @nullable
          */
       preview: string | null;
+      /** True when the session ran against a draft revision in preview mode. Output adapters (Slack writes, failure notifier) no-op; `$ai_*` analytics events are tagged with `$agent_is_preview: true`. Render a preview badge on the row so author iteration is distinguishable from live traffic. */
+      is_preview: boolean;
       created_at: string;
       updated_at: string;
     }
@@ -15756,6 +15771,9 @@ export namespace Schemas {
      * * `Metronome` - Metronome
      * * `Jobber` - Jobber
      * * `Knock` - Knock
+     * * `Leexi` - Leexi
+     * * `RB2B` - RB2B
+     * * `Superwall` - Superwall
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -16398,6 +16416,9 @@ export namespace Schemas {
       Metronome: 'Metronome',
       Jobber: 'Jobber',
       Knock: 'Knock',
+      Leexi: 'Leexi',
+      Rb2b: 'RB2B',
+      Superwall: 'Superwall',
     } as const;
 
     /**
@@ -17046,7 +17067,10 @@ export namespace Schemas {
        * * `Sanity` - Sanity
        * * `Metronome` - Metronome
        * * `Jobber` - Jobber
-       * * `Knock` - Knock */
+       * * `Knock` - Knock
+       * * `Leexi` - Leexi
+       * * `RB2B` - RB2B
+       * * `Superwall` - Superwall */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -17172,6 +17196,30 @@ export namespace Schemas {
       PartialFailure: 'partial_failure',
       Failed: 'failed',
     } as const;
+
+    /**
+     * * `slack` - Slack
+     */
+    export type DeliveryTargetTypeEnum = typeof DeliveryTargetTypeEnum[keyof typeof DeliveryTargetTypeEnum];
+
+
+    export const DeliveryTargetTypeEnum = {
+      Slack: 'slack',
+    } as const;
+
+    /**
+     * A single delivery destination. MVP supports Slack only.
+     */
+    export interface DeliveryTarget {
+      /** Destination channel type. MVP supports 'slack' only.
+       *
+       * * `slack` - Slack */
+      type: DeliveryTargetTypeEnum;
+      /** ID of the Slack Integration on this team used to deliver the summary. */
+      integration_id: number;
+      /** Slack channel ID or name the summary is posted to. */
+      channel: string;
+    }
 
     export interface DependentFlag {
       /** Feature flag ID */
@@ -22151,7 +22199,10 @@ export namespace Schemas {
        * * `Sanity` - Sanity
        * * `Metronome` - Metronome
        * * `Jobber` - Jobber
-       * * `Knock` - Knock */
+       * * `Knock` - Knock
+       * * `Leexi` - Leexi
+       * * `RB2B` - RB2B
+       * * `Superwall` - Superwall */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -26083,6 +26134,12 @@ export namespace Schemas {
       model_version: string;
       /** Number of links this model produced in the run. */
       link_count: number;
+      /** Links from this model in the 'high' tier. */
+      high_confidence: number;
+      /** Links from this model in the 'medium' tier. */
+      medium_confidence: number;
+      /** Links from this model in the 'low' tier. */
+      low_confidence: number;
     }
 
     export interface IdentityMatchingRun {
@@ -26092,6 +26149,16 @@ export namespace Schemas {
       computed_at: string;
       /** Link counts per scoring model in this run. */
       models: IdentityMatchingRunModelCount[];
+      /** Total links across all models in this run. */
+      total_links: number;
+      /** Distinct anonymous visitors that were linked. */
+      unique_orphans: number;
+      /** Links where a paid ad click was recovered for an anonymous visitor. */
+      paid_touches: number;
+      /** Earliest link computed_at in the run (UTC). */
+      first_link_at: string;
+      /** Latest link computed_at in the run (UTC). */
+      last_link_at: string;
     }
 
     export interface IdentityMatchingRunsResponse {
@@ -33745,6 +33812,133 @@ export namespace Schemas {
       results: ViewLink[];
     }
 
+    /**
+     * * `schedule` - Schedule
+     * * `threshold` - Threshold
+     */
+    export type TriggerTypeEnum = typeof TriggerTypeEnum[keyof typeof TriggerTypeEnum];
+
+
+    export const TriggerTypeEnum = {
+      Schedule: 'schedule',
+      Threshold: 'threshold',
+    } as const;
+
+    /**
+     * * `group_summary` - Group summary
+     * * `per_observation` - Per observation
+     */
+    export type VisionActionModeEnum = typeof VisionActionModeEnum[keyof typeof VisionActionModeEnum];
+
+
+    export const VisionActionModeEnum = {
+      GroupSummary: 'group_summary',
+      PerObservation: 'per_observation',
+    } as const;
+
+    /**
+     * Schedule trigger parameters. Threshold triggers are reserved and rejected at the API for now.
+     */
+    export interface TriggerConfig {
+      /** iCal RRULE string controlling the schedule cadence (no DTSTART — the start is managed separately). */
+      rrule?: string;
+      /** IANA timezone name the RRULE is expanded in, e.g. 'Europe/Prague'. Defaults to 'UTC'. */
+      timezone?: string;
+    }
+
+    /**
+     * Observation filter applied at synthesis time. All keys optional; this typed shape is the
+     * allowlist, so unknown input keys are dropped rather than persisted.
+     */
+    export interface Selection {
+      /** Filter observations by scanner type (monitor/classifier/scorer/summarizer). */
+      scanner_type?: string;
+      /** Restrict to observations produced by these scanner IDs. */
+      scanner_ids?: string[];
+      /** Filter to observations with this monitor verdict. */
+      verdict?: string;
+      /** Filter to observations carrying any of these classifier tags. */
+      tags?: string[];
+      /** Lower bound (inclusive) on scorer score. */
+      min_score?: number;
+      /** Upper bound (inclusive) on scorer score. */
+      max_score?: number;
+      /** Filter to observations with this processing status. */
+      status?: string;
+      /** Lookback window in days for the observations gathered at synthesis time. */
+      window_days?: number;
+    }
+
+    /**
+     * Options for the group-summary synthesis step.
+     */
+    export interface SynthesisConfig {
+      /**
+         * Free-form guidance steering how the group summary is written.
+         * @maxLength 500
+         */
+      prompt_guide?: string;
+    }
+
+    export interface VisionAction {
+      readonly id: string;
+      /**
+         * Human-readable action name. Unique within the team.
+         * @maxLength 255
+         */
+      name: string;
+      /** Scanner whose observations this action operates on. Must belong to the same team. */
+      scanner: string;
+      /** When false, the scheduler skips this action. */
+      enabled?: boolean;
+      /** What fires the action. MVP supports 'schedule' only.
+       *
+       * * `schedule` - Schedule
+       * * `threshold` - Threshold */
+      trigger_type?: TriggerTypeEnum;
+      /** What the action produces. MVP supports 'group_summary' only.
+       *
+       * * `group_summary` - Group summary
+       * * `per_observation` - Per observation */
+      mode?: VisionActionModeEnum;
+      /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
+      trigger_config?: TriggerConfig;
+      /** Observation filter applied at synthesis time. */
+      selection?: Selection;
+      /** Synthesis options for the group summary, e.g. {prompt_guide}. */
+      synthesis_config?: SynthesisConfig;
+      /** List of delivery destinations the synthesized summary is sent to. */
+      delivery_config?: DeliveryTarget[];
+      /**
+         * Computed next fire time for schedule triggers; the scheduler scans this.
+         * @nullable
+         */
+      readonly next_run_at: string | null;
+      /**
+         * Timestamp of the most recent run, or null if it has never run.
+         * @nullable
+         */
+      readonly last_run_at: string | null;
+      /**
+         * ID of the delivery flow provisioned for this action. Null until delivery is wired up.
+         * @nullable
+         */
+      readonly hog_flow_id: string | null;
+      readonly created_at: string;
+      /** User who created the action. */
+      readonly created_by: UserBasic | null;
+      readonly updated_at: string;
+    }
+
+    export interface PaginatedVisionActionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: VisionAction[];
+    }
+
     export interface WarehouseColumnAnnotation {
       readonly id: string;
       /** ID of the data warehouse table this annotation describes. */
@@ -40706,6 +40900,56 @@ export namespace Schemas {
       configuration?: unknown;
     }
 
+    export interface PatchedVisionAction {
+      readonly id?: string;
+      /**
+         * Human-readable action name. Unique within the team.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Scanner whose observations this action operates on. Must belong to the same team. */
+      scanner?: string;
+      /** When false, the scheduler skips this action. */
+      enabled?: boolean;
+      /** What fires the action. MVP supports 'schedule' only.
+       *
+       * * `schedule` - Schedule
+       * * `threshold` - Threshold */
+      trigger_type?: TriggerTypeEnum;
+      /** What the action produces. MVP supports 'group_summary' only.
+       *
+       * * `group_summary` - Group summary
+       * * `per_observation` - Per observation */
+      mode?: VisionActionModeEnum;
+      /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
+      trigger_config?: TriggerConfig;
+      /** Observation filter applied at synthesis time. */
+      selection?: Selection;
+      /** Synthesis options for the group summary, e.g. {prompt_guide}. */
+      synthesis_config?: SynthesisConfig;
+      /** List of delivery destinations the synthesized summary is sent to. */
+      delivery_config?: DeliveryTarget[];
+      /**
+         * Computed next fire time for schedule triggers; the scheduler scans this.
+         * @nullable
+         */
+      readonly next_run_at?: string | null;
+      /**
+         * Timestamp of the most recent run, or null if it has never run.
+         * @nullable
+         */
+      readonly last_run_at?: string | null;
+      /**
+         * ID of the delivery flow provisioned for this action. Null until delivery is wired up.
+         * @nullable
+         */
+      readonly hog_flow_id?: string | null;
+      readonly created_at?: string;
+      /** User who created the action. */
+      readonly created_by?: UserBasic | null;
+      readonly updated_at?: string;
+    }
+
     export interface PatchedWarehouseColumnAnnotation {
       readonly id?: string;
       /** ID of the data warehouse table this annotation describes. */
@@ -45307,6 +45551,11 @@ export namespace Schemas {
       stale: number;
     }
 
+    export interface RevokeOtherSessionsResponse {
+      /** Number of other login sessions that were revoked. */
+      revoked_count: number;
+    }
+
     export interface RoleLookupResponse {
       /** Matching reference, or null if none exists. */
       reference: RoleExternalReference | null;
@@ -47401,7 +47650,10 @@ export namespace Schemas {
        * * `Sanity` - Sanity
        * * `Metronome` - Metronome
        * * `Jobber` - Jobber
-       * * `Knock` - Knock */
+       * * `Knock` - Knock
+       * * `Leexi` - Leexi
+       * * `RB2B` - RB2B
+       * * `Superwall` - Superwall */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -48076,7 +48328,10 @@ export namespace Schemas {
        * * `Sanity` - Sanity
        * * `Metronome` - Metronome
        * * `Jobber` - Jobber
-       * * `Knock` - Knock */
+       * * `Knock` - Knock
+       * * `Leexi` - Leexi
+       * * `RB2B` - RB2B
+       * * `Superwall` - Superwall */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -50041,6 +50296,24 @@ export namespace Schemas {
     }
 
     /**
+     * A cookie-auth login session shown on the user's 'Web sessions' screen.
+     */
+    export interface UserAuthSession {
+      /** Identifier used to revoke this login session. */
+      readonly id: string;
+      /** When this login session last made a request (refreshed periodically). */
+      readonly last_activity: string;
+      /** Approximate city and country derived from the IP address, if known. */
+      readonly location: string;
+      /** Browser and operating system parsed from the user agent, e.g. 'Chrome 135 on macOS'. */
+      readonly device: string;
+      /** How this session signed in (e.g. password, Google, SAML). */
+      readonly login_method: string;
+      /** Whether this is the login session making the current request. */
+      readonly is_current: boolean;
+    }
+
+    /**
      * The release condition to evaluate
      */
     export type UserBlastRadiusRequestCondition = { [key: string]: unknown };
@@ -50431,6 +50704,8 @@ export namespace Schemas {
       completed: number;
       /** Completed runs with conclusion 'success' that day. */
       successes: number;
+      /** Completed runs that failed that day (conclusion 'failure' or 'timed_out'); excludes skipped, cancelled, and action_required runs. */
+      failures: number;
     }
 
     export interface WorkflowHealthItem {
@@ -50458,7 +50733,7 @@ export namespace Schemas {
          */
       p95_seconds: number | null;
       /**
-         * When the most recent run with conclusion 'failure' started, or null.
+         * When the most recent failing run (conclusion 'failure' or 'timed_out') started, or null.
          * @nullable
          */
       last_failure_at: string | null;
@@ -57083,6 +57358,13 @@ export namespace Schemas {
     revision_id: string;
     };
 
+    export type AgentApplicationsPreviewTokenMintParams = {
+    /**
+     * Target draft revision. Must belong to this application and not be live.
+     */
+    revision_id: string;
+    };
+
     export type AgentApplicationsSessionsListParams = {
     /**
      * ISO datetime — return sessions with created_at >= this.
@@ -58350,6 +58632,10 @@ export namespace Schemas {
     };
 
     export type EngineeringAnalyticsWorkflowHealthParams = {
+    /**
+     * Optional exact git branch (head_branch) to scope workflow health to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string;
     /**
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */
@@ -62971,6 +63257,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type VisionActionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type VisionObservationsListParams = {
     /**
      * Number of results to return per page.
@@ -63492,6 +63789,11 @@ export namespace Schemas {
      * Optional case-insensitive repository name search query.
      */
     search?: string;
+    };
+
+    export type UsersLoginSessionsListParams = {
+    email?: string;
+    is_staff?: boolean;
     };
 
 

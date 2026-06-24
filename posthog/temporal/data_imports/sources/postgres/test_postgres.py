@@ -1934,6 +1934,17 @@ class TestValidateCredentialsErrorMapping:
                 "PostgreSQL server speaking SSL. Check that the host and port point at your PostgreSQL server "
                 "(not an HTTP, proxy, or edge endpoint) and that the database is running.",
             ),
+            # DNS-resolution failure surfaced as the raw socket wording (no libpq "could not
+            # translate host name" prefix) — e.g. through an SSH tunnel or psycopg's Python-side
+            # resolution. Must map to the actionable host message instead of being captured.
+            (
+                "[Errno -2] Name or service not known",
+                "Could not resolve the database host. Check that the host is spelled correctly and reachable from the public internet.",
+            ),
+            (
+                "[Errno -5] No address associated with hostname",
+                "Could not resolve the database host. Check that the host is spelled correctly and reachable from the public internet.",
+            ),
             # Unmapped errors fall back to the generic message.
             (
                 "some brand new failure",

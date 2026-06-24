@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1233_backfill_duckgresserverteam"),
+        ("posthog", "1234_oauthapplication_optional_scopes_and_more"),
     ]
 
     operations = [

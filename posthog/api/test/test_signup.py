@@ -1583,8 +1583,6 @@ class TestPasskeySignupAPI(APIBaseTest):
         When a user signs up with a passkey, the UUID generated during passkey registration
         should become the user's actual UUID.
         """
-        from django.contrib.sessions.backends.db import SessionStore
-
         from webauthn.helpers import bytes_to_base64url
 
         from posthog.api.webauthn import (
@@ -1592,6 +1590,7 @@ class TestPasskeySignupAPI(APIBaseTest):
             WEBAUTHN_SIGNUP_EMAIL_KEY,
             WEBAUTHN_SIGNUP_USER_UUID_KEY,
         )
+        from posthog.session.backend import SessionStore
 
         # Generate a UUID that would be created during passkey registration
         expected_uuid = uuid.uuid4()
@@ -1644,8 +1643,6 @@ class TestPasskeySignupAPI(APIBaseTest):
         """
         After successful passkey signup, the session data should be cleared.
         """
-        from django.contrib.sessions.backends.db import SessionStore
-
         from webauthn.helpers import bytes_to_base64url
 
         from posthog.api.webauthn import (
@@ -1653,6 +1650,7 @@ class TestPasskeySignupAPI(APIBaseTest):
             WEBAUTHN_SIGNUP_EMAIL_KEY,
             WEBAUTHN_SIGNUP_USER_UUID_KEY,
         )
+        from posthog.session.backend import SessionStore
 
         expected_uuid = uuid.uuid4()
 
@@ -1696,8 +1694,6 @@ class TestPasskeySignupAPI(APIBaseTest):
         # Self-created passkeys count as already-acknowledged: otherwise the user lands
         # on the credential review interstitial after signup and could revoke their only
         # login credential.
-        from django.contrib.sessions.backends.db import SessionStore
-
         from webauthn.helpers import bytes_to_base64url
 
         from posthog.api.webauthn import (
@@ -1705,6 +1701,7 @@ class TestPasskeySignupAPI(APIBaseTest):
             WEBAUTHN_SIGNUP_EMAIL_KEY,
             WEBAUTHN_SIGNUP_USER_UUID_KEY,
         )
+        from posthog.session.backend import SessionStore
 
         session = SessionStore()
         session[WEBAUTHN_SIGNUP_EMAIL_KEY] = "reviewed_passkey@posthog.com"
@@ -1833,8 +1830,6 @@ class TestPasskeySignupAPI(APIBaseTest):
         When a password is provided, password signup should work even if passkey data exists in session.
         This handles the case where a user registers a passkey but then reloads the page and tries to signup with a password.
         """
-        from django.contrib.sessions.backends.db import SessionStore
-
         from webauthn.helpers import bytes_to_base64url
 
         from posthog.api.webauthn import (
@@ -1842,6 +1837,7 @@ class TestPasskeySignupAPI(APIBaseTest):
             WEBAUTHN_SIGNUP_EMAIL_KEY,
             WEBAUTHN_SIGNUP_USER_UUID_KEY,
         )
+        from posthog.session.backend import SessionStore
 
         # Create a session and set passkey data (simulating a user who registered a passkey but reloaded)
         session = SessionStore()
@@ -1894,8 +1890,6 @@ class TestPasskeySignupAPI(APIBaseTest):
         When a password is provided, password signup should work even if passkey data exists in session,
         even when using the same email that was used for passkey registration.
         """
-        from django.contrib.sessions.backends.db import SessionStore
-
         from webauthn.helpers import bytes_to_base64url
 
         from posthog.api.webauthn import (
@@ -1903,6 +1897,7 @@ class TestPasskeySignupAPI(APIBaseTest):
             WEBAUTHN_SIGNUP_EMAIL_KEY,
             WEBAUTHN_SIGNUP_USER_UUID_KEY,
         )
+        from posthog.session.backend import SessionStore
 
         passkey_email = "same_email@posthog.com"
 
@@ -2865,8 +2860,6 @@ class TestInviteSignupAPI(APIBaseTest):
         When a password is provided for invite signup, it should work even if passkey data exists in session.
         This handles the case where a user registers a passkey but then reloads the page and tries to signup with a password.
         """
-        from django.contrib.sessions.backends.db import SessionStore
-
         from webauthn.helpers import bytes_to_base64url
 
         from posthog.api.webauthn import (
@@ -2874,6 +2867,7 @@ class TestInviteSignupAPI(APIBaseTest):
             WEBAUTHN_SIGNUP_EMAIL_KEY,
             WEBAUTHN_SIGNUP_USER_UUID_KEY,
         )
+        from posthog.session.backend import SessionStore
 
         # Create an invite
         invite: OrganizationInvite = OrganizationInvite.objects.create(
@@ -2936,8 +2930,6 @@ class TestInviteSignupAPI(APIBaseTest):
         Otherwise the user lands behind the undismissable 2FA setup modal that only offers TOTP —
         which platform passkeys (macOS/iOS) cannot accept.
         """
-        from django.contrib.sessions.backends.db import SessionStore
-
         from webauthn.helpers import bytes_to_base64url
 
         from posthog.api.webauthn import (
@@ -2945,6 +2937,7 @@ class TestInviteSignupAPI(APIBaseTest):
             WEBAUTHN_SIGNUP_EMAIL_KEY,
             WEBAUTHN_SIGNUP_USER_UUID_KEY,
         )
+        from posthog.session.backend import SessionStore
 
         suffix = "enforced" if org_enforce_2fa else "unenforced"
         target_email = f"passkey_invite_{suffix}@posthog.com"
@@ -2986,8 +2979,6 @@ class TestInviteSignupAPI(APIBaseTest):
         # Self-created passkeys via invite signup count as already-acknowledged: otherwise
         # the user lands on the credential review interstitial after signup and could revoke
         # their only login credential.
-        from django.contrib.sessions.backends.db import SessionStore
-
         from webauthn.helpers import bytes_to_base64url
 
         from posthog.api.webauthn import (
@@ -2995,6 +2986,7 @@ class TestInviteSignupAPI(APIBaseTest):
             WEBAUTHN_SIGNUP_EMAIL_KEY,
             WEBAUTHN_SIGNUP_USER_UUID_KEY,
         )
+        from posthog.session.backend import SessionStore
 
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="reviewed_invite_passkey@posthog.com", organization=self.organization
