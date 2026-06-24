@@ -20,7 +20,6 @@ compatibility: >
 metadata:
   owner_team: signals
   scope: api_deprecations
-  default-run-interval-minutes: 1440
 ---
 
 # Signals scout: API deprecations
@@ -44,9 +43,8 @@ Internalize the two discriminators:
 
 ## Quick close-out
 
-Code changes slowly; this scout registers with a daily default cadence
-(`metadata.default-run-interval-minutes: 1440`), and the close-out keeps even faster schedules
-cheap.
+Code changes slowly, so this scout's runs are cheap on most days: the fleet's daily default
+cadence is plenty, and the close-out short-circuits when the integration surfaces haven't changed.
 
 - `signals-scout-scratchpad-search` for `last-scan:api-deprecations`. If the recorded HEAD sha
   matches the repository's current HEAD (`git ls-remote <repo-url> HEAD` — no clone needed), and
