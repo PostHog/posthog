@@ -269,6 +269,16 @@ class ScratchpadEntrySerializer(serializers.Serializer):
         allow_null=True,
         help_text="Run that wrote this entry, or null if human-authored.",
     )
+    created_by_skill = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Canonical skill name of the scout that created this entry (e.g. `signals-scout-apm`), or null if human-authored.",
+    )
+    created_by_run_url = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Relative Tasks UI deep-link to the run that created this entry, or null if the run linkage isn't captured.",
+    )
 
 
 class SearchMemoryQuerySerializer(serializers.Serializer):

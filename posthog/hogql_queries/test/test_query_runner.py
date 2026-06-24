@@ -96,10 +96,10 @@ class TestQueryRunner(BaseTest):
         super().tearDown()
         cache.clear()
 
-    def setup_test_query_runner_class(self):
+    def setup_test_query_runner_class(self, base: type[QueryRunner] = QueryRunner):
         """Setup required methods and attributes of the abstract base class."""
 
-        class TestQueryRunner(QueryRunner):
+        class TestQueryRunner(base):  # type: ignore[misc, valid-type]
             query: TheTestQuery
             cached_response: TheTestCachedBasicQueryResponse
 
@@ -339,6 +339,12 @@ class TestQueryRunner(BaseTest):
 
         cache_key = runner.get_cache_key()
         assert cache_key == "cache_42_473689ec17cc982383519776503e498bd0e44f16e6b6f0073412599254a69aba"
+
+    def test_cache_payload_omits_object_restrictions_when_unrestricted(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team, user=self.user)
+
+        assert "restricted_objects" not in runner.get_cache_payload()
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):
