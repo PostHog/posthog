@@ -235,7 +235,7 @@ export function LogsSamplingForm(): JSX.Element {
                         ) : !filterPreview ? (
                             <div className="h-full flex flex-col gap-1 items-center justify-center text-muted text-xs">
                                 <span>Couldn't load the volume preview.</span>
-                                <LemonButton size="xsmall" type="secondary" onClick={() => refreshFilterPreview()}>
+                                <LemonButton size="xsmall" type="secondary" onClick={refreshFilterPreview}>
                                     Retry
                                 </LemonButton>
                             </div>
