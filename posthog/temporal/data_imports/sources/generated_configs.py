@@ -292,6 +292,11 @@ class AppsFlyerSourceConfig(config.Config):
 
 
 @config.config
+class AppstackSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class ApptivoSourceConfig(config.Config):
     pass
 
@@ -583,6 +588,11 @@ class ChargifySourceConfig(config.Config):
 @config.config
 class ChartMogulSourceConfig(config.Config):
     api_key: str
+
+
+@config.config
+class ChatwootSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -1573,6 +1583,11 @@ class JobNimbusSourceConfig(config.Config):
 
 
 @config.config
+class JobberSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class JotformSourceConfig(config.Config):
     pass
 
@@ -1643,6 +1658,11 @@ class KlaviyoSourceConfig(config.Config):
 
 
 @config.config
+class KnockSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class KustomerSourceConfig(config.Config):
     org_name: str
     api_key: str
@@ -1670,6 +1690,11 @@ class LeadfeederSourceConfig(config.Config):
 
 
 @config.config
+class LeexiSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class LemlistSourceConfig(config.Config):
     pass
 
@@ -1682,6 +1707,11 @@ class LessAnnoyingCRMSourceConfig(config.Config):
 @config.config
 class LeverSourceConfig(config.Config):
     api_key: str
+
+
+@config.config
+class LightfieldSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -1845,6 +1875,11 @@ class MetricoolSourceConfig(config.Config):
 
 
 @config.config
+class MetronomeSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class MicrosoftDataverseSourceConfig(config.Config):
     pass
 
@@ -1951,7 +1986,17 @@ class NebiusAISourceConfig(config.Config):
 
 
 @config.config
+class NeonSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class NetSuiteSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class NewRelicSourceConfig(config.Config):
     pass
 
 
@@ -2435,6 +2480,11 @@ class QuickBooksSourceConfig(config.Config):
 
 
 @config.config
+class RB2BSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class RDStationMarketingSourceConfig(config.Config):
     pass
 
@@ -2454,6 +2504,11 @@ class RampSourceConfig(config.Config):
     client_id: str
     client_secret: str
     environment: Literal["production", "sandbox"] = config.value(default="production")
+
+
+@config.config
+class RazorpaySourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -2634,6 +2689,11 @@ class SalesforceMarketingCloudSourceConfig(config.Config):
 @config.config
 class SalesforceSourceConfig(config.Config):
     salesforce_integration_id: int = config.value(converter=config.str_to_int)
+
+
+@config.config
+class SanitySourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -2929,10 +2989,15 @@ class SupabaseSourceConfig(config.Config):
     database: str
     user: str
     password: str
-    schema: str
     port: int = config.value(converter=int)
     connection_string: str | None = None
+    schema: str | None = None
     ssh_tunnel: SSHTunnelConfig | None = None
+
+
+@config.config
+class SuperwallSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -3049,6 +3114,11 @@ class TicketmasterSourceConfig(config.Config):
 class TikTokAdsSourceConfig(config.Config):
     advertiser_id: str
     tiktok_integration_id: int = config.value(converter=config.str_to_int)
+
+
+@config.config
+class Tile38SourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -3472,6 +3542,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.APPFOLLOW: AppfollowSourceConfig,
         ExternalDataSourceType.APPLESEARCHADS: AppleSearchAdsSourceConfig,
         ExternalDataSourceType.APPSFLYER: AppsFlyerSourceConfig,
+        ExternalDataSourceType.APPSTACK: AppstackSourceConfig,
         ExternalDataSourceType.APPTIVO: ApptivoSourceConfig,
         ExternalDataSourceType.ASANA: AsanaSourceConfig,
         ExternalDataSourceType.ASHBY: AshbySourceConfig,
@@ -3528,6 +3599,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.CHARGEDESK: ChargedeskSourceConfig,
         ExternalDataSourceType.CHARGIFY: ChargifySourceConfig,
         ExternalDataSourceType.CHARTMOGUL: ChartMogulSourceConfig,
+        ExternalDataSourceType.CHATWOOT: ChatwootSourceConfig,
         ExternalDataSourceType.CHECKOUTCOM: CheckoutComSourceConfig,
         ExternalDataSourceType.CHIFT: ChiftSourceConfig,
         ExternalDataSourceType.CHORUS: ChorusSourceConfig,
@@ -3714,6 +3786,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.JAMFPRO: JamfProSourceConfig,
         ExternalDataSourceType.JIRA: JiraSourceConfig,
         ExternalDataSourceType.JOBNIMBUS: JobNimbusSourceConfig,
+        ExternalDataSourceType.JOBBER: JobberSourceConfig,
         ExternalDataSourceType.JOTFORM: JotformSourceConfig,
         ExternalDataSourceType.JUDGEMEREVIEWS: JudgeMeReviewsSourceConfig,
         ExternalDataSourceType.JUSTCALL: JustCallSourceConfig,
@@ -3728,14 +3801,17 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.KLARNA: KlarnaSourceConfig,
         ExternalDataSourceType.KLAUS: KlausSourceConfig,
         ExternalDataSourceType.KLAVIYO: KlaviyoSourceConfig,
+        ExternalDataSourceType.KNOCK: KnockSourceConfig,
         ExternalDataSourceType.KUSTOMER: KustomerSourceConfig,
         ExternalDataSourceType.LAGO: LagoSourceConfig,
         ExternalDataSourceType.LATTICE: LatticeSourceConfig,
         ExternalDataSourceType.LAUNCHDARKLY: LaunchDarklySourceConfig,
         ExternalDataSourceType.LEADFEEDER: LeadfeederSourceConfig,
+        ExternalDataSourceType.LEEXI: LeexiSourceConfig,
         ExternalDataSourceType.LEMLIST: LemlistSourceConfig,
         ExternalDataSourceType.LESSANNOYINGCRM: LessAnnoyingCRMSourceConfig,
         ExternalDataSourceType.LEVER: LeverSourceConfig,
+        ExternalDataSourceType.LIGHTFIELD: LightfieldSourceConfig,
         ExternalDataSourceType.LIGHTSPEEDRETAIL: LightspeedRetailSourceConfig,
         ExternalDataSourceType.LINEAR: LinearSourceConfig,
         ExternalDataSourceType.LINKEDINADS: LinkedinAdsSourceConfig,
@@ -3765,6 +3841,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.METAADS: MetaAdsSourceConfig,
         ExternalDataSourceType.METABASE: MetabaseSourceConfig,
         ExternalDataSourceType.METRICOOL: MetricoolSourceConfig,
+        ExternalDataSourceType.METRONOME: MetronomeSourceConfig,
         ExternalDataSourceType.MICROSOFTDATAVERSE: MicrosoftDataverseSourceConfig,
         ExternalDataSourceType.MICROSOFTENTRAID: MicrosoftEntraIdSourceConfig,
         ExternalDataSourceType.MICROSOFTLISTS: MicrosoftListsSourceConfig,
@@ -3784,7 +3861,9 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.NASA: NasaSourceConfig,
         ExternalDataSourceType.NAVAN: NavanSourceConfig,
         ExternalDataSourceType.NEBIUSAI: NebiusAISourceConfig,
+        ExternalDataSourceType.NEON: NeonSourceConfig,
         ExternalDataSourceType.NETSUITE: NetSuiteSourceConfig,
+        ExternalDataSourceType.NEWRELIC: NewRelicSourceConfig,
         ExternalDataSourceType.NEWYORKTIMES: NewYorkTimesSourceConfig,
         ExternalDataSourceType.NEWSAPI: NewsApiSourceConfig,
         ExternalDataSourceType.NEWSDATA: NewsDataSourceConfig,
@@ -3877,10 +3956,12 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.QUALAROO: QualarooSourceConfig,
         ExternalDataSourceType.QUALTRICS: QualtricsSourceConfig,
         ExternalDataSourceType.QUICKBOOKS: QuickBooksSourceConfig,
+        ExternalDataSourceType.RB2B: RB2BSourceConfig,
         ExternalDataSourceType.RDSTATIONMARKETING: RDStationMarketingSourceConfig,
         ExternalDataSourceType.RKICOVID: RKICovidSourceConfig,
         ExternalDataSourceType.RAILZ: RailzSourceConfig,
         ExternalDataSourceType.RAMP: RampSourceConfig,
+        ExternalDataSourceType.RAZORPAY: RazorpaySourceConfig,
         ExternalDataSourceType.RECHARGE: RechargeSourceConfig,
         ExternalDataSourceType.RECREATION: RecreationSourceConfig,
         ExternalDataSourceType.RECRUITEE: RecruiteeSourceConfig,
@@ -3915,6 +3996,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.SALESFLARE: SalesflareSourceConfig,
         ExternalDataSourceType.SALESFORCE: SalesforceSourceConfig,
         ExternalDataSourceType.SALESFORCEMARKETINGCLOUD: SalesforceMarketingCloudSourceConfig,
+        ExternalDataSourceType.SANITY: SanitySourceConfig,
         ExternalDataSourceType.SAPCONCUR: SapConcurSourceConfig,
         ExternalDataSourceType.SAPERP: SapErpSourceConfig,
         ExternalDataSourceType.SAPHANA: SapHanaSourceConfig,
@@ -3970,6 +4052,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.STREAMLABS: StreamlabsSourceConfig,
         ExternalDataSourceType.STRIPE: StripeSourceConfig,
         ExternalDataSourceType.SUPABASE: SupabaseSourceConfig,
+        ExternalDataSourceType.SUPERWALL: SuperwallSourceConfig,
         ExternalDataSourceType.SURVEYMONKEY: SurveyMonkeySourceConfig,
         ExternalDataSourceType.SURVEYSPARROW: SurveySparrowSourceConfig,
         ExternalDataSourceType.SURVICATE: SurvicateSourceConfig,
@@ -3991,6 +4074,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.TICKETTAILOR: TicketTailorSourceConfig,
         ExternalDataSourceType.TICKETMASTER: TicketmasterSourceConfig,
         ExternalDataSourceType.TIKTOKADS: TikTokAdsSourceConfig,
+        ExternalDataSourceType.TILE38: Tile38SourceConfig,
         ExternalDataSourceType.TIMELY: TimelySourceConfig,
         ExternalDataSourceType.TINYEMAIL: TinyemailSourceConfig,
         ExternalDataSourceType.TODOIST: TodoistSourceConfig,

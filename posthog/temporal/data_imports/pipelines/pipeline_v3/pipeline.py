@@ -8,9 +8,14 @@ from structlog.types import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
-from posthog.temporal.common.activity_context import current_workflow_id, current_workflow_run_id
+from posthog.temporal.common.activity_context import (
+    current_activity_attempt,
+    current_workflow_id,
+    current_workflow_run_id,
+)
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.pipelines.common.extract import (
+    advance_xmin_state,
     cdp_producer_clear_chunks,
     cleanup_memory,
     finalize_desc_sort_incremental_value,
@@ -107,16 +112,22 @@ class PipelineV3(Generic[ResumableData]):
         self._schema = schema
         self._source = source
         self._table = table
-        self._is_incremental = schema.is_incremental or schema.is_webhook
+        # xmin reads deltas and upserts on the primary key, so it writes incrementally too — never
+        # as a full_refresh overwrite, which would wipe earlier data on the second (delta-only) sync.
+        self._is_incremental = schema.is_incremental or schema.is_webhook or schema.is_xmin
 
         self._delta_table_helper = DeltaTableHelper(self._resource_name, self._job, self._logger)
 
+        attempt = current_activity_attempt()
+        attempt_scoped_run_uuid = f"{self._job.workflow_run_id}-a{attempt}" if self._job.workflow_run_id else None
+
         self._s3_batch_writer = S3BatchWriter(
-            self._logger, self._job, str(self._schema.id), self._job.workflow_run_id, compression=PARQUET_COMPRESSION
+            self._logger, self._job, str(self._schema.id), attempt_scoped_run_uuid, compression=PARQUET_COMPRESSION
         )
+        self._attempt = attempt
 
         sync_type: SyncTypeLiteral = "full_refresh"
-        if self._schema.is_incremental or self._schema.is_webhook:
+        if self._schema.is_incremental or self._schema.is_webhook or self._schema.is_xmin:
             sync_type = "incremental"
         elif self._schema.is_append:
             sync_type = "append"
@@ -215,9 +226,13 @@ class PipelineV3(Generic[ResumableData]):
             row_count = 0
             chunk_index = 0
 
-            await handle_reset_or_full_refresh(
-                self._reset_pipeline, should_resume, self._schema, self._delta_table_helper, self._logger
-            )
+            # On retry (attempt > 1) skip reset_table() - the consumer-side batch-0
+            # overwrite handles it. Wiping the delta table mid-retry while the consumer
+            # is loading the previous attempt's batches causes data loss.
+            if self._attempt <= 1:
+                await handle_reset_or_full_refresh(
+                    self._reset_pipeline, should_resume, self._schema, self._delta_table_helper, self._logger
+                )
 
             is_fresh_sync = self._delta_table_helper.is_first_sync or self._schema.table is None
             if is_fresh_sync:
@@ -347,6 +362,7 @@ class PipelineV3(Generic[ResumableData]):
             self._earliest_incremental_field_value,
             self._logger,
             log_prefix="V3 Pipeline: ",
+            staging_run_uuid=self._s3_batch_writer.get_run_uuid(),
         )
 
         await update_row_tracking_after_batch(
@@ -381,8 +397,15 @@ class PipelineV3(Generic[ResumableData]):
         )
 
         await finalize_desc_sort_incremental_value(
-            self._resource, self._schema, self._last_incremental_field_value, self._logger, log_prefix="V3 Pipeline: "
+            self._resource,
+            self._schema,
+            self._last_incremental_field_value,
+            self._logger,
+            log_prefix="V3 Pipeline: ",
+            staging_run_uuid=self._s3_batch_writer.get_run_uuid(),
         )
+
+        await advance_xmin_state(self._resource, self._schema, self._logger, log_prefix="V3 Pipeline: ")
 
         if not self._schema.initial_sync_complete:
             await self._logger.adebug("V3 Pipeline: Setting initial_sync_complete on schema")

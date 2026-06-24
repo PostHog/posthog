@@ -21,6 +21,7 @@ import type {
     CommentsListParams,
     ListParams,
     MembersListParams,
+    OrganizationAIAccessRequestResponseApi,
     OrganizationApi,
     OrganizationMemberApi,
     PaginatedActivityLogListApi,
@@ -155,6 +156,23 @@ export const destroy = async (id: string, options?: RequestInit): Promise<void> 
     return apiMutator<void>(getDestroyUrl(id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getRequestAiAccessCreateUrl = (id: string) => {
+    return `/api/organizations/${id}/request_ai_access/`
+}
+
+/**
+ * Notify organization admins that a member is requesting PostHog AI be enabled.
+ */
+export const requestAiAccessCreate = async (
+    id: string,
+    options?: RequestInit
+): Promise<OrganizationAIAccessRequestResponseApi> => {
+    return apiMutator<OrganizationAIAccessRequestResponseApi>(getRequestAiAccessCreateUrl(id), {
+        ...options,
+        method: 'POST',
     })
 }
 

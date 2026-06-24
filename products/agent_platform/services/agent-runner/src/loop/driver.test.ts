@@ -11,6 +11,9 @@ import {
 import { Pool } from 'pg'
 
 import {
+    type AnalyticsEvent,
+    type AnalyticsGenerationEvent,
+    type AnalyticsSink,
     AgentRevision,
     type ApprovalRequest,
     type ApprovalStore,
@@ -24,7 +27,6 @@ import {
     newTestPrefix,
     PgApprovalStore,
     PgSessionQueue,
-    principalsMatch,
     RedisSessionEventBus,
     S3BundleStore,
     SessionPrincipal,
@@ -34,10 +36,10 @@ import { reset } from '@posthog/agent-shared/testing'
 
 const KAFKA_HOSTS = process.env.KAFKA_HOSTS ?? 'localhost:9092'
 
-import { buildApprovalDecidedMarker } from './approval-marker'
+import { buildApprovalDecidedMarker } from '@posthog/agent-shared'
+
 import { runSession } from './driver'
 import type { OpenedMcp, RemoteMcpTool } from './mcp-clients'
-import { findLastUserSender, type IsAskerInApproverScope } from './per-asker-auth'
 
 const FAUX_MODEL_ID = 'faux/test'
 // Realistic UUID — PG's `uuid` columns (approvals.session_id, etc.) reject
@@ -72,6 +74,7 @@ function makeRev(spec: Partial<Parameters<typeof AgentSpecSchema.parse>[0]> = {}
         bundle_uri: 's3://x/',
         bundle_sha256: null,
         spec: AgentSpecSchema.parse({ model: FAUX_MODEL_ID, ...spec }),
+        encrypted_env: null,
     }
 }
 
@@ -91,6 +94,7 @@ function makeSession(over: Partial<AgentSession> = {}): AgentSession {
         retry_count: 0,
         acl: [],
         pending_elevation_requests: [],
+        is_preview: false,
         usage_total: { ...EMPTY_USAGE_TOTAL },
         created_at: '2026-05-29',
         updated_at: '2026-05-29',
@@ -168,7 +172,6 @@ async function run(
         model: fauxModel((over.script as AssistantMessage[]) ?? [stop('ok')]),
         bundle,
         sandbox: null,
-        integrations: {},
         secrets: {},
         inputs: new PgSessionQueue(pool),
         bus: driverTestBus,
@@ -358,8 +361,8 @@ describe('driver runSession', () => {
      * so they never appear in `spec.tools[]` and the native/custom approval
      * lookup misses them. PR 7 added a fallback that decomposes
      * `<prefix>__<remoteName>` against `spec.mcps[].tools[]` — these tests pin
-     * the wrap path for the MCP variant + the `session_principal` per-asker
-     * fast-path that the concierge case relies on.
+     * the wrap path for the MCP variant + the `principal` gate the concierge
+     * relies on (which always queues — there is no fast-path).
      */
     describe('MCP tool approval gating', () => {
         // Minimal `OpenedMcp` stub — same shape as `build-agent-tools.test.ts`'s
@@ -395,8 +398,8 @@ describe('driver runSession', () => {
         }
 
         // Route through `AgentSpecSchema.parse` so the approval-policy
-        // defaults (`allow_edit`, `allow_agent_approver`) get materialised
-        // — the runner reads the strict shape, not the zod input form.
+        // defaults (`type`, `allow_edit`, `ttl_ms`) get materialised — the
+        // runner reads the strict shape, not the zod input form.
         const POSTHOG_REF: McpRef = AgentSpecSchema.parse({
             model: FAUX_MODEL_ID,
             mcps: [
@@ -410,7 +413,7 @@ describe('driver runSession', () => {
                         {
                             name: 'agent-applications-revisions-promote-create',
                             requires_approval: true,
-                            approval_policy: { approvers: ['session_principal'], ttl_ms: 900_000 },
+                            approval_policy: { type: 'principal', ttl_ms: 900_000 },
                         },
                     ],
                 },
@@ -539,7 +542,7 @@ describe('driver runSession', () => {
                             {
                                 name: 'pingback',
                                 requires_approval: true,
-                                approval_policy: { approvers: ['team_admins'] },
+                                approval_policy: { type: 'agent' },
                             },
                         ],
                     },
@@ -589,12 +592,14 @@ describe('driver runSession', () => {
             expect(out.state).not.toBe('failed')
         })
 
-        it('session_principal per-asker fast-path: dispatches directly when last sender matches session.principal', async () => {
-            // Alice authed the session (`session.principal === alice`) and
-            // is the one driving this turn (`conversation[last].sender === alice`).
-            // The per-asker check returns true on the `session_principal`
-            // branch (no DB roundtrip), the wrap runs the real tool, and no
-            // approval row is created.
+        it('queues even when the last sender matches session.principal (no auto-dispatch / injection guard)', async () => {
+            // Alice authed the session (`session.principal === alice`) and is
+            // the one driving this turn (`conversation[last].sender === alice`).
+            // There is no fast-path: being the asker is not consent to the
+            // specific gated call the model emitted (which a prompt injection in
+            // content the agent read could have steered). The wrap queues; the
+            // real remote tool is never hit. Regression guard for the "approval
+            // bypass" finding.
             const mcp = makeFakeMcp('posthog', POSTHOG_REF, {
                 'agent-applications-revisions-promote-create': { description: 'd', result: { promoted: true } },
             })
@@ -603,8 +608,6 @@ describe('driver runSession', () => {
                 principal: principalAlice,
                 conversation: [{ role: 'user', content: 'promote it', sender: principalAlice, timestamp: Date.now() }],
             })
-            // Direct stub — same contract as `makePerAskerAuth` returns. We
-            // route through `principalsMatch` to mirror the production check.
             const out = await run(makeRev({ mcps: [POSTHOG_REF as never] }), session, {
                 script: [
                     toolUse([
@@ -612,25 +615,19 @@ describe('driver runSession', () => {
                             application_id: 'app',
                         }),
                     ]),
-                    stop('done'),
+                    stop('queued'),
                 ],
                 approvals,
                 mcpClients: [mcp],
-                isAskerInApproverScope: (async (conversation, _teamId, scope, sessionPrincipal) => {
-                    if (!scope.includes('session_principal')) {
-                        return false
-                    }
-                    const sender = findLastUserSender(conversation)
-                    return Boolean(sender && principalsMatch(sessionPrincipal, sender))
-                }) satisfies IsAskerInApproverScope,
             })
             expect(out.state).toBe('completed')
-            // Fast-path ran the real remote tool exactly once.
-            expect(mcp.calls).toEqual([
-                { name: 'agent-applications-revisions-promote-create', args: { application_id: 'app' } },
-            ])
-            // No approval row queued — that's the whole point of the fast-path.
-            expect(await approvals.listBySession(TEST_SESSION_ID)).toHaveLength(0)
+            // The real remote tool was NEVER called — the gate held.
+            expect(mcp.calls).toEqual([])
+            // Exactly one approval row queued for the gated call.
+            const rows = await approvals.listBySession(TEST_SESSION_ID)
+            expect(rows).toHaveLength(1)
+            expect(rows[0].tool_name).toBe('posthog__agent-applications-revisions-promote-create')
+            expect(rows[0].state).toBe('queued')
         })
     })
 
@@ -670,7 +667,7 @@ describe('driver runSession', () => {
                 streamFn: recordingStreamFn(calls),
                 gatewayHeaders: { 'X-PostHog-Distinct-Id': 'team:1:agent:app', 'X-PostHog-Trace-Id': TEST_SESSION_ID },
                 gatewayUsage: { client: { getUsage } as never, phc: 'phc_test' },
-                useGatewayCost: true,
+                gatewayEmitsGenerations: true,
             })
             expect(out.state).toBe('completed')
             // One outbound call, headers carry the static gateway headers
@@ -737,7 +734,7 @@ describe('driver runSession', () => {
                 streamFn: recordingStreamFn(calls),
                 gatewayHeaders: {},
                 gatewayUsage: { client: { getUsage } as never, phc: 'phc_test' },
-                useGatewayCost: true,
+                gatewayEmitsGenerations: true,
             })
             expect(out.state).toBe('completed')
             expect(session.usage_total.cost_total).toBe(0)
@@ -753,6 +750,43 @@ describe('driver runSession', () => {
             // No Idempotency-Key / X-Request-Id injected when no gateway path.
             expect(calls[0].headers ?? {}).not.toHaveProperty('Idempotency-Key')
             expect(calls[0].headers ?? {}).not.toHaveProperty('X-Request-Id')
+        })
+    })
+
+    /**
+     * Generation-event emission splits by path: on the gateway path the gateway
+     * emits the cost-bearing `$ai_generation`, so the runner must NOT emit its
+     * own (double-counting); off the gateway path it emits one, without cost
+     * (pi-ai's estimate is never used — ingestion prices it from the catalog).
+     * Spans/trace are runner-only and emitted on both paths.
+     */
+    describe('analytics generation emission', () => {
+        function recordingSink(events: AnalyticsEvent[]): AnalyticsSink {
+            return { write: async (batch) => void events.push(...batch) }
+        }
+
+        it('suppresses the runner $ai_generation on the gateway path; still emits the trace', async () => {
+            const events: AnalyticsEvent[] = []
+            const out = await run(makeRev(), makeSession(), {
+                script: [stop('hi back')],
+                analytics: recordingSink(events),
+                gatewayEmitsGenerations: true,
+            })
+            expect(out.state).toBe('completed')
+            expect(events.filter((e) => e.kind === 'generation')).toHaveLength(0)
+            expect(events.some((e) => e.kind === 'trace')).toBe(true)
+        })
+
+        it('emits one $ai_generation without cost on the direct path', async () => {
+            const events: AnalyticsEvent[] = []
+            const out = await run(makeRev(), makeSession(), {
+                script: [stop('hi back')],
+                analytics: recordingSink(events),
+            })
+            expect(out.state).toBe('completed')
+            const gens = events.filter((e): e is AnalyticsGenerationEvent => e.kind === 'generation')
+            expect(gens).toHaveLength(1)
+            expect(gens[0].cost_usd).toBeUndefined()
         })
     })
 

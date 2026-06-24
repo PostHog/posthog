@@ -1,5 +1,6 @@
 import types
 import typing
+import reprlib
 import builtins
 import operator
 import functools
@@ -9,6 +10,49 @@ import dataclasses
 META_KEY = "_SOURCE_CONFIG_META"
 
 _T = typing.TypeVar("_T")
+
+_SECRET_FIELD_NAME_SUBSTRINGS: tuple[str, ...] = (
+    "password",
+    "passphrase",
+    "secret",
+    "token",
+    "key",
+    "credential",
+    "certificate",
+    "root_ca",
+    "connection_string",
+    "authorization",
+    "manifest_json",
+)
+
+REDACTED_VALUE_REPR = "'***'"
+
+
+def _is_secret_field_name(name: str) -> bool:
+    lowered = name.lower()
+    return any(substring in lowered for substring in _SECRET_FIELD_NAME_SUBSTRINGS)
+
+
+@reprlib.recursive_repr()
+def _redacting_repr(self: typing.Any) -> str:
+    """`__repr__` for config classes that redacts the values of secret-bearing fields.
+
+    Nested config values render via their own (also redacting) repr, so secrets stay
+    redacted at every level. A `None` value is shown as-is — there is nothing to leak and
+    it usefully signals the secret is unset.
+    """
+    field_reprs = []
+    for field in dataclasses.fields(self):
+        if not field.repr:
+            continue
+        value = getattr(self, field.name)
+        # A nested config (e.g. BigQuery's `key_file`) renders via its own redacting repr so
+        # its non-secret fields stay visible; only a raw secret value is masked wholesale.
+        if value is not None and _is_secret_field_name(field.name) and not is_config(value):
+            field_reprs.append(f"{field.name}={REDACTED_VALUE_REPR}")
+        else:
+            field_reprs.append(f"{field.name}={value!r}")
+    return f"{type(self).__name__}({', '.join(field_reprs)})"
 
 
 class _Dataclass(typing.Protocol):
@@ -562,6 +606,9 @@ def config(
         setattr(cls, "from_dict", classmethod(from_dict))  # noqa: B010
         setattr(cls, "validate_dict", classmethod(validate_dict))  # noqa: B010
         setattr(cls, "__source_config_meta", MetaConfig(prefix=prefix))  # noqa: B010
+        # Override the dataclass-generated repr so credentials never reach logs or
+        # error-tracking stack-frame locals.
+        cls.__repr__ = _redacting_repr  # type: ignore[method-assign]
 
         return cls
 

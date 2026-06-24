@@ -12,6 +12,7 @@ and response serialization. Business logic lives in ``backend/services``:
 
 import re
 import dataclasses
+from typing import cast
 
 from django.shortcuts import get_object_or_404
 
@@ -42,6 +43,7 @@ from posthog.api.utils import action
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.clickhouse.query_tagging import Product
 from posthog.exceptions_capture import capture_exception
+from posthog.models import User
 from posthog.permissions import (
     APIScopePermission,
     TeamMemberAccessPermission,
@@ -368,7 +370,7 @@ class EndpointViewSet(
         """Create a new endpoint."""
         upgraded_query = upgrade(request.data)
         data = self.get_model(upgraded_query, EndpointRequest)
-        validate_endpoint_request(data, self.team, strict=True)
+        validate_endpoint_request(data, self.team, cast(User, request.user), strict=True)
 
         endpoint = EndpointCrudService(self.team, request).create(data)
 
@@ -401,7 +403,7 @@ class EndpointViewSet(
             self.destroy(request, name=name)
             return Response({"success": True}, status=status.HTTP_200_OK)
 
-        validate_update_request(data, self.team, endpoint=endpoint)
+        validate_update_request(data, self.team, cast(User, request.user), endpoint=endpoint)
 
         version_number = self._parse_version_param(request)
         outcome = EndpointCrudService(self.team, request).update(endpoint, data, request.data, version_number)

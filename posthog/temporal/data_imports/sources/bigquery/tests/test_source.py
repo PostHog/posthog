@@ -6,11 +6,15 @@ from unittest import mock
 
 from dateutil import parser
 from google.api_core.exceptions import BadRequest, Forbidden, InvalidArgument, NotFound, PermissionDenied
+from google.auth.exceptions import RefreshError
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.bigquery import bigquery as bq_module
 from posthog.temporal.data_imports.sources.bigquery.bigquery import (
+    BIGQUERY_DATASET_NOT_FOUND_ERROR,
     BIGQUERY_TOKEN_RESPONSE_ERROR,
+    BigQueryCredentialsRejectedError,
+    BigQueryDatasetNotFoundError,
     BigQueryImplementation,
     BigQueryTokenRefreshError,
     _bq_select_clause,
@@ -130,6 +134,55 @@ def test_bigquery_get_columns_typeerror_handling(error_message, expected_type, i
         assert BIGQUERY_TOKEN_RESPONSE_ERROR in BigQuerySource().get_non_retryable_errors()
     else:
         assert error_message in str(exc_info.value)
+
+
+def test_bigquery_get_columns_raises_friendly_error_when_dataset_not_found():
+    """A missing dataset/table surfaces as a raw google `NotFound` from `client.query()`. Schema
+    discovery must re-raise it with actionable wording instead of leaking BigQuery job internals,
+    and that wording must stay registered as non-retryable."""
+    fake_client = mock.MagicMock()
+    fake_client.query.side_effect = NotFound(
+        "404 Not found: Dataset prj:ds was not found in location US Job ID: b3abc342-16a7"
+    )
+
+    with pytest.raises(BigQueryDatasetNotFoundError) as exc_info:
+        BigQueryImplementation().get_columns(fake_client, _make_config(), names=None)
+
+    assert str(exc_info.value) == BIGQUERY_DATASET_NOT_FOUND_ERROR
+    # The raw 404 (job id, location internals) must not survive into the message.
+    assert "Job ID" not in str(exc_info.value)
+    assert BIGQUERY_DATASET_NOT_FOUND_ERROR in BigQuerySource().get_non_retryable_errors()
+
+
+@pytest.mark.parametrize(
+    "error_message,expected_type,is_rejected",
+    [
+        # An `invalid_grant` RefreshError means Google rejected the service-account grant (rotated
+        # key, deleted account). `get_columns` must surface a clear message instead of the tuple repr.
+        (
+            "('invalid_grant: Invalid JWT Signature.', {'error': 'invalid_grant', 'error_description': 'Invalid JWT Signature.'})",
+            BigQueryCredentialsRejectedError,
+            True,
+        ),
+        # Transient/other RefreshErrors carry their own diagnoses and must propagate unchanged.
+        ("('Failed to retrieve token', {'error': 'internal_failure'})", RefreshError, False),
+    ],
+)
+def test_bigquery_get_columns_refresh_error_handling(error_message, expected_type, is_rejected):
+    """`invalid_grant` RefreshErrors are wrapped as `BigQueryCredentialsRejectedError`; others propagate."""
+    fake_client = mock.MagicMock()
+    fake_client.query.side_effect = RefreshError(error_message)
+
+    with pytest.raises(expected_type) as exc_info:
+        BigQueryImplementation().get_columns(fake_client, _make_config(), names=None)
+
+    assert isinstance(exc_info.value, BigQueryCredentialsRejectedError) == is_rejected
+    if is_rejected:
+        # The wizard shows this str() directly, and it must keep the `invalid_grant` marker so the
+        # sync schema-discovery path still recognises it as non-retryable.
+        assert "invalid_grant" in str(exc_info.value)
+        assert "rejected by Google" in str(exc_info.value)
+        assert any(key in str(exc_info.value) for key in BigQuerySource().get_non_retryable_errors())
 
 
 @pytest.mark.parametrize(
@@ -402,6 +455,42 @@ def test_bigquery_malformed_table_id_is_non_retryable(observed_error):
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
     matching = [key for key in non_retryable_errors if key in observed_error]
     assert matching, "Malformed table id error should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+
+
+@pytest.mark.parametrize(
+    "observed_error",
+    [
+        # Offline ngrok tunnel — the subdomain varies but the stable error code does not.
+        "RefreshError: <!DOCTYPE html> <html> ... "
+        "<noscript>The endpoint tetrarchical-coercibly-norine.ngrok-free.dev is offline. (ERR_NGROK_3200)</noscript>",
+        # Different tunnel subdomain — the match must not rely on the volatile host part.
+        "RefreshError: <!DOCTYPE html> <html> ... "
+        "<noscript>The endpoint other-tunnel-name.ngrok-free.dev is offline. (ERR_NGROK_3200)</noscript>",
+    ],
+)
+def test_non_retryable_errors_match_offline_token_uri_endpoint(observed_error):
+    """A service account whose `token_uri` points at an offline ngrok tunnel makes google-auth
+    raise a `RefreshError` carrying ngrok's HTML error page — a misconfigured key the user must
+    fix, so the sync must be disabled rather than retried forever."""
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in observed_error]
+    assert matching, "Offline token_uri endpoint error should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+
+
+@pytest.mark.parametrize(
+    "observed_error",
+    [
+        # Corrupted/truncated private key body in the uploaded service account JSON.
+        "Unable to load PEM file. See https://cryptography.io/en/latest/faq/#why-can-t-i-import-my-pem-file for more details. InvalidData(InvalidPadding)",
+        "ValueError: Unable to load PEM file. InvalidData(InvalidByte(1, 45))",
+    ],
+)
+def test_bigquery_unparseable_private_key_is_non_retryable(observed_error):
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in observed_error]
+    assert matching, "Unparseable private key error should be recognised as non-retryable"
     assert all(non_retryable_errors[key] is not None for key in matching)
 
 
@@ -798,6 +887,40 @@ def test_bigquery_dataset_not_found_in_location_is_non_retryable(location):
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
 
     assert any(pattern in error_msg for pattern in non_retryable_errors)
+
+
+def test_bigquery_table_not_found_during_sync_is_non_retryable():
+    """A table deleted/renamed after schema discovery surfaces from `get_table()` at sync time as a
+    google NotFound whose str() is "... Not found: Table <project>:<dataset>.<table>" — distinct from
+    the dataset-region "was not found in location" wording. It must be recognised as non-retryable via
+    the "Not found: Table" pattern instead of retrying a table that can't reappear within the run."""
+    error = NotFound(
+        "GET https://bigquery.googleapis.com/bigquery/v2/projects/my-proj/datasets/my_dataset/"
+        "tables/my_table?prettyPrint=false: Not found: Table my-proj:my_dataset.my_table"
+    )
+
+    # Mirror the substring match in `update_external_data_job_model`.
+    error_msg = str(error)
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in error_msg]
+
+    assert matching, "a table-not-found 404 during sync should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+    assert "was not found in location" not in error_msg
+
+
+@pytest.mark.parametrize(
+    "other_error",
+    [
+        # Transient server errors must stay retryable.
+        "503 Service unavailable, please retry",
+        "500 Internal error encountered, please retry",
+    ],
+)
+def test_bigquery_table_not_found_key_does_not_match_unrelated_errors(other_error):
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    assert "Not found: Table" not in other_error
+    assert not any(key in other_error for key in non_retryable_errors)
 
 
 def test_bigquery_storage_read_client_disables_grpc_message_size_limit():

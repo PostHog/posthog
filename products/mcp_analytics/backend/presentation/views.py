@@ -159,7 +159,7 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(
         operation_id="mcp_analytics_sessions_list",
-        description="List MCP sessions for the current project, derived by grouping mcp_tool_call events by $mcp_session_id. Ordered by newest session start first by default.",
+        description="List MCP sessions for the current project, derived by grouping $mcp_tool_call events by $mcp_session_id. Ordered by newest session start first by default.",
         parameters=[
             OpenApiParameter(
                 name="search",
@@ -196,7 +196,7 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @extend_schema(
         operation_id="mcp_analytics_sessions_tool_calls",
-        description="List all mcp_tool_call events that belong to a given $session_id, in chronological order.",
+        description="List all $mcp_tool_call events that belong to a given $session_id, in chronological order.",
         responses={200: MCPToolCallSerializer(many=True)},
     )
     @action(detail=True, methods=["get"], url_path="tool_calls")

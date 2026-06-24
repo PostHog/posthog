@@ -32,7 +32,7 @@ class AppsFlyerEndpointConfig:
 APPSFLYER_ENDPOINTS: dict[str, AppsFlyerEndpointConfig] = {
     "daily_report": AppsFlyerEndpointConfig(
         name="daily_report",
-        report="dailyreport",
+        report="daily_report",
     ),
     "geo_report": AppsFlyerEndpointConfig(
         name="geo_report",

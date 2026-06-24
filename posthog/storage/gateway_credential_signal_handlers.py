@@ -58,6 +58,17 @@ _SECRET_KEY_KIND = "project_secret_api_key"
 _OAUTH_KIND = "oauth_access_token"
 
 
+def _best_effort_clear(cache_hash: str) -> None:
+    # These direct clears fire from signals running inside the DB write itself
+    # (pre_delete) or its post-commit hook. A transient Redis outage must not
+    # 500 the underlying save/delete — the blob's TTL (and the async reprojection
+    # paths) are the durable backstop. Best-effort: log and move on.
+    try:
+        clear_gateway_credential(cache_hash)
+    except Exception as e:
+        logger.warning("gateway_credential clear failed; relying on TTL backstop", error=str(e))
+
+
 def _secret_key_hash(instance: ProjectSecretAPIKey) -> str | None:
     return instance.secure_value
 
@@ -159,12 +170,12 @@ def _on_credential_save(
             # A rotated/changed hash leaves the old key live for the full TTL —
             # clear it synchronously so the stale secret stops authenticating now.
             if old_hash and old_hash != new_hash:
-                clear_gateway_credential(old_hash)
+                _best_effort_clear(old_hash)
             if eligible_now:
                 update_gateway_credential_cache_task.delay(kind, str(instance.pk))
             elif new_hash:
                 # Scope was removed: clear promptly rather than waiting for a task.
-                clear_gateway_credential(new_hash)
+                _best_effort_clear(new_hash)
         except Exception as e:
             HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
                 namespace="team_metadata", cache_name=_CACHE_NAME, operation="enqueue", result="failure"
@@ -203,7 +214,7 @@ def _clear_secret_key_on_delete(
         return
     cache_hash = _secret_key_hash(instance)
     if cache_hash:
-        clear_gateway_credential(cache_hash)
+        _best_effort_clear(cache_hash)
 
 
 def _clear_oauth_on_delete(sender: type[OAuthAccessToken], instance: OAuthAccessToken, **kwargs: Any) -> None:
@@ -213,7 +224,7 @@ def _clear_oauth_on_delete(sender: type[OAuthAccessToken], instance: OAuthAccess
         return
     cache_hash = _oauth_hash(instance)
     if cache_hash:
-        clear_gateway_credential(cache_hash)
+        _best_effort_clear(cache_hash)
 
 
 def _reproject_user_sync_then_async(user_id: int) -> None:

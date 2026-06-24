@@ -16,7 +16,7 @@ describe('loadAgentJanitorConfig', () => {
 
     it('returns defaults for an empty env', () => {
         const cfg = loadAgentJanitorConfig({})
-        expect(cfg.port).toBe(8082)
+        expect(cfg.port).toBe(3031) // dev default (vitest runs NODE_ENV=test)
         expect(cfg.maxRetries).toBe(3)
         expect(cfg.logLevel).toBe('info')
         // Dev default — gates RPC auth locally without forcing every dev to set it.
@@ -35,6 +35,7 @@ describe('loadAgentJanitorConfig', () => {
         const cfg = loadAgentJanitorConfig(PROD_REQUIRED)
         expect(cfg.internalSigningKey).toBe('prod-signing-key')
         expect(cfg.bundleS3Bucket).toBe('prod-bundles')
+        expect(cfg.port).toBe(8082) // prod default
     })
 
     it('coerces numeric env strings without leaking NaN', () => {

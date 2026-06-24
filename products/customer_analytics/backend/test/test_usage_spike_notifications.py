@@ -5,11 +5,11 @@ from parameterized import parameterized
 
 from posthog.models import Team
 
-from products.customer_analytics.backend.services.usage_spike_notifications import notify_managers_of_usage_spike
+from products.customer_analytics.backend.logic.usage_spike_notifications import notify_managers_of_usage_spike
 from products.customer_analytics.backend.test.factories import create_account
 from products.notifications.backend.facade.enums import NotificationType, Priority, SourceType, TargetType
 
-SERVICE = "products.customer_analytics.backend.services.usage_spike_notifications"
+SERVICE = "products.customer_analytics.backend.logic.usage_spike_notifications"
 
 SPIKES = [{"metric": "events", "factor": 3.2, "direction": "up", "percent_change": 220}]
 
