@@ -10,7 +10,7 @@ import psycopg
 import structlog
 from psycopg import sql
 
-from posthog.ducklake.common import get_duckgres_config_for_org
+from posthog.ducklake.common import duckgres_data_imports_schema, get_duckgres_config_for_org
 from posthog.ducklake.storage import setup_duckgres_session
 from posthog.models import Team
 from posthog.temporal.data_imports.naming_convention import NamingConvention
@@ -212,7 +212,10 @@ def _process_batch(conn: psycopg.Connection[Any], batch: PendingBatch, schema: E
 
 
 def _duckgres_schema_name(team_id: int) -> str:
-    return f"posthog_data_imports_team_{team_id}"
+    # Resolves to posthog_data_imports_<table_suffix> when the team has set one
+    # (DuckLakeBackfill.table_suffix — the same suffix that names its
+    # events/persons tables), else the legacy posthog_data_imports_team_<id>.
+    return duckgres_data_imports_schema(team_id)
 
 
 def _duckgres_table_name(schema: ExternalDataSchema) -> str:
@@ -344,8 +347,11 @@ def _mark_duckgres_batch_applied(conn: psycopg.Connection[Any], duckgres_schema:
     cursor = conn.execute(
         sql.SQL(
             """
-            INSERT INTO {}.{} (schema_id, run_uuid, batch_index, batch_id)
-            VALUES (%s, %s, %s, %s)
+            -- applied_at is set explicitly: DuckLake does not apply the column's
+            -- DEFAULT now() on insert (unlike Postgres), so omitting it writes NULL
+            -- and trips the NOT NULL constraint.
+            INSERT INTO {}.{} (schema_id, run_uuid, batch_index, batch_id, applied_at)
+            VALUES (%s, %s, %s, %s, now())
             ON CONFLICT (schema_id, run_uuid, batch_index) DO NOTHING
             """
         ).format(

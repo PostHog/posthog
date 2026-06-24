@@ -30,6 +30,8 @@ class TestResolveDucklingTarget:
                 "products.data_warehouse.backend.api.managed_warehouse.cp_bucket_for",
                 return_value=cp_bucket,
             ) as mock_cp,
+            # The per-environment table-name lookup hits the DB; this suite stays DB-free.
+            patch("posthog.dags.events_backfill_to_duckling._resolve_table_names", return_value=("events", "persons")),
         ):
             target = _resolve_duckling_target(team_id=123)
         return target, mock_cp

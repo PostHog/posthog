@@ -7,7 +7,6 @@ import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
 import { PersonRepository } from '~/common/persons/repositories/person-repository'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
-import type { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import type { ErrorTrackingConsumerConfig } from '~/ingestion/pipelines/errortracking/config'
 import type { MetricsIngestionConsumerConfig } from '~/ingestion/pipelines/metrics/config'
 import type { SessionRecordingApiConfig, SessionRecordingConfig } from '~/ingestion/pipelines/sessionreplay/config'
@@ -133,14 +132,12 @@ export interface HubServices {
     postgres: PostgresRouter
     redisPool: GenericPool<Redis>
     posthogRedisPool: GenericPool<Redis>
-    cookielessRedisPool: GenericPool<Redis>
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     groupRepository: GroupRepository
     personRepository: PersonRepository
     geoipService: GeoIPService
     encryptedFields: EncryptedFields
-    cookielessManager: CookielessManager
     pubSub: PubSub
     integrationManager: IntegrationManagerService
     quotaLimiting: QuotaLimiting

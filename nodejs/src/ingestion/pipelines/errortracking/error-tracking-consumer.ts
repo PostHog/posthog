@@ -324,9 +324,11 @@ export class ErrorTrackingConsumer {
                         ? `${input.team.id}:exceptions:issue:${issueId}`
                         : null
                 },
-                // Per-issue keys are high-cardinality; collapse every issue's outcomes into a
-                // single app_metrics2 row per team rather than one row per issue.
-                getAppSourceId: (input) => `${input.team.id}:exceptions:per_issue`,
+                // Record the allowed/rate_limited decision per issue so the per-issue view can
+                // show counts keyed by the Cymbal-assigned issue id. getAppSourceId is only called
+                // for inputs whose getKey was non-null, which guarantees $exception_issue_id is a
+                // non-empty string here.
+                getAppSourceId: (input) => input.event.properties?.$exception_issue_id as string,
                 getTeamId: (input) => input.team.id,
                 reportingMode: this.config.rateLimiterReportingMode,
                 dropReason: 'rate_limited:per_issue',

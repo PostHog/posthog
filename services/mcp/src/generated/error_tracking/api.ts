@@ -2984,7 +2984,7 @@ export const ErrorTrackingGroupingRulesUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 export const ErrorTrackingIssuesPartialUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this error tracking issue.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -3005,7 +3005,7 @@ export const ErrorTrackingIssuesPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 export const ErrorTrackingIssuesMergeCreateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this error tracking issue.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -3018,7 +3018,7 @@ export const ErrorTrackingIssuesMergeCreateBody = /* @__PURE__ */ zod.object({
 })
 
 export const ErrorTrackingIssuesSplitCreateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this error tracking issue.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -5570,7 +5570,7 @@ export const ErrorTrackingSymbolSetsListQueryParams = /* @__PURE__ */ zod.object
 })
 
 export const ErrorTrackingSymbolSetsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this error tracking symbol set.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
@@ -5582,7 +5582,7 @@ export const ErrorTrackingSymbolSetsRetrieveParams = /* @__PURE__ */ zod.object(
  * Return a presigned URL for downloading the symbol set's source map.
  */
 export const ErrorTrackingSymbolSetsDownloadRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this error tracking symbol set.'),
+    id: zod.string(),
     project_id: zod
         .string()
         .describe(
