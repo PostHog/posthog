@@ -192,8 +192,12 @@ async def handle_llm_request(
         raise
     except Exception as e:
         PROVIDER_ERRORS.labels(provider=provider_config.name, error_type=type(e).__name__, product=product).inc()
-        capture_exception(e, {"provider": provider_config.name, "model": model, "user_id": user.user_id})
         status_code = getattr(e, "status_code", 500)
+        # Only report server (5xx) errors to error tracking. Client 4xx errors (e.g. a
+        # malformed request that the provider rejects) are the caller's mistake, not a
+        # gateway bug, so they would just be triage noise.
+        if status_code >= 500:
+            capture_exception(e, {"provider": provider_config.name, "model": model, "user_id": user.user_id})
         logger.exception(
             "llm_request_failed",
             endpoint=provider_config.endpoint_name,
@@ -260,8 +264,11 @@ async def _handle_streaming_request(
     except Exception as e:
         CONCURRENT_REQUESTS.labels(provider=provider_config.name, model=model, product=product).dec()
         PROVIDER_ERRORS.labels(provider=provider_config.name, error_type=type(e).__name__, product=product).inc()
-        capture_exception(e, {"provider": provider_config.name, "model": model, "streaming": True})
         status_code = getattr(e, "status_code", 500)
+        # Only report server (5xx) errors to error tracking; client 4xx errors are the
+        # caller's mistake, not a gateway bug.
+        if status_code >= 500:
+            capture_exception(e, {"provider": provider_config.name, "model": model, "streaming": True})
         logger.exception(
             "llm_request_failed",
             endpoint=provider_config.endpoint_name,
@@ -326,9 +333,13 @@ async def _handle_streaming_request(
             )
             raise
         except Exception as e:
-            status_code = str(getattr(e, "status_code", 500))
+            error_status_code = getattr(e, "status_code", 500)
+            status_code = str(error_status_code)
             PROVIDER_ERRORS.labels(provider=provider_config.name, error_type=type(e).__name__, product=product).inc()
-            capture_exception(e, {"provider": provider_config.name, "model": model, "streaming": True})
+            # Only report server (5xx) errors to error tracking; client 4xx errors are the
+            # caller's mistake, not a gateway bug.
+            if error_status_code >= 500:
+                capture_exception(e, {"provider": provider_config.name, "model": model, "streaming": True})
             logger.exception(
                 "stream_chunk_failed",
                 endpoint=provider_config.endpoint_name,

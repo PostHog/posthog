@@ -252,6 +252,133 @@ class TestStreamingLifecycle:
         assert any(b"[DONE]" in chunk for chunk in collected)
 
 
+class TestErrorTrackingCaptureGating:
+    @pytest.fixture
+    def mock_user(self) -> AuthenticatedUser:
+        return AuthenticatedUser(
+            user_id=123,
+            team_id=456,
+            auth_method="personal_api_key",
+            distinct_id="test-distinct-id",
+            scopes=["llm_gateway:read"],
+        )
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "status_code,should_capture",
+        [
+            pytest.param(400, False, id="bad_request_not_captured"),
+            pytest.param(401, False, id="auth_error_not_captured"),
+            pytest.param(429, False, id="rate_limit_not_captured"),
+            pytest.param(499, False, id="boundary_4xx_not_captured"),
+            pytest.param(500, True, id="internal_error_captured"),
+            pytest.param(503, True, id="service_unavailable_captured"),
+        ],
+    )
+    async def test_non_streaming_only_captures_5xx(
+        self, mock_user: AuthenticatedUser, status_code: int, should_capture: bool
+    ) -> None:
+        async def failing_llm_call(**kwargs: Any) -> None:
+            raise MockProviderError("error", status_code=status_code)
+
+        with patch("llm_gateway.api.handler.capture_exception") as mock_capture:
+            with pytest.raises(HTTPException):
+                await handle_llm_request(
+                    request_data={"model": "test", "messages": []},
+                    user=mock_user,
+                    model="test-model",
+                    is_streaming=False,
+                    provider_config=ANTHROPIC_CONFIG,
+                    llm_call=failing_llm_call,
+                )
+
+        assert mock_capture.called is should_capture
+
+    @pytest.mark.asyncio
+    async def test_non_streaming_unknown_status_defaults_to_captured(self, mock_user: AuthenticatedUser) -> None:
+        async def failing_llm_call(**kwargs: Any) -> None:
+            raise ValueError("no status code attribute")
+
+        with patch("llm_gateway.api.handler.capture_exception") as mock_capture:
+            with pytest.raises(HTTPException):
+                await handle_llm_request(
+                    request_data={"model": "test", "messages": []},
+                    user=mock_user,
+                    model="test-model",
+                    is_streaming=False,
+                    provider_config=ANTHROPIC_CONFIG,
+                    llm_call=failing_llm_call,
+                )
+
+        assert mock_capture.called is True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "status_code,should_capture",
+        [
+            pytest.param(400, False, id="bad_request_not_captured"),
+            pytest.param(429, False, id="rate_limit_not_captured"),
+            pytest.param(500, True, id="internal_error_captured"),
+            pytest.param(529, True, id="overloaded_captured"),
+        ],
+    )
+    async def test_streaming_pre_stream_only_captures_5xx(
+        self, mock_user: AuthenticatedUser, status_code: int, should_capture: bool
+    ) -> None:
+        async def failing_llm_call(**kwargs: Any) -> None:
+            raise MockProviderError("error", status_code=status_code)
+
+        with patch("llm_gateway.api.handler.capture_exception") as mock_capture:
+            with pytest.raises(HTTPException):
+                await handle_llm_request(
+                    request_data={"model": "test", "messages": [], "stream": True},
+                    user=mock_user,
+                    model="test-model",
+                    is_streaming=True,
+                    provider_config=ANTHROPIC_CONFIG,
+                    llm_call=failing_llm_call,
+                )
+
+        assert mock_capture.called is should_capture
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "status_code,should_capture",
+        [
+            pytest.param(400, False, id="bad_request_not_captured"),
+            pytest.param(500, True, id="internal_error_captured"),
+        ],
+    )
+    async def test_streaming_mid_stream_only_captures_5xx(
+        self, mock_user: AuthenticatedUser, status_code: int, should_capture: bool
+    ) -> None:
+        async def error_stream() -> AsyncGenerator[dict[str, Any]]:
+            yield {"type": "content_block_delta", "delta": {"text": "Hello"}}
+            raise MockProviderError("mid-stream failure", status_code=status_code)
+
+        async def mock_llm_call(**kwargs: Any) -> AsyncGenerator[dict[str, Any]]:
+            return error_stream()
+
+        with patch("llm_gateway.api.handler.capture_exception") as mock_capture:
+            response = await handle_llm_request(
+                request_data={"model": "test", "messages": [], "stream": True},
+                user=mock_user,
+                model="test-model",
+                is_streaming=True,
+                provider_config=ANTHROPIC_CONFIG,
+                llm_call=mock_llm_call,
+            )
+
+            assert isinstance(response, StreamingResponse)
+            try:
+                async for _ in response.body_iterator:
+                    pass
+            except Exception:
+                pass
+
+        assert mock_capture.called is should_capture
+
+
 def _get_request_count(status_code: str, model: str = "test-model") -> float:
     return REQUEST_COUNT.labels(
         endpoint="anthropic_messages",
