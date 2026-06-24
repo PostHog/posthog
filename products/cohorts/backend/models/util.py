@@ -956,12 +956,19 @@ def get_all_cohort_dependencies(
     cohort: Cohort,
     using_database: str = "default",
     seen_cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
-    stop_at_static: bool = False,
+    stop_traversal_at_static: bool = False,
 ) -> list[Cohort]:
+    """
+    Return cohorts referenced by this cohort, recursively.
+
+    When stop_traversal_at_static is True, a static root cohort returns no dependencies.
+    Static nested cohorts are still returned, but their own dependencies are not traversed.
+    """
+
     if seen_cohorts_cache is None:
         seen_cohorts_cache = {}
 
-    if stop_at_static and cohort.is_static:
+    if stop_traversal_at_static and cohort.is_static:
         return []
 
     cohorts = []
@@ -986,7 +993,7 @@ def get_all_cohort_dependencies(
                 cohorts.append(current_cohort)
                 seen_cohort_ids.add(current_cohort.id)
 
-                if not (stop_at_static and current_cohort.is_static):
+                if not (stop_traversal_at_static and current_cohort.is_static):
                     queue.extend(get_nested_cohort_ids(current_cohort))
 
         except Cohort.DoesNotExist:

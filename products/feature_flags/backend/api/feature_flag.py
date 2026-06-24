@@ -1339,7 +1339,7 @@ class FeatureFlagSerializer(
                         initial_cohort: Cohort = Cohort.objects.get(
                             pk=cast(str | int, prop.value), team__project_id=self.context["project_id"]
                         )
-                        dependency_cohorts = get_all_cohort_dependencies(initial_cohort, stop_at_static=True)
+                        dependency_cohorts = get_all_cohort_dependencies(initial_cohort, stop_traversal_at_static=True)
                         for cohort in [initial_cohort, *dependency_cohorts]:
                             if cohort.is_static:
                                 continue
