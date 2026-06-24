@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonTree, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { DropdownMenuGroup } from 'lib/ui/DropdownMenu/DropdownMenu'
 
 import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -11,7 +12,7 @@ import { DashboardBasicType } from '~/types'
 import { dashboardsFileSystemLogic } from './dashboardsFileSystemLogic'
 import { FolderTreeNode } from './dashboardsFileSystemUtils'
 import { DashboardsTable } from './DashboardsTable'
-import { NewFolderButton } from './NewFolderButton'
+import { DashboardsTreeFolderMenu } from './DashboardsTreeFolderMenu'
 
 // "All dashboards" is the single tree root; every folder nests under it. record.type 'folder' makes even
 // childless folders behave as folders. The folder path doubles as the id; the root uses a sentinel id.
@@ -46,7 +47,7 @@ function collectExpandablePaths(nodes: FolderTreeNode[], acc: string[] = []): st
 // expandedFolders reducer so collapsing sticks and the open/close animation plays. The table's Folder column
 // reads the same entryByRef the scoping uses, so the displayed folder always matches where the dashboard is.
 export function DashboardsTree(): JSX.Element {
-    const { folderTree, currentFolder, currentSubtreeDashboards, entryByRef, expandedFolders } =
+    const { folderTree, currentFolder, currentSubtreeDashboards, entryByRef, expandedFolders, folderEntryByPath } =
         useValues(dashboardsFileSystemLogic)
     const { navigateToFolder, toggleFolder, setExpandedFolders } = useActions(dashboardsFileSystemLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
@@ -75,8 +76,8 @@ export function DashboardsTree(): JSX.Element {
     return (
         <div className="grid grid-cols-[260px_1fr] gap-4" data-attr="dashboards-tree">
             <div className="flex flex-col gap-1 border-r border-border pr-2" aria-label="Folder tree">
-                <div className="flex items-center justify-between gap-1">
-                    <NewFolderButton />
+                <div className="flex items-center justify-end">
+                    {/* New folder now lives in each folder's hover menu (and the root's), mirroring the sidebar. */}
                     <LemonButton
                         size="small"
                         type="tertiary"
@@ -119,6 +120,19 @@ export function DashboardsTree(): JSX.Element {
                             if (folder.id !== ROOT_ID && folder.children && folder.children.length > 0) {
                                 toggleFolder(folder.id)
                             }
+                        }}
+                        itemSideAction={(item) => {
+                            // Hover ellipsis on every folder (root included). Root → New folder; a real folder
+                            // → New subfolder / Rename / Move to / Delete (the last three need its FileSystem row).
+                            if (item.record?.type !== 'folder') {
+                                return undefined
+                            }
+                            const path = (item.record?.path as string) ?? ''
+                            return (
+                                <DropdownMenuGroup>
+                                    <DashboardsTreeFolderMenu path={path} entry={folderEntryByPath[path]} />
+                                </DropdownMenuGroup>
+                            )
                         }}
                     />
                 </div>

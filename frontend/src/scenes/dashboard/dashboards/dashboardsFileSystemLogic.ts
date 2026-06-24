@@ -16,6 +16,10 @@ import { dashboardsLogic } from './dashboardsLogic'
 
 const DASHBOARD_FS_PAGE_LIMIT = 500
 
+// Folder mutations reuse projectTreeDataLogic's move/delete; this key only scopes that logic's optional
+// post-processing (selection clearing, undo re-expand), which safely no-ops for our unmounted instance.
+const DASHBOARDS_TREE_PROJECT_LOGIC_KEY = 'dashboards-tree'
+
 // View state for the tree arm: a folder tree built from the same FileSystem rows that back the sidebar
 // (both dashboard and folder rows, so empty folders appear), the selected folder, its expand state, and the
 // dashboards at or below it. Folder creation calls api.fileSystem.create then
@@ -26,7 +30,7 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
     path(['scenes', 'dashboard', 'dashboards', 'dashboardsFileSystemLogic']),
     connect(() => ({
         values: [dashboardsLogic, ['dashboards']],
-        actions: [projectTreeDataLogic, ['createSavedItem']],
+        actions: [projectTreeDataLogic, ['createSavedItem', 'movedItem', 'deleteItem']],
     })),
     actions({
         // Tree arm: select a folder ('' = the dashboards root).
@@ -35,8 +39,12 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
         toggleFolder: (folder: string) => ({ folder }),
         // Replace the whole expanded-folders map at once (Expand all / Collapse all).
         setExpandedFolders: (folders: Record<string, boolean>) => ({ folders }),
-        // Create a folder inside the current folder (the UI prompts for the name).
-        createFolder: (name: string) => ({ name }),
+        // Create a folder inside `parentPath` ('' = root; defaults to the selected folder when omitted).
+        createFolder: (name: string, parentPath?: string) => ({ name, parentPath }),
+        // Rename a folder — moves it to a sibling path carrying the new name (descendants re-path server-side).
+        renameFolder: (entry: FileSystemEntry, newName: string) => ({ entry, newName }),
+        // Delete a folder via the shared delete path (its confirmation + undo + store sync live there).
+        deleteFolder: (entry: FileSystemEntry) => ({ entry }),
     }),
     loaders({
         dashboardFileSystemEntries: [
@@ -99,6 +107,14 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
             (entries): Record<string, FileSystemEntry> => buildEntryByRef(entries),
         ],
         folderPaths: [(s) => [s.folderEntries], (folderEntries): string[] => folderEntries.map((entry) => entry.path)],
+        // Real folder rows keyed by path, so the folder menu can act on a folder's FileSystemEntry (needs its
+        // id). Folders that exist only because a dashboard references them (no row) are absent — the menu hides
+        // move/rename/delete for those and offers only "New subfolder".
+        folderEntryByPath: [
+            (s) => [s.folderEntries],
+            (folderEntries): Record<string, FileSystemEntry> =>
+                Object.fromEntries(folderEntries.map((entry) => [entry.path, entry])),
+        ],
         folderTree: [
             (s) => [s.dashboards, s.entryByRef, s.folderPaths],
             (dashboards, entryByRef, folderPaths): FolderTreeNode[] =>
@@ -140,12 +156,13 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
             // the degraded structure looks like a genuinely flat project.
             lemonToast.error('Could not load folders — empty folders may not appear. Refresh to retry.')
         },
-        createFolder: async ({ name }) => {
+        createFolder: async ({ name, parentPath }) => {
             const trimmed = name.trim()
             if (!trimmed) {
                 return
             }
-            const path = joinPath([...(values.currentFolder ? splitPath(values.currentFolder) : []), trimmed])
+            const parent = parentPath ?? values.currentFolder
+            const path = joinPath([...(parent ? splitPath(parent) : []), trimmed])
             try {
                 const created = await api.fileSystem.create({ type: 'folder', path } as FileSystemEntry)
                 // Sync the sidebar's shared store the same way the project-tree create path does, then
@@ -156,6 +173,40 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
                 lemonToast.success(`Created folder "${trimmed}"`)
             } catch {
                 lemonToast.error('Could not create the folder.')
+            }
+        },
+        renameFolder: async ({ entry, newName }) => {
+            const trimmed = newName.trim()
+            if (!trimmed || !entry.id) {
+                return
+            }
+            const newPath = joinPath([...splitPath(entry.path).slice(0, -1), trimmed])
+            if (newPath === entry.path) {
+                return
+            }
+            try {
+                await api.fileSystem.move(entry.id, newPath)
+                // movedItem syncs the sidebar's store and (via our own listener below) refetches this tree.
+                actions.movedItem(entry, entry.path, newPath)
+                if (values.currentFolder === entry.path) {
+                    actions.navigateToFolder(newPath)
+                }
+                lemonToast.success(`Renamed to "${trimmed}"`)
+            } catch {
+                lemonToast.error('Could not rename the folder.')
+            }
+        },
+        deleteFolder: ({ entry }) => {
+            // Reuse the shared delete: large-folder confirmation, undo toast, and store sync all live there.
+            // The follow-up refetch happens in the deleteSavedItem listener below.
+            actions.deleteItem(entry, DASHBOARDS_TREE_PROJECT_LOGIC_KEY)
+        },
+        [projectTreeDataLogic.actionTypes.deleteSavedItem]: ({ savedItem }) => {
+            actions.loadFolderEntries()
+            actions.loadDashboardFileSystemEntries()
+            // If the folder we were scoped to is gone, fall back to the root rather than a dead scope.
+            if (values.currentFolder === savedItem.path) {
+                actions.navigateToFolder('')
             }
         },
     })),

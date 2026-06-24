@@ -56,6 +56,7 @@ describe('DashboardsTree', () => {
             currentSubtreeDashboards: [],
             entryByRef: {},
             expandedFolders: {},
+            folderEntryByPath: {},
             dashboardsLoading: false,
             ...overrides,
         })
