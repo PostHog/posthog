@@ -59,6 +59,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
     MAX_CUSTOM_SOURCES_PER_TEAM,
+    PREVIEW_DEFAULT_ROWS,
     PREVIEW_MAX_ROWS,
     ManifestValidationError,
     PreviewResult,
@@ -9845,6 +9846,24 @@ class TestExternalDataSourcePreviewAndCustomPayload(APIBaseTest):
         assert body["columns"] == [{"name": "id", "type": "integer"}, {"name": "name", "type": "string"}]
         assert body["error"] is None
         assert mock_preview.call_args.args[2] == "users"
+        assert mock_preview.call_args.args[3] == PREVIEW_DEFAULT_ROWS
+
+    @patch("posthog.temporal.data_imports.sources.custom.source.CustomSource.preview_resource")
+    def test_preview_resource_forwards_explicit_limit(self, mock_preview):
+        mock_preview.return_value = PreviewResult(rows=[], row_count=0, columns=[], error=None)
+
+        response = self.client.post(
+            self._url("preview_resource"),
+            data={
+                "source_type": "Custom",
+                "payload": {"manifest_json": json.dumps(_PREVIEW_MANIFEST)},
+                "resource_name": "users",
+                "limit": 25,
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert mock_preview.call_args.args[3] == 25
 
     @patch("posthog.temporal.data_imports.sources.custom.source.CustomSource.preview_resource")
     def test_preview_resource_manifest_error_returns_400(self, mock_preview):

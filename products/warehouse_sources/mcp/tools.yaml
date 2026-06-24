@@ -385,6 +385,7 @@ tools:
             securely in their browser rather than pasting secrets into the chat.
     external-data-sources-preview-resource-create:
         operation: external_data_sources_preview_resource_create
+        # Disabled until the preview UX lands; turning it on exposes the create-time live read to agents.
         enabled: false
     external-data-sources-refresh-schemas:
         operation: external_data_sources_refresh_schemas_create

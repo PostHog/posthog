@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
     MAX_MANIFEST_RESOURCES,
+    PREVIEW_MAX_FANOUT_PARENTS,
     PREVIEW_MAX_ROWS,
     PROBE_CONNECT_TIMEOUT,
     PROBE_ERROR_SNIPPET_BYTES,
@@ -945,6 +946,22 @@ class _CountingResource:
             yield [{"id": index}]
 
 
+class _EmptyPageCountingResource:
+    """Engine Resource that yields empty pages lazily — one per parent item in a
+    fan-out child whose children resolve empty — and records how many it produced,
+    so a test can prove preview caps the parent requests instead of draining them."""
+
+    def __init__(self, name: str, total_pages: int) -> None:
+        self.name = name
+        self.total_pages = total_pages
+        self.pages_produced = 0
+
+    def __iter__(self) -> Any:
+        for index in range(self.total_pages):
+            self.pages_produced = index + 1
+            yield []
+
+
 def _break_unknown_parent(m: dict) -> None:
     m["resources"][1]["endpoint"]["params"]["form_id"]["resource"] = "nonexistent"
 
@@ -1636,8 +1653,8 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
 
     @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
     def test_max_rows_clamped_to_hard_cap(self, mock_resources):
-        resource = _CountingResource("users", total_rows=PREVIEW_MAX_ROWS + 50)
-        mock_resources.return_value = [resource]
+        one_big_page = [[{"id": index} for index in range(PREVIEW_MAX_ROWS + 50)]]
+        mock_resources.return_value = [_PageResource("users", one_big_page)]
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="abc")
         result = source.preview_resource(config, team_id=999, resource_name="users", max_rows=PREVIEW_MAX_ROWS + 50)
@@ -1702,6 +1719,32 @@ class TestCustomSourcePreviewResource(SimpleTestCase):
             assert "incremental" not in resource["endpoint"]
             assert resource["endpoint"]["paginator"] == {"type": "single_page"}
         assert result.rows == [{"token": "t1"}]
+
+    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_fanout_empty_child_caps_parent_requests(self, mock_resources):
+        resource = _EmptyPageCountingResource("responses", total_pages=PREVIEW_MAX_FANOUT_PARENTS + 50)
+        mock_resources.return_value = [resource]
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_fanout_manifest()), auth_token="abc")
+        result = source.preview_resource(config, team_id=999, resource_name="responses")
+
+        assert result.row_count == 0
+        assert resource.pages_produced == PREVIEW_MAX_FANOUT_PARENTS
+
+    @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
+    @patch(
+        "posthog.temporal.data_imports.sources.custom.source._is_host_safe",
+        side_effect=lambda hostname, team_id: (hostname == "api.example.com", "blocked: internal host"),
+    )
+    def test_rejects_resource_resolving_to_new_internal_host(self, _mock_safe, mock_resources):
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"]["path"] = "https://169.254.169.254/users"
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        with self.assertRaises(ManifestValidationError):
+            source.preview_resource(config, team_id=999, resource_name="users")
+
+        mock_resources.assert_not_called()
 
     @patch("posthog.temporal.data_imports.sources.custom.source.rest_api_resources")
     def test_live_fetch_error_is_returned_and_secret_redacted(self, mock_resources):

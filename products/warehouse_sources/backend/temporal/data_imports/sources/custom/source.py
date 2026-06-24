@@ -95,6 +95,13 @@ MAX_CUSTOM_SOURCES_PER_TEAM = 5
 # stops a preview from buffering a large page into worker memory.
 PREVIEW_DEFAULT_ROWS = 10
 PREVIEW_MAX_ROWS = 50
+# Upper bound on the parent-page items a fan-out preview drives the child over.
+# The engine issues one outbound child request per parent item, and the parent
+# page size is upstream-controlled — so the row cap alone doesn't bound requests
+# when the child returns few/zero rows per parent (exactly the misconfig this
+# preview helps debug). Cap the parents walked so one preview can't fan a single
+# inline call into an unbounded request burst; a handful is plenty to eyeball a child.
+PREVIEW_MAX_FANOUT_PARENTS = 10
 
 
 class ManifestValidationError(ValueError):
@@ -956,22 +963,33 @@ def _with_single_page_paginator(resource: dict[str, Any]) -> dict[str, Any]:
     return {**resource, "endpoint": {**endpoint, "paginator": {"type": "single_page"}}}
 
 
-def _collect_preview_rows(resource: Any, max_rows: int) -> list[dict[str, Any]]:
-    """Flatten the engine resource's pages into at most ``max_rows`` records.
+def _collect_preview_rows(
+    resource: Any, max_rows: int, max_pages: int = PREVIEW_MAX_FANOUT_PARENTS
+) -> list[dict[str, Any]]:
+    """Flatten the engine resource's pages into at most ``max_rows`` records,
+    walking at most ``max_pages`` pages.
 
-    Iterating a :class:`Resource` yields pages (``list[dict]``). Returning as
-    soon as the cap is hit abandons the lazy generator, which stops it issuing
-    further requests — the bound on a fan-out child's per-parent request volume.
-    This rests on the engine yielding per parent lazily; an engine change that
-    eagerly pre-fetches all parents would break the bound.
+    Iterating a :class:`Resource` yields pages (``list[dict]``) lazily, so
+    returning early abandons the generator and stops it issuing further requests.
+    Two bounds, because each alone is insufficient for a fan-out child (the
+    engine issues one child request per parent-page item, surfaced here as one
+    page each): ``max_rows`` bounds the common case, but a child returning
+    few/zero rows per parent would never hit it and drain the whole
+    upstream-controlled parent page — so ``max_pages`` caps the requests issued
+    regardless of how many rows come back. A single-page top-level resource
+    yields one page, well under the cap.
     """
     rows: list[dict[str, Any]] = []
+    pages_seen = 0
     for page in resource:
+        pages_seen += 1
         for item in page:
             if isinstance(item, dict):
                 rows.append(item)
                 if len(rows) >= max_rows:
                     return rows
+        if pages_seen >= max_pages:
+            return rows
     return rows
 
 
