@@ -8,6 +8,8 @@ import { quickFiltersLogic } from 'lib/components/QuickFilters/quickFiltersLogic
 import { LemonSelect, type LemonSelectOptionLeaf } from 'lib/lemon-ui/LemonSelect'
 import { urls } from 'scenes/urls'
 
+import { ReplayTabs } from '~/types'
+
 import { WIDGET_DATE_RANGE_SELECT_OPTIONS, type WidgetDateFromValue } from '../../widget_types/widgetConfigShared'
 import type { DashboardWidgetTileFiltersProps } from '../registry'
 import { WidgetPropertyFiltersSection } from '../WidgetPropertyFiltersSection'
@@ -27,6 +29,7 @@ export type SessionReplayWidgetTileFiltersProps = DashboardWidgetTileFiltersProp
 
 const NONE_VALUE = '__none__'
 const CREATE_SAVED_FILTER_VALUE = '__create_saved_filter__'
+const CREATE_COLLECTION_VALUE = '__create_collection__'
 
 export function SessionReplayWidgetTileFilters({
     config,
@@ -41,9 +44,9 @@ export function SessionReplayWidgetTileFilters({
     const collectionId = parsed.collectionId ?? null
     const hasSavedFilter = !!savedFilterId
     const hasCollection = !!collectionId
-    // A saved filter owns the date range and property filters; a bare collection isn't date-bounded. So the
-    // date control only applies with neither scope, while property filters narrow anything but a saved filter.
-    const showDateRange = !hasSavedFilter && !hasCollection
+    // A saved filter owns the date range and property filters. Otherwise both controls apply — including on
+    // top of a collection, so you can scope to a collection and still narrow it by date and properties.
+    const showDateRange = !hasSavedFilter
     const showPropertyFilters = !hasSavedFilter
 
     const { quickFilters: projectFilterDefinitions } = useValues(
@@ -63,7 +66,16 @@ export function SessionReplayWidgetTileFilters({
     )
 
     const collectionSelectOptions = useMemo<LemonSelectOptionLeaf<string>[]>(
-        () => [{ value: NONE_VALUE, label: 'No collection' }, ...collectionOptions],
+        () => [
+            { value: NONE_VALUE, label: 'No collection' },
+            ...collectionOptions,
+            // Always offer a shortcut to create a new collection in session replay.
+            {
+                value: CREATE_COLLECTION_VALUE,
+                label: 'Create a collection',
+                sideIcon: <IconExternal className="size-3.5" />,
+            },
+        ],
         [collectionOptions]
     )
     const savedFilterSelectOptions = useMemo<LemonSelectOptionLeaf<string>[]>(
@@ -97,6 +109,11 @@ export function SessionReplayWidgetTileFilters({
     }
 
     const applyCollection = async (value: string | null): Promise<void> => {
+        // The "create" item is a navigation shortcut to the collections tab, not a persisted value.
+        if (value === CREATE_COLLECTION_VALUE) {
+            window.open(urls.replay(ReplayTabs.Playlists), '_blank', 'noopener,noreferrer')
+            return
+        }
         const nextConfig = patchSessionReplayWidgetFilterFields(configRef.current, {
             collectionId: value && value !== NONE_VALUE ? value : null,
         })

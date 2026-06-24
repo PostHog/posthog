@@ -614,7 +614,7 @@ class TestDashboardRunWidgets(APIBaseTest):
                 "orderBy": "click_count",
                 "orderDirection": "ASC",
                 "collectionId": collection.short_id,
-                # A bare collection isn't date-bounded, so the widget's date range does not constrain it.
+                # The widget's date range still narrows within the collection scope.
                 "dateRange": {"date_from": "-7d"},
             },
             user=self.user,
@@ -624,7 +624,7 @@ class TestDashboardRunWidgets(APIBaseTest):
         # The collection scopes the result set to its pinned recordings...
         assert sorted(query.session_ids) == ["session-a", "session-b"]
         assert query.properties is None
-        assert query.date_from == "-1y"
+        assert query.date_from == "-7d"
         # ...while the widget still layers its own sort and limit on top.
         assert query.limit == 5
         assert query.order == RecordingOrder.CLICK_COUNT

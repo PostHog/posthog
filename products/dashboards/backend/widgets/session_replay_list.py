@@ -58,11 +58,6 @@ def _build_saved_filter_recordings_query(
     return query
 
 
-# A collection is a curated set of recordings, so when it's the only scope we don't constrain by date —
-# all pinned recordings should show regardless of age (matching the dedicated collection recordings endpoint).
-COLLECTION_DATE_FROM = "-1y"
-
-
 def _build_collection_session_ids(team: Team, collection_id: str) -> list[str] | None:
     # The pinned recordings of a collection (SessionRecordingPlaylist of type "collection"). Returns None when
     # the collection can't be reached (deleted, missing, or owned by another team) so the caller can ignore it.
@@ -87,8 +82,8 @@ def _build_recordings_query(team: Team, config: ValidatedSessionReplayListWidget
     has_collection = collection_session_ids is not None
 
     # The query criteria come from the saved filter when one is set; otherwise from the widget's own controls.
-    # A collection (if any) is then layered on as a session-id scope, so the saved filter / property filters
-    # narrow within the collection.
+    # A collection (if any) is then layered on as a session-id scope, so the date range / saved filter /
+    # property filters all narrow within the collection.
     saved_filter_id = config.get("savedFilterId")
     query = _build_saved_filter_recordings_query(team, config, saved_filter_id) if saved_filter_id else None
 
@@ -99,9 +94,6 @@ def _build_recordings_query(team: Team, config: ValidatedSessionReplayListWidget
             date_from_value = date_range_raw.get("date_from")
             if isinstance(date_from_value, str):
                 date_from = date_from_value
-        # A bare collection isn't date-bounded; only the widget's property filters narrow it.
-        if has_collection:
-            date_from = COLLECTION_DATE_FROM
 
         params: dict[str, Any] = {
             "limit": config["limit"],
