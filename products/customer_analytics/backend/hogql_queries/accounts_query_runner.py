@@ -1,3 +1,5 @@
+from django.db import DatabaseError
+
 from posthog.schema import AccountsQuery, AccountsQueryResponse, CachedAccountsQueryResponse
 
 from posthog.hogql import ast
@@ -12,7 +14,12 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import User
 from posthog.rbac.user_access_control import UserAccessControl
 
-from products.customer_analytics.backend.constants import BILLING_INVOICES_VIEW_NAME, BILLING_PICKER_COLUMNS
+from products.customer_analytics.backend.constants import (
+    BILLING_CONFIRMED_MRR_COLUMN,
+    BILLING_CREDITS_USED_COLUMN,
+    BILLING_INVOICES_VIEW_NAME,
+    BILLING_PICKER_COLUMNS,
+)
 
 NAME_COLUMN = "name"
 
@@ -115,11 +122,12 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
     def _check_billing_view_available(self) -> bool:
         # The billing view is PostHog-internal; it only exists where the billing warehouse data is
         # synced. Build the team's HogQL database to check — done lazily (only when a billing column
-        # is requested) since the build isn't free. Fail closed (NULL columns) on any error.
+        # is requested) since the build isn't free. Fail closed (NULL columns) if the schema can't
+        # be resolved; genuine programming errors are left to propagate.
         try:
             database = Database.create_for(team=self.team, user=self.user)
             return database.has_table(BILLING_INVOICES_VIEW_NAME)
-        except Exception:
+        except (DatabaseError, BaseHogQLError):
             return False
 
     def _billing_column_expr(self, column: str) -> ast.Expr:
@@ -133,18 +141,29 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
         # Pre-aggregate the billing view to one current-calendar-month row per org, then LEFT JOIN
         # on the account's external_id. The GROUP BY keeps it one row per org, so the per-account
         # query stays one row per account (no GROUP BY there). Accounts with no invoice in the
-        # current month don't match and surface NULL. Aliases must match BILLING_PICKER_COLUMNS.
+        # current month don't match and surface NULL.
         subquery = parse_select(
             """
-            SELECT
-                organization_id,
-                sumIf(mrr, type NOT LIKE '%upcoming%') AS confirmed_mrr,
-                sum(credits_used) AS credits_used
+            SELECT organization_id
             FROM {view}
             WHERE toStartOfMonth(period_end) = toStartOfMonth(now())
             GROUP BY organization_id
             """,
             {"view": ast.Field(chain=[BILLING_INVOICES_VIEW_NAME])},
+        )
+        assert isinstance(subquery, ast.SelectQuery)
+        # Output aliases come from the column constants (not SQL literals) so they can't drift from
+        # what `_billing_column_expr` reads back as `billing.<column>` — a constant rename can't
+        # silently turn every billing cell into NULL. The aggregated source fields (`mrr`,
+        # `credits_used`) are columns of the billing view itself, not these output names.
+        subquery.select.extend(
+            [
+                ast.Alias(
+                    alias=BILLING_CONFIRMED_MRR_COLUMN,
+                    expr=parse_expr("sumIf(mrr, type NOT LIKE '%upcoming%')"),
+                ),
+                ast.Alias(alias=BILLING_CREDITS_USED_COLUMN, expr=parse_expr("sum(credits_used)")),
+            ]
         )
         return ast.JoinExpr(
             table=subquery,

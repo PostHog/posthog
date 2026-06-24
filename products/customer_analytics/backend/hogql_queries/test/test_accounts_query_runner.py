@@ -17,6 +17,7 @@ from posthog.models import Tag, User
 from posthog.models.team import Team
 from posthog.rbac.user_access_control import UserAccessControlError
 
+from products.customer_analytics.backend.constants import BILLING_CONFIRMED_MRR_COLUMN, BILLING_CREDITS_USED_COLUMN
 from products.customer_analytics.backend.hogql_queries.accounts_query_runner import AccountsQueryRunner
 from products.customer_analytics.backend.test.factories import create_account
 from products.notebooks.backend.models import Notebook, ResourceNotebook
@@ -538,25 +539,30 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         with patch.object(AccountsQueryRunner, "_check_billing_view_available", return_value=True):
             runner = AccountsQueryRunner(
                 query=AccountsQuery(
-                    select=["name", "confirmed_mrr", "credits_used"],
-                    orderBy=["confirmed_mrr DESC"],
+                    select=["name", BILLING_CONFIRMED_MRR_COLUMN, BILLING_CREDITS_USED_COLUMN],
+                    orderBy=[f"{BILLING_CONFIRMED_MRR_COLUMN} DESC"],
                 ),
                 team=self.team,
                 user=self.user,
             )
             query = runner.to_query()
-        self.assertEqual(runner.columns, ["name", "confirmed_mrr", "credits_used"])
+        self.assertEqual(runner.columns, ["name", BILLING_CONFIRMED_MRR_COLUMN, BILLING_CREDITS_USED_COLUMN])
         assert query.select_from is not None
         join = query.select_from.next_join
         assert isinstance(join, ast.JoinExpr)
         self.assertEqual(join.join_type, "LEFT JOIN")
         self.assertEqual(join.alias, "billing")
-        # Billing columns read off the joined `billing` subquery, aliased back to their bare names.
-        mrr_expr = runner._select_exprs[runner.columns.index("confirmed_mrr")]
+        # The joined subquery must export columns named exactly as the constants the outer query
+        # reads back as `billing.<column>` — otherwise the join succeeds but every cell is NULL.
+        assert isinstance(join.table, ast.SelectQuery)
+        subquery_aliases = {expr.alias for expr in join.table.select if isinstance(expr, ast.Alias)}
+        self.assertEqual(subquery_aliases, {BILLING_CONFIRMED_MRR_COLUMN, BILLING_CREDITS_USED_COLUMN})
+        # The outer SELECT reads each billing column off the `billing` subquery, aliased to its name.
+        mrr_expr = runner._select_exprs[runner.columns.index(BILLING_CONFIRMED_MRR_COLUMN)]
         assert isinstance(mrr_expr, ast.Alias)
-        self.assertEqual(mrr_expr.alias, "confirmed_mrr")
+        self.assertEqual(mrr_expr.alias, BILLING_CONFIRMED_MRR_COLUMN)
         assert isinstance(mrr_expr.expr, ast.Field)
-        self.assertEqual(mrr_expr.expr.chain, ["billing", "confirmed_mrr"])
+        self.assertEqual(mrr_expr.expr.chain, ["billing", BILLING_CONFIRMED_MRR_COLUMN])
 
     def test_billing_columns_not_requested_skips_view_check(self):
         with patch.object(AccountsQueryRunner, "_check_billing_view_available") as check_view:
