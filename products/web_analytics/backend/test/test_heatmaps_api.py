@@ -735,7 +735,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "/api/heatmap/",
                 data={
                     "date_from": "2023-03-08",
-                    "filter_test_accounts": True,
+                    "filter_test_accounts": "true",
                     "events": '[{"id": "purchase", "type": "events"}]',
                 },
             )

@@ -559,7 +559,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         date_to: date | None,
         *,
         filter_test_accounts: bool,
-        events: list[dict[str, Any]] | None,
+        events: List[dict[str, Any]] | None,  # noqa: UP006 — `list` is shadowed by the viewset's own `list` method
     ) -> ast.CompareOperation:
         # Both the test-account exclusion and the event filter narrow heatmap rows to sessions that appear in the
         # events table, so we resolve them with a single `session_id IN (SELECT $session_id FROM events ...)`
