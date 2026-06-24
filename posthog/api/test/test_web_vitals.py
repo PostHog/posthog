@@ -1,7 +1,6 @@
-from unittest.mock import patch
-
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import patch
 
 from rest_framework import status
 
