@@ -1685,7 +1685,8 @@ class KustomerSourceConfig(config.Config):
 
 @config.config
 class LagoSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_url: str | None = None
 
 
 @config.config
