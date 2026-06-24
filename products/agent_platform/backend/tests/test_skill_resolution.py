@@ -44,6 +44,27 @@ class TestResolveSkillRef(BaseTest):
         self.assertEqual(resolved.version, 1)
         self.assertIn("v1 body", resolved.body)
 
+    def test_source_version_id_pin_resolves_even_when_archived(self):
+        # A pinned version stays the immortal anchor: archiving the skill (soft-delete)
+        # must not break a fork's re-freeze against the exact version it shipped.
+        skill = self._make_skill(name="archived-skill", body="pinned body")
+        skill_id = str(skill.id)
+        LLMSkill.objects.filter(id=skill.id).update(deleted=True)
+
+        resolved = resolve_skill_ref(
+            self.team,
+            {"from_template": "archived-skill", "alias": "a", "source_version_id": skill_id},
+        )
+        self.assertEqual(resolved.source_version_id, skill_id)
+        self.assertIn("pinned body", resolved.body)
+
+    def test_archived_skill_without_pin_fails_loud(self):
+        # Without a source_version_id pin, an archived skill is gone (resolves latest).
+        skill = self._make_skill(name="gone", body="x")
+        LLMSkill.objects.filter(id=skill.id).update(deleted=True)
+        with self.assertRaises(ValidationError):
+            resolve_skill_ref(self.team, {"from_template": "gone", "alias": "g"})
+
     def test_missing_skill_fails_loud(self):
         with self.assertRaises(ValidationError):
             resolve_skill_ref(self.team, {"from_template": "does-not-exist", "alias": "x"})

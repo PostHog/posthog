@@ -275,12 +275,14 @@ class SkillRefSerializer(serializers.Serializer):
         validators=[
             RegexValidator(
                 r"^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$",
-                message="alias must be lowercase letters, digits, hyphens or underscores.",
+                message="alias must be lowercase letters, digits, hyphens or underscores, and must start "
+                "and end with a letter or digit.",
             )
         ],
         help_text=(
             "Folder the resolved skill is materialized under in the bundle (`skills/<alias>/`). "
-            "Lowercase letters, digits, hyphens or underscores; must be unique within the revision."
+            "Lowercase letters, digits, hyphens or underscores, starting and ending with a letter or digit; "
+            "must be unique within the revision."
         ),
     )
     version = serializers.IntegerField(
@@ -322,6 +324,15 @@ class AgentRevisionSerializer(serializers.ModelSerializer):
         return _resolve_created_by(self.context, obj.created_by_id)
 
     def validate_spec(self, value: Any) -> Any:
+        # `skills[]` is server-derived — resolved from `skill_refs` and stamped
+        # with provenance at freeze, never author-authored. Pin it to the existing
+        # server value (empty on create) so an author spec edit can neither change
+        # which skills materialize nor forge `source_version_id` to defeat the
+        # freeze legacy guard. `new_draft`/`clone_from` set spec on the model
+        # directly (not via this serializer), so a fork's carried skills survive.
+        if isinstance(value, dict):
+            existing = getattr(self.instance, "spec", None)
+            value["skills"] = existing.get("skills", []) if isinstance(existing, dict) else []
         # Same shape the janitor's `AgentSpecSchema.parse` will reject on
         # read. Catching it here turns a future 500 / process-level surprise
         # into a clean 400 at write time.

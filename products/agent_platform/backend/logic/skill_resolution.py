@@ -104,11 +104,15 @@ def resolve_skill_ref(team: Team, ref: dict) -> ResolvedSkill:
     # the truly immortal anchor — so a forked re-freeze can't drift to "latest".
     source_version_id = ref.get("source_version_id")
     if not name or not alias:
-        raise ValidationError(f"Skill reference is missing 'from_template' or 'alias': {ref!r}")
+        known = alias or name
+        label = f" '{known}'" if known else ""
+        raise ValidationError(f"A skill reference{label} is missing its required 'from_template' or 'alias'.")
     if version is not None and not isinstance(version, int):
         raise ValidationError(f"Skill reference '{alias}' has a non-integer version: {version!r}")
 
-    skill = get_skill_by_name_from_db(team, name, version, source_version_id)
+    # A pinned `source_version_id` targets one immutable version row — resolve it
+    # even if the skill was later archived, so the pin stays the immortal anchor.
+    skill = get_skill_by_name_from_db(team, name, version, source_version_id, include_archived=bool(source_version_id))
     if skill is None:
         pinned = (
             f" {source_version_id}" if source_version_id else f" v{version}" if version is not None else " (latest)"

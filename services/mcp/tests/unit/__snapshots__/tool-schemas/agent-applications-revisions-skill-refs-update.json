@@ -14,7 +14,7 @@
                 "description": "One reference to a versioned skill in the llma-skill store, pinned into\nthis agent's bundle at freeze.",
                 "properties": {
                     "alias": {
-                        "description": "Folder the resolved skill is materialized under in the bundle (`skills/<alias>/`). Lowercase letters, digits, hyphens or underscores; must be unique within the revision.",
+                        "description": "Folder the resolved skill is materialized under in the bundle (`skills/<alias>/`). Lowercase letters, digits, hyphens or underscores, starting and ending with a letter or digit; must be unique within the revision.",
                         "maxLength": 64,
                         "pattern": "^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$",
                         "type": "string"

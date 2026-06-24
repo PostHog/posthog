@@ -2410,10 +2410,21 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 for f in manifest.get("files", [])
                 if len(parts := f["path"].split("/")) >= 3 and parts[0] == "skills" and _SKILL_ALIAS_RE.match(parts[1])
             }
-            for stale in bundle_aliases - aliases:
-                janitor_client.delete_skill(str(revision.id), stale)
+            # Write the resolved skills BEFORE sweeping leftovers: a failure
+            # mid-flight then leaves the bundle with extra folders, never missing a
+            # current ref, and a retry is a clean full replace. Sweeping first would
+            # leave a window where the draft has neither the old nor the new skill.
             for resolved in resolved_skills:
                 janitor_client.put_skill(str(revision.id), resolved.alias, resolved.put_skill_payload())
+            for stale in bundle_aliases - aliases:
+                try:
+                    janitor_client.delete_skill(str(revision.id), stale)
+                except JanitorClientError as e:
+                    # A folder with no `SKILL.md` (e.g. companion-only cruft) 404s on
+                    # delete — it isn't a skill the janitor will remove, so treat it
+                    # as already-swept rather than re-failing the freeze every retry.
+                    if e.status_code != 404:
+                        raise
         except JanitorClientError as e:
             # A 409 from an edit means the bundle is already sealed — fall through
             # to the idempotent freeze below. Any other error is a real failure.
@@ -2443,7 +2454,9 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # that raced in can't leave `skill_refs` describing skills the sealed
         # bundle doesn't contain (this write reasserts the materialized set).
         updated = AgentRevision.all_teams.filter(pk=revision.pk, state="draft").update(**fields)
-        revision.refresh_from_db()
+        # Read back from the writer: a replica read under lag could still show
+        # `draft` right after our UPDATE and trip the conflict check below.
+        revision.refresh_from_db(using=WRITER_DB)
         if not updated and revision.state not in ("ready", "live"):
             raise ValidationError(f"Revision is in state '{revision.state}'; only a 'draft' can be frozen.")
         return Response(

@@ -340,8 +340,11 @@
                             "path": {
                                 "type": "string"
                             },
+                            "source_version_id": {
+                                "type": "string"
+                            },
                             "version": {
-                                "minimum": 0,
+                                "minimum": 1,
                                 "type": "number"
                             }
                         },
@@ -447,7 +450,7 @@
                                         "type": "string"
                                     },
                                     "version": {
-                                        "minimum": 0,
+                                        "minimum": 1,
                                         "type": "number"
                                     }
                                 },

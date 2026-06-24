@@ -8240,7 +8240,7 @@ export namespace Schemas {
       kind: 'custom_template';
       from_template: string;
       alias: string;
-      /** @minimum 0 */
+      /** @minimum 1 */
       version?: number;
     } | {
       kind: 'client';
@@ -8295,8 +8295,9 @@ export namespace Schemas {
       description?: string;
       from_template?: string;
       alias?: string;
-      /** @minimum 0 */
+      /** @minimum 1 */
       version?: number;
+      source_version_id?: string;
     };
 
     export type AgentRevisionSpecIdentityProvidersItem = {
@@ -8456,7 +8457,7 @@ export namespace Schemas {
          */
       from_template: string;
       /**
-         * Folder the resolved skill is materialized under in the bundle (`skills/<alias>/`). Lowercase letters, digits, hyphens or underscores; must be unique within the revision.
+         * Folder the resolved skill is materialized under in the bundle (`skills/<alias>/`). Lowercase letters, digits, hyphens or underscores, starting and ending with a letter or digit; must be unique within the revision.
          * @maxLength 64
          * @pattern ^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$
          */
@@ -34731,7 +34732,7 @@ export namespace Schemas {
       kind: 'custom_template';
       from_template: string;
       alias: string;
-      /** @minimum 0 */
+      /** @minimum 1 */
       version?: number;
     } | {
       kind: 'client';
@@ -34786,8 +34787,9 @@ export namespace Schemas {
       description?: string;
       from_template?: string;
       alias?: string;
-      /** @minimum 0 */
+      /** @minimum 1 */
       version?: number;
+      source_version_id?: string;
     };
 
     export type PatchedAgentRevisionSpecIdentityProvidersItem = {

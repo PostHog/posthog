@@ -170,6 +170,61 @@ class TestFreezeResolvesSkillRefs(APIBaseTest):
         client.delete_skill.assert_not_called()
         client.freeze.assert_not_called()
 
+    @property
+    def _detail_url(self) -> str:
+        return f"/api/projects/{self.team.id}/agent_applications/{self.application.id}/revisions/{self.revision.id}/"
+
+    def test_spec_write_preserves_server_skills_and_round_trips_source_version_id(self) -> None:
+        # A forked draft carries server-derived skills[] (with the stamped, write-schema
+        # -rejected `source_version_id`). Editing an unrelated spec field must NOT 400,
+        # and an author can't change/spoof skills[] — it's pinned to the server value.
+        self.revision.spec = {
+            "model": "old",
+            "triggers": [],
+            "skills": [{"id": "triage", "path": "skills/triage/SKILL.md", "source_version_id": "019e-real"}],
+        }
+        self.revision.save(update_fields=["spec"])
+
+        res = self.client.patch(
+            self._detail_url,
+            {
+                "spec": {
+                    "model": "new",
+                    "triggers": [],
+                    # Author attempt to inject/spoof a skill — must be ignored.
+                    "skills": [{"id": "evil", "path": "skills/evil/SKILL.md", "source_version_id": "019e-fake"}],
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        self.revision.refresh_from_db()
+        self.assertEqual(self.revision.spec["model"], "new")
+        # skills[] is the preserved server value, not the author's spoof.
+        self.assertEqual([s["id"] for s in self.revision.spec["skills"]], ["triage"])
+        self.assertEqual(self.revision.spec["skills"][0]["source_version_id"], "019e-real")
+
+    @patch("products.agent_platform.backend.presentation.views._janitor")
+    def test_freeze_tolerates_404_when_sweeping_a_skill_md_less_folder(self, mock_janitor: MagicMock) -> None:
+        client = mock_janitor.return_value
+        client.put_skill = MagicMock(return_value={"ok": True})
+        # A stale companion-only folder has no SKILL.md, so the janitor 404s on delete.
+        # The sweep must treat that as already-gone, not wedge the freeze.
+        client.delete_skill = MagicMock(side_effect=JanitorClientError(404, "skill_not_found", body={}))
+        client.manifest.return_value = {
+            "files": [{"path": "skills/triage/SKILL.md"}, {"path": "skills/ghost/references/x.md"}]
+        }
+        client.freeze.return_value = {
+            "bundle_sha256": "a" * 64,
+            "derived_spec": {"model": "x", "triggers": [], "skills": [], "tools": []},
+        }
+
+        res = self.client.post(self.url)
+        self.assertEqual(res.status_code, 200, res.content)
+        client.delete_skill.assert_called_once_with(str(self.revision.id), "ghost")
+        self.revision.refresh_from_db()
+        self.assertEqual(self.revision.state, "ready")
+
     @patch("products.agent_platform.backend.presentation.views._janitor")
     def test_freeze_pins_unpinned_ref_version_back_into_skill_refs(self, mock_janitor: MagicMock) -> None:
         client = mock_janitor.return_value

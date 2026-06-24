@@ -419,7 +419,7 @@ tools:
         description: >
             Full-replace the draft revision's store-skill references (`skill_refs`). Each ref is `{ from_template,
             alias, version? }`: `from_template` is the skill NAME in the llma-skill store, `alias` is the folder it's
-            materialized under in the bundle (`skills/<alias>/`, lowercase letters/digits/hyphens/ underscores, unique
+            materialized under in the bundle (`skills/<alias>/`, lowercase letters/digits/hyphens/underscores, unique
             within the revision), and optional `version` pins a published version (omit to pin the latest at freeze). At
             freeze each referenced skill is resolved and baked into the immutable bundle, so a frozen agent never
             re-resolves a changed skill. Find skills with `skill-list`; author a new one with `skill-create`. Not

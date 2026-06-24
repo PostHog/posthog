@@ -144,8 +144,6 @@ export const agentApplicationsRevisionsCreateBodySpecToolsItemTwoApprovalPolicyT
 export const agentApplicationsRevisionsCreateBodySpecToolsItemTwoApprovalPolicyTtlMsMin = 60000
 export const agentApplicationsRevisionsCreateBodySpecToolsItemTwoApprovalPolicyTtlMsMax = 604800000
 
-export const agentApplicationsRevisionsCreateBodySpecToolsItemThreeVersionMin = 0
-
 export const agentApplicationsRevisionsCreateBodySpecToolsItemFourArgsSchemaDefault = {}
 export const agentApplicationsRevisionsCreateBodySpecToolsItemFourRequiredDefault = false
 export const agentApplicationsRevisionsCreateBodySpecToolsItemFourTimeoutMsDefault = 5000
@@ -163,8 +161,6 @@ export const agentApplicationsRevisionsCreateBodySpecMcpsItemToolsItemTwoApprova
 export const agentApplicationsRevisionsCreateBodySpecMcpsItemToolsItemTwoApprovalPolicyTtlMsMax = 604800000
 
 export const agentApplicationsRevisionsCreateBodySpecMcpsDefault = []
-export const agentApplicationsRevisionsCreateBodySpecSkillsItemVersionMin = 0
-
 export const agentApplicationsRevisionsCreateBodySpecSkillsDefault = []
 export const agentApplicationsRevisionsCreateBodySpecIdentityProvidersItemOneIdDefault = `posthog`
 
@@ -497,10 +493,7 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                             kind: zod.literal('custom_template'),
                             from_template: zod.string(),
                             alias: zod.string(),
-                            version: zod
-                                .number()
-                                .min(agentApplicationsRevisionsCreateBodySpecToolsItemThreeVersionMin)
-                                .optional(),
+                            version: zod.number().min(1).optional(),
                         }),
                         zod.object({
                             kind: zod.literal('client'),
@@ -589,10 +582,8 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                         description: zod.string().optional(),
                         from_template: zod.string().optional(),
                         alias: zod.string().optional(),
-                        version: zod
-                            .number()
-                            .min(agentApplicationsRevisionsCreateBodySpecSkillsItemVersionMin)
-                            .optional(),
+                        version: zod.number().min(1).optional(),
+                        source_version_id: zod.string().optional(),
                     })
                 )
                 .default(agentApplicationsRevisionsCreateBodySpecSkillsDefault),
@@ -760,8 +751,6 @@ export const agentApplicationsRevisionsUpdateBodySpecToolsItemTwoApprovalPolicyT
 export const agentApplicationsRevisionsUpdateBodySpecToolsItemTwoApprovalPolicyTtlMsMin = 60000
 export const agentApplicationsRevisionsUpdateBodySpecToolsItemTwoApprovalPolicyTtlMsMax = 604800000
 
-export const agentApplicationsRevisionsUpdateBodySpecToolsItemThreeVersionMin = 0
-
 export const agentApplicationsRevisionsUpdateBodySpecToolsItemFourArgsSchemaDefault = {}
 export const agentApplicationsRevisionsUpdateBodySpecToolsItemFourRequiredDefault = false
 export const agentApplicationsRevisionsUpdateBodySpecToolsItemFourTimeoutMsDefault = 5000
@@ -779,8 +768,6 @@ export const agentApplicationsRevisionsUpdateBodySpecMcpsItemToolsItemTwoApprova
 export const agentApplicationsRevisionsUpdateBodySpecMcpsItemToolsItemTwoApprovalPolicyTtlMsMax = 604800000
 
 export const agentApplicationsRevisionsUpdateBodySpecMcpsDefault = []
-export const agentApplicationsRevisionsUpdateBodySpecSkillsItemVersionMin = 0
-
 export const agentApplicationsRevisionsUpdateBodySpecSkillsDefault = []
 export const agentApplicationsRevisionsUpdateBodySpecIdentityProvidersItemOneIdDefault = `posthog`
 
@@ -1113,10 +1100,7 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
                             kind: zod.literal('custom_template'),
                             from_template: zod.string(),
                             alias: zod.string(),
-                            version: zod
-                                .number()
-                                .min(agentApplicationsRevisionsUpdateBodySpecToolsItemThreeVersionMin)
-                                .optional(),
+                            version: zod.number().min(1).optional(),
                         }),
                         zod.object({
                             kind: zod.literal('client'),
@@ -1205,10 +1189,8 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
                         description: zod.string().optional(),
                         from_template: zod.string().optional(),
                         alias: zod.string().optional(),
-                        version: zod
-                            .number()
-                            .min(agentApplicationsRevisionsUpdateBodySpecSkillsItemVersionMin)
-                            .optional(),
+                        version: zod.number().min(1).optional(),
+                        source_version_id: zod.string().optional(),
                     })
                 )
                 .default(agentApplicationsRevisionsUpdateBodySpecSkillsDefault),
@@ -1399,8 +1381,6 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemTwoApproval
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemTwoApprovalPolicyTtlMsMin = 60000
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemTwoApprovalPolicyTtlMsMax = 604800000
 
-export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeVersionMin = 0
-
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourArgsSchemaDefault = {}
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourRequiredDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecToolsItemFourTimeoutMsDefault = 5000
@@ -1418,8 +1398,6 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemToolsItemTwo
 export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsItemToolsItemTwoApprovalPolicyTtlMsMax = 604800000
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsDefault = []
-export const agentApplicationsRevisionsPartialUpdateBodySpecSkillsItemVersionMin = 0
-
 export const agentApplicationsRevisionsPartialUpdateBodySpecSkillsDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersItemOneIdDefault = `posthog`
 
@@ -1766,10 +1744,7 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                             kind: zod.literal('custom_template'),
                             from_template: zod.string(),
                             alias: zod.string(),
-                            version: zod
-                                .number()
-                                .min(agentApplicationsRevisionsPartialUpdateBodySpecToolsItemThreeVersionMin)
-                                .optional(),
+                            version: zod.number().min(1).optional(),
                         }),
                         zod.object({
                             kind: zod.literal('client'),
@@ -1860,10 +1835,8 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                         description: zod.string().optional(),
                         from_template: zod.string().optional(),
                         alias: zod.string().optional(),
-                        version: zod
-                            .number()
-                            .min(agentApplicationsRevisionsPartialUpdateBodySpecSkillsItemVersionMin)
-                            .optional(),
+                        version: zod.number().min(1).optional(),
+                        source_version_id: zod.string().optional(),
                     })
                 )
                 .default(agentApplicationsRevisionsPartialUpdateBodySpecSkillsDefault),
@@ -2147,7 +2120,7 @@ export const AgentApplicationsRevisionsSkillRefsUpdateBody = /* @__PURE__ */ zod
                             .max(agentApplicationsRevisionsSkillRefsUpdateBodySkillRefsItemAliasMax)
                             .regex(agentApplicationsRevisionsSkillRefsUpdateBodySkillRefsItemAliasRegExp)
                             .describe(
-                                'Folder the resolved skill is materialized under in the bundle (`skills\/<alias>\/`). Lowercase letters, digits, hyphens or underscores; must be unique within the revision.'
+                                'Folder the resolved skill is materialized under in the bundle (`skills\/<alias>\/`). Lowercase letters, digits, hyphens or underscores, starting and ending with a letter or digit; must be unique within the revision.'
                             ),
                         version: zod
                             .number()
