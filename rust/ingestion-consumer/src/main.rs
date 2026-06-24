@@ -11,7 +11,7 @@ use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
-use tracing::info;
+use tracing::{error, info};
 use tracing_subscriber::fmt;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -217,32 +217,11 @@ async fn async_main(config: Config) -> Result<()> {
         });
     }
 
-    // For dynamic discovery, wait for the first workers before consuming so the
-    // first batch has somewhere to route.
-    if config.worker_discovery_mode == DiscoveryMode::EndpointSlice {
-        info!("Waiting for the first workers from EndpointSlice discovery");
-        while registry.worker_count() == 0 {
-            tokio::select! {
-                _ = consumer_handle.shutdown_recv() => {
-                    info!("Shutdown received while waiting for worker discovery");
-                    break;
-                }
-                _ = tokio::time::sleep(Duration::from_millis(250)) => {}
-            }
-        }
-    }
-
-    let consumer = IngestionConsumer::new(&config, dispatcher, transport, consumer_handle)
-        .context("Failed to create Kafka consumer")?;
-
-    tokio::spawn(async move {
-        consumer.process().await;
-        // Cancel background tasks once the consumer loop exits.
-        probe_token.cancel();
-        discovery_token.cancel();
-    });
-
-    // Build and serve the health/metrics HTTP server
+    // Build and serve the health/metrics HTTP server BEFORE gating on worker
+    // discovery. Otherwise /_readiness and /_liveness stay unbound while we wait
+    // for the first workers, so kubelet sees "connection refused" instead of a
+    // proper 503 — and since /_liveness is meant to always answer 200, an unbound
+    // port lets the liveness probe kill the pod mid-startup.
     let mut app = Router::new()
         .route("/", get(|| async { "ingestion consumer" }))
         .route(
@@ -272,12 +251,42 @@ async fn async_main(config: Config) -> Result<()> {
 
     let bind = config.bind_address();
     info!(address = %bind, "Health/metrics server starting");
-
     let listener = TcpListener::bind(&bind).await?;
-    axum::serve(listener, app)
-        .with_graceful_shutdown(metrics_handle.shutdown_signal())
-        .await?;
-    metrics_handle.work_completed();
+    tokio::spawn(async move {
+        if let Err(err) = axum::serve(listener, app)
+            .with_graceful_shutdown(metrics_handle.shutdown_signal())
+            .await
+        {
+            error!(error = %err, "Health/metrics server error");
+        }
+        metrics_handle.work_completed();
+    });
+
+    // For dynamic discovery, wait for the first workers before consuming so the
+    // first batch has somewhere to route. Readiness stays 503 until the consumer
+    // starts; the server above keeps the probes answering during the wait.
+    if config.worker_discovery_mode == DiscoveryMode::EndpointSlice {
+        info!("Waiting for the first workers from EndpointSlice discovery");
+        while registry.worker_count() == 0 {
+            tokio::select! {
+                _ = consumer_handle.shutdown_recv() => {
+                    info!("Shutdown received while waiting for worker discovery");
+                    break;
+                }
+                _ = tokio::time::sleep(Duration::from_millis(250)) => {}
+            }
+        }
+    }
+
+    let consumer = IngestionConsumer::new(&config, dispatcher, transport, consumer_handle)
+        .context("Failed to create Kafka consumer")?;
+
+    tokio::spawn(async move {
+        consumer.process().await;
+        // Cancel background tasks once the consumer loop exits.
+        probe_token.cancel();
+        discovery_token.cancel();
+    });
 
     guard.wait().await?;
 

@@ -88,7 +88,13 @@ Follow this order. Each step maps to TODOs in `source.template`.
 
     Whenever you set `releaseStatus`, use the `ReleaseStatus` enum from `posthog.schema` — never a bare string literal. Add `ReleaseStatus` to your existing `from posthog.schema import (...)` block.
 
-14. **Delete the template TODO comments** before PR.
+14. **Document the source.** Write or update the user-facing doc on posthog.com following the
+    `/documenting-warehouse-sources` skill (template, shared snippets, `<SourceParameters />` +
+    `<SourceTables />`). Ensure `docsUrl` in `get_source_config` matches the doc filename
+    (kebab-case), and — if `get_schemas` is a static endpoint catalog — set
+    `lists_tables_without_credentials = True` (see below) so the doc's Supported tables section
+    renders. A finished source ships with a consistent doc, not a stub.
+15. **Delete the template TODO comments** before PR.
 
 ## Source architecture contract
 
@@ -150,6 +156,29 @@ Rules:
 - Optional and only meaningful for fixed-schema sources. SQL sources (arbitrary user schemas) ship
   nothing — the base hook returns `{}`.
 - Don't touch `source.py`/`settings.py` transport logic — this is purely additive metadata.
+
+## Publishing the table catalog to public docs
+
+The posthog.com docs render a **Supported tables** section via a `<SourceTables />` component fed by the
+`public_source_configs` API, which calls `get_documented_tables()` on each source. The base
+implementation lists tables from `get_schemas` (merged with `canonical_descriptions`) **only when the
+source opts in**:
+
+```python
+class MySource(SimpleSource[MySourceConfig]):
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+```
+
+Set this to `True` **only** when `get_schemas` iterates a static endpoint catalog with **no I/O** — no
+network, no DB, no credentials (the common fixed-schema SaaS pattern: `for endpoint in ENDPOINTS`). The
+endpoint builds a placeholder config and calls `get_schemas` with no real credentials, so a source that
+connects to discover schemas (SQL, file storage, MongoDB, ad platforms that list accounts) must leave
+this `False` (the default) — otherwise it would try to connect to an empty host, hang, or close the DB
+session. When `False`, the docs render a generic "discovered from your account" note instead.
+
+The richer the table list, the better the docs — so pair this with `canonical_descriptions.py`
+(table/column descriptions). Verify the rendered output via the API:
+`GET /api/public_source_configs` → your source → `tables`.
 
 ## Source category & keywords
 
@@ -574,6 +603,7 @@ Source implementation:
 - [ ] Implement webhook methods if WebhookSource
 - [ ] Add get_non_retryable_errors for auth/permission errors
 - [ ] (Fixed-schema sources) Add canonical_descriptions.py from the API docs + override get_canonical_descriptions
+- [ ] (Fixed-schema sources, static get_schemas only) Set lists_tables_without_credentials = True so public docs render the table catalog
 
 Tooling & assets:
 - [ ] Icon in frontend/public/services/ (SVG preferred — ask user for Logo.dev key if needed)
@@ -593,6 +623,7 @@ Release status (default: a finished source has NO unreleasedSource flag — it h
 Tests & handoff:
 - [ ] Source tests (test_<source>_source.py)
 - [ ] Transport tests (test_<source>.py)
+- [ ] User-facing doc written/updated per /documenting-warehouse-sources (docsUrl matches filename; `audit_source_docs` passes)
 - [ ] `ruff check . --fix` and `ruff format .`
 - [ ] List any new env vars (OAuth client IDs/secrets, etc) in the PR / handoff
 ```
