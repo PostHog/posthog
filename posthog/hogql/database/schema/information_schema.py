@@ -162,22 +162,29 @@ def _visible_table_names(database: "Database") -> list[str]:
     return [n for n in database.tables.resolve_visible_table_names() if not n.startswith("posthog.")]
 
 
-def _warehouse_metadata(team_id: Optional[int]) -> tuple[dict[tuple[str, str], str], dict[str, Optional[int]]]:
+def _warehouse_metadata(
+    team_id: Optional[int],
+) -> tuple[dict[tuple[str, str], str], dict[str, Optional[int]], dict[str, Optional[int]]]:
     """Lazily load warehouse semantic descriptions and row counts for the team.
 
-    Returns `(descriptions, row_counts)` where descriptions is keyed by `(table_name, column_name)`
-    with `""` denoting the table-level description. Only runs when an information_schema table is
-    actually queried, so it never touches the hot `create_hogql_database` path.
+    Returns `(descriptions, row_counts, view_row_counts)`. Descriptions are keyed by
+    `(table_name, column_name)` with `""` denoting the table-level description. `row_counts` is keyed
+    by warehouse table name, `view_row_counts` by saved-query (view) name. Only runs when an
+    information_schema table is actually queried, so it never touches the hot
+    `create_hogql_database` path. Mirrors how `serialize_database` sources counts so the catalog and
+    the SQL-editor schema agree.
     """
     descriptions: dict[tuple[str, str], str] = {}
     row_counts: dict[str, Optional[int]] = {}
+    view_row_counts: dict[str, Optional[int]] = {}
     if team_id is None:
-        return descriptions, row_counts
+        return descriptions, row_counts, view_row_counts
 
     # Inline imports: keeps the products dependency off the hogql import path (avoids an import
     # cycle, since products import hogql) and off every non-information_schema query.
     from posthog.models.scoping import team_scope  # noqa: PLC0415
 
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery  # noqa: PLC0415
     from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation  # noqa: PLC0415
     from products.warehouse_sources.backend.models.table import DataWarehouseTable  # noqa: PLC0415
 
@@ -187,15 +194,28 @@ def _warehouse_metadata(team_id: Optional[int]) -> tuple[dict[tuple[str, str], s
                 "table__name", "column_name", "description"
             ):
                 descriptions[(table_name, column_name)] = description
-            for table_name, row_count in DataWarehouseTable.objects.values_list("name", "row_count"):
+            # `.queryable()` (not `.objects`) drops soft-deleted tables and orphans of a soft-deleted
+            # source — otherwise a re-synced table's dead duplicate clobbers the live row_count with a
+            # stale/null value. Oldest first so the newest row wins a name collision, matching the
+            # last-write-wins order `serialize_database` uses.
+            for table_name, row_count in (
+                DataWarehouseTable.objects.queryable().order_by("created_at").values_list("name", "row_count")
+            ):
                 row_counts[table_name] = row_count
+            # Views carry their row count on the materialized backing table (`saved_query.table`).
+            for view_name, row_count in (
+                DataWarehouseSavedQuery.objects.exclude(deleted=True)
+                .filter(team_id=team_id, table__isnull=False)
+                .values_list("name", "table__row_count")
+            ):
+                view_row_counts[view_name] = row_count
     except Exception:
         # Schema discovery must never fail a query because the warehouse metadata could not be read,
         # but log so a transient DB error can be told apart from a real bug in the fetch loop.
         logger.exception("information_schema: failed to load warehouse metadata", team_id=team_id)
-        return {}, {}
+        return {}, {}, {}
 
-    return descriptions, row_counts
+    return descriptions, row_counts, view_row_counts
 
 
 def _unwrap(expr: ast.Expr) -> ast.Expr:
@@ -376,7 +396,15 @@ class _Introspection:
         self.allowed_tables = allowed_tables
         self.warehouse = set(database.get_warehouse_table_names())
         self.views = set(database.get_view_names())
-        self.descriptions, self.row_counts = _warehouse_metadata(context.team_id)
+        self.descriptions, self.row_counts, self.view_row_counts = _warehouse_metadata(context.team_id)
+
+    def _row_count(self, name: str, table: Table, table_type: str) -> Optional[int]:
+        if table_type == "data_warehouse" and table.name:
+            return self.row_counts.get(table.name)
+        if table_type == "view":
+            # Views are keyed by their catalog name (the saved-query name), which is `name` here.
+            return self.view_row_counts.get(name)
+        return None
 
     def _table_description(self, table: Table, table_type: str) -> Optional[str]:
         if table.description:
@@ -411,7 +439,7 @@ class _Introspection:
                 continue
 
             table_type, table_schema = _classify_table(name, table, self.warehouse, self.views)
-            row_count = self.row_counts.get(table.name) if table_type == "data_warehouse" and table.name else None
+            row_count = self._row_count(name, table, table_type)
             table_rows.append(
                 [name, table_schema, name, table_type, self._table_description(table, table_type), row_count]
             )

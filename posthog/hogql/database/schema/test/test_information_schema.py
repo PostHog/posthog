@@ -5,13 +5,18 @@ from parameterized import parameterized
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.schema.information_schema import _bound_table_names, _pushdown_table_filter
+from posthog.hogql.database.schema.information_schema import (
+    _bound_table_names,
+    _pushdown_table_filter,
+    _warehouse_metadata,
+)
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.scoping import team_scope
 
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
@@ -101,6 +106,37 @@ class TestInformationSchemaPushdown(APIBaseTest):
             where=_eq("table_name", "events"),
         )
         assert _pushdown_table_filter(simple, "table_name") == frozenset({"events"})
+
+
+class TestWarehouseMetadata(APIBaseTest):
+    def _table(self, name: str, row_count: int | None, *, deleted: bool = False) -> DataWarehouseTable:
+        credential = DataWarehouseCredential.objects.create(access_key="x", access_secret="x", team=self.team)
+        return DataWarehouseTable.objects.create(
+            name=name,
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            url_pattern="https://bucket.s3/data/*",
+            row_count=row_count,
+            deleted=deleted,
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+
+    def test_soft_deleted_duplicate_does_not_clobber_live_row_count(self):
+        # Re-synced tables leave soft-deleted duplicates sharing the name; the live row_count must win
+        # rather than being clobbered by a dead row's stale value (which is what `.objects` returned).
+        self._table("orders", 100)
+        self._table("orders", 5, deleted=True)
+        _descriptions, row_counts, _view_row_counts = _warehouse_metadata(self.team.id)
+        assert row_counts["orders"] == 100
+
+    def test_view_row_count_comes_from_the_backing_table(self):
+        backing = self._table("orders_view_backing", 42)
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="orders_view", query={"query": "SELECT 1"}, columns={}, table=backing
+        )
+        _descriptions, _row_counts, view_row_counts = _warehouse_metadata(self.team.id)
+        assert view_row_counts["orders_view"] == 42
 
 
 class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
