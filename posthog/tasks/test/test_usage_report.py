@@ -5417,6 +5417,55 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         billable_result_final = get_teams_with_billable_event_count_in_period(self.begin, self.end)
         self.assertEqual(billable_result_final[0][1], baseline_count + 1)
 
+    def test_gateway_verified_ai_events_excluded_from_ai_count(self) -> None:
+        """Gateway-originated events carry the ingestion-verified $ai_gateway_verified
+        marker and are billed via the gateway wallet, so they must not be counted in
+        the AIO llm_events meter (double-billing)."""
+        from posthog.tasks.usage_report import get_teams_with_ai_event_count_in_period
+
+        def ai_count() -> int:
+            result = get_teams_with_ai_event_count_in_period(self.begin, self.end)
+            return result[0][1] if result else 0
+
+        baseline_count = ai_count()
+
+        # Normal AI events: counted.
+        for i in range(3):
+            _create_event(
+                event="$ai_generation",
+                team=self.team,
+                distinct_id=f"sdk_ai_user_{i}",
+                timestamp=self.begin + relativedelta(hours=i + 1),
+                properties={"$ai_model": "claude-3"},
+            )
+        flush_persons_and_events()
+        self.assertEqual(ai_count(), baseline_count + 3, "normal AI events should be counted")
+
+        # Gateway-verified events: excluded, so the count must not move.
+        for i in range(2):
+            _create_event(
+                event="$ai_generation",
+                team=self.team,
+                distinct_id=f"gateway_ai_user_{i}",
+                timestamp=self.begin + relativedelta(hours=i + 1),
+                properties={"$ai_model": "claude-3", "$ai_gateway_verified": True},
+            )
+        flush_persons_and_events()
+        self.assertEqual(ai_count(), baseline_count + 3, "gateway-verified events should be excluded")
+
+        # Client-forged $ai_gateway without the ingestion-verified marker: still
+        # counted, since the filter keys only on $ai_gateway_verified (which a
+        # client can't set — ingestion strips $ai_gateway* and stamps it).
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="forged_gateway_user",
+            timestamp=self.begin + relativedelta(hours=1),
+            properties={"$ai_model": "claude-3", "$ai_gateway": True},
+        )
+        flush_persons_and_events()
+        self.assertEqual(ai_count(), baseline_count + 4, "forged $ai_gateway (no verified marker) should be counted")
+
     def test_conversations_events_excluded_from_billable_count(self) -> None:
         """Test that Conversations widget events are excluded from billable event counts."""
         from posthog.tasks.usage_report import get_teams_with_billable_event_count_in_period
