@@ -24,7 +24,7 @@ import { workflowLogic } from '../../workflowLogic'
 import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
-import { isOptOutEligibleAction } from '../steps/types'
+import { isOptOutEligibleAction, isScheduleTrigger } from '../steps/types'
 import type { HogFlowAction } from '../types'
 import { hogFlowOutputMappingLogic } from './hogFlowOutputMappingLogic'
 import { OutputTestResultTree } from './OutputTestResultTree'
@@ -59,7 +59,6 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
     }
 
     const action = selectedNode.data
-    const isScheduleTrigger = action.type === 'trigger' && (action.config as any)?.type === 'schedule'
 
     const isBranchingStep = ['conditional_branch', 'wait_until_condition', 'random_cohort_branch'].includes(action.type)
     const actionFilters = action.filters ?? {}
@@ -100,7 +99,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                         className="font-semibold text-base"
                         data-attr="workflow-step-name"
                     />
-                    {!isScheduleTrigger && (
+                    {!isScheduleTrigger(action) && (
                         <EditableField
                             name="step-description"
                             value={action.description || ''}
