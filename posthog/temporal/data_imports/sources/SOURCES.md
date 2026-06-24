@@ -146,6 +146,7 @@ the row lists both.
 | notion            | HTTP                        | requests                                                        | ✅                          |
 | omnisend          | HTTP                        | requests                                                        | ✅                          |
 | orb               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| openweather       | HTTP                        | requests                                                        | ✅                          |
 | ortto             | HTTP                        | requests                                                        | ✅                          |
 | outbrain          | HTTP                        | requests                                                        | ✅                          |
 | paddle            | HTTP                        | requests                                                        | ✅                          |
@@ -524,7 +525,6 @@ doesn't conflict with concurrent PRs.
 - open_exchange_rates
 - openaq
 - openfda
-- openweather
 - opinion_stage
 - opsgenie
 - opuswatch
