@@ -43,12 +43,14 @@ type LogsDeepLinkParams = {
  *
  * Forwarding the tile's filters + orderBy + a matching `initialLogsLimit` makes the logs page's first
  * page equal the tile's visible rows, so the linked log is loaded and `linkToLogId` can open it. A
- * saved-view tile can't replay the view's filters client-side, so it links by date window + id only. */
+ * saved-view tile can't replay the view's filters (or its date range) client-side, so it links by id
+ * only and lets the logs page use its own range — forwarding the tile's `-1h` default would likely
+ * exclude the clicked log. */
 function buildLogHref(line: LogsWidgetLogLine, params: LogsDeepLinkParams): string {
     return combineUrl(urls.logs(), {
         activeTab: 'viewer',
         linkToLogId: line.uuid,
-        dateRange: { date_from: params.dateFrom ?? null, date_to: null },
+        ...(params.hasSavedView ? {} : { dateRange: { date_from: params.dateFrom ?? null, date_to: null } }),
         ...(params.orderBy ? { orderBy: params.orderBy } : {}),
         ...(params.limit ? { initialLogsLimit: params.limit } : {}),
         ...(!params.hasSavedView && params.severityLevels.length ? { severityLevels: params.severityLevels } : {}),
