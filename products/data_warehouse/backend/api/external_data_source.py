@@ -79,6 +79,7 @@ from products.data_warehouse.backend.api.external_data_schema import (
     source_supports_column_selection,
     unsupported_row_filter_reason,
 )
+from products.data_warehouse.backend.api.public_source_configs import build_source_configs
 from products.data_warehouse.backend.data_load.service import (
     bulk_create_external_data_job_schedules,
     bulk_delete_external_data_schedules,
@@ -3167,14 +3168,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
     @action(methods=["GET"], detail=False)
     def wizard(self, request: Request, *arg: Any, **kwargs: Any):
-        sources = SourceRegistry.get_all_sources()
-        results = {}
-        for source_type, source in sources.items():
-            config = source.get_source_config.model_dump()
-            config["supportsColumnSelection"] = bool(source.supports_column_selection)
-            results[str(source_type)] = config
-
-        return Response(status=status.HTTP_200_OK, data=results)
+        return Response(status=status.HTTP_200_OK, data=build_source_configs())
 
     @extend_schema(
         parameters=[

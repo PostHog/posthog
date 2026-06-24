@@ -26,9 +26,45 @@ from posthog.temporal.data_imports.sources.common.resumable import ResumableSour
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import get_config_for_source
 
-from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField
 
 MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP = "Required for Marketing analytics to work with this source."
+
+
+def _incremental_field_labels(fields: list[IncrementalField]) -> list[str]:
+    labels = []
+    for f in fields:
+        label = f.get("label") or f.get("field")
+        if label:
+            labels.append(label)
+    return labels
+
+
+def _documented_table_from_schema(schema: SourceSchema, canonical: dict[str, Any]) -> dict[str, Any]:
+    """Shape a `SourceSchema` (+ curated canonical entry) into a public-docs table entry."""
+    if schema.webhook_only:
+        sync_methods = ["Webhook only"]
+    else:
+        sync_methods = []
+        if schema.supports_webhooks:
+            sync_methods.append("Webhook")
+        if schema.supports_cdc:
+            sync_methods.append("CDC")
+        if schema.supports_incremental:
+            sync_methods.append("Incremental")
+        if schema.supports_append and not schema.supports_incremental:
+            sync_methods.append("Append only")
+        sync_methods.append("Full refresh")
+
+    return {
+        "name": schema.name,
+        "label": schema.label or schema.name,
+        "description": schema.description or canonical.get("description"),
+        "sync_methods": sync_methods,
+        "incremental_fields": _incremental_field_labels(schema.incremental_fields),
+        "primary_keys": schema.detected_primary_keys or [],
+    }
+
 
 ConfigType = TypeVar("ConfigType", bound=Config)
 ConfigType_contra = TypeVar("ConfigType_contra", bound=Config, contravariant=True)
@@ -55,6 +91,13 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # Default `False` for every source; `SQLSource` flips to `True` (subclasses opt out
     # via their own override if a driver genuinely can't project columns).
     supports_column_selection: bool = False
+
+    # Opt-in: set `True` only on sources whose `get_schemas` iterates a static endpoint
+    # catalog with NO I/O — no network, no DB, no credentials. Those sources surface their
+    # table list in public docs (see `get_documented_tables`). Left `False` for SQL / file /
+    # API sources that discover schemas over a live connection, since calling their
+    # `get_schemas` with a placeholder config could connect, hang, or close the DB session.
+    lists_tables_without_credentials: bool = False
 
     @property
     @abstractmethod
@@ -106,6 +149,40 @@ class _BaseSource(ABC, Generic[ConfigType]):
         without caches can ignore the flag.
         """
         raise NotImplementedError()
+
+    def _placeholder_config(self) -> ConfigType:
+        """Build a credential-free config instance for static, no-network schema listing.
+
+        Required (no-default) fields are filled with empty placeholders. We construct the
+        dataclass directly (bypassing `from_dict`), so no converters or validation run and
+        the resulting object only satisfies the `get_schemas` signature — it is never used
+        to make a request.
+        """
+        cls = self._config_class
+        kwargs: dict[str, Any] = {}
+        for f in dataclasses.fields(cls):
+            if f.default is not dataclasses.MISSING or f.default_factory is not dataclasses.MISSING:
+                continue
+            kwargs[f.name] = ""
+        return cls(**kwargs)
+
+    def get_documented_tables(self) -> list[dict[str, Any]]:
+        """Credential-free table catalog for public documentation (posthog.com).
+
+        Returns one entry per well-known table for fixed-schema sources, merging
+        `get_schemas` metadata (sync methods, incremental fields) with curated
+        `get_canonical_descriptions`. SQL / file sources (user-defined schemas) return
+        ``[]`` so their docs render a generic "discovered from your source" note. Any
+        failure degrades to ``[]`` — this must never break the public endpoint.
+        """
+        if not self.lists_tables_without_credentials:
+            return []
+        try:
+            schemas = self.get_schemas(self._placeholder_config(), team_id=0)
+        except Exception:
+            return []
+        canonical = self.get_canonical_descriptions()
+        return [_documented_table_from_schema(schema, canonical.get(schema.name, {})) for schema in schemas]
 
     @property
     @abstractmethod
