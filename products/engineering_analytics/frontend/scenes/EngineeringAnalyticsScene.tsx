@@ -89,7 +89,7 @@ export function EngineeringAnalyticsScene(): JSX.Element {
                     }
                 />
                 <LemonBanner type="info" dismissKey="engineering-analytics-alpha">
-                    CI analytics is in alpha — metrics are limited to CI events, and details may change.
+                    CI analytics is in alpha. Metrics are limited to CI events, and details may change.
                 </LemonBanner>
                 <LemonTabs activeKey={activeTab} data-attr="engineering-analytics-tabs" tabs={tabs} sceneInset />
             </SceneContent>

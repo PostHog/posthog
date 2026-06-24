@@ -69,19 +69,27 @@ function relativeExpiry(daysUntilExpiry: number): string {
 function LifecycleTag({ lifecycle }: { lifecycle: QuarantineLifecycle }): JSX.Element {
     switch (lifecycle) {
         case 'active':
-            return <LemonTag type="success">Active</LemonTag>
+            return (
+                <Tooltip title="Masked in CI, with more than 7 days before it expires.">
+                    <LemonTag type="success">Active</LemonTag>
+                </Tooltip>
+            )
         case 'expiring_soon':
-            return <LemonTag type="warning">Expiring soon</LemonTag>
+            return (
+                <Tooltip title="Still masked in CI, but expires within 7 days.">
+                    <LemonTag type="warning">Expiring</LemonTag>
+                </Tooltip>
+            )
         case 'in_grace':
             return (
-                <Tooltip title="Expired, but inside the 7-day grace — the quarantine check only warns for now.">
-                    <LemonTag type="warning">In grace</LemonTag>
+                <Tooltip title="Expired, so the test runs (and can fail) again. hogli test:quarantine check only warns until the 7-day grace period ends.">
+                    <LemonTag type="warning">Grace</LemonTag>
                 </Tooltip>
             )
         default:
             return (
-                <Tooltip title="Expired beyond the grace period — the quarantine check workflow fails until it is removed or re-triaged.">
-                    <LemonTag type="danger">Overdue — blocks CI</LemonTag>
+                <Tooltip title="Expired past the 7-day grace. hogli test:quarantine check fails and blocks merges until the entry is removed or re-triaged.">
+                    <LemonTag type="danger">Blocking</LemonTag>
                 </Tooltip>
             )
     }
@@ -90,14 +98,14 @@ function LifecycleTag({ lifecycle }: { lifecycle: QuarantineLifecycle }): JSX.El
 function ModeTag({ mode }: { mode: QuarantineEntryRow['mode'] }): JSX.Element {
     if (mode === 'skip') {
         return (
-            <Tooltip title="Skipped: the test is not collected at all (for hangs, import-time flakes, and state-polluters).">
-                <LemonTag type="danger">Skipped</LemonTag>
+            <Tooltip title="mode: skip. Applied as pytest.mark.skip, so the test is not collected at all (for hangs, import-time flakes, and state-polluters).">
+                <LemonTag type="danger">skip</LemonTag>
             </Tooltip>
         )
     }
     return (
-        <Tooltip title="Runs as xfail: the test still executes but cannot fail the suite.">
-            <LemonTag type="muted">Runs, can't fail</LemonTag>
+        <Tooltip title="mode: run. Applied as pytest.mark.xfail(strict=False), so the test still runs but can't fail the suite.">
+            <LemonTag type="muted">xfail</LemonTag>
         </Tooltip>
     )
 }
@@ -132,7 +140,7 @@ export function EngineeringAnalyticsTestHealth(): JSX.Element {
     }
 
     // A fetch failure (timeout, 5xx, unsafe repo) also comes back as available:false, but with
-    // parse_errors set — surface those instead of the "no file" explainer, which only fits a true 404.
+    // parse_errors set: surface those instead of the "no file" explainer, which only fits a true 404.
     if (quarantine && !quarantine.available && quarantine.parseErrors.length > 0) {
         return (
             <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-primary p-10 text-center">
@@ -158,7 +166,7 @@ export function EngineeringAnalyticsTestHealth(): JSX.Element {
         )
     }
 
-    // A file that does not exist is a normal state, not an error — explain how to start one.
+    // A file that does not exist is a normal state, not an error, so explain how to start one.
     if (quarantine && !quarantine.available) {
         return (
             <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-primary p-10 text-center">
@@ -195,7 +203,7 @@ export function EngineeringAnalyticsTestHealth(): JSX.Element {
                             {row.selectorKind}
                         </LemonTag>
                         {row.runner !== 'pytest' && (
-                            <Tooltip title="No enforcement adapter yet — entry is informational.">
+                            <Tooltip title="No enforcement adapter yet, so this entry is informational.">
                                 <LemonTag type="muted" size="small">
                                     {row.runner}
                                 </LemonTag>
@@ -305,7 +313,8 @@ export function EngineeringAnalyticsTestHealth(): JSX.Element {
             <div className="flex flex-col gap-0.5">
                 <h3 className="m-0 text-base font-semibold">Quarantine register</h3>
                 <p className="m-0 text-xs text-tertiary">
-                    Flaky tests currently masked in CI via the checked-in quarantine file.
+                    Flaky tests in the checked-in quarantine file. Active entries are masked in CI; once expired the
+                    test runs again and the entry needs removing.
                 </p>
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -396,8 +405,8 @@ export function EngineeringAnalyticsTestHealth(): JSX.Element {
                     onChange={(value) => setQuarantineModeFilter(value as QuarantineModeFilter)}
                     options={[
                         { value: 'all', label: 'Mode: any', labelInMenu: 'Any' },
-                        { value: 'run', label: 'Mode: runs', labelInMenu: "Runs, can't fail" },
-                        { value: 'skip', label: 'Mode: skipped', labelInMenu: 'Skipped' },
+                        { value: 'run', label: 'Mode: xfail', labelInMenu: 'xfail' },
+                        { value: 'skip', label: 'Mode: skip', labelInMenu: 'skip' },
                     ]}
                 />
                 <div className="w-56">
@@ -441,15 +450,15 @@ export function EngineeringAnalyticsTestHealth(): JSX.Element {
                             </LemonButton>
                         </div>
                     ) : (
-                        'No quarantined tests — nothing is masked right now.'
+                        'No quarantined tests. Nothing is masked right now.'
                     )
                 }
                 nouns={['quarantined test', 'quarantined tests']}
             />
 
             <div className="text-xs text-tertiary">
-                Quarantine is checked into <span className="font-mono">.test_quarantine.json</span> and enforced by CI —
-                edits land through a pull request, not this page. Use the per-row menu to copy the matching{' '}
+                Quarantine is checked into <span className="font-mono">.test_quarantine.json</span> and enforced by CI.
+                Edits land through a pull request, not this page. Use the per-row menu to copy the matching{' '}
                 <span className="font-mono">hogli test:quarantine</span> command. A merged edit only affects CI runs
                 that start after it lands.
             </div>
