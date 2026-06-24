@@ -206,11 +206,30 @@ class TestPerProjectFanOut:
             {"id": "e2", "organization_id": "o1", "project_id": "p1"},
         ]
 
-    def test_bookmarks_next_parent_after_finishing_one(self, monkeypatch: Any) -> None:
+    def test_no_bookmark_advanced_across_parents_without_a_yield(self, monkeypatch: Any) -> None:
+        # Small syncs never fill the batcher, so nothing is checkpointed — and crucially the bookmark
+        # is never advanced at parent boundaries. Advancing it there (the old behavior) would skip
+        # rows still buffered in the shared batcher if a crash hit between parents.
         manager = _FakeResumableManager()
         _collect("errors", self._two_project_pages(), manager, monkeypatch)
-        # After finishing p1, the bookmark advances to p2 so a crash between parents resumes there.
-        assert BugsnagResumeConfig(next_url=None, parent_id="p2") in manager.saved
+        assert manager.saved == []
+
+    def test_resume_refetches_checkpointed_page_then_continues(self, monkeypatch: Any) -> None:
+        # A checkpoint points at the CURRENT page of the in-flight parent; resume re-fetches that
+        # page (merge dedupes already-yielded rows) and then proceeds to later parents.
+        p1_page2 = "https://api.bugsnag.com/projects/p1/errors?offset=2"
+        pages = {
+            "https://api.bugsnag.com/user/organizations?per_page=100": ([{"id": "o1"}], None),
+            "https://api.bugsnag.com/organizations/o1/projects?per_page=100": ([{"id": "p1"}, {"id": "p2"}], None),
+            p1_page2: ([{"id": "e1b"}], None),
+            "https://api.bugsnag.com/projects/p2/errors?per_page=100": ([{"id": "e2"}], None),
+        }
+        manager = _FakeResumableManager(BugsnagResumeConfig(next_url=p1_page2, parent_id="p1"))
+        rows = _collect("errors", pages, manager, monkeypatch)
+        assert rows == [
+            {"id": "e1b", "organization_id": "o1", "project_id": "p1"},
+            {"id": "e2", "organization_id": "o1", "project_id": "p2"},
+        ]
 
     def test_resume_skips_already_processed_parents(self, monkeypatch: Any) -> None:
         # Bookmarked at p2: p1 must not be re-fetched (its errors URL is absent from `pages`, so a

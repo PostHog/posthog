@@ -9,7 +9,7 @@ from posthog.schema import SourceFieldInputConfig
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.bugsnag.bugsnag import BugsnagResumeConfig
-from posthog.temporal.data_imports.sources.bugsnag.settings import BUGSNAG_ENDPOINTS, ENDPOINTS
+from posthog.temporal.data_imports.sources.bugsnag.settings import BUGSNAG_ENDPOINTS, ENDPOINTS, BugsnagScope
 from posthog.temporal.data_imports.sources.bugsnag.source import BugsnagSource
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import BugsnagSourceConfig
@@ -120,7 +120,7 @@ class TestBugsnagSource:
     @parameterized.expand(
         [
             ("organizations", ["id"]),
-            ("projects", ["id"]),
+            ("projects", ["id", "organization_id"]),
             ("collaborators", ["id", "organization_id"]),
             ("errors", ["id", "project_id"]),
             ("event_fields", ["display_id", "project_id"]),
@@ -132,6 +132,16 @@ class TestBugsnagSource:
             BugsnagSourceConfig(auth_token="tok"), manager, _source_inputs(endpoint)
         )
         assert response.primary_keys == expected_keys
+
+    def test_fan_out_children_carry_parent_id_in_primary_key(self) -> None:
+        # Fan-out children aggregate rows from every parent, so the parent id injected into each row
+        # must be part of the primary key — otherwise per-parent-unique ids collide table-wide and
+        # seed duplicate rows that slow every subsequent merge.
+        for config in BUGSNAG_ENDPOINTS.values():
+            if config.scope is BugsnagScope.PER_ORG:
+                assert "organization_id" in config.primary_keys, config.name
+            elif config.scope is BugsnagScope.PER_PROJECT:
+                assert "project_id" in config.primary_keys, config.name
 
     @parameterized.expand(
         [

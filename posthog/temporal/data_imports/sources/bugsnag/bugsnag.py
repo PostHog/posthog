@@ -188,14 +188,16 @@ def _iter_top_level(
 
     while True:
         items, next_url = _fetch_list_page(session, url, headers, logger)
+        # Checkpoint the CURRENT page, not next_url: a chunk can be yielded part-way through this
+        # page, so on resume we must re-fetch this page and re-batch every item (merge dedupes the
+        # already-yielded ones) rather than skip ahead and drop the items still in the batcher.
+        checkpoint_url = url
         for item in items:
             batcher.batch(item)
             if batcher.should_yield():
                 yield batcher.get_table()
-                # Save AFTER yielding so a crash re-yields the last page rather than skipping it;
-                # merge dedupes on the primary key.
-                if next_url:
-                    manager.save_state(BugsnagResumeConfig(next_url=next_url))
+                # Save AFTER yielding so a crash resumes at this page rather than losing buffered rows.
+                manager.save_state(BugsnagResumeConfig(next_url=checkpoint_url))
         if not next_url:
             break
         url = next_url
@@ -237,20 +239,21 @@ def _iter_fan_out(
 
         while True:
             items, next_url = _fetch_list_page(session, url, headers, logger)
+            # Checkpoint the CURRENT page (and parent), not next_url. The batcher is shared across
+            # parents and can yield part-way through this page, so resume must re-fetch this exact
+            # page and re-batch every item (merge dedupes the already-yielded ones). Saving next_url
+            # — or advancing the bookmark to the next parent — would skip rows still buffered in the
+            # batcher when a crash hits, losing them. We never advance the bookmark past a yielded
+            # batch; redundant re-pulls of fully-processed parents are deduped on merge.
+            checkpoint_url = url
             for item in items:
                 batcher.batch({**item, **parent.inject})
                 if batcher.should_yield():
                     yield batcher.get_table()
-                    if next_url:
-                        manager.save_state(BugsnagResumeConfig(next_url=next_url, parent_id=parent.resume_id))
+                    manager.save_state(BugsnagResumeConfig(next_url=checkpoint_url, parent_id=parent.resume_id))
             if not next_url:
                 break
             url = next_url
-
-        # Advance the bookmark to the next parent so a crash between parents resumes correctly.
-        # Its first page URL is rebuilt fresh when the loop reaches it.
-        if index + 1 < len(parents):
-            manager.save_state(BugsnagResumeConfig(next_url=None, parent_id=parents[index + 1].resume_id))
 
 
 def get_rows(

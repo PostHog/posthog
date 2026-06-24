@@ -58,7 +58,7 @@ BUGSNAG_ENDPOINTS: dict[str, BugsnagEndpointConfig] = {
         name="projects",
         scope=BugsnagScope.PER_ORG,
         path="/organizations/{organization_id}/projects",
-        primary_keys=["id"],
+        primary_keys=["id", "organization_id"],
         partition_key="created_at",
     ),
     "collaborators": BugsnagEndpointConfig(
