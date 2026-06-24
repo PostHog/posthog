@@ -186,6 +186,7 @@ the row lists both.
 | rollbar           | HTTP                        | requests                                                        | ✅                          |
 | salesforce        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | salesloft         | HTTP                        | requests                                                        | ✅                          |
+| segment           | HTTP                        | requests                                                        | ✅                          |
 | sendgrid          | HTTP                        | requests                                                        | ✅                          |
 | sentry            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | servicenow        | HTTP                        | requests                                                        | ✅                          |
@@ -613,7 +614,6 @@ doesn't conflict with concurrent PRs.
 - savvycal
 - search_ads_360
 - secoda
-- segment
 - sendowl
 - sendpulse
 - senseforce

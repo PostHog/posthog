@@ -2753,7 +2753,8 @@ class SecodaSourceConfig(config.Config):
 
 @config.config
 class SegmentSourceConfig(config.Config):
-    pass
+    api_token: str
+    region: Literal["api", "eu1"] = config.value(default="api")
 
 
 @config.config
