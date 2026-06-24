@@ -42,7 +42,7 @@ export function TasksListColumn({ selectedTaskId, isMobile = false }: TasksListC
         // rows clear of the floating create button.
         return (
             <>
-                <div className="flex flex-col gap-1 px-1 pb-24">{rows}</div>
+                <div className="flex flex-col gap-1 pb-24">{rows}</div>
                 <LemonButton
                     type="primary"
                     icon={<IconPlus />}
@@ -59,7 +59,7 @@ export function TasksListColumn({ selectedTaskId, isMobile = false }: TasksListC
 
     return (
         <div className="flex flex-col h-full min-h-0">
-            <div className="flex items-center justify-between gap-1 p-2 shrink-0">
+            <div className="flex items-center justify-between gap-1 py-2 pr-2 pl-1 shrink-0">
                 <span className="text-sm font-semibold pl-1">Tasks</span>
                 <Link
                     to={urls.taskNew()}
@@ -75,7 +75,7 @@ export function TasksListColumn({ selectedTaskId, isMobile = false }: TasksListC
             <ScrollableShadows
                 direction="vertical"
                 className="flex flex-col flex-1 min-h-0 overflow-hidden"
-                innerClassName="px-1"
+                innerClassName="pr-2"
                 // Row gap + trailing space live on the content, not the scroll viewport: a single
                 // Content child means a gap on the viewport is a no-op, and Chrome drops a scroll
                 // container's `padding-bottom`, so `pb-4` only sticks here.

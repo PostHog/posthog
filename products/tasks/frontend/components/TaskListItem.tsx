@@ -59,7 +59,7 @@ export function TaskListItem({
                         active: isActive,
                         fullWidth: true,
                         // Taller tap target on mobile (min-height wins over the base menu-item height).
-                        className: cn('pr-0 group', isMobile && 'min-h-14 py-2'),
+                        className: cn('group', isMobile && 'px-0'),
                         menuItem: true,
                     }}
                     tooltip={displayTitle}
