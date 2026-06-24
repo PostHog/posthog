@@ -25,6 +25,7 @@ import {
 import type { codeOwnersModalLogicType } from './codeOwnersModalLogicType'
 
 export type MatchCount = { exceptionCount: number; issueCount: number }
+export type SaveAllResult = { createdCount: number; failedCount: number; totalCount: number }
 export type CodeOwnerEntryRow = CodeOwnerRuleCandidate
 export type CodeOwnerMappingRow = CodeOwnerOwnerMapping
 
@@ -134,9 +135,9 @@ export const codeOwnersModalLogic = kea<codeOwnersModalLogicType>([
         saving: [
             false,
             {
-                saveAll: async () => {
+                saveAll: async (): Promise<SaveAllResult> => {
                     const rows = values.savableRows
-                    await Promise.all(
+                    const results = await Promise.allSettled(
                         rows.map((row, index) => {
                             const rule: ErrorTrackingAssignmentRule = {
                                 id: 'new',
@@ -150,7 +151,12 @@ export const codeOwnersModalLogic = kea<codeOwnersModalLogicType>([
                             return api.errorTracking.createRule(ErrorTrackingRuleType.Assignment, rule)
                         })
                     )
-                    return true
+                    const failedCount = results.filter((result) => result.status === 'rejected').length
+                    const createdCount = results.length - failedCount
+                    if (createdCount === 0 && failedCount > 0) {
+                        throw new Error('Failed to save assignment rules')
+                    }
+                    return { createdCount, failedCount, totalCount: rows.length }
                 },
             },
         ],
@@ -180,11 +186,17 @@ export const codeOwnersModalLogic = kea<codeOwnersModalLogicType>([
         goToImpact: () => {
             actions.testMatches()
         },
-        saveAllSuccess: () => {
+        saveAllSuccess: ({ saving }) => {
             actions.closeModal()
             rulesLogic({ ruleType: ErrorTrackingRuleType.Assignment }).actions.loadRules()
+            if (saving.failedCount > 0) {
+                lemonToast.warning(
+                    `Created ${saving.createdCount} of ${saving.totalCount} assignment rules. ${saving.failedCount} failed.`
+                )
+            }
         },
         saveAllFailure: () => {
+            rulesLogic({ ruleType: ErrorTrackingRuleType.Assignment }).actions.loadRules()
             lemonToast.error('Failed to save assignment rules')
         },
     })),
