@@ -84,15 +84,28 @@ export const organizationLogic = kea<organizationLogicType>([
                     }
                 },
                 createOrganization: async (name: string) => {
-                    await timeSensitiveAuthenticationLogic.findMounted()?.asyncActions.checkReauthentication()
+                    // Re-authentication is required for this sensitive action; abort if it's
+                    // dismissed or fails (resolves `false`) rather than calling the API.
+                    const reauthenticated = await timeSensitiveAuthenticationLogic
+                        .findMounted()
+                        ?.asyncActions.checkReauthentication()
+                    if (reauthenticated === false) {
+                        throw new Error('Re-authentication was not completed')
+                    }
                     return await api.create('api/organizations/', { name })
                 },
                 updateOrganization: async (payload: OrganizationUpdatePayload) => {
                     if (!values.currentOrganization) {
                         throw new Error('Current organization has not been loaded yet.')
                     }
-                    // Check if re-authentication is required, if so, await its completion (or failure)
-                    await timeSensitiveAuthenticationLogic.findMounted()?.asyncActions.checkReauthentication()
+                    // Re-authentication is required for this sensitive action; abort if it's
+                    // dismissed or fails (resolves `false`) rather than applying the update.
+                    const reauthenticated = await timeSensitiveAuthenticationLogic
+                        .findMounted()
+                        ?.asyncActions.checkReauthentication()
+                    if (reauthenticated === false) {
+                        throw new Error('Re-authentication was not completed')
+                    }
                     const updatedOrganization = await api.update(
                         `api/organizations/${values.currentOrganization.id}`,
                         payload

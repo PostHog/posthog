@@ -227,13 +227,13 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
         },
         submitReauthenticationFailure: () => {
             if (Array.isArray(values.timeSensitiveAuthenticationRequired)) {
-                values.timeSensitiveAuthenticationRequired[1]() // Reject
+                values.timeSensitiveAuthenticationRequired[1]() // Re-auth failed
             }
         },
         setDismissedReauthentication: ({ value }) => {
             if (value) {
                 if (Array.isArray(values.timeSensitiveAuthenticationRequired)) {
-                    values.timeSensitiveAuthenticationRequired[1]() // Reject
+                    values.timeSensitiveAuthenticationRequired[1]() // Re-auth dismissed
                 }
                 posthog.capture('reauthentication_modal_dismissed')
             }
@@ -242,11 +242,18 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
             if (values.sensitiveSessionExpiresAt.diff(dayjs(), 'seconds') < LOOKAHEAD_EXPIRY_SECONDS) {
                 // Here we try to offer a better UX by forcing re-authentication if they are about to timeout
                 // which is nicer than when they try to do something later and get a 403.
-                // We also make this a promise, so that `checkReauthentication` callsites can await
-                // `asyncActions.checkReauthentication()` and proceed once re-authentication is completed
-                return new Promise((resolve, reject) =>
-                    actions.setTimeSensitiveAuthenticationRequired([resolve, reject])
-                )
+                // We make this a promise so that `checkReauthentication` callsites can await
+                // `asyncActions.checkReauthentication()` and act once re-authentication settles. The
+                // promise always *resolves* — never rejects — because a rejection thrown from a kea
+                // listener escapes as an unhandled exception (kea re-throws it outside the awaiter's
+                // try/catch). It resolves with `true` once re-authenticated and `false` when the user
+                // dismisses the modal or re-authentication fails; callers should abort on `false`.
+                // The promise is typed `Promise<void>` to satisfy kea's `void | Promise<void>` listener
+                // return constraint — the boolean it resolves with reaches awaiters via `asyncActions`.
+                return new Promise<void>((resolve) => {
+                    const settle = resolve as (reauthenticated: unknown) => void
+                    actions.setTimeSensitiveAuthenticationRequired([() => settle(true), () => settle(false)])
+                })
             }
         },
     })),
