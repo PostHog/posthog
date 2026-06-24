@@ -33,10 +33,12 @@ from posthog.models.utils import uuid7
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
+
+# Aliased so pytest doesn't collect this `test_`-prefixed helper as a test case.
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     SESSION_FORWARD_PAD_MINUTES,
     host_filter_expr,
-    test_account_filter_expr,
+    test_account_filter_expr as _test_account_filter_expr,
 )
 from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import (
     INSERT_QUERY_TEMPLATE_CAPPED,
@@ -446,7 +448,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             "entry_breakdown_value_expr": _entry_breakdown_value_expr(runner),
             "event_type_filter": runner.event_type_expr,
             "user_filter": host_filter_expr(runner.query.properties or [], team=runner.team),
-            "test_account_filter": test_account_filter_expr(
+            "test_account_filter": _test_account_filter_expr(
                 test_account_filters=runner._test_account_filters, team=runner.team
             ),
             "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
