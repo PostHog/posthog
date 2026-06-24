@@ -99,6 +99,7 @@ the row lists both.
 | elasticsearch     | HTTP                        | requests                                                        | ✅                          |
 | emailoctopus      | HTTP                        | requests                                                        | ✅                          |
 | eventbrite        | HTTP                        | requests                                                        | ✅                          |
+| fillout           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | front             | HTTP                        | requests                                                        | ✅                          |
 | fullstory         | HTTP                        | requests                                                        | ✅                          |
 | github            | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
@@ -377,7 +378,6 @@ doesn't conflict with concurrent PRs.
 - fastly
 - fauna
 - feishu
-- fillout
 - finage
 - financial_modelling
 - finnhub

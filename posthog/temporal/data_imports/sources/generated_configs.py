@@ -1102,7 +1102,10 @@ class FeishuSourceConfig(config.Config):
 
 @config.config
 class FilloutSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_base_url: Literal["https://api.fillout.com/v1/api", "https://eu-api.fillout.com/v1/api"] | None = config.value(
+        default="https://api.fillout.com/v1/api"
+    )
 
 
 @config.config
