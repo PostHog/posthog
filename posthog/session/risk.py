@@ -127,7 +127,11 @@ def _enabled(key: str, user: User) -> bool:
     # flag returns None, which bool() collapses to False (fail-closed for enforcement).
     return bool(
         posthoganalytics.feature_enabled(
-            key, str(user.distinct_id), person_properties={"email": user.email}, only_evaluate_locally=True
+            key,
+            str(user.distinct_id),
+            person_properties={"email": user.email},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
         )
     )
 
