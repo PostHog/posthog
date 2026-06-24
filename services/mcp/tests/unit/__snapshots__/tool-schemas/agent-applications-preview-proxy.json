@@ -14,7 +14,7 @@
             "type": "string"
         },
         "revision_id": {
-            "description": "Target draft revision. Must belong to this application and not be live.",
+            "description": "Target revision. Must belong to this application. May be a draft/ready revision, or the live revision to drive a mocked run of the live agent (side effects suppressed).",
             "type": "string"
         },
         "session_id": {
