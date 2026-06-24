@@ -375,6 +375,24 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertEqual(query.properties[0].key, "$current_url")
         self.assertEqual(query.properties[0].value, ["/checkout"])
 
+    @parameterized.expand(
+        [
+            ("with_event", {"limit": 5, "eventName": "$pageview"}, "$pageview"),
+            ("without_event", {"limit": 5}, None),
+        ]
+    )
+    @patch("products.dashboards.backend.widgets.activity_events_list.EventsQueryRunner")
+    def test_activity_events_widget_event_name_filter(
+        self, _label: str, config: dict[str, Any], expected_event: str | None, mock_runner_cls: MagicMock
+    ) -> None:
+        mock_runner_cls.return_value.calculate.return_value = MagicMock(
+            model_dump=lambda mode="json": {"results": [], "hasMore": False}
+        )
+
+        run_activity_events_list_widget(self.team, config, user=self.user)
+
+        self.assertEqual(mock_runner_cls.call_args.kwargs["query"].event, expected_event)
+
     @patch("products.dashboards.backend.widgets.activity_events_list.EventsQueryRunner")
     def test_activity_events_widget_returns_total_count_when_page_has_more(self, mock_runner_cls: MagicMock) -> None:
         def make_row(index: int) -> list[Any]:
