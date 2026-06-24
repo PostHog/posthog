@@ -56,95 +56,172 @@
                     "items": {
                         "anyOf": [
                             {
-                                "allOf": [
-                                    {},
-                                    {
-                                        "properties": {
-                                            "acknowledge_shared_credential": {
-                                                "type": "boolean"
-                                            },
-                                            "binding": {
-                                                "default": "principal",
-                                                "enum": ["principal", "agent"],
-                                                "type": "string"
-                                            },
-                                            "client_id": {
-                                                "type": "string"
-                                            },
-                                            "id": {
-                                                "default": "posthog",
-                                                "minLength": 1,
-                                                "type": "string"
-                                            },
-                                            "kind": {
-                                                "const": "posthog",
-                                                "type": "string"
-                                            },
-                                            "scopes": {
-                                                "default": [],
-                                                "items": {
-                                                    "type": "string"
-                                                },
-                                                "type": "array"
-                                            }
+                                "properties": {
+                                    "acknowledge_shared_credential": {
+                                        "type": "boolean"
+                                    },
+                                    "binding": {
+                                        "default": "principal",
+                                        "enum": ["principal"],
+                                        "type": "string"
+                                    },
+                                    "client_id": {
+                                        "type": "string"
+                                    },
+                                    "id": {
+                                        "default": "posthog",
+                                        "minLength": 1,
+                                        "type": "string"
+                                    },
+                                    "kind": {
+                                        "const": "posthog",
+                                        "type": "string"
+                                    },
+                                    "scopes": {
+                                        "default": [],
+                                        "items": {
+                                            "type": "string"
                                         },
-                                        "required": ["kind"],
-                                        "type": "object"
+                                        "type": "array"
                                     }
-                                ]
+                                },
+                                "required": ["kind"],
+                                "type": "object"
                             },
                             {
-                                "allOf": [
-                                    {},
-                                    {
-                                        "properties": {
-                                            "acknowledge_shared_credential": {
-                                                "type": "boolean"
-                                            },
-                                            "authorize_url": {
-                                                "format": "uri",
-                                                "type": "string"
-                                            },
-                                            "binding": {
-                                                "default": "principal",
-                                                "enum": ["principal", "agent"],
-                                                "type": "string"
-                                            },
-                                            "client_id": {
-                                                "minLength": 1,
-                                                "type": "string"
-                                            },
-                                            "client_secret_ref": {
-                                                "type": "string"
-                                            },
-                                            "id": {
-                                                "minLength": 1,
-                                                "type": "string"
-                                            },
-                                            "kind": {
-                                                "const": "oauth2",
-                                                "type": "string"
-                                            },
-                                            "scopes": {
-                                                "default": [],
-                                                "items": {
-                                                    "type": "string"
-                                                },
-                                                "type": "array"
-                                            },
-                                            "token_url": {
-                                                "format": "uri",
-                                                "type": "string"
-                                            },
-                                            "userinfo_url": {
-                                                "format": "uri",
-                                                "type": "string"
-                                            }
+                                "properties": {
+                                    "acknowledge_shared_credential": {
+                                        "type": "boolean"
+                                    },
+                                    "binding": {
+                                        "const": "agent",
+                                        "type": "string"
+                                    },
+                                    "client_id": {
+                                        "type": "string"
+                                    },
+                                    "id": {
+                                        "default": "posthog",
+                                        "minLength": 1,
+                                        "type": "string"
+                                    },
+                                    "kind": {
+                                        "const": "posthog",
+                                        "type": "string"
+                                    },
+                                    "scopes": {
+                                        "default": [],
+                                        "items": {
+                                            "type": "string"
                                         },
-                                        "required": ["kind", "id", "authorize_url", "token_url", "client_id"],
-                                        "type": "object"
+                                        "type": "array"
                                     }
-                                ]
+                                },
+                                "required": ["kind", "binding", "acknowledge_shared_credential"],
+                                "type": "object"
+                            },
+                            {
+                                "properties": {
+                                    "acknowledge_shared_credential": {
+                                        "type": "boolean"
+                                    },
+                                    "authorize_url": {
+                                        "format": "uri",
+                                        "type": "string"
+                                    },
+                                    "binding": {
+                                        "default": "principal",
+                                        "enum": ["principal"],
+                                        "type": "string"
+                                    },
+                                    "client_id": {
+                                        "minLength": 1,
+                                        "type": "string"
+                                    },
+                                    "client_secret_ref": {
+                                        "type": "string"
+                                    },
+                                    "id": {
+                                        "minLength": 1,
+                                        "type": "string"
+                                    },
+                                    "kind": {
+                                        "const": "oauth2",
+                                        "type": "string"
+                                    },
+                                    "scopes": {
+                                        "default": [],
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "token_url": {
+                                        "format": "uri",
+                                        "type": "string"
+                                    },
+                                    "userinfo_url": {
+                                        "format": "uri",
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["kind", "id", "authorize_url", "token_url", "client_id"],
+                                "type": "object"
+                            },
+                            {
+                                "properties": {
+                                    "acknowledge_shared_credential": {
+                                        "type": "boolean"
+                                    },
+                                    "authorize_url": {
+                                        "format": "uri",
+                                        "type": "string"
+                                    },
+                                    "binding": {
+                                        "const": "agent",
+                                        "type": "string"
+                                    },
+                                    "client_id": {
+                                        "minLength": 1,
+                                        "type": "string"
+                                    },
+                                    "client_secret_ref": {
+                                        "type": "string"
+                                    },
+                                    "id": {
+                                        "minLength": 1,
+                                        "type": "string"
+                                    },
+                                    "kind": {
+                                        "const": "oauth2",
+                                        "type": "string"
+                                    },
+                                    "scopes": {
+                                        "default": [],
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "token_url": {
+                                        "format": "uri",
+                                        "type": "string"
+                                    },
+                                    "userinfo_url": {
+                                        "format": "uri",
+                                        "type": "string"
+                                    }
+                                },
+                                "required": [
+                                    "kind",
+                                    "id",
+                                    "binding",
+                                    "acknowledge_shared_credential",
+                                    "authorize_url",
+                                    "token_url",
+                                    "client_id"
+                                ],
+                                "type": "object"
                             }
                         ]
                     },
