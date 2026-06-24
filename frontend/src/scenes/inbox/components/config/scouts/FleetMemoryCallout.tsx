@@ -8,10 +8,10 @@ import { pluralize } from 'lib/utils/strings'
 import { scratchpadLogic } from '../../../logics/scratchpadLogic'
 
 /**
- * "Fleet memory" stat card for the scout troop list. Surfaces that the fleet keeps durable memory
- * about this project — count + recency carry the "scouts learn over time" story — and links into the
- * full scratchpad browse/search surface. Renders nothing until there is at least one memory, so a
- * fresh project isn't nudged toward an empty page.
+ * Scratchpad stat card for the scout troop list. Surfaces that the scouts have jotted down context
+ * about this project — count + recency hint at what they're picking up — and links into the full
+ * scratchpad browse/search surface. Renders nothing until there is at least one note, so a fresh
+ * project isn't nudged toward an empty page.
  */
 export function FleetMemoryCallout({ onOpen }: { onOpen: () => void }): JSX.Element | null {
     const { entries, totalCount, lastUpdatedAt, latestKey } = useValues(scratchpadLogic)
@@ -29,9 +29,9 @@ export function FleetMemoryCallout({ onOpen }: { onOpen: () => void }): JSX.Elem
         >
             <IconNotebook className="size-5 shrink-0 text-primary-3000" />
             <div className="flex min-w-0 flex-col">
-                <span className="text-sm font-medium text-default">Fleet memory</span>
+                <span className="text-sm font-medium text-default">Scout scratchpad</span>
                 <span className="truncate text-xs text-secondary leading-snug">
-                    Your scouts have recorded {pluralize(totalCount, 'thing')} they've learned about this project
+                    {pluralize(totalCount, 'note')} your scouts have jotted down about this project
                     {lastUpdatedAt ? (
                         <>
                             {' · updated '}

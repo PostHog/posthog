@@ -9,9 +9,9 @@ import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import type { ScratchpadEntryApi } from 'products/signals/frontend/generated/api.schemas'
 
 /**
- * One durable memory the scout fleet has written about this project. Shares the collapse/expand
+ * One scratchpad note the scout fleet has written about this project. Shares the collapse/expand
  * grammar of the scout emission cards: a header (chevron · key · updated time) that stays visible,
- * a 2-line markdown preview when collapsed, the full body plus a written/learned footer when open.
+ * a 2-line markdown preview when collapsed, the full body plus a written-by footer when open.
  *
  * The key is the scout-chosen semantic handle (often namespaced, e.g. `tags:errors:taxonomy`), so it
  * is rendered mono as the title — it is the most information-dense thing about the entry.
@@ -58,7 +58,7 @@ export function ScratchpadEntryCard({ entry }: { entry: ScratchpadEntryApi }): J
 
                 {expanded && (entry.created_at || writtenByScout) && (
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t pt-2 mt-2 text-xs text-tertiary">
-                        {entry.created_at && <span>First learned {humanFriendlyDetailedTime(entry.created_at)}</span>}
+                        {entry.created_at && <span>First noted {humanFriendlyDetailedTime(entry.created_at)}</span>}
                         {writtenByScout && (
                             <>
                                 <span className="flex-1" />

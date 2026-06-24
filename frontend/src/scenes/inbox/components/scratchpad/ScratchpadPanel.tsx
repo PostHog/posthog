@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconClock, IconNotebook, IconStack } from '@posthog/icons'
+import { IconChevronDown, IconClock, IconNotebook, IconStack } from '@posthog/icons'
 import { LemonInput, LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -10,16 +10,16 @@ import { scratchpadLogic } from '../../logics/scratchpadLogic'
 import { ScratchpadEntryCard } from './ScratchpadEntryCard'
 
 /**
- * Browse + search surface for the scout fleet's durable memory (`SignalScratchpad`). Tells the
- * "scouts get smarter over time" story up top (what this is + how much has accumulated), then lets
- * the user read it newest-first or clustered by topic, and search it via the endpoint's ILIKE.
+ * Browse + search surface for the scout fleet's scratchpad (`SignalScratchpad`). Frames what the
+ * scratchpad is up top (the context scouts jot down + how much has accumulated), then lets the user
+ * read it newest-first or clustered by topic, and search it via the endpoint's ILIKE.
  *
- * Read-only: the harness writes memory on internal scope; humans inspect it here.
+ * Read-only: the harness writes scratchpad notes on internal scope; humans inspect them here.
  */
 export function ScratchpadPanel(): JSX.Element {
-    const { entries, entriesLoading, totalCount, lastUpdatedAt, groups, searchText, grouping } =
+    const { entries, entriesLoading, totalCount, lastUpdatedAt, groups, searchText, grouping, expandedNamespaces } =
         useValues(scratchpadLogic)
-    const { setSearchText, setGrouping } = useActions(scratchpadLogic)
+    const { setSearchText, setGrouping, toggleNamespace } = useActions(scratchpadLogic)
 
     const isInitialLoad = entriesLoading && entries === null
     const isSearching = searchText.trim().length > 0
@@ -31,7 +31,7 @@ export function ScratchpadPanel(): JSX.Element {
             <div className="flex flex-wrap items-center gap-2">
                 <LemonInput
                     type="search"
-                    placeholder="Search memory…"
+                    placeholder="Search the scratchpad…"
                     value={searchText}
                     onChange={setSearchText}
                     className="flex-1 min-w-[12rem]"
@@ -57,22 +57,36 @@ export function ScratchpadPanel(): JSX.Element {
             ) : !entries || entries.length === 0 ? (
                 <ScratchpadEmptyState isSearching={isSearching} />
             ) : grouping === 'topic' ? (
-                <div className="flex flex-col gap-4">
-                    {groups.map((group) => (
-                        <div key={group.namespace} className="flex flex-col gap-2">
-                            <div className="flex items-center gap-2">
-                                <span className="text-xs font-medium uppercase tracking-wide text-default">
-                                    {group.label}
-                                </span>
-                                <span className="text-[11px] text-muted">
-                                    {pluralize(group.entries.length, 'note')}
-                                </span>
+                <div className="flex flex-col gap-3">
+                    {groups.map((group) => {
+                        // Collapsed by default for a high-level scan; a search forces every matching
+                        // topic open so results stay visible without a click.
+                        const isExpanded = isSearching || expandedNamespaces.includes(group.namespace)
+                        return (
+                            <div key={group.namespace} className="flex flex-col gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => toggleNamespace(group.namespace)}
+                                    className="flex items-center gap-2 text-left"
+                                    aria-expanded={isExpanded}
+                                >
+                                    <IconChevronDown
+                                        className={`size-4 shrink-0 text-muted transition-transform ${
+                                            isExpanded ? '' : '-rotate-90'
+                                        }`}
+                                    />
+                                    <span className="text-xs font-medium uppercase tracking-wide text-default">
+                                        {group.label}
+                                    </span>
+                                    <span className="text-[11px] text-muted">
+                                        {pluralize(group.entries.length, 'note')}
+                                    </span>
+                                </button>
+                                {isExpanded &&
+                                    group.entries.map((entry) => <ScratchpadEntryCard key={entry.key} entry={entry} />)}
                             </div>
-                            {group.entries.map((entry) => (
-                                <ScratchpadEntryCard key={entry.key} entry={entry} />
-                            ))}
-                        </div>
-                    ))}
+                        )
+                    })}
                 </div>
             ) : (
                 <div className="flex flex-col gap-2">
@@ -96,16 +110,15 @@ function ScratchpadHeader({
         <div className="flex flex-col gap-1">
             <div className="flex items-center gap-2">
                 <IconNotebook className="size-5 text-primary-3000" />
-                <span className="text-base font-semibold text-default">Scout memory</span>
+                <span className="text-base font-semibold text-default">Scout scratchpad</span>
             </div>
             <p className="mb-0 max-w-2xl text-sm text-secondary">
-                Durable notes your scouts keep so each run builds on what they already learned about this project —
-                classifications, things they've ruled out, and the vocabulary they've settled on. This is how scouts get
-                sharper over time instead of starting cold every run.
+                Where your scouts jot down useful context as they scan your project — things they've classified, ruled
+                out, or the vocabulary they've settled on. Browse it to see what they're picking up about your setup.
             </p>
             {totalCount !== null && totalCount > 0 && (
                 <span className="text-xs text-muted">
-                    {pluralize(totalCount, 'memory', 'memories')}
+                    {pluralize(totalCount, 'note')}
                     {lastUpdatedAt ? (
                         <>
                             {' · last updated '}
@@ -122,8 +135,8 @@ function ScratchpadEmptyState({ isSearching }: { isSearching: boolean }): JSX.El
     return (
         <div className="rounded border border-dashed border-primary bg-bg-light px-4 py-8 text-center text-sm text-muted">
             {isSearching
-                ? 'No memories match your search.'
-                : "Your scouts haven't recorded anything yet. As they run, what they learn shows up here."}
+                ? 'No notes match your search.'
+                : "Your scouts haven't jotted anything down yet. As they scan your project, their notes show up here."}
         </div>
     )
 }

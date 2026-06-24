@@ -53,6 +53,7 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
     actions({
         setSearchText: (searchText: string) => ({ searchText }),
         setGrouping: (grouping: ScratchpadGrouping) => ({ grouping }),
+        toggleNamespace: (namespace: string) => ({ namespace }),
     }),
 
     loaders(({ values }) => ({
@@ -80,6 +81,16 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
     reducers({
         searchText: ['', { setSearchText: (_, { searchText }) => searchText }],
         grouping: ['recent' as ScratchpadGrouping, { setGrouping: (_, { grouping }) => grouping }],
+        // Which "By topic" clusters are open. Start collapsed (high-level view of topics first);
+        // switching grouping resets the set so entering "By topic" always opens fully collapsed.
+        expandedNamespaces: [
+            [] as string[],
+            {
+                toggleNamespace: (state, { namespace }) =>
+                    state.includes(namespace) ? state.filter((n) => n !== namespace) : [...state, namespace],
+                setGrouping: () => [],
+            },
+        ],
     }),
 
     selectors({

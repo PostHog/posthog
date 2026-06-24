@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconChevronDown, IconCompass, IconPlus, IconSparkles } from '@posthog/icons'
+import { IconCompass, IconPlus, IconSparkles } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -26,13 +26,14 @@ import { ScoutHelperSkillLinks } from './ScoutHelperSkillLinks'
 import { ScoutRowCard } from './ScoutRowCard'
 
 /**
- * Expandable scout troop manager, hosted in the Scout troop setup modal. Collapsed it is a
- * one-line pulse; expanded it lists every scout with inline config controls.
+ * Scout troop manager, hosted in the Scout troop setup modal (and the Agents settings tab). Both
+ * hosts already title the section "Scout troop", so this always shows the full fleet: a stats
+ * header (roster + run pulse) followed by every scout with inline config controls.
  * Cloud port of desktop's `ScoutsFleetSection`.
  */
 export function ScoutsFleetSection(): JSX.Element {
-    const { scoutConfigs, scoutConfigsLoading, expanded, enabledCount, lastRunAt } = useValues(scoutFleetLogic)
-    const { setExpanded, loadScoutConfigs, startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
+    const { scoutConfigs, scoutConfigsLoading } = useValues(scoutFleetLogic)
+    const { loadScoutConfigs, startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
     const { setScratchpadOpen } = useActions(inboxSceneLogic)
     const { closeSetupModal } = useActions(agentSetupModalLogic)
 
@@ -75,6 +76,7 @@ export function ScoutsFleetSection(): JSX.Element {
     return (
         <div className="flex flex-col gap-3">
             <ScoutAlphaBanner />
+            <FleetStatsHeader />
             <ScoutsSourceGate />
             <FleetMemoryCallout
                 onOpen={() => {
@@ -84,32 +86,7 @@ export function ScoutsFleetSection(): JSX.Element {
                     setScratchpadOpen(true)
                 }}
             />
-            <button
-                type="button"
-                onClick={() => setExpanded(!expanded)}
-                aria-expanded={expanded}
-                className="flex w-full items-center justify-between gap-3 rounded border border-primary bg-bg-light px-4 py-3.5 text-left transition-colors hover:border-primary-3000 hover:bg-bg-3000"
-            >
-                <div className="flex items-center gap-3 min-w-0">
-                    <IconCompass className="size-5 shrink-0 text-primary-3000" />
-                    <div className="flex flex-col min-w-0">
-                        <span className="font-medium text-sm text-default">Scout troop</span>
-                        <span className="text-xs text-secondary leading-snug">
-                            {enabledCount} of {scoutConfigs.length} scouts enabled
-                            {lastRunAt ? (
-                                <>
-                                    {' · last dispatched '}
-                                    <TZLabel time={lastRunAt} />
-                                </>
-                            ) : null}
-                        </span>
-                    </div>
-                </div>
-                <IconChevronDown
-                    className={`size-4 shrink-0 text-muted transition-transform ${expanded ? '' : '-rotate-90'}`}
-                />
-            </button>
-            {expanded ? <ScoutsFleetList /> : null}
+            <ScoutsFleetList />
         </div>
     )
 }
@@ -193,27 +170,47 @@ function summarize(summary: FleetSummary | null): string {
     return parts.join(' · ')
 }
 
+/**
+ * Top-of-modal troop summary: roster (enabled / total + last dispatched) over the run pulse
+ * (running / success / signals emitted across the window). Sits above the toggle row so the modal
+ * leads with "what the troop is" before its controls.
+ */
+function FleetStatsHeader(): JSX.Element {
+    const { scoutConfigs, enabledCount, lastRunAt, fleetSummary, runsWindowComplete } = useValues(scoutFleetLogic)
+
+    return (
+        <div className="flex flex-col gap-0.5">
+            <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-medium text-default">
+                    {enabledCount} of {scoutConfigs?.length ?? enabledCount} scouts enabled
+                </span>
+                {lastRunAt ? (
+                    <span className="text-xs text-secondary">
+                        last dispatched <TZLabel time={lastRunAt} />
+                    </span>
+                ) : null}
+            </div>
+            <span className="text-xs text-muted">
+                {summarize(fleetSummary)} · {scoutRunsWindowLabel(runsWindowComplete)}
+            </span>
+        </div>
+    )
+}
+
 function ScoutsFleetList(): JSX.Element {
-    const { visibleConfigs, rollups, fleetSummary, hideDisabled, runsWindowComplete } = useValues(scoutFleetLogic)
+    const { visibleConfigs, rollups, hideDisabled } = useValues(scoutFleetLogic)
     const { setHideDisabled, updateScoutConfig } = useActions(scoutFleetLogic)
 
     return (
         <div className="flex flex-col gap-3">
             <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-xs text-secondary">
-                    {summarize(fleetSummary)}
-                    <span className="text-muted"> · {scoutRunsWindowLabel(runsWindowComplete)}</span>
-                </span>
+                <ScoutChatCta label="How is my scout troop performing?" prompt={SCOUT_FLEET_OVERVIEW_PROMPT} />
+                <ScoutChatCta label="What signals were emitted recently?" prompt={SCOUT_RECENT_SIGNALS_PROMPT} />
+                <ScoutChatCta label="Make a scout" prompt={SCOUT_AUTHOR_PROMPT} icon={<IconPlus />} />
                 <span className="flex-1" />
                 <LemonButton size="xsmall" type="tertiary" onClick={() => setHideDisabled(!hideDisabled)}>
                     {hideDisabled ? 'Show disabled' : 'Hide disabled'}
                 </LemonButton>
-            </div>
-
-            <div className="flex items-center gap-2 flex-wrap">
-                <ScoutChatCta label="How is my scout troop performing?" prompt={SCOUT_FLEET_OVERVIEW_PROMPT} />
-                <ScoutChatCta label="What signals were emitted recently?" prompt={SCOUT_RECENT_SIGNALS_PROMPT} />
-                <ScoutChatCta label="Make a scout" prompt={SCOUT_AUTHOR_PROMPT} icon={<IconPlus />} />
             </div>
 
             {/* The enclosing modal owns the scroll, so the list stays flat here — a nested
