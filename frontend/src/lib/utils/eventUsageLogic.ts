@@ -1504,7 +1504,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportDashboardMoveInitiated: async ({ method, count }) => {
             // Attributes folder organization to the affordance (single row action vs bulk select) so we can tell
             // whether bulk move drives organization. Pairs with the 'dashboard moved to folder' completion event.
-            posthog.capture('dashboard move initiated', { method, multi_select_count: count })
+            posthog.capture('dashboard move initiated', { method, count })
         },
         reportDashboardFrontEndUpdate: async ({ dashboardId, attribute, originalLength, newLength }) => {
             posthog.capture(`dashboard frontend updated`, {

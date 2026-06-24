@@ -152,7 +152,7 @@ export function DashboardsTree(): JSX.Element {
                             // toggles expansion. The root stays open; childless folders don't expand at all.
                             const path = (folder.record?.path as string) ?? ''
                             const hasSubfolders = !!folder.children && folder.children.length > 0
-                            reportDashboardsTreeFolderNavigated(path ? splitPath(path).length : 0, hasSubfolders)
+                            reportDashboardsTreeFolderNavigated(splitPath(path).length, hasSubfolders)
                             navigateToFolder(path)
                             if (folder.id !== ROOT_ID && hasSubfolders) {
                                 toggleFolder(folder.id)
@@ -179,7 +179,7 @@ export function DashboardsTree(): JSX.Element {
                     dashboards={currentSubtreeDashboards}
                     dashboardsLoading={dashboardsLoading}
                     folderForDashboard={folderForDashboard}
-                    dashboardFsEntry={(dashboard) => entryByRef[String(dashboard.id)]}
+                    dashboardFsEntry={(id) => entryByRef[String(id)]}
                 />
             </div>
         </div>
