@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import TestCase, override_settings
 
+from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
 
 from posthog.models.team.team import Team
@@ -258,6 +259,40 @@ class TestFixAndRecord(BaseTest):
 
         assert result.cache_miss_fixed == 0
         assert result.fix_failed == 1
+
+    def test_soft_time_limit_exceeded_propagates_from_set_cache_value(self):
+        mock_config = MagicMock()
+        mock_config.hypercache.set_cache_value.side_effect = SoftTimeLimitExceeded()
+        result = VerificationResult()
+
+        with self.assertRaises(SoftTimeLimitExceeded):
+            _fix_and_record(
+                team=self.team,
+                config=mock_config,
+                issue_type="cache_miss",
+                cache_type="test_cache",
+                result=result,
+                verification={"status": "miss", "db_data": {"flags": []}},
+            )
+
+        assert result.fix_failed == 0
+
+    def test_soft_time_limit_exceeded_propagates_from_update_fn(self):
+        mock_config = MagicMock()
+        mock_config.update_fn.side_effect = SoftTimeLimitExceeded()
+        result = VerificationResult()
+
+        with self.assertRaises(SoftTimeLimitExceeded):
+            _fix_and_record(
+                team=self.team,
+                config=mock_config,
+                issue_type="cache_miss",
+                cache_type="test_cache",
+                result=result,
+                verification={"status": "miss"},
+            )
+
+        assert result.fix_failed == 0
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")

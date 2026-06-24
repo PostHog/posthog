@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from django.conf import settings
 
 import structlog
+from celery.exceptions import SoftTimeLimitExceeded, TimeLimitExceeded
 from prometheus_client import Counter
 
 from posthog.models.team.team import Team
@@ -223,6 +224,8 @@ def _verify_and_fix_batch(
 
         try:
             verification = verify_team_fn(team, db_batch_data, cache_batch_data)
+        except (SoftTimeLimitExceeded, TimeLimitExceeded):
+            raise
         except Exception as e:
             result.errors += 1
             logger.exception("Error verifying team", team_id=team.id, error=str(e))
@@ -311,6 +314,8 @@ def _fix_and_record(
             success = True
         else:
             success = config.update_fn(team)
+    except (SoftTimeLimitExceeded, TimeLimitExceeded):
+        raise
     except Exception as e:
         success = False
         logger.exception("Error fixing cache", team_id=team.id, issue_type=issue_type, error=str(e))
