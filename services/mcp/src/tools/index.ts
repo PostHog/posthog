@@ -35,6 +35,7 @@ import getProjects from './projects/getProjects'
 import setActiveProject from './projects/setActive'
 import updateEventDefinition from './projects/updateEventDefinition'
 // Replay
+import sessionRecordingConsoleLogs from './replay/sessionRecordingConsoleLogs'
 import sessionRecordingSummarize from './replay/sessionRecordingSummarize'
 // Skills (deprecation aliases for the llma-skill-* → skill-* rename)
 import { SKILL_DEPRECATED_ALIASES } from './skills/deprecatedAliases'
@@ -94,6 +95,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'read-data-warehouse-schema': readDataWarehouseSchema,
 
     // Replay
+    'session-recording-console-logs': sessionRecordingConsoleLogs,
     'session-recording-summarize': sessionRecordingSummarize,
 
     // Data warehouse (custom handlers for non-standard request shapes)

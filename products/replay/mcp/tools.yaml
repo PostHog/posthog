@@ -44,7 +44,10 @@ tools:
         title: Get session recording
         description: >
             Get a specific session recording by ID. Returns full recording metadata including duration, interaction
-            counts, console log counts, person info, and viewing status. Session recordings are reachable from events,
+            counts, console log counts, person info, and viewing status. The console log fields are counts only — to
+            read the actual log lines (timestamp, level, message) behind a non-zero `console_log_count`,
+            `console_warn_count`, or `console_error_count`, call `session-recording-console-logs` with the same
+            `$session_id`. Session recordings are reachable from events,
             errors, and persons via the `$session_id` property on events. Any `$session_id` value from an event can be
             passed as the `id` parameter to this tool. Note: a `$session_id` on an event does not guarantee a recording
             exists — session replay may not be enabled for that project or session. A 404 means no recording was

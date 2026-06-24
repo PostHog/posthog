@@ -1,0 +1,36 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "level": {
+            "description": "Optional case-insensitive filter on log level. Common values are `info`, `log`, `warn`, and `error` (also `debug`, `fatal`). Omit to return every level. Example: `[\"warn\", \"error\"]` to see only warnings and errors.",
+            "items": {
+                "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+        },
+        "limit": {
+            "description": "Maximum number of log lines to return. Default 200, max 1000.",
+            "maximum": 1000,
+            "minimum": 1,
+            "type": "integer"
+        },
+        "order": {
+            "description": "Chronological order by timestamp. `asc` (default) reads oldest-first; `desc` shows the latest logs.",
+            "enum": ["asc", "desc"],
+            "type": "string"
+        },
+        "search": {
+            "description": "Optional case-insensitive substring to match against the log message.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "session_id": {
+            "description": "The session recording ID — any `$session_id` value from an event, error, or person. Console logs are returned for this session only.",
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "required": ["session_id"],
+    "type": "object"
+}
