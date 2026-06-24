@@ -5913,7 +5913,7 @@ requires-dist = [
     { name = "pixelhog", specifier = "~=1.2.0" },
     { name = "playwright", specifier = "~=1.60.0" },
     { name = "polars", specifier = "==1.37.1" },
-    { name = "posthoganalytics", specifier = "==7.20.2" },
+    { name = "posthoganalytics", specifier = "==7.20.4" },
     { name = "protobuf", specifier = "~=5.29.6" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.4" },
     { name = "psycopg2-binary", specifier = "==2.9.10" },
@@ -6052,7 +6052,7 @@ sentiment = [
 
 [[package]]
 name = "posthoganalytics"
-version = "7.20.2"
+version = "7.20.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -6060,9 +6060,9 @@ dependencies = [
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a9/f1/7b3eede03afb2079ebcc5e229643b32cd1bc4b00c231efcd7e2c79407bcd/posthoganalytics-7.20.2.tar.gz", hash = "sha256:d5d387816a36f5458e6fcc583621e3e6d742683fff361db909ff13f3111bbcff", size = 256052, upload-time = "2026-06-22T15:36:56.593Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/21/ee/a2e18df3178f3cd05512bb65b87b3037b145c2889477820b1a5b243b1bce/posthoganalytics-7.20.4.tar.gz", hash = "sha256:89f364d1796ca4e414977e67f6dae94136fb41385f68f37d4c3c85bd4278fb74", size = 262180, upload-time = "2026-06-24T15:48:16.262Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/58/4c/868e2f7e033eaadad5c2be9df76dc14bca5fa66d620c02e54c08f8f4b44b/posthoganalytics-7.20.2-py3-none-any.whl", hash = "sha256:d82c9152dcf44ae08ce303d975d8a6d5848d8eeb73aabadf02acc9aeea70277e", size = 298975, upload-time = "2026-06-22T15:36:54.971Z" },
+    { url = "https://files.pythonhosted.org/packages/d1/de/81f6ffaae7ab5e95121b960bb98a2958b5ab7c36c10e1933da49d791b239/posthoganalytics-7.20.4-py3-none-any.whl", hash = "sha256:fcbfc2f9db527abeea8ba06caede720ee5fa5115f89b48827527314418c6a33c", size = 305163, upload-time = "2026-06-24T15:48:14.397Z" },
 ]
 
 [[package]]
