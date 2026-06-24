@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useActions, useValues } from 'kea'
 
 import { userHasAccess } from 'lib/utils/accessControlUtils'
@@ -61,6 +61,7 @@ const mockedUseActions = useActions as jest.Mock
 const CURRENT_TEAM_ID = 1
 
 function makeTemplate(scope: DashboardTemplateScope): DashboardTemplateType {
+    // Only id/template_name/tiles are required on DashboardTemplateType; the rest are optional, so no cast is needed.
     return {
         id: 'template-123',
         template_name: 'My template',
@@ -70,11 +71,27 @@ function makeTemplate(scope: DashboardTemplateScope): DashboardTemplateType {
         scope,
         team_id: CURRENT_TEAM_ID,
         created_at: '2024-01-01T00:00:00Z',
-        created_by: { first_name: 'Ada', email: 'ada@example.com' } as DashboardTemplateType['created_by'],
-    } as DashboardTemplateType
+        created_by: null,
+    }
 }
 
-function mountTable({ isStaff, scope }: { isStaff: boolean; scope: DashboardTemplateScope }): void {
+function mountTable({
+    isStaff,
+    scope,
+}: {
+    isStaff: boolean
+    scope: DashboardTemplateScope
+}): Record<string, jest.Mock> {
+    // One shared action bag for all three useActions() callers; the component reads disjoint keys from each.
+    const actions: Record<string, jest.Mock> = {
+        setTemplateFilter: jest.fn(),
+        setTemplateNameOrdering: jest.fn(),
+        setTemplatesTabVisibility: jest.fn(),
+        deleteDashboardTemplate: jest.fn(),
+        updateDashboardTemplate: jest.fn(),
+        toggleTemplateOrganizationScope: jest.fn(),
+        openEdit: jest.fn(),
+    }
     mockedUseValues.mockImplementation((logic: unknown) => {
         if (logic === userLogic) {
             return { user: { is_staff: isStaff, team: { id: CURRENT_TEAM_ID } } }
@@ -87,16 +104,9 @@ function mountTable({ isStaff, scope }: { isStaff: boolean; scope: DashboardTemp
             templatesTabVisibility: 'all',
         }
     })
-    mockedUseActions.mockReturnValue({
-        setTemplateFilter: jest.fn(),
-        setTemplateNameOrdering: jest.fn(),
-        setTemplatesTabVisibility: jest.fn(),
-        deleteDashboardTemplate: jest.fn(),
-        updateDashboardTemplate: jest.fn(),
-        toggleTemplateOrganizationScope: jest.fn(),
-        openEdit: jest.fn(),
-    })
+    mockedUseActions.mockReturnValue(actions)
     render(<DashboardTemplatesTable />)
+    return actions
 }
 
 describe('DashboardTemplatesTable', () => {
@@ -125,5 +135,25 @@ describe('DashboardTemplatesTable', () => {
         mountTable({ isStaff, scope: 'organization' })
 
         expect(screen.getByText('Make visible to this team only')).toBeInTheDocument()
+    })
+
+    // Global templates are not org-shareable, so the staff guard `scope === 'team' || scope === 'organization'`
+    // must keep the org toggle out. The global toggle ("...this team only") still renders, proving the menu mounted.
+    it('hides the organization toggle on a global template for staff', () => {
+        mountTable({ isStaff: true, scope: 'global' })
+
+        expect(screen.getByText('Make visible to this team only')).toBeInTheDocument()
+        expect(screen.queryByText('Make visible to whole organization')).not.toBeInTheDocument()
+    })
+
+    it('dispatches toggleTemplateOrganizationScope with the record when the toggle is clicked', () => {
+        const actions = mountTable({ isStaff: true, scope: 'team' })
+
+        fireEvent.click(screen.getByText('Make visible to whole organization'))
+
+        expect(actions.toggleTemplateOrganizationScope).toHaveBeenCalledTimes(1)
+        expect(actions.toggleTemplateOrganizationScope).toHaveBeenCalledWith(
+            expect.objectContaining({ id: 'template-123', scope: 'team' })
+        )
     })
 })
