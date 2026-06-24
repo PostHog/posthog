@@ -288,7 +288,9 @@ class SetSkillRefsRequestSerializer(serializers.Serializer):
     # can't fan out without limit. Generous vs. realistic agent skill counts.
     skill_refs = SkillRefSerializer(
         many=True,
-        max_length=50,
+        # `many=True` builds a ListSerializer, which accepts max_length to bound the
+        # list — drf-stubs types the call against the child and misses the kwarg.
+        max_length=50,  # type: ignore[call-arg]
         help_text="The complete set of store-skill references for this draft; replaces any existing references.",
     )
 

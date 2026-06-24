@@ -2233,7 +2233,27 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             for f in manifest.get("files", [])
             if len(parts := f["path"].split("/")) > 1 and parts[0] == "skills"
         }
-        for stale in bundle_aliases - aliases:
+        orphan_aliases = bundle_aliases - aliases
+        # An orphan skill folder (in the bundle, not in the current refs) is one of
+        # two things. (a) A store skill a prior freeze of this lineage materialized
+        # and the author has since dropped from `skill_refs` — its carried spec
+        # entry still carries `from_template` provenance, so it's safe to sweep.
+        # (b) An inline skill cloned forward from a revision authored before the
+        # store became canonical — no `from_template`, never backed by a ref.
+        # Sweeping (b) silently strips real content on re-freeze, so we refuse and
+        # make the author recreate it in the store first. This is the migration
+        # guard for pre-store agents that get forked and re-frozen.
+        spec_skills_by_alias = {s.get("id"): s for s in ((revision.spec or {}).get("skills") or [])}
+        legacy_orphans = sorted(
+            alias for alias in orphan_aliases if not spec_skills_by_alias.get(alias, {}).get("from_template")
+        )
+        if legacy_orphans:
+            raise ValidationError(
+                f"Revision carries inline skill folder(s) {legacy_orphans} not backed by a store reference "
+                "(authored before the llma-skill store became canonical). Recreate them in the store and set "
+                "`skill_refs` before freezing — otherwise the freeze would silently drop them."
+            )
+        for stale in orphan_aliases:
             self._call(janitor_client.delete_skill, str(revision.id), stale)
         provenance_by_alias: dict[str, dict] = {}
         for resolved in resolved_skills:

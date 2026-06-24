@@ -93,8 +93,15 @@ class TestFreezeResolvesSkillRefs(APIBaseTest):
         client = mock_janitor.return_value
         client.put_skill = MagicMock(return_value={"ok": True})
         client.delete_skill = MagicMock(return_value={"ok": True})
-        # A prior freeze attempt left `skills/old/` in the bundle; the current
-        # ref set is just `triage`, so `old` must be swept.
+        # A prior freeze materialized `skills/old/` from a store ref (its carried
+        # spec entry keeps `from_template` provenance); the author has since
+        # dropped it from refs, leaving just `triage`, so `old` must be swept.
+        self.revision.spec = {
+            "model": "x",
+            "triggers": [],
+            "skills": [{"id": "old", "path": "skills/old/SKILL.md", "from_template": "old-skill"}],
+        }
+        self.revision.save(update_fields=["spec"])
         client.manifest.return_value = {
             "files": [{"path": "agent.md"}, {"path": "skills/old/SKILL.md"}, {"path": "skills/triage/SKILL.md"}]
         }
@@ -106,6 +113,32 @@ class TestFreezeResolvesSkillRefs(APIBaseTest):
         res = self.client.post(self.url)
         self.assertEqual(res.status_code, 200, res.content)
         client.delete_skill.assert_called_once_with(str(self.revision.id), "old")
+
+    @patch("products.agent_platform.backend.presentation.views._janitor")
+    def test_freeze_fails_loud_on_legacy_inline_skill(self, mock_janitor: MagicMock) -> None:
+        client = mock_janitor.return_value
+        client.put_skill = MagicMock(return_value={"ok": True})
+        client.delete_skill = MagicMock(return_value={"ok": True})
+        # Models a pre-store agent forked + re-frozen: the bundle carries an inline
+        # `skills/legacy/` folder with no `from_template` provenance and no backing
+        # ref. The freeze must refuse rather than silently strip it.
+        self.revision.skill_refs = []
+        self.revision.spec = {
+            "model": "x",
+            "triggers": [],
+            "skills": [{"id": "legacy", "path": "skills/legacy/SKILL.md"}],
+        }
+        self.revision.save(update_fields=["skill_refs", "spec"])
+        client.manifest.return_value = {"files": [{"path": "agent.md"}, {"path": "skills/legacy/SKILL.md"}]}
+
+        res = self.client.post(self.url)
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertIn("legacy", str(res.content))
+        # Fail loud BEFORE any destructive janitor call or seal.
+        client.delete_skill.assert_not_called()
+        client.freeze.assert_not_called()
+        self.revision.refresh_from_db()
+        self.assertEqual(self.revision.state, "draft")
 
     @property
     def _skill_refs_url(self) -> str:
