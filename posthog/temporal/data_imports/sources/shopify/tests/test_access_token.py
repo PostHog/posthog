@@ -1,6 +1,8 @@
 import pytest
 from unittest import mock
 
+from requests.exceptions import SSLError
+
 from posthog.temporal.data_imports.sources.shopify.shopify import (
     SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
     _get_shopify_access_token,
@@ -53,6 +55,24 @@ def test_get_access_token_transient_stays_retryable(status_code):
 def test_get_access_token_success_returns_token():
     with _patched_token_call(_mock_response(200, ok=True, json_data={"access_token": "tok"})):
         assert _get_shopify_access_token("store", "client-id", "client-secret") == "tok"
+
+
+@mock.patch("tenacity.nap.time.sleep")
+def test_get_access_token_retries_ssl_error_then_succeeds(_mock_sleep):
+    # A transient TLS drop on the token endpoint surfaces from `post` as SSLError (a
+    # ConnectionError); it's transient, so reissue the request rather than failing the import.
+    post = mock.MagicMock(
+        side_effect=[
+            SSLError("[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol"),
+            _mock_response(200, ok=True, json_data={"access_token": "tok"}),
+        ]
+    )
+    with mock.patch(
+        "posthog.temporal.data_imports.sources.shopify.shopify.make_tracked_session",
+        return_value=mock.MagicMock(post=post),
+    ):
+        assert _get_shopify_access_token("store", "client-id", "client-secret") == "tok"
+    assert post.call_count == 2
 
 
 @pytest.mark.parametrize(
