@@ -45,6 +45,7 @@ type AllowedExperimentFields = Pick<
     | 'exposure_criteria'
     | 'parameters'
     | 'running_time_calculation'
+    | 'excluded_variants'
     | 'primary_metrics_ordered_uuids'
     | 'secondary_metrics_ordered_uuids'
 > & {
@@ -263,6 +264,11 @@ export const getExperimentChangeDescription = (
         })
         .with({ field: 'running_time_calculation' }, () => {
             return 'updated the running time calculation'
+        })
+        .with({ field: 'excluded_variants' }, () => {
+            // The change is described by the `parameters` matcher, which the backend keeps
+            // mirrored while `parameters` is deprecated — avoid a duplicate line.
+            return null
         })
         .otherwise(({ field, action }) => {
             // Fallback for unhandled fields - ensures all activity is visible

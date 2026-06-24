@@ -100,6 +100,9 @@ export async function queueApprovalResult(input: {
             type: input.policy.type,
             allow_edit: input.policy.allow_edit,
         },
+        // Stamp the session's preview mode on the row so the dispatch path
+        // and the listing serializer don't have to re-join `agent_session`.
+        is_preview: input.session.is_preview,
         expires_at: new Date(Date.now() + input.policy.ttl_ms).toISOString(),
     })
 

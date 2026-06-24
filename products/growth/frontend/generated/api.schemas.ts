@@ -86,6 +86,12 @@ export interface IdentityMatchingRunModelCountApi {
     model_version: string
     /** Number of links this model produced in the run. */
     link_count: number
+    /** Links from this model in the 'high' tier. */
+    high_confidence: number
+    /** Links from this model in the 'medium' tier. */
+    medium_confidence: number
+    /** Links from this model in the 'low' tier. */
+    low_confidence: number
 }
 
 export interface IdentityMatchingRunApi {
@@ -95,6 +101,16 @@ export interface IdentityMatchingRunApi {
     computed_at: string
     /** Link counts per scoring model in this run. */
     models: IdentityMatchingRunModelCountApi[]
+    /** Total links across all models in this run. */
+    total_links: number
+    /** Distinct anonymous visitors that were linked. */
+    unique_orphans: number
+    /** Links where a paid ad click was recovered for an anonymous visitor. */
+    paid_touches: number
+    /** Earliest link computed_at in the run (UTC). */
+    first_link_at: string
+    /** Latest link computed_at in the run (UTC). */
+    last_link_at: string
 }
 
 export interface IdentityMatchingRunsResponseApi {

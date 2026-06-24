@@ -246,6 +246,19 @@ class TestListProfilesFanOut:
         assert list_profiles.supports_append is False
         assert list_profiles.should_sync_default is False
 
+    def test_lists_request_stays_within_klaviyo_page_size_cap(self, monkeypatch: Any) -> None:
+        # Klaviyo's Get Lists endpoint caps page[size] at 10; a larger value 400s the whole fan-out.
+        fetched_urls: list[str] = []
+
+        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
+            fetched_urls.append(url)
+            return {"data": [], "links": {"next": None}}
+
+        monkeypatch.setattr(klaviyo, "_fetch_page", fake_fetch)
+        list(klaviyo._iter_list_ids(MagicMock(), {}, MagicMock()))
+
+        assert fetched_urls == ["https://a.klaviyo.com/api/lists?page[size]=10"]
+
     def test_fans_out_over_every_list_into_membership_rows(self, monkeypatch: Any) -> None:
         pages = {
             "https://a.klaviyo.com/api/lists?page[size]=10": {

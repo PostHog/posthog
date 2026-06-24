@@ -384,7 +384,7 @@ class TestRunTaggerWorkflow:
         event_data = create_mock_event_data(team.id, properties={})
 
         with patch("posthog.temporal.ai_observability.run_tagger.Team.objects.get") as mock_team_get:
-            with patch("posthog.temporal.ai_observability.run_tagger.capture_internal_routed") as mock_capture:
+            with patch("posthog.temporal.ai_observability.run_tagger.capture_internal") as mock_capture:
                 mock_team_get.return_value = team
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
 

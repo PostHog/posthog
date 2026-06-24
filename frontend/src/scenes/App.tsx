@@ -57,6 +57,17 @@ export function App(): JSX.Element | null {
     // (OAuth UI gated on preflight.is_debug); no timers/listeners, so cheap to always mount.
     useMountedLogic(oauthLogic)
 
+    // Mount the support-hash router (handles #panel=support) on every page, lazily so it stays out
+    // of App's import graph — a static import drags supportLogic/sceneLogic/organizationLogic into
+    // root init and triggers a circular-import TDZ. Its urlToAction fires on the current URL on mount.
+    useEffect(() => {
+        let unmount: (() => void) | undefined
+        void import('lib/components/Support/supportRouterLogic').then(({ supportRouterLogic }) => {
+            unmount = supportRouterLogic.mount()
+        })
+        return () => unmount?.()
+    }, [])
+
     useThemedHtml()
 
     // A cloud OAuth redirect lands at /oauth/callback on the local origin. Render the exchange

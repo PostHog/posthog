@@ -1,4 +1,5 @@
-use chrono::{DateTime, Datelike, Duration, TimeZone, Timelike, Utc};
+use chrono::{DateTime, Datelike, Duration, LocalResult, NaiveDate, NaiveDateTime, TimeZone, Utc};
+use chrono_tz::Tz;
 use once_cell::sync::Lazy;
 use regex::Regex;
 
@@ -7,8 +8,11 @@ static RELATIVE_DATE_REGEX: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"^-?(?P<number>[0-9]+)(?P<interval>[hdwmy])$").expect("Invalid regex pattern")
 });
 
-/// Parse a relative date string like "-3d", "3d", "-3h", etc.
-/// Returns None if the string doesn't match the expected format or if the number is too large.
+/// Parse a relative date string like "-3d", "3d", "-3h", etc., anchored to the
+/// current UTC time.
+///
+/// Returns None if the string doesn't match the expected format or if the number
+/// is too large.
 ///
 /// This implementation matches Python's behavior using relativedelta:
 /// - Hours and days use fixed durations
@@ -25,11 +29,52 @@ static RELATIVE_DATE_REGEX: Lazy<Regex> = Lazy::new(|| {
 /// assert!(three_days_ago < now);
 /// ```
 pub fn parse_relative_date(date_str: &str) -> Option<DateTime<Utc>> {
-    parse_relative_date_with_now(date_str, Utc::now())
+    // The wall clock in UTC is the same as the absolute instant, so the naive
+    // arithmetic below reproduces the previous UTC-anchored behavior exactly.
+    parse_relative_date_naive(date_str, Utc::now().naive_utc()).map(|naive| naive.and_utc())
 }
 
-/// Internal function that takes a specific "now" time for testing
-fn parse_relative_date_with_now(date_str: &str, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
+/// Parse a relative date string anchored to the current wall clock in `tz`,
+/// returning the resulting instant in UTC.
+///
+/// This mirrors HogQL's `relative_date_parse(value, team.timezone_info)`: the
+/// relativedelta arithmetic runs against the team-timezone wall clock, and the
+/// resulting wall clock is then interpreted back in the team timezone. Keeping
+/// the subtraction on the naive wall clock (rather than on an absolute UTC
+/// instant) is what makes "in the last N days" land on the same local day
+/// boundary in both engines.
+pub fn parse_relative_date_in_tz(date_str: &str, tz: Tz) -> Option<DateTime<Utc>> {
+    // Cheap reject for the common case (absolute date strings) before reading the
+    // clock and localizing — that work is wasted whenever the regex won't match.
+    if !RELATIVE_DATE_REGEX.is_match(date_str) {
+        return None;
+    }
+    let now_local = Utc::now().with_timezone(&tz).naive_local();
+    let result = parse_relative_date_naive(date_str, now_local)?;
+    naive_to_utc_in_tz(result, tz)
+}
+
+/// Interpret a naive wall-clock datetime as a moment in `tz`, returning UTC.
+///
+/// On a DST fall-back overlap (the same wall clock occurs twice) we pick the
+/// earliest instant; on a spring-forward gap (the wall clock never occurs) we
+/// return None. The gap case is a ~1h/year edge well outside the day-boundary
+/// window this fix targets, and a missing match there is preferable to a silently
+/// shifted one.
+pub(crate) fn naive_to_utc_in_tz(naive: NaiveDateTime, tz: Tz) -> Option<DateTime<Utc>> {
+    match tz.from_local_datetime(&naive) {
+        LocalResult::Single(dt) => Some(dt.with_timezone(&Utc)),
+        LocalResult::Ambiguous(earliest, _latest) => Some(earliest.with_timezone(&Utc)),
+        LocalResult::None => None,
+    }
+}
+
+/// Apply the relativedelta-style subtraction purely on a naive wall clock.
+///
+/// All arithmetic is timezone-agnostic here; callers decide how to anchor `now`
+/// and how to interpret the result. Time-of-day (including sub-second precision)
+/// is preserved across calendar month/year shifts.
+fn parse_relative_date_naive(date_str: &str, now: NaiveDateTime) -> Option<NaiveDateTime> {
     let captures = RELATIVE_DATE_REGEX.captures(date_str)?;
 
     let number: i64 = captures.name("number")?.as_str().parse().ok()?;
@@ -60,33 +105,10 @@ fn parse_relative_date_with_now(date_str: &str, now: DateTime<Utc>) -> Option<Da
                     (year, month - 1)
                 };
 
-                // Get the last day of the previous month
-                let last_day = if prev_month == 2 {
-                    if prev_year % 4 == 0 && (prev_year % 100 != 0 || prev_year % 400 == 0) {
-                        29 // Leap year
-                    } else {
-                        28 // Non-leap year
-                    }
-                } else if [4, 6, 9, 11].contains(&prev_month) {
-                    30
-                } else {
-                    31
-                };
-
                 // Use the minimum of the original day and the last day of the previous month
-                let new_day = day.min(last_day);
-                result = Utc
-                    .with_ymd_and_hms(
-                        prev_year,
-                        prev_month,
-                        new_day,
-                        result.hour(),
-                        result.minute(),
-                        result.second(),
-                    )
-                    .unwrap()
-                    .with_nanosecond(result.nanosecond())
-                    .unwrap();
+                let new_day = day.min(last_day_of_month(prev_year, prev_month));
+                result = NaiveDate::from_ymd_opt(prev_year, prev_month, new_day)?
+                    .and_time(result.time());
             }
             Some(result)
         }
@@ -98,29 +120,14 @@ fn parse_relative_date_with_now(date_str: &str, now: DateTime<Utc>) -> Option<Da
                 let month = result.month();
                 let day = result.day();
 
-                // Handle February 29 in leap years
-                let new_day = if month == 2 && day == 29 {
-                    if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) {
-                        29 // Leap year
-                    } else {
-                        28 // Non-leap year
-                    }
+                // Handle February 29 in non-leap target years
+                let new_day = if month == 2 {
+                    day.min(last_day_of_month(year, month))
                 } else {
                     day
                 };
 
-                result = Utc
-                    .with_ymd_and_hms(
-                        year,
-                        month,
-                        new_day,
-                        result.hour(),
-                        result.minute(),
-                        result.second(),
-                    )
-                    .unwrap()
-                    .with_nanosecond(result.nanosecond())
-                    .unwrap();
+                result = NaiveDate::from_ymd_opt(year, month, new_day)?.and_time(result.time());
             }
             Some(result)
         }
@@ -128,15 +135,32 @@ fn parse_relative_date_with_now(date_str: &str, now: DateTime<Utc>) -> Option<Da
     }
 }
 
+/// Last calendar day of the given month, accounting for leap years.
+fn last_day_of_month(year: i32, month: u32) -> u32 {
+    if month == 2 {
+        if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) {
+            29
+        } else {
+            28
+        }
+    } else if [4, 6, 9, 11].contains(&month) {
+        30
+    } else {
+        31
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{TimeZone, Utc};
+    use chrono::{TimeZone, Timelike, Utc};
     use test_case::test_case;
 
-    // Helper function to parse relative date with a fixed "now" time
+    // Helper function to parse relative date with a fixed "now" time. The naive
+    // UTC wall clock equals the absolute instant, so this exercises the same
+    // arithmetic the UTC-anchored `parse_relative_date` uses.
     fn parse_relative_date_fixed(date_str: &str, now: DateTime<Utc>) -> Option<DateTime<Utc>> {
-        parse_relative_date_with_now(date_str, now)
+        parse_relative_date_naive(date_str, now.naive_utc()).map(|naive| naive.and_utc())
     }
 
     #[test_case("-3d" => true; "negative days")]
@@ -499,5 +523,65 @@ mod tests {
         assert!(parse_relative_date_fixed("9999w", now).is_some());
         assert!(parse_relative_date_fixed("9999m", now).is_some());
         assert!(parse_relative_date_fixed("9999y", now).is_some());
+    }
+
+    #[test]
+    fn test_naive_to_utc_in_tz_pacific_offset() {
+        // June → PDT (UTC-7). A wall clock of 2024-06-03 02:00 in Pacific is
+        // 2024-06-03 09:00 UTC.
+        let naive = NaiveDate::from_ymd_opt(2024, 6, 3)
+            .unwrap()
+            .and_hms_opt(2, 0, 0)
+            .unwrap();
+        let utc = naive_to_utc_in_tz(naive, Tz::America__Los_Angeles).unwrap();
+        assert_eq!(utc, Utc.with_ymd_and_hms(2024, 6, 3, 9, 0, 0).unwrap());
+    }
+
+    #[test]
+    fn test_relative_date_naive_anchored_in_tz_matches_hogql() {
+        // Mirrors HogQL's relative_date_parse(value, team.timezone_info): the
+        // relativedelta runs on the team-timezone wall clock, then the result is
+        // interpreted back in the team timezone. Anchoring "now" to 2024-06-10
+        // 02:00 Pacific, "-7d" lands on 2024-06-03 02:00 Pacific = 09:00 UTC.
+        let now_pacific_wall = NaiveDate::from_ymd_opt(2024, 6, 10)
+            .unwrap()
+            .and_hms_opt(2, 0, 0)
+            .unwrap();
+        let result = parse_relative_date_naive("-7d", now_pacific_wall).unwrap();
+        let utc = naive_to_utc_in_tz(result, Tz::America__Los_Angeles).unwrap();
+        assert_eq!(utc, Utc.with_ymd_and_hms(2024, 6, 3, 9, 0, 0).unwrap());
+
+        // The same wall clock interpreted as UTC (the pre-fix behavior) lands 7h
+        // earlier, which is exactly the day-boundary divergence this fix removes.
+        let utc_anchored = parse_relative_date_naive("-7d", now_pacific_wall)
+            .unwrap()
+            .and_utc();
+        assert_eq!(
+            utc_anchored,
+            Utc.with_ymd_and_hms(2024, 6, 3, 2, 0, 0).unwrap()
+        );
+        assert_ne!(utc, utc_anchored);
+    }
+
+    #[test]
+    fn test_naive_to_utc_in_tz_fall_back_picks_earliest() {
+        // On 2024-11-03 the Pacific clock falls back 02:00 PDT → 01:00 PST, so 01:30
+        // occurs twice. We pick the earliest instant (PDT, UTC-7 = 08:30 UTC).
+        let naive = NaiveDate::from_ymd_opt(2024, 11, 3)
+            .unwrap()
+            .and_hms_opt(1, 30, 0)
+            .unwrap();
+        let utc = naive_to_utc_in_tz(naive, Tz::America__Los_Angeles).unwrap();
+        assert_eq!(utc, Utc.with_ymd_and_hms(2024, 11, 3, 8, 30, 0).unwrap());
+    }
+
+    #[test]
+    fn test_naive_to_utc_in_tz_spring_forward_gap_is_none() {
+        // On 2024-03-10 the Pacific clock jumps 02:00 → 03:00, so 02:30 never occurs.
+        let naive = NaiveDate::from_ymd_opt(2024, 3, 10)
+            .unwrap()
+            .and_hms_opt(2, 30, 0)
+            .unwrap();
+        assert!(naive_to_utc_in_tz(naive, Tz::America__Los_Angeles).is_none());
     }
 }
