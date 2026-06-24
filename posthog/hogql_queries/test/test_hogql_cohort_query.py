@@ -2086,6 +2086,58 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         finally:
             sync_execute("DROP TABLE IF EXISTS precalculated_person_properties")
 
+    def test_single_scan_argmax_latest_write_wins(self) -> None:
+        """argMax picks the row with the highest (_timestamp, _offset), so the latest write wins.
+
+        Seeds two rows per (person, condition): an earlier row with one matches value and a later row
+        with the opposite. Asserts membership reflects the latest row, not the earlier one.
+        The helper assigns _offset via enumerate, so a later list entry beats an earlier one.
+        """
+        sync_execute(_PRECALCULATED_PERSON_PROPERTIES_TEST_DDL)
+        sync_execute("TRUNCATE TABLE precalculated_person_properties")
+        try:
+            flipped_out, flipped_in = uuid4(), uuid4()
+            self._seed_precalculated_person_properties(
+                [
+                    # flipped_out: early True then late False → excluded
+                    (flipped_out, "exec_F", True),
+                    (flipped_out, "exec_F", False),
+                    # flipped_in: early False then late True → included
+                    (flipped_in, "exec_F", False),
+                    (flipped_in, "exec_F", True),
+                ]
+            )
+
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="argmax flip",
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "f",
+                                        "type": "person",
+                                        "value": "x",
+                                        "negation": False,
+                                        "operator": "exact",
+                                        "conditionHash": "exec_F",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            )
+            members = self._realtime_cohort_members(cohort)
+            self.assertNotIn(str(flipped_out), members)  # latest write was False
+            self.assertIn(str(flipped_in), members)  # latest write was True
+        finally:
+            sync_execute("DROP TABLE IF EXISTS precalculated_person_properties")
+
     @parameterized.expand(
         [
             # A merged child's internal boolean type must match the top-level operator to flatten.
