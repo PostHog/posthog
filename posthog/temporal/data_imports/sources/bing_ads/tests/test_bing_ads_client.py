@@ -108,7 +108,8 @@ class TestBingAdsClient:
             if CustomerId == 111:
                 account = mock.MagicMock(Id=1, Number="A1", Name="Acc 1", AccountLifeCycleStatus="Active")
             else:
-                account = mock.MagicMock(Id=2, Number="B2", Name="Acc 2", AccountLifeCycleStatus="Pause")
+                # A missing status falls back to "Unknown" rather than the literal string "None".
+                account = mock.MagicMock(Id=2, Number="B2", Name="Acc 2", AccountLifeCycleStatus=None)
             return mock.MagicMock(AccountInfo=[account])
 
         instance.GetAccountsInfo.side_effect = accounts_for
@@ -130,12 +131,14 @@ class TestBingAdsClient:
                 "id": 2,
                 "number": "B2",
                 "name": "Acc 2",
-                "status": "Pause",
+                "status": "Unknown",
                 "customer_id": 222,
                 "customer_name": "Other Co",
                 "is_primary": False,
             },
         ]
+        # Per-customer scoping must not leak onto the shared authorization_data after the call.
+        assert client.authorization_data.customer_id is None
 
     @mock.patch("posthog.temporal.data_imports.sources.bing_ads.client.ServiceClient")
     def test_list_accounts_wraps_soap_fault(self, mock_service_client):

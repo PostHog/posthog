@@ -135,6 +135,7 @@ class BingAdsClient:
         the user's own customer (from ``GetUser``) is flagged ``is_primary``.
         """
         primary_customer_id = self.get_customer_id()
+        original_customer_id = self.authorization_data.customer_id
         try:
             service_client = ServiceClient(
                 service="CustomerManagementService",
@@ -143,7 +144,8 @@ class BingAdsClient:
                 environment=ENVIRONMENT,
             )
 
-            customers = service_client.GetCustomersInfo(CustomerNameFilter="", TopN=100)
+            # 1000 is Microsoft's documented maximum for GetCustomersInfo.
+            customers = service_client.GetCustomersInfo(CustomerNameFilter="", TopN=1000)
 
             accounts: list[dict[str, Any]] = []
             for customer in getattr(customers, "CustomerInfo", None) or []:
@@ -156,7 +158,7 @@ class BingAdsClient:
                             "id": account.Id,
                             "number": getattr(account, "Number", None),
                             "name": getattr(account, "Name", None),
-                            "status": str(getattr(account, "AccountLifeCycleStatus", None)),
+                            "status": getattr(account, "AccountLifeCycleStatus", None) or "Unknown",
                             "customer_id": customer.Id,
                             "customer_name": getattr(customer, "Name", None),
                             "is_primary": customer.Id == primary_customer_id,
@@ -164,6 +166,9 @@ class BingAdsClient:
                     )
         except Exception as e:
             raise _wrap_with_fault_detail(e, "Failed to list Bing Ads accounts") from e
+        finally:
+            # Restore the shared scope so a later sync on this client isn't left pointed at the last customer.
+            self.authorization_data.customer_id = original_customer_id
 
         return accounts
 
