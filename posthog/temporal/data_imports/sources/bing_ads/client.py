@@ -8,6 +8,7 @@ from bingads.v13 import reporting
 from suds import WebFault
 
 from posthog.settings import integrations
+from posthog.temporal.data_imports.sources.common.integration_accounts import IntegrationAccount
 
 from .schemas import REPORT_CONFIG, RESOURCE_SCHEMAS, BingAdsResource
 from .utils import (
@@ -126,13 +127,16 @@ class BingAdsClient:
 
         return self._customer_id
 
-    def list_accounts(self) -> list[dict[str, Any]]:
+    def list_accounts(self) -> list[IntegrationAccount]:
         """List every Bing Ads account the connected user can access, across all their customers.
 
         A user can belong to more than one customer (e.g. an agency managing several advertisers),
         and ``GetAccountsInfo`` is scoped to a single customer — so enumerate the customers first
         (``GetCustomersInfo``) and collect each one's accounts. The account whose customer matches
         the user's own customer (from ``GetUser``) is flagged ``is_primary``.
+
+        Each account is mapped onto the shared :class:`IntegrationAccount` contract so one endpoint
+        serializer and one frontend selector work across every ad platform.
         """
         primary_customer_id = self.get_customer_id()
         original_customer_id = self.authorization_data.customer_id
@@ -147,22 +151,22 @@ class BingAdsClient:
             # 1000 is Microsoft's documented maximum for GetCustomersInfo.
             customers = service_client.GetCustomersInfo(CustomerNameFilter="", TopN=1000)
 
-            accounts: list[dict[str, Any]] = []
+            accounts: list[IntegrationAccount] = []
             for customer in getattr(customers, "CustomerInfo", None) or []:
                 # GetAccountsInfo reads the customer from authorization_data, so scope it per customer.
                 self.authorization_data.customer_id = customer.Id
                 result = service_client.GetAccountsInfo(CustomerId=customer.Id, OnlyParentAccounts=False)
                 for account in getattr(result, "AccountInfo", None) or []:
+                    status = getattr(account, "AccountLifeCycleStatus", None) or "Unknown"
                     accounts.append(
-                        {
-                            "id": account.Id,
-                            "number": getattr(account, "Number", None),
-                            "name": getattr(account, "Name", None),
-                            "status": getattr(account, "AccountLifeCycleStatus", None) or "Unknown",
-                            "customer_id": customer.Id,
-                            "customer_name": getattr(customer, "Name", None),
-                            "is_primary": customer.Id == primary_customer_id,
-                        }
+                        IntegrationAccount(
+                            value=str(account.Id),
+                            display_name=getattr(account, "Name", None) or "Unnamed account",
+                            is_primary=customer.Id == primary_customer_id,
+                            badges=(status,),
+                            group=getattr(customer, "Name", None),
+                            secondary_text=getattr(account, "Number", None),
+                        )
                     )
         except Exception as e:
             raise _wrap_with_fault_detail(e, "Failed to list Bing Ads accounts") from e

@@ -32,10 +32,9 @@ import {
     sourceWizardLogic,
 } from '../../../scenes/NewSourceScene/sourceWizardLogic'
 import { CDC_SOURCE_TYPES } from '../../cdc'
-import { BingAdsAccountSelector } from './BingAdsAccountSelector'
 import { CustomSourceManifestBuilder } from './CustomSourceManifestBuilder'
 import { GitHubRepositorySelector } from './GitHubRepositorySelector'
-import { GoogleSearchConsoleSiteSelector } from './GoogleSearchConsoleSiteSelector'
+import { IntegrationAccountSelector } from './IntegrationAccountSelector'
 import { SourceIntegrationChoice } from './IntegrationChoice'
 import { parseConnectionStringForSource } from './parsers'
 import { supportsDirectQuery } from './schemaGroupingUtils'
@@ -307,17 +306,32 @@ export const sourceFieldToElement = (
         return <GitHubRepositorySelector key={field.name} />
     }
 
-    if (field.type === 'text' && field.name === 'site_url' && sourceConfig.name === 'GoogleSearchConsole') {
-        // Special case — once the user picks an OAuth integration the selector swaps the
-        // text input for a dropdown populated from the Search Console API. Avoids the
-        // `sc-domain:` vs trailing-slash typos that bounce off `validate_credentials`.
-        return <GoogleSearchConsoleSiteSelector key={field.name} />
+    // Ad/analytics sources whose account/property field is backed by the shared IntegrationAccount
+    // contract: once the OAuth integration is picked, the text input becomes a dropdown of the
+    // accounts the integration can access (one component, one logic, one endpoint shape for all).
+    if (field.name === 'site_url' && sourceConfig.name === 'GoogleSearchConsole') {
+        return (
+            <IntegrationAccountSelector
+                key={field.name}
+                fieldName="site_url"
+                fieldLabel="Property URL"
+                integrationField="google_search_console_integration_id"
+                integrationKind="google-search-console"
+                placeholder="https://example.com/ or sc-domain:example.com"
+            />
+        )
     }
 
     if (field.name === 'account_id' && sourceConfig.name === 'BingAds') {
-        // Same pattern as Search Console above: swap the text input for an account dropdown so the
-        // user picks the numeric Account ID, not the alphanumeric Account Number (a common mistake).
-        return <BingAdsAccountSelector key={field.name} />
+        return (
+            <IntegrationAccountSelector
+                key={field.name}
+                fieldName="account_id"
+                fieldLabel="Account ID"
+                integrationField="bing_ads_integration_id"
+                integrationKind="bing-ads"
+            />
+        )
     }
 
     return (

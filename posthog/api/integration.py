@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import dataclasses
 from typing import Any, cast
 from urllib.parse import urlencode
 
@@ -308,48 +309,36 @@ class SlackChannelsResponseSerializer(serializers.Serializer):
     )
 
 
-class GoogleSearchConsoleSiteSerializer(serializers.Serializer):
-    siteUrl = serializers.CharField(
-        help_text=(
-            "Site URL in canonical Google format — `https://example.com/` for URL-prefix "
-            "properties (trailing slash mandatory) or `sc-domain:example.com` for Domain properties."
-        )
-    )
-    permissionLevel = serializers.CharField(
-        help_text=(
-            "The connected user's permission level for this site. One of `siteOwner`, "
-            "`siteFullUser`, `siteRestrictedUser`, `siteUnverifiedUser`."
-        )
-    )
+class IntegrationAccountSerializer(serializers.Serializer):
+    """A selectable account/resource exposed by an OAuth integration, in the shared shape every ad
+    platform produces (see ``IntegrationAccount`` in the data-imports common module). One serializer
+    and one frontend selector work across all platforms."""
 
-
-class GoogleSearchConsoleSitesResponseSerializer(serializers.Serializer):
-    sites = GoogleSearchConsoleSiteSerializer(many=True)
-
-
-class BingAdsAccountSerializer(serializers.Serializer):
-    id = serializers.IntegerField(
-        help_text="Numeric Bing Ads account ID. This is the value stored in the source config and used for all API calls."
+    value = serializers.CharField(
+        help_text="The identifier stored in the source config and used for API calls (numeric account id as a string, a site url, etc.)."
     )
-    number = serializers.CharField(
-        allow_null=True,
-        help_text="Alphanumeric account number shown in the Microsoft Advertising UI (e.g. 'F11034B5'). Display only — not the value used for API calls.",
-    )
-    name = serializers.CharField(allow_null=True, help_text="Human-readable account name.")
-    status = serializers.CharField(help_text="Account lifecycle status reported by Microsoft (e.g. 'Active', 'Pause').")
-    customer_id = serializers.IntegerField(
-        help_text="Numeric ID of the customer (Microsoft Advertising manager) that owns this account."
-    )
-    customer_name = serializers.CharField(allow_null=True, help_text="Name of the owning customer.")
+    display_name = serializers.CharField(help_text="Primary human-readable label for the account.")
     is_primary = serializers.BooleanField(
-        help_text="True when this account belongs to the connected user's own (primary) customer, rather than another customer they merely have access to."
+        help_text="True when this account belongs to the connected user's own (primary) account context, rather than one they merely have access to. Sorted/marked first."
+    )
+    badges = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Short status chips for the account, e.g. ['Active'] or ['Pause'].",
+    )
+    group = serializers.CharField(
+        allow_null=True,
+        help_text="Optional grouping label for hierarchical platforms (e.g. the owning customer/manager name).",
+    )
+    secondary_text = serializers.CharField(
+        allow_null=True,
+        help_text="Extra identifier shown in parentheses and searchable, e.g. the alphanumeric account number.",
     )
 
 
-class BingAdsAccountsResponseSerializer(serializers.Serializer):
-    accounts = BingAdsAccountSerializer(
+class IntegrationAccountsResponseSerializer(serializers.Serializer):
+    accounts = IntegrationAccountSerializer(
         many=True,
-        help_text="All Bing Ads accounts the connected Microsoft account can access, across every customer.",
+        help_text="All accounts the connected integration can access.",
     )
 
 
@@ -1030,12 +1019,15 @@ class IntegrationViewSet(
         cache.set(key, response_data, 60)
         return Response(response_data)
 
-    @extend_schema(responses={200: GoogleSearchConsoleSitesResponseSerializer})
+    @extend_schema(responses={200: IntegrationAccountsResponseSerializer})
     @action(methods=["GET"], detail=True, url_path="google_search_console_sites")
     def google_search_console_sites(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """List the Search Console properties the connected Google account has access to."""
         # Lazy import — keeps the Google data-imports SDK dependency off the api/ module
         # import path, mirroring how other ad-platform endpoints stay self-contained.
+        from posthog.temporal.data_imports.sources.common.integration_accounts import (  # noqa: PLC0415 — keeps the heavy dep off the import path
+            IntegrationAccount,
+        )
         from posthog.temporal.data_imports.sources.google_search_console.google_search_console import (  # noqa: PLC0415 — keeps the heavy dep off the import path
             google_search_console_session,
             list_sites,
@@ -1067,11 +1059,26 @@ class IntegrationViewSet(
                     "and ensure it has read access to the property."
                 )
             raise
-        response_data = {"sites": sites}
+        # Map each site onto the shared IntegrationAccount contract so one endpoint serializer and
+        # one frontend selector cover Search Console too — GSC has no name distinct from the site URL.
+        accounts = IntegrationAccountSerializer(
+            [
+                dataclasses.asdict(
+                    IntegrationAccount(
+                        value=site["siteUrl"],
+                        display_name=site["siteUrl"],
+                        badges=(site["permissionLevel"],) if site.get("permissionLevel") else (),
+                    )
+                )
+                for site in sites
+            ],
+            many=True,
+        ).data
+        response_data = {"accounts": accounts}
         cache.set(cache_key, response_data, GSC_AUTOCOMPLETE_CACHE_TTL_SECONDS)
         return Response(response_data)
 
-    @extend_schema(responses={200: BingAdsAccountsResponseSerializer})
+    @extend_schema(responses={200: IntegrationAccountsResponseSerializer})
     @action(methods=["GET"], detail=True, url_path="bing_ads_accounts")
     def bing_ads_accounts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """List the Bing Ads accounts the connected Microsoft account can access, across all customers."""
@@ -1098,7 +1105,10 @@ class IntegrationViewSet(
             refresh_token=instance.refresh_token,
             developer_token=integrations.BING_ADS_DEVELOPER_TOKEN,
         )
-        response_data = {"accounts": client.list_accounts()}
+        accounts = IntegrationAccountSerializer(
+            [dataclasses.asdict(account) for account in client.list_accounts()], many=True
+        ).data
+        response_data = {"accounts": accounts}
         cache.set(cache_key, response_data, 60)
         return Response(response_data)
 

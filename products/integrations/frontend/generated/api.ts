@@ -9,14 +9,13 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
-    BingAdsAccountsResponseApi,
     GitHubBranchesResponseApi,
     GitHubReposRefreshResponseApi,
     GitHubReposResponseApi,
     GitHubTeamsResponseApi,
-    GoogleSearchConsoleSitesResponseApi,
     IntegrationAccessRequestApi,
     IntegrationAccessRequestResponseApi,
+    IntegrationAccountsResponseApi,
     IntegrationConfigApi,
     IntegrationsChannelsRetrieveParams,
     IntegrationsGithubBranchesRetrieveParams,
@@ -298,8 +297,8 @@ export const integrationsBingAdsAccountsRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<BingAdsAccountsResponseApi> => {
-    return apiMutator<BingAdsAccountsResponseApi>(getIntegrationsBingAdsAccountsRetrieveUrl(projectId, id), {
+): Promise<IntegrationAccountsResponseApi> => {
+    return apiMutator<IntegrationAccountsResponseApi>(getIntegrationsBingAdsAccountsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -570,8 +569,8 @@ export const integrationsGoogleSearchConsoleSitesRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<GoogleSearchConsoleSitesResponseApi> => {
-    return apiMutator<GoogleSearchConsoleSitesResponseApi>(
+): Promise<IntegrationAccountsResponseApi> => {
+    return apiMutator<IntegrationAccountsResponseApi>(
         getIntegrationsGoogleSearchConsoleSitesRetrieveUrl(projectId, id),
         {
             ...options,

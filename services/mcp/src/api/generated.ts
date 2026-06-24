@@ -11430,37 +11430,6 @@ export namespace Schemas {
       BigQuery: 'BigQuery',
     } as const;
 
-    export interface BingAdsAccount {
-      /** Numeric Bing Ads account ID. This is the value stored in the source config and used for all API calls. */
-      id: number;
-      /**
-         * Alphanumeric account number shown in the Microsoft Advertising UI (e.g. 'F11034B5'). Display only — not the value used for API calls.
-         * @nullable
-         */
-      number: string | null;
-      /**
-         * Human-readable account name.
-         * @nullable
-         */
-      name: string | null;
-      /** Account lifecycle status reported by Microsoft (e.g. 'Active', 'Pause'). */
-      status: string;
-      /** Numeric ID of the customer (Microsoft Advertising manager) that owns this account. */
-      customer_id: number;
-      /**
-         * Name of the owning customer.
-         * @nullable
-         */
-      customer_name: string | null;
-      /** True when this account belongs to the connected user's own (primary) customer, rather than another customer they merely have access to. */
-      is_primary: boolean;
-    }
-
-    export interface BingAdsAccountsResponse {
-      /** All Bing Ads accounts the connected Microsoft account can access, across every customer. */
-      accounts: BingAdsAccount[];
-    }
-
     export interface BlastRadius {
       /** Number of users matching the filters */
       affected: number;
@@ -23672,17 +23641,6 @@ export namespace Schemas {
       notes: string[];
     }
 
-    export interface GoogleSearchConsoleSite {
-      /** Site URL in canonical Google format — `https://example.com/` for URL-prefix properties (trailing slash mandatory) or `sc-domain:example.com` for Domain properties. */
-      siteUrl: string;
-      /** The connected user's permission level for this site. One of `siteOwner`, `siteFullUser`, `siteRestrictedUser`, `siteUnverifiedUser`. */
-      permissionLevel: string;
-    }
-
-    export interface GoogleSearchConsoleSitesResponse {
-      sites: GoogleSearchConsoleSite[];
-    }
-
     /**
      * * `line` - line
      * * `symbol` - symbol
@@ -26457,6 +26415,37 @@ export namespace Schemas {
     export interface IntegrationAccessRequestResponse {
       /** Whether the access request was accepted and the project admins were notified. */
       success: boolean;
+    }
+
+    /**
+     * A selectable account/resource exposed by an OAuth integration, in the shared shape every ad
+     * platform produces (see ``IntegrationAccount`` in the data-imports common module). One serializer
+     * and one frontend selector work across all platforms.
+     */
+    export interface IntegrationAccount {
+      /** The identifier stored in the source config and used for API calls (numeric account id as a string, a site url, etc.). */
+      value: string;
+      /** Primary human-readable label for the account. */
+      display_name: string;
+      /** True when this account belongs to the connected user's own (primary) account context, rather than one they merely have access to. Sorted/marked first. */
+      is_primary: boolean;
+      /** Short status chips for the account, e.g. ['Active'] or ['Pause']. */
+      badges: string[];
+      /**
+         * Optional grouping label for hierarchical platforms (e.g. the owning customer/manager name).
+         * @nullable
+         */
+      group: string | null;
+      /**
+         * Extra identifier shown in parentheses and searchable, e.g. the alphanumeric account number.
+         * @nullable
+         */
+      secondary_text: string | null;
+    }
+
+    export interface IntegrationAccountsResponse {
+      /** All accounts the connected integration can access. */
+      accounts: IntegrationAccount[];
     }
 
     /**

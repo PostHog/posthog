@@ -251,35 +251,35 @@ export interface PaginatedIntegrationConfigListApi {
     results: IntegrationConfigApi[]
 }
 
-export interface BingAdsAccountApi {
-    /** Numeric Bing Ads account ID. This is the value stored in the source config and used for all API calls. */
-    id: number
-    /**
-     * Alphanumeric account number shown in the Microsoft Advertising UI (e.g. 'F11034B5'). Display only — not the value used for API calls.
-     * @nullable
-     */
-    number: string | null
-    /**
-     * Human-readable account name.
-     * @nullable
-     */
-    name: string | null
-    /** Account lifecycle status reported by Microsoft (e.g. 'Active', 'Pause'). */
-    status: string
-    /** Numeric ID of the customer (Microsoft Advertising manager) that owns this account. */
-    customer_id: number
-    /**
-     * Name of the owning customer.
-     * @nullable
-     */
-    customer_name: string | null
-    /** True when this account belongs to the connected user's own (primary) customer, rather than another customer they merely have access to. */
+/**
+ * A selectable account/resource exposed by an OAuth integration, in the shared shape every ad
+ * platform produces (see ``IntegrationAccount`` in the data-imports common module). One serializer
+ * and one frontend selector work across all platforms.
+ */
+export interface IntegrationAccountApi {
+    /** The identifier stored in the source config and used for API calls (numeric account id as a string, a site url, etc.). */
+    value: string
+    /** Primary human-readable label for the account. */
+    display_name: string
+    /** True when this account belongs to the connected user's own (primary) account context, rather than one they merely have access to. Sorted/marked first. */
     is_primary: boolean
+    /** Short status chips for the account, e.g. ['Active'] or ['Pause']. */
+    badges: string[]
+    /**
+     * Optional grouping label for hierarchical platforms (e.g. the owning customer/manager name).
+     * @nullable
+     */
+    group: string | null
+    /**
+     * Extra identifier shown in parentheses and searchable, e.g. the alphanumeric account number.
+     * @nullable
+     */
+    secondary_text: string | null
 }
 
-export interface BingAdsAccountsResponseApi {
-    /** All Bing Ads accounts the connected Microsoft account can access, across every customer. */
-    accounts: BingAdsAccountApi[]
+export interface IntegrationAccountsResponseApi {
+    /** All accounts the connected integration can access. */
+    accounts: IntegrationAccountApi[]
 }
 
 export interface SlackChannelApi {
@@ -365,17 +365,6 @@ export interface GitHubTeamsResponseApi {
     teams: GitHubTeamApi[]
     /** Whether more teams are available beyond this page. */
     has_more: boolean
-}
-
-export interface GoogleSearchConsoleSiteApi {
-    /** Site URL in canonical Google format — `https://example.com/` for URL-prefix properties (trailing slash mandatory) or `sc-domain:example.com` for Domain properties. */
-    siteUrl: string
-    /** The connected user's permission level for this site. One of `siteOwner`, `siteFullUser`, `siteRestrictedUser`, `siteUnverifiedUser`. */
-    permissionLevel: string
-}
-
-export interface GoogleSearchConsoleSitesResponseApi {
-    sites: GoogleSearchConsoleSiteApi[]
 }
 
 export interface IntegrationAccessRequestApi {

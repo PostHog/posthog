@@ -7,6 +7,7 @@ from suds import WebFault
 
 from posthog.temporal.data_imports.sources.bing_ads.client import BingAdsClient, extract_webfault_detail
 from posthog.temporal.data_imports.sources.bing_ads.source import BingAdsSource
+from posthog.temporal.data_imports.sources.common.integration_accounts import IntegrationAccount
 
 
 def _make_webfault(faultstring: str, detail: object | None) -> WebFault:
@@ -118,24 +119,23 @@ class TestBingAdsClient:
         result = client.list_accounts()
 
         assert result == [
-            {
-                "id": 1,
-                "number": "A1",
-                "name": "Acc 1",
-                "status": "Active",
-                "customer_id": 111,
-                "customer_name": "Primary Co",
-                "is_primary": True,
-            },
-            {
-                "id": 2,
-                "number": "B2",
-                "name": "Acc 2",
-                "status": "Unknown",
-                "customer_id": 222,
-                "customer_name": "Other Co",
-                "is_primary": False,
-            },
+            IntegrationAccount(
+                value="1",
+                display_name="Acc 1",
+                is_primary=True,
+                badges=("Active",),
+                group="Primary Co",
+                secondary_text="A1",
+            ),
+            # A missing status falls back to "Unknown" rather than the literal string "None".
+            IntegrationAccount(
+                value="2",
+                display_name="Acc 2",
+                is_primary=False,
+                badges=("Unknown",),
+                group="Other Co",
+                secondary_text="B2",
+            ),
         ]
         # Per-customer scoping must not leak onto the shared authorization_data after the call.
         assert client.authorization_data.customer_id is None

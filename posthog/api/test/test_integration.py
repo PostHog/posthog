@@ -3791,7 +3791,7 @@ class TestGoogleSearchConsoleSitesEndpoint:
 
     @patch(_LIST_SITES_PATH)
     @patch(_SESSION_PATH)
-    def test_success_returns_sites(self, mock_session, mock_list_sites, client: HttpClient):
+    def test_success_returns_accounts(self, mock_session, mock_list_sites, client: HttpClient):
         integration = self._create_gsc_integration()
         mock_list_sites.return_value = [{"siteUrl": "https://example.com/", "permissionLevel": "siteOwner"}]
 
@@ -3799,7 +3799,16 @@ class TestGoogleSearchConsoleSitesEndpoint:
         response = client.get(self._url(integration.id))
 
         assert response.status_code == status.HTTP_200_OK, response.content
-        assert response.json()["sites"] == [{"siteUrl": "https://example.com/", "permissionLevel": "siteOwner"}]
+        assert response.json()["accounts"] == [
+            {
+                "value": "https://example.com/",
+                "display_name": "https://example.com/",
+                "is_primary": False,
+                "badges": ["siteOwner"],
+                "group": None,
+                "secondary_text": None,
+            }
+        ]
 
     @patch(_LIST_SITES_PATH)
     @patch(_SESSION_PATH)
