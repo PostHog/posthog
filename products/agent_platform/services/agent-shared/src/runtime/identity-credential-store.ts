@@ -32,6 +32,14 @@ export interface StoredCredential {
     /** Epoch ms when `access_token` expires, if the provider told us. */
     expires_at?: number
     scopes?: string[]
+    /**
+     * The provider endpoint hosts (authorize/token/userinfo) this credential was
+     * connected under. Pinned at link time and re-checked on every resolve: if a
+     * later revision keeps the same provider id but repoints its endpoints to a
+     * different host, the stored bearer is refused rather than sent there. Absent
+     * on credentials linked before this was introduced (then the check is skipped).
+     */
+    bound_hosts?: string[]
 }
 
 export interface LinkedCredential {
@@ -97,10 +105,19 @@ export interface IdentityCredentialStore {
      * resolve the PostHog identity behind a Slack principal.
      */
     getEstablishedSubject(agentUserId: string): Promise<string | null>
-    /** Mark revoked (row kept for audit). Idempotent. */
+    /** Mark a per-principal link revoked (row kept for audit). Idempotent. */
     revoke(agentUserId: string, provider: string): Promise<void>
-    /** Hard-delete the link. Idempotent. */
+    /** Hard-delete a per-principal link. Idempotent. */
     remove(agentUserId: string, provider: string): Promise<void>
+    /**
+     * Mark the agent-scoped (`binding: 'agent'`) credential revoked. Distinct from
+     * `revoke` because agent-scoped rows key on (application, provider) with
+     * agent_user_id NULL — `agent_user_id = $1` can't match NULL (NULL = NULL is
+     * NULL). Idempotent.
+     */
+    revokeAgentScoped(applicationId: string, provider: string): Promise<void>
+    /** Hard-delete the agent-scoped link. Idempotent. */
+    removeAgentScoped(applicationId: string, provider: string): Promise<void>
 }
 
 interface CredentialRow {
@@ -134,11 +151,14 @@ export class PgIdentityCredentialStore implements IdentityCredentialStore {
                 (id, team_id, application_id, agent_user_id, provider,
                  encrypted_credentials, scopes, state, access_expires_at, subject, created_at, updated_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9, NOW(), NOW())
-             -- Partial unique target (migration 0009): the per-principal unique is
-             -- now scoped WHERE agent_user_id IS NOT NULL, so the conflict clause
-             -- must carry the same predicate. The agent-scoped row uses the
-             -- complementary WHERE agent_user_id IS NULL index (see putAgentScoped).
-             ON CONFLICT (agent_user_id, provider) WHERE agent_user_id IS NOT NULL DO UPDATE SET
+             -- Conflict target is the original predicate-less (agent_user_id,
+             -- provider) unique (migration 0007), kept across this PR. Agent-scoped
+             -- rows (agent_user_id NULL) don't collide with it — NULLs are distinct
+             -- in a unique index — and get their own (application_id, provider)
+             -- WHERE agent_user_id IS NULL partial unique (see putAgentScoped). The
+             -- principal upsert stays predicate-less so a rolling deploy (old pods
+             -- on the new schema, or vice versa) never trips 42P10.
+             ON CONFLICT (agent_user_id, provider) DO UPDATE SET
                 encrypted_credentials = EXCLUDED.encrypted_credentials,
                 scopes = EXCLUDED.scopes,
                 state = 'active',
@@ -254,5 +274,22 @@ export class PgIdentityCredentialStore implements IdentityCredentialStore {
             agentUserId,
             provider,
         ])
+    }
+
+    async revokeAgentScoped(applicationId: string, provider: string): Promise<void> {
+        await this.pool.query(
+            `UPDATE agent_identity_credential
+                SET state = 'revoked', revoked_at = NOW(), updated_at = NOW()
+              WHERE application_id = $1 AND provider = $2 AND agent_user_id IS NULL AND state = 'active'`,
+            [applicationId, provider]
+        )
+    }
+
+    async removeAgentScoped(applicationId: string, provider: string): Promise<void> {
+        await this.pool.query(
+            `DELETE FROM agent_identity_credential
+              WHERE application_id = $1 AND provider = $2 AND agent_user_id IS NULL`,
+            [applicationId, provider]
+        )
     }
 }

@@ -170,6 +170,15 @@ class MemCredStore implements IdentityCredentialStore {
     }
     async revoke(): Promise<void> {}
     async remove(): Promise<void> {}
+    async revokeAgentScoped(applicationId: string, provider: string): Promise<void> {
+        const r = this.agentRows.get(this.key(applicationId, provider))
+        if (r) {
+            r.state = 'revoked'
+        }
+    }
+    async removeAgentScoped(applicationId: string, provider: string): Promise<void> {
+        this.agentRows.delete(this.key(applicationId, provider))
+    }
 }
 
 const initiateArgs = {

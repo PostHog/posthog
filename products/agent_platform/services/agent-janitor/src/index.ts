@@ -30,6 +30,7 @@ import {
     MultiBackendSandboxTerminator,
     PgApprovalStore,
     PgIdentityAdminStore,
+    PgIdentityLinkStateStore,
     PgRevisionStore,
     PgSandboxInstanceStore,
     PgSessionQueue,
@@ -102,12 +103,17 @@ async function main(): Promise<void> {
     // Keyless admin view over agent_user + agent_identity_credential for the
     // console "Users" pane. No decryption key — metadata only.
     const identityAdmin = new PgIdentityAdminStore(agentDb)
+    // Single-use OAuth link-state rows: the sweep reaps expired/consumed ones so
+    // they don't accumulate (mint retires its own prior rows, but abandoned
+    // round-trips that are never completed still expire and need collecting).
+    const linkStates = new PgIdentityLinkStateStore(agentDb)
 
     const sweep = {
         queue,
         approvals,
         sandboxInstances,
         sandboxTerminator,
+        linkStates,
         stuckRunningThresholdMs: config.stuckRunningMs,
         stuckWaitingThresholdMs: config.stuckWaitingMs,
         idleCompletedThresholdMs: config.idleCompletedMs,

@@ -210,5 +210,37 @@ maybeDescribe('PgIdentityCredentialStore (real PG)', () => {
             )
             expect(Number(count.rows[0].count)).toBe(1)
         })
+
+        it('revokeAgentScoped hides the shared row but leaves a per-principal row for the same provider', async () => {
+            if (!reachable) {
+                return
+            }
+            await put({ applicationId: APP, agentUserId: USER_A, credential: cred({ access_token: 'principal' }) })
+            await putAgent({ credential: cred({ access_token: 'shared' }) })
+
+            await store.revokeAgentScoped(APP, 'dogs')
+
+            // Keyed on agent_user_id IS NULL — not `agent_user_id = X` (NULL = NULL is
+            // NULL, which would silently miss the shared row). The principal row stays.
+            expect(await store.getAgentScoped(APP, 'dogs')).toBeNull()
+            expect((await store.get(USER_A, 'dogs'))?.credential.access_token).toBe('principal')
+
+            // Reconnecting reactivates it.
+            await putAgent({ credential: cred({ access_token: 'reconnected' }) })
+            expect((await store.getAgentScoped(APP, 'dogs'))?.credential.access_token).toBe('reconnected')
+        })
+
+        it('removeAgentScoped hard-deletes the shared row', async () => {
+            if (!reachable) {
+                return
+            }
+            await putAgent()
+            await store.removeAgentScoped(APP, 'dogs')
+            const raw = await pool.query(
+                'SELECT count(*) FROM agent_identity_credential WHERE application_id = $1 AND agent_user_id IS NULL',
+                [APP]
+            )
+            expect(Number(raw.rows[0].count)).toBe(0)
+        })
     })
 })

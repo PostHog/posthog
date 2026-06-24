@@ -351,8 +351,11 @@ class AgentIdentityCredential(ProductTeamModel, UUIDModel):
         agent, for an identity provider with `binding: 'agent'`. Every asker acts
         as it; keyed by (application, provider).
 
-    Read at turn start and copied into the ephemeral per-session
-    AgentSessionCredential broker; never read directly by tools.
+    Resolved fresh from this row on each tool/MCP credential resolution (filtered
+    to `state='active'`), not cached in the per-session AgentSessionCredential
+    broker — that broker holds the trigger-edge seed (the caller's own bearer), a
+    separate axis. So revoking a row takes effect on the next resolution; an MCP
+    connection already opened with the bearer keeps it until that connection ends.
     """
 
     application_id = models.UUIDField()
@@ -380,11 +383,13 @@ class AgentIdentityCredential(ProductTeamModel, UUIDModel):
     class Meta:
         db_table = "agent_identity_credential"
         constraints = [
-            # Per-principal links: one row per (agent_user, provider). Partial so
-            # NULL agent_user_id rows (agent-scoped) don't collide here.
+            # Per-principal links (migration 0007): one row per (agent_user,
+            # provider). Kept predicate-less — NULL agent_user_id rows (agent-scoped)
+            # are distinct in a unique index so they never collide here, which lets
+            # the principal upsert keep a predicate-less ON CONFLICT and stay
+            # rolling-deploy safe (see PgIdentityCredentialStore.put).
             models.UniqueConstraint(
                 fields=["agent_user_id", "provider"],
-                condition=Q(agent_user_id__isnull=False),
                 name="agent_identity_credential_unique_user_provider",
             ),
             # Agent-scoped links (`binding: 'agent'`): one shared row per

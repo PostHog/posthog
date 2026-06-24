@@ -21,6 +21,7 @@ from urllib.parse import parse_qs, urlparse
 from posthog.test.base import APIBaseTest
 
 from django.conf import settings
+from django.test import override_settings
 
 from rest_framework import status
 
@@ -160,6 +161,26 @@ class TestAgentIdentityConnectLogic(APIBaseTest):
         self.assertIsNone(self.application.live_revision)
         with self.assertRaises(AgentConnectError):
             mint_authorize_url(self.application, "dogs")
+
+    @override_settings(AGENT_INGRESS_PUBLIC_URL=None)
+    def test_mint_requires_ingress_public_url(self) -> None:
+        # No silent fallback to PostHog Cloud's ingress — a self-hosted instance
+        # that forgot to set this must fail loudly, not register a Cloud redirect_uri.
+        self._set_live_spec(_OAUTH2_AGENT_PROVIDER)
+        with self.assertRaises(AgentConnectError):
+            mint_authorize_url(self.application, "dogs")
+        # And it fails before writing any link-state row.
+        self.assertFalse(AgentIdentityLinkState.all_teams.filter(application_id=self.application.id).exists())
+
+    def test_mint_is_idempotent_retiring_prior_live_rows(self) -> None:
+        # A re-clicked connect retires the prior unused link-state row, so only the
+        # latest is live — abandoned round-trips don't accumulate.
+        self._set_live_spec(_OAUTH2_AGENT_PROVIDER)
+        mint_authorize_url(self.application, "dogs")
+        mint_authorize_url(self.application, "dogs")
+        rows = AgentIdentityLinkState.all_teams.filter(application_id=self.application.id, provider="dogs")
+        self.assertEqual(rows.count(), 2)
+        self.assertEqual(rows.filter(used_at__isnull=True).count(), 1)
 
     # ── list_connections ────────────────────────────────────────────────
 

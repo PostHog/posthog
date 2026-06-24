@@ -42,7 +42,10 @@ export interface IdentityCompleteResult {
 }
 
 export interface IdentityResolveInput {
-    agentUserId: string
+    /** The asking principal for `binding: 'principal'`. Null for `binding: 'agent'`
+     *  (resolution keys off the application, not an asker) and for an unlinkable
+     *  principal — an agent-binding resolver ignores it; a principal one returns null. */
+    agentUserId: string | null
     teamId: number
     applicationId: string
     scopes: string[]

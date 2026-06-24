@@ -237,7 +237,11 @@ export function createToolIdentity(deps: ToolIdentityDeps): {
             if (provider?.binding === 'agent') {
                 try {
                     const credential = await provider.resolve({
-                        agentUserId: deps.agentUserId ?? '',
+                        // Agent binding keys off the application, not the asker —
+                        // pass the asker through honestly (null when none) rather
+                        // than a sentinel empty string the resolver would mistake
+                        // for a real principal id.
+                        agentUserId: deps.agentUserId,
                         teamId: deps.teamId,
                         applicationId: deps.applicationId,
                         scopes,

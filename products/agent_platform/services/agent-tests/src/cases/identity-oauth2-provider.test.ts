@@ -335,4 +335,63 @@ maybeDescribe('Oauth2AuthProvider × dogs IdP (real PG + real HTTP)', () => {
             await dog.close()
         }
     })
+
+    it('agent-bound complete() rejects a link-state that carries a principal (binding flipped mid-flight)', async () => {
+        if (!reachable) {
+            return
+        }
+        dog = await startDogServer()
+        try {
+            const applicationId = randomUUID()
+            // A per-asker (principal-carrying) link, in flight...
+            const linker = buildProvider() // principal binding
+            const { stateId } = await linker.initiate({
+                agentUserId: randomUUID(),
+                teamId: 1,
+                applicationId,
+                scopes: ['read:dog'],
+                redirectUri: REDIRECT,
+            })
+            // ...completed by a provider now bound `agent`. Must reject (before
+            // spending the code) rather than store that user's token as the shared
+            // agent credential, which would make every asker silently act as them.
+            const agentProvider = buildProvider({ binding: 'agent' })
+            await expect(agentProvider.complete({ stateId, query: { code: 'unused' } })).rejects.toThrow(
+                'oauth_link_binding_mismatch'
+            )
+        } finally {
+            await dog.close()
+        }
+    })
+
+    it('resolve() refuses an agent credential whose connect-time hosts no longer match the live config', async () => {
+        if (!reachable) {
+            return
+        }
+        dog = await startDogServer()
+        try {
+            const credentials = new PgIdentityCredentialStore(pool, { encryptionSaltKeys: KEY })
+            const applicationId = randomUUID()
+            // A shared credential pinned to a host the live provider config doesn't
+            // use — simulating an editor repointing token/userinfo to a host they
+            // control on a same-id revision. The bearer must not be handed out.
+            await credentials.putAgentScoped({
+                teamId: 1,
+                applicationId,
+                provider: 'dogs',
+                credential: {
+                    access_token: 'shared-token',
+                    expires_at: Date.now() + 3_600_000,
+                    bound_hosts: ['attacker.example'],
+                },
+                scopes: ['read:dog'],
+            })
+            const provider = buildProvider({ binding: 'agent' }) // allowedHosts = dog server, not attacker.example
+            await expect(provider.resolve({ agentUserId: null, teamId: 1, applicationId, scopes: [] })).rejects.toThrow(
+                'oauth_provider_host_rebound'
+            )
+        } finally {
+            await dog.close()
+        }
+    })
 })

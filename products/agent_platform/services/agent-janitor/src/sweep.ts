@@ -90,6 +90,12 @@ export interface SweepDeps {
     sandboxStaleThresholdMs?: number
     /** Max sandbox rows to reap per sweep tick. Default 25. */
     sandboxReapLimit?: number
+    /**
+     * Single-use OAuth link-state store. When wired, the sweep deletes expired or
+     * already-consumed `agent_identity_link_state` rows so abandoned link
+     * round-trips don't accumulate. Absent → skipped.
+     */
+    linkStates?: { sweepExpired(): Promise<number> }
     now?: () => Date
 }
 
@@ -107,6 +113,8 @@ export interface SweepResult {
     reaped_sandboxes: number
     /** Sandbox rows the terminator reported as still-failing — left for next tick. */
     sandbox_reap_failures: number
+    /** Expired/consumed OAuth link-state rows deleted this sweep. */
+    swept_link_states: number
 }
 
 export async function sweepOnce(deps: SweepDeps): Promise<SweepResult> {
@@ -227,6 +235,15 @@ export async function sweepOnce(deps: SweepDeps): Promise<SweepResult> {
         }
     }
 
+    // Policy 6: reap expired/consumed OAuth link-state rows. These are single-use
+    // and short-TTL, but an abandoned round-trip (owner clicks connect, never
+    // authorizes) leaves a row until it expires — collect them so the table
+    // doesn't grow unbounded.
+    let sweptLinkStates = 0
+    if (deps.linkStates) {
+        sweptLinkStates = await deps.linkStates.sweepExpired()
+    }
+
     return {
         requeued,
         poisoned,
@@ -235,6 +252,7 @@ export async function sweepOnce(deps: SweepDeps): Promise<SweepResult> {
         cleared_idempotency_keys: clearedIdempotencyKeys,
         reaped_sandboxes: reapedSandboxes,
         sandbox_reap_failures: sandboxReapFailures,
+        swept_link_states: sweptLinkStates,
     }
 }
 

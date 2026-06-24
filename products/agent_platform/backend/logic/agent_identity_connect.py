@@ -48,7 +48,16 @@ def _b64url(raw: bytes) -> str:
 
 def _ingress_base() -> str:
     # Matches posthog_identity_app.py so the registered redirect URI lines up.
-    return (settings.AGENT_INGRESS_PUBLIC_URL or "https://agents.posthog.com").rstrip("/")
+    # No silent fallback: a self-hosted instance that forgot to set this would
+    # otherwise register a redirect_uri pointing at PostHog Cloud's ingress —
+    # routing the owner's OAuth completion (and the IdP's redirect trust) through
+    # Cloud, where the link-state row doesn't exist. Fail loudly instead.
+    base = settings.AGENT_INGRESS_PUBLIC_URL
+    if not base:
+        raise AgentConnectError(
+            "AGENT_INGRESS_PUBLIC_URL is not configured — cannot build the OAuth callback URL for this instance."
+        )
+    return base.rstrip("/")
 
 
 def _provider_effective_id(entry: dict[str, Any]) -> str | None:
@@ -102,6 +111,18 @@ def mint_authorize_url(application: AgentApplication, provider_id: str) -> str:
     challenge = _b64url(hashlib.sha256(verifier.encode("ascii")).digest())
     redirect_uri = f"{_ingress_base()}/link/{provider_id}/callback"
 
+    # Idempotency: a re-clicked connect (or a retried POST) shouldn't leave a trail
+    # of live link-state rows. Retire any prior unconsumed, unexpired agent-scoped
+    # rows for this provider before minting a fresh one. (The janitor sweep also
+    # reaps expired/used rows; this keeps the live set to one.)
+    AgentIdentityLinkState.all_teams.filter(
+        application_id=application.id,
+        provider=provider_id,
+        agent_user_id__isnull=True,
+        used_at__isnull=True,
+        expires_at__gt=timezone.now(),
+    ).update(used_at=timezone.now())
+
     link = AgentIdentityLinkState.all_teams.create(
         team_id=application.team_id,
         application_id=application.id,
@@ -147,7 +168,12 @@ def list_connections(application: AgentApplication) -> list[dict[str, Any]]:
 
 
 def revoke_connection(application: AgentApplication, provider_id: str) -> bool:
-    """Revoke the agent-level credential for a provider (kept for audit). True if one was active."""
+    """Revoke the agent-level credential for a provider (row kept for audit). True if one was active.
+
+    Takes effect on the next credential resolution — each tool/MCP call re-reads the
+    row filtered to state='active', so the next resolve returns "not connected". An
+    MCP connection already opened with the bearer keeps it until that connection ends.
+    """
     updated = AgentIdentityCredential.all_teams.filter(
         application_id=application.id,
         provider=provider_id,

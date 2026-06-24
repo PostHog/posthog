@@ -358,6 +358,36 @@ def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
             },
             "identity_providers",
         ),
+        # acknowledge_shared_credential: FALSE (not merely absent) must also be
+        # rejected. The if/then enforces this via `const: true` — a separate
+        # keyword from the `required` that covers the absent case above. Without
+        # these, dropping `const: true` would silently accept `false`.
+        (
+            "identity_provider_agent_binding_posthog_ack_false",
+            {
+                "model": "x",
+                "identity_providers": [{"kind": "posthog", "binding": "agent", "acknowledge_shared_credential": False}],
+            },
+            "identity_providers",
+        ),
+        (
+            "identity_provider_agent_binding_oauth2_ack_false",
+            {
+                "model": "x",
+                "identity_providers": [
+                    {
+                        "kind": "oauth2",
+                        "id": "dogs",
+                        "binding": "agent",
+                        "acknowledge_shared_credential": False,
+                        "authorize_url": "https://idp.test/authorize",
+                        "token_url": "https://idp.test/token",
+                        "client_id": "c",
+                    }
+                ],
+            },
+            "identity_providers",
+        ),
     ],
 )
 def test_validate_spec_rejects_invalid_payloads(name: str, spec: dict, expected_substring: str) -> None:
