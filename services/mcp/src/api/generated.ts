@@ -53891,6 +53891,11 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
+     * JSON array of event entities to restrict results to sessions in which any of these events occurred, e.g. '[{"id": "$pageview", "type": "events", "properties": []}]'. Each entity needs a string "id" (the event name) and may include a "properties" array of property filters applied to that event. Feature-flagged; ignored when the event filter is not enabled for the caller.
+     * @nullable
+     */
+    events?: string | null;
+    /**
      * When true, exclude sessions from internal/test accounts using the project's test-account filters.
      * @nullable
      */
@@ -53968,6 +53973,11 @@ export namespace Schemas {
      * @minLength 1
      */
     date_to?: string;
+    /**
+     * JSON array of event entities to restrict results to sessions in which any of these events occurred, e.g. '[{"id": "$pageview", "type": "events", "properties": []}]'. Each entity needs a string "id" (the event name) and may include a "properties" array of property filters applied to that event. Feature-flagged; ignored when the event filter is not enabled for the caller.
+     * @nullable
+     */
+    events?: string | null;
     /**
      * When true, exclude sessions from internal/test accounts using the project's test-account filters.
      * @nullable
@@ -60155,6 +60165,11 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
+     * JSON array of event entities to restrict results to sessions in which any of these events occurred, e.g. '[{"id": "$pageview", "type": "events", "properties": []}]'. Each entity needs a string "id" (the event name) and may include a "properties" array of property filters applied to that event. Feature-flagged; ignored when the event filter is not enabled for the caller.
+     * @nullable
+     */
+    events?: string | null;
+    /**
      * When true, exclude sessions from internal/test accounts using the project's test-account filters.
      * @nullable
      */
@@ -60232,6 +60247,11 @@ export namespace Schemas {
      * @minLength 1
      */
     date_to?: string;
+    /**
+     * JSON array of event entities to restrict results to sessions in which any of these events occurred, e.g. '[{"id": "$pageview", "type": "events", "properties": []}]'. Each entity needs a string "id" (the event name) and may include a "properties" array of property filters applied to that event. Feature-flagged; ignored when the event filter is not enabled for the caller.
+     * @nullable
+     */
+    events?: string | null;
     /**
      * When true, exclude sessions from internal/test accounts using the project's test-account filters.
      * @nullable

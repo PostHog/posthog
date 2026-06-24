@@ -58,6 +58,12 @@ export const HeatmapsListQueryParams = /* @__PURE__ */ zod.object({
         .min(1)
         .optional()
         .describe("End of the window, inclusive. Relative or absolute 'YYYY-MM-DD'. Defaults to today."),
+    events: zod
+        .string()
+        .nullish()
+        .describe(
+            'JSON array of event entities to restrict results to sessions in which any of these events occurred, e.g. \'[{"id": "$pageview", "type": "events", "properties": []}]\'. Each entity needs a string "id" (the event name) and may include a "properties" array of property filters applied to that event. Feature-flagged; ignored when the event filter is not enabled for the caller.'
+        ),
     filter_test_accounts: zod
         .boolean()
         .nullish()
@@ -161,6 +167,12 @@ export const HeatmapsEventsRetrieveQueryParams = /* @__PURE__ */ zod.object({
         .min(1)
         .optional()
         .describe("End of the window, inclusive. Relative or absolute 'YYYY-MM-DD'. Defaults to today."),
+    events: zod
+        .string()
+        .nullish()
+        .describe(
+            'JSON array of event entities to restrict results to sessions in which any of these events occurred, e.g. \'[{"id": "$pageview", "type": "events", "properties": []}]\'. Each entity needs a string "id" (the event name) and may include a "properties" array of property filters applied to that event. Feature-flagged; ignored when the event filter is not enabled for the caller.'
+        ),
     filter_test_accounts: zod
         .boolean()
         .nullish()
