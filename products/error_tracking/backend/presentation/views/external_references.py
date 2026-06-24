@@ -48,7 +48,7 @@ class ErrorTrackingExternalReferenceSerializer(serializers.Serializer):
 
 
 class ErrorTrackingExternalReferenceViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "error_tracking"
     serializer_class = ErrorTrackingExternalReferenceSerializer
 
     def list(self, request, *args, **kwargs):
