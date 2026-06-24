@@ -488,7 +488,7 @@ class BrexSourceConfig(config.Config):
 
 @config.config
 class BugsnagSourceConfig(config.Config):
-    pass
+    auth_token: str
 
 
 @config.config

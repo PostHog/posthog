@@ -63,6 +63,7 @@ the row lists both.
 | braze             | HTTP                        | requests                                                        | ✅                          |
 | brevo             | HTTP                        | requests                                                        | ✅                          |
 | brex              | HTTP                        | requests                                                        | ✅                          |
+| bugsnag           | HTTP                        | requests                                                        | ✅                          |
 | buildbetter       | HTTP                        | requests                                                        | ✅                          |
 | buildkite         | HTTP                        | requests                                                        | ✅                          |
 | calendly          | HTTP                        | requests                                                        | ✅                          |
@@ -302,7 +303,6 @@ doesn't conflict with concurrent PRs.
 - branch
 - breezometer
 - breezy_hr
-- bugsnag
 - bunny
 - buzzsprout
 - cal_com
