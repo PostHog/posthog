@@ -30,6 +30,7 @@ import { isFunnelsQuery } from '~/queries/utils'
 import { ChartParams, type FlattenedFunnelStepByBreakdown } from '~/types'
 
 import { AnnotationsLayer } from '../../trends/shared/AnnotationsLayer'
+import { buildBaseLegendConfig } from '../../trends/shared/buildBaseLegendConfig'
 import { FUNNEL_CONVERSION_SERIES_LABEL, type FunnelSeriesMeta } from '../shared/funnelSeriesMeta'
 import { buildFunnelLineSeries, buildFunnelLineTimeSeriesConfig, type IndexedFunnelStep } from './funnelChartTransforms'
 import { FunnelLineTooltip } from './FunnelLineTooltip'
@@ -122,11 +123,13 @@ export function FunnelLineChart({
     )
 
     const legendConfig = useMemo<ChartLegendConfig>(
-        () => ({
-            show: !!showLegend && series.length > 1,
-            position: (legendPosition ?? 'bottom') as ChartLegendConfig['position'],
-            interactive: canEditInsight && !inSharedMode,
-        }),
+        () =>
+            buildBaseLegendConfig({
+                show: !!showLegend && series.length > 1,
+                legendPosition,
+                canEditInsight,
+                inSharedMode,
+            }),
         [showLegend, series.length, legendPosition, canEditInsight, inSharedMode]
     )
 

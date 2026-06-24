@@ -20,6 +20,7 @@ import { QueryContext } from '~/queries/types'
 import type { LifecycleToggle } from '~/types'
 
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
+import { buildBaseLegendConfig } from '../shared/buildBaseLegendConfig'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import {
     handleTrendsChartClick,
@@ -73,11 +74,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
     // useInsightsLegendConfig can't distinguish them — build the config inline and let the
     // chart manage toggle state internally.
     const legendConfig = useMemo<ChartLegendConfig>(
-        () => ({
-            show: !!showLegend,
-            position: (legendPosition ?? 'bottom') as ChartLegendConfig['position'],
-            interactive: canEditInsight && !inSharedMode,
-        }),
+        () => buildBaseLegendConfig({ show: !!showLegend, legendPosition, canEditInsight, inSharedMode }),
         [showLegend, legendPosition, canEditInsight, inSharedMode]
     )
 
