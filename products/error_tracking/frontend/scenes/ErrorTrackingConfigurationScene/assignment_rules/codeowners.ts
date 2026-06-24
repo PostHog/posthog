@@ -21,6 +21,11 @@ export interface OwnerIdentity {
     slug: string
 }
 
+export interface SourceMatch {
+    operator: 'icontains' | 'regex'
+    value: string
+}
+
 /**
  * Split an `@org/team` owner token into its org and team slug — the shape a GitHub-team
  * RoleExternalReference is keyed on. Returns null for bare users (`@alice`) and emails, which have
@@ -133,13 +138,55 @@ export function patternToSourceValue(pattern: string): string {
         .replace(/^\/+|\/+$/g, '')
 }
 
+function escapeRegex(value: string): string {
+    return value.replace(/[|\\{}()[\]^$+?.]/g, '\\$&')
+}
+
+export function isGlobPattern(pattern: string): boolean {
+    return /[*?[]/.test(pattern)
+}
+
+export function globPatternToRegex(pattern: string): string {
+    const trimmed = pattern.trim().replace(/^\/+/, '')
+    if (!trimmed || /^\*+$/.test(trimmed)) {
+        return ''
+    }
+
+    let regex = '(^|/)'
+    for (let i = 0; i < trimmed.length; i++) {
+        const char = trimmed[i]
+        const nextChar = trimmed[i + 1]
+        if (char === '*' && nextChar === '*') {
+            regex += '.*'
+            i++
+        } else if (char === '*') {
+            regex += '[^/]*'
+        } else if (char === '?') {
+            regex += '[^/]'
+        } else {
+            regex += escapeRegex(char)
+        }
+    }
+    return regex
+}
+
+export function patternToSourceMatch(pattern: string): SourceMatch | null {
+    const value = isGlobPattern(pattern) ? globPatternToRegex(pattern) : patternToSourceValue(pattern)
+    if (!value) {
+        return null
+    }
+    return { operator: isGlobPattern(pattern) ? 'regex' : 'icontains', value }
+}
+
 /**
  * The de-duplicated, non-empty `icontains` path fragments an owner's patterns reduce to — i.e. the
  * exact substrings a generated rule matches against `$exception_sources`. Surfaced in the UI so the
  * user can see what each rule will actually match on.
  */
 export function ownerMatchFragments(patterns: string[]): string[] {
-    return Array.from(new Set(patterns.map(patternToSourceValue))).filter((value) => value.length > 0)
+    return Array.from(new Set(patterns.map((pattern) => patternToSourceMatch(pattern)?.value ?? ''))).filter(
+        (value) => value.length > 0
+    )
 }
 
 function normalizeName(value: string): string {

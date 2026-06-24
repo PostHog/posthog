@@ -6,6 +6,7 @@ import {
     groupByOwner,
     levenshtein,
     ownerMatchFragments,
+    patternToSourceMatch,
     parseCodeowners,
     patternToSourceValue,
     splitOwner,
@@ -70,6 +71,16 @@ describe('codeowners helpers', () => {
         })
     })
 
+    describe('patternToSourceMatch', () => {
+        it.each([
+            ['products/error_tracking/**', { operator: 'regex', value: '(^|/)products/error_tracking/.*' }],
+            ['frontend/*.tsx', { operator: 'regex', value: '(^|/)frontend/[^/]*\\.tsx' }],
+            ['nodejs/src/cdp/', { operator: 'icontains', value: 'nodejs/src/cdp' }],
+        ])('translates %s to a source match', (pattern, expected) => {
+            expect(patternToSourceMatch(pattern)).toEqual(expected)
+        })
+    })
+
     describe('levenshtein', () => {
         it.each([
             ['', '', 0],
@@ -105,7 +116,7 @@ describe('codeowners helpers', () => {
     describe('ownerMatchFragments', () => {
         it('de-dupes and drops empty fragments', () => {
             expect(ownerMatchFragments(['products/error_tracking/**', 'products/error_tracking/api', '*'])).toEqual([
-                'products/error_tracking',
+                '(^|/)products/error_tracking/.*',
                 'products/error_tracking/api',
             ])
         })

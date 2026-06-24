@@ -1,6 +1,8 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/rolesLogic'
@@ -28,6 +30,7 @@ import {
     groupByOwner,
     ownerMatchFragments,
     parseCodeowners,
+    patternToSourceMatch,
     splitOwner,
 } from './codeowners'
 import type { codeOwnersModalLogicType } from './codeOwnersModalLogicType'
@@ -56,13 +59,16 @@ export interface CodeOwnerRow {
 
 export type MatchCount = { exceptionCount: number; issueCount: number }
 
-/** OR-group of `$exception_sources icontains` filters, one per (de-duped, non-empty) owned path. */
+/** OR-group of `$exception_sources` filters, one per (de-duped, non-empty) owned path. */
 export function buildOwnerFilters(patterns: string[]): UniversalFiltersGroup {
-    const values: AnyPropertyFilter[] = ownerMatchFragments(patterns).map((value) => ({
+    const matches = patterns.map(patternToSourceMatch).filter((match) => match !== null)
+    const values: AnyPropertyFilter[] = Array.from(
+        new Map(matches.map((match) => [`${match.operator}:${match.value}`, match])).values()
+    ).map((match) => ({
         key: '$exception_sources',
         type: PropertyFilterType.Event,
-        operator: PropertyOperator.IContains,
-        value,
+        operator: match.operator === 'regex' ? PropertyOperator.Regex : PropertyOperator.IContains,
+        value: match.value,
     }))
     return { type: FilterLogicalOperator.Or, values }
 }
@@ -108,7 +114,6 @@ export const codeOwnersModalLogic = kea<codeOwnersModalLogicType>([
                 goToImpact: () => 'impact',
                 backToMapping: () => 'configure',
                 backToPaste: () => 'paste',
-                closeModal: () => 'paste',
             },
         ],
         rawText: ['', { setRawText: (_, { rawText }) => rawText, openModal: () => '' }],
@@ -127,7 +132,6 @@ export const codeOwnersModalLogic = kea<codeOwnersModalLogicType>([
                 setMappingOwners: (_, { owners }) => owners,
                 openModal: () => [],
                 backToPaste: () => [],
-                closeModal: () => [],
             },
         ],
         saveMapping: [false, { setSaveMapping: (_, { saveMapping }) => saveMapping, openModal: () => false }],
@@ -242,6 +246,9 @@ export const codeOwnersModalLogic = kea<codeOwnersModalLogicType>([
         saveAllSuccess: () => {
             actions.closeModal()
             rulesLogic({ ruleType: ErrorTrackingRuleType.Assignment }).actions.loadRules()
+        },
+        saveAllFailure: () => {
+            lemonToast.error('Failed to save assignment rules')
         },
     })),
 

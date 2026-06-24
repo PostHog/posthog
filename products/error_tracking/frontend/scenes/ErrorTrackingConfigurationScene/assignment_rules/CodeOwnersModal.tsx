@@ -37,18 +37,8 @@ export function CodeOwnersModal(): JSX.Element {
 
     const hasParseErrors = parseErrors.length > 0
 
-    const closeCurrentStep = (): void => {
-        if (step === 'impact') {
-            backToMapping()
-        } else if (step === 'configure') {
-            backToPaste()
-        } else {
-            closeModal()
-        }
-    }
-
     return (
-        <Dialog open={isOpen} onOpenChange={(open) => !open && closeCurrentStep()}>
+        <Dialog open={isOpen} onOpenChange={(open) => !open && closeModal()}>
             <DialogContent size="wide" className={BASE_MODAL_CLASS}>
                 {step === 'paste' && (
                     <>
