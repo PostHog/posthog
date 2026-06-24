@@ -649,6 +649,32 @@ class TestDashboardRunWidgets(APIBaseTest):
         # No None leaks into session_ids — the legacy null-recording item is skipped.
         assert query.session_ids == ["session-a"]
 
+    @patch("products.dashboards.backend.widgets.session_replay_list.UserAccessControl")
+    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
+    def test_session_replay_widget_skips_collection_without_object_access(
+        self, mock_list_recordings: MagicMock, mock_user_access_control: MagicMock
+    ) -> None:
+        mock_list_recordings.return_value = ([], False, None, None)
+        # The user lacks object-level viewer access to the collection.
+        mock_user_access_control.return_value.check_access_level_for_object.return_value = False
+        collection = self._collection_with_recordings(self.team, ["session-a"])
+
+        run_session_replay_list_widget(
+            self.team,
+            {
+                "limit": 5,
+                "collectionId": collection.short_id,
+                "widgetFilters": self._widget_browser_filter("Chrome"),
+            },
+            user=self.user,
+        )
+
+        query = mock_list_recordings.call_args.kwargs["query"]
+        # An unauthorized collection is treated like a missing one — no session scope, fall back to filters.
+        assert query.session_ids is None
+        assert query.properties is not None
+        assert query.properties[0].value == ["Chrome"]
+
     @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
     def test_session_replay_widget_filters_within_collection(self, mock_list_recordings: MagicMock) -> None:
         mock_list_recordings.return_value = ([], False, None, None)

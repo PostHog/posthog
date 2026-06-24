@@ -8,6 +8,7 @@ from posthog.schema import RecordingOrder, RecordingOrderDirection, RecordingsQu
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.models.session_recording_playlist_item import SessionRecordingPlaylistItem
 from posthog.session_recordings.playlist_filters import convert_playlist_to_recordings_query
@@ -35,17 +36,28 @@ ORDER_BY_TO_RECORDING_ORDER: dict[str, RecordingOrder] = {
 }
 
 
+def _user_can_view_playlist(user: User | None, team: Team, playlist: SessionRecordingPlaylist) -> bool:
+    # Mirror the object-level "viewer" access the playlist API enforces, so a widget can't surface a
+    # playlist the requesting user isn't allowed to see. No-ops to True when access controls aren't
+    # licensed/configured, so the common case (everyone can view) is unaffected.
+    if user is None or user.is_anonymous:
+        return False
+    return UserAccessControl(user=user, team=team).check_access_level_for_object(playlist, "viewer")
+
+
 def _build_saved_filter_recordings_query(
     team: Team,
     config: ValidatedSessionReplayListWidgetConfig,
     saved_filter_id: str,
+    user: User | None,
 ) -> RecordingsQuery | None:
     # The saved filter (SessionRecordingPlaylist of type "filters") is the source of truth for
     # date range and property filters; the widget only layers its own sort and limit on top.
     playlist = SessionRecordingPlaylist.objects.filter(
         team=team, short_id=saved_filter_id, deleted=False, type="filters"
     ).first()
-    if playlist is None:
+    # Treat a playlist the user can't view the same as a missing one — fall back without revealing it exists.
+    if playlist is None or not _user_can_view_playlist(user, team, playlist):
         logger.warning("session_replay_widget_saved_filter_not_found", extra={"short_id": saved_filter_id})
         return None
 
@@ -58,13 +70,14 @@ def _build_saved_filter_recordings_query(
     return query
 
 
-def _build_collection_session_ids(team: Team, collection_id: str) -> list[str] | None:
+def _build_collection_session_ids(team: Team, collection_id: str, user: User | None) -> list[str] | None:
     # The pinned recordings of a collection (SessionRecordingPlaylist of type "collection"). Returns None when
     # the collection can't be reached (deleted, missing, or owned by another team) so the caller can ignore it.
     playlist = SessionRecordingPlaylist.objects.filter(
         team=team, short_id=collection_id, deleted=False, type="collection"
     ).first()
-    if playlist is None:
+    # Treat a collection the user can't view the same as a missing one — fall back without revealing it exists.
+    if playlist is None or not _user_can_view_playlist(user, team, playlist):
         logger.warning("session_replay_widget_collection_not_found", extra={"short_id": collection_id})
         return None
 
@@ -78,16 +91,18 @@ def _build_collection_session_ids(team: Team, collection_id: str) -> list[str] |
     )
 
 
-def _build_recordings_query(team: Team, config: ValidatedSessionReplayListWidgetConfig) -> RecordingsQuery:
+def _build_recordings_query(
+    team: Team, config: ValidatedSessionReplayListWidgetConfig, user: User | None
+) -> RecordingsQuery:
     collection_id = config.get("collectionId")
-    collection_session_ids = _build_collection_session_ids(team, collection_id) if collection_id else None
+    collection_session_ids = _build_collection_session_ids(team, collection_id, user) if collection_id else None
     has_collection = collection_session_ids is not None
 
     # The query criteria come from the saved filter when one is set; otherwise from the widget's own controls.
     # A collection (if any) is then layered on as a session-id scope, so the date range / saved filter /
     # property filters all narrow within the collection.
     saved_filter_id = config.get("savedFilterId")
-    query = _build_saved_filter_recordings_query(team, config, saved_filter_id) if saved_filter_id else None
+    query = _build_saved_filter_recordings_query(team, config, saved_filter_id, user) if saved_filter_id else None
 
     if query is None:
         date_range_raw = config.get("dateRange")
@@ -151,7 +166,7 @@ def run_session_replay_list_widget(
     typed_config = validate_widget_config(SESSION_REPLAY_LIST_WIDGET_TYPE, config)
     # Build once so a saved-filter playlist is fetched/converted only a single time; both the
     # visible page and the count page reuse it via model_copy with just the page limit.
-    query = _build_recordings_query(team, typed_config)
+    query = _build_recordings_query(team, typed_config, user)
 
     def fetch_page(page_limit: int) -> ListWidgetPage:
         page_query = query.model_copy(update={"limit": page_limit, "offset": 0})
