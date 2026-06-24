@@ -86,7 +86,7 @@ export const TypedSpecSchema = z
         model: z.string().min(1).optional(),
         triggers: z.array(z.unknown()).optional(),
         mcps: z.array(z.unknown()).optional(),
-        integrations: z.array(z.string()).optional(),
+        identity_providers: z.array(z.unknown()).optional(),
         secrets: z.array(z.string()).optional(),
         limits: z.unknown().optional(),
         auth: z.unknown().optional(),

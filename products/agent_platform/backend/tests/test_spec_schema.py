@@ -194,6 +194,13 @@ def _with_auth(spec: dict) -> dict:
                 "secrets": ["LEGACY", {"name": "GH_PAT", "allowed_hosts": ["api.github.com", "*.github.com"]}],
             },
         ),
+        # identity_providers: the per-asker `principal` binding is accepted (the
+        # only one implemented at runtime). `client_id` is backend-injected on
+        # promote, so authors may omit it.
+        (
+            "identity_provider_principal_binding",
+            {"model": "x", "identity_providers": [{"kind": "posthog", "binding": "principal"}]},
+        ),
     ],
 )
 def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
@@ -298,6 +305,14 @@ def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
             "secrets_empty_allowed_hosts",
             {"model": "x", "secrets": [{"name": "GH_PAT", "allowed_hosts": []}]},
             "secrets",
+        ),
+        # identity_providers: the `agent` binding (one app-scoped credential
+        # shared by every asker) isn't implemented at runtime yet, so the schema
+        # rejects it until it lands — kept in lockstep with the zod enum.
+        (
+            "identity_provider_agent_binding_rejected",
+            {"model": "x", "identity_providers": [{"kind": "posthog", "binding": "agent"}]},
+            "identity_providers",
         ),
     ],
 )

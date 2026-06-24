@@ -12,6 +12,7 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.sources.bigquery.bigquery import (
+    BIGQUERY_DATASET_NOT_FOUND_ERROR,
     BIGQUERY_TOKEN_RESPONSE_ERROR,
     BigQueryImplementation,
     build_destination_table_prefix,
@@ -96,13 +97,16 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # grant the missing permission (e.g. the BigQuery Read Session User role). Matched on the
             # stable permission name rather than the volatile project id.
             "bigquery.readsessions.create": "BigQuery denied access to the Storage Read API: your service account is missing the bigquery.readsessions.create permission. Please grant it (for example via the BigQuery Read Session User role) on the project you're syncing, then reconnect the source.",
-            # Raised from schema discovery (`get_columns`) and query jobs when the configured
-            # dataset/table doesn't exist in the location we query — the dataset was deleted or
-            # renamed, or it lives in a different region than the one we run against. The google
-            # exception stringifies as "404 Not found: Dataset ... was not found in location US",
-            # so match the stable phrasing here. Retrying can't recover — the user must fix the
-            # dataset or set the correct region.
-            "was not found in location": "BigQuery couldn't find the configured dataset or table. It may have been deleted or renamed, or it may live in a different region — verify your dataset and table names, and set the dataset region in your source configuration if it isn't in the US.",
+            # Raised from query jobs when the configured dataset/table doesn't exist in the location
+            # we query — the dataset was deleted or renamed, or it lives in a different region than the
+            # one we run against. The google exception stringifies as "404 Not found: Dataset ... was
+            # not found in location US", so match the stable phrasing here. Retrying can't recover —
+            # the user must fix the dataset or set the correct region.
+            "was not found in location": BIGQUERY_DATASET_NOT_FOUND_ERROR,
+            # Schema discovery (`get_columns`) re-raises the same 404 as `BigQueryDatasetNotFoundError`
+            # carrying this exact wording (so the create/validate path shows it instead of the raw
+            # 404). Match it here too so the discovery activity treats it as non-retryable.
+            BIGQUERY_DATASET_NOT_FOUND_ERROR: BIGQUERY_DATASET_NOT_FOUND_ERROR,
             # Raised from `bq_client.get_table(...)` in `_build_source_response` when the table being
             # synced no longer exists at sync time — it was deleted or renamed in BigQuery (common with
             # dbt-managed datasets) after schema discovery selected it. The google exception stringifies

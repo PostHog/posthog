@@ -21,10 +21,11 @@ from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skil
 from products.signals.backend.scout_harness.limits import DEFAULT_MAX_RUNTIME_S, STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.prompt import SignalScoutRunSummary, build_run_prompt
 from products.signals.backend.scout_harness.skill_loader import LoadedSkill, load_skill_for_run
+from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
-    resolve_user_id_for_team,
+    resolve_acting_user_id_for_team,
 )
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession
@@ -93,12 +94,37 @@ async def arun_signals_scout(
 ) -> RunResult:
     """Async core. Safe to call from inside a running event loop (Temporal activity)."""
     team = await database_sync_to_async(_get_team, thread_sensitive=False)(team_id)
+
+    # Honor the per-scout holdback denylist, resolved against the canonical project. Two effects:
+    # (1) a direct run of a held-back scout is refused up front (so this manual path can't seed or
+    # run a scout the flag withholds), and (2) the canonical sync below is passed the denylist so
+    # running *any* scout on a held-back team can't seed the other withheld scouts' rows as a side
+    # effect. In local dev there's no flag payload, so this resolves empty and nothing is blocked.
+    withheld = await database_sync_to_async(withheld_skills_for_team, thread_sensitive=False)(
+        team.parent_team_id or team.id
+    )
+    if skill_name in withheld:
+        logger.info(
+            "signals_scout: skipping run, scout is withheld from this team",
+            extra={"team_id": team_id, "skill_name": skill_name},
+        )
+        return RunResult(
+            run_id=None,
+            task_run_id=None,
+            status=None,
+            last_message=None,
+            runtime_s=0.0,
+            skill_name=skill_name,
+            skill_version=skill_version or 0,
+            skip_reason="scout is withheld from this team",
+        )
+
     # Sync canonical signals-scout-* skills before we resolve the skill the run asked for.
     # Creates rows for newly-shipped specialists, updates harness-seeded rows the team
     # hasn't edited, and leaves forked / tombstoned rows alone. Failures here should not
     # crash the run — we log and continue with whatever skills the team already has.
     try:
-        await database_sync_to_async(sync_canonical_skills, thread_sensitive=False)(team)
+        await database_sync_to_async(sync_canonical_skills, thread_sensitive=False)(team, withheld_skill_names=withheld)
     except Exception:
         logger.exception(
             "signals_scout: canonical skill sync failed; continuing with existing team skills",
@@ -142,6 +168,30 @@ async def arun_signals_scout(
             skip_reason="prior run still in progress",
         )
 
+    # Resolve the acting user up front. Scouts don't clone a repo on the cadence path, so they
+    # don't need a GitHub integration — `resolve_acting_user_id_for_team` prefers the GitHub
+    # creator when present but falls back to any active org member, so a team that never connected
+    # GitHub still runs (these dominated the fleet failure rate when the run instead crashed ~5s
+    # into `_spawn_and_run` and booked a bogus `failed`). The only remaining short-circuit is the
+    # genuine "no active user to act as" case; like the withheld / in-flight skips it leaves no
+    # row, no lifecycle event, and a `skip_reason` the coordinator can surface — not a failure.
+    user_id = await database_sync_to_async(resolve_acting_user_id_for_team, thread_sensitive=False)(team.id)
+    if user_id is None:
+        logger.info(
+            "signals_scout: skipping run, no active user to act as for team",
+            extra={"team_id": team_id, "skill_name": skill.name},
+        )
+        return RunResult(
+            run_id=None,
+            task_run_id=None,
+            status=None,
+            last_message=None,
+            runtime_s=0.0,
+            skill_name=skill.name,
+            skill_version=skill.version,
+            skip_reason="no active user to act as for team",
+        )
+
     started = time.monotonic()
     # Pre-mint the bridge row's UUID so the prompt can reference it before the row
     # exists. The TaskRun is created inside `MultiTurnSession.start`; the bridge row is
@@ -158,6 +208,7 @@ async def arun_signals_scout(
             skill=skill,
             repository=repository,
             verbose=verbose,
+            user_id=user_id,
         )
         runtime_s = time.monotonic() - started
         emitted_count, _ = await database_sync_to_async(_read_run_metrics, thread_sensitive=False)(
@@ -182,7 +233,7 @@ async def arun_signals_scout(
             skill_name=skill.name,
             skill_version=skill.version,
         )
-    except Exception:
+    except Exception as exc:
         runtime_s = time.monotonic() - started
         # A failure before the on_task_run_created hook fires means no row was persisted —
         # don't hand callers a run_id that resolves to nothing.
@@ -220,6 +271,8 @@ async def arun_signals_scout(
             status=tasks_facade.TaskRunStatus.FAILED.value,
             runtime_s=runtime_s,
             emitted_count=emitted_count,
+            error_type=type(exc).__name__,
+            error_message=str(exc)[:300],
         )
         return RunResult(
             run_id=str(run_id) if row_persisted else None,
@@ -273,12 +326,13 @@ async def _spawn_and_run(
     skill: LoadedSkill,
     repository: str | None,
     verbose: bool,
+    user_id: int,
 ) -> tuple[str, str]:
     """Spawn the sandbox, create the bridge row before the first turn, run the agent.
 
-    Returns `(last_message, task_run_id)`.
+    `user_id` is the acting user resolved (and validated non-None) by the caller. Returns
+    `(last_message, task_run_id)`.
     """
-    user_id = await database_sync_to_async(resolve_user_id_for_team, thread_sensitive=False)(team.id)
     sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
         team.id,
         SIGNALS_SCOUT_SANDBOX_ENV_NAME,
@@ -627,6 +681,8 @@ def _capture_run_finished(
     status: str,
     runtime_s: float,
     emitted_count: int | None,
+    error_type: str | None = None,
+    error_message: str | None = None,
 ) -> None:
     """Emit the scout-owned per-run analytics event.
 
@@ -636,21 +692,32 @@ def _capture_run_finished(
     emit volume — keyed on the team so it joins both to the emit-side `signal_emitted`
     events and to the team-level experiment exposure. Best-effort: a capture failure must
     never fail or mask the run outcome.
+
+    On `status='failed'`, `error_type` (the exception class) and a truncated `error_message`
+    are attached so the failure rate is breakable down by cause without digging into worker
+    logs — the bulk of scout failures fail in this layer before the `process-task` workflow's
+    own `task_run_failed` event ever fires, so this is the only event that carries their reason.
     """
+    properties: dict[str, Any] = {
+        "skill_name": skill.name,
+        "skill_version": skill.version,
+        "scout_config_id": str(config.id),
+        "run_id": str(run_id),
+        "task_run_id": task_run_id,
+        "status": status,
+        "runtime_seconds": round(runtime_s, 1),
+        "emitted_count": emitted_count,
+    }
+    # Only attach failure context on failed runs — keeps successful / cancelled events clean
+    # rather than carrying explicit-null error fields on every event.
+    if error_type is not None:
+        properties["error_type"] = error_type
+        properties["error_message"] = error_message
     try:
         posthoganalytics.capture(
             event="signals_scout_run_finished",
             distinct_id=str(team.uuid),
-            properties={
-                "skill_name": skill.name,
-                "skill_version": skill.version,
-                "scout_config_id": str(config.id),
-                "run_id": str(run_id),
-                "task_run_id": task_run_id,
-                "status": status,
-                "runtime_seconds": round(runtime_s, 1),
-                "emitted_count": emitted_count,
-            },
+            properties=properties,
             groups=groups(team.organization, team),
         )
     except Exception:

@@ -8,11 +8,14 @@ from posthog.temporal.data_imports.sources.common.sql import Table, TableStats
 from posthog.temporal.data_imports.sources.common.sql.predicates import ColumnTypeCategory, ValidatedRowFilter
 from posthog.temporal.data_imports.sources.generated_configs import MSSQLSourceConfig
 from posthog.temporal.data_imports.sources.mssql.mssql import (
+    _SSH_HANDSHAKE_EOF_ERROR,
     MSSQLColumn,
     MSSQLImplementation,
     _build_query,
+    _is_deadlock_victim_error,
     _is_transient_connection_error,
     filter_mssql_incremental_fields,
+    retry_on_deadlock,
     retry_on_transient_connection_error,
 )
 from posthog.temporal.data_imports.sources.mssql.source import MSSQLSource
@@ -516,6 +519,36 @@ class TestBuildPipeline:
         assert streaming_cursor.execute.called
 
 
+class _RaisingTunnel:
+    """Context manager whose `__enter__` raises, standing in for paramiko's handshake EOFError."""
+
+    def __enter__(self):
+        raise EOFError()
+
+    def __exit__(self, *args):
+        return False
+
+
+class TestConnectSSHTunnel:
+    def test_bare_handshake_eof_is_translated_and_non_retryable(self, mocker):
+        mocker.patch(
+            "posthog.temporal.data_imports.sources.mssql.mssql.open_ssh_tunnel",
+            return_value=_RaisingTunnel(),
+        )
+        mock_connect = mocker.patch("posthog.temporal.data_imports.sources.mssql.mssql.pymssql.connect")
+
+        with pytest.raises(Exception, match=_SSH_HANDSHAKE_EOF_ERROR) as exc_info:
+            with MSSQLImplementation().connect(_make_config()):
+                pass
+
+        # Cause preserved, the database connection is never attempted, and the translated
+        # message is classified non-retryable so the sync stops instead of retrying forever.
+        assert isinstance(exc_info.value.__cause__, EOFError)
+        mock_connect.assert_not_called()
+        non_retryable = MSSQLSource().get_non_retryable_errors()
+        assert any(pattern in str(exc_info.value) for pattern in non_retryable.keys())
+
+
 class TestMSSQLSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
@@ -540,6 +573,8 @@ class TestMSSQLSourceNonRetryableErrors:
             # Raised by the sshtunnel library when the customer's SSH bastion can't be reached
             # (wrong host/port, rejected key, firewall) — the import goes through `open_ssh_tunnel`.
             "BaseSSHTunnelForwarderError: Could not establish session to SSH gateway",
+            # `connect` translates paramiko's bare handshake EOFError into this message.
+            _SSH_HANDSHAKE_EOF_ERROR,
         ],
     )
     def test_connection_errors_are_non_retryable(self, error_msg):
@@ -705,3 +740,75 @@ class TestGetSchemasRetriesTransientDrop:
 
         assert schemas == []
         assert get_columns.call_count == 2
+
+
+class TestIsDeadlockVictimError:
+    @pytest.mark.parametrize(
+        "error",
+        [
+            # Real pymssql shape: SQL Server error 1205 carried as (code, bytes) args.
+            pymssql.OperationalError(
+                1205,
+                b"Transaction (Process ID 116) was deadlocked on lock resources with another process and has "
+                b"been chosen as the deadlock victim. Rerun the transaction.DB-Lib error message 20018, "
+                b"severity 13:\nGeneral SQL Server error: Check messages from the SQL Server\n",
+            ),
+            # The SQL-Server-message rendering of the same deadlock.
+            pymssql.OperationalError(
+                "SQL Server message 1205, severity 13, state 52, procedure b'`\\x17\\x15\\xcc\\xfe\\xff', "
+                "line 1:\nb'Transaction (Process ID 116) was deadlocked on lock resources with another process "
+                "and has been chosen as the deadlock victim. Rerun the transaction."
+            ),
+        ],
+    )
+    def test_matches_deadlock_victim(self, error):
+        assert _is_deadlock_victim_error(error)
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            # A connection death is transient too, but recovers via a fresh connect — not a rerun.
+            pymssql.OperationalError(
+                20047, b"DB-Lib error message 20047, severity 9:\nDBPROCESS is dead or not enabled\n"
+            ),
+            pymssql.OperationalError("Login failed for user 'reporting'."),
+            pymssql.OperationalError("Invalid object name 'dbo.orders'."),
+            pymssql.OperationalError(),
+        ],
+    )
+    def test_does_not_match_other_errors(self, error):
+        assert not _is_deadlock_victim_error(error)
+
+
+class TestRetryOnDeadlock:
+    def _deadlock_victim(self) -> pymssql.OperationalError:
+        return pymssql.OperationalError(
+            1205,
+            b"Transaction (Process ID 116) was deadlocked on lock resources with another process and has been "
+            b"chosen as the deadlock victim. Rerun the transaction.",
+        )
+
+    def test_retries_then_succeeds(self, mocker):
+        sleep = mocker.patch("posthog.temporal.data_imports.sources.mssql.mssql.time.sleep")
+        operation = MagicMock(side_effect=[self._deadlock_victim(), "ok"])
+
+        assert retry_on_deadlock(operation) == "ok"
+        assert operation.call_count == 2
+        sleep.assert_called_once()
+
+    def test_does_not_retry_non_deadlock(self, mocker):
+        sleep = mocker.patch("posthog.temporal.data_imports.sources.mssql.mssql.time.sleep")
+        operation = MagicMock(side_effect=pymssql.OperationalError("Login failed for user 'reporting'."))
+
+        with pytest.raises(pymssql.OperationalError):
+            retry_on_deadlock(operation)
+        assert operation.call_count == 1
+        sleep.assert_not_called()
+
+    def test_gives_up_after_max_attempts(self, mocker):
+        mocker.patch("posthog.temporal.data_imports.sources.mssql.mssql.time.sleep")
+        operation = MagicMock(side_effect=self._deadlock_victim())
+
+        with pytest.raises(pymssql.OperationalError):
+            retry_on_deadlock(operation, max_attempts=3)
+        assert operation.call_count == 3

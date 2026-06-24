@@ -41,6 +41,9 @@ def _slim_pickle_setstate(model: BaseModel, state: dict[Any, Any]) -> None:
 
 class FieldOrTable(BaseModel):
     hidden: bool = False
+    # Optional human/agent-facing description of this table or column. Surfaced through the
+    # `system.information_schema` tables so agents can discover and disambiguate the schema.
+    description: Optional[str] = None
 
     def __getstate__(self) -> dict[Any, Any]:
         return _slim_pickle_getstate(self)
@@ -118,6 +121,15 @@ class StringJSONDatabaseField(DatabaseField):
 
     def default_value(self) -> Any:
         return ""
+
+
+class MapStringDatabaseField(StringJSONDatabaseField):
+    """A physical ClickHouse `Map(String, String)` column presented like a JSON blob.
+
+    Behaves as JSON for resolution, lowering, and property-group routing (suffix-keyed maps such as logs
+    `attributes_map_str`), but a key with no precomputed column is read via a native Map subscript instead of
+    JSONExtract — which ClickHouse rejects on a Map. See `clickhouse_property_resolution._substitute_value_read`.
+    """
 
 
 class StructDatabaseField(DatabaseField):

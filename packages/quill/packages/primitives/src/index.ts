@@ -30,6 +30,7 @@ export {
     AutocompleteValue,
     useAutocompleteAnchor,
 } from './autocomplete'
+export { Avatar, AvatarImage, AvatarFallback, AvatarGroup } from './avatar'
 export { Badge, badgeVariants } from './badge'
 export { Button, buttonVariants, type ButtonProps } from './button'
 export { ButtonGroup, ButtonGroupSeparator, ButtonGroupText, buttonGroupVariants } from './button-group'

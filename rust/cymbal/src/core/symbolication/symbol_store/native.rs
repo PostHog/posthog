@@ -1,13 +1,22 @@
 use std::collections::HashMap;
+use std::fmt::Display;
 use std::io::{Cursor, Read};
 
+use async_trait::async_trait;
+use bytes::Bytes;
 use serde::Deserialize;
 use symbolic::debuginfo::Archive;
 use symbolic::demangle::{Demangle, DemangleOptions};
 use symbolic::symcache::{SymCache, SymCacheConverter};
 use zip::ZipArchive;
 
-use crate::{error::NativeError, symbolication::symbol_store::caching::Countable};
+use posthog_symbol_data::{read_symbol_data_with_byte_count, AppleDsym, ElfDebugInfo};
+
+use crate::{
+    error::{NativeError, ResolveError, UnhandledError},
+    metric_consts::SYMBOL_SET_DECOMPRESSED_BYTES,
+    symbolication::symbol_store::{caching::Countable, Fetcher, Parser},
+};
 
 /// Manifest format for source files bundled in the symbol ZIP under `__source/`
 #[derive(Deserialize)]
@@ -272,4 +281,68 @@ pub struct SymbolInfo {
     /// The full absolute path from DWARF debug info, used for source lookup
     pub full_path: Option<String>,
     pub line: u32,
+}
+
+/// Provider for native debug symbols looked up by debug_id. Accepts both
+/// `ElfDebugInfo` bundles (uploaded via `posthog-cli debug-symbols upload`)
+/// and `AppleDsym` bundles (uploaded via `posthog-cli dsym upload`), so
+/// native frames from macOS binaries resolve against existing dSYM uploads.
+pub struct NativeProvider {}
+
+#[derive(Debug, Clone)]
+pub enum NativeRef {}
+
+#[async_trait]
+impl Fetcher for NativeProvider {
+    type Ref = NativeRef;
+    type Fetched = Bytes;
+    type Err = ResolveError;
+
+    async fn fetch(&self, _: i32, _: NativeRef) -> Result<Bytes, Self::Err> {
+        unreachable!("NativeRef is impossible to construct, so cannot be passed")
+    }
+}
+
+#[async_trait]
+impl Parser for NativeProvider {
+    type Source = Bytes;
+    type Set = ParsedNativeSymbols;
+    type Err = ResolveError;
+
+    async fn parse(&self, source: Self::Source) -> Result<ParsedNativeSymbols, ResolveError> {
+        // Debug-info parsing is the heaviest CPU work in the system: zstd
+        // decompress, ZIP expansion, DWARF parse, and symcache conversion.
+        // Always offload from the tokio runtime.
+        tokio::task::spawn_blocking(move || -> Result<ParsedNativeSymbols, ResolveError> {
+            // Slice selection invariant: CLI dSYM uploads are one single-arch
+            // binary per UUID (fat binaries are thinned at upload), so a
+            // chunk_id lookup always parses the slice it names. The arm64
+            // preference inside the symcache conversion only kicks in for
+            // legacy raw-zip fat uploads, which predate native frames.
+            let (zip_data, decompressed_bytes) =
+                match read_symbol_data_with_byte_count::<ElfDebugInfo>(&source) {
+                    Ok((elf, bytes)) => (elf.data, bytes),
+                    Err(_) => match read_symbol_data_with_byte_count::<AppleDsym>(&source) {
+                        Ok((dsym, bytes)) => (dsym.data, bytes),
+                        // Raw ZIP fallback for dSYMs uploaded before the
+                        // symbol_data container was introduced.
+                        Err(_) => {
+                            let len = source.len();
+                            (source.to_vec(), len)
+                        }
+                    },
+                };
+            metrics::histogram!(SYMBOL_SET_DECOMPRESSED_BYTES, "kind" => "native")
+                .record(decompressed_bytes as f64);
+            ParsedNativeSymbols::from_zip_data(zip_data, decompressed_bytes).map_err(Into::into)
+        })
+        .await
+        .map_err(|e| UnhandledError::Other(format!("native debug symbol parse task failed: {e}")))?
+    }
+}
+
+impl Display for NativeRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "NativeRef")
+    }
 }
