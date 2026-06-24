@@ -31,11 +31,13 @@ import type { TSchema } from '@earendil-works/pi-ai'
 import {
     AgentRevision,
     AgentSession,
+    type ApprovalType,
     BundleStore,
     CredentialBroker,
     getSecretAllowedHosts,
     HttpFetcher,
-    IntegrationCredentials,
+    IdentityAuthRequiredError,
+    isPreviewSideEffect,
     MemoryStore,
     TabularStore,
     Sandbox,
@@ -68,6 +70,17 @@ export interface ToolResultDetails {
     queued?: boolean
     /** The approval request id, when `queued`. */
     requestId?: string
+    /** True when the queue deduped onto an existing row (no new request). */
+    deduped?: boolean
+    /**
+     * Approval policy on the queued row, when `queued`. Surfaced so the live
+     * `tool_result` SSE event carries the same `approval` shape the persisted
+     * synthetic result does — the inline card needs `allow_edit` (edit
+     * affordance) and `approver_scope.type` (decidable inline vs console-only),
+     * and neither is derivable from the tool_call alone.
+     */
+    allowEdit?: boolean
+    approverType?: ApprovalType
 }
 
 /**
@@ -98,7 +111,6 @@ export interface AgentToolDeps {
     rev: AgentRevision
     session: AgentSession
     sandbox: Sandbox | null
-    integrations: Record<string, IntegrationCredentials>
     /** Resolved plaintext secrets for native tools (custom tools get nonces via the sandbox). */
     secrets: Record<string, string>
     bundle: BundleStore
@@ -131,6 +143,11 @@ export interface AgentToolDeps {
      * decides how to degrade.
      */
     credentialBroker?: CredentialBroker
+    /**
+     * Per-asker identity resolver (spec.identity_providers). Built once per run
+     * in the driver, keyed to the run's asker; forwarded to `ToolContext.identity`.
+     */
+    identity?: ToolContext['identity']
     /**
      * Opened MCP clients from `loop/mcp-clients.ts` — one per entry in
      * `spec.mcps[]`. `buildAgentTools` walks `client.listTools()` on each
@@ -173,6 +190,13 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
     if (rev.spec.skills.length > 0) {
         alwaysOn.push('@posthog/load-skill')
     }
+    // `@posthog/identity-connect` lets the agent mint a connect/reconnect link on
+    // demand — included whenever the agent has any linkable identity (declared
+    // providers, or an MCP that authenticates through one), so the agent can hand
+    // the user a link proactively instead of only after a tool/MCP auth failure.
+    if (rev.spec.identity_providers.length > 0 || rev.spec.mcps.some((m) => m.auth?.provider)) {
+        alwaysOn.push('@posthog/identity-connect')
+    }
     const all = [...alwaysOn.map((id) => ({ kind: 'native' as const, id })), ...rev.spec.tools]
 
     for (const t of all) {
@@ -208,7 +232,7 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
         }
         // custom — schema + description from the bundle, dispatched via sandbox.
         const { description, parameters } = await loadCustomSchema(rev, t.id, t.path, deps.bundle)
-        tools.push(makeCustomTool(t.id, description, parameters, deps))
+        tools.push(makeCustomTool(t.id, description, parameters, deps, t.requires_identity))
     }
 
     // MCP-sourced tools — one per remote tool per opened client. `listTools()`
@@ -225,7 +249,7 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
                     // code so the session-failure reason is attributable to a
                     // specific MCP at triage time. Matches the convention used
                     // by `mcp-clients.ts` for the other error paths
-                    // (`mcp_secret_not_resolved`, `mcp_integration_not_resolved`,
+                    // (`mcp_secret_not_resolved`, `mcp_identity_unavailable`,
                     // `duplicate_mcp_prefix`).
                     throw new Error(`mcp_list_tools_failed:${client.prefix}: ${(err as Error).message}`)
                 }
@@ -262,7 +286,7 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
                     continue
                 }
                 seen.add(exposedName)
-                tools.push(makeMcpTool(exposedName, client, remote))
+                tools.push(makeMcpTool(exposedName, client, remote, deps))
             }
         }
     }
@@ -298,6 +322,42 @@ function makeControlFlowTool(id: string): AgentTool<TSchema, ToolResultDetails> 
     }
 }
 
+type IdentityGate =
+    | { proceed: true; resolved?: ToolContext['resolvedIdentities'] }
+    | { proceed: false; result: AgentToolResult<ToolResultDetails> }
+
+function authRequiredResult(provider: string, authorizeUrl: string): AgentToolResult<ToolResultDetails> {
+    const output = { auth_required: { provider, authorize_url: authorizeUrl } }
+    return { content: [{ type: 'text', text: JSON.stringify(output) }], details: { output } }
+}
+
+/** Resolve a tool's required identity provider before it runs. Returns the
+ *  resolved credential to thread into the context, or short-circuits to an
+ *  auth_required result. `unknown_provider` (e.g. the `slack` bot) isn't
+ *  identity-gated and proceeds. */
+async function gateIdentity(
+    provider: { id: string; scopes: string[] } | undefined,
+    deps: AgentToolDeps
+): Promise<IdentityGate> {
+    if (!provider || !deps.identity) {
+        return { proceed: true }
+    }
+    const res = await deps.identity.resolve(provider.id, provider.scopes)
+    if (res.kind === 'ok') {
+        return {
+            proceed: true,
+            resolved: { [provider.id]: { credential: res.credential, allowedHosts: res.allowedHosts } },
+        }
+    }
+    if (res.kind === 'link_required') {
+        return { proceed: false, result: authRequiredResult(res.provider, res.authorizeUrl) }
+    }
+    if (res.reason === 'unknown_provider') {
+        return { proceed: true }
+    }
+    throw new Error(`identity_unavailable: ${provider.id} (${res.reason})`)
+}
+
 function makeNativeTool(id: string, deps: AgentToolDeps): AgentTool<TSchema, ToolResultDetails> {
     const native = getNativeTool(id)
     return {
@@ -306,10 +366,19 @@ function makeNativeTool(id: string, deps: AgentToolDeps): AgentTool<TSchema, Too
         description: native.schema.description,
         parameters: native.schema.args,
         execute: async (_callId, args): Promise<AgentToolResult<ToolResultDetails>> => {
-            // Throws propagate: the loop renders them as an error tool_result
-            // (content = message, isError: true) — same shape as the old path.
-            const result = await native.run(args, buildToolContext(deps))
-            return { content: [{ type: 'text', text: JSON.stringify(result) }], details: { output: result } }
+            const gate = await gateIdentity(native.schema.requires.provider, deps)
+            if (!gate.proceed) {
+                return gate.result
+            }
+            try {
+                const result = await native.run(args, buildToolContext(deps, gate.resolved))
+                return { content: [{ type: 'text', text: JSON.stringify(result) }], details: { output: result } }
+            } catch (err) {
+                if (err instanceof IdentityAuthRequiredError) {
+                    return authRequiredResult(err.provider, err.authorizeUrl)
+                }
+                throw err
+            }
         },
     }
 }
@@ -318,7 +387,8 @@ function makeCustomTool(
     id: string,
     description: string,
     parameters: TSchema,
-    deps: AgentToolDeps
+    deps: AgentToolDeps,
+    requiresIdentity?: string
 ): AgentTool<TSchema, ToolResultDetails> {
     return {
         name: id,
@@ -326,9 +396,25 @@ function makeCustomTool(
         description,
         parameters,
         execute: async (_callId, args): Promise<AgentToolResult<ToolResultDetails>> => {
+            // Preview-mode stopgap: custom tools run author-supplied code in the
+            // sandbox and can perform arbitrary external writes, with no
+            // read-vs-write signal to gate on. Suppress every custom-tool call in
+            // preview (fail-closed) before resolving identity or touching the
+            // sandbox. Same accepted trade as MCP — blinds read-only custom tools
+            // too until the dispatch boundary gains a real classification.
+            if (isPreviewSideEffect(buildToolContext(deps), id, args as Record<string, unknown>)) {
+                const skipped = { preview_skipped: true, tool: id }
+                return { content: [{ type: 'text', text: JSON.stringify(skipped) }], details: { output: skipped } }
+            }
+            const gate = await gateIdentity(requiresIdentity ? { id: requiresIdentity, scopes: [] } : undefined, deps)
+            if (!gate.proceed) {
+                return gate.result
+            }
             if (!deps.sandbox) {
                 throw new Error(`custom tool ${id} requires a sandbox`)
             }
+            // CUSTOM-TOOL CREDENTIAL INJECTION SEAM: gate only — the resolved
+            // bearer is not yet threaded into the sandbox.
             const r = await deps.sandbox.invoke({ toolId: id, action: 'default', args })
             if (!r.ok) {
                 throw new Error(`${r.error.code}: ${r.error.message}`)
@@ -400,7 +486,8 @@ function makeClientTool(
 function makeMcpTool(
     exposedName: string,
     client: OpenedMcp,
-    remote: RemoteMcpTool
+    remote: RemoteMcpTool,
+    deps: AgentToolDeps
 ): AgentTool<TSchema, ToolResultDetails> {
     return {
         name: exposedName,
@@ -408,7 +495,20 @@ function makeMcpTool(
         description: remote.description,
         parameters: remote.inputSchema as TSchema,
         execute: async (_callId, args): Promise<AgentToolResult<ToolResultDetails>> => {
-            const result = await client.callTool(remote.name, (args ?? {}) as Record<string, unknown>)
+            const callArgs = (args ?? {}) as Record<string, unknown>
+            // Preview-mode stopgap: remote MCP servers can perform arbitrary
+            // external side effects and aren't yet classified read-vs-write, so
+            // suppress every MCP call in preview (fail-closed) rather than let a
+            // write reach the real world. Returns a shape-valid synthetic
+            // envelope so the model's next turn keeps reasoning; logs
+            // `tool_preview_skipped`. This also blinds MCP *reads* in preview —
+            // an accepted, temporary trade until the dispatch boundary gates on
+            // a real read/write signal (tracked follow-up).
+            if (isPreviewSideEffect(buildToolContext(deps), exposedName, callArgs)) {
+                const skipped = { preview_skipped: true, tool: exposedName }
+                return { content: [{ type: 'text', text: JSON.stringify(skipped) }], details: { output: skipped } }
+            }
+            const result = await client.callTool(remote.name, callArgs)
             if (result.isError) {
                 // Surface the first text content as the error message — same
                 // shape as `resultText()` in the driver. Keeps the model's
@@ -426,8 +526,7 @@ function makeMcpTool(
     }
 }
 
-/** Replicates the `ToolContext` the old `dispatchTool` built for native tools. */
-function buildToolContext(deps: AgentToolDeps): ToolContext {
+function buildToolContext(deps: AgentToolDeps, resolvedIdentities?: ToolContext['resolvedIdentities']): ToolContext {
     const credentialBroker = deps.credentialBroker
     const sessionId = deps.session.id
     // The `@posthog/*` data tools act as the invoking PostHog user against an
@@ -438,7 +537,6 @@ function buildToolContext(deps: AgentToolDeps): ToolContext {
         teamId: deps.session.team_id,
         applicationId: deps.rev.application_id,
         sessionId,
-        integrations: deps.integrations,
         secret: (name) => deps.secrets[name],
         secretAllowedHosts: (name) => getSecretAllowedHosts(deps.rev.spec, name),
         log: deps.log,
@@ -463,8 +561,11 @@ function buildToolContext(deps: AgentToolDeps): ToolContext {
                   resolve: (target) => credentialBroker.resolve(sessionId, target),
               }
             : undefined,
+        identity: deps.identity,
+        resolvedIdentities,
         http: deps.http,
         posthogApiBaseUrl: deps.posthogApiBaseUrl,
+        isPreview: deps.session.is_preview,
     }
 }
 

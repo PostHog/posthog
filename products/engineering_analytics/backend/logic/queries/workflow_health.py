@@ -1,9 +1,9 @@
 """Curated query: per-workflow CI health over a window.
 
 Run counts, success rate, and duration percentiles per ``workflow_name`` for runs
-started within ``[date_from, date_to]`` (``date_to`` optional). Rates and
-percentiles are over completed runs only, so they are ``None`` for a window with
-no completed runs.
+started within ``[date_from, date_to]`` (``date_to`` optional), optionally scoped to
+a single ``head_branch``. Rates and percentiles are over completed runs only, so they
+are ``None`` for a window with no completed runs.
 """
 
 import math
@@ -27,9 +27,9 @@ _SELECT = f"""
         countIf(status = 'completed' AND conclusion = 'success') / nullIf(countIf(status = 'completed'), 0) AS success_rate,
         quantileIf(0.5)(duration_seconds, status = 'completed') AS p50_seconds,
         quantileIf(0.95)(duration_seconds, status = 'completed') AS p95_seconds,
-        max(if(conclusion = 'failure', run_started_at, NULL)) AS last_failure_at
+        max(if(conclusion IN ('failure', 'timed_out'), run_started_at, NULL)) AS last_failure_at
     FROM __RUNS_SOURCE__ AS r
-    WHERE run_started_at >= {{date_from}} __DATE_TO__
+    WHERE run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__
     GROUP BY repo_owner, repo_name, workflow_name
     ORDER BY run_count DESC
     LIMIT {_LIMIT}
@@ -43,9 +43,10 @@ _DAILY_SELECT = f"""
         toDate(run_started_at) AS day,
         count() AS run_count,
         countIf(status = 'completed') AS completed,
-        countIf(status = 'completed' AND conclusion = 'success') AS successes
+        countIf(status = 'completed' AND conclusion = 'success') AS successes,
+        countIf(status = 'completed' AND conclusion IN ('failure', 'timed_out')) AS failures
     FROM __RUNS_SOURCE__ AS r
-    WHERE run_started_at >= {{date_from}} __DATE_TO__
+    WHERE run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__
     GROUP BY repo_owner, repo_name, workflow_name, day
     LIMIT {_DAILY_LIMIT}
 """
@@ -56,33 +57,48 @@ def query_workflow_health(
     curated: CuratedGitHubSource,
     date_from: datetime,
     date_to: datetime | None,
+    branch: str | None = None,
 ) -> list[WorkflowHealthItem]:
     date_to_clause = "AND run_started_at <= {date_to}" if date_to is not None else ""
+    # An empty/whitespace branch is "no filter", not a literal match on ''.
+    branch = branch.strip() if branch else None
+    branch_clause = "AND head_branch = {branch}" if branch else ""
     placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
     if date_to is not None:
         placeholders["date_to"] = ast.Constant(value=date_to)
+    if branch:
+        placeholders["branch"] = ast.Constant(value=branch)
 
     runs_source = curated.run_source()
-    sql = _SELECT.replace("__RUNS_SOURCE__", runs_source).replace("__DATE_TO__", date_to_clause)
+
+    def fill(template: str) -> str:
+        return (
+            template.replace("__RUNS_SOURCE__", runs_source)
+            .replace("__DATE_TO__", date_to_clause)
+            .replace("__BRANCH__", branch_clause)
+        )
+
     response = curated.run(
-        sql,
+        fill(_SELECT),
         query_type="engineering_analytics.workflow_health",
         placeholders=placeholders,
     )
     if not response.results:
         return []
 
-    daily_sql = _DAILY_SELECT.replace("__RUNS_SOURCE__", runs_source).replace("__DATE_TO__", date_to_clause)
+    daily_sql = fill(_DAILY_SELECT)
     daily_response = curated.run(
         daily_sql,
         query_type="engineering_analytics.workflow_health_daily",
         placeholders=placeholders,
     )
     days_by_workflow: dict[tuple[str, str, str], dict[date, WorkflowHealthDay]] = {}
-    for repo_owner, repo_name, workflow_name, day, run_count, completed, successes in daily_response.results or []:
+    for repo_owner, repo_name, workflow_name, day, run_count, completed, successes, failures in (
+        daily_response.results or []
+    ):
         day = day.date() if isinstance(day, datetime) else day
         days_by_workflow.setdefault((repo_owner, repo_name, workflow_name), {})[day] = WorkflowHealthDay(
-            day=day, run_count=run_count, completed=completed, successes=successes
+            day=day, run_count=run_count, completed=completed, successes=successes, failures=failures
         )
 
     window_days = _window_days(date_from, date_to)
@@ -97,7 +113,7 @@ def query_workflow_health(
             last_failure_at=last_failure_at,
             daily=[
                 days_by_workflow.get((repo_owner, repo_name, workflow_name), {}).get(
-                    day, WorkflowHealthDay(day=day, run_count=0, completed=0, successes=0)
+                    day, WorkflowHealthDay(day=day, run_count=0, completed=0, successes=0, failures=0)
                 )
                 for day in window_days
             ],

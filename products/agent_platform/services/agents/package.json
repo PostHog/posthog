@@ -8,6 +8,8 @@
     "type": "module",
     "scripts": {
         "lint": "oxlint --quiet .",
+        "format": "oxfmt .",
+        "format:check": "oxfmt --check .",
         "build": "tsx scripts/build.ts",
         "typescript:check": "tsc --noEmit -p ."
     },

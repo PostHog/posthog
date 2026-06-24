@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -17,6 +19,7 @@ def _source(**cdc_overrides):
         **cdc_overrides,
     }
     source = MagicMock()
+    source.id = uuid.UUID("019ef4e8-3bfd-0000-63c8-31abf0d57db8")
     source.job_inputs = job_inputs
     return source
 
@@ -30,12 +33,13 @@ def _fake_conn():
 
 class TestSetupResourcesPreflight:
     @patch(f"{_ADAPTER}.drop_slot_and_publication")
-    @patch(f"{_ADAPTER}.create_slot_and_publication")
+    @patch(f"{_ADAPTER}.create_publication")
+    @patch(f"{_ADAPTER}.create_slot")
     @patch(f"{_ADAPTER}.publication_exists", return_value=False)
     @patch(f"{_ADAPTER}.slot_exists", return_value=True)
     @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
     def test_posthog_refuses_when_slot_already_exists(
-        self, _conn, _slot_exists, _pub_exists, mock_create, mock_drop
+        self, _conn, _slot_exists, _pub_exists, mock_create_slot, mock_create_publication, mock_drop
     ) -> None:
         fields, error = PostgresCDCAdapter().setup_resources(
             _source(), {"cdc_management_mode": "posthog", "cdc_slot_name": "existing_slot"}
@@ -43,24 +47,84 @@ class TestSetupResourcesPreflight:
         assert fields == {}
         assert error is not None and "already exists" in error
         # Must not create, and must not roll back (drop) a slot it didn't create.
-        mock_create.assert_not_called()
+        mock_create_slot.assert_not_called()
+        mock_create_publication.assert_not_called()
         mock_drop.assert_not_called()
 
     @patch(f"{_ADAPTER}.drop_slot_and_publication")
-    @patch(f"{_ADAPTER}.create_slot_and_publication")
+    @patch(f"{_ADAPTER}.create_publication")
+    @patch(f"{_ADAPTER}.create_slot")
     @patch(f"{_ADAPTER}.publication_exists", return_value=True)
     @patch(f"{_ADAPTER}.slot_exists", return_value=False)
     @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
     def test_posthog_refuses_when_publication_already_exists(
-        self, _conn, _slot_exists, _pub_exists, mock_create, mock_drop
+        self, _conn, _slot_exists, _pub_exists, mock_create_slot, mock_create_publication, mock_drop
     ) -> None:
         fields, error = PostgresCDCAdapter().setup_resources(
             _source(), {"cdc_management_mode": "posthog", "cdc_publication_name": "existing_pub"}
         )
         assert fields == {}
         assert error is not None and "already exists" in error
-        mock_create.assert_not_called()
+        mock_create_slot.assert_not_called()
+        mock_create_publication.assert_not_called()
         mock_drop.assert_not_called()
+
+    @patch(f"{_ADAPTER}.create_slot")
+    @patch(f"{_ADAPTER}.create_publication")
+    @patch(f"{_ADAPTER}.publication_exists", return_value=True)
+    @patch(f"{_ADAPTER}.slot_exists", return_value=True)
+    @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
+    def test_posthog_adopts_existing_default_slot_and_publication(
+        self, _conn, _slot_exists, _pub_exists, mock_create_publication, mock_create_slot
+    ) -> None:
+        source = _source()
+        fields, error = PostgresCDCAdapter().setup_resources(source, {"cdc_management_mode": "posthog"})
+
+        assert error is None
+        assert fields == {
+            "cdc_management_mode": "posthog",
+            "cdc_slot_name": "posthog_019ef4e83bfd",
+            "cdc_publication_name": "posthog_pub_019ef4e83bfd",
+        }
+        mock_create_slot.assert_not_called()
+        mock_create_publication.assert_not_called()
+
+    @patch(f"{_ADAPTER}.create_slot")
+    @patch(f"{_ADAPTER}.create_publication")
+    @patch(f"{_ADAPTER}.publication_exists", return_value=False)
+    @patch(f"{_ADAPTER}.slot_exists", return_value=True)
+    @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
+    def test_posthog_recreates_missing_default_publication_when_adopting_slot(
+        self, _conn, _slot_exists, _pub_exists, mock_create_publication, mock_create_slot
+    ) -> None:
+        source = _source()
+        fields, error = PostgresCDCAdapter().setup_resources(source, {"cdc_management_mode": "posthog"})
+
+        assert error is None
+        assert fields["cdc_slot_name"] == "posthog_019ef4e83bfd"
+        assert fields["cdc_publication_name"] == "posthog_pub_019ef4e83bfd"
+        mock_create_publication.assert_called_once()
+        assert mock_create_publication.call_args.args[1] == "posthog_pub_019ef4e83bfd"
+        mock_create_slot.assert_not_called()
+
+    @patch(f"{_ADAPTER}.create_slot", return_value="0/AA")
+    @patch(f"{_ADAPTER}.create_publication")
+    @patch(f"{_ADAPTER}.publication_exists", return_value=True)
+    @patch(f"{_ADAPTER}.slot_exists", return_value=False)
+    @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
+    def test_posthog_adopts_existing_default_publication_and_creates_missing_slot(
+        self, _conn, _slot_exists, _pub_exists, mock_create_publication, mock_create_slot
+    ) -> None:
+        source = _source()
+        fields, error = PostgresCDCAdapter().setup_resources(source, {"cdc_management_mode": "posthog"})
+
+        assert error is None
+        assert fields["cdc_slot_name"] == "posthog_019ef4e83bfd"
+        assert fields["cdc_publication_name"] == "posthog_pub_019ef4e83bfd"
+        assert fields["cdc_consistent_point"] == "0/AA"
+        mock_create_slot.assert_called_once()
+        assert mock_create_slot.call_args.args[1] == "posthog_019ef4e83bfd"
+        mock_create_publication.assert_not_called()
 
     @patch(f"{_ADAPTER}.drop_slot")
     @patch(f"{_ADAPTER}.create_slot")
@@ -78,23 +142,27 @@ class TestSetupResourcesPreflight:
         mock_create.assert_not_called()
         mock_drop.assert_not_called()
 
-    @patch(f"{_ADAPTER}.drop_slot_and_publication")
-    @patch(f"{_ADAPTER}.create_slot_and_publication", side_effect=RuntimeError("boom"))
+    @patch(f"{_ADAPTER}.drop_publication")
+    @patch(f"{_ADAPTER}.drop_slot")
+    @patch(f"{_ADAPTER}.create_slot", side_effect=RuntimeError("boom"))
+    @patch(f"{_ADAPTER}.create_publication")
     @patch(f"{_ADAPTER}.publication_exists", return_value=False)
     @patch(f"{_ADAPTER}.slot_exists", return_value=False)
     @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
     def test_posthog_rolls_back_only_after_verifying_absence(
-        self, _conn, _slot_exists, _pub_exists, _create, mock_drop
+        self, _conn, _slot_exists, _pub_exists, mock_create_publication, _create_slot, mock_drop_slot, mock_drop_pub
     ) -> None:
-        # Both verified absent, then create fails → safe to drop what we just made.
+        # Publication was created before slot creation failed → only the publication is rolled back.
         fields, error = PostgresCDCAdapter().setup_resources(
             _source(),
             {"cdc_management_mode": "posthog", "cdc_slot_name": "s", "cdc_publication_name": "p"},
         )
         assert fields == {}
         assert error is not None and "boom" in error
-        mock_drop.assert_called_once()
-        assert mock_drop.call_args.args[1:] == ("s", "p")
+        mock_create_publication.assert_called_once()
+        mock_drop_slot.assert_not_called()
+        mock_drop_pub.assert_called_once()
+        assert mock_drop_pub.call_args.args[1] == "p"
 
 
 class TestRecreateSlot:
