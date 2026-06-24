@@ -818,7 +818,14 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @extend_schema(
         request=inline_serializer(
             "ProvisionWarehouseRequest",
-            fields={"database_name": serializers.CharField(help_text="Name for the new database")},
+            fields={
+                "database_name": serializers.CharField(help_text="Name for the new database"),
+                "table_name": serializers.CharField(
+                    help_text="Name for the provisioning project's warehouse tables (events_<name>, persons_<name>, "
+                    "…). Lowercase letters, numbers, and underscores only; used verbatim as the suffix. Required "
+                    "so the first project gets its own per-environment tables."
+                ),
+            },
         ),
         responses={
             202: inline_serializer(
@@ -842,7 +849,51 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         admin_error = self._require_organization_admin(request, "provision")
         if admin_error is not None:
             return admin_error
-        return managed_warehouse.provision(self.team.organization_id, request.data.get("database_name"))
+        return managed_warehouse.provision(
+            self.team.organization_id,
+            request.data.get("database_name"),
+            self.team_id,
+            request.data.get("table_name"),
+        )
+
+    @extend_schema(
+        request=inline_serializer(
+            "EnableWarehouseBackfillRequest",
+            fields={
+                "table_name": serializers.CharField(
+                    help_text="Name for this environment's warehouse tables (events_<name>, persons_<name>, …). "
+                    "Lowercase letters, numbers, and underscores only; used verbatim as the suffix and must be "
+                    "unique across the organization's environments."
+                )
+            },
+        ),
+        responses={
+            200: inline_serializer(
+                "EnableWarehouseBackfillResponse",
+                fields={
+                    "enabled": serializers.BooleanField(help_text="Whether warehouse backfill is now enabled"),
+                    "table_suffix": serializers.CharField(
+                        help_text="Suffix used for this environment's tables (events_<suffix>, persons_<suffix>)"
+                    ),
+                },
+            )
+        },
+    )
+    @action(methods=["POST"], detail=False, required_scopes=["warehouse_view:write"])
+    def enable_backfill(self, request: Request, **kwargs) -> Response:
+        """Enable warehouse backfill for this environment with a dedicated set of tables.
+
+        Requires a table name and records the environment's membership in the
+        organization's managed warehouse. Restricted to organization admins.
+        """
+        admin_error = self._require_organization_admin(request, "enable backfill for")
+        if admin_error is not None:
+            return admin_error
+        return managed_warehouse.enable_backfill(
+            self.team.organization_id,
+            self.team.id,
+            request.data.get("table_name"),
+        )
 
     @extend_schema(
         responses={
@@ -899,14 +950,26 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         required=False,
                         allow_null=True,
                     ),
+                    "has_backfill": serializers.BooleanField(
+                        help_text="Whether this project already has a warehouse backfill configured. When true, its "
+                        "table name is fixed and the enable form should not be shown."
+                    ),
+                    "table_suffix": serializers.CharField(
+                        allow_null=True,
+                        help_text="This project's per-environment table suffix (events_<suffix>). Null when the "
+                        "project still writes to the shared tables.",
+                    ),
                 },
             )
         },
     )
     @action(methods=["GET"], detail=False)
     def warehouse_status(self, request: Request, **kwargs) -> Response:
-        """Get the current provisioning status of the managed warehouse."""
-        return managed_warehouse.status_for(self.team.organization_id)
+        """Get the current provisioning status of the managed warehouse, with this project's backfill state."""
+        resp = managed_warehouse.status_for(self.team.organization_id)
+        if resp.status_code == 200 and isinstance(resp.data, dict):
+            resp.data.update(managed_warehouse.team_backfill_state(self.team_id))
+        return resp
 
     @extend_schema(
         responses={

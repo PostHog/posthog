@@ -81,7 +81,11 @@ from products.signals.backend.scout_harness.serializers import (
     SignalScoutRunDetailSerializer,
     SignalScoutRunSummarySerializer,
 )
-from products.signals.backend.scout_harness.team_limits import resolve_team_metadata
+from products.signals.backend.scout_harness.team_limits import (
+    resolve_sync_seed_inputs,
+    resolve_team_metadata,
+    withheld_skills_for_team,
+)
 from products.signals.backend.scout_harness.tools.emit import EvidenceEntry, InvalidEmitError, emit_finding_sync
 from products.signals.backend.scout_harness.tools.profile import get_project_profile
 from products.signals.backend.scout_harness.tools.runs import get_run, search_recent_runs
@@ -837,7 +841,17 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
         team_id = _canonical_team_id(self)
-        configs = list(SignalScoutConfig.objects.unscoped().filter(team_id=team_id).order_by("skill_name"))
+        # Don't surface held-back scouts here either — keeps the config read surface consistent
+        # with the sync response and the seeding gate, so a withheld scout stays invisible to a
+        # held-back team across the whole config API. Storage is untouched; the row reappears if
+        # the team is later un-withheld.
+        withheld = withheld_skills_for_team(team_id)
+        configs = list(
+            SignalScoutConfig.objects.unscoped()
+            .filter(team_id=team_id)
+            .exclude(skill_name__in=withheld)
+            .order_by("skill_name")
+        )
         skill_info = _skill_info_for(team_id, [c.skill_name for c in configs])
         serializer = SignalScoutConfigSerializer(configs, many=True, context={"skill_info": skill_info})
         return Response(serializer.data)
@@ -987,8 +1001,25 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # seed and register against that team so child-environment requests don't fork
         # a second fleet.
         team = self.team if self.team.parent_team_id is None else Team.objects.get(id=self.team.parent_team_id)
-        sync_canonical_skills(team)
-        register_missing_configs(team.id)
-        configs = SignalScoutConfig.objects.unscoped().filter(team_id=team.id).order_by("skill_name")
+        # Resolve the holdback denylist + the launch seed posture from a single flag read so they
+        # can't disagree if the flag changes mid-request (the coordinator reads once and threads the
+        # snapshot too). Holdback: a held-back scout can't be seeded/enabled by a manual fleet
+        # materialization (the coordinator already gates the scheduled path). Posture: seed the same
+        # launch shape the coordinator applies (general-only / daily etc., team_configs over
+        # default_team_config) so a self-serve materialization doesn't bypass the launch cost posture
+        # by enabling the full fleet.
+        seed_config_layers, withheld = resolve_sync_seed_inputs(team.id)
+        sync_canonical_skills(team, withheld_skill_names=withheld)
+        register_missing_configs(team.id, seed_config_layers, withheld_skill_names=withheld)
+        # Exclude held-back scouts from the materialized fleet response too: a scout that was
+        # previously seeded and later withheld still has a row, and surfacing it here would
+        # advertise an unreleased scout despite the holdback. Storage is left untouched (no
+        # tombstone/disable) — the row reappears if the team is later un-withheld.
+        configs = (
+            SignalScoutConfig.objects.unscoped()
+            .filter(team_id=team.id)
+            .exclude(skill_name__in=withheld)
+            .order_by("skill_name")
+        )
         skill_info = _skill_info_for(team.id, [c.skill_name for c in configs])
         return Response(SignalScoutConfigSerializer(configs, many=True, context={"skill_info": skill_info}).data)

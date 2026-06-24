@@ -60,6 +60,17 @@ interface AnalyticsEventBase {
     is_error?: boolean
     /** Free-form failure detail; only set when `is_error` is true. */
     error?: string
+    /**
+     * `true` when emitted from a preview-mode session
+     * (`agent_session.is_preview = true`). Stamped onto every `$ai_*` event
+     * as `$agent_is_preview` so PostHog's LLM Analytics dashboards can
+     * filter author-iteration noise out of production observability — the
+     * preview run still emits events (so the author can inspect their own
+     * generations), but it's marked for downstream filtering. Optional so
+     * tests + the analytics-sink unit tests can omit it; missing reads as
+     * "not preview" via a truthy check.
+     */
+    is_preview?: boolean
 }
 
 export interface AnalyticsGenerationEvent extends AnalyticsEventBase {
@@ -185,6 +196,13 @@ export function buildAnalyticsProperties(event: AnalyticsEvent): Record<string, 
         if (event.error) {
             base.$ai_error = event.error
         }
+    }
+    if (event.is_preview) {
+        // Preview-mode marker. PostHog's LLM Analytics dashboards filter on
+        // this so author iteration doesn't skew production observability.
+        // Emitted only when true (absent ≡ live), keeping the property bag
+        // tight and the dashboard default uncluttered.
+        base.$agent_is_preview = true
     }
     if (event.kind === 'generation') {
         base.$ai_model = event.model

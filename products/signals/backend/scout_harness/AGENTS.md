@@ -79,11 +79,17 @@ ACTIVITY_SLACK_S`, the activity-level ceiling that gates the workflow's
   Single source of truth for a team's effective scout caps + metadata, resolved from the
   `signals-scout` flag payload in one read. The same three-layer cap resolution
   (`team_configs[team]` → `default_team_config` → code constant) the coordinator enforces at
-  dispatch, plus enrollment (`guaranteed_team_ids` / `skip_team_ids`, with a cloud/dev-gated
-  fallback) and the editorial banner string. Kept free of the temporalio stack so it stays
-  cheap to import on the API path; both the coordinator and the metadata endpoint import from
-  here so the reported caps never drift from what dispatch allows. `resolve_team_metadata()`
-  backs the metadata viewset.
+  dispatch, plus enrollment (`_parse_enrollment` → `guaranteed_team_ids` / `skip_team_ids`, with a
+  cloud/dev-gated fallback) and the editorial banner string. `guaranteed_team_ids` may contain the
+  `"*"` wildcard (`ENROLL_ALL_TOKEN`): with it, enrollment inverts from an explicit allowlist to
+  "every team that has enabled scout configs" — the self-serve gate, where the product-autonomy-
+  gated UI creates the configs; explicit ids alongside `"*"` are still force-provisioned and
+  `skip_team_ids` still hard-excludes. The global per-tick ceiling is flag-tunable too
+  (`_resolve_global_max_runs_per_tick` ← `max_runs_per_tick_global`, default `MAX_RUNS_PER_TICK`).
+  Kept free of the temporalio stack so it stays cheap to import on the API path; both the
+  coordinator and the metadata endpoint import from here so the reported caps never drift from what
+  dispatch allows. `resolve_team_metadata()` backs the metadata viewset;
+  `seed_config_layers_for_team()` lets the on-demand `sync` endpoint seed the same launch posture.
 - `serializers.py`
   DRF serializers for the harness HTTP surface (runs, scratchpad, project profile).
   Annotated for drf-spectacular so the generated MCP tools have informative schemas.
@@ -158,7 +164,7 @@ one sandbox session → zero or more emitted signals.
 
 - **Coordinator** — `temporal/agentic/scout_coordinator.py` and `scout_scheduler.py`.
   Polls every `COORDINATOR_INTERVAL_MINUTES = 30`; dispatches each scout whose
-  per-scout schedule (`run_interval_minutes`, default every 3 hours) is due, most-overdue
+  per-scout schedule (`run_interval_minutes`, default every 24 hours) is due, most-overdue
   first, hard cap `MAX_RUNS_PER_TICK = 50` per tick, `ScheduleOverlapPolicy.SKIP` to
   drop ticks rather than queue them.
 - **Models** — `SignalScoutConfig`, `SignalScoutRun`, `SignalScratchpad`,

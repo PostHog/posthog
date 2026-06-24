@@ -35,7 +35,7 @@ proceed until you've read both `spec` and the relevant file(s).
 
 ## Step 2 — branch a draft
 
-Always: `agent-applications-revisions-new-draft-create` from the
+Always: `posthog__agent-applications-revisions-new-draft-create` from the
 current `live_revision_id`. You get a fresh draft pre-populated
 with the live bundle + spec.
 
@@ -53,24 +53,35 @@ sees it.
 
 Choose the right verb:
 
-| Verb                                           | When                                                   | Reversibility                              |
-| ---------------------------------------------- | ------------------------------------------------------ | ------------------------------------------ |
-| `agent-applications-revisions-partial-update`  | Change `spec` (model, limits, triggers, tools[], etc.) | Easy — the next partial-update overwrites  |
-| `agent-applications-revisions-agent-md-update` | Overwrite `agent.md` (the system prompt)               | Easy — re-write                            |
-| `agent-applications-revisions-skills-update`   | Upsert one skill (body + companion files)              | Easy — re-write                            |
-| `agent-applications-revisions-skills-destroy`  | Delete one skill                                       | **Hard** — content gone unless you have it |
-| `agent-applications-revisions-tools-update`    | Upsert one custom tool (source + schema)               | Easy — re-write                            |
-| `agent-applications-revisions-tools-destroy`   | Delete one custom tool                                 | **Hard** — content gone unless you have it |
+| Verb                                                    | When                                                                                                     | Reversibility                              |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| `posthog__agent-applications-revisions-partial-update`  | Change `spec` fields (model, limits, triggers, tools[], identity_providers, mcps) — merges into the spec | Easy — the next update overwrites          |
+| `posthog__agent-applications-revisions-spec-update`     | Replace the whole `spec` at once (a large rewrite)                                                       | Easy — overwrites the spec                 |
+| `posthog__agent-applications-revisions-agent-md-update` | Overwrite `agent.md` (the system prompt)                                                                 | Easy — re-write                            |
+| `posthog__agent-applications-revisions-skills-update`   | Upsert one skill (body + companion files)                                                                | Easy — re-write                            |
+| `posthog__agent-applications-revisions-skills-destroy`  | Delete one skill                                                                                         | **Hard** — content gone unless you have it |
+| `posthog__agent-applications-revisions-tools-update`    | Upsert one custom tool (source + schema)                                                                 | Easy — re-write                            |
+| `posthog__agent-applications-revisions-tools-destroy`   | Delete one custom tool                                                                                   | **Hard** — content gone unless you have it |
 
-These are all native `@posthog/agent-applications-*` tools — there's
+These are all `posthog__agent-applications-*` MCP tools — there's
 no bulk bundle-replace verb, which is deliberate: edit the one thing
 that changed (`agent-md-update` / `skills-update` / `tools-update`)
 rather than rewriting the whole bundle.
 
+After any `spec` write, `posthog__agent-applications-revisions-retrieve` to
+confirm what actually persisted.
+
 When the edit changes `spec` (a trigger, tool, limit, model,
-`reasoning`), call `@posthog/agent-applications-spec-schema` for the
-exact shape of the field you're touching rather than hand-editing
-structure from memory — it's the same schema validate checks against.
+`reasoning`), don't hand-edit the structure from memory. There's no
+spec-schema tool, so get the shape right empirically: run
+`posthog__agent-applications-revisions-validate-create` on the draft
+and let its concrete errors point at the field you got wrong, and use
+`posthog__agent-native-tools-list` for the valid tool ids. Iterate on
+validate until it's clean rather than guessing the structure.
+
+If the edit changes how the agent authenticates to a service (identity
+provider, scopes, MCP auth.provider), load
+`skills/authenticating-as-the-user`.
 
 For each edit, surface to the user:
 
@@ -83,7 +94,7 @@ In PostHog Code, `focus_file` to each file as you touch it.
 
 ## Step 4 — validate
 
-`agent-applications-revisions-validate-create` against the draft.
+`posthog__agent-applications-revisions-validate-create` against the draft.
 Returns `{ ok, revision_id, revision_state, errors, resolved_natives }`.
 
 - **Errors block freeze.** Fix every one before proceeding.
@@ -91,19 +102,20 @@ Returns `{ ok, revision_id, revision_state, errors, resolved_natives }`.
 Common errors:
 
 - `unknown_native_tool` — you wrote `@posthog/queries` instead of
-  `@posthog/query`. Cross-check against `@posthog/agent-applications-native-tools-list`.
+  `@posthog/query`. Cross-check against `posthog__agent-native-tools-list`.
 - `unresolved_skill_path` — `spec.skills[].path` points at a file
   that isn't in the bundle. Either add the file or remove the spec
   entry.
 - `missing_secret` — `spec.secrets[]` lists a name without a
   corresponding env value. Load `skills/secrets-and-integrations`.
 - `invalid_spec` — Zod parse failed. The error message names the
-  field; if its shape is unclear, call
-  `@posthog/agent-applications-spec-schema` rather than guessing.
+  field and the expected shape; fix it from the validate error and
+  re-run `posthog__agent-applications-revisions-validate-create`
+  rather than guessing.
 
 ## Step 5 — freeze
 
-`agent-applications-revisions-freeze-create`. State flips
+`posthog__agent-applications-revisions-freeze-create`. State flips
 `draft → ready`, `bundle_sha256` is stamped, no more edits.
 
 **Confirm with the user before freezing** if any of these are
@@ -149,12 +161,12 @@ point. Frozen means frozen.
 Wait for the user's confirmation token. Don't paraphrase ("ok,
 ship it!") into a promote — be literal.
 
-Then call `agent-applications-revisions-promote-create`.
+Then call `posthog__agent-applications-revisions-promote-create`.
 
 ## Step 8 — observe
 
 After promoting, **watch the first real session(s)**. In
-PostHog Code, `focus_session` for `@posthog/agent-applications-sessions-list`
+PostHog Code, `focus_session` for `posthog__agent-applications-sessions-list`
 and tell the user you're watching for the next fire. If something
 looks wrong in the first 1-3 sessions, you have a quick rollback:
 
@@ -162,7 +174,7 @@ looks wrong in the first 1-3 sessions, you have a quick rollback:
 
 Promote the previous revision back to live:
 
-`agent-applications-revisions-promote-create` against the
+`posthog__agent-applications-revisions-promote-create` against the
 previously-live revision (which is now in `archived` state, but
 re-promotable).
 

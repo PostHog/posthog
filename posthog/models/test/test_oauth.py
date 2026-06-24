@@ -69,6 +69,52 @@ class TestOAuthModels(TestCase):
         app.refresh_from_db()
         self.assertEqual(app.scopes, ["insight:read", "llm_gateway:read"])
 
+    @parameterized.expand(
+        [
+            ("empty_scopes_broad", [], [], [], []),
+            ("explicit_no_optional_all_required", ["insight:read"], [], ["insight:read"], ["insight:read"]),
+            ("split", ["insight:read"], ["dashboard:read"], ["insight:read", "dashboard:read"], ["insight:read"]),
+            (
+                "overlap_deduped",
+                ["insight:read", "dashboard:write"],
+                ["dashboard:write", "experiment:read"],
+                ["insight:read", "dashboard:write", "experiment:read"],
+                ["insight:read", "dashboard:write"],
+            ),
+        ]
+    )
+    def test_ceiling_and_required_scope_properties(self, _name, scopes, optional, expected_ceiling, expected_required):
+        app = self._make_app(f"Split {_name}", f"split_{_name}_client", scopes=scopes, optional_scopes=optional)
+        self.assertEqual(app.ceiling_scopes, expected_ceiling)
+        self.assertEqual(app.required_scopes, expected_required)
+
+    @parameterized.expand(
+        [
+            ("optional_without_required", [], ["dashboard:read"], "optional_scopes"),
+            ("wildcard_in_required", ["*"], ["dashboard:read"], "scopes"),
+            ("identity_scope_in_required", ["openid", "insight:read"], ["dashboard:read"], "scopes"),
+            ("identity_scope_in_optional", ["insight:read"], ["openid"], "optional_scopes"),
+        ]
+    )
+    def test_scope_split_validation_rejects_invalid_configs(self, _name, scopes, optional, error_field):
+        with self.assertRaises(ValidationError) as ctx:
+            self._make_app(f"Invalid {_name}", f"invalid_{_name}_client", scopes=scopes, optional_scopes=optional)
+        self.assertIn(error_field, ctx.exception.message_dict)
+
+    def test_cimd_application_can_declare_optional_scopes(self):
+        # CIMD partners declare the required/optional split in their metadata; both fields are
+        # refreshed together, so the split is a first-class CIMD feature, not a forbidden one.
+        app = self._make_app(
+            "CIMD Split",
+            "cimd_split_client",
+            is_cimd_client=True,
+            cimd_metadata_url="https://example.com/oauth-client",
+            scopes=["insight:read"],
+            optional_scopes=["dashboard:read"],
+        )
+        self.assertEqual(app.required_scopes, ["insight:read"])
+        self.assertEqual(app.ceiling_scopes, ["insight:read", "dashboard:read"])
+
     def test_oauth_access_token_label_defaults_to_empty_string(self):
         app = self._make_app("Token Label Default", "token_label_default_client")
         token = OAuthAccessToken.objects.create(
