@@ -71,3 +71,13 @@ class TestPublicSourceConfigs(APIBaseTest):
         """SQL sources have user-defined schemas, so the catalog is empty (renders a generic note)."""
         response = self.client.get("/api/public_source_configs/")
         assert response.json()["Postgres"]["tables"] == []
+
+    def test_many_fixed_schema_sources_list_tables(self):
+        """Guard the opt-in mechanism: a large share of sources expose a static table catalog.
+
+        ~140 sources set `lists_tables_without_credentials`; if the mechanism regresses this
+        collapses toward zero. The loose threshold tolerates sources being added or removed.
+        """
+        response = self.client.get("/api/public_source_configs/")
+        with_tables = [name for name, config in response.json().items() if config["tables"]]
+        assert len(with_tables) >= 100, f"only {len(with_tables)} sources list tables"

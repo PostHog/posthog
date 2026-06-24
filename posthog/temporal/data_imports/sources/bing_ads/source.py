@@ -31,6 +31,8 @@ from .utils import BingAdsResumeConfig
 
 @SourceRegistry.register
 class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], OAuthMixin):
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.BINGADS

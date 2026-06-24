@@ -93,6 +93,8 @@ class RevenueCatSource(
     ResumableSource[RevenueCatSourceConfig, RevenueCatResumeConfig],
     WebhookSource[RevenueCatSourceConfig],
 ):
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.REVENUECAT
