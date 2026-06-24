@@ -115,7 +115,7 @@ class TestIdentityProviderConfigSync(BaseTest):
             config_field = IdentityProviderConfig._meta.get_field(field)
             assert domain_field.__class__ == config_field.__class__, field
             assert getattr(domain_field, "max_length", None) == getattr(config_field, "max_length", None), field
-            assert domain_field.db_column == field, field
+            assert getattr(domain_field, "db_column", None) == field, field
 
     def test_deleting_domain_keeps_config(self):
         domain = self._create_domain(id_jag_issuer_url="https://issuer.example.com")

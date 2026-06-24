@@ -13,6 +13,7 @@ from rest_framework.request import Request
 from rest_framework.viewsets import ModelViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.scoped_related_fields import OrgScopedPrimaryKeyRelatedField
 from posthog.api.utils import action
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
@@ -33,6 +34,12 @@ from ee.api.scim.utils import (
 from ee.models.scim_request_log import SCIMRequestLog
 
 DOMAIN_REGEX = r"^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
+
+
+class _OrgScopedIdentityProviderConfigField(OrgScopedPrimaryKeyRelatedField):
+    # IdentityProviderConfig has a direct `organization` FK (not via team), so scope on it
+    # directly. Scoping prevents linking a domain to (or probing) another org's config.
+    scope_field = "organization"
 
 
 def _capture_domain_event(request, domain: OrganizationDomain, event_type: str, properties: dict | None = None) -> None:
@@ -68,7 +75,7 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
 
     scim_base_url = serializers.SerializerMethodField()
     scim_bearer_token = serializers.SerializerMethodField()
-    identity_provider_config = serializers.PrimaryKeyRelatedField(
+    identity_provider_config = _OrgScopedIdentityProviderConfigField(
         queryset=IdentityProviderConfig.objects.all(),
         required=False,
         allow_null=True,
@@ -169,19 +176,6 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
         fields = super().get_fields()
         if self.instance is not None:
             fields["domain"].read_only = True
-        # Scope the linkable IdP configs to this organization so a domain can never be linked to
-        # (or probe the existence of) another organization's config. The org may be unresolvable
-        # outside a request (e.g. schema generation) — fall back to the unscoped queryset there.
-        if "identity_provider_config" in fields:
-            view = self.context.get("view")
-            try:
-                organization = view.organization if view is not None else None
-            except Exception:
-                organization = None
-            if organization is not None:
-                fields["identity_provider_config"].queryset = IdentityProviderConfig.objects.filter(
-                    organization=organization
-                )
         return fields
 
     def create(self, validated_data: dict[str, Any]) -> OrganizationDomain:
