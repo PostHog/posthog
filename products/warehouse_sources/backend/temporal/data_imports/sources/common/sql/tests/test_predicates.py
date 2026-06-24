@@ -117,8 +117,10 @@ class TestTypeVocabularyParity:
     """The classifier's type sets are duplicated in the frontend (rowFilterUtils.ts). Assert the
     two stay in sync so a column type can't be filterable on one side and not the other."""
 
+    # parents[9] is the repo root from this file's depth
+    # (products/warehouse_sources/backend/temporal/data_imports/sources/common/sql/tests/).
     _TS_PATH = (
-        Path(__file__).resolve().parents[7]
+        Path(__file__).resolve().parents[9]
         / "products/data_warehouse/frontend/scenes/SourceScene/tabs/rowFilterUtils.ts"
     )
 
