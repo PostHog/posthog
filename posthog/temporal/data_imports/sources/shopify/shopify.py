@@ -174,7 +174,13 @@ def _make_paginated_shopify_request(
     endpoint_config = ENDPOINT_CONFIGS.get(graphql_object.name)
 
     @retry(
-        retry=retry_if_exception_type(ShopifyRetryableError),
+        # Transient network failures (proxy/egress hiccups, connect/read timeouts) surface from
+        # `sess.post` as requests ConnectionError/Timeout — e.g. a 504 from the egress proxy tunnel.
+        # They're retryable like a 5xx, so reissue the request with backoff instead of failing the
+        # whole import. ConnectionError covers ProxyError; Timeout covers connect/read timeouts.
+        retry=retry_if_exception_type(
+            (ShopifyRetryableError, requests.exceptions.ConnectionError, requests.exceptions.Timeout)
+        ),
         stop=stop_after_attempt(5),
         wait=_shopify_retry_wait,
         reraise=True,
