@@ -18,6 +18,7 @@ import {
     AgentSession,
     AgentSpecSchema,
     buildTestBundleStore,
+    type CatalogModel,
     EMPTY_USAGE_TOTAL,
     INTERNAL_JWT_AUDIENCE,
     mintInternalJwt,
@@ -99,6 +100,77 @@ describe('janitor HTTP', () => {
         const { app } = mk()
         const res = await request(app).get('/healthz')
         expect(res.status).toBe(200)
+    })
+
+    it('GET /models returns per-Mtok pricing + levels resolved to canonical ids', async () => {
+        // haiku is dated-only with a dashed undated alias — the form the level
+        // list uses; resolution must map it to the catalog canonical.
+        const catalog: CatalogModel[] = [
+            {
+                canonical: 'anthropic/claude-haiku-4.5',
+                id: 'claude-haiku-4-5-20251001',
+                owned_by: 'anthropic',
+                context_window: 200_000,
+                aliases: ['claude-haiku-4-5'],
+                pricing: { prompt: 0.000001, completion: 0.000005, cache_read: 0.0000001 },
+            },
+            {
+                canonical: 'openai/gpt-5-mini',
+                id: 'gpt-5-mini',
+                owned_by: 'openai',
+                context_window: 400_000,
+                aliases: [],
+                pricing: { prompt: 0.00000025, completion: 0.000002 },
+            },
+            {
+                canonical: 'anthropic/claude-opus-4.7',
+                id: 'claude-opus-4-7',
+                owned_by: 'anthropic',
+                context_window: 1_000_000,
+                aliases: [],
+                pricing: { prompt: 0.000005, completion: 0.000025 },
+            },
+            {
+                canonical: 'openai/gpt-5-pro',
+                id: 'gpt-5-pro',
+                owned_by: 'openai',
+                context_window: 400_000,
+                aliases: [],
+                pricing: { prompt: 0.000015, completion: 0.00012 },
+            },
+        ]
+        const queue = new PgSessionQueue(pool)
+        const app = buildJanitorApp({
+            queue,
+            sweep: { queue, stuckRunningThresholdMs: 60_000 },
+            gatewayCatalog: { list: async () => catalog },
+        })
+
+        const res = await request(app).get('/models')
+        expect(res.status).toBe(200)
+        const haiku = (res.body.models as Array<Record<string, unknown>>).find(
+            (m) => m.model === 'anthropic/claude-haiku-4.5'
+        )
+        // Per-token USD → per-Mtok; cache omitted when the model has none.
+        expect(haiku).toMatchObject({
+            provider: 'anthropic',
+            context_window: 200_000,
+            input: 1,
+            output: 5,
+            cache_read: 0.1,
+        })
+        expect(haiku).not.toHaveProperty('cache_write')
+        // Levels resolve the dashed-alias level entries to catalog canonicals.
+        expect(res.body.levels.low).toEqual(['anthropic/claude-haiku-4.5', 'openai/gpt-5-mini'])
+        expect(res.body.levels.high).toEqual(['anthropic/claude-opus-4.7', 'openai/gpt-5-pro'])
+    })
+
+    it('GET /models fails open with an empty catalog when no gateway is wired', async () => {
+        const { app } = mk()
+        const res = await request(app).get('/models')
+        expect(res.status).toBe(200)
+        expect(res.body.models).toEqual([])
+        expect(Object.keys(res.body.levels)).toEqual(['low', 'medium', 'high'])
     })
 
     it('GET /sessions?application_id= returns summaries, newest first', async () => {
