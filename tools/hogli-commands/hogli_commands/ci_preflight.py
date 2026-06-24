@@ -44,8 +44,9 @@ Requirement = Literal["node", "stack"]
 
 
 @dataclass
-class Check:
-    """One CI failure class, the diff that can trigger it, and how to catch it locally."""
+class DiffCheck:
+    """A CI failure class triggered by file globs in the diff, and how to catch it locally.
+    The always-on branch-freshness check is a different shape — see ``_staleness``."""
 
     key: str
     label: str  # the CI failure class this intercepts
@@ -60,8 +61,8 @@ class Check:
 # Ordered cheapest-first. Grounded in failure classes seen in `hogli ci:insights`:
 # broken lockfile blocking all CI, OpenAPI drift, formatting/lint, flag sort,
 # workflow-convention failures, migration conflicts.
-CHECKS: list[Check] = [
-    Check(
+DIFF_CHECKS: list[DiffCheck] = [
+    DiffCheck(
         key="lockfile",
         label="broken pnpm-lock.yaml (blocks ALL CI)",
         triggers=["package.json", "*/package.json", "pnpm-lock.yaml"],
@@ -69,7 +70,7 @@ CHECKS: list[Check] = [
         fix=["pnpm", "install", "--no-frozen-lockfile"],
         requires="node",
     ),
-    Check(
+    DiffCheck(
         key="ruff-lint",
         label="Python lint (ruff check)",
         triggers=["*.py"],
@@ -77,7 +78,7 @@ CHECKS: list[Check] = [
         fix=["ruff", "check", "--fix"],
         takes_files=True,
     ),
-    Check(
+    DiffCheck(
         key="ruff-format",
         label="Python format (ruff format)",
         triggers=["*.py"],
@@ -85,20 +86,20 @@ CHECKS: list[Check] = [
         fix=["ruff", "format"],
         takes_files=True,
     ),
-    Check(
+    DiffCheck(
         key="feature-flags",
         label="FEATURE_FLAGS not alphabetically sorted",
         triggers=["frontend/src/lib/constants.tsx"],
         verify=["hogli", "lint:feature-flags"],
         fix=["hogli", "lint:feature-flags:fix"],
     ),
-    Check(
+    DiffCheck(
         key="workflow-lint",
         label="workflow-convention failure in .github/workflows",
         triggers=[".github/workflows/*.yml", ".github/workflows/*.yaml"],
         verify=["hogli", "lint:workflows"],
     ),
-    Check(
+    DiffCheck(
         key="openapi",
         label="OpenAPI types out of date (frontend/MCP drift)",
         # From build.py so preflight and build:openapi can't drift on which diffs need a regen.
@@ -108,7 +109,7 @@ CHECKS: list[Check] = [
         fix=["hogli", "build:openapi"],
         requires="stack",
     ),
-    Check(
+    DiffCheck(
         key="migrations",
         label="migration conflict / orphaned migration",
         triggers=["*/migrations/*.py"],
@@ -168,7 +169,7 @@ def _capability_met(req: Requirement | None) -> bool:
 Status = Literal["pass", "fail", "advisory", "skipped"]
 
 
-def _run_check(chk: Check, do_fix: bool) -> tuple[Status, str]:
+def _run_diff_check(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
     if do_fix and chk.fix is not None:
         cmd = list(chk.fix)
     elif chk.verify is not None:
@@ -311,8 +312,8 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
     files = _changed(against)
     base = against or "branch base"
 
-    triggered: list[Check] = []
-    for chk in CHECKS:
+    triggered: list[DiffCheck] = []
+    for chk in DIFF_CHECKS:
         chk.matched = [f for f in files if any(fnmatch.fnmatch(f, t) for t in chk.triggers)]
         if chk.matched:
             triggered.append(chk)
@@ -332,7 +333,7 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
         click.echo(f"       {stale_detail}")
 
     for chk in triggered:
-        status, detail = _run_check(chk, do_fix)
+        status, detail = _run_diff_check(chk, do_fix)
         failures += status == "fail"
         results.append({"check": chk.key, "status": status, "files": len(chk.matched), "detail": detail})
         if not as_json:
