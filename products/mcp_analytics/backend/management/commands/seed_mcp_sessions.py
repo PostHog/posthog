@@ -5,15 +5,18 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandParser
 
+import psycopg
+
 from posthog.clickhouse.client import sync_execute
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.event.util import create_event
-from posthog.models.person import Person, PersonDistinctId
 from posthog.models.person.util import create_person, create_person_distinct_id, get_person_by_distinct_id
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
-from posthog.models.utils import uuid7
+from posthog.models.utils import UUIDT, uuid7
 from posthog.personhog_client.caller_tag import personhog_caller_tag
+from posthog.persons_db import persons_db_url
+from posthog.persons_seed import insert_seed_distinct_id, insert_seed_person, update_seed_person
 
 from products.mcp_analytics.backend.models import MCPSession
 
@@ -210,30 +213,41 @@ class Command(BaseCommand):
         # person-on-events join (Top users table) keeps them — without a real person the
         # inner join drops every row.
         person_cache: dict[str, tuple[str, dict[str, Any]]] = {}
+        # One persons-DB connection for the whole seed, opened lazily on the first write.
+        persons_conn: psycopg.Connection[Any] | None = None
 
         def ensure_person(
             distinct_id: str, properties: dict[str, Any], is_identified: bool
         ) -> tuple[str, dict[str, Any]]:
+            nonlocal persons_conn
             if distinct_id in person_cache:
                 return person_cache[distinct_id]
             with personhog_caller_tag("mcp-analytics/seed-sessions"):
                 existing_person = get_person_by_distinct_id(
                     team_id=team.id, distinct_id=distinct_id, distinct_id_limit=0
                 )
+            if persons_conn is None:
+                persons_conn = psycopg.connect(persons_db_url(writer=True), autocommit=True)
             if existing_person:
-                person = existing_person
+                person_uuid = str(existing_person.uuid)
                 if properties:
-                    person.properties = properties
-                    person.is_identified = is_identified
-                    person.save(update_fields=["properties", "is_identified"])
+                    update_seed_person(
+                        persons_conn,
+                        team_id=team.id,
+                        uuid=person_uuid,
+                        properties=properties,
+                        is_identified=is_identified,
+                    )
             else:
-                person = Person.objects.create(  # nosemgrep: no-direct-persons-db-orm
-                    team=team, properties=properties, is_identified=is_identified
+                person_uuid = str(UUIDT())
+                person_id = insert_seed_person(
+                    persons_conn,
+                    team_id=team.id,
+                    properties=properties,
+                    is_identified=is_identified,
+                    uuid=person_uuid,
                 )
-                PersonDistinctId.objects.create(  # nosemgrep: no-direct-persons-db-orm
-                    team=team, distinct_id=distinct_id, person=person
-                )
-            person_uuid = str(person.uuid)
+                insert_seed_distinct_id(persons_conn, team_id=team.id, person_id=person_id, distinct_id=distinct_id)
             create_person(
                 team_id=team.id,
                 uuid=person_uuid,
@@ -353,6 +367,9 @@ class Command(BaseCommand):
             self.stdout.write(
                 f"  session {session_idx + 1}/{session_count}: {calls} tool calls (session_id={session_id})"
             )
+
+        if persons_conn is not None:
+            persons_conn.close()
 
         self.stdout.write(
             self.style.SUCCESS(f"Seeded {session_count} sessions ({total_events} events) for team {team_id}.")

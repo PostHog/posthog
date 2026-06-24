@@ -5,6 +5,7 @@ from datetime import timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 from django.utils.text import slugify
@@ -15,7 +16,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX
 from posthog.models import Team, User
 from posthog.models.event.sql import BULK_INSERT_EVENT_SQL
-from posthog.models.person.person import Person, PersonDistinctId
+from posthog.persons_db import persons_db_connection
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_tours.backend.models import ProductTour
@@ -143,33 +144,27 @@ class Command(BaseCommand):
         tour.save(update_fields=["internal_targeting_flag"])
 
     def get_real_persons(self, team: Team, limit: int = 50) -> list[PersonData]:
-        """Fetch real persons from the database."""
-        persons_data: list[PersonData] = []
-
-        persons = (
-            Person.objects.filter(team_id=team.id)  # nosemgrep: no-direct-persons-db-orm
-            .prefetch_related("persondistinctid_set")
-            .order_by("-created_at")[:limit]
+        """Fetch the most recent persons (that have a distinct_id) from the persons database."""
+        query = (
+            "SELECT p.uuid, p.properties, p.created_at, pdi.distinct_id "  # nosemgrep: no-direct-persons-db-orm
+            f"FROM (SELECT id, uuid, properties, created_at FROM {settings.PERSON_TABLE_NAME} "
+            "WHERE team_id = %(team_id)s ORDER BY created_at DESC LIMIT %(limit)s) p "
+            "JOIN LATERAL (SELECT distinct_id FROM posthog_persondistinctid "
+            "WHERE team_id = %(team_id)s AND person_id = p.id LIMIT 1) pdi ON true"
         )
+        with persons_db_connection(writer=False) as conn, conn.cursor() as cursor:
+            cursor.execute(query, {"team_id": team.id, "limit": limit})
+            rows = cursor.fetchall()
 
-        for person in persons:
-            distinct_ids = PersonDistinctId.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-                person=person, team_id=team.id
-            ).values_list(  # nosemgrep: no-direct-persons-db-orm
-                "distinct_id", flat=True
+        return [
+            PersonData(
+                distinct_id=row[3],
+                person_uuid=str(row[0]),
+                properties=row[1] or {},
+                created_at=row[2],
             )
-
-            if distinct_ids:
-                persons_data.append(
-                    PersonData(
-                        distinct_id=distinct_ids[0],
-                        person_uuid=str(person.uuid),
-                        properties=person.properties or {},
-                        created_at=person.created_at,
-                    )
-                )
-
-        return persons_data
+            for row in rows
+        ]
 
     def add_arguments(self, parser):
         parser.add_argument("count", type=int, help="Number of product tours to generate")
