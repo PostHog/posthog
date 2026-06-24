@@ -57,6 +57,7 @@ jobs:
 
             - name: Start Docker services
               env:
+                  DOCKER_REGISTRY_PREFIX: 'docker.io/'
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
               run: bin/ci-wait-for-docker launch
 
