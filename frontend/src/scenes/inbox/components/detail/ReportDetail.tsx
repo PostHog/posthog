@@ -1,13 +1,21 @@
 import { useValues } from 'kea'
 import { ReactNode } from 'react'
 
-import { IconArrowLeft, IconCode, IconDocument, IconExternal, IconPullRequest, IconSearch } from '@posthog/icons'
+import {
+    IconArrowLeft,
+    IconCode,
+    IconDocument,
+    IconEllipsis,
+    IconExternal,
+    IconPullRequest,
+    IconSearch,
+} from '@posthog/icons'
 import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconLink } from 'lib/lemon-ui/icons'
-import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { SignalNode } from 'scenes/debug/signals/types'
@@ -30,7 +38,7 @@ import { hasKnownSourceProduct, knownSourceProductEntries, SourceProductIconRow 
 import { ConventionalCommitScopeTag } from '../cards/ReportCard'
 import { RightColumnSection } from './DetailSection'
 import { ReportActivitySection } from './ReportActivitySection'
-import { ReportDetailActions } from './ReportDetailActions'
+import { ReportDetailAction, useReportDetailActions } from './ReportDetailActions'
 import { ReportTasksSection } from './ReportTasksSection'
 import { SuggestedReviewersSection } from './SuggestedReviewersSection'
 
@@ -239,26 +247,26 @@ export function InboxDetailFrame({
     const displayTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
     const reportPath = urls.inboxReport(tab, report.id)
 
-    // Secondary actions (copy link, feedback, archive/restore, create PR) always live behind the
-    // "…" overflow menu, matching the standard `More` pattern used across scenes; the primary
-    // action stays inline next to it.
-    const secondaryActions = (
-        <>
-            <LemonButton
-                type="secondary"
-                size="small"
-                fullWidth
-                icon={<IconLink />}
-                tooltip="Copy a link to this report"
-                onClick={() =>
-                    void copyToClipboard(`${window.location.origin}${addProjectIdIfMissing(reportPath)}`, 'report link')
-                }
-            >
-                Copy link
-            </LemonButton>
-            <ReportDetailActions report={report} fullWidth />
-        </>
-    )
+    // Secondary actions as data so the same set renders inline as buttons on wide layouts and as a
+    // standard `LemonMenu` on narrow ones; the primary action stays inline either way.
+    const detailActions = useReportDetailActions(report)
+    const reportActions: ReportDetailAction[] = [
+        {
+            key: 'copy-link',
+            label: 'Copy link',
+            icon: <IconLink />,
+            tooltip: 'Copy a link to this report',
+            onClick: () =>
+                void copyToClipboard(`${window.location.origin}${addProjectIdIfMissing(reportPath)}`, 'report link'),
+        },
+        ...detailActions,
+    ]
+    const overflowMenuItems: LemonMenuItem[] = reportActions.map((action) => ({
+        label: action.label,
+        icon: action.icon,
+        disabledReason: action.loading ? 'Working…' : undefined,
+        onClick: action.onClick,
+    }))
 
     return (
         <div className="@container w-full max-w-[calc(160ch+5rem)] mx-auto px-6 py-5 text-sm">
@@ -302,7 +310,31 @@ export function InboxDetailFrame({
                     </div>
                     <div className="flex items-center gap-2 @2xl:shrink-0">
                         {primaryAction}
-                        <More overlay={secondaryActions} placement="bottom-end" />
+                        {/* Buttons inline on wide layouts; collapse into a standard LemonMenu kebab below @4xl. */}
+                        <div className="hidden @4xl:flex items-center gap-2">
+                            {reportActions.map((action) => (
+                                <LemonButton
+                                    key={action.key}
+                                    type="secondary"
+                                    size="small"
+                                    icon={action.icon}
+                                    loading={action.loading}
+                                    tooltip={action.tooltip}
+                                    onClick={action.onClick}
+                                >
+                                    {action.label}
+                                </LemonButton>
+                            ))}
+                        </div>
+                        <LemonMenu items={overflowMenuItems} placement="bottom-end">
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconEllipsis />}
+                                aria-label="More actions"
+                                className="@4xl:hidden"
+                            />
+                        </LemonMenu>
                     </div>
                 </div>
             </div>
