@@ -189,7 +189,7 @@ export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.E
                     <LemonDivider />
 
                     <TaskRunLogState
-                        taskId={task?.id}
+                        taskId={taskId}
                         selectedRun={selectedRun}
                         selectedRunId={selectedRunId}
                         runsLength={runs.length}
