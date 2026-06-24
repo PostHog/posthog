@@ -11,6 +11,7 @@ from asgiref.sync import async_to_sync
 from dateutil import parser as dateutil_parser
 from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib3.util.retry import Retry
 
 from posthog.models.integration import GitHubRateLimitError, raise_if_github_rate_limited
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
@@ -323,6 +324,13 @@ GITHUB_MAX_RETRY_AFTER_SECONDS = 300.0
 # us no reset to honor.
 _github_backoff_wait = wait_exponential_jitter(initial=1, max=30)
 
+# Disable the tracked session's default adapter retries on this path. That policy
+# retries 429/5xx and honors Retry-After *uncapped*, underneath _fetch_page — which
+# would defeat the 300s cap below and stack a second, untested retry layer. With
+# adapter retries off, _fetch_page sees every response/exception and our tenacity
+# layer is the single, rate-limit-aware retry authority.
+_NO_ADAPTER_RETRY = Retry(total=0)
+
 
 def _github_retry_wait(state: RetryCallState) -> float:
     """Sleep until GitHub's advertised rate-limit reset when it gave us one
@@ -345,7 +353,7 @@ def _github_retry_wait(state: RetryCallState) -> float:
     reraise=True,
 )
 def _fetch_page(page_url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> requests.Response:
-    response = make_tracked_session().get(page_url, headers=headers, timeout=60)
+    response = make_tracked_session(retry=_NO_ADAPTER_RETRY).get(page_url, headers=headers, timeout=60)
 
     # Transient server errors: retry with plain exponential backoff.
     if response.status_code >= 500:

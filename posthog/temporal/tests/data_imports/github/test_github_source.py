@@ -1652,3 +1652,16 @@ class TestFetchPageRateLimit:
                 _fetch_page("https://api.github.com/x", {}, mock.Mock())
 
         assert mock_get.return_value.get.call_count == 1
+
+    def test_disables_adapter_retries_so_cap_is_authoritative(self) -> None:
+        # The tracked session's default adapter retries 429/5xx and honors Retry-After
+        # uncapped, underneath us — which would defeat the 300s cap. _fetch_page must
+        # request a no-retry adapter so our tenacity layer owns the backoff.
+        ok = _make_response(status=200, body=[{"id": 1}])
+
+        with mock.patch("posthog.temporal.data_imports.sources.github.github.make_tracked_session") as mock_get:
+            mock_get.return_value.get.return_value = ok
+            _fetch_page("https://api.github.com/x", {}, mock.Mock())
+
+        retry = mock_get.call_args.kwargs["retry"]
+        assert retry.total == 0
