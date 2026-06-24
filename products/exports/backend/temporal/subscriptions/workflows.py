@@ -98,7 +98,7 @@ def _build_outcome_assets(
 
 async def _emit_subscription_delivered(
     inputs: TrackedSubscriptionInputs,
-    final_status: DeliveryStatus,
+    final_status: str,
     delivery_id: uuid.UUID | None,
     recipient_count: int,
     successful_asset_ids: list[int],
