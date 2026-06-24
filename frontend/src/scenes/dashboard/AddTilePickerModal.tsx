@@ -248,7 +248,7 @@ export function AddTilePickerModal(): JSX.Element | null {
             description="Pick what you'd like to add."
             width={720}
         >
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-8 sm:grid-cols-2">
                 {options.map((option) => (
                     <button
                         key={option.type}
