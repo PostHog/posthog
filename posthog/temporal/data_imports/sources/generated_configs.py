@@ -1243,7 +1243,8 @@ class GainsightPxSourceConfig(config.Config):
 
 @config.config
 class GiphySourceConfig(config.Config):
-    pass
+    api_key: str
+    search_query: str | None = None
 
 
 @config.config

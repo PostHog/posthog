@@ -108,6 +108,7 @@ the row lists both.
 | front             | HTTP                        | requests                                                        | ✅                          |
 | fullstory         | HTTP                        | requests                                                        | ✅                          |
 | github            | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
+| giphy             | HTTP                        | requests                                                        | ✅                          |
 | gitlab            | HTTP                        | requests                                                        | ✅                          |
 | gladly            | HTTP                        | requests                                                        | ✅                          |
 | gocardless        | HTTP                        | requests                                                        | ✅                          |
@@ -410,7 +411,6 @@ doesn't conflict with concurrent PRs.
 - freshservice
 - fulcrum
 - gainsight_px
-- giphy
 - gitbook
 - glassfrog
 - gmail
