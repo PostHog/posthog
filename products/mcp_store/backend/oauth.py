@@ -340,15 +340,8 @@ class TokenRefreshError(Exception):
     pass
 
 
-def _shared_credential_auth_method(credentials: dict, client_secret: str | None) -> str:
-    method = credentials.get("token_endpoint_auth_method")
-    if isinstance(method, str) and method in SUPPORTED_TOKEN_ENDPOINT_AUTH_METHODS:
-        return method
-    return "client_secret_post" if client_secret else "none"
-
-
-def _dcr_credential_auth_method(sensitive: dict, client_secret: str | None) -> str:
-    method = sensitive.get("dcr_token_endpoint_auth_method")
+def _credential_auth_method(credentials: dict, auth_method_key: str, client_secret: str | None) -> str:
+    method = credentials.get(auth_method_key)
     if isinstance(method, str) and method in SUPPORTED_TOKEN_ENDPOINT_AUTH_METHODS:
         return method
     return "client_secret_post" if client_secret else "none"
@@ -377,7 +370,7 @@ def resolve_installation_oauth_context(installation: MCPServerInstallation) -> t
             if not metadata:
                 raise ValueError("Template missing OAuth metadata")
             client_secret = credentials.get("client_secret") or None
-            auth_method = _shared_credential_auth_method(credentials, client_secret)
+            auth_method = _credential_auth_method(credentials, "token_endpoint_auth_method", client_secret)
             return metadata, shared_client_id, client_secret, auth_method
         # DCR template: each installation ran discovery + DCR at install
         # time. Both the metadata and the minted client live on the
@@ -388,7 +381,7 @@ def resolve_installation_oauth_context(installation: MCPServerInstallation) -> t
         client_secret = sensitive.get("dcr_client_secret") or None
         if not metadata or not client_id:
             raise ValueError("DCR template installation missing OAuth metadata or dcr_client_id")
-        auth_method = _dcr_credential_auth_method(sensitive, client_secret)
+        auth_method = _credential_auth_method(sensitive, "dcr_token_endpoint_auth_method", client_secret)
         return metadata, client_id, client_secret, auth_method
 
     metadata = dict(installation.oauth_metadata or {})
@@ -396,7 +389,7 @@ def resolve_installation_oauth_context(installation: MCPServerInstallation) -> t
     client_secret = sensitive.get("dcr_client_secret") or None
     if not metadata or not client_id:
         raise ValueError("Installation missing OAuth metadata or client_id")
-    auth_method = _dcr_credential_auth_method(sensitive, client_secret)
+    auth_method = _credential_auth_method(sensitive, "dcr_token_endpoint_auth_method", client_secret)
     return metadata, client_id, client_secret, auth_method
 
 
