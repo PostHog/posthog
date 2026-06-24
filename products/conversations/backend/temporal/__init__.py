@@ -8,6 +8,7 @@ from products.conversations.backend.temporal.pipeline import (
     support_classify_activity,
     support_draft_activity,
     support_persist_reply_activity,
+    support_record_triage_activity,
     support_refine_queries_activity,
     support_retrieve_activity,
     support_review_reply_activity,
@@ -30,5 +31,6 @@ ACTIVITIES = [
     support_validate_activity,
     support_review_reply_activity,
     support_persist_reply_activity,
+    support_record_triage_activity,
     support_collect_eligible_tickets_activity,
 ]

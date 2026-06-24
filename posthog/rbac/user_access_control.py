@@ -1009,8 +1009,8 @@ class UserAccessControl:
         "none"), built from the single preload via the canonical object resolver.
 
         Consumed by HogQL object-level access control (schema filtering / printer guard) and by
-        the query cache fingerprint. Empty for org admins (they bypass object AC) and when there
-        is no team / EE. FF-agnostic: callers decide whether to enforce it.
+        the query cache fingerprint. Empty for org admins (they bypass object AC) and when there is
+        no team / EE / entitlement.
         """
         if not EE_AVAILABLE or not self._team or self.is_organization_admin:
             return {}

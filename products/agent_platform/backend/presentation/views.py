@@ -1068,6 +1068,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 agent_user_id=request.query_params.get("agent_user_id") or None,
                 created_after=request.query_params.get("created_after") or None,
                 created_before=request.query_params.get("created_before") or None,
+                search=request.query_params.get("search") or None,
             )
         except JanitorClientError as e:
             raise JanitorUpstreamError(e) from e

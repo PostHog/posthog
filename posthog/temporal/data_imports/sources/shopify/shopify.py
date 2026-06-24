@@ -6,6 +6,7 @@ from collections.abc import Iterator
 from typing import Any
 
 import requests
+from requests.exceptions import ChunkedEncodingError
 from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
@@ -179,7 +180,12 @@ def _make_paginated_shopify_request(
         reraise=True,
     )
     def execute(vars: dict[str, Any]):
-        response = sess.post(url, json={"query": graphql_object.query, "variables": vars})
+        # `post` reads the body eagerly (stream=False), so a connection dropped mid-stream
+        # surfaces here as ChunkedEncodingError. It's transient — retry it like a 5xx below.
+        try:
+            response = sess.post(url, json={"query": graphql_object.query, "variables": vars})
+        except ChunkedEncodingError as e:
+            raise ShopifyRetryableError(f"Shopify: connection broken while reading response: {e}") from e
         if response.status_code >= 500:
             raise ShopifyRetryableError(
                 f"Shopify: internal error from request {response.status_code} {response.reason}"

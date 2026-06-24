@@ -239,6 +239,21 @@ def _is_connection_dropped_error(error: BaseException) -> bool:
     return False
 
 
+def _is_dropped_or_connect_timeout(error: BaseException) -> bool:
+    """Transient connect-path failures the import/read reconnect recovers from in process.
+
+    Either a mid-stream drop (`_is_connection_dropped_error`) or a connect-time timeout. psycopg
+    raises `ConnectionTimeout` ("connection timeout expired") only while *establishing* a connection,
+    never mid-query, so on the import/read path it's transient: the source was reachable moments
+    earlier in the same sync, and the reconnect just needs retrying. Used by the read/sync connect
+    retry (`_connect_with_dropped_retry`) and the `offset_chunking` reconnect. The user-facing
+    validation path (`get_schemas`, via `_retry_on_connection_dropped` directly) deliberately keeps
+    failing fast on the same timeout, where it usually means an unreachable host / unconfigured
+    firewall (see `PostgresErrors` and `get_non_retryable_errors`).
+    """
+    return _is_connection_dropped_error(error) or isinstance(error, psycopg.errors.ConnectionTimeout)
+
+
 def _raise_if_setup_connection_broken(connection: psycopg.Connection) -> None:
     """Surface a connection dropped during metadata discovery as a retryable error.
 
@@ -267,23 +282,26 @@ def _retry_on_connection_dropped(
     logger: FilteringBoundLogger,
     *,
     max_attempts: int = 5,
+    is_retryable: Callable[[BaseException], bool] = _is_connection_dropped_error,
 ) -> _T:
-    """Run `operation`, retrying transient connection-dropped errors with bounded backoff.
+    """Run `operation`, retrying transient connection errors with bounded backoff.
 
-    Permanent errors (auth failures, SSL-required) are re-raised immediately because
-    `_is_connection_dropped_error` only matches transient drops.
+    `is_retryable` decides which errors are transient; it defaults to `_is_connection_dropped_error`
+    (mid-stream drops only). The read/sync connect path widens it to also retry connect-time timeouts
+    (see `_connect_with_dropped_retry`). Permanent errors (auth failures, SSL-required) are re-raised
+    immediately because neither predicate matches them.
     """
     attempt = 0
     while True:
         try:
             return operation()
         except _CONNECTION_DROPPED_ERROR_TYPES as e:
-            if not _is_connection_dropped_error(e):
+            if not is_retryable(e):
                 raise
             attempt += 1
             if attempt >= max_attempts:
                 raise
-            logger.debug(f"Connection dropped ({e}). Retrying (attempt {attempt}/{max_attempts})")
+            logger.debug(f"Transient connection error ({e}). Retrying (attempt {attempt}/{max_attempts})")
             time.sleep(min(2 * attempt, 30))
 
 
@@ -298,12 +316,14 @@ def _connect_with_dropped_retry(
     The streaming recovery path (offset chunking) is reached precisely because the
     source just dropped our connection (idle cull, failover, mid-stream SSL EOF), so
     the very reconnect that bootstraps the recovery can itself hit a still-recovering
-    source and fail with another connection-dropped error. Without this, that
-    transient failure escapes the recovery loop and fails the whole sync. Retry with
-    bounded backoff; permanent errors (auth failures, SSL-required) are re-raised
-    immediately because `_is_connection_dropped_error` only matches transient drops.
+    source and fail with another connection-dropped error — or time out establishing the
+    socket. Without this, that transient failure escapes the recovery loop and fails the
+    whole sync. Retry both transient classes with bounded backoff; permanent errors (auth
+    failures, SSL-required) are re-raised immediately because neither predicate matches them.
     """
-    return _retry_on_connection_dropped(connect, logger, max_attempts=max_attempts)
+    return _retry_on_connection_dropped(
+        connect, logger, max_attempts=max_attempts, is_retryable=_is_dropped_or_connect_timeout
+    )
 
 
 def _next_recovery_conflict_chunk_size(chunk_size: int, successive_errors: int) -> int:
@@ -2149,6 +2169,23 @@ def _get_table(
     column already exists and the probed value is discarded, so the caller should gate
     probing on "is a fresh schema being created" (see the equivalent gating on
     `_get_estimated_row_count_for_partitioned_table` in `postgres_source`)."""
+    # Raise a generous statement_timeout for the whole discovery phase before issuing any query.
+    # The outer 10-minute setup timeout isn't set until `postgres_source` continues after
+    # `_get_table` returns, so without this every probe here — the `pg_matviews`/`pg_views` lookups,
+    # the metadata SELECT (whose `information_schema.columns` `numeric_*` columns invoke the slow
+    # per-column `_pg_numeric_*` functions), and even the `BEGIN` opening a scoping transaction —
+    # inherits a short role/server default that some hosted/pooled Postgres set, which cancels the
+    # statement with QueryCanceled mid-discovery. Session, not LOCAL: the connection is autocommit,
+    # so a LOCAL timeout has nothing to bind to and a scoping transaction's own `BEGIN` would itself
+    # run under the short default. Best-effort: engines without statement_timeout (e.g. DuckDB)
+    # reject the SET, so clear any aborted transaction and fall back to the default.
+    try:
+        cursor.execute(
+            sql.SQL("SET statement_timeout = {timeout}").format(timeout=sql.Literal(METADATA_STATEMENT_TIMEOUT_MS))
+        )
+    except psycopg.Error:
+        cursor.connection.rollback()
+
     is_mat_view_query = sql.SQL(
         "select {table} in (select matviewname from pg_matviews where schemaname = {schema}) as res"
     ).format(schema=sql.Literal(schema), table=sql.Literal(table_name))
@@ -2209,23 +2246,8 @@ def _get_table(
 
     _explain_query(cursor, query, logger)
     logger.debug(f"Running query: {query.as_string()}")
-    # Scope a generous statement_timeout to the schema-discovery query. On regular tables it reads
-    # `information_schema.columns`, whose `numeric_precision`/`numeric_scale` columns invoke the
-    # per-column `_pg_numeric_*` SQL functions — slow enough on large catalogs that a short
-    # role/server default `statement_timeout` (some hosted/pooled Postgres set one) cancels the
-    # query with QueryCanceled before discovery finishes. The outer 10-minute setup timeout isn't
-    # set until `postgres_source` continues after `_get_table` returns, so without this the query
-    # inherits that short default. Own transaction so the `SET LOCAL` scopes to this query and
-    # auto-resets (the connection is autocommit, so this is a self-contained BEGIN/COMMIT) without
-    # leaking onto the numeric probe below, which deliberately bounds itself tighter.
-    with cursor.connection.transaction():
-        cursor.execute(
-            sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
-                timeout=sql.Literal(METADATA_STATEMENT_TIMEOUT_MS)
-            )
-        )
-        cursor.execute(query)
-        metadata_rows = cursor.fetchall()
+    cursor.execute(query)
+    metadata_rows = cursor.fetchall()
 
     numeric_data_types = {"numeric", "decimal"}
 
@@ -2258,10 +2280,9 @@ def _get_table(
             # aggregation and auto-resets (a self-contained BEGIN/COMMIT under autocommit).
             with cursor.connection.transaction():
                 # Scope a short statement_timeout to the probe so a pathologically large table
-                # or slow aggregation can't hang schema discovery. The outer 10-minute
-                # statement_timeout isn't set until `postgres_source` continues after
-                # `_get_table` returns, so without this the probe inherits whatever role-level
-                # default postgres has — which might be "no limit" on some hosted instances.
+                # or slow aggregation can't hang schema discovery. Without this the probe would
+                # inherit the generous discovery-phase timeout set at the top of `_get_table`,
+                # which is deliberately too loose for a full-table aggregation.
                 cursor.execute(
                     sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
                         timeout=sql.Literal(30 * 1000)  # 30 seconds
@@ -2920,21 +2941,22 @@ def postgres_source(
                             ) from e
                         raise
                     except _CONNECTION_DROPPED_ERROR_TYPES as e:
-                        if not _is_connection_dropped_error(e):
+                        if not _is_dropped_or_connect_timeout(e):
                             _safe_close_connection(connection)
                             raise
 
-                        # The upstream connection died (idle cull, failover, etc.).
-                        # offset only advances after a fully fetched+yielded chunk,
+                        # The upstream connection died (idle cull, failover, etc.) or the
+                        # reconnect that bootstraps this fallback timed out establishing the
+                        # socket. offset only advances after a fully fetched+yielded chunk,
                         # so reopening and retrying the same offset resumes cleanly.
                         successive_conn_errors += 1
                         _safe_close_connection(connection)
                         if successive_conn_errors >= 10:
                             raise Exception(
-                                f"Hit {successive_conn_errors} successive connection-dropped errors. Aborting."
+                                f"Hit {successive_conn_errors} successive connection errors. Aborting."
                             ) from e
                         logger.debug(
-                            f"Connection dropped ({e}). Reconnecting and retrying chunk at offset {offset} "
+                            f"Transient connection error ({e}). Reconnecting and retrying chunk at offset {offset} "
                             f"(attempt {successive_conn_errors})"
                         )
                         time.sleep(min(2 * successive_conn_errors, 30))

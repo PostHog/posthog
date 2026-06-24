@@ -610,6 +610,15 @@ function buildSessionFilter(
         params.push(opts.createdBefore)
         where.push(`created_at <= $${params.length}`)
     }
+    if (opts.search?.trim()) {
+        // id + external_key only — transcript search would scan/detoast every
+        // session's JSONB; it lands on a persisted, indexed column instead.
+        // LIKE wildcards escaped so the term matches literally.
+        const term = `%${opts.search.trim().replace(/[\\%_]/g, '\\$&')}%`
+        params.push(term)
+        const idx = params.length
+        where.push(`(id::text ILIKE $${idx} OR external_key ILIKE $${idx})`)
+    }
     return { where, params }
 }
 
