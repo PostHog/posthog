@@ -45,9 +45,16 @@ const getFirstHeaderValue = (value: string | string[] | undefined): string | und
     return Array.isArray(value) ? value[0] : value
 }
 
+// Bound the salt fetch so a slow (not down) Redis degrades to an empty salt instead of hanging the
+// synchronous webhook response. A Redis GET is normally single-digit ms; this is generous headroom.
+const SALT_FETCH_TIMEOUT_MS = 250
+
+type SaltFallbackReason = 'redis_error' | 'timeout' | 'date_out_of_range'
+
 const sourceWebhookSaltFallbackCounter = new Counter({
     name: 'cdp_source_webhook_salt_fallback',
-    help: 'Number of source-webhook invocations that fell back to an empty daily salt (Redis unavailable or date out of range)',
+    help: 'Source-webhook invocations that fell back to an empty daily salt, by reason',
+    labelNames: ['reason'],
 })
 
 export type HogFunctionWebhookResult = {
@@ -109,21 +116,37 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
 
     /**
      * Per-team daily-rotating salt to inject as the `salt` global before running source-webhook Hog.
-     * Forward-derivable, irreversible (built on the discarded cookieless daily salt). Never throws —
-     * a salt lookup must not fail the webhook, so on any error we fall back to an empty salt.
+     * Forward-derivable, irreversible (built on a random daily salt that's discarded after its TTL).
+     * Never throws and never hangs the request — on error, timeout, or invalid date it falls back to an
+     * empty salt (a metered, weaker-privacy degradation). A consuming template must always also mix a
+     * high-entropy per-client component (IP/host/UA) so an empty-salt window can't collapse identities.
      */
     private async getTeamDailySalt(teamId: number): Promise<string> {
         // UTC calendar day — matches the Vercel template's `day` (formatDateTime(now(), '%Y-%m-%d')).
         const yyyymmdd = new Date(Date.now()).toISOString().slice(0, 10)
+        let reason: SaltFallbackReason = 'redis_error'
         try {
-            const saltResult = await this.dailySaltProvider.getSaltForDay(yyyymmdd, Date.now())
-            if (saltResult.success) {
-                return deriveTeamDailySalt(saltResult.salt, teamId, yyyymmdd)
+            const saltPromise = this.dailySaltProvider.getSaltForDay(yyyymmdd)
+            // Swallow a late rejection if the timeout wins the race (avoids an unhandled rejection).
+            saltPromise.catch(() => {})
+            const raced = await Promise.race([
+                saltPromise.then((result) => ({ timedOut: false as const, result })),
+                new Promise<{ timedOut: true }>((resolve) => {
+                    setTimeout(() => resolve({ timedOut: true }), SALT_FETCH_TIMEOUT_MS).unref()
+                }),
+            ])
+            if (raced.timedOut) {
+                reason = 'timeout'
+            } else if (raced.result.success) {
+                return deriveTeamDailySalt(raced.result.salt, teamId, yyyymmdd)
+            } else {
+                reason = raced.result.reason
             }
         } catch (error) {
+            reason = 'redis_error'
             logger.warn('Failed to fetch daily rotating salt for source webhook', { teamId, error })
         }
-        sourceWebhookSaltFallbackCounter.inc()
+        sourceWebhookSaltFallbackCounter.labels({ reason }).inc()
         return ''
     }
 
@@ -372,6 +395,8 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
 
         try {
             const globals: HogFunctionInvocationGlobals = this.buildRequestGlobals(hogFunction, req)
+            // Only source-webhook function templates can consume `salt`; hog flows (executeHogFlow) run
+            // workflow logic, not these templates, so they intentionally don't pay for the salt lookup.
             globals.salt = await this.getTeamDailySalt(hogFunction.team_id)
             const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
             const invocation = createInvocation(globalsWithInputs, hogFunction)

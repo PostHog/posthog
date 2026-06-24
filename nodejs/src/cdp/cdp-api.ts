@@ -131,22 +131,16 @@ export class CdpApi {
         })
         this.hogQueue = jobQueues.hogQueue
         this.hogflowQueue = jobQueues.hogflowQueue
-        // Source webhooks derive a per-team daily-rotating salt from the shared cookieless salt store —
-        // same Redis instance ingestion writes to, so both read the same salt for a given day.
+        // Source webhooks derive a per-team daily-rotating salt for Hog distinct_ids. It manages its own
+        // salt under its own key — it does NOT read cookieless's salt; it just reuses the cookieless Redis
+        // endpoint + TTL config (a short-TTL store is exactly what this needs). Lazy pool (min 0): the salt
+        // is fetched ~once per process per day (then cached), so no warm connection and no eager connect.
         this.cookielessRedisPool = createRedisPoolFromConfig({
             connection: createCookielessRedisConnectionConfig(config),
-            // Lazy (min 0): the salt is fetched at most once per process per day (then cached in the
-            // provider), so we don't keep a warm connection — and we don't open one until a webhook needs it.
             poolMinSize: 0,
             poolMaxSize: config.REDIS_POOL_MAX_SIZE,
         })
-        this.dailySaltProvider = new DailySaltProvider(
-            {
-                saltTtlSeconds: config.COOKIELESS_SALT_TTL_SECONDS,
-                deleteExpiredLocalSaltsIntervalMs: config.COOKIELESS_DELETE_EXPIRED_LOCAL_SALTS_INTERVAL_MS,
-            },
-            this.cookielessRedisPool
-        )
+        this.dailySaltProvider = new DailySaltProvider(config.COOKIELESS_SALT_TTL_SECONDS, this.cookielessRedisPool)
         this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(config, deps, jobQueues, this.dailySaltProvider)
         this.emailTrackingService = new EmailTrackingService(
             this.hogFunctionManager,
@@ -197,7 +191,6 @@ export class CdpApi {
 
     async stop(): Promise<void> {
         // CdpSourceWebhooksConsumer.stop() calls stopProducer on both queues
-        this.dailySaltProvider.shutdown()
         await Promise.all([
             this.cdpSourceWebhooksConsumer.stop(),
             this.batchExportHogFunctionService.stop(),
