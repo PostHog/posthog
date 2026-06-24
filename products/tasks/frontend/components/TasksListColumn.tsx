@@ -75,7 +75,11 @@ export function TasksListColumn({ selectedTaskId, isMobile = false }: TasksListC
             <ScrollableShadows
                 direction="vertical"
                 className="flex flex-col flex-1 min-h-0 overflow-hidden"
-                innerClassName="flex flex-col gap-1 px-1 pb-4"
+                innerClassName="px-1"
+                // Row gap + trailing space live on the content, not the scroll viewport: a single
+                // Content child means a gap on the viewport is a no-op, and Chrome drops a scroll
+                // container's `padding-bottom`, so `pb-4` only sticks here.
+                contentClassName="flex flex-col gap-1 pb-4"
                 styledScrollbars
             >
                 {rows}
