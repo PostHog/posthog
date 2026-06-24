@@ -1,7 +1,7 @@
 from io import StringIO
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -110,6 +110,21 @@ class TestWarmRemoteConfigsCache(BaseTest):
         ):
             with self.assertRaisesMessage(CommandError, "row(s) failed to warm"):
                 call_command("warm_remote_configs_cache", stdout=StringIO())
+
+    @patch("posthog.storage.hypercache.get_client")
+    def test_warm_seeds_expiry_tracking(self, mock_get_client):
+        # The warm seeds the remote_config_cache_expiry sorted set the hourly refresh reads.
+        from posthog.models.remote_config import REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET
+
+        mock_redis = MagicMock()
+        mock_get_client.return_value = mock_redis
+
+        call_command("warm_remote_configs_cache", stdout=StringIO())
+
+        mock_redis.zadd.assert_called()
+        sorted_set_key, member_map = mock_redis.zadd.call_args[0]
+        assert sorted_set_key == REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET
+        assert self.team.api_token in member_map
 
     def test_does_not_write_to_s3(self):
         # Regression guard: the warm path must be Redis-only. Writing to S3 per

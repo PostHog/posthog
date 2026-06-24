@@ -2,8 +2,8 @@ use crate::api::errors::FlagError;
 use crate::cohorts::cohort_models::Cohort;
 use crate::database::get_connection_with_metrics;
 use crate::flags::flag_models::{
-    EvaluationMetadata, FeatureFlag, FeatureFlagList, FeatureFlagRow, FlagPropertyGroup,
-    HypercacheFlagsWrapper,
+    default_has_experiment, EvaluationMetadata, FeatureFlag, FeatureFlagList, FeatureFlagRow,
+    FlagPropertyGroup, HypercacheFlagsWrapper,
 };
 use crate::metrics::consts::TOMBSTONE_COUNTER;
 use common_database::PostgresReader;
@@ -194,6 +194,9 @@ impl FeatureFlagList {
                         evaluation_runtime: row.evaluation_runtime,
                         evaluation_tags: row.evaluation_tags,
                         bucketing_identifier: row.bucketing_identifier,
+                        // The PG fallback query doesn't compute experiment linkage, so fall back
+                        // to the shared default (true) for this rare, transient cache-miss path.
+                        has_experiment: default_has_experiment(),
                     }),
                     Err(e) => {
                         // This is highly unlikely to happen, but if it does, we skip the flag.
@@ -638,6 +641,7 @@ mod tests {
             team_id: 123,
             name: Some("Test Flag".to_string()),
             key: "test_flag".to_string(),
+            has_experiment: false,
             filters: FlagFilters::default(),
             deleted: false,
             active: true,
@@ -1208,6 +1212,7 @@ mod tests {
             team_id: 1,
             name: None,
             key: "test_flag".to_string(),
+            has_experiment: false,
             filters: FlagFilters {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![
@@ -1321,6 +1326,7 @@ mod tests {
             team_id: 123,
             name: Some("Serialization Test".to_string()),
             key: "serialize_test".to_string(),
+            has_experiment: false,
             filters: FlagFilters::default(),
             deleted: false,
             active: true,

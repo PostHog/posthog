@@ -30,9 +30,9 @@ describe('assign-reviewers', () => {
             ['uv.lock', true],
             ['posthog/api/test/__snapshots__/test_survey.ambr', true],
             ['frontend/src/scenes/x/Component.test.tsx.snap', true],
-            ['nodejs/src/ingestion/ai/costs/providers/canonical-providers.ts', true],
-            ['nodejs/src/ingestion/ai/costs/providers/llm-costs.json', true],
-            ['nodejs/src/ingestion/ai/costs/providers/manual-providers.ts', false],
+            ['nodejs/src/ingestion/pipelines/ai/costs/providers/canonical-providers.ts', true],
+            ['nodejs/src/ingestion/pipelines/ai/costs/providers/llm-costs.json', true],
+            ['nodejs/src/ingestion/pipelines/ai/costs/providers/manual-providers.ts', false],
             ['posthog/api/survey.py', false],
             ['frontend/src/scenes/surveys/Survey.tsx', false],
         ])('%s -> %s', (filename, expected) => {

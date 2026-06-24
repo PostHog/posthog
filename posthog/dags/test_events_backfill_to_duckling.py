@@ -1251,7 +1251,7 @@ class TestExportFanOut:
         insert_sql, count_sql, s3_glob, _ = self._run_export(
             export_persons_to_duckling_s3, target, row_count=3_000_000, team_id=2, date=datetime(2026, 6, 17)
         )
-        assert "PARTITION BY toString(cityHash64(pd.distinct_id) % 3)" in insert_sql
+        assert "PARTITION BY toString(cityHash64(distinct_id) % 3)" in insert_sql
         # Pin the full predicate: dropping is_deleted/date would silently over-size the fan-out.
         assert "FROM person WHERE team_id = 2 AND toDate(_timestamp) = '2026-06-17' AND is_deleted = 0" in count_sql
         assert s3_glob == "s3://bkt/backfill/persons/2/year=2026/month=06/run1_*.parquet"
@@ -1260,7 +1260,7 @@ class TestExportFanOut:
         insert_sql, count_sql, s3_glob, _ = self._run_export(
             export_persons_full_to_duckling_s3, target, row_count=5_000_000, team_id=2
         )
-        assert "PARTITION BY toString(cityHash64(pd.distinct_id) % 5)" in insert_sql
+        assert "PARTITION BY toString(cityHash64(distinct_id) % 5)" in insert_sql
         assert "FROM person_distinct_id2 WHERE team_id = 2 AND is_deleted = 0" in count_sql
         assert s3_glob == "s3://bkt/backfill/persons/2/year=0/month=0/run1_*.parquet"
 
