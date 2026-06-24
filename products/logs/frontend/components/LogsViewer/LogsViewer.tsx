@@ -1,9 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useEffect, useRef } from 'react'
 
-import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-
 import { TZLabelProps } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
@@ -16,6 +13,7 @@ import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 import { FacetRail } from 'products/logs/frontend/components/LogsViewer/FacetRail/FacetRail'
 import { LogsFilterBar } from 'products/logs/frontend/components/LogsViewer/Filters/LogsFilterBar/LogsFilterBar'
+import { LogsQueryBar } from 'products/logs/frontend/components/LogsViewer/Filters/LogsFilterBar/LogsQueryBar'
 import { logsFilterHistoryLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsFilterHistoryLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { logsExportLogic } from 'products/logs/frontend/components/LogsViewer/logsExportLogic'
@@ -24,10 +22,11 @@ import { virtualizedLogsListLogic } from 'products/logs/frontend/components/Virt
 
 import { LogDetailsModal } from './LogDetailsModal'
 import { logDetailsModalLogic } from './LogDetailsModal/logDetailsModalLogic'
+import { LogsDisplayBar } from './LogsDisplayBar'
 import { logsViewerLogic } from './logsViewerLogic'
 import { logsViewerModalLogic } from './LogsViewerModal/logsViewerModalLogic'
 import { LogsSparkline } from './LogsViewerSparkline'
-import { LogsViewerToolbar } from './LogsViewerToolbar'
+import { LogsViewerToolbar, LogsViewerToolbarProps } from './LogsViewerToolbar'
 
 const SCROLL_INTERVAL_MS = 16 // ~60fps
 const SCROLL_AMOUNT_PX = 8
@@ -109,8 +108,7 @@ function LogsViewerContent({
         togglePrettifyLog,
     } = useActions(logsViewerLogic)
     const { orderBy, sparklineBreakdownBy, sparklineCollapsed, facetRailCollapsed } = useValues(logsViewerConfigLogic)
-    const { setOrderBy, setSparklineBreakdownBy, toggleSparklineCollapsed, setFacetRailCollapsed } =
-        useActions(logsViewerConfigLogic)
+    const { setOrderBy, setSparklineBreakdownBy, toggleSparklineCollapsed } = useActions(logsViewerConfigLogic)
     const { logsLoading, parsedLogs, sparklineData, sparklineLoading, hasMoreLogsToLoad, totalLogsMatchingFilters } =
         useValues(logsViewerDataLogic)
     const { runQuery, fetchNextLogsPage } = useActions(logsViewerDataLogic)
@@ -302,14 +300,15 @@ function LogsViewerContent({
 
     const filterBar = showFilterBar ? <LogsFilterBar showSavedViewsButton={showSavedViewsButton} /> : null
 
-    const logBody = (
+    const toolbarProps: LogsViewerToolbarProps = {
+        totalLogsCount: sparklineLoading ? undefined : totalLogsMatchingFilters,
+        orderBy,
+        onChangeOrderBy: (newOrderBy) => setOrderBy(newOrderBy, 'toolbar'),
+        onOpenFullScreen: showFullScreenButton ? () => openLogsViewerModal({ id }) : undefined,
+    }
+
+    const logList = (
         <>
-            <LogsViewerToolbar
-                totalLogsCount={sparklineLoading ? undefined : totalLogsMatchingFilters}
-                orderBy={orderBy}
-                onChangeOrderBy={(newOrderBy) => setOrderBy(newOrderBy, 'toolbar')}
-                onOpenFullScreen={showFullScreenButton ? () => openLogsViewerModal({ id }) : undefined}
-            />
             {pinnedLogsArray.length > 0 && (
                 <VirtualizedLogsList
                     dataSource={pinnedLogsArray}
@@ -341,28 +340,18 @@ function LogsViewerContent({
         </>
     )
 
-    const railToggle = (
-        <LemonButton
-            size="small"
-            icon={facetRailCollapsed ? <IconChevronRight /> : <IconChevronLeft />}
-            onClick={() => setFacetRailCollapsed(!facetRailCollapsed)}
-        >
-            {facetRailCollapsed ? 'Show filters' : 'Hide filters'}
-        </LemonButton>
-    )
-
     if (showFacetRail) {
+        // Three-tier layout: query bar (ask a question) above the sparkline, the sparkline, then a
+        // row of [facet rail | display bar (operate on the data) + the log lists].
         return (
             <div className="flex flex-col gap-2 h-full" data-attr="logs-viewer">
+                <LogsQueryBar showSavedViewsButton={showSavedViewsButton} />
                 {sparklineSection}
                 <div className="flex flex-row gap-2 flex-1 min-h-0">
                     {!facetRailCollapsed && <FacetRail id={id} />}
                     <div className="flex flex-col gap-2 flex-1 min-w-0">
-                        <div className="flex items-start gap-2">
-                            {railToggle}
-                            {filterBar && <div className="flex-1 min-w-0">{filterBar}</div>}
-                        </div>
-                        {logBody}
+                        <LogsDisplayBar {...toolbarProps} />
+                        {logList}
                     </div>
                 </div>
                 <LogDetailsModal timezone={timezone} />
@@ -374,7 +363,8 @@ function LogsViewerContent({
         <div className="flex flex-col gap-2 h-full" data-attr="logs-viewer">
             {sparklineSection}
             {filterBar}
-            {logBody}
+            <LogsViewerToolbar {...toolbarProps} />
+            {logList}
             <LogDetailsModal timezone={timezone} />
         </div>
     )

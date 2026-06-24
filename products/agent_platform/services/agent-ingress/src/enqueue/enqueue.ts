@@ -32,6 +32,7 @@ import {
     SessionQueue,
 } from '@posthog/agent-shared'
 
+import { enqueueTotal } from '../metrics'
 import { ElevationTrigger, principalDisplay, recordElevationRequest, requireAclAccess } from './acl'
 
 export interface EnqueueDeps {
@@ -86,6 +87,16 @@ export interface EnqueueInput {
      * for audit. Defaults to false (owner-only, the fail-closed behaviour).
      */
     bypassOwnerAcl?: boolean
+    /**
+     * True when the request that produced this enqueue carried a valid
+     * `aud=agent-ingress.preview` JWT (or arrived via the Django-side
+     * preview-proxy, which mints one server-side). Stamps the same value onto
+     * `agent_session.is_preview`. Triggers decide this based on the verified
+     * audience of the inbound token — never on a client-asserted query param.
+     * Defaults to false so the live-ingress path stays the no-extra-thought
+     * default.
+     */
+    isPreview?: boolean
 }
 
 export type EnqueueOutcome =
@@ -100,6 +111,22 @@ export type EnqueueOutcome =
       }
 
 export async function enqueueOrResume(deps: EnqueueDeps, input: EnqueueInput): Promise<EnqueueOutcome> {
+    // Single intake choke point — count every enqueue by trigger + outcome.
+    // A throw (DB down, unexpected error) is counted as `error` so the demand
+    // total stays complete. The shared HTTP histogram covers latency/status;
+    // this is the only place the created-vs-resumed-vs-deduped split exists.
+    const trigger = input.trigger ?? 'chat'
+    try {
+        const outcome = await enqueueOrResumeInner(deps, input)
+        enqueueTotal.labels({ trigger, outcome: outcome.kind }).inc()
+        return outcome
+    } catch (err) {
+        enqueueTotal.labels({ trigger, outcome: 'error' }).inc()
+        throw err
+    }
+}
+
+async function enqueueOrResumeInner(deps: EnqueueDeps, input: EnqueueInput): Promise<EnqueueOutcome> {
     // Idempotency check first — independent of externalKey. A duplicate
     // request returns the original session id unchanged; the principal +
     // seed of the duplicate are deliberately discarded. Stripe-shaped
@@ -112,7 +139,17 @@ export async function enqueueOrResume(deps: EnqueueDeps, input: EnqueueInput): P
         }
     }
     if (input.externalKey) {
-        const existing = await deps.queue.findByExternalKey(input.application.id, input.externalKey)
+        // Scope the lookup to the request's preview/live boundary so a
+        // preview-authenticated request can't resume a live session (or vice
+        // versa). Without this, the runner would read `is_preview = false` off
+        // the live row even though the resuming request was preview-authed,
+        // and live secrets + un-suppressed external writes would fire under
+        // preview auth. Different draft revisions are also isolated — same
+        // external_key + two drafts gets two distinct sessions.
+        const existing = await deps.queue.findByExternalKey(input.application.id, input.externalKey, {
+            isPreview: input.isPreview === true,
+            revisionId: input.revision.id,
+        })
         if (existing && existing.state !== 'closed' && existing.state !== 'failed') {
             const incoming = input.principal ?? null
             const check = input.bypassOwnerAcl ? ({ kind: 'allowed' } as const) : requireAclAccess(existing, incoming)
@@ -159,6 +196,7 @@ export async function enqueueOrResume(deps: EnqueueDeps, input: EnqueueInput): P
         usage_total: { ...EMPTY_USAGE_TOTAL },
         acl: [],
         pending_elevation_requests: [],
+        is_preview: input.isPreview === true,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
     }

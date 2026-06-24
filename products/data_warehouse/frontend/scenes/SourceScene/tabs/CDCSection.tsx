@@ -333,6 +333,27 @@ function EnabledControls({ source }: { source: ExternalDataSource }): JSX.Elemen
                             : 'The publication is missing on your database — recreate it (self-managed) or disable and re-enable CDC (PostHog-managed).'}
                     </LemonBanner>
                 )}
+                {status?.publication_exists && (
+                    <div className="mt-3">
+                        <div className="text-secondary text-xs mb-1">
+                            Replicated tables {status.published_tables ? `(${status.published_tables.length})` : ''}
+                        </div>
+                        {status.published_tables && status.published_tables.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                                {status.published_tables.map((table: string) => (
+                                    <LemonTag key={table} type="muted">
+                                        <code className="text-xs">{table}</code>
+                                    </LemonTag>
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="text-xs text-secondary m-0">
+                                No tables are in the publication yet — pick CDC as the sync type on the Schemas tab to
+                                add one.
+                            </p>
+                        )}
+                    </div>
+                )}
             </div>
 
             <LemonDivider />

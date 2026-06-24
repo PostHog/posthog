@@ -174,7 +174,10 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
         # Temporal retry of this activity can't move query_to forward (which would orphan any rows persisted by
         # calc activities still in flight from the prior attempt).
         if update.mark_started:
+            end_date = Experiment.objects.filter(id=state.experiment_id).values_list("end_date", flat=True).first()
             proposed_query_to = timezone.now()
+            if end_date is not None:
+                proposed_query_to = min(proposed_query_to, end_date)
             won = (
                 ExperimentMetricsRecalculation.objects.filter(id=update.recalculation_id, query_to__isnull=True).update(
                     query_to=proposed_query_to,
@@ -233,6 +236,26 @@ def _capture_results_refresh_completed(update: RecalculationProgressUpdate) -> N
             if recalc.completed_at and recalc.created_at
             else None
         )
+        # Split the full duration into the time the workflow actually executed (start activity to finish)
+        # and the time it waited in the queue before the start activity ran (request to start). Their sum
+        # is total_duration_ms. started_at is set by the start activity, so it is present on any completed run.
+        execution_duration_ms = (
+            round((recalc.completed_at - recalc.started_at).total_seconds() * 1000)
+            if recalc.completed_at and recalc.started_at
+            else None
+        )
+        queue_duration_ms = (
+            round((recalc.started_at - recalc.created_at).total_seconds() * 1000)
+            if recalc.started_at and recalc.created_at
+            else None
+        )
+        # Hours since the experiment launched, matching the legacy frontend definition exactly
+        # (now - start_date, ignoring end_date) so dashboards can share the >12h filter across paths.
+        experiment_duration_hours = (
+            round((timezone.now() - experiment.start_date).total_seconds() / 3600) if experiment.start_date else None
+        )
+        primary_metrics_count = len(experiment.metrics or [])
+        secondary_metrics_count = len(experiment.metrics_secondary or [])
         with ph_scoped_capture() as capture:
             capture(
                 distinct_id=distinct_id,
@@ -246,8 +269,22 @@ def _capture_results_refresh_completed(update: RecalculationProgressUpdate) -> N
                     "succeeded_metrics": update.succeeded_metrics,
                     "failed_metrics": update.failed_metrics,
                     "total_duration_ms": total_duration_ms,
+                    "execution_duration_ms": execution_duration_ms,
+                    "queue_duration_ms": queue_duration_ms,
                     "trigger": recalc.trigger,
                     "execution_mode": "recalculation",
+                    # Legacy-named aliases + missing properties for parity with the frontend
+                    # 'experiment results refresh completed' event, so the original experiments
+                    # dashboards work against workflow runs with the same property names.
+                    "triggered_by": recalc.trigger,
+                    "successful_count": update.succeeded_metrics,
+                    "errored_count": update.failed_metrics,
+                    "cached_count": 0,
+                    "total_metrics_count": recalc.total_metrics,
+                    "primary_metrics_count": primary_metrics_count,
+                    "secondary_metrics_count": secondary_metrics_count,
+                    "experiment_status": experiment.status or experiment.computed_status,
+                    "experiment_duration_hours": experiment_duration_hours,
                 },
                 groups=groups(organization=team.organization, team=team),
             )
@@ -456,6 +493,9 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 team=experiment.team,
                 override_end_date=query_to_dt,
                 workload=Workload.OFFLINE,
+                # Scheduled recalc has no request user. Attribute the query to the experiment's creator so
+                # warehouse HogQL access control is enforced against an accountable user instead of bypassed.
+                user=experiment.created_by,
             )
             # Attribute CH load back to this team + product so query_log analysis can tell whose recalc is
             # expensive without reverse-engineering the trigger string.

@@ -115,6 +115,7 @@ export const AGENT_USE_CASE_SCOPES = [
     'visual_review:read',
     'visual_review:write',
     'warehouse_table:read',
+    'warehouse_table:write',
     'warehouse_view:read',
     'warehouse_view:write',
     'web_analytics:read',

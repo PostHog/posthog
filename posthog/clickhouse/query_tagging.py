@@ -70,6 +70,7 @@ class Product(StrEnum):
     MOBILE_REPLAY = "mobile_replay"
     PIPELINE_DESTINATIONS = "pipeline_destinations"
     PLATFORM_AND_SUPPORT = "platform_and_support"
+    POSTHOG_CODE = "posthog_code"
     PRODUCT_ANALYTICS = "product_analytics"
     REPLAY = "replay"
     REPLAY_VISION = "replay_vision"
@@ -261,6 +262,8 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.NON_INTEGRATED_CONVERSIONS_TABLE_QUERY
         ):
             return {"product": Product.MARKETING_ANALYTICS}
+        case NodeKind.MCP_HARNESS_BREAKDOWN_QUERY:
+            return {"product": Product.MCP_ANALYTICS}
         case (
             # not attributable on their own
             NodeKind.HOG_QL_QUERY
@@ -415,7 +418,13 @@ class QueryTags(BaseModel):
     experiment_metric_uuid: Optional[str] = None
     experiment_metric_name: Optional[str] = None
     experiment_metric_type: Optional[str] = None  # "mean", "funnel", "ratio", "retention"
+    experiment_funnel_order_type: Optional[str] = None  # funnel metrics only: "ordered", "unordered", "strict"
+    # DEPRECATED: alias of experiment_exposures_path, kept so external tooling keeps working.
     experiment_execution_path: Optional[str] = None  # "direct_scan" or "precomputed"
+    experiment_exposures_path: Optional[str] = None  # "direct_scan" or "precomputed"
+    experiment_metric_events_path: Optional[str] = None  # "direct_scan", "precomputed", or "not_applicable"
+    experiment_query_surface: Optional[str] = None  # "metric", "exposures_timeseries", "actors", "precompute_build"
+    experiment_precompute_table: Optional[str] = None  # on precompute_build rows: "exposures" or "metric_events"
     experiment_actors_query_step: Optional[int] = None  # funnel step for actors query
     experiment_actors_query_variant: Optional[str] = None  # variant filter for actors query
     experiment_actors_query_includes_recordings: Optional[bool] = None  # whether recordings are included

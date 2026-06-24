@@ -49,6 +49,7 @@ import {
     AssistantMessageRecord,
     BundleStore,
     buildSystemPrompt,
+    buildAskerIdentity,
     ConversationMessage,
     CredentialBroker,
     createLogger,
@@ -56,7 +57,9 @@ import {
     GatewayClient,
     generationSpanId,
     HttpFetcher,
-    IntegrationCredentials,
+    IdentityCredentialStore,
+    IdentityLinkStateStore,
+    IdentityStore,
     isDeltaEventKind,
     isSlackTriggerMetadata,
     LogLevel,
@@ -64,6 +67,7 @@ import {
     MemoryStore,
     NoopAnalyticsSink,
     parseClientToolResultMarker,
+    postSlackApprovalButtons,
     postSlackReply,
     Sandbox,
     SecretBroker,
@@ -75,6 +79,7 @@ import {
     SlackStatusReporter,
     slackTextFromContent,
     TabularStore,
+    ToolContext,
     toolSpanId,
 } from '@posthog/agent-shared'
 
@@ -83,7 +88,6 @@ import { AgentToolDeps, buildAgentTools, MetaControl, RealToolExecute, ToolResul
 import { resolveMaxOutputTokens } from './max-output-tokens'
 import type { McpOpenFailure, OpenedMcp } from './mcp-clients'
 import { lookupMcpToolApproval } from './mcp-tool-lookup'
-import type { IsAskerInApproverScope } from './per-asker-auth'
 import { providerSafeName } from './provider-safe-names'
 
 export interface RunSessionDeps {
@@ -99,7 +103,6 @@ export interface RunSessionDeps {
     streamFn?: StreamFn
     bundle: BundleStore
     sandbox: Sandbox | null
-    integrations: Record<string, IntegrationCredentials>
     secrets: Record<string, string>
     broker?: SecretBroker
     /**
@@ -147,16 +150,6 @@ export interface RunSessionDeps {
      * security hole). No mock variant. */
     approvals: ApprovalStore
     buildApprovalUrl?: (requestId: string) => string
-    /**
-     * Per-asker authorisation shortcut for approval-gated tools (#23 step 3).
-     * Called inside the gated tool's `execute` before queueing: when the
-     * most recent user-turn's sender themselves satisfies the tool's
-     * `approver_scope`, the call is dispatched directly via the original
-     * `realExecute` (no queue, no UI round-trip). Errors fall through to
-     * the queue path so a transient lookup failure can't strand a gated
-     * call. Omit to keep the always-queue default.
-     */
-    isAskerInApproverScope?: IsAskerInApproverScope
     /**
      * S3-backed memory store. Threaded into `AgentToolDeps` → `ToolContext`
      * so native `@posthog/memory-*` tools work; absent → memory tools return
@@ -217,6 +210,17 @@ export interface RunSessionDeps {
     posthogApiBaseUrl: string
     /** Operator override (AGENT_MAX_OUTPUT_TOKENS); clamps below model.maxTokens. */
     maxOutputTokensOverride?: number
+    /**
+     * Per-asker identity linking (spec.identity_providers). When both stores are
+     * wired and the spec declares providers, `ctx.identity` resolves the run's
+     * asker's linked credential (or a link). Omit to disable identity tools.
+     */
+    identityCredentials?: IdentityCredentialStore
+    identityLinks?: IdentityLinkStateStore
+    /** Resolves a non-slack principal to its AgentUser id for linking. */
+    identities?: IdentityStore
+    /** OAuth callback base; `/link/<provider>/callback` is appended. */
+    linkRedirectBaseUrl?: string
 }
 
 export type RunOutcome =
@@ -237,9 +241,21 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
     // message into the thread (see the turn_end handler). The model is told as
     // much so it replies in natural language instead of forcing everything
     // through the slack-post-message tool.
-    const slackReply = isSlackTriggerMetadata(session.trigger_metadata) ? session.trigger_metadata : null
+    //
+    // Preview-mode isolation: when the session was created via the preview
+    // ingress path, the relay is disabled — author iteration must not post
+    // into the real Slack channel attached to the live revision. The
+    // system-prompt suppression below also drops the slack-relay guidance so
+    // the model isn't told to "just reply in natural language" while the
+    // platform is actually noop'ing the relay underneath it.
+    const slackReply =
+        !session.is_preview && isSlackTriggerMetadata(session.trigger_metadata) ? session.trigger_metadata : null
     const system = await buildSystemPrompt(rev, deps.bundle, {
-        unavailableMcps: (deps.mcpFailures ?? []).map((f) => ({ id: f.ref.id, category: f.category })),
+        unavailableMcps: (deps.mcpFailures ?? []).map((f) => ({
+            id: f.ref.id,
+            category: f.category,
+            authorizeUrl: f.authorizeUrl,
+        })),
         slackReplyRelay: slackReply !== null,
     })
     const bus: SessionEventBus = deps.bus
@@ -393,11 +409,29 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
     // the function exits through. Intentionally left at +0 indent to
     // keep the diff small; the contents are unchanged.
     try {
+        // Identity resolution keys off the session OWNER (the authenticated
+        // principal), not whoever spoke last — a credential is never resolved
+        // for the wrong person. In a shared participant thread (any trusted user
+        // can post) owner != asker, so identity-gated tools fail closed there
+        // rather than act as the owner on a participant's behalf (T1).
+        let identity: ToolContext['identity']
+        if (deps.identityCredentials && deps.identityLinks) {
+            identity = await buildAskerIdentity(rev, session, {
+                credentials: deps.identityCredentials,
+                links: deps.identityLinks,
+                identities: deps.identities,
+                credentialBroker: deps.credentialBroker,
+                http: deps.http,
+                secret: (name) => deps.secrets[name],
+                posthogApiBaseUrl: deps.posthogApiBaseUrl,
+                linkRedirectBaseUrl: deps.linkRedirectBaseUrl,
+                log,
+            })
+        }
         const toolDeps: AgentToolDeps = {
             rev,
             session,
             sandbox: deps.sandbox,
-            integrations: deps.integrations,
             secrets: deps.secrets,
             bundle: deps.bundle,
             log,
@@ -408,6 +442,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 await emit('client_tool_call', { call_id: callId, tool_id: toolId, args })
             },
             credentialBroker: deps.credentialBroker,
+            identity,
             mcpClients: deps.mcpClients,
             http: deps.http,
             posthogApiBaseUrl: deps.posthogApiBaseUrl,
@@ -494,35 +529,14 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                       ? mcpGate.approval_policy
                       : null
                 if (policy) {
-                    const real = realExecute.get(id)
                     tool.execute = async (toolCallId, args) => {
-                        // Per-asker shortcut (#23 step 3): when the most recent
-                        // user-turn's sender already satisfies the tool's
-                        // approver scope, dispatch the real tool directly and
-                        // skip the queue. The model sees a normal tool_result
-                        // either way. Best-effort — a thrown check falls through
-                        // to the queue path so a transient DB blip can't strand
-                        // a gated call as never-queued, never-executed.
-                        if (real && deps.isAskerInApproverScope) {
-                            try {
-                                const allowed = await deps.isAskerInApproverScope(
-                                    session.conversation,
-                                    session.team_id,
-                                    policy.approvers,
-                                    session.principal
-                                )
-                                if (allowed) {
-                                    log('info', 'tool.dispatch.per_asker_authorised', { tool: id })
-                                    return real(toolCallId, (args ?? {}) as Record<string, unknown>)
-                                }
-                            } catch (err) {
-                                log('warn', 'tool.dispatch.per_asker_check_failed', {
-                                    tool: id,
-                                    err: (err as Error).message,
-                                })
-                            }
-                        }
-                        return queueApprovalResult({
+                        // Every gated call queues — there is no auto-dispatch.
+                        // Being the asker is not consent to the specific call the
+                        // model emitted (a prompt injection in content the agent
+                        // read could have steered it), so a deterministic human
+                        // decision is always required: `principal` clears it via
+                        // the ingress decision API, `agent` via the console.
+                        const queued = await queueApprovalResult({
                             approvals,
                             buildApprovalUrl: deps.buildApprovalUrl,
                             session,
@@ -535,6 +549,28 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                             args: (args ?? {}) as Record<string, unknown>,
                             policy,
                         })
+                        // For a `principal` approval on a Slack session, post
+                        // Approve/Reject buttons into the thread so the session
+                        // owner can decide in-place (the ingress interactivity
+                        // handler enforces principal-match on the click). Skip on
+                        // a deduped re-queue so we don't spam the same buttons.
+                        // Best-effort — a Slack hiccup must not break the loop.
+                        const reqId = queued.details?.requestId
+                        if (slackReply && policy.type === 'principal' && reqId && !queued.details?.deduped) {
+                            void postSlackApprovalButtons(deps.http, {
+                                token: deps.secrets[SLACK_BOT_TOKEN_KEY],
+                                channel: slackReply.channel,
+                                thread_ts: slackReply.thread_ts,
+                                sessionId: session.id,
+                                requestId: reqId,
+                                toolName: id,
+                                logger: {
+                                    warn: (meta, msg) => log('warn', msg, meta),
+                                    info: (meta, msg) => log('info', msg, meta),
+                                },
+                            }).catch(() => {})
+                        }
+                        return queued
                     }
                 }
             }
@@ -638,6 +674,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                                 latency_ms: started ? Date.now() - started.t0 : 0,
                                 is_error: event.isError,
                                 error: errorText,
+                                is_preview: session.is_preview,
                             },
                         ])
                     }
@@ -767,6 +804,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                             stop_reason: msg.stopReason,
                             is_error: msg.stopReason === 'error',
                             error: msg.stopReason === 'error' ? msg.errorMessage : undefined,
+                            is_preview: session.is_preview,
                         },
                     ])
                     await deps.onTurnPersist?.(session)
@@ -1035,6 +1073,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                                             latency_ms: Date.now() - t0,
                                             is_error: d.isError,
                                             error: d.error,
+                                            is_preview: session.is_preview,
                                         },
                                     ])
                                 } catch (obsErr) {
@@ -1130,6 +1169,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                     trace_name: deps.applicationName ?? `agent:${session.application_id}`,
                     input_state: traceInput,
                     output_state: lastOutput,
+                    is_preview: session.is_preview,
                 },
             ])
         }

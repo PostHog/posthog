@@ -12,7 +12,10 @@ from products.ai_observability.backend.markdown_outline import get_markdown_outl
 
 from ..models.skills import LLMSkill, LLMSkillFile
 
-RESERVED_SKILL_NAMES = {"new"}
+# Skill names that collide with reserved /skills routes and so can't be used: "new" is the create
+# form, and the rest mirror the category-tab slugs registered under /skills/<slug> in
+# products/skills/manifest.tsx — a skill with such a name would be shadowed by its tab route.
+RESERVED_SKILL_NAMES = {"new", "scouts"}
 # Bundled-file paths that would collide with generated artifacts in the exported skill
 # tree / plugin marketplace (the rendered SKILL.md). Compared case-insensitively.
 RESERVED_SKILL_FILE_PATHS = {"skill.md"}
@@ -26,7 +29,7 @@ SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
 def validate_skill_name_value(value: str) -> str:
     if value.lower() in RESERVED_SKILL_NAMES:
         raise serializers.ValidationError(
-            "'new' is a reserved name and cannot be used.",
+            f"'{value}' is a reserved name and cannot be used.",
             code="reserved_name",
         )
     if len(value) > 64:
@@ -118,6 +121,12 @@ class LLMSkillListQuerySerializer(serializers.Serializer):
     created_by_id = serializers.IntegerField(
         required=False,
         help_text="Filter skills by the ID of the user who created them.",
+    )
+    category = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text='Filter skills to this exact category. Pass "scout" for Signals scouts, or an empty string to '
+        "return only uncategorized skills. Omit the parameter entirely to return skills of every category.",
     )
 
 
@@ -331,6 +340,12 @@ class LLMSkillSerializer(serializers.ModelSerializer):
         default=dict,
         help_text="Arbitrary key-value metadata.",
     )
+    category = serializers.CharField(
+        read_only=True,
+        help_text='Server-owned classification — set by the producing system (the Signals harness stamps "scout"), '
+        "not writable via the API. Empty for an ordinary skill. Groups skills into their own surface "
+        "(e.g. the Scouts tab) independently of the skill name.",
+    )
     files = serializers.SerializerMethodField(
         help_text="Bundled files manifest. Each entry is path + content_type only; fetch content via /llm_skills/name/{name}/files/{path}/.",
     )
@@ -349,6 +364,7 @@ class LLMSkillSerializer(serializers.ModelSerializer):
             "compatibility",
             "allowed_tools",
             "metadata",
+            "category",
             "files",
             "outline",
             "version",

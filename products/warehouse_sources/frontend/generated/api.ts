@@ -12,6 +12,7 @@ import type {
     DatabaseSchemaRequestApi,
     ExternalDataSchemaApi,
     ExternalDataSchemasListParams,
+    ExternalDataSchemasLogsRetrieveParams,
     ExternalDataSourceCreateApi,
     ExternalDataSourceSerializersApi,
     ExternalDataSourcesBulkUpdateSchemasPartialUpdateParams,
@@ -208,6 +209,38 @@ export const externalDataSchemasIncrementalFieldsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(externalDataSchemaApi),
+    })
+}
+
+export const getExternalDataSchemasLogsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: ExternalDataSchemasLogsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/external_data_schemas/${id}/logs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/external_data_schemas/${id}/logs/`
+}
+
+export const externalDataSchemasLogsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: ExternalDataSchemasLogsRetrieveParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSchemasLogsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -113,10 +113,10 @@ opposite call from the SRE bot's runbook corpus).
 > `@posthog/slack-react` + `SLACK_BOT_TOKEN` — is unaffected. Drop
 > `ack_reaction` from the spec if you don't want the instant ack.
 
-Set the two secrets via the [agent-concierge](../agent-concierge/)
+Set the two secrets via the [agent-builder](../agent-builder/)
 `set_secret` punch-out so the values never transit the model's
 tool-call history. The flow is the same as the
-[sre-slack-bot](../sre-slack-bot/README.md#concierge-walkthrough--recommended-setup-flow);
+[sre-slack-bot](../sre-slack-bot/README.md#agent-builder-walkthrough--recommended-setup-flow);
 swap the secret list for `SLACK_BOT_TOKEN` + `SLACK_SIGNING_SECRET`.
 
 ## A note on auth

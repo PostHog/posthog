@@ -9,7 +9,7 @@ import pyarrow as pa
 import structlog
 from structlog.types import FilteringBoundLogger
 
-from posthog.models.integration import Integration
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, OauthIntegration
 from posthog.temporal.data_imports.naming_convention import NamingConvention
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
@@ -114,6 +114,18 @@ def linkedin_ads_client(config: LinkedinAdsSourceConfig, team_id: int) -> Linked
     # the read surfaces as `OperationalError: the connection is closed`.
     close_old_connections()
     integration = Integration.objects.get(id=config.linkedin_ads_integration_id, team_id=team_id)
+
+    # LinkedIn access tokens expire (~60 days). Refresh a stale-but-refreshable token here so it gets
+    # renewed instead of 401ing into a forced re-authorization. `access_token_expired` is a no-op when
+    # the integration has no refresh token or expiry metadata, leaving those integrations untouched.
+    oauth_integration = OauthIntegration(integration)
+    if oauth_integration.access_token_expired():
+        oauth_integration.refresh_access_token()
+        if integration.errors == ERROR_TOKEN_REFRESH_FAILED:
+            raise Exception(
+                "Failed to refresh token for LinkedIn Ads integration. Please re-authorize the integration."
+            )
+
     if not integration.access_token:
         raise ValueError("LinkedIn Ads integration does not have an access token")
     return LinkedinAdsClient(integration.access_token)

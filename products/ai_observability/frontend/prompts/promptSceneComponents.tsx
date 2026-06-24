@@ -19,7 +19,7 @@ import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { Query } from '~/queries/Query/Query'
 import { AccessControlLevel, AccessControlResourceType, LLMPrompt, LLMPromptVersionSummary } from '~/types'
 
-import type { ExperimentApi } from '../../../experiments/frontend/generated/api.schemas'
+import type { ExperimentBasicApi } from '../../../experiments/frontend/generated/api.schemas'
 import { useTracesQueryContext } from '../AIObservabilityTracesScene'
 import { MarkdownOutline } from '../components/MarkdownOutline'
 import { CreatePromptExperimentModal } from './CreatePromptExperimentModal'
@@ -337,7 +337,7 @@ export function PromptUsage({ prompt }: { prompt: LLMPrompt }): JSX.Element {
     )
 }
 
-function experimentStatusTag(experiment: ExperimentApi): JSX.Element {
+function experimentStatusTag(experiment: ExperimentBasicApi): JSX.Element {
     if (experiment.archived) {
         return <LemonTag type="muted">Archived</LemonTag>
     }
@@ -350,7 +350,7 @@ function experimentStatusTag(experiment: ExperimentApi): JSX.Element {
     return <LemonTag type="default">Draft</LemonTag>
 }
 
-function promptMetadata(experiment: ExperimentApi): { templates: string[]; versions: number[] } {
+function promptMetadata(experiment: ExperimentBasicApi): { templates: string[]; versions: number[] } {
     const params = experiment.parameters as { prompt_metadata?: { templates?: string[]; versions?: number[] } } | null
     const meta = params?.prompt_metadata
     return {
@@ -364,7 +364,7 @@ export function PromptExperiments({ prompt }: { prompt: LLMPrompt }): JSX.Elemen
     const { openModal } = useActions(createPromptExperimentModalLogic)
     const { experiments, experimentsLoading } = useValues(promptExperimentsLogic({ promptName: prompt.name }))
 
-    const columns: LemonTableColumns<ExperimentApi> = [
+    const columns: LemonTableColumns<ExperimentBasicApi> = [
         {
             title: 'Name',
             dataIndex: 'name',

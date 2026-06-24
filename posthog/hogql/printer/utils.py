@@ -1,13 +1,13 @@
 from typing import TYPE_CHECKING, cast
 
-from posthog.schema_enums import InCohortVia
+from posthog.schema_enums import InCohortVia, PropertyGroupsMode
 
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
-from posthog.hogql.constants import HogQLDialect, HogQLGlobalSettings
+from posthog.hogql.constants import SQL_TARGET_DIALECTS, HogQLDialect, HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import InternalHogQLError
@@ -32,11 +32,18 @@ from posthog.hogql.transforms.geoip_dict_fallback import (
     geoip_dict_fallback_enabled_for_team,
 )
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
+from posthog.hogql.transforms.json_property_pushdown import (
+    has_rewritable_json_extract,
+    rewrite_json_extract_to_property,
+)
 from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
 from posthog.hogql.transforms.logical_property_lowering import lower_property_access
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
 from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
-from posthog.hogql.transforms.type_aware_simplification import simplify_redundant_type_operations
+from posthog.hogql.transforms.type_aware_simplification import (
+    simplify_argmax_over_non_nullable,
+    simplify_redundant_type_operations,
+)
 from posthog.hogql.visitor import clone_expr
 from posthog.hogql.workload import WorkloadCollector
 
@@ -44,6 +51,14 @@ from posthog.clickhouse.workload import Workload
 from posthog.models.team import Team
 
 from products.access_control.backend.property_access_control import get_restricted_properties_for_team
+
+PRINTER_CLASSES: dict[HogQLDialect, type[BasePrinter]] = {
+    "clickhouse": ClickHousePrinter,
+    "postgres": PostgresPrinter,
+    "duckdb": DuckDBPrinter,
+    "mysql": MySQLPrinter,
+    "hogql": HogQLPrinter,
+}
 
 
 def to_printed_hogql(query: ast.Expr, team: Team, modifiers: "HogQLQueryModifiers | None" = None) -> str:
@@ -121,6 +136,7 @@ def prepare_ast_for_printing(
                 team=context.team,
                 user=context.user,
                 timings=context.timings,
+                bypass_warehouse_access_control=context.bypass_warehouse_access_control,
             )
     if context.direct_postgres_connection_metadata is None and context.database is not None:
         context.direct_postgres_connection_metadata = getattr(context.database, "_direct_connection_metadata", None)
@@ -151,6 +167,22 @@ def prepare_ast_for_printing(
             resolver_factory=resolver_factory,
         )
 
+    # Project constant-key JSONExtractString on argMax lazy tables (groups/persons) into the
+    # aggregate, so it does not materialize the whole JSON blob per row. Rewrites the call to a
+    # property access and re-resolves, so the resolver assigns types rather than us building them.
+    # Must run after type resolution and before lazy-table resolution.
+    if dialect == "clickhouse" and has_rewritable_json_extract(node, context):
+        with context.timings.measure("rewrite_json_extract_to_property"):
+            node = rewrite_json_extract_to_property(node, context)
+        with context.timings.measure("resolve_types_after_json_pushdown"):
+            node = resolve_types(
+                node,
+                context,
+                dialect=dialect,
+                scopes=[scope.type for scope in stack if scope.type is not None] if stack else None,
+                resolver_factory=resolver_factory,
+            )
+
     if context.enable_type_aware_cast_simplification:
         with context.timings.measure("type_aware_cast_simplification"):
             node = simplify_redundant_type_operations(node, context, dialect)
@@ -161,11 +193,18 @@ def prepare_ast_for_printing(
         collector.visit(node)
         context.workload = collector.get_workload()
 
+    # LOGS-cluster tables (logs, spans, metrics) store attributes in `*_map_str/_float` Map columns, not JSON blobs.
+    # Property reads only resolve to those Map columns under OPTIMIZED; otherwise they fall back to JSONExtract, which
+    # errors on a Map. Force OPTIMIZED here — after workload detection, before property resolution reads the modifier —
+    # so every caller (SQL panel, alerts, runners) is correct without each having to set it.
+    if context.workload == Workload.LOGS and context.modifiers.propertyGroupsMode is None:
+        context.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
+
     if context.modifiers.optimizeProjections:
         with context.timings.measure("projection_pushdown"):
             node = pushdown_projections(node, context)
 
-    if dialect in ("postgres", "duckdb", "mysql"):
+    if dialect in SQL_TARGET_DIALECTS:
         with context.timings.measure("resolve_lazy_tables"):
             resolve_lazy_tables(node, dialect, stack, context, resolver_factory=resolver_factory)
 
@@ -259,6 +298,11 @@ def prepare_ast_for_printing(
         with context.timings.measure("resolve_in_cohorts"):
             resolve_in_cohorts(node, dialect, stack, context, resolver_factory=resolver_factory)
 
+    # Drop argmax_select's tuple()/tupleElement() wrap for non-nullable columns; runs last so resolved nullability is final. ClickHouse-only.
+    if dialect == "clickhouse":
+        with context.timings.measure("simplify_argmax_over_non_nullable"):
+            node = simplify_argmax_over_non_nullable(node, context)
+
     # We add a team_id guard right before printing. It's not a separate step here.
     return node
 
@@ -272,46 +316,17 @@ def print_prepared_ast(
     pretty: bool = False,
 ) -> str:
     with context.timings.measure("printer"):
-        printer: BasePrinter
         printer_stack = cast(list[ast.AST], stack or [])
 
-        match dialect:
-            case "clickhouse":
-                printer = ClickHousePrinter(
-                    context=context,
-                    stack=printer_stack,
-                    settings=settings,
-                    pretty=pretty,
-                )
-            case "postgres":
-                printer = PostgresPrinter(
-                    context=context,
-                    stack=printer_stack,
-                    settings=settings,
-                    pretty=pretty,
-                )
-            case "duckdb":
-                printer = DuckDBPrinter(
-                    context=context,
-                    stack=printer_stack,
-                    settings=settings,
-                    pretty=pretty,
-                )
-            case "mysql":
-                printer = MySQLPrinter(
-                    context=context,
-                    stack=printer_stack,
-                    settings=settings,
-                    pretty=pretty,
-                )
-            case "hogql":
-                printer = HogQLPrinter(
-                    context=context,
-                    stack=printer_stack,
-                    settings=settings,
-                    pretty=pretty,
-                )
-            case _:
-                raise InternalHogQLError(f"Invalid SQL dialect: {dialect}")
+        printer_class = PRINTER_CLASSES.get(dialect)
+        if printer_class is None:
+            raise InternalHogQLError(f"Invalid SQL dialect: {dialect}")
+
+        printer = printer_class(
+            context=context,
+            stack=printer_stack,
+            settings=settings,
+            pretty=pretty,
+        )
 
         return printer.visit(node)

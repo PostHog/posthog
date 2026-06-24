@@ -111,9 +111,19 @@ export const IdentityMatchingLinksResponseApi = zod.object({
 export type IdentityMatchingLinksResponseApi = zod.input<typeof IdentityMatchingLinksResponseApi>
 export type IdentityMatchingLinksResponseApiOutput = zod.output<typeof IdentityMatchingLinksResponseApi>
 
+export const IdentityMatchingErrorApi = zod.object({
+    detail: zod.string().describe('Human-readable explanation of why the request could not be served.'),
+})
+
+export type IdentityMatchingErrorApi = zod.input<typeof IdentityMatchingErrorApi>
+export type IdentityMatchingErrorApiOutput = zod.output<typeof IdentityMatchingErrorApi>
+
 export const IdentityMatchingRunModelCountApi = zod.object({
     model_version: zod.string().describe("Scoring model, e.g. 'rules_v1' or 'logreg_v1'."),
     link_count: zod.number().describe('Number of links this model produced in the run.'),
+    high_confidence: zod.number().describe("Links from this model in the 'high' tier."),
+    medium_confidence: zod.number().describe("Links from this model in the 'medium' tier."),
+    low_confidence: zod.number().describe("Links from this model in the 'low' tier."),
 })
 
 export type IdentityMatchingRunModelCountApi = zod.input<typeof IdentityMatchingRunModelCountApi>
@@ -127,9 +137,17 @@ export const IdentityMatchingRunApi = zod.object({
             zod.object({
                 model_version: zod.string().describe("Scoring model, e.g. 'rules_v1' or 'logreg_v1'."),
                 link_count: zod.number().describe('Number of links this model produced in the run.'),
+                high_confidence: zod.number().describe("Links from this model in the 'high' tier."),
+                medium_confidence: zod.number().describe("Links from this model in the 'medium' tier."),
+                low_confidence: zod.number().describe("Links from this model in the 'low' tier."),
             })
         )
         .describe('Link counts per scoring model in this run.'),
+    total_links: zod.number().describe('Total links across all models in this run.'),
+    unique_orphans: zod.number().describe('Distinct anonymous visitors that were linked.'),
+    paid_touches: zod.number().describe('Links where a paid ad click was recovered for an anonymous visitor.'),
+    first_link_at: zod.iso.datetime({ offset: true }).describe('Earliest link computed_at in the run (UTC).'),
+    last_link_at: zod.iso.datetime({ offset: true }).describe('Latest link computed_at in the run (UTC).'),
 })
 
 export type IdentityMatchingRunApi = zod.input<typeof IdentityMatchingRunApi>
@@ -146,9 +164,21 @@ export const IdentityMatchingRunsResponseApi = zod.object({
                         zod.object({
                             model_version: zod.string().describe("Scoring model, e.g. 'rules_v1' or 'logreg_v1'."),
                             link_count: zod.number().describe('Number of links this model produced in the run.'),
+                            high_confidence: zod.number().describe("Links from this model in the 'high' tier."),
+                            medium_confidence: zod.number().describe("Links from this model in the 'medium' tier."),
+                            low_confidence: zod.number().describe("Links from this model in the 'low' tier."),
                         })
                     )
                     .describe('Link counts per scoring model in this run.'),
+                total_links: zod.number().describe('Total links across all models in this run.'),
+                unique_orphans: zod.number().describe('Distinct anonymous visitors that were linked.'),
+                paid_touches: zod
+                    .number()
+                    .describe('Links where a paid ad click was recovered for an anonymous visitor.'),
+                first_link_at: zod.iso
+                    .datetime({ offset: true })
+                    .describe('Earliest link computed_at in the run (UTC).'),
+                last_link_at: zod.iso.datetime({ offset: true }).describe('Latest link computed_at in the run (UTC).'),
             })
         )
         .describe('Runs ordered by recency, most recent first.'),
