@@ -11,7 +11,13 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { DashboardBasicType } from '~/types'
 
 import type { dashboardsFileSystemLogicType } from './dashboardsFileSystemLogicType'
-import { buildEntryByRef, buildFolderTree, FolderTreeNode, subtreeDashboards } from './dashboardsFileSystemUtils'
+import {
+    buildEntryByRef,
+    buildFolderDashboardCounts,
+    buildFolderTree,
+    FolderTreeNode,
+    subtreeDashboards,
+} from './dashboardsFileSystemUtils'
 import { dashboardsLogic } from './dashboardsLogic'
 
 const DASHBOARD_FS_PAGE_LIMIT = 500
@@ -126,6 +132,11 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
             (s) => [s.dashboards, s.entryByRef, s.currentFolder],
             (dashboards, entryByRef, currentFolder): DashboardBasicType[] =>
                 subtreeDashboards(dashboards, entryByRef, currentFolder),
+        ],
+        // Dashboard count per folder path (subtree), for the tree's trailing count badges.
+        folderDashboardCounts: [
+            (s) => [s.dashboards, s.entryByRef],
+            (dashboards, entryByRef): Record<string, number> => buildFolderDashboardCounts(dashboards, entryByRef),
         ],
     }),
     listeners(({ values, actions }) => ({

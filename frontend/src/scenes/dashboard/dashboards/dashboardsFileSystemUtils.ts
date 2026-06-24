@@ -69,6 +69,27 @@ export function buildFolderTree(
     return roots
 }
 
+// Dashboards at or below each folder path, so a folder's badge matches the subtree the table shows when
+// you select it. Each dashboard contributes to its containing folder, every ancestor, and the root ('').
+// Mirrors buildFolderTree's Unfiled handling so the counts line up with the rendered tree.
+export function buildFolderDashboardCounts(
+    dashboards: DashboardBasicType[],
+    entryByRef: Record<string, FileSystemEntry>
+): Record<string, number> {
+    const counts: Record<string, number> = {}
+    for (const dashboard of dashboards) {
+        const entry = entryByRef[String(dashboard.id)]
+        const parentSegments = entry?.path ? splitPath(entry.path).slice(0, -1) : []
+        const segments = parentSegments.length > 0 ? parentSegments : UNFILED_SEGMENTS
+        counts[''] = (counts[''] ?? 0) + 1
+        for (let i = 1; i <= segments.length; i++) {
+            const path = joinPath(segments.slice(0, i))
+            counts[path] = (counts[path] ?? 0) + 1
+        }
+    }
+    return counts
+}
+
 // Every dashboard at or below `currentFolder`, recursively. Root ('') returns all dashboards. The tree
 // arm feeds these to the dashboards table, scoped to the selected folder's subtree.
 export function subtreeDashboards(

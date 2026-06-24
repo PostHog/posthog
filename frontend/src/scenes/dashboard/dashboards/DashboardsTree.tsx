@@ -47,8 +47,15 @@ function collectExpandablePaths(nodes: FolderTreeNode[], acc: string[] = []): st
 // expandedFolders reducer so collapsing sticks and the open/close animation plays. The table's Folder column
 // reads the same entryByRef the scoping uses, so the displayed folder always matches where the dashboard is.
 export function DashboardsTree(): JSX.Element {
-    const { folderTree, currentFolder, currentSubtreeDashboards, entryByRef, expandedFolders, folderEntryByPath } =
-        useValues(dashboardsFileSystemLogic)
+    const {
+        folderTree,
+        currentFolder,
+        currentSubtreeDashboards,
+        entryByRef,
+        expandedFolders,
+        folderEntryByPath,
+        folderDashboardCounts,
+    } = useValues(dashboardsFileSystemLogic)
     const { navigateToFolder, toggleFolder, setExpandedFolders } = useActions(dashboardsFileSystemLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
 
@@ -101,6 +108,23 @@ export function DashboardsTree(): JSX.Element {
                         expandedItemIds={expandedItemIds}
                         // Highlight only the folder you're in; navigating moves it (and clears the rest).
                         isItemActive={(item) => item.record?.path === currentFolder}
+                        renderItem={(item, children) => {
+                            // Trailing count of dashboards in the folder's subtree (what selecting it shows).
+                            if (item.record?.type !== 'folder') {
+                                return children
+                            }
+                            const count = folderDashboardCounts[(item.record?.path as string) ?? ''] ?? 0
+                            return (
+                                <span className="flex items-center gap-1 w-full min-w-0">
+                                    <span className="truncate">{children}</span>
+                                    {count > 0 && (
+                                        <span className="ml-auto shrink-0 text-xxs text-tertiary tabular-nums">
+                                            {count}
+                                        </span>
+                                    )}
+                                </span>
+                            )
+                        }}
                         onSetExpandedItemIds={(newIds) => {
                             // Keyboard expand/collapse: mirror the one folder whose state changed into the
                             // reducer (the root is always open, so it's excluded from the diff).

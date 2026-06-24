@@ -1,7 +1,12 @@
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { DashboardBasicType } from '~/types'
 
-import { buildEntryByRef, buildFolderTree, subtreeDashboards } from './dashboardsFileSystemUtils'
+import {
+    buildEntryByRef,
+    buildFolderDashboardCounts,
+    buildFolderTree,
+    subtreeDashboards,
+} from './dashboardsFileSystemUtils'
 
 const dash = (id: number, name: string): DashboardBasicType => ({ id, name }) as DashboardBasicType
 const entry = (ref: string, path: string): FileSystemEntry =>
@@ -49,6 +54,24 @@ describe('dashboardsFileSystemUtils', () => {
         const dashboards = [dash(1, 'A'), dash(2, 'B'), dash(3, 'C')]
         expect(subtreeDashboards(dashboards, byRef, 'Marketing')).toEqual([dash(1, 'A'), dash(2, 'B')])
         expect(subtreeDashboards(dashboards, byRef, '').map((d) => d.id)).toEqual([1, 2, 3])
+    })
+
+    it('counts dashboards per folder subtree, with ancestors, Unfiled, and the root total', () => {
+        const byRef = buildEntryByRef([
+            entry('1', 'Marketing/A'),
+            entry('2', 'Marketing/Q1/B'),
+            entry('3', 'Product/C'),
+        ])
+        // id 4 has no entry → Unfiled.
+        const dashboards = [dash(1, 'A'), dash(2, 'B'), dash(3, 'C'), dash(4, 'D')]
+        expect(buildFolderDashboardCounts(dashboards, byRef)).toEqual({
+            '': 4,
+            Marketing: 2,
+            'Marketing/Q1': 1,
+            Product: 1,
+            Unfiled: 1,
+            'Unfiled/Dashboards': 1,
+        })
     })
 
     it('subtreeDashboards treats dashboards with no folder entry as Unfiled', () => {
