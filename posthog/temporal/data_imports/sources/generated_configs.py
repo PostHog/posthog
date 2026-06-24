@@ -1947,7 +1947,8 @@ class MongoDBSourceConfig(config.Config):
 
 @config.config
 class MuxSourceConfig(config.Config):
-    pass
+    access_token_id: str
+    secret_key: str
 
 
 @config.config
