@@ -15,7 +15,10 @@ from posthog.schema import (
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
-from posthog.temporal.data_imports.sources.common.integration_accounts import IntegrationAccount
+from posthog.temporal.data_imports.sources.common.integration_accounts import (
+    IntegrationAccount,
+    IntegrationAccountListingError,
+)
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -60,7 +63,13 @@ class GoogleSearchConsoleSource(
         }
 
     def get_oauth_accounts(self, integration_id: int, team_id: int) -> list[IntegrationAccount]:
-        session = google_search_console_session(integration_id, team_id)
+        try:
+            session = google_search_console_session(integration_id, team_id)
+        except Integration.DoesNotExist:
+            raise IntegrationAccountListingError(
+                "The Google Search Console connection for this source no longer exists. "
+                "Please reconnect your Google account."
+            )
         try:
             sites = list_sites(session)
         except requests.HTTPError as e:
@@ -69,11 +78,18 @@ class GoogleSearchConsoleSource(
                 # The token refreshed fine but the connected Google account isn't authorized to read
                 # Search Console — a customer-side connection issue. Surface an actionable message the
                 # endpoint turns into a 400 rather than an unhandled 500.
-                raise ValueError(
+                raise IntegrationAccountListingError(
                     "Google Search Console rejected the credentials. Please reconnect your account "
                     "and ensure it has read access to the property."
                 )
             raise
+        except RefreshError:
+            # The stored OAuth token is revoked/expired/missing scopes — raised while AuthorizedSession
+            # refreshes it. Not a server bug, so surface an actionable reconnect message (400) rather
+            # than letting the raw RefreshError escape as a 500.
+            raise IntegrationAccountListingError(
+                "Could not authenticate with Google Search Console. Please reconnect the integration."
+            )
         # GSC has no name distinct from the site url, so value and display_name are the same.
         return [
             IntegrationAccount(

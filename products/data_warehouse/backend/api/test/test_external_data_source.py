@@ -15,6 +15,7 @@ from django.utils import timezone
 
 import psycopg
 import requests
+from google.auth.exceptions import RefreshError
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
@@ -9848,3 +9849,83 @@ class TestOAuthAccountsEndpoint(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.content
         assert response.json() == {"accounts": []}
+
+    def test_gsc_non_auth_http_error_is_not_swallowed(self):
+        # Only 401/403 become an actionable 400 — any other status keeps surfacing as a 500 so a
+        # genuine bug isn't masked by the auth handling. Restores the parity the old endpoint test had.
+        integration = self._gsc_integration()
+        with (
+            patch(f"{self._GSC_MODULE}.google_search_console_session"),
+            patch(f"{self._GSC_MODULE}.list_sites", side_effect=self._http_error(500)),
+        ):
+            response = self.client.get(self._url("GoogleSearchConsole", integration.id))
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR, response.content
+
+    def test_gsc_unexpected_error_is_not_swallowed(self):
+        # A non-actionable runtime failure inside listing must surface as a 500, not a 400 — a bare
+        # exception is a server bug, not bad user input.
+        integration = self._gsc_integration()
+        with (
+            patch(f"{self._GSC_MODULE}.google_search_console_session"),
+            patch(f"{self._GSC_MODULE}.list_sites", side_effect=RuntimeError("boom")),
+        ):
+            response = self.client.get(self._url("GoogleSearchConsole", integration.id))
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR, response.content
+
+    def test_gsc_revoked_token_returns_actionable_400(self):
+        # The lazy OAuth refresh raises RefreshError when the stored token is revoked/expired; it must
+        # become an actionable 400, not an unhandled 500.
+        integration = self._gsc_integration()
+        with (
+            patch(f"{self._GSC_MODULE}.google_search_console_session"),
+            patch(f"{self._GSC_MODULE}.list_sites", side_effect=RefreshError("invalid_grant")),
+        ):
+            response = self.client.get(self._url("GoogleSearchConsole", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "reconnect the integration" in str(response.json()).lower()
+
+    def test_gsc_missing_integration_returns_400(self):
+        # google_search_console_session raises Integration.DoesNotExist for a missing/foreign id — it
+        # must surface as an actionable 400, not a 500. (Mocked rather than hitting the real session,
+        # whose lazy credential load calls close_old_connections and would drop the test connection.)
+        integration = self._gsc_integration()
+        with patch(
+            f"{self._GSC_MODULE}.google_search_console_session",
+            side_effect=Integration.DoesNotExist(),
+        ):
+            response = self.client.get(self._url("GoogleSearchConsole", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "reconnect" in str(response.json()).lower()
+
+    @override_settings(BING_ADS_DEVELOPER_TOKEN="dev_token")
+    def test_bing_auth_error_returns_actionable_400(self):
+        # list_accounts funnels SDK auth failures through _wrap_with_fault_detail as a ValueError whose
+        # message carries the original error type; the source maps the known auth substrings to a 400.
+        integration = self._bing_integration()
+        wrapped = ValueError("Failed to list Bing Ads accounts: OAuthTokenRequestException: invalid_grant The grant")
+        with patch(self._BING_LIST_ACCOUNTS, side_effect=wrapped):
+            response = self.client.get(self._url("BingAds", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "reconnect" in str(response.json()).lower()
+
+    @override_settings(BING_ADS_DEVELOPER_TOKEN="dev_token")
+    def test_bing_unexpected_error_is_not_swallowed(self):
+        # A non-actionable failure inside list_accounts must surface as a 500, not be masked as a 400.
+        integration = self._bing_integration()
+        with patch(self._BING_LIST_ACCOUNTS, side_effect=RuntimeError("schema parser exploded")):
+            response = self.client.get(self._url("BingAds", integration.id))
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR, response.content
+
+    @override_settings(BING_ADS_DEVELOPER_TOKEN="dev_token")
+    def test_bing_missing_integration_returns_400(self):
+        # A missing/foreign integration id must surface as an actionable 400, not a 500.
+        response = self.client.get(self._url("BingAds", 99999999))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "reconnect" in str(response.json()).lower()

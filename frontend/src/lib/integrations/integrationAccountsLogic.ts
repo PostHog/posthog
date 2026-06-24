@@ -15,7 +15,7 @@ export const integrationAccountsLogic = kea<integrationAccountsLogicType>([
     actions({
         loadAccounts: true,
         loadAccountsSuccess: (accounts: IntegrationAccountApi[]) => ({ accounts }),
-        loadAccountsFailure: true,
+        loadAccountsFailure: (error: string | null) => ({ error }),
     }),
 
     reducers({
@@ -24,6 +24,14 @@ export const integrationAccountsLogic = kea<integrationAccountsLogicType>([
             {
                 loadAccounts: () => [],
                 loadAccountsSuccess: (_, { accounts }) => accounts,
+            },
+        ],
+        accountsError: [
+            null as string | null,
+            {
+                loadAccounts: () => null,
+                loadAccountsSuccess: () => null,
+                loadAccountsFailure: (_, { error }) => error,
             },
         ],
         accountsLoading: [
@@ -52,7 +60,10 @@ export const integrationAccountsLogic = kea<integrationAccountsLogicType>([
                 if (isBreakpoint(e)) {
                     throw e
                 }
-                actions.loadAccountsFailure()
+                // Surface the backend's actionable 400 message (e.g. "reconnect the integration")
+                // instead of falling back to a generic "no accounts" empty state.
+                const message = e?.data?.detail ?? e?.detail ?? null
+                actions.loadAccountsFailure(message)
             }
         },
     })),

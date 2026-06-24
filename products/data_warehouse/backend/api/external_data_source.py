@@ -56,6 +56,7 @@ from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.clickhouse.source import ClickHouseSource
 from posthog.temporal.data_imports.sources.common.base import AnySource, ExternalWebhookInfo, FieldType, WebhookSource
 from posthog.temporal.data_imports.sources.common.config import Config
+from posthog.temporal.data_imports.sources.common.integration_accounts import IntegrationAccountListingError
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema, build_default_schemas
 from posthog.temporal.data_imports.sources.common.sql import (
@@ -1493,9 +1494,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         except NotImplementedError:
             # An OAuth source that hasn't implemented account listing yet (passes the isinstance check).
             raise ValidationError(f"Source type {source_type} does not support listing OAuth accounts")
-        except ValueError as e:
-            # Sources raise ValueError for actionable, customer-side failures (missing config, the
-            # provider rejecting the credentials). Surface them as a 400 rather than an unhandled 500.
+        except IntegrationAccountListingError as e:
+            # Actionable, customer-side failure (revoked/expired token, deleted integration, the provider
+            # rejecting the credentials) — surface the message as a 400. Anything else (e.g. a bare
+            # ValueError from an internal bug) stays uncaught and becomes a 500 so monitors see it.
             raise ValidationError(str(e))
 
         response_data = {

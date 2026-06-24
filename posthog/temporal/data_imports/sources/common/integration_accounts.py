@@ -2,6 +2,12 @@ import dataclasses
 from typing import Protocol, runtime_checkable
 
 
+class IntegrationAccountListingError(Exception):
+    """Actionable, customer-side failure while listing an integration's accounts (missing config,
+    revoked/expired credentials, a deleted integration). The OAuth accounts endpoint maps it to a 400
+    so the user gets the message; non-actionable failures stay uncaught and surface as a 500."""
+
+
 @dataclasses.dataclass(frozen=True)
 class IntegrationAccount:
     """A selectable account/resource an OAuth integration exposes (a Bing account, a Search Console

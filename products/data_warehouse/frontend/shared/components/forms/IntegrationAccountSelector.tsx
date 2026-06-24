@@ -92,7 +92,9 @@ function IntegrationAccountFieldWithDropdown({
     fieldLabel,
     placeholder,
 }: IntegrationAccountSelectorProps & { integrationId: number }): JSX.Element {
-    const { accounts, accountsLoading } = useValues(integrationAccountsLogic({ id: integrationId, sourceType }))
+    const { accounts, accountsLoading, accountsError } = useValues(
+        integrationAccountsLogic({ id: integrationId, sourceType })
+    )
     const { loadAccounts } = useActions(integrationAccountsLogic({ id: integrationId, sourceType }))
 
     useEffect(() => {
@@ -148,6 +150,7 @@ function IntegrationAccountFieldWithDropdown({
                             emptyMessage="No accounts accessible by this integration."
                             loadingMessage="Loading accounts…"
                         />
+                        {accountsError && <p className="m-0 text-xs text-warning">{accountsError}</p>}
                         {savedValueMissing && (
                             <p className="m-0 text-xs text-warning">
                                 The currently saved {fieldLabel} <code>{value}</code> isn't in the accessible list for
