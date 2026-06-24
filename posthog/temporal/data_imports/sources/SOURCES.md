@@ -195,6 +195,7 @@ the row lists both.
 | teamwork          | HTTP                        | requests                                                        | ✅                          |
 | temporalio        | gRPC (vendor SDK)           | temporalio (`Client`, Rust core via `temporalio.bridge`)        | ⚠️                          |
 | tiktok_ads        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| todoist           | HTTP                        | requests                                                        | ✅                          |
 | trello            | HTTP                        | requests                                                        | ✅                          |
 | twilio            | HTTP                        | requests                                                        | ✅                          |
 | typeform          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -662,7 +663,6 @@ doesn't conflict with concurrent PRs.
 - timely
 - tinyemail
 - tmdb
-- todoist
 - toggl
 - track_pms
 - tremendous
