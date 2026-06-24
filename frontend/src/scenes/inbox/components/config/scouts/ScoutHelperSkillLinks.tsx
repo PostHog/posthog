@@ -1,5 +1,8 @@
 import { Link } from '@posthog/lemon-ui'
 
+// General "learn more" entry point for scouts.
+const SCOUTS_DOCS_URL = 'https://posthog.com/docs/self-driving/scouts'
+
 // Desktop opens these two scout helper skills in its in-app Skills view; cloud has
 // no in-app Skills surface, so they link out to the skill source on GitHub.
 const HELPER_SKILLS = [
@@ -13,11 +16,14 @@ const HELPER_SKILLS = [
     },
 ]
 
-/** One-line pointer to the two official scout helper skills. */
+/** One-line footer: a "learn more" docs link plus pointers to the two official scout helper skills. */
 export function ScoutHelperSkillLinks(): JSX.Element {
     return (
         <span className="text-xs text-muted">
-            Helper skills:{' '}
+            <Link to={SCOUTS_DOCS_URL} target="_blank">
+                Learn more about scouts
+            </Link>
+            {' · Helper skills: '}
             {HELPER_SKILLS.map((skill, index) => (
                 <span key={skill.label}>
                     {index > 0 ? ' · ' : null}
