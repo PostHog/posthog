@@ -55,7 +55,7 @@ export function TaskTracker({ taskId }: TaskTrackerProps): JSX.Element {
                             name: 'Tasks',
                             path: urls.taskTracker(),
                         }}
-                        className="ml-10 w-fit"
+                        className="mt-10 w-fit"
                     />
                     <AllowTrainingCallout featureName="Tasks" />
                     <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
