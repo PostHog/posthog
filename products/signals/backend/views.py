@@ -901,20 +901,16 @@ class SignalReportViewSet(
                 created_at__gt=OuterRef("created_at"),
             )
         )
-        return (
-            SignalReportArtefact.objects.filter(
-                team=self.team,
-                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-            )
-            .filter(~has_newer)
-            # github_login comes from our own UserSocialAuth DB, not user input.
-            # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-            .extra(
-                where=["content::jsonb @> %s::jsonb"],
-                params=[json.dumps([{"github_login": github_login}])],
-            )
-            .values("report_id")
-        )
+        latest_reviewers = SignalReportArtefact.objects.filter(
+            team=self.team,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+        ).filter(~has_newer)
+        # github_login comes from our own UserSocialAuth DB, not user input.
+        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
+        return latest_reviewers.extra(
+            where=["content::jsonb @> %s::jsonb"],
+            params=[json.dumps([{"github_login": github_login}])],
+        ).values("report_id")
 
     def _annotate_is_suggested_reviewer(self, queryset):
         # Annotate is_suggested_reviewer by resolving the current user's GitHub login
