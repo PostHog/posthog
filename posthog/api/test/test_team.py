@@ -567,7 +567,7 @@ def team_api_test_factory():
 
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
             # from posthog.models.insight_caching_state import InsightCachingState
-            from posthog.test.persons import add_cohort_members, create_person
+            from posthog.test.persons import add_cohort_members, add_distinct_id, create_person
 
             from products.cohorts.backend.models.cohort import Cohort
             from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagHashKeyOverride
@@ -578,7 +578,7 @@ def team_api_test_factory():
                 distinct_ids=["example_id"],
                 properties={"email": "tim@posthog.com", "team": "posthog"},
             )
-            person.add_distinct_id("test")
+            add_distinct_id(person=person, distinct_id="test")
             flag = FeatureFlag.objects.create(
                 team=team,
                 name="test",

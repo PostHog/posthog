@@ -55,8 +55,8 @@ create_group(team=self.team, group_type_index=0, group_key="org:5", group_proper
 ### Cohort members
 
 ```python
-add_cohort_members(cohort=cohort, person_ids=[person1.pk, person2.pk])
-remove_cohort_members(cohort=cohort, person_ids=[person1.pk])
+add_cohort_members(cohort=cohort, persons=[person1, person2])
+remove_cohort_members(cohort=cohort, persons=[person1])
 ```
 
 ## Why this exists
