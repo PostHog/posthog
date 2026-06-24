@@ -20,6 +20,7 @@ import {
     SCOUT_RUNS_WINDOW_SPAN,
     scoutRunsWindowLabel,
 } from '../../../utils/scoutRunsWindow'
+import { agentSetupModalLogic } from '../../shell/agentSetupModalLogic'
 import { FleetMemoryCallout } from './FleetMemoryCallout'
 import { ScoutHelperSkillLinks } from './ScoutHelperSkillLinks'
 import { ScoutRowCard } from './ScoutRowCard'
@@ -33,6 +34,7 @@ export function ScoutsFleetSection(): JSX.Element {
     const { scoutConfigs, scoutConfigsLoading, expanded, enabledCount, lastRunAt } = useValues(scoutFleetLogic)
     const { setExpanded, loadScoutConfigs, startRunsPolling, stopRunsPolling } = useActions(scoutFleetLogic)
     const { setScratchpadOpen } = useActions(inboxSceneLogic)
+    const { closeSetupModal } = useActions(agentSetupModalLogic)
 
     // Poll the runs window only while the fleet list is open — the always-mounted setup
     // widget reads configs only and shouldn't trigger the paginated runs requests.
@@ -74,7 +76,14 @@ export function ScoutsFleetSection(): JSX.Element {
         <div className="flex flex-col gap-3">
             <ScoutAlphaBanner />
             <ScoutsSourceGate />
-            <FleetMemoryCallout onOpen={() => setScratchpadOpen(true)} />
+            <FleetMemoryCallout
+                onOpen={() => {
+                    // This section can render inside the scout-troop setup modal; dismiss it so the
+                    // memory view isn't left hidden behind the portal'd modal. No-op outside a modal.
+                    closeSetupModal()
+                    setScratchpadOpen(true)
+                }}
+            />
             <button
                 type="button"
                 onClick={() => setExpanded(!expanded)}
