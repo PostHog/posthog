@@ -401,23 +401,33 @@ jobs:
                   # Exact-branch-point key, kept as the fallback restore-key below.
                   echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
                   # Primary key: content hash of every input that determines the Postgres test
-                  # schema at the merge-base — the Django migration files plus uv.lock. schema.sql.gz
-                  # is `pg_dump --schema-only` + the django_migrations ledger, so it is a pure
-                  # function of these; any master commit sharing them produced an identical dump.
-                  # Keying on the hash (not the merge-base SHA) lets one cache entry be shared by
-                  # every commit/PR with the same migration set, so it stays warm instead of being
+                  # schema at the merge-base — the Django ORM migration files plus uv.lock.
+                  # schema.sql.gz is `pg_dump --schema-only` + the django_migrations ledger, so it is
+                  # a pure function of these; any master commit sharing them produced an identical
+                  # dump. Keying on the hash (not the merge-base SHA) lets one cache entry be shared
+                  # by every commit/PR with the same migration set, so it stays warm instead of being
                   # evicted as a near-unique per-SHA blob — only ~6% of master commits change it.
                   # uv.lock is folded in because a dependency bump can add third-party (e.g. Django
                   # auth) migrations that change the schema without touching repo migrations; keeping
                   # the key a complete function of the schema means a hit can never restore an
                   # "ahead" schema (which would crash pytest with InconsistentMigrationHistory).
-                  # ClickHouse migrations and migrations/test/ helper dirs are excluded — neither
-                  # affects the Postgres dump. Mirrored by the master "Save schema" step.
-                  MIG_HASH=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" \
+                  # Filtered out: ClickHouse migrations and async_migrations definitions (custom
+                  # framework, not `manage.py migrate` — they don't touch the Postgres dump). Any
+                  # future non-Postgres `*/migrations/*.py` framework must be added to this exclude.
+                  # migrations/test/ helper files never match the direct-child `[^/]+\.py$` glob.
+                  # An empty match (e.g. migrations relocated) leaves migrations_key unset, so the
+                  # restore step below falls back to the SHA key. Mirrored by the master save step.
+                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" \
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
-                      | grep -v '/clickhouse/migrations/' \
-                      | LC_ALL=C sort | sha256sum | cut -c1-40)
-                  echo "migrations_key=posthog-schema-mig-${MIG_HASH}" >> $GITHUB_OUTPUT
+                      | grep -vE '/(clickhouse|async_migrations)/migrations/' \
+                      | LC_ALL=C sort) || true
+                  if [ -z "$MIG_FILES" ]; then
+                      echo "migrations_key=" >> $GITHUB_OUTPUT
+                      echo "::notice::no migration files matched — restore will fall back to the SHA schema key"
+                  else
+                      MIG_HASH=$(printf '%s' "$MIG_FILES" | sha256sum | cut -c1-40)
+                      echo "migrations_key=posthog-schema-mig-${MIG_HASH}" >> $GITHUB_OUTPUT
+                  fi
 
             - name: Mint setup-action GitHub token
               id: setup-gh-token
@@ -755,7 +765,9 @@ jobs:
                       ${{ needs.turbo-discover.outputs.schema_cache_key }}
 
             - name: Prime test_posthog from cached schema
-              # No-op on cache miss; pytest --reuse-db falls back to a full migrate.
+              # Cache miss (no file) or a stale/incompatible cached dump both degrade to a full
+              # migrate: on failure db:restore-test-db leaves test_posthog absent or clean-empty,
+              # so pytest --reuse-db recreates and migrates it. Never fail the shard over the cache.
               if: ${{ github.event_name == 'pull_request' }}
               run: |
                   if [ ! -f schema.sql.gz ]; then
@@ -764,7 +776,9 @@ jobs:
                   fi
                   mkdir -p .postgres-backups
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
-                  ./bin/hogli db:restore-test-db
+                  if ! ./bin/hogli db:restore-test-db; then
+                      echo "::warning::Schema restore failed (stale/incompatible cached dump?) — pytest --reuse-db will run a full migrate"
+                  fi
 
             - name: Register Temporal search attributes
               # Some product groups (data_warehouse, batch_exports) connect to a live Temporal
@@ -1483,7 +1497,8 @@ jobs:
               # so they always get a schema from their exact branch point rather than
               # the newest master. LRU eviction handles cleanup.
               # Kept as the exact fallback restore-key alongside the shared migration-set
-              # key below; other workflows (dagster, e2e, mcp) still restore via this key.
+              # key below; the other workflows that consume this cache (dagster, e2e, mcp,
+              # clickhouse-multinode) still restore via this key.
               if: github.event_name == 'push'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
@@ -1492,21 +1507,28 @@ jobs:
 
             - name: Compute migration-set schema key
               # Shared, content-addressed key for the same schema.sql.gz: hash of the schema's
-              # only determinants (Django migration files + uv.lock). Must match the merge-base
-              # computation in turbo-discover "Compute schema cache key" exactly.
+              # only determinants (Django ORM migration files + uv.lock). Must match the merge-base
+              # computation in turbo-discover "Compute schema cache key" exactly — see that step for
+              # what is filtered out and why. Empty match → unset key → the save below is skipped.
               if: github.event_name == 'push'
               id: mig-schema-key
               run: |
-                  MIG_HASH=$(git ls-tree -r --format='%(objectname) %(path)' HEAD \
+                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' HEAD \
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
-                      | grep -v '/clickhouse/migrations/' \
-                      | LC_ALL=C sort | sha256sum | cut -c1-40)
-                  echo "key=posthog-schema-mig-${MIG_HASH}" >> $GITHUB_OUTPUT
+                      | grep -vE '/(clickhouse|async_migrations)/migrations/' \
+                      | LC_ALL=C sort) || true
+                  if [ -z "$MIG_FILES" ]; then
+                      echo "key=" >> $GITHUB_OUTPUT
+                      echo "::notice::no migration files matched — skipping migration-set schema save"
+                  else
+                      MIG_HASH=$(printf '%s' "$MIG_FILES" | sha256sum | cut -c1-40)
+                      echo "key=posthog-schema-mig-${MIG_HASH}" >> $GITHUB_OUTPUT
+                  fi
 
             - name: Save schema to Actions cache (migration-set key)
               # actions/cache/save no-ops if the key already exists, so the first master push
               # with a given migration set seeds it and later identical-set pushes skip cheaply.
-              if: github.event_name == 'push'
+              if: github.event_name == 'push' && steps.mig-schema-key.outputs.key != ''
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
@@ -2250,7 +2272,9 @@ jobs:
                       ${{ needs.turbo-discover.outputs.schema_cache_key }}
 
             - name: Prime test_posthog from cached schema
-              # No-op on cache miss; pytest --reuse-db falls back to a full migrate.
+              # Cache miss (no file) or a stale/incompatible cached dump both degrade to a full
+              # migrate: on failure db:restore-test-db leaves test_posthog absent or clean-empty,
+              # so pytest --reuse-db recreates and migrates it. Never fail the shard over the cache.
               if: ${{ github.event_name == 'pull_request' }}
               run: |
                   if [ ! -f schema.sql.gz ]; then
@@ -2259,7 +2283,9 @@ jobs:
                   fi
                   mkdir -p .postgres-backups
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
-                  ./bin/hogli db:restore-test-db
+                  if ! ./bin/hogli db:restore-test-db; then
+                      echo "::warning::Schema restore failed (stale/incompatible cached dump?) — pytest --reuse-db will run a full migrate"
+                  fi
 
             - name: Restore test durations from cache
               # pytest-split distributes Core/Temporal tests across shards using
@@ -3013,7 +3039,9 @@ jobs:
                       ${{ needs.turbo-discover.outputs.schema_cache_key }}
 
             - name: Prime test_posthog from cached schema
-              # No-op on cache miss; pytest --reuse-db falls back to a full migrate.
+              # Cache miss (no file) or a stale/incompatible cached dump both degrade to a full
+              # migrate: on failure db:restore-test-db leaves test_posthog absent or clean-empty,
+              # so pytest --reuse-db recreates and migrates it. Never fail the shard over the cache.
               if: ${{ github.event_name == 'pull_request' }}
               run: |
                   if [ ! -f schema.sql.gz ]; then
@@ -3022,7 +3050,9 @@ jobs:
                   fi
                   mkdir -p .postgres-backups
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
-                  ./bin/hogli db:restore-test-db
+                  if ! ./bin/hogli db:restore-test-db; then
+                      echo "::warning::Schema restore failed (stale/incompatible cached dump?) — pytest --reuse-db will run a full migrate"
+                  fi
 
             - name: Run async migrations tests
               run: |
