@@ -1,6 +1,8 @@
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any, cast
 
+import unittest
 from freezegun import freeze_time
 from posthog.test.base import ClickhouseTestMixin, FuzzyInt, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import ANY, MagicMock, patch
@@ -13,10 +15,13 @@ from dateutil import parser
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models import Organization, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.test_journeys import journeys_for
 
 from products.actions.backend.models.action import Action
@@ -30,11 +35,20 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.models.web_experiment import WebExperiment
+from products.experiments.backend.presentation.views import LIST_DEFERRED_FIELDS, EnterpriseExperimentsViewSet
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
 
 from ee.api.test.base import APILicensedTest
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
+
+
+def _make(cls, **attrs):
+    """Build an auth instance without running __init__, setting only the attributes the test needs."""
+    instance = cls.__new__(cls)
+    for key, value in attrs.items():
+        setattr(instance, key, value)
+    return instance
 
 
 class TestExperimentCRUD(APILicensedTest):
@@ -396,8 +410,8 @@ class TestExperimentCRUD(APILicensedTest):
         return experiment, action
 
     def test_listing_experiments_with_action_metrics_is_not_nplus1(self) -> None:
-        # Action names are refreshed per metric during serialization; without batching this is one
-        # Action query per metric per experiment. Query count must stay flat as rows grow.
+        # The list serializer omits metrics, so no per-metric Action lookups happen during
+        # serialization. Query count must stay flat as rows grow.
         self._create_experiment_with_action_metrics(0)
 
         with CaptureQueriesContext(connection) as single_row:
@@ -415,18 +429,113 @@ class TestExperimentCRUD(APILicensedTest):
 
         self.assertLessEqual(len(five_rows.captured_queries), len(single_row.captured_queries))
 
-    def test_listing_experiments_refreshes_action_names(self) -> None:
+    def test_list_query_defers_heavy_metric_columns(self) -> None:
+        # Omitting the metric fields lets the list query defer the heavy JSON columns — they must not
+        # be SELECTed from posthog_experiment. metrics/metrics_secondary are the exception: the
+        # is_legacy annotation references them in its predicate (see list_is_legacy_annotation), so
+        # they appear in the WHERE/CASE but never in the SELECT output — the response still omits them
+        # (test_list_omits_heavy_metric_fields_kept_on_detail). The other deferred columns stay absent.
+        self._create_experiment_with_action_metrics(0)
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(f"/api/projects/{self.team.id}/experiments")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        experiment_selects = [
+            query["sql"] for query in ctx.captured_queries if 'FROM "posthog_experiment"' in query["sql"]
+        ]
+        self.assertTrue(experiment_selects, "expected at least one SELECT against posthog_experiment")
+        # Inspected by the is_legacy predicate, so allowed in the SQL (but not in the SELECT output).
+        predicate_columns = {"metrics", "metrics_secondary"}
+        for sql in experiment_selects:
+            for column in LIST_DEFERRED_FIELDS:
+                if column in predicate_columns:
+                    continue
+                # Table-qualified so a same-named column on a joined table (e.g. feature_flag.filters)
+                # doesn't trigger a false positive.
+                self.assertNotIn(f'"posthog_experiment"."{column}"', sql)
+
+    def test_list_reports_is_legacy(self) -> None:
+        # is_legacy must survive the metric omission — it's computed in SQL on the list path so the
+        # frontend badge/duplicate/copy guards keep working without loading the deferred metric JSON.
+        # Cover the inline-metric path and the saved-metric (EXISTS) path, plus a non-legacy control.
+        non_legacy, action = self._create_experiment_with_action_metrics(0)
+
+        legacy_inline = Experiment.objects.create(
+            team=self.team,
+            name="Legacy inline",
+            feature_flag=FeatureFlag.objects.create(team=self.team, key="legacy-inline", created_by=self.user),
+            created_by=self.user,
+            metrics=[{"kind": "ExperimentTrendsQuery"}],
+        )
+
+        legacy_via_saved = Experiment.objects.create(
+            team=self.team,
+            name="Legacy via saved metric",
+            feature_flag=FeatureFlag.objects.create(team=self.team, key="legacy-saved", created_by=self.user),
+            created_by=self.user,
+            metrics=[
+                {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "ActionsNode", "id": action.id}}
+            ],
+        )
+        legacy_saved_metric = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="Legacy saved metric",
+            created_by=self.user,
+            query={"kind": "ExperimentFunnelsQuery"},
+        )
+        ExperimentToSavedMetric.objects.create(experiment=legacy_via_saved, saved_metric=legacy_saved_metric)
+
+        results = self.client.get(f"/api/projects/{self.team.id}/experiments").json()["results"]
+        by_id = {r["id"]: r for r in results}
+
+        self.assertFalse(by_id[non_legacy.id]["is_legacy"])
+        self.assertTrue(by_id[legacy_inline.id]["is_legacy"])
+        self.assertTrue(by_id[legacy_via_saved.id]["is_legacy"])
+
+    def test_detail_reports_is_legacy(self) -> None:
+        experiment, _ = self._create_experiment_with_action_metrics(0)
+        Experiment.objects.filter(pk=experiment.pk).update(metrics=[{"kind": "ExperimentTrendsQuery"}])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.json()["is_legacy"])
+
+    def test_retrieving_experiment_refreshes_action_names(self) -> None:
+        # Action-name refresh lives on the detail response — the list endpoint no longer
+        # returns metrics (see ExperimentBasicSerializer).
         experiment, action = self._create_experiment_with_action_metrics(0)
         action.name = "Renamed action"
         action.save()
 
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments")
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        result = next(r for r in response.json()["results"] if r["id"] == experiment.id)
+        result = response.json()
 
         self.assertEqual(result["metrics"][0]["source"]["name"], "Renamed action")
         self.assertEqual(result["metrics_secondary"][0]["source"]["name"], "Renamed action")
         self.assertEqual(result["saved_metrics"][0]["query"]["source"]["name"], "Renamed action")
+
+    def test_list_omits_heavy_metric_fields_kept_on_detail(self) -> None:
+        # The list view never renders metric definitions, so they're excluded from the list
+        # response (letting the query defer the JSON columns and skip the saved-metric prefetch).
+        # The detail response still includes them.
+        experiment, _ = self._create_experiment_with_action_metrics(0)
+
+        list_result = next(
+            r
+            for r in self.client.get(f"/api/projects/{self.team.id}/experiments").json()["results"]
+            if r["id"] == experiment.id
+        )
+        for omitted in ["metrics", "metrics_secondary", "saved_metrics"]:
+            self.assertNotIn(omitted, list_result)
+        # Fields the list view does use are still present.
+        for kept in ["name", "status", "feature_flag", "parameters"]:
+            self.assertIn(kept, list_result)
+
+        detail_result = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}").json()
+        for present in ["metrics", "metrics_secondary", "saved_metrics"]:
+            self.assertIn(present, detail_result)
 
     def test_creating_updating_basic_experiment(self):
         ff_key = "a-b-tests"
@@ -4364,6 +4473,161 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(archive_response.status_code, status.HTTP_200_OK)
         self.assertTrue(archive_response.json()["archived"])
 
+    def test_archive_experiment_endpoint_disables_feature_flag(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "allow_unknown_events": True,
+                "name": "Archive And Disable Flag",
+                "feature_flag_key": "archive-disable-flag",
+                "start_date": "2024-01-01T10:00",
+                "end_date": "2024-01-15T10:00",
+                "metrics": [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview"},
+                    }
+                ],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+        feature_flag_id = response.json()["feature_flag"]["id"]
+
+        archive_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/archive/",
+            {"disable_feature_flag": True},
+            format="json",
+        )
+        self.assertEqual(archive_response.status_code, status.HTTP_200_OK)
+
+        feature_flag = FeatureFlag.objects.get(id=feature_flag_id)
+        self.assertFalse(feature_flag.active)
+        self.assertTrue(feature_flag.archived)
+
+    def test_archive_endpoint_disable_requires_feature_flag_write_scope(self):
+        def _make_experiment(name: str, key: str) -> tuple[int, int]:
+            resp = self.client.post(
+                f"/api/projects/{self.team.id}/experiments/",
+                {
+                    "allow_unknown_events": True,
+                    "name": name,
+                    "feature_flag_key": key,
+                    "start_date": "2024-01-01T10:00",
+                    "end_date": "2024-01-15T10:00",
+                    "metrics": [
+                        {
+                            "kind": "ExperimentMetric",
+                            "metric_type": "mean",
+                            "source": {"kind": "EventsNode", "event": "$pageview"},
+                        }
+                    ],
+                },
+                format="json",
+            )
+            self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+            return resp.json()["id"], resp.json()["feature_flag"]["id"]
+
+        def _pat(scopes: list[str]) -> str:
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(user=self.user, label="t", secure_value=hash_key_value(token), scopes=scopes)
+            return token
+
+        exp_deny, _ = _make_experiment("Scope Deny", "scope-deny-flag")
+        exp_no_disable, _ = _make_experiment("Scope No Disable", "scope-no-disable-flag")
+        exp_allow, flag_allow = _make_experiment("Scope Allow", "scope-allow-flag")
+
+        self.client.logout()
+
+        # experiment:write alone can't disable the linked flag — that needs feature_flag:write.
+        token = _pat(["experiment:write"])
+        resp = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{exp_deny}/archive/",
+            {"disable_feature_flag": True},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, resp.content)
+
+        # experiment:write alone still archives when not disabling the flag.
+        resp = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{exp_no_disable}/archive/",
+            {"disable_feature_flag": False},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+
+        # With feature_flag:write, disabling the linked flag is allowed.
+        token = _pat(["experiment:write", "feature_flag:write"])
+        resp = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{exp_allow}/archive/",
+            {"disable_feature_flag": True},
+            format="json",
+            headers={"authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        flag = FeatureFlag.objects.get(id=flag_allow)
+        self.assertFalse(flag.active)
+        self.assertTrue(flag.archived)
+
+    @parameterized.expand(
+        [
+            # Personal API key: scopes come off the key.
+            (
+                "pak_denied",
+                _make(PersonalAPIKeyAuthentication, personal_api_key=SimpleNamespace(scopes=["experiment:write"])),
+                False,
+            ),
+            (
+                "pak_allowed",
+                _make(
+                    PersonalAPIKeyAuthentication,
+                    personal_api_key=SimpleNamespace(scopes=["experiment:write", "feature_flag:write"]),
+                ),
+                True,
+            ),
+            ("pak_wildcard", _make(PersonalAPIKeyAuthentication, personal_api_key=SimpleNamespace(scopes=["*"])), True),
+            # OAuth: scope is a space-separated string that must be split.
+            (
+                "oauth_denied",
+                _make(OAuthAccessTokenAuthentication, access_token=SimpleNamespace(scope="experiment:write")),
+                False,
+            ),
+            (
+                "oauth_allowed",
+                _make(
+                    OAuthAccessTokenAuthentication,
+                    access_token=SimpleNamespace(scope="experiment:write feature_flag:write"),
+                ),
+                True,
+            ),
+            ("oauth_wildcard", _make(OAuthAccessTokenAuthentication, access_token=SimpleNamespace(scope="*")), True),
+            (
+                "oauth_empty_scope",
+                _make(OAuthAccessTokenAuthentication, access_token=SimpleNamespace(scope=None)),
+                False,
+            ),
+            # ID-JAG: scopes are already a list.
+            ("id_jag_denied", _make(IDJagAccessTokenAuthentication, scopes=["experiment:write"]), False),
+            (
+                "id_jag_allowed",
+                _make(IDJagAccessTokenAuthentication, scopes=["experiment:write", "feature_flag:write"]),
+                True,
+            ),
+            ("id_jag_wildcard", _make(IDJagAccessTokenAuthentication, scopes=["*"]), True),
+            # Session and other non-token auth aren't scope-limited.
+            ("session_auth", None, True),
+            ("other_auth", object(), True),
+        ]
+    )
+    def test_token_can_write_feature_flag_per_token_type(self, _name, authenticator, expected):
+        request = cast(Any, SimpleNamespace(successful_authenticator=authenticator))
+        viewset = EnterpriseExperimentsViewSet()
+        self.assertEqual(viewset._token_can_write_feature_flag(request), expected)
+
     def test_archive_experiment_endpoint_not_ended(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
@@ -6997,6 +7261,152 @@ class TestExperimentRunningTimeCalculation(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
+class TestExperimentExcludedVariants(APILicensedTest):
+    THREE_VARIANTS = [
+        {"key": "control", "rollout_percentage": 34},
+        {"key": "test-1", "rollout_percentage": 33},
+        {"key": "test-2", "rollout_percentage": 33},
+    ]
+
+    def _create_experiment(self, **overrides: Any) -> dict:
+        payload: dict[str, Any] = {
+            "name": "Excluded variants experiment",
+            "feature_flag_key": "excluded-variants-flag",
+            "filters": {"events": [{"order": 0, "id": "$pageview"}], "properties": []},
+            **overrides,
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/experiments/", payload)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        return response.json()
+
+    def test_create_with_legacy_parameters_populates_column(self):
+        created = self._create_experiment(
+            parameters={"feature_flag_variants": self.THREE_VARIANTS, "excluded_variants": ["test-2"]}
+        )
+
+        self.assertEqual(created["excluded_variants"], ["test-2"])
+
+        experiment = Experiment.objects.get(pk=created["id"])
+        self.assertEqual(experiment.excluded_variants, ["test-2"])
+        assert experiment.parameters is not None
+        self.assertEqual(experiment.parameters["excluded_variants"], ["test-2"])
+
+    def test_create_with_excluded_variants_mirrors_into_parameters(self):
+        created = self._create_experiment(
+            parameters={"feature_flag_variants": self.THREE_VARIANTS},
+            excluded_variants=["test-2"],
+        )
+
+        self.assertEqual(created["excluded_variants"], ["test-2"])
+
+        experiment = Experiment.objects.get(pk=created["id"])
+        assert experiment.parameters is not None
+        self.assertEqual(experiment.parameters["excluded_variants"], ["test-2"])
+
+    def test_update_excluded_variants_does_not_require_feature_flag_variants(self):
+        """The headline of the parameters split: excluding a variant no longer requires
+        re-sending feature_flag_variants, because validation resolves against the flag."""
+        created = self._create_experiment(parameters={"feature_flag_variants": self.THREE_VARIANTS})
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{created['id']}/",
+            {"excluded_variants": ["test-2"]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        experiment = Experiment.objects.get(pk=created["id"])
+        self.assertEqual(experiment.excluded_variants, ["test-2"])
+        # Legacy mirror updated, and the variants stored in parameters survive the merge
+        assert experiment.parameters is not None
+        self.assertEqual(experiment.parameters["excluded_variants"], ["test-2"])
+        self.assertEqual(len(experiment.parameters["feature_flag_variants"]), 3)
+
+    def test_update_excluded_variants_does_not_touch_feature_flag(self):
+        created = self._create_experiment(parameters={"feature_flag_variants": self.THREE_VARIANTS})
+        flag = FeatureFlag.objects.get(key="excluded-variants-flag")
+        self.assertEqual(len(flag.filters["multivariate"]["variants"]), 3)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{created['id']}/",
+            {"excluded_variants": ["test-2"]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        flag.refresh_from_db()
+        self.assertEqual(len(flag.filters["multivariate"]["variants"]), 3)
+
+    def test_update_parameters_derives_column(self):
+        created = self._create_experiment(parameters={"feature_flag_variants": self.THREE_VARIANTS})
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{created['id']}/",
+            {"parameters": {"feature_flag_variants": self.THREE_VARIANTS, "excluded_variants": ["test-2"]}},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        experiment = Experiment.objects.get(pk=created["id"])
+        self.assertEqual(experiment.excluded_variants, ["test-2"])
+
+        # parameters replaces wholesale, so dropping the key clears the canonical column too
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{created['id']}/",
+            {"parameters": {"feature_flag_variants": self.THREE_VARIANTS}},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        experiment.refresh_from_db()
+        self.assertIsNone(experiment.excluded_variants)
+
+    def test_excluded_variants_wins_when_both_sent(self):
+        created = self._create_experiment(parameters={"feature_flag_variants": self.THREE_VARIANTS})
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{created['id']}/",
+            {
+                "parameters": {"feature_flag_variants": self.THREE_VARIANTS, "excluded_variants": ["test-1"]},
+                "excluded_variants": ["test-2"],
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        experiment = Experiment.objects.get(pk=created["id"])
+        self.assertEqual(experiment.excluded_variants, ["test-2"])
+        assert experiment.parameters is not None
+        self.assertEqual(experiment.parameters["excluded_variants"], ["test-2"])
+
+    @parameterized.expand(
+        [
+            ("unknown_variant", ["does-not-exist"]),
+            ("baseline_excluded", ["control"]),
+            ("all_test_variants_excluded", ["test-1", "test-2"]),
+        ]
+    )
+    def test_update_excluded_variants_validates_against_flag_variants(self, _name: str, excluded_variants: list):
+        created = self._create_experiment(parameters={"feature_flag_variants": self.THREE_VARIANTS})
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{created['id']}/",
+            {"excluded_variants": excluded_variants},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
+    @parameterized.expand(
+        [
+            ("non_list", "test-2"),
+            ("non_string_element", [123]),
+        ]
+    )
+    def test_invalid_excluded_variants_rejected(self, _name: str, value):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Invalid excluded variants",
+                "feature_flag_key": "invalid-excluded-variants-flag",
+                "excluded_variants": value,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
 class TestCalculateRunningTimeEndpoint(APILicensedTest):
     def _calculate(self, payload: dict[str, Any]):
         return self.client.post(
@@ -7093,3 +7503,52 @@ class TestCalculateRunningTimeEndpoint(APILicensedTest):
     def test_invalid_input_rejected(self, _name: str, payload: dict):
         response = self._calculate(payload)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
+
+class TestExperimentSerializerSuperset(unittest.TestCase):
+    """Structural guard: ExperimentBasicSerializer must stay a subset of ExperimentSerializer.
+
+    ExperimentBasicApi is a structural subset of ExperimentApi in generated frontend types.
+    If a field is added to the detail serializer but forgotten in the basic one the superset
+    invariant holds — but the reverse (basic grows a field not in detail) would break it, and
+    a mismatched read_only/required on a shared field would produce divergent nullability.
+    """
+
+    def test_basic_fields_are_subset_of_full_fields(self) -> None:
+        from products.experiments.backend.presentation.serializers import (
+            ExperimentBasicSerializer,
+            ExperimentSerializer,
+        )
+
+        basic = ExperimentBasicSerializer()
+        full = ExperimentSerializer()
+        basic_field_names = set(basic.fields.keys())
+        full_field_names = set(full.fields.keys())
+        extra = basic_field_names - full_field_names
+        self.assertFalse(
+            extra,
+            f"ExperimentBasicSerializer has fields not present in ExperimentSerializer: {extra}. "
+            "ExperimentBasicApi must remain a structural subset of ExperimentApi.",
+        )
+
+    def test_shared_fields_have_matching_read_only_and_required(self) -> None:
+        from products.experiments.backend.presentation.serializers import (
+            ExperimentBasicSerializer,
+            ExperimentSerializer,
+        )
+
+        basic = ExperimentBasicSerializer()
+        full = ExperimentSerializer()
+        shared = set(basic.fields.keys()) & set(full.fields.keys())
+        mismatches: list[str] = []
+        for name in sorted(shared):
+            b_field = basic.fields[name]
+            f_field = full.fields[name]
+            if b_field.read_only != f_field.read_only:
+                mismatches.append(f"{name}: read_only basic={b_field.read_only} full={f_field.read_only}")
+            if b_field.required != f_field.required:
+                mismatches.append(f"{name}: required basic={b_field.required} full={f_field.required}")
+        self.assertFalse(
+            mismatches,
+            "Shared fields have mismatched read_only/required between serializers:\n" + "\n".join(mismatches),
+        )

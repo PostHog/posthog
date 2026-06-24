@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 
 import { LemonButton, LemonCheckbox, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
+import { DatePicker } from 'lib/components/DatePicker/DatePicker'
 import { dayjs } from 'lib/dayjs'
-import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 
 const SUGGESTED_REASONS = [
     'Non-deterministic rendering (animations, timestamps)',
@@ -213,12 +213,7 @@ export function QuarantineAction({
 
                     <div>
                         <label className="text-sm font-medium mb-1 block">{copy.expiresLabel}</label>
-                        <LemonCalendarSelectInput
-                            value={expiresAt}
-                            onChange={setExpiresAt}
-                            placeholder="No expiry"
-                            clearable
-                        />
+                        <DatePicker value={expiresAt} onChange={setExpiresAt} placeholder="No expiry" clearable />
                     </div>
                 </div>
             </LemonModal>

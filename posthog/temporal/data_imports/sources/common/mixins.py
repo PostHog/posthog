@@ -89,7 +89,10 @@ def _is_host_safe(host: str, team_id: int) -> tuple[bool, str | None]:
                 return False, _INTERNAL_IP_ERROR
     except socket.gaierror:
         _log("block", "dns_failure", _DNS_FAILURE_ERROR)
-        return False, _DNS_FAILURE_ERROR
+        return (
+            False,
+            f"Couldn't resolve the host '{host}'. Check that it's spelled correctly and reachable from the public internet.",
+        )
 
     _log("allow", "resolved_ip", None, resolved_ips)
     return True, None

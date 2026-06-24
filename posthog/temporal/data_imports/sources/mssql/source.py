@@ -15,9 +15,10 @@ from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.sources.common.base import FieldType
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
 from posthog.temporal.data_imports.sources.generated_configs import MSSQLSourceConfig
-from posthog.temporal.data_imports.sources.mssql.mssql import MSSQLImplementation
+from posthog.temporal.data_imports.sources.mssql.mssql import MSSQLImplementation, retry_on_transient_connection_error
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
@@ -97,6 +98,26 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # fully re-synced to adopt the new type.
             "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
         }
+
+    def get_schemas(
+        self,
+        config: MSSQLSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+    ) -> list[SourceSchema]:
+        # Schema discovery opens a fresh connection on its own periodic cadence. A transient TDS
+        # connection death mid-fetch (DB-Lib 20047, "DBPROCESS is dead or not enabled") recovers on
+        # a fresh connection, so retry the whole connect-and-discover cycle in-process rather than
+        # failing the discovery activity — and surfacing captured error-tracking noise — on the
+        # first blip.
+        def discover() -> list[SourceSchema]:
+            return super(MSSQLSource, self).get_schemas(
+                config, team_id, with_counts=with_counts, names=names, force_refresh=force_refresh
+            )
+
+        return retry_on_transient_connection_error(discover)
 
     @property
     def get_source_config(self) -> SourceConfig:

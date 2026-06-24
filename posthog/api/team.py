@@ -87,7 +87,7 @@ from posthog.utils import (
     safe_cache_set,
 )
 
-from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
+from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
 from products.feature_flags.backend.models.evaluation_context import (
     EvaluationContext,

@@ -21,11 +21,12 @@ use crate::v0_request::DataType;
 use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
 use tracing::Level;
 
+use super::context::Context;
 use crate::router;
-use crate::v1::context::Context;
+use crate::v1::context::RequestContext;
 use crate::v1::sinks::event::Event as SinkEvent;
 use crate::v1::sinks::types::SinkResult;
-use crate::v1::sinks::Destination;
+use crate::v1::sinks::{serialize_batch, Destination};
 use crate::v1::Error;
 
 /// Maps event name to its Kafka destination, mirroring legacy DataType assignment.
@@ -97,27 +98,28 @@ pub async fn process_batch(
     )
     .record(processing_start.elapsed().as_secs_f64());
 
-    // Publish to v1 sink, merge results, build response
+    // Serialize (hoisted out of the sink; parallel for large batches), then
+    // publish and merge results before building the response.
     let sink_router = state
         .v1_sink_router
         .as_ref()
         .ok_or_else(|| Error::ServiceUnavailable("v1 sink router not configured".into()))?;
 
-    let event_refs: Vec<&(dyn SinkEvent + Send + Sync)> = events
-        .iter()
-        .filter(|e| SinkEvent::should_publish(*e))
-        .map(|e| {
-            let r: &(dyn SinkEvent + Send + Sync) = e;
-            r
-        })
-        .collect();
+    // serialize_batch consumes the events and hands them back, so we can keep
+    // correlating results to them and build the response.
+    let (mut events, serialized) =
+        serialize_batch(events, context, state.capture_v1_scatter_gather_min_batch).await;
 
     let sink_results = sink_router
-        .publish_batch(sink_router.default_sink(), context, &event_refs)
+        .publish_batch(sink_router.default_sink(), context, &serialized.prepared)
         .await
         .map_err(|e| Error::InternalError(e.to_string()))?;
 
-    merge_sink_results(&mut events, &sink_results);
+    // Serialize-step failures and sink results are both per-event SinkResults;
+    // merge them together so serialization drops surface in the response.
+    let mut all_results = serialized.failures;
+    all_results.extend(sink_results);
+    merge_sink_results(&mut events, &all_results);
 
     Ok(BatchResponse::build(context, &events))
 }
@@ -183,7 +185,7 @@ fn validate_batch(batch: &Batch) -> Result<(), Error> {
     Ok(())
 }
 
-fn validate_events(context: &Context, batch: Batch) -> Result<Vec<WrappedEvent>, Error> {
+fn validate_events(context: &RequestContext, batch: Batch) -> Result<Vec<WrappedEvent>, Error> {
     let mut events: Vec<WrappedEvent> = Vec::with_capacity(batch.batch.len());
     let mut seen: HashSet<Uuid> = HashSet::with_capacity(batch.batch.len());
     let mut illegal_distinct_id_count: u64 = 0;
@@ -254,7 +256,7 @@ fn validate_events(context: &Context, batch: Batch) -> Result<Vec<WrappedEvent>,
     Ok(events)
 }
 
-fn observe_malformed_events(context: &Context, events: &[WrappedEvent]) {
+fn observe_malformed_events(context: &RequestContext, events: &[WrappedEvent]) {
     let mut malformed: HashMap<&'static str, u64> = HashMap::new();
 
     for event in events.iter() {
@@ -316,7 +318,7 @@ fn validate_event(event: &Event) -> Result<DateTime<Utc>, Error> {
 }
 
 fn normalize_timestamp(
-    context: &Context,
+    context: &RequestContext,
     event: &Event,
     raw_event_ts: DateTime<Utc>,
 ) -> DateTime<Utc> {
@@ -336,7 +338,7 @@ fn normalize_timestamp(
 
 fn apply_historical_rerouting(
     cfg: &router::HistoricalConfig,
-    context: &Context,
+    context: &RequestContext,
     events: &mut [WrappedEvent],
 ) {
     for event in events.iter_mut() {
@@ -366,7 +368,11 @@ fn apply_historical_rerouting(
     }
 }
 
-fn apply_overflow_stamping(limiter: &OverflowLimiter, ctx: &Context, events: &mut [WrappedEvent]) {
+fn apply_overflow_stamping(
+    limiter: &OverflowLimiter,
+    ctx: &RequestContext,
+    events: &mut [WrappedEvent],
+) {
     for event in events.iter_mut() {
         if event.destination != Destination::AnalyticsMain {
             continue;
@@ -468,7 +474,7 @@ async fn apply_restrictions(
 
 async fn apply_token_distinct_id_limits(
     limiter: &GlobalRateLimiter,
-    context: &Context,
+    context: &RequestContext,
     events: &mut [WrappedEvent],
 ) {
     let mut limited_distinct_ids: HashSet<&str> = HashSet::new();
@@ -546,7 +552,7 @@ mod tests {
     };
     use crate::v1::analytics::constants::CAPTURE_V1_PATH;
     use crate::v1::analytics::types::{Batch, Event, Options};
-    use crate::v1::sinks::Destination;
+    use crate::v1::sinks::{Destination, DEFAULT_SCATTER_GATHER_MIN_BATCH};
     use crate::v1::test_utils::{
         self, find_by_did, malformed_wrapped_event, raw_obj, valid_event, wrapped_event,
         wrapped_event_at,
@@ -989,8 +995,8 @@ mod tests {
         DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
     }
 
-    fn ctx_with_skew(server_received_at: DateTime<Utc>, skew: Duration) -> Context {
-        Context {
+    fn ctx_with_skew(server_received_at: DateTime<Utc>, skew: Duration) -> RequestContext {
+        RequestContext {
             api_token: "phc_test".to_string(),
             user_agent: "test/1.0".to_string(),
             content_type: "application/json".to_string(),
@@ -1000,7 +1006,7 @@ mod tests {
             request_id: Uuid::new_v4(),
             client_timestamp: server_received_at + skew,
             client_ip: std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
-            query: crate::v1::analytics::query::Query::default(),
+            raw_query: None,
             method: axum::http::Method::POST,
             path: CAPTURE_V1_PATH,
             server_received_at,
@@ -1646,7 +1652,7 @@ mod tests {
         GlobalRateLimiter::new_with(MockLimiter::new(keys))
     }
 
-    fn td_context() -> Context {
+    fn td_context() -> RequestContext {
         let mut ctx = test_utils::test_context();
         ctx.api_token = "phc_tok".to_string();
         ctx
@@ -2464,7 +2470,7 @@ mod tests {
         let mut state = test_state.state;
         state.v1_sink_router = None;
 
-        let mut ctx = test_utils::test_context();
+        let mut ctx = test_utils::test_analytics_context();
         let batch = valid_batch(vec![valid_event()]);
 
         let err = process_batch(&state, &mut ctx, batch).await.unwrap_err();
@@ -2479,7 +2485,7 @@ mod tests {
         let test_state = crate::v1::test_utils::TestStateBuilder::new().build();
         let state = test_state.state;
 
-        let mut ctx = test_utils::test_context();
+        let mut ctx = test_utils::test_analytics_context();
         // Every event is invalid — empty name, empty distinct_id, bad timestamp.
         let batch = valid_batch(vec![
             Event {
@@ -2561,27 +2567,23 @@ mod tests {
         let mut ctx = test_utils::test_context();
         ctx.created_at = None;
 
-        let mut events = vec![
+        let events = vec![
             wrapped_event("$pageview", "user-1"),
             wrapped_event("$identify", "user-2"),
             wrapped_event("button_clicked", "user-3"),
         ];
 
-        let event_refs: Vec<&(dyn crate::v1::sinks::event::Event + Send + Sync)> = events
-            .iter()
-            .filter(|e| SinkEvent::should_publish(*e))
-            .map(|e| {
-                let r: &(dyn crate::v1::sinks::event::Event + Send + Sync) = e;
-                r
-            })
-            .collect();
+        let (mut events, serialized) =
+            serialize_batch(events, &ctx, DEFAULT_SCATTER_GATHER_MIN_BATCH).await;
 
         let sink_results = router
-            .publish_batch(router.default_sink(), &ctx, &event_refs)
+            .publish_batch(router.default_sink(), &ctx, &serialized.prepared)
             .await
             .unwrap();
 
-        merge_sink_results(&mut events, &sink_results);
+        let mut all_results = serialized.failures;
+        all_results.extend(sink_results);
+        merge_sink_results(&mut events, &all_results);
         let resp = BatchResponse::build(&ctx, &events);
 
         assert!(!resp.has_retry);
@@ -2598,7 +2600,7 @@ mod tests {
         let mut ctx = test_utils::test_context();
         ctx.created_at = None;
 
-        let mut events = vec![
+        let events = vec![
             wrapped_event("$pageview", "user-1"),
             wrapped_event("$pageview", "user-2")
                 .with_result(EventResult::Drop, Some("billing_limit_exceeded")),
@@ -2606,23 +2608,19 @@ mod tests {
                 .with_result(EventResult::Warning, Some("person_processing_disabled")),
         ];
 
-        let event_refs: Vec<&(dyn crate::v1::sinks::event::Event + Send + Sync)> = events
-            .iter()
-            .filter(|e| SinkEvent::should_publish(*e))
-            .map(|e| {
-                let r: &(dyn crate::v1::sinks::event::Event + Send + Sync) = e;
-                r
-            })
-            .collect();
+        let (mut events, serialized) =
+            serialize_batch(events, &ctx, DEFAULT_SCATTER_GATHER_MIN_BATCH).await;
 
-        assert_eq!(event_refs.len(), 2); // only Ok + Warning are published
+        assert_eq!(serialized.prepared.len(), 2); // only Ok + Warning are published
 
         let sink_results = router
-            .publish_batch(router.default_sink(), &ctx, &event_refs)
+            .publish_batch(router.default_sink(), &ctx, &serialized.prepared)
             .await
             .unwrap();
 
-        merge_sink_results(&mut events, &sink_results);
+        let mut all_results = serialized.failures;
+        all_results.extend(sink_results);
+        merge_sink_results(&mut events, &all_results);
         let resp = BatchResponse::build(&ctx, &events);
 
         assert!(!resp.has_retry);
@@ -2643,30 +2641,26 @@ mod tests {
         let mut ctx = test_utils::test_context();
         ctx.created_at = None;
 
-        let mut events = vec![
+        let events = vec![
             wrapped_event("$pageview", "user-1")
                 .with_result(EventResult::Drop, Some("billing_limit_exceeded")),
             wrapped_event("$pageview", "user-2")
                 .with_result(EventResult::Drop, Some("billing_limit_exceeded")),
         ];
 
-        let event_refs: Vec<&(dyn crate::v1::sinks::event::Event + Send + Sync)> = events
-            .iter()
-            .filter(|e| SinkEvent::should_publish(*e))
-            .map(|e| {
-                let r: &(dyn crate::v1::sinks::event::Event + Send + Sync) = e;
-                r
-            })
-            .collect();
+        let (mut events, serialized) =
+            serialize_batch(events, &ctx, DEFAULT_SCATTER_GATHER_MIN_BATCH).await;
 
-        assert!(event_refs.is_empty());
+        assert!(serialized.prepared.is_empty());
 
         let sink_results = router
-            .publish_batch(router.default_sink(), &ctx, &event_refs)
+            .publish_batch(router.default_sink(), &ctx, &serialized.prepared)
             .await
             .unwrap();
 
-        merge_sink_results(&mut events, &sink_results);
+        let mut all_results = serialized.failures;
+        all_results.extend(sink_results);
+        merge_sink_results(&mut events, &all_results);
         let resp = BatchResponse::build(&ctx, &events);
 
         assert!(!resp.has_retry);
@@ -2681,24 +2675,20 @@ mod tests {
         let mut ctx = test_utils::test_context();
         ctx.created_at = None;
 
-        let mut events =
+        let events =
             vec![wrapped_event("$pageview", "user-1").with_destination(Destination::Overflow)];
 
-        let event_refs: Vec<&(dyn crate::v1::sinks::event::Event + Send + Sync)> = events
-            .iter()
-            .filter(|e| SinkEvent::should_publish(*e))
-            .map(|e| {
-                let r: &(dyn crate::v1::sinks::event::Event + Send + Sync) = e;
-                r
-            })
-            .collect();
+        let (mut events, serialized) =
+            serialize_batch(events, &ctx, DEFAULT_SCATTER_GATHER_MIN_BATCH).await;
 
         let sink_results = router
-            .publish_batch(router.default_sink(), &ctx, &event_refs)
+            .publish_batch(router.default_sink(), &ctx, &serialized.prepared)
             .await
             .unwrap();
 
-        merge_sink_results(&mut events, &sink_results);
+        let mut all_results = serialized.failures;
+        all_results.extend(sink_results);
+        merge_sink_results(&mut events, &all_results);
         let resp = BatchResponse::build(&ctx, &events);
 
         assert!(!resp.has_retry);

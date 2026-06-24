@@ -1,66 +1,41 @@
-from rest_framework import mixins, serializers, viewsets
+from rest_framework import viewsets
+from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingSpikeEvent
+from products.error_tracking.backend.facade import (
+    api as error_tracking_api,
+    contracts,
+)
+from products.error_tracking.backend.presentation.pagination import paginate_via_facade
 
 
-class ErrorTrackingSpikeEventIssueSerializer(serializers.ModelSerializer):
+class ErrorTrackingSpikeEventSerializer(DataclassSerializer):
     class Meta:
-        model = ErrorTrackingIssue
-        fields = ["id", "name", "description"]
-        read_only_fields = fields
+        dataclass = contracts.ErrorTrackingSpikeEvent
 
 
-class ErrorTrackingSpikeEventSerializer(serializers.ModelSerializer):
-    issue = ErrorTrackingSpikeEventIssueSerializer(read_only=True)
-
-    class Meta:
-        model = ErrorTrackingSpikeEvent
-        fields = [
-            "id",
-            "issue",
-            "detected_at",
-            "computed_baseline",
-            "current_bucket_value",
-        ]
-        read_only_fields = fields
-
-
-class ErrorTrackingSpikeEventViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
+class ErrorTrackingSpikeEventViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "error_tracking"
     serializer_class = ErrorTrackingSpikeEventSerializer
-    queryset = ErrorTrackingSpikeEvent.objects.all()
 
-    ALLOWED_ORDER_FIELDS = [
-        "detected_at",
-        "-detected_at",
-        "computed_baseline",
-        "-computed_baseline",
-        "current_bucket_value",
-        "-current_bucket_value",
-    ]
+    def list(self, request, *args, **kwargs):
+        issue_ids_param = request.query_params.get("issue_ids")
+        issue_ids = [uid.strip() for uid in issue_ids_param.split(",") if uid.strip()] if issue_ids_param else None
+        date_from = request.query_params.get("date_from")
+        date_to = request.query_params.get("date_to")
+        order_by = request.query_params.get("order_by")
 
-    def safely_get_queryset(self, queryset):
-        qs = queryset.filter(team_id=self.team.id).select_related("issue")
-
-        issue_ids_param = self.request.query_params.get("issue_ids")
-        if issue_ids_param:
-            ids = [uid.strip() for uid in issue_ids_param.split(",") if uid.strip()]
-            if ids:
-                qs = qs.filter(issue_id__in=ids)
-
-        date_from = self.request.query_params.get("date_from")
-        date_to = self.request.query_params.get("date_to")
-        if date_from:
-            qs = qs.filter(detected_at__gte=date_from)
-        if date_to:
-            qs = qs.filter(detected_at__lte=date_to)
-
-        order_by = self.request.query_params.get("order_by")
-        if order_by and order_by in self.ALLOWED_ORDER_FIELDS:
-            qs = qs.order_by(order_by)
-        else:
-            qs = qs.order_by("-detected_at")
-
-        return qs
+        return paginate_via_facade(
+            self,
+            request,
+            lambda limit, offset: error_tracking_api.list_spike_events(
+                team_id=self.team.id,
+                issue_ids=issue_ids or None,
+                date_from=date_from,
+                date_to=date_to,
+                order_by=order_by,
+                limit=limit,
+                offset=offset,
+            ),
+        )

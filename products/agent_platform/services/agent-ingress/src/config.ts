@@ -14,6 +14,7 @@ import {
     DEV_POSTHOG_API_BASE_URL,
     DEV_REDIS_URL,
     extendEnvKeyMap,
+    isDev,
     loadConfigFromEnv,
     PLATFORM_ENV_KEY_MAP,
     PlatformConfigSchema,
@@ -22,7 +23,12 @@ import {
 } from '@posthog/agent-shared'
 
 export const AgentIngressConfigSchema = PlatformConfigSchema.extend({
-    port: z.coerce.number().int().positive().default(8080).describe('HTTP listen port.'),
+    port: z.coerce
+        .number()
+        .int()
+        .positive()
+        .default(() => (isDev() ? 3030 : 8080))
+        .describe('HTTP listen port. Dev defaults to 3030; deployed sets it explicitly.'),
     // /listen SSE subscribes to the bus; HTTPS_PROXY routes outbound (Slack bridge,
     // PostHog introspect) through smokescreen. Both required in prod, enforced here
     // rather than via boot guards in index.ts.

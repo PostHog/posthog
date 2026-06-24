@@ -11,6 +11,7 @@ from posthog.schema import (
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -63,6 +64,11 @@ You can create an API key in your [MailerLite integrations settings](https://das
             "401 Client Error: Unauthorized for url: https://connect.mailerlite.com": "Your MailerLite API key is invalid or expired. Please generate a new key and reconnect.",
             "403 Client Error: Forbidden for url: https://connect.mailerlite.com": "Your MailerLite API key does not have the required permissions. Please check the key and reconnect.",
         }
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.mailerlite.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
 
     def get_schemas(
         self,

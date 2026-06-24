@@ -145,6 +145,7 @@ async def execute_task_processing_workflow_async(
     slack_thread_context: Optional[Any] = None,
     skip_user_check: bool = False,
     posthog_mcp_scopes: PosthogMcpScopes = "read_only",
+    prewarmed: bool = False,
     workflow_id_prefix: Optional[str] = None,
 ) -> None:
     """
@@ -172,6 +173,7 @@ async def execute_task_processing_workflow_async(
             create_pr=create_pr,
             slack_thread_context=slack_context_dict,
             posthog_mcp_scopes=posthog_mcp_scopes,
+            prewarmed=prewarmed,
         )
 
         logger.info(
@@ -223,6 +225,7 @@ def execute_task_processing_workflow(
     slack_thread_context: Optional["SlackThreadContext"] = None,
     skip_user_check: bool = False,
     posthog_mcp_scopes: PosthogMcpScopes = "read_only",
+    prewarmed: bool = False,
     workflow_id_prefix: Optional[str] = None,
 ) -> None:
     """
@@ -251,6 +254,7 @@ def execute_task_processing_workflow(
             create_pr=create_pr,
             slack_thread_context=slack_context_dict,
             posthog_mcp_scopes=posthog_mcp_scopes,
+            prewarmed=prewarmed,
         )
 
         logger.info(

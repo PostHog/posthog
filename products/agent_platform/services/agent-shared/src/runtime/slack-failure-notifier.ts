@@ -4,7 +4,7 @@
  *
  * Reads channel + thread coordinates off `session.trigger_metadata` (stamped
  * by the slack trigger at enqueue) and resolves the bot token from the
- * application's `encrypted_env` via the shared `SecretResolver`.
+ * revision's `encrypted_env` via the shared `SecretResolver`.
  *
  * Failure modes are all silent (logged at warn, returned without throwing) —
  * the dispatcher already does an outer catch but the notifier's own contract
@@ -12,7 +12,7 @@
  * `session.crashed`.
  */
 
-import { AgentApplication } from '../spec/spec'
+import { AgentApplication, AgentRevision } from '../spec/spec'
 import { SLACK_BOT_TOKEN_KEY } from '../spec/trigger-secrets'
 import { FailureNotifier, FailureNotifierInput, userFacingMessage } from './failure-notifier'
 import { HttpFetcher } from './http-client'
@@ -36,7 +36,23 @@ export class SlackFailureNotifier implements FailureNotifier {
         if (!isSlackTriggerMetadata(meta)) {
             return
         }
-        const token = await this.resolveTokenSafely(input.application, input.session.id)
+        // Preview-mode sessions never post failure notices into Slack —
+        // an author iterating on a draft must not have a failed run leak
+        // a synthetic error message into the live channel attached to the
+        // production revision. Log + return; the preview UI surfaces the
+        // failure to the author through the standard `failed` SSE event.
+        if (input.session.is_preview) {
+            this.deps.logger?.info?.(
+                {
+                    session_id: input.session.id,
+                    channel: meta.channel,
+                    thread_ts: meta.thread_ts,
+                },
+                'slack_failure_notifier_skipped_preview'
+            )
+            return
+        }
+        const token = await this.resolveTokenSafely(input.revision, input.application, input.session.id)
         if (!token) {
             return
         }
@@ -67,9 +83,13 @@ export class SlackFailureNotifier implements FailureNotifier {
         }
     }
 
-    private async resolveTokenSafely(application: AgentApplication, sessionId: string): Promise<string | null> {
+    private async resolveTokenSafely(
+        revision: AgentRevision,
+        application: AgentApplication,
+        sessionId: string
+    ): Promise<string | null> {
         try {
-            const token = await this.deps.resolver.resolve(SLACK_BOT_TOKEN_KEY, application)
+            const token = await this.deps.resolver.resolve(SLACK_BOT_TOKEN_KEY, revision)
             if (!token) {
                 this.deps.logger?.warn(
                     { session_id: sessionId, application_id: application.id },

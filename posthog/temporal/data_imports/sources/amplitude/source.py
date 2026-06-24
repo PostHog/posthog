@@ -19,6 +19,7 @@ from posthog.temporal.data_imports.sources.amplitude.amplitude import (
 )
 from posthog.temporal.data_imports.sources.amplitude.settings import AMPLITUDE_ENDPOINTS, EVENTS_ENDPOINT
 from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -43,6 +44,11 @@ class AmplitudeSource(ResumableSource[AmplitudeSourceConfig, AmplitudeResumeConf
             "403 Client Error: Forbidden": message,
             "Invalid API Key": message,
         }
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.amplitude.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
 
     def get_schemas(
         self,

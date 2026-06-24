@@ -5,7 +5,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import { UrlTriggerConfig } from 'lib/components/IngestionControls/types'
 import { compareVersion } from 'lib/utils/semver'
-import { sdkHealthLogic } from 'scenes/onboarding/sdks/sdkHealthLogic'
+import { sdkHealthLogic } from 'scenes/onboarding/shared/sdkHealth/sdkHealthLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { TeamPublicType, TeamType } from '~/types'

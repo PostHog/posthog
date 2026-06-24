@@ -401,14 +401,14 @@ export const AchievementDefinitionScopeEnumApi = {
 export interface AchievementStageApi {
     /** Stage number within the track, 1-5. */
     stage: number
-    /** Hog-themed stage name, e.g. 'Spike Streak'. */
+    /** Stage name within the track, e.g. 'On a roll'. */
     name: string
     /** Progress value needed to unlock this stage, resolved for the user's streak arm. */
     threshold: number
 }
 
 export interface AchievementDefinitionApi {
-    /** Stable track identifier, e.g. 'hog_streak'. */
+    /** Stable track identifier, e.g. 'streak'. */
     key: string
     /** Human-readable track name. */
     display_name: string
@@ -425,6 +425,11 @@ export interface AchievementDefinitionApi {
     stages: AchievementStageApi[]
 }
 
+/**
+ * Map of unlocked stage number (as a string, '1'-'5') to the ISO timestamp it was unlocked.
+ */
+export type AchievementProgressApiUnlockedAt = { [key: string]: string }
+
 export interface AchievementProgressApi {
     /** Track this progress row belongs to. */
     track_key: string
@@ -437,6 +442,8 @@ export interface AchievementProgressApi {
      * @nullable
      */
     last_computed_at: string | null
+    /** Map of unlocked stage number (as a string, '1'-'5') to the ISO timestamp it was unlocked. */
+    unlocked_at: AchievementProgressApiUnlockedAt
 }
 
 export interface PendingCelebrationApi {

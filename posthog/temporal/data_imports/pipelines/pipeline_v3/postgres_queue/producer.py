@@ -17,7 +17,7 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode
 from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.common import SyncTypeLiteral
-from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import BATCH_TABLE
+from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import BATCH_TABLE, BatchQueue
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult
 
 logger = structlog.get_logger(__name__)
@@ -125,6 +125,13 @@ class PostgresProducer:
         if self._workflow_run_id is not None:
             metadata["workflow_run_id"] = self._workflow_run_id
         metadata["timestamp_ns"] = batch_result.timestamp_ns
+
+        if batch_result.batch_index == 0 and not self._is_resume:
+            superseded = BatchQueue.supersede_other_runs(
+                self._conn, job_id=self._job_id, current_run_uuid=self._run_uuid
+            )
+            if superseded > 0:
+                self._logger.info("superseded_old_run_batches", count=superseded)
 
         self._conn.execute(
             f"""

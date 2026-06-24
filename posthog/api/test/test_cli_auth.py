@@ -254,9 +254,11 @@ class TestCLIAuthAuthorizeEndpoint(APIBaseTest):
 
     def test_authorization_updates_cache_with_api_key(self):
         """Test that authorization updates the cache with the API key"""
+        submitted_scopes = ["error_tracking:write"]
+
         response = self.client.post(
             "/api/cli-auth/authorize/",
-            {"user_code": self.user_code, "project_id": self.team.id},
+            {"user_code": self.user_code, "project_id": self.team.id, "scopes": submitted_scopes},
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -268,6 +270,7 @@ class TestCLIAuthAuthorizeEndpoint(APIBaseTest):
         self.assertEqual(device_data["status"], "authorized")
         self.assertIn("personal_api_key", device_data)
         self.assertEqual(device_data["project_id"], str(self.team.id))
+        self.assertEqual(device_data["scopes"], submitted_scopes)
         self.assertEqual(device_data["user_id"], self.user.id)
 
     def test_multiple_users_can_authorize_different_codes(self):
@@ -349,10 +352,12 @@ class TestCLIAuthPollEndpoint(APIBaseTest):
 
     def test_poll_returns_api_key_after_authorization(self):
         """Test that polling returns API key after user authorizes"""
+        submitted_scopes = ["error_tracking:write"]
+
         # Authorize the code
         self.client.post(
             "/api/cli-auth/authorize/",
-            {"user_code": self.user_code, "project_id": self.team.id},
+            {"user_code": self.user_code, "project_id": self.team.id, "scopes": submitted_scopes},
         )
 
         # Poll for the result
@@ -364,6 +369,7 @@ class TestCLIAuthPollEndpoint(APIBaseTest):
         self.assertIn("personal_api_key", data)
         self.assertIn("label", data)
         self.assertEqual(data["project_id"], str(self.team.id))
+        self.assertEqual(data["scopes"], submitted_scopes)
 
         # Verify the API key is valid
         api_key = data["personal_api_key"]

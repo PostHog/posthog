@@ -817,7 +817,11 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
         modifiers=modifiers,
     )
     context.output_format = "TabSeparated"
-    context.database = await database_sync_to_async(Database.create_for)(team=team, modifiers=context.modifiers)
+    # Userless materialization context; bypass warehouse HogQL access control so the model query
+    # can resolve its source tables/views.
+    context.database = await database_sync_to_async(Database.create_for)(
+        team=team, modifiers=context.modifiers, bypass_warehouse_access_control=True
+    )
 
     prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
         query_node, context=context, dialect="clickhouse", settings=settings, stack=[]
@@ -869,7 +873,11 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
         limit_top_select=False,
         modifiers=modifiers,
     )
-    context.database = await database_sync_to_async(Database.create_for)(team=team, modifiers=context.modifiers)
+    # Userless materialization context; bypass warehouse HogQL access control so the model query
+    # can resolve its source tables/views.
+    context.database = await database_sync_to_async(Database.create_for)(
+        team=team, modifiers=context.modifiers, bypass_warehouse_access_control=True
+    )
 
     prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
         query_node, context=context, dialect="clickhouse", settings=settings, stack=[]

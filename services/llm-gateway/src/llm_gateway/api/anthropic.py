@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 import litellm
 import structlog
+from botocore.exceptions import ClientError
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
@@ -16,7 +17,12 @@ from llm_gateway.api.handler import (
     handle_llm_request,
     normalize_litellm_model_name,
 )
-from llm_gateway.bedrock import count_tokens_with_bedrock, ensure_bedrock_configured, map_to_bedrock_model
+from llm_gateway.bedrock import (
+    count_tokens_with_bedrock,
+    count_tokens_with_bedrock_mantle,
+    ensure_bedrock_configured,
+    map_to_bedrock_model,
+)
 from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
 from llm_gateway.config import get_settings
 from llm_gateway.dependencies import AnthropicCircuitBreakerDep, RateLimitedUser
@@ -98,6 +104,55 @@ BEDROCK_SUPPORTED_PARAMS: frozenset[str] = frozenset(
         "output_config",
     }
 )
+
+
+# Cap how much of a provider error message we copy into structured logs — provider 5xx bodies can be
+# multi-KB HTML error pages (e.g. Cloudflare 520s), and we only need enough to identify the failure.
+_MAX_LOGGED_ERROR_MESSAGE_CHARS = 2048
+
+
+def _exception_log_fields(exc: BaseException, *, prefix: str) -> dict[str, Any]:
+    """Pull the queryable bits out of an exception for structured logging.
+
+    `logger.exception` attaches the traceback via exc_info, but that text doesn't land in the
+    rendered JSON body — so the actual provider error (status + message) is invisible when grepping
+    logs. This surfaces it as explicit fields. For HTTPException we prefer the structured
+    `detail["error"]["message"]` (the real upstream message) over `str(exc)`.
+    """
+    status = getattr(exc, "status_code", None)
+    message = str(exc)
+    detail = getattr(exc, "detail", None)
+    if isinstance(detail, dict):
+        error = detail.get("error")
+        if isinstance(error, dict) and error.get("message"):
+            message = str(error["message"])
+    return {
+        f"{prefix}_status": status,
+        f"{prefix}_error_type": type(exc).__name__,
+        f"{prefix}_error_message": message[:_MAX_LOGGED_ERROR_MESSAGE_CHARS],
+    }
+
+
+def _bedrock_runtime_exception_log_fields(exc: BaseException) -> dict[str, Any]:
+    fields = _exception_log_fields(exc, prefix="runtime")
+    if not isinstance(exc, ClientError):
+        return fields
+
+    error = exc.response.get("Error", {})
+    metadata = exc.response.get("ResponseMetadata", {})
+    status = metadata.get("HTTPStatusCode")
+    if status is not None:
+        fields["runtime_status"] = status
+
+    error_code = error.get("Code")
+    if error_code:
+        fields["runtime_error_code"] = str(error_code)
+
+    message = error.get("Message")
+    if message:
+        fields["runtime_error_message"] = str(message)[:_MAX_LOGGED_ERROR_MESSAGE_CHARS]
+
+    return fields
 
 
 def sanitize_for_bedrock(data: dict[str, Any], *, model: str, product: str) -> dict[str, Any]:
@@ -226,7 +281,7 @@ def _wrap_stream_with_breaker(
 
     inner = response.body_iterator
 
-    async def wrapped() -> AsyncIterator[bytes]:
+    async def wrapped() -> AsyncIterator[str | bytes | memoryview]:
         success = True
         try:
             async for chunk in inner:
@@ -240,8 +295,12 @@ def _wrap_stream_with_breaker(
         finally:
             try:
                 await breaker.record_outcome(success=success)
-            except Exception:
-                logger.exception("circuit_breaker_stream_record_failed")
+            except Exception as exc:
+                logger.exception(
+                    "circuit_breaker_stream_record_failed",
+                    error_type=type(exc).__name__,
+                    error_message=str(exc),
+                )
 
     response.body_iterator = wrapped()
     return response
@@ -296,9 +355,16 @@ async def _handle_anthropic_messages(
             result = await _send_bedrock_messages(data, user, request, body.stream or False, product)
             BEDROCK_FALLBACK_SUCCESS.labels(model=body.model, product=product).inc()
             return result
-        except Exception:
+        except Exception as bedrock_exc:
             BEDROCK_FALLBACK_FAILURE.labels(model=body.model, product=product).inc()
-            logger.exception("Bedrock fallback also failed", model=body.model, product=product)
+            logger.exception(
+                "Bedrock fallback also failed",
+                model=body.model,
+                product=product,
+                original_status=exc.status_code,
+                original_error_type=error_type,
+                **_exception_log_fields(bedrock_exc, prefix="bedrock"),
+            )
             raise exc from None
     else:
         if isinstance(result, StreamingResponse):
@@ -346,9 +412,16 @@ async def _handle_count_tokens(
             result = await _bedrock_count_tokens_impl(data, body.model, user, product)
             BEDROCK_FALLBACK_SUCCESS.labels(model=body.model, product=product).inc()
             return result
-        except Exception:
+        except Exception as bedrock_exc:
             BEDROCK_FALLBACK_FAILURE.labels(model=body.model, product=product).inc()
-            logger.exception("Bedrock count_tokens fallback also failed", model=body.model, product=product)
+            logger.exception(
+                "Bedrock count_tokens fallback also failed",
+                model=body.model,
+                product=product,
+                original_status=exc.status_code,
+                original_error_type=error_type,
+                **_exception_log_fields(bedrock_exc, prefix="bedrock"),
+            )
             raise exc from None
     else:
         await _record_anthropic_outcome(breaker, success=True)
@@ -449,28 +522,45 @@ async def _bedrock_count_tokens_impl(
             settings.request_timeout,
         )
         return {"input_tokens": input_tokens}
-    except HTTPException as e:
-        status_code = str(e.status_code)
-        raise
     except Exception as e:
-        status_code = "502"
-        error_type_name = type(e).__name__
+        # bedrock-runtime CountTokens doesn't support every Claude model (cross-Region-inference-only
+        # models like claude-opus-4-8 return a ValidationException). AWS's recommended path for those
+        # is Anthropic's count_tokens API on the bedrock-mantle endpoint — try it before giving up.
         logger.exception(
-            "Error proxying bedrock count_tokens request",
+            "Bedrock CountTokens failed",
             model=bedrock_model,
-            max_tokens=data.get("max_tokens", 4096),
-            error_type=error_type_name,
-            error_message=str(e),
+            product=product,
+            **_bedrock_runtime_exception_log_fields(e),
         )
-        raise HTTPException(
-            status_code=502,
-            detail={
-                "error": {
-                    "message": f"Failed to count tokens via Bedrock ({error_type_name})",
-                    "type": "proxy_error",
-                }
-            },
-        ) from e
+        logger.info("Attempting bedrock-mantle count_tokens fallback", model=bedrock_model, product=product)
+        try:
+            input_tokens = await count_tokens_with_bedrock_mantle(
+                data,
+                bedrock_model,
+                bedrock_region_name,
+                settings.request_timeout,
+                product=product,
+            )
+            return {"input_tokens": input_tokens}
+        except Exception as mantle_exc:
+            status_code = "502"
+            error_type_name = type(mantle_exc).__name__
+            logger.exception(
+                "Error proxying bedrock-mantle count_tokens request",
+                model=bedrock_model,
+                product=product,
+                **_exception_log_fields(mantle_exc, prefix="mantle"),
+                **_bedrock_runtime_exception_log_fields(e),
+            )
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "error": {
+                        "message": f"Failed to count tokens via Bedrock ({error_type_name})",
+                        "type": "proxy_error",
+                    }
+                },
+            ) from mantle_exc
     finally:
         REQUEST_COUNT.labels(
             endpoint=BEDROCK_COUNT_TOKENS_ENDPOINT_NAME,

@@ -12,6 +12,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
 import { NewSurvey, SURVEY_CREATED_SOURCE, SurveyTemplateType } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
+import { recordWebAnalyticsInteraction } from 'scenes/web-analytics/achievements/recordInteraction'
 
 import {
     Breakdown,
@@ -72,6 +73,8 @@ import {
     Survey,
     SurveyQuestionType,
 } from '~/types'
+
+import { InteractionKindEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import type { eventUsageLogicType } from './eventUsageLogicType'
 
@@ -791,7 +794,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             properties: {
                 experiment_id: number
                 recalculation_id: string | null
-                trigger?: 'manual' | 'experiment_launch' | 'experiment_stop' | 'experiment_update'
+                trigger?:
+                    | 'manual'
+                    | 'cold_run'
+                    | 'stale_refresh'
+                    | 'auto_refresh'
+                    | 'config_change'
+                    | 'experiment_launch'
+                    | 'experiment_stop'
+                    | 'experiment_update'
                 is_existing?: boolean
                 total_metrics?: number
                 succeeded?: number
@@ -983,6 +994,34 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportBillingUsageInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
         reportBillingSpendInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
         reportSDKSelected: (sdk: SDK) => ({ sdk }),
+        // Setup wizard sync (CLI ↔ app) funnel. Fired from the onboarding install step's
+        // progress tracker; guards for "once per session" live in that logic.
+        reportWizardSyncSessionDetected: (props: {
+            workflowId: string
+            skillId: string
+            runPhase: string
+            taskCount: number
+        }) => props,
+        reportWizardSyncSessionFinished: (props: {
+            workflowId: string
+            skillId: string
+            outcome: string
+            taskCount: number
+            completedTaskCount: number
+            elapsedSeconds: number
+        }) => props,
+        reportWizardSyncDismissed: (props: {
+            workflowId: string
+            skillId?: string
+            outcome: string
+            elapsedSeconds: number
+        }) => props,
+        reportWizardSyncProgressExpanded: (props: {
+            workflowId?: string
+            skillId?: string
+            displayState: string
+            progressPct: number
+        }) => props,
         reportAccountOwnerClicked: ({ name, email }: { name: string; email: string }) => ({ name, email }),
         // revenue analytics
         reportRevenueAnalyticsViewed: (delay?: number) => ({ delay }),
@@ -2301,6 +2340,47 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 sdk: sdk.key,
             })
         },
+        reportWizardSyncSessionDetected: ({ workflowId, skillId, runPhase, taskCount }) => {
+            posthog.capture('setup wizard sync session detected', {
+                workflow_id: workflowId,
+                skill_id: skillId,
+                run_phase: runPhase,
+                task_count: taskCount,
+            })
+        },
+        reportWizardSyncSessionFinished: ({
+            workflowId,
+            skillId,
+            outcome,
+            taskCount,
+            completedTaskCount,
+            elapsedSeconds,
+        }) => {
+            posthog.capture('setup wizard sync session finished', {
+                workflow_id: workflowId,
+                skill_id: skillId,
+                outcome,
+                task_count: taskCount,
+                completed_task_count: completedTaskCount,
+                elapsed_seconds: elapsedSeconds,
+            })
+        },
+        reportWizardSyncDismissed: ({ workflowId, skillId, outcome, elapsedSeconds }) => {
+            posthog.capture('setup wizard sync dismissed', {
+                workflow_id: workflowId,
+                skill_id: skillId,
+                outcome,
+                elapsed_seconds: elapsedSeconds,
+            })
+        },
+        reportWizardSyncProgressExpanded: ({ workflowId, skillId, displayState, progressPct }) => {
+            posthog.capture('setup wizard sync progress expanded', {
+                workflow_id: workflowId,
+                skill_id: skillId,
+                display_state: displayState,
+                progress_pct: progressPct,
+            })
+        },
         // command bar
         reportCommandBarStatusChanged: ({ status }) => {
             posthog.capture('command bar status changed', { status })
@@ -2421,15 +2501,19 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportWebAnalyticsFilterApplied: ({ props }) => {
             posthog.capture('web analytics filter applied', props)
+            recordWebAnalyticsInteraction(InteractionKindEnumApi.Data)
         },
         reportWebAnalyticsFilterRemoved: ({ props }) => {
             posthog.capture('web analytics filter removed', props)
+            recordWebAnalyticsInteraction(InteractionKindEnumApi.Data)
         },
         reportWebAnalyticsDateRangeChanged: ({ props }) => {
             posthog.capture('web analytics date range changed', props)
+            recordWebAnalyticsInteraction(InteractionKindEnumApi.Data)
         },
         reportWebAnalyticsCompareToggled: ({ props }) => {
             posthog.capture('web analytics compare toggled', props)
+            recordWebAnalyticsInteraction(InteractionKindEnumApi.Data)
         },
         reportWebAnalyticsConversionGoalSet: ({ props }) => {
             posthog.capture('web analytics conversion goal set', props)
@@ -2448,6 +2532,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportWebAnalyticsPathCleaningToggled: ({ props }) => {
             posthog.capture('web analytics path cleaning toggled', props)
+            recordWebAnalyticsInteraction(InteractionKindEnumApi.Data)
         },
         // Customer Analytics
         reportCustomerAnalyticsDashboardBusinessModeChanged: async ({ business_mode }) => {

@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useMemo, useState } from 'react'
 
 import { IconCheck, IconPeople, IconPlus, IconX } from '@posthog/icons'
@@ -8,6 +7,7 @@ import { LemonButton, LemonInput, Link, Spinner, Tooltip } from '@posthog/lemon-
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 
+import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { EnrichedReviewer, SignalReport } from '../../types'
 import { RightColumnSection } from './DetailSection'
@@ -64,14 +64,11 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
         action: 'add_suggested_reviewer' | 'remove_suggested_reviewer',
         login?: string | null
     ): void => {
-        posthog.capture('Inbox report action', {
-            report_id: report.id,
-            report_title: report.title ?? null,
-            priority: report.priority ?? null,
-            actionability: report.actionability ?? null,
-            action_type: action,
+        captureInboxReportAction({
+            report,
+            actionType: action,
             surface: 'detail_pane',
-            suggested_reviewer_login: login || undefined,
+            extra: { suggested_reviewer_login: login || undefined },
         })
     }
 
