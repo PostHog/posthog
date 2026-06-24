@@ -66,22 +66,27 @@ skips if the constraint already exists, the validate skips if it is already vali
 
 `ValidateConstraint` from `not_valid_constraint` works unchanged for FK constraints -
 `VALIDATE CONSTRAINT` and the `pg_constraint.convalidated` probe are constraint-type
-agnostic. `ValidateForeignKey` is a thin alias re-exported here so the two FK phases read
-as a pair at the call site.
+agnostic. `ValidateForeignKey` is a thin subclass of it so the two FK phases read as a
+pair at the call site and the validate op deconstructs under its own name.
 """
 
 from django.db.migrations.operations.base import Operation
 
-import structlog
-
 from posthog.migration_helpers.not_valid_constraint import ValidateConstraint, _constraint_validity
 
-logger = structlog.get_logger(__name__)
 
-# VALIDATE CONSTRAINT and the convalidated probe don't care whether the constraint is a
-# CHECK or a FOREIGN KEY, so the phase-2 op is identical. Alias it under an FK-specific
-# name so a call site reads as a matched AddForeignKeyNotValid / ValidateForeignKey pair.
-ValidateForeignKey = ValidateConstraint
+class ValidateForeignKey(ValidateConstraint):
+    """Phase 2 for a FOREIGN KEY: VALIDATE an FK previously added with NOT VALID.
+
+    `VALIDATE CONSTRAINT` and the `pg_constraint.convalidated` probe don't care whether
+    the constraint is a CHECK or a FOREIGN KEY, so the behaviour is entirely inherited from
+    `ValidateConstraint`. This exists as a real subclass (not an alias) so it deconstructs
+    under its own name - a squash that touches an FK validate op round-trips as
+    `ValidateForeignKey`, matching the name the docs tell authors to use, and the migration
+    analyzer can tell FK validation apart from CHECK validation.
+    """
+
+    pass
 
 
 class AddForeignKeyNotValid(Operation):

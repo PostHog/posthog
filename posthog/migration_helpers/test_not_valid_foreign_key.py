@@ -239,6 +239,15 @@ def test_deconstruct_round_trips():
     assert rebuilt.deconstruct() == op.deconstruct()
 
 
+def test_validate_foreign_key_deconstructs_under_own_name():
+    """A subclass, not an alias - so a squash round-trips it as ValidateForeignKey."""
+    op = ValidateForeignKey(model_name=MODEL_NAME, name="tfk")
+    name, args, kwargs = op.deconstruct()
+
+    assert name == "ValidateForeignKey"
+    assert ValidateForeignKey(**kwargs).deconstruct() == op.deconstruct()
+
+
 def test_deconstruct_omits_empty_on_delete():
     op = AddForeignKeyNotValid(model_name=MODEL_NAME, name="tfk", column="parent_id", to_table="some_parent")
     _, _, kwargs = op.deconstruct()
