@@ -1082,7 +1082,6 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="bing_ads_accounts")
     def bing_ads_accounts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """List the Bing Ads accounts the connected Microsoft account can access, across all customers."""
-        from posthog.settings import integrations  # noqa: PLC0415 — keep settings lookup local to the action
         from posthog.temporal.data_imports.sources.bing_ads.client import (  # noqa: PLC0415 — keeps the Bing Ads SDK off the api/ import path
             BingAdsClient,
         )
@@ -1092,7 +1091,7 @@ class IntegrationViewSet(
             raise ValidationError("bing_ads_accounts endpoint is only supported for Bing Ads integrations")
         _ensure_oauth_token_valid(instance)
 
-        if not integrations.BING_ADS_DEVELOPER_TOKEN:
+        if not settings.BING_ADS_DEVELOPER_TOKEN:
             raise ValidationError("Bing Ads developer token is not configured")
 
         cache_key = f"bing_ads/{instance.id}/accounts"
@@ -1103,7 +1102,7 @@ class IntegrationViewSet(
         client = BingAdsClient(
             access_token=instance.access_token,
             refresh_token=instance.refresh_token,
-            developer_token=integrations.BING_ADS_DEVELOPER_TOKEN,
+            developer_token=settings.BING_ADS_DEVELOPER_TOKEN,
         )
         accounts = IntegrationAccountSerializer(
             [dataclasses.asdict(account) for account in client.list_accounts()], many=True

@@ -8,8 +8,7 @@ from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
+    SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
 )
 
@@ -198,17 +197,13 @@ class GoogleSearchConsoleSource(
                         required=True,
                         kind="google-search-console",
                     ),
-                    SourceFieldInputConfig(
+                    SourceFieldOauthAccountSelectConfig(
                         name="site_url",
                         label="Property URL",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
+                        integrationField="google_search_console_integration_id",
+                        integrationKind="google-search-console",
                         placeholder="https://example.com/ or sc-domain:example.com",
-                        caption=(
-                            "The exact verified property URL as it appears in Google Search Console. "
-                            "Use the trailing slash for URL prefix properties or the `sc-domain:` prefix for domain properties."
-                        ),
-                        secret=False,
+                        required=True,
                     ),
                 ],
             ),

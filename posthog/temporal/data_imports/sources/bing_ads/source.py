@@ -4,8 +4,7 @@ from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
+    SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
     SuggestedTable,
 )
@@ -132,13 +131,12 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
                         required=True,
                         kind="bing-ads",
                     ),
-                    SourceFieldInputConfig(
+                    SourceFieldOauthAccountSelectConfig(
                         name="account_id",
                         label="Account ID",
-                        type=SourceFieldInputConfigType.TEXT,
+                        integrationField="bing_ads_integration_id",
+                        integrationKind="bing-ads",
                         required=True,
-                        placeholder="",
-                        secret=False,
                     ),
                 ],
             ),

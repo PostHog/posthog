@@ -273,6 +273,22 @@ export const sourceFieldToElement = (
         )
     }
 
+    // Ad/analytics sources whose account/property field is backed by the shared IntegrationAccount
+    // contract: once the OAuth integration is picked, the text input becomes a dropdown of the
+    // accounts the integration can access (one component, one logic, one endpoint shape for all).
+    if (field.type === 'oauth-account-select') {
+        return (
+            <IntegrationAccountSelector
+                key={field.name}
+                fieldName={field.name}
+                fieldLabel={field.label}
+                integrationField={field.integrationField}
+                integrationKind={field.integrationKind}
+                placeholder={field.placeholder}
+            />
+        )
+    }
+
     if (field.type === 'file-upload') {
         return (
             <LemonField key={field.name} name={field.name} label={field.label}>
@@ -304,34 +320,6 @@ export const sourceFieldToElement = (
     if (field.type === 'text' && field.name === 'repository' && sourceConfig.name === 'Github') {
         // Special case, this is the GitHub repository field
         return <GitHubRepositorySelector key={field.name} />
-    }
-
-    // Ad/analytics sources whose account/property field is backed by the shared IntegrationAccount
-    // contract: once the OAuth integration is picked, the text input becomes a dropdown of the
-    // accounts the integration can access (one component, one logic, one endpoint shape for all).
-    if (field.name === 'site_url' && sourceConfig.name === 'GoogleSearchConsole') {
-        return (
-            <IntegrationAccountSelector
-                key={field.name}
-                fieldName="site_url"
-                fieldLabel="Property URL"
-                integrationField="google_search_console_integration_id"
-                integrationKind="google-search-console"
-                placeholder="https://example.com/ or sc-domain:example.com"
-            />
-        )
-    }
-
-    if (field.name === 'account_id' && sourceConfig.name === 'BingAds') {
-        return (
-            <IntegrationAccountSelector
-                key={field.name}
-                fieldName="account_id"
-                fieldLabel="Account ID"
-                integrationField="bing_ads_integration_id"
-                integrationKind="bing-ads"
-            />
-        )
     }
 
     return (

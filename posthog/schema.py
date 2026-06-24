@@ -2728,6 +2728,25 @@ class SourceFieldFileUploadJsonFormatConfig(BaseModel):
     keys: str | list[str]
 
 
+class SourceFieldOauthAccountSelectConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    integrationField: str = Field(
+        ...,
+        description=("Name of the OAuth integration id field this account selector reads from."),
+    )
+    integrationKind: str = Field(
+        ...,
+        description="Integration kind to validate and route the account fetch through.",
+    )
+    label: str
+    name: str
+    placeholder: str | None = None
+    required: bool | None = None
+    type: Literal["oauth-account-select"] = "oauth-account-select"
+
+
 class SourceFieldOauthConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -26943,6 +26962,7 @@ class SourceConfig(BaseModel):
         | SourceFieldSwitchGroupConfig
         | SourceFieldSelectConfig
         | SourceFieldOauthConfig
+        | SourceFieldOauthAccountSelectConfig
         | SourceFieldFileUploadConfig
         | SourceFieldSSHTunnelConfig
     ]
@@ -26980,6 +27000,7 @@ class SourceConfig(BaseModel):
             | SourceFieldSwitchGroupConfig
             | SourceFieldSelectConfig
             | SourceFieldOauthConfig
+            | SourceFieldOauthAccountSelectConfig
             | SourceFieldFileUploadConfig
             | SourceFieldSSHTunnelConfig
         ]
@@ -27020,6 +27041,7 @@ class SourceFieldSelectConfigOption(BaseModel):
             | SourceFieldSwitchGroupConfig
             | SourceFieldSelectConfig
             | SourceFieldOauthConfig
+            | SourceFieldOauthAccountSelectConfig
             | SourceFieldFileUploadConfig
             | SourceFieldSSHTunnelConfig
         ]
@@ -27040,6 +27062,7 @@ class SourceFieldSwitchGroupConfig(BaseModel):
         | SourceFieldSwitchGroupConfig
         | SourceFieldSelectConfig
         | SourceFieldOauthConfig
+        | SourceFieldOauthAccountSelectConfig
         | SourceFieldFileUploadConfig
         | SourceFieldSSHTunnelConfig
     ]

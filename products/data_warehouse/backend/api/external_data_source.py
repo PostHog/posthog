@@ -28,6 +28,7 @@ from posthog.schema import (
     SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
     SourceFieldSelectConfig,
     SourceFieldSSHTunnelConfig,
@@ -242,7 +243,9 @@ def get_nonsensitive_and_sensitive_field_names(fields: list[FieldType]) -> tuple
             ns, s = get_nonsensitive_and_sensitive_field_names(field.fields)
             nonsensitive.update(ns)
             sensitive.update(s)
-        elif isinstance(field, SourceFieldOauthConfig):
+        elif isinstance(field, SourceFieldOauthConfig | SourceFieldOauthAccountSelectConfig):
+            # The selected account/property is a plain identifier (e.g. Bing Ads account_id,
+            # GSC site_url), not a secret — keep it so the form can prefill on edit.
             _add_name_variants(nonsensitive, field.name)
         elif isinstance(field, SourceFieldSSHTunnelConfig):
             _add_name_variants(nonsensitive, field.name)
