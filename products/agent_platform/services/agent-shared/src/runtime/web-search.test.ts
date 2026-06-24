@@ -70,12 +70,14 @@ describe('searchWithFallback', () => {
                 log
             )
         ).rejects.toThrow(/web_search_all_providers_failed: tried exa, brave/)
-        // Per-provider warns keep the structured detail for operators...
-        expect(log).toHaveBeenCalledWith(
-            'warn',
-            'web_search.provider_failed',
-            expect.objectContaining({ provider: 'brave', error: expect.stringContaining('sensitive') })
-        )
+        // Per-provider warns keep the structured error code intact and the URL
+        // (which may embed the user query in `?q=…`) is scrubbed to `<url>`.
+        // The whole point is that the warn log lands in stdout + Kafka + any
+        // downstream SIEM with a longer retention than the LLM-visible result,
+        // so we don't want the query in it either.
+        const braveCall = log.mock.calls.find((c) => c[2]?.provider === 'brave')
+        expect(braveCall?.[2]?.error).not.toContain('sensitive')
+        expect(braveCall?.[2]?.error).toContain('<url>')
     })
 
     it('does not echo raw provider error messages (which can embed the user query) into the thrown aggregate', async () => {

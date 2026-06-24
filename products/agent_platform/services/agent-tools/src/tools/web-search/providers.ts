@@ -21,6 +21,15 @@ import type {
 /** Cap each snippet so a chatty provider can't blow up the model's context. */
 const MAX_SNIPPET = 2_000
 
+/**
+ * Per-provider deadline. The shared `HttpClient` caps a hung socket at 30s, but
+ * with a 3-provider fallback chain a single tool call could otherwise occupy a
+ * worker session-slot for ~90s during a sustained vendor outage. 10s is short
+ * enough to keep throughput up during a degraded primary; the chain still gives
+ * the call up to ~30s aggregate across all providers.
+ */
+const PER_PROVIDER_TIMEOUT_MS = 10_000
+
 function clip(s: string | undefined): string {
     return (s ?? '').slice(0, MAX_SNIPPET)
 }
@@ -54,6 +63,7 @@ export class ExaProvider implements WebSearchProvider {
                 numResults: input.limit,
                 contents: { highlights: true },
             }),
+            signal: AbortSignal.timeout(PER_PROVIDER_TIMEOUT_MS),
         })
         if (!res.ok) {
             throw new Error(`exa_http_${res.status}`)
@@ -91,6 +101,7 @@ export class TavilyProvider implements WebSearchProvider {
                 max_results: input.limit,
                 search_depth: 'basic',
             }),
+            signal: AbortSignal.timeout(PER_PROVIDER_TIMEOUT_MS),
         })
         if (!res.ok) {
             throw new Error(`tavily_http_${res.status}`)
@@ -123,6 +134,7 @@ export class BraveProvider implements WebSearchProvider {
         const res = await http.fetch(url.toString(), {
             method: 'GET',
             headers: { accept: 'application/json', 'x-subscription-token': this.#apiKey },
+            signal: AbortSignal.timeout(PER_PROVIDER_TIMEOUT_MS),
         })
         if (!res.ok) {
             throw new Error(`brave_http_${res.status}`)

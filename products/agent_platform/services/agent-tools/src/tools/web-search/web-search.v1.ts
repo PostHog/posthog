@@ -1,7 +1,17 @@
-import { defineNativeTool, searchWithFallback, Type } from '@posthog/agent-shared'
+import { defineNativeTool, searchWithFallback, Type, WEB_SEARCH_PROVIDER_NAMES } from '@posthog/agent-shared'
 
 /** Tool id — exported so the runner can gate it out of a session when no provider is configured. */
 export const WEB_SEARCH_TOOL_ID = '@posthog/web-search'
+
+/**
+ * Default + cap for `limit`. Held below the `MAX_SNIPPET` cap (2 KB) × N so a
+ * worst-case tool result body stays bounded — the envelope lands in
+ * `agent_session.conversation` jsonb and is replayed to the model on every
+ * subsequent turn, so the cap is really a per-turn context-window budget
+ * compounded across turns, not just a per-call payload size.
+ */
+const DEFAULT_LIMIT = 10
+const MAX_LIMIT = 10
 
 export const webSearchV1 = defineNativeTool({
     id: WEB_SEARCH_TOOL_ID,
@@ -14,14 +24,14 @@ export const webSearchV1 = defineNativeTool({
     ].join(' '),
     args: Type.Object({
         query: Type.String({ minLength: 1 }),
-        limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 20, default: 10 })),
+        limit: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_LIMIT, default: DEFAULT_LIMIT })),
     }),
     returns: Type.Object({
         /** Which configured provider served the results (primary or a fallback).
-         *  Closed literal union so the JSON Schema sent to the LLM enumerates
-         *  the possible values rather than `string`. Mirror this if
-         *  `WEB_SEARCH_PROVIDER_NAMES` grows. */
-        provider: Type.Union([Type.Literal('exa'), Type.Literal('tavily'), Type.Literal('brave')]),
+         *  Derived from `WEB_SEARCH_PROVIDER_NAMES` (single source of truth in
+         *  agent-shared) so adding a new provider id there automatically updates
+         *  the JSON Schema's `enum` field sent to the LLM. */
+        provider: Type.String({ enum: [...WEB_SEARCH_PROVIDER_NAMES] }),
         results: Type.Array(
             Type.Object({
                 title: Type.String(),
@@ -35,7 +45,7 @@ export const webSearchV1 = defineNativeTool({
     async run(args, ctx) {
         const { results, provider } = await searchWithFallback(
             ctx.webSearchProviders ?? [],
-            { query: args.query, limit: args.limit ?? 10 },
+            { query: args.query, limit: args.limit ?? DEFAULT_LIMIT },
             ctx.http,
             ctx.log
         )

@@ -53,6 +53,19 @@ export interface WebSearchOutcome {
 type WebSearchLog = (level: 'info' | 'warn' | 'error', msg: string, meta?: Record<string, unknown>) => void
 
 /**
+ * Strip URLs from a string. undici fetch failures embed the request URL
+ * (including any `?q=…` query parameter) in `err.message`, and the Brave
+ * provider puts the user query in `?q=…` — so logging the raw message would
+ * round-trip the query (which may contain PII) into stdout, the Kafka
+ * `log_entries` sink, and any downstream SIEM. The aggregate thrown error is
+ * already scrubbed (see comment on `searchWithFallback` below); this keeps
+ * the structured warn log on the same posture.
+ */
+function scrubUrls(message: string): string {
+    return message.replace(/https?:\/\/\S+/g, '<url>')
+}
+
+/**
  * Try each provider in order, returning the first success. A provider that
  * throws (HTTP error / network / parse) is logged and the next is tried.
  * Throws only when nothing is configured or every provider failed.
@@ -61,8 +74,9 @@ type WebSearchLog = (level: 'info' | 'warn' | 'error', msg: string, meta?: Recor
  * undici fetch failures embed the request URL in the message, and the Brave
  * provider puts the user query in `?q=…` — so concatenating raw messages into
  * the final error would round-trip the query (which may contain PII) back to
- * the LLM-visible tool result. The per-provider warn logs above keep the
- * structured error code for operator triage.
+ * the LLM-visible tool result. The per-provider warn logs scrub URLs via
+ * `scrubUrls` for the same reason; structured error codes (`exa_http_401`,
+ * etc.) survive the scrub since they have no URL.
  */
 export async function searchWithFallback(
     providers: readonly WebSearchProvider[],
@@ -81,7 +95,7 @@ export async function searchWithFallback(
         } catch (err) {
             const message = err instanceof Error ? err.message : String(err)
             triedProviders.push(provider.name)
-            log('warn', 'web_search.provider_failed', { provider: provider.name, error: message })
+            log('warn', 'web_search.provider_failed', { provider: provider.name, error: scrubUrls(message) })
         }
     }
     throw new Error(`web_search_all_providers_failed: tried ${triedProviders.join(', ')} (see warn logs for details)`)

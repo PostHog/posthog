@@ -8367,7 +8367,10 @@ export namespace Schemas {
     };
 
     export type AgentRevisionSpec = {
-      /** @minLength 1 */
+      /**
+         * @minLength 1
+         * @pattern ^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$
+         */
       model: string;
       triggers: AgentRevisionSpecTriggersItem[];
       tools: AgentRevisionSpecToolsItem[];
@@ -34526,7 +34529,10 @@ export namespace Schemas {
     };
 
     export type PatchedAgentRevisionSpec = {
-      /** @minLength 1 */
+      /**
+         * @minLength 1
+         * @pattern ^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$
+         */
       model: string;
       triggers: PatchedAgentRevisionSpecTriggersItem[];
       tools: PatchedAgentRevisionSpecToolsItem[];
