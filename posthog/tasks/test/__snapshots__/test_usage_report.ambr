@@ -1,7 +1,7 @@
 # serializer version: 1
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests
   '''
-
+  
   SELECT team_id,
          multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', 'other') AS metric,
          count(1) as count
@@ -36,7 +36,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.1
   '''
-
+  
   SELECT team_id,
          multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', 'other') AS metric,
          count(1) as count
@@ -71,7 +71,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.10
   '''
-
+  
   SELECT team_id,
          multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', 'other') AS metric,
          count(1) as count
@@ -106,7 +106,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.11
   '''
-
+  
   SELECT team_id,
          multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', 'other') AS metric,
          count(1) as count
@@ -141,7 +141,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.12
   '''
-
+  
   SELECT team_id,
          replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') AS ai_lib,
          count(1) as count
@@ -158,7 +158,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.13
   '''
-
+  
   SELECT team_id,
          replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') AS ai_lib,
          count(1) as count
@@ -175,7 +175,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.14
   '''
-
+  
   SELECT team_id,
          replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') AS ai_lib,
          count(1) as count
@@ -192,7 +192,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.15
   '''
-
+  
   SELECT team_id,
          replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') AS ai_lib,
          count(1) as count
@@ -209,7 +209,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.16
   '''
-
+  
   SELECT team_id,
          replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') AS ai_lib,
          count(1) as count
@@ -226,7 +226,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.17
   '''
-
+  
   SELECT team_id,
          replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') AS ai_lib,
          count(1) as count
@@ -243,7 +243,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.18
   '''
-
+  
   SELECT team_id,
          replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') AS ai_lib,
          count(1) as count
@@ -260,7 +260,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.19
   '''
-
+  
   SELECT team_id,
          replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') AS ai_lib,
          count(1) as count
@@ -277,7 +277,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.2
   '''
-
+  
   SELECT team_id,
          multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', 'other') AS metric,
          count(1) as count
@@ -312,7 +312,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.20
   '''
-
+  
   SELECT team_id,
          replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') AS ai_lib,
          count(1) as count
@@ -329,7 +329,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.21
   '''
-
+  
   SELECT team_id,
          replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') AS ai_lib,
          count(1) as count
@@ -346,7 +346,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.22
   '''
-
+  
   SELECT team_id,
          replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') AS ai_lib,
          count(1) as count
@@ -363,7 +363,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.23
   '''
-
+  
   SELECT team_id,
          replaceRegexpAll(JSONExtractRaw(properties, '$ai_lib'), '^"|"$', '') AS ai_lib,
          count(1) as count
@@ -380,7 +380,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.24
   '''
-
+  
   SELECT JSONExtractInt(log_comment, 'team_id') team_id,
          count(1) cnt,
          sum(read_bytes) read_bytes
@@ -396,7 +396,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.25
   '''
-
+  
   SELECT team_id,
          SUM(count) as count
   FROM app_metrics2
@@ -409,7 +409,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.26
   '''
-
+  
   SELECT team_id,
          metric_name,
          SUM(count) as count
@@ -426,7 +426,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.27
   '''
-
+  
   SELECT team_id,
          multiIf(replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'node', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python', 'unknown') AS library,
          count(1) as total
@@ -440,7 +440,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.28
   '''
-
+  
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
@@ -452,7 +452,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.29
   '''
-
+  
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
@@ -464,7 +464,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.3
   '''
-
+  
   SELECT team_id,
          multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', 'other') AS metric,
          count(1) as count
@@ -499,7 +499,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.30
   '''
-
+  
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
@@ -511,7 +511,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.31
   '''
-
+  
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
@@ -523,7 +523,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.32
   '''
-
+  
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
@@ -535,7 +535,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.33
   '''
-
+  
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
@@ -547,7 +547,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.34
   '''
-
+  
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
@@ -559,7 +559,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.35
   '''
-
+  
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
@@ -571,7 +571,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.36
   '''
-
+  
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
@@ -583,7 +583,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.37
   '''
-
+  
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
@@ -595,7 +595,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.38
   '''
-
+  
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
@@ -607,7 +607,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.39
   '''
-
+  
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
@@ -619,7 +619,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.4
   '''
-
+  
   SELECT team_id,
          multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', 'other') AS metric,
          count(1) as count
@@ -654,7 +654,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.40
   '''
-
+  
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
@@ -668,7 +668,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.41
   '''
-
+  
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
@@ -682,7 +682,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.42
   '''
-
+  
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
@@ -696,7 +696,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.43
   '''
-
+  
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
@@ -710,7 +710,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.44
   '''
-
+  
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
@@ -724,7 +724,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.45
   '''
-
+  
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
@@ -738,7 +738,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.46
   '''
-
+  
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
@@ -752,7 +752,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.47
   '''
-
+  
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
@@ -766,7 +766,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.48
   '''
-
+  
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
@@ -780,7 +780,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.49
   '''
-
+  
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
@@ -794,7 +794,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.5
   '''
-
+  
   SELECT team_id,
          multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', 'other') AS metric,
          count(1) as count
@@ -829,7 +829,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.50
   '''
-
+  
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
@@ -843,7 +843,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.51
   '''
-
+  
   SELECT team_id,
          count(distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)) as count
   FROM events
@@ -857,7 +857,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.52
   '''
-
+  
   SELECT team_id,
          count(1) as count
   FROM events
@@ -873,7 +873,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.53
   '''
-
+  
   SELECT team_id,
          count(distinct session_id) as count
   FROM
@@ -896,7 +896,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.54
   '''
-
+  
   SELECT team_id,
          count(distinct session_id) as count
   FROM
@@ -919,7 +919,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.55
   '''
-
+  
   SELECT team_id,
          sum(total_size) as bytes
   FROM
@@ -943,7 +943,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.56
   '''
-
+  
   SELECT team_id,
          count(distinct session_id) as count
   FROM
@@ -966,7 +966,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.57
   '''
-
+  
   SELECT team_id,
          sum(total_size) as bytes
   FROM
@@ -990,7 +990,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.58
   '''
-
+  
   SELECT team_id,
          count(distinct session_id) as count
   FROM
@@ -1017,7 +1017,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.59
   '''
-
+  
   SELECT distinct_id as team,
          sum(JSONExtractInt(properties, 'count')) as sum
   FROM events
@@ -1031,7 +1031,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.6
   '''
-
+  
   SELECT team_id,
          multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', 'other') AS metric,
          count(1) as count
@@ -1066,7 +1066,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.60
   '''
-
+  
   SELECT distinct_id as team,
          sum(JSONExtractInt(properties, 'count')) as sum
   FROM events
@@ -1254,7 +1254,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.7
   '''
-
+  
   SELECT team_id,
          multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', 'other') AS metric,
          count(1) as count
@@ -1349,7 +1349,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.73
   '''
-
+  
   SELECT team_id,
          COUNT() as count
   FROM events
@@ -1373,7 +1373,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.74
   '''
-
+  
   SELECT team_id,
          SUM(count) as count
   FROM app_metrics2
@@ -1388,7 +1388,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.75
   '''
-
+  
   SELECT team_id,
          SUM(count) as count
   FROM app_metrics2
@@ -1402,7 +1402,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.76
   '''
-
+  
   SELECT team_id,
          SUM(count) as count
   FROM app_metrics2
@@ -1415,7 +1415,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.77
   '''
-
+  
   SELECT team_id,
          COUNT() as count
   FROM events
@@ -1427,7 +1427,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.78
   '''
-
+  
   SELECT team_id,
          SUM(count) as count
   FROM app_metrics2
@@ -1441,7 +1441,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.79
   '''
-
+  
   SELECT team_id,
          SUM(count) as count
   FROM app_metrics2
@@ -1455,7 +1455,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.8
   '''
-
+  
   SELECT team_id,
          multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', 'other') AS metric,
          count(1) as count
@@ -1490,7 +1490,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.80
   '''
-
+  
   SELECT team_id,
          SUM(count) as count
   FROM app_metrics2
@@ -1504,7 +1504,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.81
   '''
-
+  
   SELECT team_id,
          SUM(count) as count
   FROM app_metrics2
@@ -1518,7 +1518,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.82
   '''
-
+  
   SELECT team_id,
          SUM(count) as count
   FROM app_metrics2
@@ -1531,7 +1531,7 @@
 # ---
 # name: TestFeatureFlagsUsageReport.test_usage_report_decide_requests.9
   '''
-
+  
   SELECT team_id,
          multiIf(event LIKE 'helicone%', 'helicone_events', event LIKE 'langfuse%', 'langfuse_events', event LIKE 'keywords_ai%', 'keywords_ai_events', event LIKE 'traceloop%', 'traceloop_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'web', 'web_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'js', 'web_lite_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-node', 'node_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-edge', 'edge_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-convex', 'convex_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-android', 'android_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-flutter', 'flutter_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ios', 'ios_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-go', 'go_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-java', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-server', 'java_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-react-native', 'react_native_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-ruby', 'ruby_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-python', 'python_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-php', 'php_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-dotnet', 'dotnet_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-elixir', 'elixir_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-unity', 'unity_events', replaceRegexpAll(JSONExtractRaw(properties, '$lib'), '^"|"$', '') = 'posthog-rs', 'rust_events', 'other') AS metric,
          count(1) as count
