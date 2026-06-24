@@ -16,27 +16,15 @@ import { TrendsLegendItemContextMenu } from './TrendsLegendItemContextMenu'
 interface UseInsightsLegendConfigOptions {
     insightProps: InsightLogicProps
     inSharedMode?: boolean
-    /** Used when the query filter has no saved `legendPosition`. Defaults to `'bottom'`. */
-    defaultPosition?: ChartLegendConfig['position']
-    /**
-     * When `false`, skips the feature-flag gate and omits `hiddenKeys`/`onToggleSeries` so
-     * the chart manages toggle state internally (uncontrolled). Use for lifecycle where all
-     * series share the same `resultCustomizationKey` and controlled toggling doesn't work.
-     * Defaults to `true`.
-     */
-    controlled?: boolean
 }
 
-/** Builds the quill in-chart legend config for the trends-family charts (line/area/cumulative,
- *  stickiness, lifecycle, and bar). With `controlled: true` (default) it wires toggle persistence
- *  and the isolate/show-all context menu through trendsDataLogic, and returns `undefined` when the
- *  quill-legend flag is off. With `controlled: false` it always returns a config and lets the chart
- *  handle toggle state internally. */
+/** Builds the quill in-chart legend config for trends-family charts. Returns `undefined` when the
+ *  quill-legend flag is off. Wires toggle persistence and the isolate/show-all context menu through
+ *  trendsDataLogic. Lifecycle and funnel charts build their legend config inline (they don't read
+ *  from trendsDataLogic or need the flag gate). */
 export function useInsightsLegendConfig({
     insightProps,
     inSharedMode = false,
-    defaultPosition = 'bottom',
-    controlled = true,
 }: UseInsightsLegendConfigOptions): ChartLegendConfig | undefined {
     const { featureFlags } = useValues(featureFlagLogic)
     const quillLegendEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]
@@ -54,24 +42,16 @@ export function useInsightsLegendConfig({
     const legendInteractive = canEditInsight && !inSharedMode
 
     return useMemo<ChartLegendConfig | undefined>(() => {
-        if (controlled && !quillLegendEnabled) {
+        if (!quillLegendEnabled) {
             return undefined
-        }
-
-        const base: ChartLegendConfig = {
-            show: !!showLegend,
-            position: (legendPosition as ChartLegendConfig['position']) ?? defaultPosition,
-            interactive: legendInteractive,
-        }
-
-        if (!controlled) {
-            return base
         }
 
         const hiddenKeys = (indexedResults ?? []).filter((r) => getTrendsHidden(r)).map((r) => String(r.id))
         const showContextMenu = legendInteractive && legendSeriesIsolationMenuEligible
         return {
-            ...base,
+            show: !!showLegend,
+            position: (legendPosition as ChartLegendConfig['position']) ?? 'bottom',
+            interactive: legendInteractive,
             hiddenKeys,
             onToggleSeries: (key: string) => {
                 const result = resultById.get(key)
@@ -94,13 +74,11 @@ export function useInsightsLegendConfig({
                 : undefined,
         }
     }, [
-        controlled,
         quillLegendEnabled,
         indexedResults,
         getTrendsHidden,
         showLegend,
         legendPosition,
-        defaultPosition,
         legendInteractive,
         legendSeriesIsolationMenuEligible,
         resultById,

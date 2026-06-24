@@ -49,6 +49,7 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
         showAnnotations,
         isNonTimeSeriesDisplay,
         interval,
+        usesInChartLegend,
     } = useValues(insightVizDataLogic(insightProps))
     const { isTrendsFunnel } = useValues(funnelDataLogic(insightProps))
     const {
@@ -87,12 +88,11 @@ export function useInsightDisplayOptions(): { items: LemonMenuItems; count: numb
     const showFunnelLegendConfig = isTrendsFunnel && hasBreakdownFilter(breakdownFilter)
     const isBoxPlot = display === ChartDisplayType.BoxPlot
     const isCalendarHeatmap = display === ChartDisplayType.CalendarHeatmap
-    // The in-chart quill legend supports placement, so it gets a single "Legend" select (Hide +
-    // position) instead of the legacy show/hide checkbox. Lifecycle always uses the internal
-    // chart legend (no flag gate), so it always gets the position selector.
-    const useQuillLegendOptions =
-        isLifecycle ||
-        (quillLegendEnabled && ((isTrends && isLineDisplay) || (isStickiness && (isLineDisplay || isBarDisplay))))
+    // When the chart draws its own positioned in-chart legend, show the position selector instead
+    // of the legacy show/hide checkbox. usesInChartLegend is the single source of truth (same
+    // selector used by InsightVizDisplay to suppress the side legend). Funnel trends with breakdown
+    // also get the position selector since they render the quill legend via config.legend.
+    const useQuillLegendOptions = usesInChartLegend || (quillLegendEnabled && showFunnelLegendConfig)
 
     const showDisplaySection =
         (isTrends && !isCalendarHeatmap) || isRetention || isTrendsFunnel || isStickiness || isLifecycle

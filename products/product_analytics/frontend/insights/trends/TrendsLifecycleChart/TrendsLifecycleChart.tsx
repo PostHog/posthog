@@ -48,10 +48,8 @@ const renderLifecycleSeriesLabel = (datum: SeriesDatum): React.ReactNode => datu
 
 export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLifecycleChartProps): JSX.Element | null {
     const theme = useMemo(() => buildTheme(), [])
-    const { insightProps, insight } = useValues(insightLogic)
+    const { insightProps, insight, canEditInsight } = useValues(insightLogic)
 
-    // controlled: false — chart manages toggle state internally. Lifecycle statuses all share the
-    // same resultCustomizationKey (same action.order), so the controlled path can't distinguish them.
     const {
         indexedResults,
         interval,
@@ -69,11 +67,11 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
         showLegend,
         legendPosition,
     } = useValues(trendsDataLogic(insightProps))
-    const { canEditInsight } = useValues(insightLogic)
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
 
-    // controlled: false — chart manages toggle state internally (lifecycle statuses all share the
-    // same resultCustomizationKey, so the controlled path can't distinguish them).
+    // Lifecycle statuses all share the same resultCustomizationKey (same action.order), so
+    // useInsightsLegendConfig can't distinguish them — build the config inline and let the
+    // chart manage toggle state internally.
     const legendConfig = useMemo<ChartLegendConfig>(
         () => ({
             show: !!showLegend,
