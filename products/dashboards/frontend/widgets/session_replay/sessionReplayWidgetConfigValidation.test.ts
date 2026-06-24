@@ -114,21 +114,22 @@ describe('patchSessionReplayWidgetFilterFields', () => {
         expect(cleared.dateRange).toEqual({ date_from: '-30d' })
     })
 
-    it('treats saved filter and collection as mutually exclusive sources', () => {
+    it('sets a collection and saved filter independently so they can be combined', () => {
         const config = sessionReplayWidgetConfigSchema.parse({})
 
+        // A collection (scope) and a saved filter (refinement) coexist — neither clears the other.
         const withCollection = patchSessionReplayWidgetFilterFields(config, { collectionId: 'col123' })
         expect(withCollection.collectionId).toBe('col123')
         expect(withCollection.savedFilterId).toBeNull()
 
-        // Setting a saved filter clears the collection, and vice versa.
-        const withSavedFilter = patchSessionReplayWidgetFilterFields(withCollection, { savedFilterId: 'abc123' })
-        expect(withSavedFilter.savedFilterId).toBe('abc123')
-        expect(withSavedFilter.collectionId).toBeNull()
+        const withBoth = patchSessionReplayWidgetFilterFields(withCollection, { savedFilterId: 'abc123' })
+        expect(withBoth.collectionId).toBe('col123')
+        expect(withBoth.savedFilterId).toBe('abc123')
 
-        const backToCollection = patchSessionReplayWidgetFilterFields(withSavedFilter, { collectionId: 'col456' })
-        expect(backToCollection.collectionId).toBe('col456')
-        expect(backToCollection.savedFilterId).toBeNull()
+        // Clearing one leaves the other untouched.
+        const collectionCleared = patchSessionReplayWidgetFilterFields(withBoth, { collectionId: null })
+        expect(collectionCleared.collectionId).toBeNull()
+        expect(collectionCleared.savedFilterId).toBe('abc123')
     })
 })
 

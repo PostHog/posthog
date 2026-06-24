@@ -39,16 +39,9 @@ export function patchSessionReplayWidgetFilterFields(
     }
 ): SessionReplayWidgetConfig {
     const base = parseSessionReplayWidgetConfig(config)
-    let savedFilterId = patch.savedFilterId !== undefined ? patch.savedFilterId : (base.savedFilterId ?? null)
-    let collectionId = patch.collectionId !== undefined ? patch.collectionId : (base.collectionId ?? null)
-
-    // A saved filter and a collection are mutually exclusive recordings sources — setting one clears the other.
-    if (patch.savedFilterId) {
-        collectionId = null
-    }
-    if (patch.collectionId) {
-        savedFilterId = null
-    }
+    // A collection (scope) and a saved filter (refinement) are independent — each patches only its own field.
+    const savedFilterId = patch.savedFilterId !== undefined ? patch.savedFilterId : (base.savedFilterId ?? null)
+    const collectionId = patch.collectionId !== undefined ? patch.collectionId : (base.collectionId ?? null)
 
     return sessionReplayWidgetConfigSchema.parse({
         ...base,

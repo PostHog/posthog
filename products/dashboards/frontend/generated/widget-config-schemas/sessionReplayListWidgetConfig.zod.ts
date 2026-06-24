@@ -37,13 +37,13 @@ export const SessionReplayListWidgetConfig = /* @__PURE__ */ zod.object({
         .union([zod.string(), zod.null()])
         .optional()
         .describe(
-            'short_id of a saved session replay filter to use as the recordings source. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. Mutually exclusive with collectionId.'
+            'short_id of a saved session replay filter to refine the recordings shown. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. Combine with collectionId to filter within a collection.'
         ),
     collectionId: zod
         .union([zod.string(), zod.null()])
         .optional()
         .describe(
-            'short_id of a session replay collection to use as the recordings source. When set, the widget shows the recordings pinned to that collection; date range and property filters no longer apply, and only orderBy, orderDirection, and limit still take effect. Mutually exclusive with savedFilterId.'
+            'short_id of a session replay collection to scope the widget to its pinned recordings. Combine with savedFilterId or property filters to narrow within the collection; orderBy, orderDirection, and limit still apply.'
         ),
 })
 

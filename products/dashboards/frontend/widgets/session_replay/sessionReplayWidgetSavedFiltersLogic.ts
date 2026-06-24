@@ -8,8 +8,6 @@ import type { SessionRecordingPlaylistType } from '~/types'
 
 import type { sessionReplayWidgetSavedFiltersLogicType } from './sessionReplayWidgetSavedFiltersLogicType'
 
-export type SessionReplaySourceType = 'filters' | 'collection'
-
 const toOptions = (
     playlists: SessionRecordingPlaylistType[],
     unnamedLabel: string
@@ -63,14 +61,6 @@ export const sessionReplayWidgetSavedFiltersLogic = kea<sessionReplayWidgetSaved
             (s) => [s.collectionOptions],
             (collectionOptions): Record<string, string> =>
                 Object.fromEntries(collectionOptions.map((option) => [option.value, option.label])),
-        ],
-        // Maps any source short_id to its type so the tile control knows which config field to write.
-        sourceTypeById: [
-            (s) => [s.savedFilters, s.collections],
-            (savedFilters, collections): Record<string, SessionReplaySourceType> => ({
-                ...Object.fromEntries(savedFilters.map((p) => [p.short_id, 'filters' as const])),
-                ...Object.fromEntries(collections.map((p) => [p.short_id, 'collection' as const])),
-            }),
         ],
     }),
     afterMount(({ actions }) => {

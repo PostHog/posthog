@@ -173,7 +173,8 @@ export function SessionReplayWidget({ result, loading, config }: DashboardWidget
     )
 }
 
-// A saved filter or collection overrides the widget's date range, so the header shows its name in place.
+// A collection or saved filter scopes the widget instead of its date range, so the header shows their
+// names in place — e.g. "My collection · My filter" when both are set.
 export function SessionReplayWidgetTopHeading({
     config,
     widgetTypeLabel,
@@ -186,18 +187,19 @@ export function SessionReplayWidgetTopHeading({
     const collectionId = asShortId(config.collectionId)
     const { savedFilterLabelById, collectionLabelById } = useValues(sessionReplayWidgetSavedFiltersLogic)
 
-    let sourceText: string | null = null
+    const scopeParts: string[] = []
+    if (collectionId) {
+        scopeParts.push(collectionLabelById[collectionId] ?? 'Collection')
+    }
     if (savedFilterId) {
-        sourceText = savedFilterLabelById[savedFilterId] ?? 'Saved filter'
-    } else if (collectionId) {
-        sourceText = collectionLabelById[collectionId] ?? 'Collection'
+        scopeParts.push(savedFilterLabelById[savedFilterId] ?? 'Saved filter')
     }
 
     return (
         <CardTopHeadingRow
             typeLabel={widgetTypeLabel}
             showTypeLabel={showWidgetType}
-            dateText={sourceText ?? dateText}
+            dateText={scopeParts.length > 0 ? scopeParts.join(' · ') : dateText}
         />
     )
 }

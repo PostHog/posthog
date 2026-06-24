@@ -603,7 +603,7 @@ class TestDashboardRunWidgets(APIBaseTest):
         return collection
 
     @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
-    def test_session_replay_widget_uses_collection_as_source(self, mock_list_recordings: MagicMock) -> None:
+    def test_session_replay_widget_scopes_to_collection(self, mock_list_recordings: MagicMock) -> None:
         mock_list_recordings.return_value = ([], False, None, None)
         collection = self._collection_with_recordings(self.team, ["session-a", "session-b"])
 
@@ -614,21 +614,65 @@ class TestDashboardRunWidgets(APIBaseTest):
                 "orderBy": "click_count",
                 "orderDirection": "ASC",
                 "collectionId": collection.short_id,
-                # The widget's own date range and property filters must be ignored for a collection.
+                # A bare collection isn't date-bounded, so the widget's date range does not constrain it.
                 "dateRange": {"date_from": "-7d"},
+            },
+            user=self.user,
+        )
+
+        query = mock_list_recordings.call_args.kwargs["query"]
+        # The collection scopes the result set to its pinned recordings...
+        assert sorted(query.session_ids) == ["session-a", "session-b"]
+        assert query.properties is None
+        assert query.date_from == "-1y"
+        # ...while the widget still layers its own sort and limit on top.
+        assert query.limit == 5
+        assert query.order == RecordingOrder.CLICK_COUNT
+        assert query.order_direction == RecordingOrderDirection.ASC
+
+    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
+    def test_session_replay_widget_filters_within_collection(self, mock_list_recordings: MagicMock) -> None:
+        mock_list_recordings.return_value = ([], False, None, None)
+        collection = self._collection_with_recordings(self.team, ["session-a", "session-b"])
+
+        run_session_replay_list_widget(
+            self.team,
+            {
+                "limit": 5,
+                "collectionId": collection.short_id,
+                # The widget's own property filters narrow within the collection scope.
                 "widgetFilters": self._widget_browser_filter("Chrome"),
             },
             user=self.user,
         )
 
         query = mock_list_recordings.call_args.kwargs["query"]
-        # The collection's pinned recordings drive the result set...
         assert sorted(query.session_ids) == ["session-a", "session-b"]
-        assert query.properties is None
-        # ...while the widget still layers its own sort and limit on top.
-        assert query.limit == 5
-        assert query.order == RecordingOrder.CLICK_COUNT
-        assert query.order_direction == RecordingOrderDirection.ASC
+        assert query.properties is not None
+        assert query.properties[0].value == ["Chrome"]
+
+    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
+    def test_session_replay_widget_combines_collection_and_saved_filter(self, mock_list_recordings: MagicMock) -> None:
+        mock_list_recordings.return_value = ([], False, None, None)
+        collection = self._collection_with_recordings(self.team, ["session-a", "session-b"])
+        saved_filter = self._saved_filter_for_browser(self.team, "Firefox")
+
+        run_session_replay_list_widget(
+            self.team,
+            {
+                "limit": 5,
+                "collectionId": collection.short_id,
+                "savedFilterId": saved_filter.short_id,
+            },
+            user=self.user,
+        )
+
+        query = mock_list_recordings.call_args.kwargs["query"]
+        # The collection scopes the session ids while the saved filter owns the date range and properties.
+        assert sorted(query.session_ids) == ["session-a", "session-b"]
+        assert query.date_from == "-14d"
+        assert query.properties is not None
+        assert query.properties[0].value == ["Firefox"]
 
     @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
     def test_session_replay_widget_ignores_collection_from_other_team(self, mock_list_recordings: MagicMock) -> None:

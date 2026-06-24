@@ -58,13 +58,14 @@ def _build_saved_filter_recordings_query(
     return query
 
 
-def _build_collection_recordings_query(
-    team: Team,
-    config: ValidatedSessionReplayListWidgetConfig,
-    collection_id: str,
-) -> RecordingsQuery | None:
-    # A collection (SessionRecordingPlaylist of type "collection") is a curated set of pinned recordings,
-    # so the widget shows exactly those session ids; the widget only layers its own sort and limit on top.
+# A collection is a curated set of recordings, so when it's the only scope we don't constrain by date —
+# all pinned recordings should show regardless of age (matching the dedicated collection recordings endpoint).
+COLLECTION_DATE_FROM = "-1y"
+
+
+def _build_collection_session_ids(team: Team, collection_id: str) -> list[str] | None:
+    # The pinned recordings of a collection (SessionRecordingPlaylist of type "collection"). Returns None when
+    # the collection can't be reached (deleted, missing, or owned by another team) so the caller can ignore it.
     playlist = SessionRecordingPlaylist.objects.filter(
         team=team, short_id=collection_id, deleted=False, type="collection"
     ).first()
@@ -72,56 +73,54 @@ def _build_collection_recordings_query(
         logger.warning("session_replay_widget_collection_not_found", extra={"short_id": collection_id})
         return None
 
-    session_ids = list(
+    return list(
         SessionRecordingPlaylistItem.objects.filter(playlist=playlist)
         .exclude(deleted=True)
         .order_by("-created_at")
         .values_list("recording_id", flat=True)
     )
-    return RecordingsQuery(
-        session_ids=session_ids,
-        date_from="-1y",
-        date_to=None,
-        limit=config["limit"],
-        offset=0,
-        order=ORDER_BY_TO_RECORDING_ORDER[config["orderBy"]],
-        order_direction=RecordingOrderDirection(config["orderDirection"]),
-    )
 
 
 def _build_recordings_query(team: Team, config: ValidatedSessionReplayListWidgetConfig) -> RecordingsQuery:
-    saved_filter_id = config.get("savedFilterId")
-    if saved_filter_id:
-        saved_filter_query = _build_saved_filter_recordings_query(team, config, saved_filter_id)
-        if saved_filter_query is not None:
-            return saved_filter_query
-
     collection_id = config.get("collectionId")
-    if collection_id:
-        collection_query = _build_collection_recordings_query(team, config, collection_id)
-        if collection_query is not None:
-            return collection_query
+    collection_session_ids = _build_collection_session_ids(team, collection_id) if collection_id else None
+    has_collection = collection_session_ids is not None
 
-    date_range_raw = config.get("dateRange")
-    date_from = "-7d"
-    if date_range_raw is not None:
-        date_from_value = date_range_raw.get("date_from")
-        if isinstance(date_from_value, str):
-            date_from = date_from_value
+    # The query criteria come from the saved filter when one is set; otherwise from the widget's own controls.
+    # A collection (if any) is then layered on as a session-id scope, so the saved filter / property filters
+    # narrow within the collection.
+    saved_filter_id = config.get("savedFilterId")
+    query = _build_saved_filter_recordings_query(team, config, saved_filter_id) if saved_filter_id else None
 
-    params: dict[str, Any] = {
-        "limit": config["limit"],
-        "offset": 0,
-        "date_from": date_from,
-        "filter_test_accounts": resolve_filter_test_accounts(config, team),
-        "order": ORDER_BY_TO_RECORDING_ORDER[config["orderBy"]],
-        "order_direction": config["orderDirection"],
-    }
-    property_filters = build_event_property_filters_from_widget_filters(config.get("widgetFilters"))
-    if property_filters:
-        params["properties"] = property_filters
+    if query is None:
+        date_range_raw = config.get("dateRange")
+        date_from = "-7d"
+        if date_range_raw is not None:
+            date_from_value = date_range_raw.get("date_from")
+            if isinstance(date_from_value, str):
+                date_from = date_from_value
+        # A bare collection isn't date-bounded; only the widget's property filters narrow it.
+        if has_collection:
+            date_from = COLLECTION_DATE_FROM
 
-    return filter_from_params_to_query(params)
+        params: dict[str, Any] = {
+            "limit": config["limit"],
+            "offset": 0,
+            "date_from": date_from,
+            "filter_test_accounts": resolve_filter_test_accounts(config, team),
+            "order": ORDER_BY_TO_RECORDING_ORDER[config["orderBy"]],
+            "order_direction": config["orderDirection"],
+        }
+        property_filters = build_event_property_filters_from_widget_filters(config.get("widgetFilters"))
+        if property_filters:
+            params["properties"] = property_filters
+
+        query = filter_from_params_to_query(params)
+
+    if has_collection:
+        query.session_ids = collection_session_ids
+
+    return query
 
 
 def _build_matching_events_query(query: RecordingsQuery) -> dict[str, Any] | None:

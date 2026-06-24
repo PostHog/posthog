@@ -5,7 +5,7 @@ import { useMemo, useRef } from 'react'
 import { IconExternal } from '@posthog/icons'
 
 import { quickFiltersLogic } from 'lib/components/QuickFilters/quickFiltersLogic'
-import { LemonSelect, type LemonSelectSection } from 'lib/lemon-ui/LemonSelect'
+import { LemonSelect, type LemonSelectOptionLeaf } from 'lib/lemon-ui/LemonSelect'
 import { urls } from 'scenes/urls'
 
 import { WIDGET_DATE_RANGE_SELECT_OPTIONS, type WidgetDateFromValue } from '../../widget_types/widgetConfigShared'
@@ -25,7 +25,7 @@ import { sessionReplayWidgetSavedFiltersLogic } from './sessionReplayWidgetSaved
 
 export type SessionReplayWidgetTileFiltersProps = DashboardWidgetTileFiltersProps
 
-const NO_SOURCE_VALUE = '__no_source__'
+const NONE_VALUE = '__none__'
 const CREATE_SAVED_FILTER_VALUE = '__create_saved_filter__'
 
 export function SessionReplayWidgetTileFilters({
@@ -39,8 +39,12 @@ export function SessionReplayWidgetTileFilters({
     const widgetFilters = parsed.widgetFilters ?? {}
     const savedFilterId = parsed.savedFilterId ?? null
     const collectionId = parsed.collectionId ?? null
-    const activeSourceId = savedFilterId ?? collectionId ?? null
-    const hasSource = !!activeSourceId
+    const hasSavedFilter = !!savedFilterId
+    const hasCollection = !!collectionId
+    // A saved filter owns the date range and property filters; a bare collection isn't date-bounded. So the
+    // date control only applies with neither scope, while property filters narrow anything but a saved filter.
+    const showDateRange = !hasSavedFilter && !hasCollection
+    const showPropertyFilters = !hasSavedFilter
 
     const { quickFilters: projectFilterDefinitions } = useValues(
         quickFiltersLogic({ context: filterDefinitionsContext })
@@ -52,37 +56,32 @@ export function SessionReplayWidgetTileFilters({
         collectionsLoading,
         savedFilterLabelById,
         collectionLabelById,
-        sourceTypeById,
     } = useValues(sessionReplayWidgetSavedFiltersLogic)
     const filterDefinitions = useMemo(
         () => projectFilterDefinitions.filter(isAllowed),
         [projectFilterDefinitions, isAllowed]
     )
 
-    const sourceSelectOptions = useMemo<LemonSelectSection<string>[]>(() => {
-        const sections: LemonSelectSection<string>[] = [{ options: [{ value: NO_SOURCE_VALUE, label: 'No source' }] }]
-        if (savedFilterOptions.length > 0) {
-            sections.push({ title: 'Saved filters', options: savedFilterOptions })
-        }
-        if (collectionOptions.length > 0) {
-            sections.push({ title: 'Collections', options: collectionOptions })
-        }
-        // Always offer a shortcut to create a new saved filter in session replay.
-        sections.push({
-            options: [
-                {
-                    value: CREATE_SAVED_FILTER_VALUE,
-                    label: 'Create a saved filter',
-                    sideIcon: <IconExternal className="size-3.5" />,
-                },
-            ],
-        })
-        return sections
-    }, [savedFilterOptions, collectionOptions])
+    const collectionSelectOptions = useMemo<LemonSelectOptionLeaf<string>[]>(
+        () => [{ value: NONE_VALUE, label: 'No collection' }, ...collectionOptions],
+        [collectionOptions]
+    )
+    const savedFilterSelectOptions = useMemo<LemonSelectOptionLeaf<string>[]>(
+        () => [
+            { value: NONE_VALUE, label: 'No saved filter' },
+            ...savedFilterOptions,
+            // Always offer a shortcut to create a new saved filter in session replay.
+            {
+                value: CREATE_SAVED_FILTER_VALUE,
+                label: 'Create a saved filter',
+                sideIcon: <IconExternal className="size-3.5" />,
+            },
+        ],
+        [savedFilterOptions]
+    )
 
-    const sourceLabel = activeSourceId
-        ? (savedFilterLabelById[activeSourceId] ?? collectionLabelById[activeSourceId] ?? activeSourceId)
-        : null
+    const savedFilterLabel = savedFilterId ? (savedFilterLabelById[savedFilterId] ?? savedFilterId) : null
+    const collectionLabel = collectionId ? (collectionLabelById[collectionId] ?? collectionId) : null
 
     const configRef = useRef(config)
     configRef.current = config
@@ -97,19 +96,23 @@ export function SessionReplayWidgetTileFilters({
         await persistConfigNow(nextConfig)
     }
 
-    const applySource = async (value: string): Promise<void> => {
+    const applyCollection = async (value: string | null): Promise<void> => {
+        const nextConfig = patchSessionReplayWidgetFilterFields(configRef.current, {
+            collectionId: value && value !== NONE_VALUE ? value : null,
+        })
+        configRef.current = nextConfig
+        await persistConfigNow(nextConfig)
+    }
+
+    const applySavedFilter = async (value: string | null): Promise<void> => {
         // The "create" item is a navigation shortcut, not a persisted value.
         if (value === CREATE_SAVED_FILTER_VALUE) {
             window.open(urls.replay(), '_blank', 'noopener,noreferrer')
             return
         }
-        const nextSourceId = value === NO_SOURCE_VALUE ? null : value
-        // A source short_id is either a saved filter or a collection; route it to the matching config field.
-        const patch =
-            nextSourceId !== null && sourceTypeById[nextSourceId] === 'collection'
-                ? { collectionId: nextSourceId }
-                : { savedFilterId: nextSourceId }
-        const nextConfig = patchSessionReplayWidgetFilterFields(configRef.current, patch)
+        const nextConfig = patchSessionReplayWidgetFilterFields(configRef.current, {
+            savedFilterId: value && value !== NONE_VALUE ? value : null,
+        })
         configRef.current = nextConfig
         await persistConfigNow(nextConfig)
     }
@@ -127,19 +130,15 @@ export function SessionReplayWidgetTileFilters({
     if (!onUpdateConfig) {
         return (
             <WidgetTileFiltersBar dataAttr="session-replay-widget-tile-filters-readonly">
-                {hasSource ? (
-                    <span className="text-sm text-muted">Source: {sourceLabel}</span>
-                ) : (
-                    <>
-                        <WidgetDateRangeReadOnlyValue dateFrom={dateFrom} />
-                        {filterDefinitions.length > 0 ? (
-                            <WidgetPropertyFiltersReadOnlyValues
-                                filterDefinitions={filterDefinitions}
-                                widgetFilters={widgetFilters}
-                            />
-                        ) : null}
-                    </>
-                )}
+                {hasCollection ? <span className="text-sm text-muted">Collection: {collectionLabel}</span> : null}
+                {hasSavedFilter ? <span className="text-sm text-muted">Filter: {savedFilterLabel}</span> : null}
+                {showDateRange ? <WidgetDateRangeReadOnlyValue dateFrom={dateFrom} /> : null}
+                {showPropertyFilters && filterDefinitions.length > 0 ? (
+                    <WidgetPropertyFiltersReadOnlyValues
+                        filterDefinitions={filterDefinitions}
+                        widgetFilters={widgetFilters}
+                    />
+                ) : null}
             </WidgetTileFiltersBar>
         )
     }
@@ -148,36 +147,44 @@ export function SessionReplayWidgetTileFilters({
         <WidgetTileFiltersBar dataAttr="session-replay-widget-tile-filters">
             <LemonSelect
                 size="small"
-                value={activeSourceId ?? NO_SOURCE_VALUE}
+                value={collectionId ?? NONE_VALUE}
                 disabled={!canUpdate}
                 disabledReason={controlDisabledReason}
-                loading={savedFiltersLoading || collectionsLoading}
-                options={sourceSelectOptions}
-                placeholder="Saved filter or collection"
-                onChange={(value) => void applySource(value ?? NO_SOURCE_VALUE)}
+                loading={collectionsLoading}
+                options={collectionSelectOptions}
+                placeholder="Collection"
+                onChange={(value) => void applyCollection(value)}
             />
-            {!hasSource ? (
-                <>
-                    <LemonSelect
-                        size="small"
-                        value={dateFrom}
-                        disabled={!canUpdate}
-                        disabledReason={controlDisabledReason}
-                        options={WIDGET_DATE_RANGE_SELECT_OPTIONS}
-                        onChange={(value) => {
-                            if (value) {
-                                void applyDateFrom(value)
-                            }
-                        }}
-                    />
-                    {filterDefinitions.length > 0 ? (
-                        <WidgetPropertyFiltersSection
-                            filterDefinitions={filterDefinitions}
-                            widgetFilters={widgetFilters}
-                            onWidgetFiltersChange={applyWidgetFilters}
-                        />
-                    ) : null}
-                </>
+            <LemonSelect
+                size="small"
+                value={savedFilterId ?? NONE_VALUE}
+                disabled={!canUpdate}
+                disabledReason={controlDisabledReason}
+                loading={savedFiltersLoading}
+                options={savedFilterSelectOptions}
+                placeholder="Saved filter"
+                onChange={(value) => void applySavedFilter(value)}
+            />
+            {showDateRange ? (
+                <LemonSelect
+                    size="small"
+                    value={dateFrom}
+                    disabled={!canUpdate}
+                    disabledReason={controlDisabledReason}
+                    options={WIDGET_DATE_RANGE_SELECT_OPTIONS}
+                    onChange={(value) => {
+                        if (value) {
+                            void applyDateFrom(value)
+                        }
+                    }}
+                />
+            ) : null}
+            {showPropertyFilters && filterDefinitions.length > 0 ? (
+                <WidgetPropertyFiltersSection
+                    filterDefinitions={filterDefinitions}
+                    widgetFilters={widgetFilters}
+                    onWidgetFiltersChange={applyWidgetFilters}
+                />
             ) : null}
         </WidgetTileFiltersBar>
     )
