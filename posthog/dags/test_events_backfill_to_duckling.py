@@ -750,11 +750,13 @@ class TestFullBackfillSensorEarliestDate:
             instance = DagsterInstance.ephemeral()
             if existing:
                 instance.add_dynamic_partitions("duckling_events_backfill", list(existing))
-            if get_runs is not None:
-                instance.get_runs = MagicMock(return_value=get_runs)  # type: ignore[method-assign]
 
             context = build_sensor_context(instance=instance)
-            result = duckling_events_full_backfill_sensor(context)
+            if get_runs is not None:
+                with patch.object(instance, "get_runs", return_value=get_runs):
+                    result = duckling_events_full_backfill_sensor(context)
+            else:
+                result = duckling_events_full_backfill_sensor(context)
             return result, mock_ge
 
     def test_round_robin_interleaves_teams(self):
