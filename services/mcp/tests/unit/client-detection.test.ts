@@ -257,6 +257,16 @@ describe('MCPClientProfile', () => {
                 }
             )
 
+            it.each([['Anthropic/ClaudeAI'], ['anthropic/claudeai'], ['ANTHROPIC/CLAUDEAI']])(
+                'enables CLI mode for pooled Anthropic clientName %s when the vendor header is absent',
+                (clientName) => {
+                    // Claude.ai connector sessions report the pooled clientInfo.name and
+                    // frequently omit x-anthropic-client; they must still get CLI mode
+                    // rather than the full tools catalog.
+                    expect(new MCPClientProfile({ clientName }).isCliModeEnabled()).toBe(true)
+                }
+            )
+
             it('does not enable CLI mode for an unknown vendorClient value', () => {
                 // Detection matches the known-header list, not mere presence.
                 expect(

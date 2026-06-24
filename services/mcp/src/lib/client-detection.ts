@@ -11,9 +11,10 @@
  * - `isCliModeEnabled()` matches clients that should default to single-exec
  *   ("CLI") mode and drop `structuredContent` when a `formatted_results`
  *   override is set. Every known Anthropic client qualifies — matched against
- *   the `x-anthropic-client` (`vendorClient`) header, since Anthropic pools MCP
- *   transports across all its products and reports the live one there. Other
- *   coding agents are matched by self-reported client name. Cursor is
+ *   the `x-anthropic-client` (`vendorClient`) header or the pooled
+ *   `clientInfo.name` (e.g. `Anthropic/ClaudeAI`), since the header is absent on
+ *   many Claude.ai connector sessions and the name is the only signal left.
+ *   Other coding agents are matched by self-reported client name. Cursor is
  *   deliberately excluded from the name match — it reads text for the model and
  *   renders `structuredContent` in UI, so it does not need single-exec mode or
  *   the formatted-results workaround.
@@ -179,11 +180,17 @@ export class MCPClientProfile {
     }
 
     isCliModeEnabled(): boolean {
-        // Every known Anthropic client (matched against the `x-anthropic-client`
-        // header) runs in CLI (single-exec) mode — Anthropic pools MCP transports
-        // across all its products (Claude Code, Claude.ai, Cowork, …) and reports
-        // the live product in that header.
-        if (matchesAnyFragment(this.vendorClient, ANTHROPIC_CLIENT_NAME_FRAGMENTS)) {
+        // Every known Anthropic client runs in CLI (single-exec) mode. The
+        // `x-anthropic-client` header names the live product across Anthropic's
+        // pooled MCP transports, but it is absent on many Claude.ai connector
+        // sessions, which then carry only the pooled `clientInfo.name` (e.g.
+        // `Anthropic/ClaudeAI`). Match either signal so a missing header doesn't
+        // drop the session into full tools mode; the Claude Code vs Claude.ai
+        // distinction the header adds is irrelevant here, both want CLI mode.
+        if (
+            matchesAnyFragment(this.vendorClient, ANTHROPIC_CLIENT_NAME_FRAGMENTS) ||
+            matchesAnyFragment(this.clientName, ANTHROPIC_CLIENT_NAME_FRAGMENTS)
+        ) {
             return true
         }
         // Otherwise fall back to the self-reported client name for coding agents.
