@@ -144,7 +144,16 @@ pub fn discover(directory: &Path) -> Result<DiscoveryReport> {
     let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
 
     for entry in WalkDir::new(directory).follow_links(true) {
-        let entry = entry?;
+        // A symlink loop, dangling link, or unreadable directory surfaces here
+        // as an iterator error. Skip just that entry rather than aborting the
+        // whole scan, which would discard every valid file already found.
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(e) => {
+                warn!("Skipping unreadable path while scanning: {e}");
+                continue;
+            }
+        };
         let path = entry.path();
 
         if path.is_dir() {
