@@ -127,4 +127,4 @@ async def test_run_cleanup_failure_does_not_mask_import_error(monkeypatch):
     with pytest.raises(ImportError_, match="Can't connect to MySQL server on"):
         await pipeline.run()
 
-    pipeline._logger.aexception.assert_awaited()
+    pipeline._logger.aexception.assert_awaited_once_with("Failed to clean up delta table helper")
