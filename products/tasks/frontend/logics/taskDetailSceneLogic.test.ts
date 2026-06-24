@@ -1,6 +1,9 @@
 import { expectLogic } from 'kea-test-utils'
 import { ReadableStream as NodeReadableStream } from 'stream/web'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { initKeaTests } from '~/test/init'
 
 import { OriginProduct, Task, TaskRun, TaskRunEnvironment, TaskRunStatus } from '../types'
@@ -41,7 +44,7 @@ const createMockRun = (id: string, status: TaskRunStatus): TaskRun => ({
     completed_at: null,
 })
 
-function buildReadableStream(chunks: string[], keepOpen = false, onClose?: () => void): ReadableStream<Uint8Array> {
+function buildReadableStream(chunks: string[], keepOpen = false): ReadableStream<Uint8Array> {
     const encoder = new TextEncoder()
     let index = 0
     const StreamConstructor = globalThis.ReadableStream ?? NodeReadableStream
@@ -52,17 +55,16 @@ function buildReadableStream(chunks: string[], keepOpen = false, onClose?: () =>
                 controller.enqueue(encoder.encode(chunks[index]))
                 index += 1
             } else if (!keepOpen) {
-                onClose?.()
                 controller.close()
             }
         },
     })
 }
 
-function createSseResponse(chunks: string[], keepOpen = false, onClose?: () => void): Response {
+function createSseResponse(chunks: string[], keepOpen = false): Response {
     return {
         ok: true,
-        body: buildReadableStream(chunks, keepOpen, onClose),
+        body: buildReadableStream(chunks, keepOpen),
     } as Response
 }
 
@@ -108,18 +110,29 @@ function createJsonResponse(payload: unknown): Response {
 function createFetchMock({
     runs = {},
     streamResponses = [],
+    streamBaseUrl = null,
 }: {
     runs?: Record<string, TaskRun>
     streamResponses?: Response[]
+    streamBaseUrl?: string | null
 } = {}): typeof fetch {
     return jest.fn((input: RequestInfo | URL) => {
         const url = String(input)
+        const streamTokenMatch = url.match(/\/tasks\/([^/]+)\/runs\/([^/]+)\/stream_token\/$/)
         const taskRunMatch = url.match(/\/tasks\/([^/]+)\/runs\/([^/]+)\/$/)
-        const streamMatch = url.match(/\/tasks\/([^/]+)\/runs\/([^/]+)\/stream\/$/)
+        // Matches both the Django read path (.../runs/:run/stream/) and the proxy path (/v1/runs/:run/stream).
+        const streamMatch = url.match(/\/runs\/([^/]+)\/stream\/?(\?|$)/)
         const logsMatch = url.match(/\/tasks\/([^/]+)\/runs\/([^/]+)\/logs\/$/)
         const runsListMatch = url.match(/\/tasks\/([^/]+)\/runs\/$/)
         const taskMatch = url.match(/\/tasks\/([^/]+)\/$/)
 
+        if (url.includes('/_preflight')) {
+            // Keep is_debug unset so streamViaProxyEnabled is driven purely by the feature flag.
+            return Promise.resolve(createJsonResponse({}))
+        }
+        if (streamTokenMatch) {
+            return Promise.resolve(createJsonResponse({ token: 'proxy-test-token', stream_base_url: streamBaseUrl }))
+        }
         if (streamMatch) {
             const nextResponse = streamResponses.shift()
             if (!nextResponse) {
@@ -146,14 +159,26 @@ function createFetchMock({
 }
 
 async function flushStreaming(): Promise<void> {
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    // fetch-event-source has a deeper internal async chain (fetch -> onopen -> getBytes
+    // -> getLines -> getMessages -> onmessage), so flush several macro+micro cycles.
+    for (let i = 0; i < 6; i++) {
+        await Promise.resolve()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+    }
 }
 
 describe('taskDetailSceneLogic', () => {
     const originalFetch = global.fetch
 
     beforeEach(() => {
+        // featureFlagLogic persists flags to localStorage and hydrates as soon as initKeaTests
+        // mounts the common logics, so clear before init or flags enabled in one test leak into
+        // the next.
+        window.localStorage.clear()
+        // preflightLogic prefers the app context over fetching, and the default test fixture has
+        // is_debug: true, which would force streamViaProxyEnabled on. Pin it to false so the
+        // feature flag alone drives the rollout-gated behavior in these tests.
+        window.POSTHOG_APP_CONTEXT = { preflight: { is_debug: false } } as unknown as typeof window.POSTHOG_APP_CONTEXT
         initKeaTests()
         global.fetch = createFetchMock()
     })
@@ -266,316 +291,34 @@ describe('taskDetailSceneLogic', () => {
     })
 
     describe('streaming', () => {
-        it('restarts streaming after a clean EOF when the run is still in progress', async () => {
-            const run = createMockRun('run-1', TaskRunStatus.IN_PROGRESS)
-            global.fetch = createFetchMock({
-                runs: { [run.id]: run },
-                streamResponses: [
-                    createSseResponse([createConsoleSseEvent('1-0', 'first message')]),
-                    createSseResponse([createConsoleSseEvent('2-0', 'second message')], true),
-                ],
+        const getHeader = (init: RequestInit | undefined, name: string): string | undefined => {
+            const headers = (init?.headers ?? {}) as Record<string, string>
+            const key = Object.keys(headers).find((candidate) => candidate.toLowerCase() === name.toLowerCase())
+            return key !== undefined ? headers[key] : undefined
+        }
+
+        const streamFetchCalls = (): [RequestInfo | URL, RequestInit | undefined][] =>
+            (global.fetch as jest.Mock).mock.calls.filter(([url]) => /\/runs\/[^/]+\/stream\/?(\?|$)/.test(String(url)))
+
+        const streamTokenFetchCalls = (): [RequestInfo | URL, RequestInit | undefined][] =>
+            (global.fetch as jest.Mock).mock.calls.filter(([url]) => String(url).includes('/stream_token/'))
+
+        // The durable-streaming rollout flag gates stream_token resolution and status-unaware
+        // streams; tests covering the new behavior opt in explicitly, the rest run with it off.
+        const enableProxyStreaming = (): void =>
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TASKS_STREAM_VIA_PROXY], {
+                [FEATURE_FLAGS.TASKS_STREAM_VIA_PROXY]: true,
             })
 
-            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-
-            logic.actions.setSelectedRunId(run.id, 'task-123')
-            await expectLogic(logic).toFinishAllListeners()
-            await flushStreaming()
-            await flushStreaming()
-
-            const streamCalls = (global.fetch as jest.Mock).mock.calls.filter(([url]) =>
-                String(url).includes('/stream/')
-            )
-            expect(streamCalls).toHaveLength(2)
-            expect(logic.values.isStreaming).toBe(true)
-            expect(logic.values.streamEntries.map((entry) => entry.message)).toEqual([
-                'first message',
-                'second message',
-            ])
-            expect(logic.values.streamEntries.map((entry) => entry.id)).toEqual(['stream-1-0', 'stream-2-0'])
-
-            logic.unmount()
+        beforeEach(() => {
+            window.sessionStorage.clear()
         })
 
-        it('resumes the automatic restart with Last-Event-ID and ignores replayed events', async () => {
-            const run = createMockRun('run-1', TaskRunStatus.IN_PROGRESS)
-            global.fetch = createFetchMock({
-                runs: { [run.id]: run },
-                streamResponses: [
-                    createSseResponse([createConsoleSseEvent('1-0', 'first message')]),
-                    createSseResponse(
-                        [createConsoleSseEvent('1-0', 'first message'), createConsoleSseEvent('2-0', 'second message')],
-                        true
-                    ),
-                ],
-            })
-
-            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-
-            logic.actions.setSelectedRunId(run.id, 'task-123')
-            await expectLogic(logic).toFinishAllListeners()
-            await flushStreaming()
-            await flushStreaming()
-
-            const streamCalls = (global.fetch as jest.Mock).mock.calls.filter(([url]) =>
-                String(url).includes('/stream/')
-            )
-            expect(streamCalls).toHaveLength(2)
-            expect((streamCalls[1][1] as RequestInit)?.headers).toMatchObject({
-                Accept: 'text/event-stream',
-                'Last-Event-ID': '1-0',
-            })
-            expect(logic.values.streamEntries.map((entry) => entry.message)).toEqual([
-                'first message',
-                'second message',
-            ])
-
-            logic.unmount()
+        afterEach(() => {
+            jest.useRealTimers()
         })
 
-        it('ignores the rotation end marker and skips the log refetch on rotation resume', async () => {
-            const run = createMockRun('run-1', TaskRunStatus.IN_PROGRESS)
-            global.fetch = createFetchMock({
-                runs: { [run.id]: run },
-                streamResponses: [
-                    createSseResponse([
-                        createConsoleSseEvent('1-0', 'first message'),
-                        'event: end\ndata: {"type": "rotated"}\n\n',
-                    ]),
-                    createSseResponse([createConsoleSseEvent('2-0', 'second message')], true),
-                ],
-            })
-
-            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-
-            logic.actions.setSelectedRunId(run.id, 'task-123')
-            await expectLogic(logic).toFinishAllListeners()
-            await flushStreaming()
-            await flushStreaming()
-
-            const fetchCalls = (global.fetch as jest.Mock).mock.calls.map(([url]) => String(url))
-            expect(fetchCalls.filter((url) => url.includes('/stream/'))).toHaveLength(2)
-            // The rotation marker is not rendered as a log entry
-            expect(logic.values.streamEntries.map((entry) => entry.message)).toEqual([
-                'first message',
-                'second message',
-            ])
-            // The rotation resume skips the redundant log-file refetch — only the
-            // initial run selection fetches it while entries are streaming
-            expect(fetchCalls.filter((url) => url.includes('/logs/'))).toHaveLength(1)
-
-            logic.unmount()
-        })
-
-        it('drains the missed tail when a rotation EOF races run completion', async () => {
-            const run = createMockRun('run-1', TaskRunStatus.IN_PROGRESS)
-            global.fetch = createFetchMock({
-                runs: { [run.id]: run },
-                streamResponses: [
-                    createSseResponse(
-                        [createConsoleSseEvent('1-0', 'first message'), 'event: end\ndata: {"type": "rotated"}\n\n'],
-                        false,
-                        // The run completes while the rotated connection is reconnecting,
-                        // so the post-EOF refetch sees a terminal run
-                        () => {
-                            run.status = TaskRunStatus.COMPLETED
-                        }
-                    ),
-                    // The drain connection delivers the tail then EOFs naturally
-                    createSseResponse([createConsoleSseEvent('2-0', 'tail message')]),
-                ],
-            })
-
-            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-
-            logic.actions.setSelectedRunId(run.id, 'task-123')
-            await expectLogic(logic).toFinishAllListeners()
-            await flushStreaming()
-            await flushStreaming()
-            await expectLogic(logic).toFinishAllListeners()
-
-            const streamCalls = (global.fetch as jest.Mock).mock.calls.filter(([url]) =>
-                String(url).includes('/stream/')
-            )
-            expect(streamCalls).toHaveLength(2)
-            expect((streamCalls[1][1] as RequestInit)?.headers).toMatchObject({
-                Accept: 'text/event-stream',
-                'Last-Event-ID': '1-0',
-            })
-            expect(logic.values.streamEntries.map((entry) => entry.message)).toEqual(['first message', 'tail message'])
-
-            logic.unmount()
-        })
-
-        it('does not re-drain when the drain connection itself ends with a rotation marker', async () => {
-            const run = createMockRun('run-1', TaskRunStatus.IN_PROGRESS)
-            global.fetch = createFetchMock({
-                runs: { [run.id]: run },
-                streamResponses: [
-                    createSseResponse(
-                        [createConsoleSseEvent('1-0', 'first message'), 'event: end\ndata: {"type": "rotated"}\n\n'],
-                        false,
-                        // The run completes while the rotated connection is reconnecting
-                        () => {
-                            run.status = TaskRunStatus.COMPLETED
-                        }
-                    ),
-                    // The completion sentinel was never written, so the drain connection
-                    // also rotates instead of EOFing naturally
-                    createSseResponse([
-                        createConsoleSseEvent('2-0', 'tail message'),
-                        'event: end\ndata: {"type": "rotated"}\n\n',
-                    ]),
-                ],
-            })
-
-            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-
-            logic.actions.setSelectedRunId(run.id, 'task-123')
-            await expectLogic(logic).toFinishAllListeners()
-            await flushStreaming()
-            await flushStreaming()
-            await expectLogic(logic).toFinishAllListeners()
-            await flushStreaming()
-            await expectLogic(logic).toFinishAllListeners()
-
-            const streamCalls = (global.fetch as jest.Mock).mock.calls.filter(([url]) =>
-                String(url).includes('/stream/')
-            )
-            expect(streamCalls).toHaveLength(2)
-            expect(logic.values.isStreaming).toBe(false)
-            expect(logic.values.streamEntries.map((entry) => entry.message)).toEqual(['first message', 'tail message'])
-
-            logic.unmount()
-        })
-
-        it('falls back to polling after repeated immediate EOFs instead of reconnecting in a tight loop', async () => {
-            const run = createMockRun('run-1', TaskRunStatus.IN_PROGRESS)
-            global.fetch = createFetchMock({
-                runs: { [run.id]: run },
-                streamResponses: [createSseResponse([]), createSseResponse([]), createSseResponse([])],
-            })
-
-            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-
-            logic.actions.setSelectedRunId(run.id, 'task-123')
-            await expectLogic(logic).toFinishAllListeners()
-            for (let i = 0; i < 6; i++) {
-                await flushStreaming()
-            }
-            await expectLogic(logic).toFinishAllListeners()
-
-            const streamCalls = (global.fetch as jest.Mock).mock.calls.filter(([url]) =>
-                String(url).includes('/stream/')
-            )
-            expect(streamCalls).toHaveLength(3)
-            expect(logic.values.streamingFailed).toBe(true)
-            expect(logic.values.isStreaming).toBe(false)
-
-            logic.unmount()
-        })
-
-        it('starts polling when the post-EOF run refresh fails for an active run', async () => {
-            const run = createMockRun('run-1', TaskRunStatus.IN_PROGRESS)
-            global.fetch = createFetchMock({
-                runs: { [run.id]: run },
-                streamResponses: [createSseResponse([], true)],
-            })
-
-            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-
-            logic.actions.setSelectedRunId(run.id, 'task-123')
-            await expectLogic(logic).toFinishAllListeners()
-            await flushStreaming()
-
-            // Mirror the real sequence: the stream EOFs (stopStreaming), then the
-            // post-EOF run refresh fails
-            logic.actions.stopStreaming()
-            await expectLogic(logic, () => {
-                logic.actions.loadSelectedRunFailure('network error')
-            }).toDispatchActions(['startPolling'])
-
-            logic.unmount()
-        })
-
-        it.each<[string, TaskRunStatus | null]>([
-            ['no run has loaded', null],
-            ['the loaded run is terminal', TaskRunStatus.COMPLETED],
-        ])('does not start polling when the run refresh fails and %s', async (_desc, status) => {
-            if (status) {
-                const run = createMockRun('run-1', status)
-                global.fetch = createFetchMock({ runs: { [run.id]: run } })
-            }
-
-            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-
-            if (status) {
-                logic.actions.setSelectedRunId('run-1', 'task-123')
-                await expectLogic(logic).toFinishAllListeners()
-            }
-
-            await expectLogic(logic, () => {
-                logic.actions.loadSelectedRunFailure('network error')
-            }).toNotHaveDispatchedActions(['startPolling'])
-
-            logic.unmount()
-        })
-
-        it('does not restart an active stream when selected run reloads', async () => {
-            const run = createMockRun('run-1', TaskRunStatus.IN_PROGRESS)
-            global.fetch = createFetchMock({
-                runs: { [run.id]: run },
-                streamResponses: [
-                    createSseResponse(
-                        ['id: 1-0\nevent: message\ndata: {"type":"assistant","content":"hello"}\n\n'],
-                        true
-                    ),
-                ],
-            })
-
-            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-
-            logic.actions.setSelectedRunId(run.id, 'task-123')
-            await expectLogic(logic).toFinishAllListeners()
-            await flushStreaming()
-
-            const streamCallsAfterFirstLoad = (global.fetch as jest.Mock).mock.calls.filter(([url]) =>
-                String(url).includes('/stream/')
-            )
-            expect(streamCallsAfterFirstLoad).toHaveLength(1)
-
-            logic.actions.loadSelectedRunSuccess(run)
-            await expectLogic(logic).toFinishAllListeners()
-            await flushStreaming()
-
-            const streamCallsAfterReload = (global.fetch as jest.Mock).mock.calls.filter(([url]) =>
-                String(url).includes('/stream/')
-            )
-            expect(streamCallsAfterReload).toHaveLength(1)
-            expect(logic.values.streamEntries.map((entry) => entry.message)).toEqual(['hello'])
-
-            logic.unmount()
-        })
-
-        it('resumes with Last-Event-ID and ignores replayed events', async () => {
+        it('streams events, dedupes by id, and resumes from the last event id on restart', async () => {
             const run = createMockRun('run-1', TaskRunStatus.IN_PROGRESS)
             global.fetch = createFetchMock({
                 runs: { [run.id]: run },
@@ -616,16 +359,303 @@ describe('taskDetailSceneLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
             await flushStreaming()
 
-            const streamCalls = (global.fetch as jest.Mock).mock.calls.filter(([url]) =>
-                String(url).includes('/stream/')
-            )
-            expect(streamCalls).toHaveLength(2)
-            expect((streamCalls[1][1] as RequestInit)?.headers).toMatchObject({
-                Accept: 'text/event-stream',
-                'Last-Event-ID': '2-0',
-            })
+            const calls = streamFetchCalls()
+            expect(calls).toHaveLength(2)
+            expect(getHeader(calls[1][1], 'Last-Event-ID')).toBe('2-0')
             expect(logic.values.lastStreamEventId).toBe('3-0')
             expect(logic.values.streamEntries.map((entry) => entry.message)).toEqual(['hello', 'worldagain'])
+
+            logic.unmount()
+        })
+
+        it('resumes from the sessionStorage event id after a page refresh', async () => {
+            const run = createMockRun('run-1', TaskRunStatus.IN_PROGRESS)
+            window.sessionStorage.setItem('tasks:stream-resume:run-1', '5-0')
+            global.fetch = createFetchMock({
+                runs: { [run.id]: run },
+                streamResponses: [
+                    createSseResponse(
+                        ['id: 6-0\nevent: message\ndata: {"type":"assistant","content":"resumed"}\n\n'],
+                        true
+                    ),
+                ],
+            })
+
+            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setSelectedRunId(run.id, 'task-123')
+            await expectLogic(logic).toFinishAllListeners()
+            await flushStreaming()
+
+            const calls = streamFetchCalls()
+            expect(calls).toHaveLength(1)
+            expect(getHeader(calls[0][1], 'Last-Event-ID')).toBe('5-0')
+            expect(logic.values.streamEntries.map((entry) => entry.message)).toEqual(['resumed'])
+
+            logic.unmount()
+        })
+
+        it('stops on a stream-end event for a terminal run without reconnecting or downgrading to polling', async () => {
+            const run = createMockRun('run-1', TaskRunStatus.COMPLETED)
+            global.fetch = createFetchMock({
+                runs: { [run.id]: run },
+                streamResponses: [
+                    createSseResponse([
+                        createConsoleSseEvent('1-0', 'hello'),
+                        'event: stream-end\ndata: {"status":"complete"}\n\n',
+                    ]),
+                ],
+            })
+
+            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
+            logic.mount()
+            enableProxyStreaming()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setSelectedRunId(run.id, 'task-123')
+            await expectLogic(logic).toFinishAllListeners()
+            await flushStreaming()
+
+            expect(logic.values.streamComplete).toBe(true)
+            expect(logic.values.streamingFailed).toBe(false)
+            expect(logic.values.isStreaming).toBe(false)
+            expect(logic.values.streamEntries.map((entry) => entry.message)).toEqual(['hello'])
+            expect(streamFetchCalls()).toHaveLength(1)
+            expect(window.sessionStorage.getItem('tasks:stream-resume:run-1')).toBeNull()
+
+            logic.unmount()
+        })
+
+        it('keeps the pre-proxy behavior with the flag off: terminal runs never stream or fetch a stream token', async () => {
+            const run = createMockRun('run-1', TaskRunStatus.COMPLETED)
+            global.fetch = createFetchMock({ runs: { [run.id]: run } })
+
+            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setSelectedRunId(run.id, 'task-123')
+            await expectLogic(logic).toFinishAllListeners()
+            await flushStreaming()
+
+            expect(logic.values.isStreaming).toBe(false)
+            expect(streamFetchCalls()).toHaveLength(0)
+            expect(streamTokenFetchCalls()).toHaveLength(0)
+
+            logic.unmount()
+        })
+
+        it('streams live runs with the flag off via the Django path without fetching a stream token', async () => {
+            const run = createMockRun('run-1', TaskRunStatus.IN_PROGRESS)
+            global.fetch = createFetchMock({
+                runs: { [run.id]: run },
+                streamResponses: [
+                    createSseResponse(['id: 1-0\nevent: message\ndata: {"type":"user","content":"hello"}\n\n'], true),
+                ],
+            })
+
+            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setSelectedRunId(run.id, 'task-123')
+            await expectLogic(logic).toFinishAllListeners()
+            await flushStreaming()
+
+            const calls = streamFetchCalls()
+            expect(calls).toHaveLength(1)
+            expect(String(calls[0][0])).toContain('/api/projects/@current/tasks/task-123/runs/run-1/stream/')
+            expect(streamTokenFetchCalls()).toHaveLength(0)
+            expect(logic.values.streamEntries.map((entry) => entry.message)).toEqual(['hello'])
+
+            logic.unmount()
+        })
+
+        it('polls after a stream-end event when the refreshed run is still in progress', async () => {
+            const setIntervalSpy = jest.spyOn(window, 'setInterval')
+            const run = createMockRun('run-1', TaskRunStatus.IN_PROGRESS)
+            global.fetch = createFetchMock({
+                runs: { [run.id]: run },
+                streamResponses: [
+                    createSseResponse([
+                        createConsoleSseEvent('1-0', 'hello'),
+                        'event: stream-end\ndata: {"status":"complete"}\n\n',
+                    ]),
+                ],
+            })
+
+            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setSelectedRunId(run.id, 'task-123')
+            await expectLogic(logic).toFinishAllListeners()
+            await flushStreaming()
+
+            expect(logic.values.streamComplete).toBe(true)
+            expect(logic.values.streamingFailed).toBe(false)
+            expect(logic.values.isStreaming).toBe(false)
+            expect(streamFetchCalls()).toHaveLength(1)
+            expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 1000)
+
+            logic.unmount()
+        })
+
+        it('routes the stream through the proxy when the server resolves a stream base url', async () => {
+            const run = createMockRun('run-1', TaskRunStatus.IN_PROGRESS)
+            global.fetch = createFetchMock({
+                runs: { [run.id]: run },
+                streamBaseUrl: 'https://proxy.example/',
+                streamResponses: [
+                    createSseResponse(['id: 1-0\nevent: message\ndata: {"type":"assistant","content":"hi"}\n\n'], true),
+                ],
+            })
+
+            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
+            logic.mount()
+            enableProxyStreaming()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setSelectedRunId(run.id, 'task-123')
+            await expectLogic(logic).toFinishAllListeners()
+            await flushStreaming()
+
+            const calls = streamFetchCalls()
+            expect(calls).toHaveLength(1)
+            expect(String(calls[0][0])).toBe('https://proxy.example/v1/runs/run-1/stream')
+            expect(getHeader(calls[0][1], 'Authorization')).toBe('Bearer proxy-test-token')
+            expect(logic.values.streamEntries.map((entry) => entry.message)).toEqual(['hi'])
+
+            logic.unmount()
+        })
+
+        it('refreshes the stream token and reconnects when the proxy rejects an expired token', async () => {
+            const run = createMockRun('run-1', TaskRunStatus.IN_PROGRESS)
+            global.fetch = createFetchMock({
+                runs: { [run.id]: run },
+                streamBaseUrl: 'https://proxy.example/',
+                streamResponses: [
+                    new Response(JSON.stringify({ error: 'Invalid stream read token' }), { status: 401 }),
+                    createSseResponse(['id: 1-0\nevent: message\ndata: {"type":"assistant","content":"hi"}\n\n'], true),
+                ],
+            })
+
+            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
+            logic.mount()
+            enableProxyStreaming()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setSelectedRunId(run.id, 'task-123')
+            await expectLogic(logic).toFinishAllListeners()
+            await flushStreaming()
+            await flushStreaming()
+
+            expect(streamTokenFetchCalls()).toHaveLength(2)
+            expect(streamFetchCalls()).toHaveLength(2)
+            expect(logic.values.streamEntries.map((entry) => entry.message)).toEqual(['hi'])
+            expect(logic.values.streamingFailed).toBe(false)
+
+            logic.unmount()
+        })
+
+        it('reconnects after a dropped connection without latching to polling', async () => {
+            jest.useFakeTimers()
+            const run = createMockRun('run-1', TaskRunStatus.IN_PROGRESS)
+            global.fetch = createFetchMock({
+                runs: { [run.id]: run },
+                streamResponses: [
+                    // First connection emits one event then the body ends (a drop)
+                    createSseResponse([createConsoleSseEvent('1-0', 'first message')]),
+                    // Reconnect picks up the next event and stays open
+                    createSseResponse([createConsoleSseEvent('2-0', 'second message')], true),
+                ],
+            })
+
+            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(0)
+
+            logic.actions.setSelectedRunId(run.id, 'task-123')
+            await jest.advanceTimersByTimeAsync(0)
+
+            // A drop must not immediately downgrade to polling
+            expect(logic.values.streamingFailed).toBe(false)
+
+            // Advance past the first reconnect backoff (1000ms base)
+            await jest.advanceTimersByTimeAsync(1000)
+            await jest.advanceTimersByTimeAsync(0)
+
+            const calls = streamFetchCalls()
+            expect(calls).toHaveLength(2)
+            expect(logic.values.streamingFailed).toBe(false)
+            expect(logic.values.streamEntries.map((entry) => entry.message)).toEqual([
+                'first message',
+                'second message',
+            ])
+
+            logic.unmount()
+        })
+
+        it('exhausts the reconnect budget when connections die immediately instead of looping forever', async () => {
+            jest.useFakeTimers()
+            const run = createMockRun('run-1', TaskRunStatus.IN_PROGRESS)
+            global.fetch = createFetchMock({
+                runs: { [run.id]: run },
+                // Initial connection plus MAX_STREAM_RECONNECTS retries, all dying instantly.
+                // None lives past STREAM_MIN_HEALTHY_CONNECTION_MS, so the budget never resets.
+                streamResponses: Array.from({ length: 7 }, () => createSseResponse([])),
+            })
+
+            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(0)
+
+            logic.actions.setSelectedRunId(run.id, 'task-123')
+            await jest.advanceTimersByTimeAsync(0)
+
+            // Walk through every reconnect backoff: 1s, 2s, 4s, 8s, then capped at 15s.
+            for (const backoffMs of [1000, 2000, 4000, 8000, 15000, 15000]) {
+                await jest.advanceTimersByTimeAsync(backoffMs)
+                await jest.advanceTimersByTimeAsync(0)
+            }
+
+            expect(streamFetchCalls()).toHaveLength(7)
+            expect(logic.values.streamingFailed).toBe(true)
+            expect(logic.values.isStreaming).toBe(false)
+
+            logic.unmount()
+        })
+
+        it('does not restart an active stream when selected run reloads', async () => {
+            const run = createMockRun('run-1', TaskRunStatus.IN_PROGRESS)
+            global.fetch = createFetchMock({
+                runs: { [run.id]: run },
+                streamResponses: [
+                    createSseResponse(
+                        ['id: 1-0\nevent: message\ndata: {"type":"assistant","content":"hello"}\n\n'],
+                        true
+                    ),
+                ],
+            })
+
+            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setSelectedRunId(run.id, 'task-123')
+            await expectLogic(logic).toFinishAllListeners()
+            await flushStreaming()
+
+            expect(streamFetchCalls()).toHaveLength(1)
+
+            logic.actions.loadSelectedRunSuccess(run)
+            await expectLogic(logic).toFinishAllListeners()
+            await flushStreaming()
+
+            expect(streamFetchCalls()).toHaveLength(1)
+            expect(logic.values.streamEntries.map((entry) => entry.message)).toEqual(['hello'])
 
             logic.unmount()
         })

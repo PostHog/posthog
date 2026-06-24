@@ -137,6 +137,7 @@ def build_agent_runtime_env_prefix(
     model: str | None = None,
     reasoning_effort: str | None = None,
     event_ingest_token: str | None = None,
+    event_ingest_url: str | None = None,
 ) -> str:
     env_vars = {
         "POSTHOG_CODE_INTERACTION_ORIGIN": interaction_origin,
@@ -145,6 +146,7 @@ def build_agent_runtime_env_prefix(
         "POSTHOG_CODE_MODEL": model,
         "POSTHOG_CODE_REASONING_EFFORT": reasoning_effort,
         "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN": event_ingest_token,
+        "POSTHOG_TASK_RUN_EVENT_INGEST_URL": event_ingest_url,
     }
     assignments = " ".join(
         f"{name}={shlex.quote(value)}" for name, value in env_vars.items() if value is not None and value != ""
@@ -254,6 +256,7 @@ class SandboxBase(ABC):
         mcp_configs: list[McpServerConfig] | None = None,
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
+        event_ingest_url: str | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
