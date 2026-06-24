@@ -25,7 +25,7 @@ from products.signals.backend.scout_harness.team_limits import withheld_skills_f
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
-    resolve_user_id_for_team,
+    resolve_acting_user_id_for_team,
 )
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession
@@ -168,6 +168,30 @@ async def arun_signals_scout(
             skip_reason="prior run still in progress",
         )
 
+    # Resolve the acting user up front. Scouts don't clone a repo on the cadence path, so they
+    # don't need a GitHub integration — `resolve_acting_user_id_for_team` prefers the GitHub
+    # creator when present but falls back to any active org member, so a team that never connected
+    # GitHub still runs (these dominated the fleet failure rate when the run instead crashed ~5s
+    # into `_spawn_and_run` and booked a bogus `failed`). The only remaining short-circuit is the
+    # genuine "no active user to act as" case; like the withheld / in-flight skips it leaves no
+    # row, no lifecycle event, and a `skip_reason` the coordinator can surface — not a failure.
+    user_id = await database_sync_to_async(resolve_acting_user_id_for_team, thread_sensitive=False)(team.id)
+    if user_id is None:
+        logger.info(
+            "signals_scout: skipping run, no active user to act as for team",
+            extra={"team_id": team_id, "skill_name": skill.name},
+        )
+        return RunResult(
+            run_id=None,
+            task_run_id=None,
+            status=None,
+            last_message=None,
+            runtime_s=0.0,
+            skill_name=skill.name,
+            skill_version=skill.version,
+            skip_reason="no active user to act as for team",
+        )
+
     started = time.monotonic()
     # Pre-mint the bridge row's UUID so the prompt can reference it before the row
     # exists. The TaskRun is created inside `MultiTurnSession.start`; the bridge row is
@@ -184,6 +208,7 @@ async def arun_signals_scout(
             skill=skill,
             repository=repository,
             verbose=verbose,
+            user_id=user_id,
         )
         runtime_s = time.monotonic() - started
         emitted_count, _ = await database_sync_to_async(_read_run_metrics, thread_sensitive=False)(
@@ -208,7 +233,7 @@ async def arun_signals_scout(
             skill_name=skill.name,
             skill_version=skill.version,
         )
-    except Exception:
+    except Exception as exc:
         runtime_s = time.monotonic() - started
         # A failure before the on_task_run_created hook fires means no row was persisted —
         # don't hand callers a run_id that resolves to nothing.
@@ -246,6 +271,8 @@ async def arun_signals_scout(
             status=tasks_facade.TaskRunStatus.FAILED.value,
             runtime_s=runtime_s,
             emitted_count=emitted_count,
+            error_type=type(exc).__name__,
+            error_message=str(exc)[:300],
         )
         return RunResult(
             run_id=str(run_id) if row_persisted else None,
@@ -299,12 +326,13 @@ async def _spawn_and_run(
     skill: LoadedSkill,
     repository: str | None,
     verbose: bool,
+    user_id: int,
 ) -> tuple[str, str]:
     """Spawn the sandbox, create the bridge row before the first turn, run the agent.
 
-    Returns `(last_message, task_run_id)`.
+    `user_id` is the acting user resolved (and validated non-None) by the caller. Returns
+    `(last_message, task_run_id)`.
     """
-    user_id = await database_sync_to_async(resolve_user_id_for_team, thread_sensitive=False)(team.id)
     sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
         team.id,
         SIGNALS_SCOUT_SANDBOX_ENV_NAME,
@@ -653,6 +681,8 @@ def _capture_run_finished(
     status: str,
     runtime_s: float,
     emitted_count: int | None,
+    error_type: str | None = None,
+    error_message: str | None = None,
 ) -> None:
     """Emit the scout-owned per-run analytics event.
 
@@ -662,6 +692,11 @@ def _capture_run_finished(
     emit volume — keyed on the team so it joins both to the emit-side `signal_emitted`
     events and to the team-level experiment exposure. Best-effort: a capture failure must
     never fail or mask the run outcome.
+
+    On `status='failed'`, `error_type` (the exception class) and a truncated `error_message`
+    are attached so the failure rate is breakable down by cause without digging into worker
+    logs — the bulk of scout failures fail in this layer before the `process-task` workflow's
+    own `task_run_failed` event ever fires, so this is the only event that carries their reason.
     """
     try:
         posthoganalytics.capture(
@@ -676,6 +711,8 @@ def _capture_run_finished(
                 "status": status,
                 "runtime_seconds": round(runtime_s, 1),
                 "emitted_count": emitted_count,
+                "error_type": error_type,
+                "error_message": error_message,
             },
             groups=groups(team.organization, team),
         )
