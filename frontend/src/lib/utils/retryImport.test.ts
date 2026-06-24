@@ -18,6 +18,13 @@ describe('retryImport', () => {
         expect(factory).toHaveBeenCalledTimes(1)
     })
 
+    it('resolves a factory that returns a non-promise value', async () => {
+        const factory = jest.fn().mockReturnValue('module')
+
+        await expect(retryImport(factory)).resolves.toBe('module')
+        expect(factory).toHaveBeenCalledTimes(1)
+    })
+
     it('retries a transient chunk error and resolves', async () => {
         const factory = jest.fn().mockRejectedValueOnce(chunkError()).mockResolvedValue('module')
 

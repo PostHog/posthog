@@ -678,7 +678,10 @@ export const sceneLogic = kea<sceneLogicType>([
                 let importedScene
                 try {
                     window.ESBUILD_LOAD_CHUNKS?.(sceneId)
-                    importedScene = await retryImport(() => props.scenes[sceneId]())
+                    // Capture the importer in the narrowed scope; the early guard above ensures it's
+                    // defined, but that narrowing wouldn't flow into the retryImport closure.
+                    const importScene = props.scenes[sceneId]
+                    importedScene = await retryImport(() => importScene())
                 } catch (error: any) {
                     if (isChunkLoadError(error)) {
                         // Reloaded once in the last 20 seconds and now reloading again? Show network error

@@ -9,14 +9,18 @@ import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
  * existing reload/error recovery (ChunkLoadErrorBoundary, sceneLogic) still runs.
  *
  * Bounded by a decrementing counter (1 + `retries` attempts), so it cannot loop.
+ *
+ * `await factory()` normalizes the factory: a synchronous return value or a synchronous throw is
+ * handled just like a resolved/rejected promise.
  */
-export function retryImport<T>(factory: () => Promise<T>, retries = 2, baseDelayMs = 300): Promise<T> {
-    return factory().catch((error) => {
+export async function retryImport<T>(factory: () => T, retries = 2, baseDelayMs = 300): Promise<Awaited<T>> {
+    try {
+        return await factory()
+    } catch (error) {
         if (retries <= 0 || !isChunkLoadError(error)) {
             throw error
         }
-        return new Promise<void>((resolve) => setTimeout(resolve, baseDelayMs)).then(() =>
-            retryImport(factory, retries - 1, baseDelayMs * 2)
-        )
-    })
+        await new Promise<void>((resolve) => setTimeout(resolve, baseDelayMs))
+        return retryImport(factory, retries - 1, baseDelayMs * 2)
+    }
 }
