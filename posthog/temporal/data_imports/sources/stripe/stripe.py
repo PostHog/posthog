@@ -302,7 +302,6 @@ def get_rows(
                     if not _is_stripe_resource_missing_error(e):
                         raise
                     logger.debug(f"Stripe: skipping {resource.nested_parent_param}={parent_obj_id}, no longer exists")
-                    continue
         else:
             stripe_objects = _call_stripe(
                 resource.method, params={**default_params, **resource.params, **resume_params}
