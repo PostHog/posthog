@@ -503,6 +503,43 @@ mod tests {
     }
 
     #[test]
+    fn test_server_assigned_uuid_floors_pre_epoch_event() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+
+        let mut properties = HashMap::new();
+        properties.insert("distinct_id".to_string(), json!("test_user"));
+        // A pre-1970 timestamp has negative Unix millis, which can't fit the unsigned UUIDv7 time field.
+        let event = RawEvent {
+            uuid: None,
+            distinct_id: None,
+            event: "$pageview".to_string(),
+            properties,
+            timestamp: Some("1969-06-15T00:00:00Z".to_string()),
+            offset: None,
+            set: None,
+            set_once: None,
+            token: Some("test_token".to_string()),
+        };
+
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+        let processed = process_single_event(&event, historical_cfg, &context).unwrap();
+
+        // The event keeps its pre-epoch timestamp, but the uuid floors to the epoch rather than wrapping to garbage.
+        assert!(
+            processed
+                .metadata
+                .computed_timestamp
+                .unwrap()
+                .timestamp_millis()
+                < 0
+        );
+        assert_eq!(processed.event.uuid.as_u128() >> 80, 0);
+    }
+
+    #[test]
     fn test_process_single_event_with_invalid_sent_at() {
         let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
             .unwrap()
