@@ -24,6 +24,12 @@
             "formSchemaExport": "experimentsWidgetFormSchema",
             "formFields": ["limit", "orderBy", "orderDirection", "status", "createdBy"]
         },
+        "llm_analytics_traces": {
+            "configSchemaExport": "llmAnalyticsTracesWidgetConfigSchema",
+            "configTypeExport": "LlmAnalyticsTracesWidgetConfig",
+            "formSchemaExport": "llmAnalyticsTracesWidgetFormSchema",
+            "formFields": ["limit", "dateRange", "filterTestAccounts", "filterSupportTraces"]
+        },
         "session_replay_list": {
             "configSchemaExport": "sessionReplayWidgetConfigSchema",
             "configTypeExport": "SessionReplayWidgetConfig",

@@ -34,6 +34,10 @@ import {
     parseExperimentResultsWidgetConfigApiError,
     parseExperimentsListWidgetConfigApiError,
 } from './experiments/experimentsWidgetConfigValidation'
+import { EditLlmAnalyticsTracesWidgetModal } from './llm_analytics/EditLlmAnalyticsTracesWidgetModal'
+import { LlmAnalyticsTracesWidget } from './llm_analytics/LlmAnalyticsTracesWidget'
+import { LlmAnalyticsTracesWidgetTileFilters } from './llm_analytics/LlmAnalyticsTracesWidgetTileFilters'
+import { parseLlmAnalyticsTracesWidgetConfigApiError } from './llm_analytics/llmAnalyticsTracesWidgetConfigValidation'
 import { EditSessionReplayWidgetModal } from './session_replay/EditSessionReplayWidgetModal'
 import { SessionReplayWidget, SessionReplayWidgetTopHeading } from './session_replay/SessionReplayWidget'
 import { parseSessionReplayWidgetConfigApiError } from './session_replay/sessionReplayWidgetConfigValidation'
@@ -173,6 +177,13 @@ export const DASHBOARD_WIDGET_REGISTRY = {
         EditModal: EditExperimentResultsWidgetModal,
         productAccess: 'experiment',
         parseConfigApiError: parseExperimentResultsWidgetConfigApiError,
+    },
+    llm_analytics_traces: {
+        Component: LlmAnalyticsTracesWidget,
+        TileFilters: LlmAnalyticsTracesWidgetTileFilters,
+        EditModal: EditLlmAnalyticsTracesWidgetModal,
+        productAccess: 'llm_analytics',
+        parseConfigApiError: parseLlmAnalyticsTracesWidgetConfigApiError,
     },
 } satisfies Record<DashboardWidgetCatalogKey, DashboardWidgetDefinition>
 

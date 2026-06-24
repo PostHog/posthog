@@ -1,6 +1,7 @@
 import type { DashboardWidgetCatalogKey } from '../../widget_types/catalog'
 import { getDashboardWidgetCatalogEntry } from '../../widget_types/catalog'
 import { activityEventsSampleEvents } from '../../widgets/activity/activityEventsSampleData'
+import { llmAnalyticsTracesSampleTraces } from '../../widgets/llm_analytics/llmAnalyticsTracesSampleData'
 
 export type WidgetOverviewDemoState = {
     title?: string
@@ -341,6 +342,21 @@ export function getWidgetOverviewDemoState(catalogKey: DashboardWidgetCatalogKey
                 config: { ...defaultConfig, experimentId: 101 },
                 loading: false,
                 result: experimentResultsSamplePayload,
+            }
+        case 'llm_analytics_traces':
+            return {
+                title: defaultTitle,
+                description: catalogEntry.description,
+                showDescription: true,
+                config: { ...defaultConfig },
+                loading: false,
+                result: {
+                    results: llmAnalyticsTracesSampleTraces,
+                    hasMore: true,
+                    limit: 10,
+                    totalCount: 25,
+                    totalCountCapped: true,
+                },
             }
         default: {
             const exhaustiveCheck: never = catalogKey

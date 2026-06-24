@@ -1,6 +1,6 @@
 import type { ComponentType } from 'react'
 
-import { IconFlask, IconLive, IconRewindPlay, IconWarning } from '@posthog/icons'
+import { IconFlask, IconLive, IconLlmAnalytics, IconRewindPlay, IconWarning } from '@posthog/icons'
 
 import { urls } from 'scenes/urls'
 
@@ -12,6 +12,7 @@ import {
     errorTrackingWidgetConfigSchema,
     experimentResultsWidgetConfigSchema,
     experimentsWidgetConfigSchema,
+    llmAnalyticsTracesWidgetConfigSchema,
     sessionReplayWidgetConfigSchema,
 } from '../generated/widget-configs.zod'
 import type { DashboardWidgetProductAccess } from '../types'
@@ -21,6 +22,7 @@ import {
     ExperimentResultsWidgetPreview,
     ExperimentsListWidgetPreview,
 } from '../widgets/previews/ExperimentsWidgetPreviews'
+import { LlmAnalyticsTracesWidgetPreview } from '../widgets/previews/LlmAnalyticsTracesWidgetPreview'
 import { SessionReplayWidgetPreview } from '../widgets/previews/SessionReplayWidgetPreview'
 import type { WidgetAvailabilityConfig, WidgetAvailabilityRequirementId } from './widgetAvailability'
 
@@ -79,6 +81,7 @@ export const DASHBOARD_WIDGET_GROUP_LABELS = {
     error_tracking: 'Error tracking',
     session_replay: 'Session replay',
     experiments: 'Experiments',
+    llm_analytics: 'AI observability',
 } as const satisfies Record<string, string>
 
 export function getDashboardWidgetGroupLabel(groupId: string): string {
@@ -91,6 +94,7 @@ export const DASHBOARD_WIDGET_GROUP_ICONS = {
     error_tracking: IconWarning,
     session_replay: IconRewindPlay,
     experiments: IconFlask,
+    llm_analytics: IconLlmAnalytics,
 } as const satisfies Record<keyof typeof DASHBOARD_WIDGET_GROUP_LABELS, ComponentType<{ className?: string }>>
 
 export function getDashboardWidgetGroupIcon(groupId: string): ComponentType<{ className?: string }> | undefined {
@@ -266,6 +270,22 @@ export const DASHBOARD_WIDGET_CATALOG = {
             message: 'Log in to PostHog to explore the latest events from this dashboard.',
         },
     },
+    llm_analytics_traces: {
+        groupId: 'llm_analytics',
+        label: 'Recent traces',
+        description: 'Recent LLM traces, as on AI observability > Traces.',
+        headerTitle: 'Recent traces',
+        defaultConfig: llmAnalyticsTracesWidgetConfigSchema.parse({
+            dateRange: { date_from: '-7d' },
+        }),
+        defaultLayout: { w: 6, h: 5, minW: 3, minH: 3 },
+        productAccess: 'llm_analytics',
+        titleHref: urls.aiObservabilityTraces(),
+        sharedPlaceholder: {
+            title: 'Recent traces',
+            message: 'Log in to PostHog to see LLM traces from this dashboard.',
+        },
+    },
 } as const satisfies Record<string, DashboardWidgetCatalogEntry>
 
 export type DashboardWidgetCatalogKey = keyof typeof DASHBOARD_WIDGET_CATALOG
@@ -277,6 +297,7 @@ export const DASHBOARD_WIDGET_PREVIEWS: Record<DashboardWidgetCatalogKey, () => 
     session_replay_list: SessionReplayWidgetPreview,
     experiments_list: ExperimentsListWidgetPreview,
     experiment_results: ExperimentResultsWidgetPreview,
+    llm_analytics_traces: LlmAnalyticsTracesWidgetPreview,
 }
 
 export type ResolvedDashboardWidgetCatalogEntry = DashboardWidgetCatalogEntry & {

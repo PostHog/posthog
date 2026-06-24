@@ -36,6 +36,7 @@ from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES, W
 from products.dashboards.backend.widget_specs.configs import (
     ACTIVITY_EVENTS_LIST_WIDGET_TYPE,
     ERROR_TRACKING_LIST_WIDGET_TYPE,
+    LLM_ANALYTICS_TRACES_WIDGET_TYPE,
     SESSION_REPLAY_LIST_WIDGET_TYPE,
     ErrorTrackingListWidgetConfig,
     SessionReplayOrderBy,
@@ -102,6 +103,22 @@ class TestWidgetRegistry(APIBaseTest):
     def test_validate_activity_events_list_config_rejects_limit_above_max(self) -> None:
         with self.assertRaises(Exception):
             validate_widget_config(ACTIVITY_EVENTS_LIST_WIDGET_TYPE, {"limit": ACTIVITY_EVENTS_MAX_LIMIT + 1})
+
+    def test_validate_llm_analytics_traces_config_omits_filter_support_traces_by_default(self) -> None:
+        validated = validate_widget_config(LLM_ANALYTICS_TRACES_WIDGET_TYPE, {})
+        # exclude_none strips the unset toggle so it never reaches the query as an explicit value.
+        assert "filterSupportTraces" not in validated
+
+    def test_validate_llm_analytics_traces_config_accepts_filter_support_traces(self) -> None:
+        validated = validate_widget_config(LLM_ANALYTICS_TRACES_WIDGET_TYPE, {"filterSupportTraces": True})
+        assert validated["filterSupportTraces"] is True
+
+    def test_validate_llm_analytics_traces_config_rejects_non_bool_filter_support_traces(self) -> None:
+        with self.assertRaises(Exception):
+            validate_widget_config(
+                LLM_ANALYTICS_TRACES_WIDGET_TYPE,
+                cast(dict[str, object], {"filterSupportTraces": "yes"}),
+            )
 
     @parameterized.expand(
         [

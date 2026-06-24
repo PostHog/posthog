@@ -17,6 +17,7 @@ ERROR_TRACKING_LIST_WIDGET_TYPE = "error_tracking_list"
 SESSION_REPLAY_LIST_WIDGET_TYPE = "session_replay_list"
 EXPERIMENTS_LIST_WIDGET_TYPE = "experiments_list"
 EXPERIMENT_RESULTS_WIDGET_TYPE = "experiment_results"
+LLM_ANALYTICS_TRACES_WIDGET_TYPE = "llm_analytics_traces"
 
 ErrorTrackingOrderBy = Literal["last_seen", "first_seen", "occurrences", "users", "sessions"]
 ErrorTrackingWidgetStatus = Literal["archived", "active", "resolved", "pending_release", "suppressed", "all"]
@@ -65,6 +66,22 @@ class SessionReplayListWidgetConfig(WidgetListConfigBase):
             return None
         if not isinstance(value, str):
             raise ValueError("savedFilterId must be a string.")
+        return value
+
+
+class LlmAnalyticsTracesListWidgetConfig(WidgetListConfigBase):
+    limit: WidgetLimit = Field(default=DEFAULT_WIDGET_LIST_LIMIT, description="Maximum number of traces to return.")
+    filterSupportTraces: bool | None = Field(
+        default=None, description="When true, exclude impersonated support traces from the results."
+    )
+
+    @field_validator("filterSupportTraces", mode="before")
+    @classmethod
+    def validate_filter_support_traces(cls, value: object) -> bool | None:
+        if value is None:
+            return None
+        if not isinstance(value, bool):
+            raise ValueError("filterSupportTraces must be a boolean.")
         return value
 
 

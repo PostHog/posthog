@@ -12,16 +12,23 @@ from products.dashboards.backend.widget_specs.configs import (
     ERROR_TRACKING_LIST_WIDGET_TYPE,
     EXPERIMENT_RESULTS_WIDGET_TYPE,
     EXPERIMENTS_LIST_WIDGET_TYPE,
+    LLM_ANALYTICS_TRACES_WIDGET_TYPE,
     SESSION_REPLAY_LIST_WIDGET_TYPE,
     ActivityEventsListWidgetConfig,
     ErrorTrackingListWidgetConfig,
     ExperimentResultsWidgetConfig,
     ExperimentsListWidgetConfig,
+    LlmAnalyticsTracesListWidgetConfig,
     SessionReplayListWidgetConfig,
 )
 
 DashboardWidgetType = Literal[
-    "activity_events_list", "error_tracking_list", "session_replay_list", "experiments_list", "experiment_results"
+    "activity_events_list",
+    "error_tracking_list",
+    "session_replay_list",
+    "experiments_list",
+    "experiment_results",
+    "llm_analytics_traces",
 ]
 
 __all__ = [
@@ -83,6 +90,9 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
     from products.dashboards.backend.widgets.error_tracking_list import run_error_tracking_list_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.experiment_results import run_experiment_results_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.experiments_list import run_experiments_list_widget  # noqa: PLC0415
+    from products.dashboards.backend.widgets.llm_analytics_traces import (  # noqa: PLC0415
+        run_llm_analytics_traces_widget,
+    )
     from products.dashboards.backend.widgets.session_replay_list import run_session_replay_list_widget  # noqa: PLC0415
 
     return {
@@ -160,6 +170,21 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             availability_requirements=(),
             form_fields=("experimentId",),
             filter_fields=("experimentId",),
+        ),
+        LLM_ANALYTICS_TRACES_WIDGET_TYPE: WidgetSpec(
+            widget_type=LLM_ANALYTICS_TRACES_WIDGET_TYPE,
+            config_model=LlmAnalyticsTracesListWidgetConfig,
+            query_fn=run_llm_analytics_traces_widget,
+            required_scopes=("llm_analytics:read",),
+            group_id="llm_analytics",
+            group_label="AI observability",
+            label="Traces",
+            description="Recent LLM traces, as on AI observability > Traces.",
+            required_product_access="llm_analytics",
+            product_access_denied_message="You do not have access to AI observability.",
+            availability_requirements=(),
+            form_fields=("limit", "dateRange", "filterTestAccounts", "filterSupportTraces"),
+            filter_fields=("widgetFilters",),
         ),
     }
 
