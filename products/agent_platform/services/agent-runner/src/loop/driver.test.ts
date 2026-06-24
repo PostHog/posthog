@@ -644,19 +644,27 @@ describe('driver runSession', () => {
      * `getUsage` merge `usage_total.cost_total` stays zero forever.
      */
     describe('gateway metadata + post-turn settled cost', () => {
-        // Build a streamFn that just delegates to `streamSimple` but records
-        // every call's options.headers in the provided array.
+        // A streamFn that delegates to `streamSimple` (faux provider) but records
+        // each call's options.headers. When `gatewayRequestId` is set it also
+        // fires `onResponse` with an `X-Request-ID` header to mimic the gateway's
+        // minted settlement reference — the faux provider returns no headers, so
+        // the cost-lookup path is otherwise never exercised.
         function recordingStreamFn(
-            calls: Array<{ headers: Record<string, string> | undefined }>
+            calls: Array<{ headers: Record<string, string> | undefined }>,
+            gatewayRequestId?: string
         ): Parameters<typeof runSession>[2]['streamFn'] {
             return (model, ctx, opts) => {
                 calls.push({ headers: opts?.headers as Record<string, string> | undefined })
+                if (gatewayRequestId) {
+                    void opts?.onResponse?.({ status: 200, headers: { 'x-request-id': gatewayRequestId } }, model)
+                }
                 return streamSimple(model, ctx, opts)
             }
         }
 
-        it('stamps Idempotency-Key + X-Request-Id per turn and merges settled cost', async () => {
+        it('stamps Idempotency-Key per turn and looks up settled cost by the gateway X-Request-ID', async () => {
             const calls: Array<{ headers: Record<string, string> | undefined }> = []
+            const GW_ID = 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4'
             const getUsage = vi.fn(async (requestId: string) => ({
                 request_id: requestId,
                 team_id: 1,
@@ -666,30 +674,46 @@ describe('driver runSession', () => {
             const session = makeSession()
             const out = await run(makeRev(), session, {
                 script: [stop('hi back')],
-                streamFn: recordingStreamFn(calls),
+                streamFn: recordingStreamFn(calls, GW_ID),
                 gatewayHeaders: { 'X-PostHog-Distinct-Id': 'team:1:agent:app', 'X-PostHog-Trace-Id': TEST_SESSION_ID },
                 gatewayUsage: { client: { getUsage } as never, phc: 'phc_test' },
                 gatewayEmitsGenerations: true,
             })
             expect(out.state).toBe('completed')
-            // One outbound call, headers carry the static gateway headers
-            // PLUS the per-turn id matching the `agent:<session>:<turn>` shape.
             expect(calls).toHaveLength(1)
             expect(calls[0].headers).toMatchObject({
                 'X-PostHog-Distinct-Id': 'team:1:agent:app',
                 'X-PostHog-Trace-Id': TEST_SESSION_ID,
             })
-            // The id carries the `agent:<session>:<turn>:<nonce>` shape;
-            // Idempotency-Key and X-Request-Id are the same id, and the nonce
-            // makes each call unique (see the resume regression test below).
-            const reqId = calls[0].headers?.['Idempotency-Key']
-            expect(reqId).toMatch(new RegExp(`^agent:${TEST_SESSION_ID}:1:[0-9a-f-]{36}$`))
-            expect(calls[0].headers?.['X-Request-Id']).toBe(reqId)
-            // getUsage was called for that exact request id; the returned
-            // cost landed in usage_total.
+            // Idempotency-Key dedupes pi-ai retries (unique per call via the
+            // nonce — see the resume test). We no longer send X-Request-Id: the
+            // gateway ignores an inbound one and mints its own.
+            const idemKey = calls[0].headers?.['Idempotency-Key']
+            expect(idemKey).toMatch(new RegExp(`^agent:${TEST_SESSION_ID}:1:[0-9a-f-]{36}$`))
+            expect(calls[0].headers ?? {}).not.toHaveProperty('X-Request-Id')
+            // Cost is looked up by the GATEWAY's id (captured from the response
+            // header), NOT our idempotency key — keying off ours never matched
+            // the ledger, so cost was always $0.
             expect(getUsage).toHaveBeenCalledTimes(1)
-            expect(getUsage).toHaveBeenCalledWith(reqId, { phc: 'phc_test' })
+            expect(getUsage).toHaveBeenCalledWith(GW_ID, { phc: 'phc_test' })
+            expect(getUsage).not.toHaveBeenCalledWith(idemKey, { phc: 'phc_test' })
             expect(session.usage_total.cost_total).toBeCloseTo(0.42, 5)
+        })
+
+        it('skips the cost lookup when the gateway returns no X-Request-ID (fail open, cost stays 0)', async () => {
+            const calls: Array<{ headers: Record<string, string> | undefined }> = []
+            const getUsage = vi.fn(async () => ({ request_id: 'x', team_id: 1, cost_usd: '9.99' }))
+            const session = makeSession()
+            const out = await run(makeRev(), session, {
+                script: [stop('hi back')],
+                // No gatewayRequestId → no X-Request-ID header captured.
+                streamFn: recordingStreamFn(calls),
+                gatewayUsage: { client: { getUsage } as never, phc: 'phc_test' },
+                gatewayEmitsGenerations: true,
+            })
+            expect(out.state).toBe('completed')
+            expect(getUsage).not.toHaveBeenCalled()
+            expect(session.usage_total.cost_total).toBe(0)
         })
 
         it('uses a unique Idempotency-Key per call so resumes never collide', async () => {
@@ -733,12 +757,13 @@ describe('driver runSession', () => {
             const session = makeSession()
             const out = await run(makeRev(), session, {
                 script: [stop('hi back')],
-                streamFn: recordingStreamFn(calls),
+                streamFn: recordingStreamFn(calls, 'gw_nan_ref'),
                 gatewayHeaders: {},
                 gatewayUsage: { client: { getUsage } as never, phc: 'phc_test' },
                 gatewayEmitsGenerations: true,
             })
             expect(out.state).toBe('completed')
+            expect(getUsage).toHaveBeenCalledWith('gw_nan_ref', { phc: 'phc_test' })
             expect(session.usage_total.cost_total).toBe(0)
         })
 
@@ -813,6 +838,49 @@ describe('driver runSession', () => {
             expect(out.state).toBe('completed')
             const last = session.conversation.at(-1) as { role: string; content: unknown }
             expect(last.role).toBe('assistant')
+        })
+
+        // Regression: a real provider echoes the PROVIDER-SAFE tool name
+        // (`posthog_meta-end-turn`), not the `@posthog/...` original. The
+        // sanitizing wrapper must translate it back, and on the multi-model path
+        // it must run OUTSIDE the fallback wrapper — the fallback re-emits the
+        // `done` event (safe name) into a fresh stream, so an inner sanitizing
+        // result() never reaches the loop. The faux provider can't exercise this
+        // (it echoes the original verbatim), so we emit the safe name by hand.
+        it('translates a provider-safe tool name echoed through the fallback wrapper', async () => {
+            let calls = 0
+            const safeEndTurn = (): Parameters<typeof runSession>[2]['streamFn'] => {
+                return () => {
+                    calls++
+                    const stream = createAssistantMessageEventStream()
+                    queueMicrotask(() => {
+                        // First turn: end_turn under its provider-safe name. If the
+                        // map misses, the loop returns "tool not found" and keeps
+                        // going — a second call. With the fix it's intercepted and
+                        // the turn terminates after one call.
+                        const done =
+                            calls === 1
+                                ? fauxAssistantMessage([fauxToolCall('posthog_meta-end-turn', {})], {
+                                      stopReason: 'toolUse',
+                                  })
+                                : fauxAssistantMessage('fallthrough', { stopReason: 'stop' })
+                        stream.push({ type: 'start', partial: fauxAssistantMessage('') })
+                        stream.push({ type: 'done', reason: calls === 1 ? 'toolUse' : 'stop', message: done })
+                        stream.end(done)
+                    })
+                    return stream
+                }
+            }
+            const out = await run(makeRev(), makeSession(), {
+                models: [{ model: fauxModel([stop('x')]) }, { model: fauxModel([stop('y')]) }].map((m, i) => ({
+                    model: { ...m.model, id: i === 0 ? 'a' : 'b' },
+                })),
+                streamFn: safeEndTurn(),
+            })
+            expect(out.state).toBe('completed')
+            // The safe name resolved to @posthog/meta-end-turn and terminated the
+            // turn on the first model call — no "not found" + retry.
+            expect(calls).toBe(1)
         })
     })
 

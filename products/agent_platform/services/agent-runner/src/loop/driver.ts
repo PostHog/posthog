@@ -923,31 +923,29 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             return { state: 'completed', turns: turn }
         }
 
-        // Tools are registered under their original ids so the loop matches calls
-        // by name. Sanitize names on the wire (strict providers reject `@`/`/`) and
-        // translate provider-echoed names back to the original before the loop sees
-        // the assistant message. The faux provider echoes the script's (original)
-        // name verbatim — the reverse map misses and leaves it unchanged.
+        // Tools register under their original ids; the loop matches calls by name.
+        // Sanitize names on the wire (strict providers reject `@`/`/`) and translate
+        // provider-echoed names back before the loop sees the assistant message.
         //
-        // Two wrappers compose: the gateway-metadata wrapper (when active) stamps
-        // per-call request ids + headers; the sanitizing wrapper rewrites tool
-        // names. Order doesn't change behaviour — both touch separate fields —
-        // but gateway is outer so the request id is generated at the top of the
-        // chain, before name sanitization mutates the context payload pi-ai sees.
-        let baseStreamFn: StreamFn = deps.streamFn ?? streamSimple
+        // Compose inner→outer: gateway-metadata (per-call request id + headers),
+        // multi-model fallback (walks the priority list), sanitizing. Sanitizing
+        // MUST be outermost: the fallback wrapper re-emits the winning attempt into
+        // a fresh stream whose result() resolves from the forwarded `done` event,
+        // which still carries provider-safe names — only the outer sanitizing
+        // result() runs last and maps them back to `@posthog/...`. Fallback inside
+        // sanitizing → every multi-model tool call dispatches as "tool not found".
+        let coreStreamFn: StreamFn = deps.streamFn ?? streamSimple
         if (deps.gatewayHeaders || deps.gatewayUsage) {
-            baseStreamFn = gatewayMetadataStreamFn(baseStreamFn, session.id, deps.gatewayHeaders, turnRequestIds)
+            coreStreamFn = gatewayMetadataStreamFn(coreStreamFn, session.id, deps.gatewayHeaders, turnRequestIds)
         }
-        let streamFn = sanitizingStreamFn(baseStreamFn, nameToId)
 
-        // Which model answered the current turn, for the `$ai_generation` tag.
-        // Reset per `turn_start`; updated by the fallback wrapper's hooks (the
-        // attempt that committed, and whether it fell over from an earlier one).
-        // Single-model sessions skip the wrapper entirely → identical to today.
+        // Which model answered this turn, for the `$ai_generation` tag. Reset per
+        // `turn_start`; the fallback hooks repopulate it. Single-model sessions
+        // skip the wrapper → identical to today.
         let modelAttempt = 0
         let fellBackFrom: string | undefined
         if (deps.models.length > 1) {
-            streamFn = fallbackStreamFn(streamFn, deps.models, {
+            coreStreamFn = fallbackStreamFn(coreStreamFn, deps.models, {
                 onAttempt: (index) => {
                     modelAttempt = index
                 },
@@ -957,6 +955,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 },
             })
         }
+        const streamFn = sanitizingStreamFn(coreStreamFn, nameToId)
 
         const resolvedMaxTokens = resolveMaxOutputTokens({
             modelMaxTokens: primaryModel.maxTokens,
@@ -1360,23 +1359,24 @@ export function translateAssistantNamesBack(
 }
 
 /**
- * Stamp `Idempotency-Key` + `X-Request-Id` on every outbound model call,
- * plus any caller-supplied gateway headers (`X-PostHog-Distinct-Id`,
- * `X-PostHog-Trace-Id`). The id is recorded in `turnRequestIds` keyed by the
- * loop's outbound-call counter so the sink can fetch settled cost via
- * `GET /v1/usage/<request_id>` after `turn_end`.
+ * Stamp `Idempotency-Key` + caller gateway headers (`X-PostHog-Distinct-Id`,
+ * `X-PostHog-Trace-Id`) on every outbound call, and capture the gateway's
+ * settlement reference into `turnRequestIds` (keyed by the outbound-call
+ * counter) so the sink can fetch settled cost via `GET /v1/usage/<id>` after
+ * `turn_end`.
  *
- * The id MUST be globally unique per outbound call. `outboundTurn` is a
- * per-`runSession` counter that resets to 0 on every resume, so a key of just
- * `agent:<session>:<turn>` collides across turns: the first model call of
- * every follow-up reuses `agent:<session>:1`, which the gateway already has
- * cached under its 24h Idempotency-Key window from the session's first turn.
- * The gateway then replays that stale response instead of calling the model,
- * so the follow-up turn ends instantly with no output (0 tokens). The
- * per-call `randomUUID()` nonce keeps the id unique across resumes while
- * staying stable within a single call — pi-ai's SDK-level retries on
- * transient 5xx reuse these same headers, so the gateway still collapses one
- * call's retries onto a single billed usage row.
+ * Idempotency-Key must be unique per outbound call. `outboundTurn` resets to 0
+ * on every resume, so `agent:<session>:<turn>` alone collides across turns —
+ * the gateway replays the stale response cached under its Idempotency-Key
+ * window (0-token follow-ups). The per-call `randomUUID()` nonce keeps it
+ * unique across resumes yet stable within a call, so pi-ai's SDK-level retries
+ * still collapse onto one billed row.
+ *
+ * The usage lookup keys off the GATEWAY's id, not ours: the gateway mints its
+ * own settlement reference (a client-chosen one would let a caller collapse
+ * every debit as a duplicate) and returns it in the `X-Request-ID` response
+ * header. We read it via pi-ai's `onResponse`. Keying off the runner-chosen id
+ * never matched the ledger → cost was always $0.
  */
 function gatewayMetadataStreamFn(
     base: StreamFn,
@@ -1387,15 +1387,20 @@ function gatewayMetadataStreamFn(
     let outboundTurn = 0
     return async (model, context, options) => {
         outboundTurn++
-        const requestId = `agent:${sessionId}:${outboundTurn}:${randomUUID()}`
-        turnRequestIds.set(outboundTurn, requestId)
-        const headers = {
-            ...gatewayHeaders,
-            ...options?.headers,
-            'Idempotency-Key': requestId,
-            'X-Request-Id': requestId,
-        }
-        return base(model, context, { ...options, headers })
+        const turnIndex = outboundTurn
+        const idempotencyKey = `agent:${sessionId}:${turnIndex}:${randomUUID()}`
+        const priorOnResponse = options?.onResponse
+        return base(model, context, {
+            ...options,
+            headers: { ...gatewayHeaders, ...options?.headers, 'Idempotency-Key': idempotencyKey },
+            onResponse: async (response, m) => {
+                const id = response.headers['x-request-id']
+                if (id) {
+                    turnRequestIds.set(turnIndex, id)
+                }
+                await priorOnResponse?.(response, m)
+            },
+        })
     }
 }
 
