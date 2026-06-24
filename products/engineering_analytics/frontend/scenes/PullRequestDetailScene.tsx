@@ -377,6 +377,7 @@ export function PullRequestDetailScene(): JSX.Element {
                                 ).url
                             }
                             className="font-medium"
+                            onClick={(e) => e.stopPropagation()}
                         >
                             {run.workflow}
                         </Link>
@@ -385,6 +386,7 @@ export function PullRequestDetailScene(): JSX.Element {
                             to={githubWorkflowUrl(pullRequest.repo.owner, pullRequest.repo.name, run.workflow)}
                             target="_blank"
                             className="font-medium"
+                            onClick={(e) => e.stopPropagation()}
                         >
                             {run.workflow}
                         </Link>
@@ -514,11 +516,26 @@ export function PullRequestDetailScene(): JSX.Element {
                     useURLForSorting={false}
                     // Chronological by default so the table reads top→bottom like the Gantt; headers re-sort.
                     defaultSorting={{ columnKey: 'timeline', order: 1 }}
+                    // Whole-row click toggles the job breakdown (the logs-viewer pattern); links inside the
+                    // row stopPropagation so they still navigate.
+                    onRow={(run) =>
+                        run.runId != null
+                            ? {
+                                  className: 'cursor-pointer',
+                                  onClick: () =>
+                                      setRunExpanded(
+                                          runRowKey(run),
+                                          !expandedRunKeys.includes(runRowKey(run)),
+                                          run.runId
+                                      ),
+                              }
+                            : {}
+                    }
                     expandable={{
+                        // No caret cell — the row itself is the toggle (see onRow above).
+                        showRowExpansionToggle: false,
                         rowExpandable: (run) => run.runId != null,
                         isRowExpanded: (run) => expandedRunKeys.includes(runRowKey(run)),
-                        onRowExpand: (run) => setRunExpanded(runRowKey(run), true, run.runId),
-                        onRowCollapse: (run) => setRunExpanded(runRowKey(run), false, run.runId),
                         expandedRowRender: (run) => (
                             <RunJobs
                                 jobs={run.runId != null ? runJobs[run.runId] : undefined}
