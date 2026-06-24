@@ -97,6 +97,7 @@ const workflowHealth = (): ToolBase<typeof WorkflowHealthSchema, WithPostHogUrl<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/workflow_health/`,
             query: {
+                branch: params.branch,
                 date_from: params.date_from,
                 date_to: params.date_to,
                 source_id: params.source_id,

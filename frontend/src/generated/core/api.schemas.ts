@@ -3662,6 +3662,29 @@ export interface UserGitHubLinkStartResponseApi {
 }
 
 /**
+ * A cookie-auth login session shown on the user's 'Web sessions' screen.
+ */
+export interface UserAuthSessionApi {
+    /** Identifier used to revoke this login session. */
+    readonly id: string
+    /** When this login session last made a request (refreshed periodically). */
+    readonly last_activity: string
+    /** Approximate city and country derived from the IP address, if known. */
+    readonly location: string
+    /** Browser and operating system parsed from the user agent, e.g. 'Chrome 135 on macOS'. */
+    readonly device: string
+    /** How this session signed in (e.g. password, Google, SAML). */
+    readonly login_method: string
+    /** Whether this is the login session making the current request. */
+    readonly is_current: boolean
+}
+
+export interface RevokeOtherSessionsResponseApi {
+    /** Number of other login sessions that were revoked. */
+    revoked_count: number
+}
+
+/**
  * * `later` - Later
  * * `other` - Other
  */
@@ -4061,4 +4084,9 @@ export type UsersIntegrationsGithubReposRetrieveParams = {
      * Optional case-insensitive repository name search query.
      */
     search?: string
+}
+
+export type UsersLoginSessionsListParams = {
+    email?: string
+    is_staff?: boolean
 }

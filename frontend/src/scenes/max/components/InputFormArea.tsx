@@ -11,12 +11,17 @@ import {
     MultiQuestionFormQuestion,
 } from '~/queries/schema/schema-assistant-messages'
 
-import { MarkdownMessage } from '../MarkdownMessage'
+import {
+    MultiFieldQuestion,
+    QuestionField,
+    isFieldValid,
+} from 'products/posthog_ai/frontend/sandbox/components/QuestionField'
+import { SandboxPermissionInput } from 'products/posthog_ai/frontend/sandbox/components/SandboxPermissionInput'
+import { SandboxQuestionInput } from 'products/posthog_ai/frontend/sandbox/components/SandboxQuestionInput'
+import { MarkdownMessage } from 'products/posthog_ai/frontend/sandbox/MarkdownMessage'
+
 import { maxThreadLogic } from '../maxThreadLogic'
 import { Option, OptionSelector } from './OptionSelector'
-import { MultiFieldQuestion, QuestionField, isFieldValid } from './QuestionField'
-import { SandboxPermissionInput } from './SandboxPermissionInput'
-import { SandboxQuestionInput } from './SandboxQuestionInput'
 
 function isQuestionComplete(
     q: MultiQuestionFormQuestion,

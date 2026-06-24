@@ -3,7 +3,7 @@
 The backend only ever reads persisted log entries (S3 NDJSON replayed via the products/tasks
 ``logs/`` path) — today to walk prior ``_posthog/user_message`` notifications for context
 dedup on follow-ups. Live SSE frames are consumed exclusively by the frontend, where the full
-contract is typed at ``frontend/src/scenes/max/types/sandboxWireTypes.ts``; keep that copy in
+contract is typed at ``products/posthog_ai/frontend/sandbox/types/sandboxWireTypes.ts``; keep that copy in
 mind when extending this one.
 
 The envelope is validated with tolerant pydantic models (we co-own its shape with

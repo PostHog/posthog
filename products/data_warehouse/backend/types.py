@@ -677,6 +677,11 @@ class ExternalDataSourceType(models.TextChoices):
     CHATWOOT = "Chatwoot", "Chatwoot"
     SANITY = "Sanity", "Sanity"
     METRONOME = "Metronome", "Metronome"
+    JOBBER = "Jobber", "Jobber"
+    KNOCK = "Knock", "Knock"
+    LEEXI = "Leexi", "Leexi"
+    RB2B = "RB2B", "RB2B"
+    SUPERWALL = "Superwall", "Superwall"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only

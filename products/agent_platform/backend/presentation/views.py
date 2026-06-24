@@ -189,7 +189,11 @@ class JanitorUpstreamError(APIException):
 AGENT_SESSION_LOG_SOURCE = "agent_session"
 
 
-def _mint_preview_jwt(application: AgentApplication, revision: AgentRevision, user: Any) -> tuple[str, int] | None:
+def _mint_preview_jwt(
+    application: AgentApplication,
+    revision: AgentRevision,
+    user: Any,
+) -> tuple[str, int] | None:
     """Mint a short-lived HS256 JWT scoped to (app, rev) for non-live invokes.
 
     Returns `(token, ttl_seconds)` or `None` when no shared signing key is
@@ -197,11 +201,13 @@ def _mint_preview_jwt(application: AgentApplication, revision: AgentRevision, us
 
     Bound to (app, rev) so a captured token can't be replayed against a
     different draft, and to `aud = agent-ingress.preview` so it can't be
-    replayed against any other agent-platform service.
+    replayed against any other agent-platform service. The token only admits
+    the non-live revision through routing; the revision runs against its own
+    `encrypted_env`, so there's no per-session secret payload to carry.
     """
     if not settings.AGENT_INTERNAL_SIGNING_KEY:
         return None
-    ttl_seconds = 60
+    ttl_seconds = 15 * 60
     payload: dict[str, Any] = {
         "app": str(application.id),
         "rev": str(revision.id),
@@ -534,6 +540,17 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # so it lives here even though it targets a non-live revision. The GET
         # `listen` counterpart (read-only SSE tail) stays in read actions.
         "preview_proxy",
+        # Minting a preview JWT is a write-class capability regardless of verb:
+        # the returned token lets a holder call `run`/`send`/`cancel` against a
+        # draft directly, equivalent to `preview_proxy`. BOTH verbs require
+        # `agents:write` — the POST (`preview_token_mint`) and the GET sibling
+        # (`preview_token`, kept only because EventSource can't set headers)
+        # return the identical usable token, so a read token must not be able to
+        # mint one via either path and hit ingress on its own. (The
+        # `preview_proxy*` actions differ: they use the JWT server-side and
+        # never hand it back, so the GET `preview_proxy_get` stays read-scoped.)
+        "preview_token_mint",
+        "preview_token",
     ]
     scope_object_read_actions = [
         "list",
@@ -546,8 +563,10 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # GET (SSE `listen`) → `preview_proxy_get`. DRF uses the bound function
         # name as `view.action`, so the GET variant is its own scope-map entry;
         # the mutating POST sibling (`preview_proxy`) is a write action above.
+        # The proxy uses the preview JWT server-side and never returns it, so
+        # this read-scoped GET can't leak a usable credential (unlike
+        # `preview_token`, which is write-scoped above).
         "preview_proxy_get",
-        "preview_token",
         "approvals_list",
         "approvals_retrieve",
     ]
@@ -768,59 +787,55 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     # server-side mediation. Both share `_mint_preview_jwt` so the
     # JWT payload + secret can't drift between paths.
 
-    @extend_schema(
-        operation_id="agent_applications_preview_token",
-        parameters=[
-            OpenApiParameter(
-                "revision_id",
-                OpenApiTypes.UUID,
-                OpenApiParameter.QUERY,
-                required=True,
-                description="Target draft revision. Must belong to this application and not be live.",
-            ),
-        ],
-        request=None,
-        responses=OpenApiResponse(
-            response=inline_serializer(
-                name="AgentApplicationPreviewTokenResponse",
-                fields={
-                    "token": drf_serializers.CharField(
-                        help_text="HS256 JWT bound to (app, rev) with a short TTL. Attach as the `x-agent-preview-token` header (POST/DELETE) or `preview_token` query param (GET, including EventSource) when calling ingress directly.",
-                    ),
-                    "expires_in": drf_serializers.IntegerField(
-                        help_text="Token TTL in seconds from issue. Clients should refresh before this elapses.",
-                    ),
-                    "ingress_slug": drf_serializers.CharField(
-                        help_text="Slug to use in the ingress URL — `<application_slug>-<revision_uuid_hex>`. Identifies the exact revision, placed in the host (domain mode) or path (path mode) routing prefix.",
-                    ),
-                    "endpoints": drf_serializers.JSONField(
-                        help_text="Per-trigger ingress URLs the caller can hit directly, derived from the revision's `spec.triggers[]`. Shape: `{<trigger_type>: {<route_name>: <absolute_url>}}`. Only includes triggers the spec actually declares. Empty when no public agent-ingress URL is configured for the active routing mode.",
-                    ),
-                    "auth": drf_serializers.JSONField(
-                        help_text="How to attach credentials to those endpoints: preview-token header/query names, the per-trigger accepted auth modes (`trigger_modes`), and a note about the live vs preview-mode gate split. Lets the caller wire auth without grepping the ingress source.",
-                    ),
-                    "preview_proxy": drf_serializers.JSONField(
-                        help_text="Server-side alternative — `/api/projects/<team>/agent_applications/<slug>/preview-proxy/<path>` mints the JWT for you. Strips caller Authorization, so it works for public-auth agents; agents with required auth need the direct endpoints above.",
-                    ),
-                },
-            )
+    # Reused by GET + POST so drf-spectacular emits one component and the two
+    # operations stay shape-locked. POST is the contract-faithful verb (minting
+    # is a write); GET stays for `EventSource` callers and back-compat.
+    _PREVIEW_TOKEN_RESPONSE = OpenApiResponse(
+        response=inline_serializer(
+            name="AgentApplicationPreviewTokenResponse",
+            fields={
+                "token": drf_serializers.CharField(
+                    help_text="HS256 JWT bound to (app, rev) with a short TTL. Attach as the `x-agent-preview-token` header (POST/DELETE) or `preview_token` query param (GET, including EventSource) when calling ingress directly.",
+                ),
+                "expires_in": drf_serializers.IntegerField(
+                    help_text="Token TTL in seconds from issue. Clients should refresh before this elapses.",
+                ),
+                "ingress_slug": drf_serializers.CharField(
+                    help_text="Slug to use in the ingress URL — `<application_slug>-<revision_uuid_hex>`. Identifies the exact revision, placed in the host (domain mode) or path (path mode) routing prefix.",
+                ),
+                "endpoints": drf_serializers.JSONField(
+                    help_text="Per-trigger ingress URLs the caller can hit directly, derived from the revision's `spec.triggers[]`. Shape: `{<trigger_type>: {<route_name>: <absolute_url>}}`. Only includes triggers the spec actually declares. Empty when no public agent-ingress URL is configured for the active routing mode.",
+                ),
+                "auth": drf_serializers.JSONField(
+                    help_text="How to attach credentials to those endpoints: preview-token header/query names, the per-trigger accepted auth modes (`trigger_modes`), and a note about the live vs preview-mode gate split. Lets the caller wire auth without grepping the ingress source.",
+                ),
+                "preview_proxy": drf_serializers.JSONField(
+                    help_text="Server-side alternative — `/api/projects/<team>/agent_applications/<slug>/preview-proxy/<path>` mints the JWT for you. Strips caller Authorization, so it works for public-auth agents; agents with required auth need the direct endpoints above.",
+                ),
+            },
         ),
     )
-    @action(detail=True, methods=["get"], url_path="preview-token")
-    def preview_token(self, request: Request, **kwargs) -> Response:
-        """Mint a short-lived JWT for talking to a non-live revision
-        directly via the public ingress URL. The caller attaches it as
-        the `x-agent-preview-token` header (or `?preview_token=` query
-        param for `EventSource`). See `_mint_preview_jwt` for the
-        payload + claim binding.
 
-        The response also includes `endpoints`, `auth`, and
-        `preview_proxy` blocks so the caller can wire a preview
-        invocation without grepping the agent-ingress source for which
-        path each trigger exposes or which header name carries the
-        token. This is the "self-describing" half of preview-mode —
-        every piece of info you need to hit ingress is in one response.
-        """
+    _PREVIEW_TOKEN_PARAMETERS = [
+        OpenApiParameter(
+            "revision_id",
+            OpenApiTypes.UUID,
+            OpenApiParameter.QUERY,
+            required=True,
+            description="Target draft revision. Must belong to this application and not be live.",
+        ),
+    ]
+
+    # The two verbs live on separate action methods so DRF resolves them to
+    # distinct `view.action` names — `preview_token` (GET) and
+    # `preview_token_mint` (POST). Both are write-scoped (see the scope lists):
+    # the returned JWT is a usable credential for `run`/`send`/`cancel`, so
+    # minting it requires `agents:write` no matter the verb. The GET sibling
+    # exists only because EventSource can't set headers — it is NOT a
+    # read-only-safe alternative. A shared body keeps the response shape
+    # lock-stepped across both.
+
+    def _build_preview_token_response(self, request: Request) -> Response:
         application = self.get_object()
         if application is None:
             raise NotFound("Application not found")
@@ -834,9 +849,9 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise ValidationError(
                 "preview-token is for non-live revisions only; the live revision is reachable without a token via its public ingress URL"
             )
+        spec = revision.spec if isinstance(revision.spec, dict) else {}
         token_pair = _mint_preview_jwt(application, revision, request.user)
         ingress_slug = f"{application.slug}-{revision.id.hex}"
-        spec = revision.spec if isinstance(revision.spec, dict) else {}
         body: dict[str, Any] = {
             "token": token_pair[0] if token_pair is not None else "",
             "expires_in": token_pair[1] if token_pair is not None else 0,
@@ -846,6 +861,53 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "preview_proxy": _build_preview_proxy_info(request, application),
         }
         return Response(body)
+
+    @extend_schema(
+        operation_id="agent_applications_preview_token_mint",
+        parameters=_PREVIEW_TOKEN_PARAMETERS,
+        request=None,
+        responses=_PREVIEW_TOKEN_RESPONSE,
+    )
+    @action(detail=True, methods=["post"], url_path="preview-token")
+    def preview_token_mint(self, request: Request, **kwargs) -> Response:
+        """Mint a short-lived JWT for talking to a non-live revision
+        directly via the public ingress URL. The caller attaches it as
+        the `x-agent-preview-token` header (or `?preview_token=` query
+        param for `EventSource`). See `_mint_preview_jwt` for the
+        payload + claim binding.
+
+        The response also includes `endpoints`, `auth`, and
+        `preview_proxy` blocks so the caller can wire a preview
+        invocation without grepping the agent-ingress source for which
+        path each trigger exposes or which header name carries the
+        token. This is the "self-describing" half of preview-mode —
+        every piece of info you need to hit ingress is in one response.
+
+        POST is the canonical verb — minting credentials for downstream
+        `run`/`send`/`cancel` is a write-class capability. A GET sibling
+        exists at the same URL for `EventSource` callers (which can't set
+        headers); it is also write-scoped, since it returns the same token.
+        """
+        return self._build_preview_token_response(request)
+
+    @extend_schema(
+        operation_id="agent_applications_preview_token",
+        parameters=_PREVIEW_TOKEN_PARAMETERS,
+        request=None,
+        responses=_PREVIEW_TOKEN_RESPONSE,
+    )
+    @preview_token_mint.mapping.get
+    def preview_token(self, request: Request, **kwargs) -> Response:
+        """GET sibling of `preview_token_mint`. Same body and response
+        shape — exists because `EventSource` can't set headers, so SSE
+        callers fetch the token via GET and then attach `?preview_token=`
+        to the ingress URL. Behind the same URL (`url_path="preview-token"`)
+        thanks to DRF's `@<action>.mapping.get`; DRF resolves it to a
+        distinct `view.action`, but it is in `scope_object_write_actions`
+        alongside the POST sibling — both return a usable credential, so
+        both require `agents:write`.
+        """
+        return self._build_preview_token_response(request)
 
     @extend_schema(
         operation_id="agent_applications_stats",
@@ -949,6 +1011,14 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                                 ),
                                 "usage_total": _AGENT_SESSION_USAGE_TOTAL,
                                 "retry_count": drf_serializers.IntegerField(),
+                                "is_preview": drf_serializers.BooleanField(
+                                    help_text=(
+                                        "True when the session ran against a draft revision in preview mode. "
+                                        "Output adapters (Slack writes, failure notifier) no-op; `$ai_*` analytics "
+                                        "events are tagged with `$agent_is_preview: true`. Surface a preview badge "
+                                        "on the row so authors can distinguish iteration from live traffic."
+                                    ),
+                                ),
                                 "created_at": drf_serializers.DateTimeField(),
                                 "updated_at": drf_serializers.DateTimeField(),
                             },
@@ -1158,6 +1228,14 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         help_text="Times the janitor has re-queued this session after a stuck-running detection.",
                     ),
                     "usage_total": _AGENT_SESSION_USAGE_TOTAL,
+                    "is_preview": drf_serializers.BooleanField(
+                        help_text=(
+                            "True when the session ran against a draft revision in preview mode. "
+                            "Output adapters (Slack writes, failure notifier) no-op; `$ai_*` analytics "
+                            "events are tagged with `$agent_is_preview: true`. Surface a preview badge "
+                            "on session detail so authors can distinguish iteration from live traffic."
+                        ),
+                    ),
                     "created_at": drf_serializers.DateTimeField(),
                     "updated_at": drf_serializers.DateTimeField(),
                     "conversation_trimmed": drf_serializers.BooleanField(
@@ -1270,6 +1348,13 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "application_id": drf_serializers.UUIDField(help_text="UUID of the parent agent application."),
         "team_id": drf_serializers.IntegerField(help_text="Team that owns the agent."),
         "revision_id": drf_serializers.UUIDField(help_text="Revision the gated call was proposed against."),
+        "is_preview": drf_serializers.BooleanField(
+            help_text=(
+                "Mirrors the owning session's `is_preview`. True when the request originated from a "
+                "draft revision running in preview mode — render a preview badge in the approvals "
+                "queue so reviewers can tell author-iteration approvals apart from production traffic."
+            ),
+        ),
         "turn": drf_serializers.IntegerField(help_text="Turn number within the session that emitted the call."),
         "tool_call_id": drf_serializers.CharField(
             help_text="pi-ai ToolCall.id from the original assistant message; matched into the synthetic tool_result."
@@ -2881,6 +2966,14 @@ class AgentFleetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                                     help_text="Last assistant text (~120 chars). Null when no assistant turns yet.",
                                 ),
                                 "usage_total": _AGENT_SESSION_USAGE_TOTAL,
+                                "is_preview": drf_serializers.BooleanField(
+                                    help_text=(
+                                        "True when the session ran against a draft revision in preview mode. "
+                                        "Output adapters (Slack writes, failure notifier) no-op; `$ai_*` analytics "
+                                        "events are tagged with `$agent_is_preview: true`. Render a preview badge "
+                                        "on the row so author iteration is distinguishable from live traffic."
+                                    ),
+                                ),
                                 "created_at": drf_serializers.DateTimeField(),
                                 "updated_at": drf_serializers.DateTimeField(),
                             },

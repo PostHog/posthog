@@ -513,6 +513,54 @@ class SignalReport(UUIDModel):
                 result[report_id] = runs
         return result
 
+    @classmethod
+    def synthetic_legacy_task_run_artefacts(
+        cls, *, report_id: str, team_id: int, existing_artefacts: "list[SignalReportArtefact]"
+    ) -> "list[SignalReportArtefact]":
+        """Unsaved `task_run` artefacts standing in for legacy `SignalReportTask` rows whose task is
+        not yet represented in the artefact log, so a report's research / implementation /
+        repo-selection associations surface in the artefact list even before
+        `backfill_task_run_artefacts` has converted its gate rows.
+
+        De-duplicated by task against the `task_run` artefacts already in `existing_artefacts` (a
+        real row always wins); each synthetic row borrows its `SignalReportTask` id and `created_at`
+        so it is stable across polls and chronologically correct, and applies the same
+        `(product, type)` mapping the backfill would. Never saved — the backfill is what persists
+        them for real; this is the read-time view of that union (the row-level counterpart of
+        `associated_task_runs`).
+        """
+        seen_task_ids: set[str] = set()
+        for artefact in existing_artefacts:
+            if artefact.type != SignalReportArtefact.ArtefactType.TASK_RUN:
+                continue
+            try:
+                seen_task_ids.add(TaskRunArtefact.model_validate_json(artefact.content).task_id)
+            except ValidationError:
+                continue
+
+        synthetic: list[SignalReportArtefact] = []
+        report_tasks = SignalReportTask.objects.filter(report_id=report_id, team_id=team_id).order_by("created_at")
+        for report_task in report_tasks:
+            task_id = str(report_task.task_id)
+            if task_id in seen_task_ids:
+                continue
+            seen_task_ids.add(task_id)
+            product, run_type = task_run_identifier_for_legacy_relationship(report_task.relationship)
+            synthetic.append(
+                SignalReportArtefact(
+                    id=report_task.id,
+                    team_id=team_id,
+                    report_id=report_id,
+                    type=SignalReportArtefact.ArtefactType.TASK_RUN,
+                    content=TaskRunArtefact(
+                        task_id=task_id, run_id=None, product=product, type=run_type
+                    ).model_dump_json(),
+                    created_at=report_task.created_at,
+                    task_id=report_task.task_id,
+                )
+            )
+        return synthetic
+
     @staticmethod
     def associated_task_runs_filter(report_ref: Any) -> "models.Q":
         """A `Q` matching `tasks.TaskRun`s whose task is associated with the correlated report,

@@ -186,6 +186,10 @@ class WorkflowHealthDaySerializer(DataclassSerializer):
             "run_count": {"help_text": "Runs started that day."},
             "completed": {"help_text": "Runs that completed that day."},
             "successes": {"help_text": "Completed runs with conclusion 'success' that day."},
+            "failures": {
+                "help_text": "Completed runs that failed that day (conclusion 'failure' or 'timed_out'); "
+                "excludes skipped, cancelled, and action_required runs."
+            },
         }
 
 
@@ -213,7 +217,7 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "last_failure_at": {
-                "help_text": "When the most recent run with conclusion 'failure' started, or null.",
+                "help_text": "When the most recent failing run (conclusion 'failure' or 'timed_out') started, or null.",
                 "allow_null": True,
             },
         }

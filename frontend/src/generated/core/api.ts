@@ -72,8 +72,10 @@ import type {
     ProjectSecretApiKeysListParams,
     PromotedProductIntentApi,
     PropertyDefinitionsListParams,
+    RevokeOtherSessionsResponseApi,
     SharingConfigurationApi,
     UserApi,
+    UserAuthSessionApi,
     UserGitHubLinkStartRequestApi,
     UserGitHubLinkStartResponseApi,
     UserPushTokenItemApi,
@@ -83,6 +85,7 @@ import type {
     UsersIntegrationsGithubReposRetrieveParams,
     UsersIntegrationsListParams,
     UsersListParams,
+    UsersLoginSessionsListParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -3348,6 +3351,77 @@ export const usersIntegrationsGithubStartCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(userGitHubLinkStartRequestApi),
+    })
+}
+
+export const getUsersLoginSessionsListUrl = (uuid: string, params?: UsersLoginSessionsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/users/${uuid}/login_sessions/?${stringifiedParams}`
+        : `/api/users/${uuid}/login_sessions/`
+}
+
+/**
+ * List the cookie-auth login sessions for the current user. Self-only — never another user.
+ */
+export const usersLoginSessionsList = async (
+    uuid: string,
+    params?: UsersLoginSessionsListParams,
+    options?: RequestInit
+): Promise<UserAuthSessionApi[]> => {
+    return apiMutator<UserAuthSessionApi[]>(getUsersLoginSessionsListUrl(uuid, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getUsersLoginSessionsDestroyUrl = (uuid: string, sessionId: string) => {
+    return `/api/users/${uuid}/login_sessions/${sessionId}/`
+}
+
+/**
+ * Revoke a single login session belonging to the current user. Self-only.
+ *
+ * Requires recent auth (TimeSensitiveActionPermission) so a stolen cookie can't weaponize
+ * revocation, and is blocked while impersonating via ImpersonationBlockedPathsMiddleware.
+ */
+export const usersLoginSessionsDestroy = async (
+    uuid: string,
+    sessionId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getUsersLoginSessionsDestroyUrl(uuid, sessionId), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getUsersLoginSessionsRevokeOthersCreateUrl = (uuid: string) => {
+    return `/api/users/${uuid}/login_sessions/revoke_others/`
+}
+
+/**
+ * Revoke every login session for the current user except the one making this request. Self-only.
+ *
+ * Requires recent auth (TimeSensitiveActionPermission) so a stolen cookie can't weaponize the
+ * "log out everywhere else" lock-out, and is blocked while impersonating.
+ */
+export const usersLoginSessionsRevokeOthersCreate = async (
+    uuid: string,
+    options?: RequestInit
+): Promise<RevokeOtherSessionsResponseApi> => {
+    return apiMutator<RevokeOtherSessionsResponseApi>(getUsersLoginSessionsRevokeOthersCreateUrl(uuid), {
+        ...options,
+        method: 'POST',
     })
 }
 
