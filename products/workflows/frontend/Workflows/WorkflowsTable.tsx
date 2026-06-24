@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
 
 import { LemonCheckbox, LemonDivider, LemonInput, LemonSelect, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
@@ -17,8 +16,7 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
-import { HogFlow, HogFlowAction } from './hogflows/types'
+import { HogFlow } from './hogflows/types'
 import { newWorkflowLogic } from './newWorkflowLogic'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowStatusFilter, workflowsLogic } from './workflowsLogic'
@@ -27,80 +25,6 @@ const STATUS_CONFIG: Record<string, { label: string; type: 'success' | 'default'
     active: { label: 'Active', type: 'success' },
     draft: { label: 'Draft', type: 'default' },
     archived: { label: 'Archived', type: 'muted' },
-}
-
-// The list endpoint returns a lightweight `action_summary` instead of the full action graph.
-// Fall back to deriving it from `actions` when a fully-fetched workflow is passed in.
-function getActionSummary(workflow: HogFlow): { type: string; template_id?: string | null }[] {
-    if (workflow.action_summary) {
-        return workflow.action_summary
-    }
-    return (workflow.actions ?? []).map((action) => ({
-        type: action.type,
-        template_id: 'template_id' in action.config ? (action.config.template_id as string) : undefined,
-    }))
-}
-
-function WorkflowTypeTag({ workflow }: { workflow: HogFlow }): JSX.Element {
-    const hasMessagingAction = useMemo(() => {
-        return getActionSummary(workflow).some((action) => {
-            return ['function_email', 'function_sms', 'function_slack'].includes(action.type)
-        })
-    }, [workflow])
-
-    if (hasMessagingAction) {
-        return <LemonTag type="completion">Messaging</LemonTag>
-    }
-    return <LemonTag type="default">Automation</LemonTag>
-}
-
-function WorkflowActionsSummary({ workflow }: { workflow: HogFlow }): JSX.Element {
-    const actionsByType = useMemo(() => {
-        return getActionSummary(workflow).reduce(
-            (acc, summary) => {
-                // Reconstruct the minimal action shape getHogFlowStep needs to resolve icon/color.
-                const action = { type: summary.type, config: { template_id: summary.template_id } } as HogFlowAction
-                const step = getHogFlowStep(action, {})
-                if (!step || !step.type.startsWith('function')) {
-                    return acc
-                }
-                const key = summary.template_id ?? summary.type
-                acc[key] = {
-                    count: (acc[key]?.count || 0) + 1,
-                    icon: step.icon,
-                    color: step.color,
-                }
-                return acc
-            },
-            {} as Record<
-                string,
-                {
-                    count: number
-                    icon: JSX.Element
-                    color: string
-                }
-            >
-        )
-    }, [workflow])
-
-    return (
-        <Link to={urls.workflow(workflow.id, 'workflow')}>
-            <div className="flex flex-row gap-2 items-center">
-                {Object.entries(actionsByType).map(([type, { count, icon, color }]) => (
-                    <div
-                        key={type}
-                        className="rounded px-1 flex items-center justify-center gap-1"
-                        style={{
-                            backgroundColor: `${color}20`,
-                            color,
-                        }}
-                    >
-                        {icon} {count}
-                    </div>
-                ))}
-            </div>
-        </Link>
-    )
 }
 
 export function WorkflowsTable(): JSX.Element {
@@ -190,13 +114,6 @@ export function WorkflowsTable(): JSX.Element {
             },
         },
         {
-            title: 'Type',
-            width: 0,
-            render: (_, item) => {
-                return <WorkflowTypeTag workflow={item} />
-            },
-        },
-        {
             title: 'Trigger',
             width: 0,
             render: (_, item) => {
@@ -205,13 +122,6 @@ export function WorkflowsTable(): JSX.Element {
                         <LemonTag type="default">{capitalizeFirstLetter(item.trigger?.type ?? 'unknown')}</LemonTag>
                     </Link>
                 )
-            },
-        },
-        {
-            title: 'Dispatches',
-            width: 0,
-            render: (_, item) => {
-                return <WorkflowActionsSummary workflow={item} />
             },
         },
         {

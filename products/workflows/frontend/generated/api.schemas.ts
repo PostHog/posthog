@@ -287,18 +287,8 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
-export type HogFlowMinimalApiActionSummaryItem = {
-    /** Action type, e.g. function_email, delay, conditional_branch, exit. */
-    type: string
-    /**
-     * Function template id for dispatch (function*) actions; null for other action types.
-     * @nullable
-     */
-    template_id?: string | null
-}
-
 /**
- * Overview of a workflow for list views.
+ * High-level overview of a workflow for list views.
  *
  * Deliberately omits the heavy parts of a workflow — the full action/edge graph, email template
  * HTML/design, conversion config, masking, and variables — so listing many workflows stays small.
@@ -316,9 +306,6 @@ export interface HogFlowMinimalApi {
     readonly updated_at: string
     readonly trigger: unknown
     readonly exit_condition: ExitConditionEnumApi
-    readonly billable_action_types: unknown
-    /** Lightweight per-action overview ({type, template_id}) for rendering list columns without the full graph. template_id is set only for function/dispatch actions; null otherwise. */
-    readonly action_summary: readonly HogFlowMinimalApiActionSummaryItem[]
 }
 
 export interface PaginatedHogFlowMinimalListApi {
@@ -334,16 +321,6 @@ export interface PaginatedHogFlowMinimalListApi {
  * Variable: {key, type: string|number|boolean, default}.
  */
 export type HogFlowApiVariablesItem = { [key: string]: string }
-
-export type HogFlowApiActionSummaryItem = {
-    /** Action type, e.g. function_email, delay, conditional_branch, exit. */
-    type: string
-    /**
-     * Function template id for dispatch (function*) actions; null for other action types.
-     * @nullable
-     */
-    template_id?: string | null
-}
 
 export interface HogFlowConversionEventApi {
     /** Event/action filters for this conversion event, same shape as trigger filters: {events: [{id, name, type: 'events', properties?: [<cond>]}], actions?: [...], properties?: [<cond>]}. bytecode is compiled server-side. */
@@ -535,8 +512,6 @@ export interface HogFlowApi {
     /** Workflow vars (key, type, default). Total <5KB. */
     variables?: HogFlowApiVariablesItem[]
     readonly billable_action_types: unknown
-    /** Lightweight per-action overview ({type, template_id}) for rendering list columns without the full graph. template_id is set only for function/dispatch actions; null otherwise. */
-    readonly action_summary: readonly HogFlowApiActionSummaryItem[]
     /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
     readonly schedules: readonly HogFlowScheduleApi[]
 }
@@ -545,16 +520,6 @@ export interface HogFlowApi {
  * Variable: {key, type: string|number|boolean, default}.
  */
 export type PatchedHogFlowApiVariablesItem = { [key: string]: string }
-
-export type PatchedHogFlowApiActionSummaryItem = {
-    /** Action type, e.g. function_email, delay, conditional_branch, exit. */
-    type: string
-    /**
-     * Function template id for dispatch (function*) actions; null for other action types.
-     * @nullable
-     */
-    template_id?: string | null
-}
 
 /**
  * Full workflow spec: the complete action/edge graph plus trigger, conversion, masking, and variables.
@@ -602,8 +567,6 @@ export interface PatchedHogFlowApi {
     /** Workflow vars (key, type, default). Total <5KB. */
     variables?: PatchedHogFlowApiVariablesItem[]
     readonly billable_action_types?: unknown
-    /** Lightweight per-action overview ({type, template_id}) for rendering list columns without the full graph. template_id is set only for function/dispatch actions; null otherwise. */
-    readonly action_summary?: readonly PatchedHogFlowApiActionSummaryItem[]
     /** Recurring schedules attached to this workflow (read-only here; manage via the schedules sub-resource). A batch/schedule workflow only fires when it's active AND has an active schedule. Empty for non-scheduled workflows. */
     readonly schedules?: readonly HogFlowScheduleApi[]
 }

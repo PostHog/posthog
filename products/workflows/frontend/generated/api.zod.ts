@@ -1874,23 +1874,6 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .optional()
                 .describe('Workflow vars (key, type, default). Total <5KB.'),
             billable_action_types: zod.unknown(),
-            action_summary: zod
-                .array(
-                    zod.object({
-                        type: zod
-                            .string()
-                            .describe('Action type, e.g. function_email, delay, conditional_branch, exit.'),
-                        template_id: zod
-                            .string()
-                            .nullish()
-                            .describe(
-                                'Function template id for dispatch (function\*) actions; null for other action types.'
-                            ),
-                    })
-                )
-                .describe(
-                    'Lightweight per-action overview ({type, template_id}) for rendering list columns without the full graph. template_id is set only for function\/dispatch actions; null otherwise.'
-                ),
             schedules: zod
                 .array(
                     zod.object({

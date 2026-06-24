@@ -742,27 +742,8 @@ class HogFlowScheduleSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
-HOG_FLOW_ACTION_SUMMARY_SCHEMA = {
-    "type": "array",
-    "items": {
-        "type": "object",
-        "properties": {
-            "type": {
-                "type": "string",
-                "description": "Action type, e.g. function_email, delay, conditional_branch, exit.",
-            },
-            "template_id": {
-                "type": ["string", "null"],
-                "description": "Function template id for dispatch (function*) actions; null for other action types.",
-            },
-        },
-        "required": ["type"],
-    },
-}
-
-
 class HogFlowMinimalSerializer(serializers.ModelSerializer):
-    """Overview of a workflow for list views.
+    """High-level overview of a workflow for list views.
 
     Deliberately omits the heavy parts of a workflow — the full action/edge graph, email template
     HTML/design, conversion config, masking, and variables — so listing many workflows stays small.
@@ -770,24 +751,6 @@ class HogFlowMinimalSerializer(serializers.ModelSerializer):
     """
 
     created_by = UserBasicSerializer(read_only=True)
-    action_summary = serializers.SerializerMethodField(
-        help_text=(
-            "Lightweight per-action overview ({type, template_id}) for rendering list columns without "
-            "the full graph. template_id is set only for function/dispatch actions; null otherwise."
-        )
-    )
-
-    @extend_schema_field(HOG_FLOW_ACTION_SUMMARY_SCHEMA)
-    def get_action_summary(self, obj: HogFlow) -> list[dict]:
-        actions = obj.actions if isinstance(obj.actions, list) else []
-        return [
-            {
-                "type": action.get("type"),
-                "template_id": (action.get("config") or {}).get("template_id"),
-            }
-            for action in actions
-            if isinstance(action, dict)
-        ]
 
     class Meta:
         model = HogFlow
@@ -802,8 +765,6 @@ class HogFlowMinimalSerializer(serializers.ModelSerializer):
             "updated_at",
             "trigger",
             "exit_condition",
-            "billable_action_types",
-            "action_summary",
         ]
         read_only_fields = fields
 
@@ -909,7 +870,6 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "abort_action",
             "variables",
             "billable_action_types",
-            "action_summary",
             "schedules",
         ]
         read_only_fields = [
@@ -921,7 +881,6 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "trigger",  # Derived from the trigger action in the actions array
             "abort_action",
             "billable_action_types",  # Computed field, not user-editable
-            "action_summary",  # Computed overview, not user-editable
             "schedules",  # Managed via the schedules sub-resource, surfaced read-only here
         ]
 

@@ -2850,9 +2850,9 @@ class TestHogFlowAPI(APIBaseTest):
             assert response.json()["detail"] == expected_error
 
     def test_list_returns_overview_without_full_graph(self):
-        # The list endpoint must stay an overview: the full action/edge graph and email-template
-        # bloat live only on retrieve. Guards against re-widening the list serializer (which once
-        # overflowed the MCP token budget).
+        # The list endpoint must stay a high-level overview: the full action/edge graph and
+        # email-template bloat live only on retrieve. Guards against re-widening the list serializer
+        # (which once overflowed the MCP token budget).
         hog_flow, _ = self._create_hog_flow_with_action(
             {"template_id": "template-slack", "inputs": {"text": {"value": "hi"}}}
         )
@@ -2864,15 +2864,23 @@ class TestHogFlowAPI(APIBaseTest):
         assert list_response.status_code == 200, list_response.json()
         row = next(r for r in list_response.json()["results"] if r["id"] == flow_id)
 
-        # Heavy fields are stripped from the list view...
+        # The list view carries only high-level fields...
+        assert set(row.keys()) == {
+            "id",
+            "name",
+            "description",
+            "version",
+            "status",
+            "created_at",
+            "created_by",
+            "updated_at",
+            "trigger",
+            "exit_condition",
+        }
+
+        # ...and none of the heavy ones.
         for omitted in ["actions", "edges", "conversion", "trigger_masking", "variables", "abort_action"]:
             assert omitted not in row, f"{omitted} should not be in the list overview"
-
-        # ...replaced by a lightweight per-action summary.
-        assert row["action_summary"] == [
-            {"type": "trigger", "template_id": None},
-            {"type": "function", "template_id": "template-slack"},
-        ]
 
         # Retrieve still returns the full spec.
         retrieve_response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}")
