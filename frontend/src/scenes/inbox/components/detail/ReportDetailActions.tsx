@@ -42,7 +42,13 @@ function canCreateImplementationPr(report: SignalReport): boolean {
  * and Create PR (opens an implementation task and navigates to it). Task creation/navigation is
  * owned by `inboxTaskKickoffLogic`; archiving reuses the shared `useReportArchive` dialog flow.
  */
-export function ReportDetailActions({ report }: { report: SignalReport }): JSX.Element {
+export function ReportDetailActions({
+    report,
+    fullWidth = false,
+}: {
+    report: SignalReport
+    fullWidth?: boolean
+}): JSX.Element {
     const { isCreatingPr } = useValues(inboxTaskKickoffLogic)
     const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
     const { reportArchived } = useActions(inboxBulkActionsLogic)
@@ -100,6 +106,7 @@ export function ReportDetailActions({ report }: { report: SignalReport }): JSX.E
         <LemonButton
             type="secondary"
             size="small"
+            fullWidth={fullWidth}
             icon={<IconMessage />}
             tooltip="Tell us how useful this report was"
             onClick={() =>
@@ -129,6 +136,7 @@ export function ReportDetailActions({ report }: { report: SignalReport }): JSX.E
                 <LemonButton
                     type="secondary"
                     size="small"
+                    fullWidth={fullWidth}
                     icon={<IconUndo />}
                     loading={isRestoring}
                     tooltip="Restore this report to your inbox"
@@ -146,6 +154,7 @@ export function ReportDetailActions({ report }: { report: SignalReport }): JSX.E
             <LemonButton
                 type="secondary"
                 size="small"
+                fullWidth={fullWidth}
                 icon={<IconArchive />}
                 loading={isArchiving}
                 tooltip="Archive this report out of your inbox"
@@ -158,6 +167,7 @@ export function ReportDetailActions({ report }: { report: SignalReport }): JSX.E
                 <LemonButton
                     type="primary"
                     size="small"
+                    fullWidth={fullWidth}
                     icon={<IconPullRequest />}
                     loading={isCreatingPr}
                     tooltip="Have Self-driving open a pull request for this report"
