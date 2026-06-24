@@ -1,10 +1,9 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { isUUIDLike } from 'lib/utils/guards'
-import { urls } from 'scenes/urls'
 
 import { phDebugQueryParams } from '../lib/ph-debug'
 import { TaskRun } from '../types'
@@ -29,8 +28,6 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
 
     actions({
         setSelectedRunId: (runId: TaskRun['id'] | null, taskId: string) => ({ runId, taskId }),
-        selectLatestRun: true,
-        clearShouldSelectLatestRun: true,
         updateRun: (run: TaskRun) => ({ run }),
     }),
 
@@ -39,13 +36,6 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             null as TaskRun['id'] | null,
             {
                 setSelectedRunId: (state, { runId, taskId }) => (taskId === props.taskId ? runId : state),
-            },
-        ],
-        shouldSelectLatestRun: [
-            false,
-            {
-                selectLatestRun: () => true,
-                clearShouldSelectLatestRun: () => false,
             },
         ],
         runs: [
@@ -126,12 +116,15 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             actions.loadRuns()
         },
         loadRunsSuccess: ({ runs }) => {
-            const shouldSelect = values.shouldSelectLatestRun
-            if (shouldSelect) {
-                actions.clearShouldSelectLatestRun()
+            if (runs.length === 0) {
+                return
             }
-            if (shouldSelect && runs.length > 0) {
-                actions.setSelectedRunId(runs[0].id, props.taskId)
+            // Default to the latest run. An explicit ?runId deep-link (e.g. from an Inbox signal report)
+            // still wins so those links land on the run they reference; we just never write it ourselves.
+            const runIdFromUrl = router.values.searchParams.runId
+            const targetRunId = runIdFromUrl && isUUIDLike(runIdFromUrl) ? runIdFromUrl : runs[0].id
+            if (targetRunId !== values.selectedRunId) {
+                actions.setSelectedRunId(targetRunId, props.taskId)
             } else if (values.selectedRunId) {
                 actions.loadSelectedRun()
             }
@@ -161,32 +154,4 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
             actions.loadRuns()
         }
     }),
-
-    urlToAction(({ actions, values, props }) => ({
-        [urls.taskDetail(':taskId')]: (params, searchParams) => {
-            const { taskId: urlTaskId } = params
-            if (urlTaskId !== props.taskId) {
-                return
-            }
-            const runIdFromUrl = searchParams.runId
-            if (runIdFromUrl && isUUIDLike(runIdFromUrl) && runIdFromUrl !== values.selectedRunId) {
-                actions.setSelectedRunId(runIdFromUrl, props.taskId)
-            }
-        },
-    })),
-
-    actionToUrl(({ props }) => ({
-        setSelectedRunId: ({ runId }) => {
-            if (runId) {
-                return [urls.taskDetail(props.taskId), { runId }, router.values.hashParams]
-            }
-            return [urls.taskDetail(props.taskId), {}, router.values.hashParams]
-        },
-        loadRunsSuccess: ({ runs }) => {
-            if (runs.length > 0 && !router.values.searchParams.runId) {
-                return [urls.taskDetail(props.taskId), { runId: runs[0].id }, router.values.hashParams]
-            }
-            return undefined
-        },
-    })),
 ])
