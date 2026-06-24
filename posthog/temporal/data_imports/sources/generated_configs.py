@@ -2383,7 +2383,9 @@ class PlanhatSourceConfig(config.Config):
 
 @config.config
 class PlausibleSourceConfig(config.Config):
-    pass
+    api_key: str
+    site_id: str
+    host: str | None = None
 
 
 @config.config
