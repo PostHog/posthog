@@ -190,7 +190,7 @@ def get_rows(
     headers = _get_headers(application_id, api_key)
     url = _endpoint_url(application_id, config, index_name)
     batcher = Batcher(logger=logger, chunk_size=5000, chunk_size_bytes=100 * 1024 * 1024)
-    session = make_tracked_session()
+    session = make_tracked_session(redact_values=(api_key,))
 
     resume = manager.load_state() if manager.can_resume() else None
 
@@ -232,7 +232,7 @@ def validate_credentials(
     except InvalidApplicationIdError as exc:
         return False, str(exc)
 
-    session = make_tracked_session()
+    session = make_tracked_session(redact_values=(api_key,))
     try:
         if config.method == "POST":
             response = session.post(url, headers=headers, json={"hitsPerPage": 0}, timeout=10)
