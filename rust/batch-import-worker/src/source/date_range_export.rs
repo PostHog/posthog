@@ -572,6 +572,7 @@ impl DataSource for DateRangeExportSource {
     }
 
     async fn prepare_for_job(&self) -> Result<(), Error> {
+        // Temp dir lifetime is tied to the job via self.temp_dir
         let temp_dir = tempfile::Builder::new()
             .prefix("job-")
             .tempdir_in(&self.staging_dir)
@@ -592,6 +593,7 @@ impl DataSource for DateRangeExportSource {
     }
 
     async fn cleanup_after_job(&self) -> Result<(), Error> {
+        // Clear refs then explicitly close() the temp dir to surface removal errors
         {
             let mut prepared_keys = self.prepared_keys.lock().await;
             prepared_keys.clear();

@@ -7,7 +7,7 @@ use batch_import_worker::{
     context::AppContext,
     error::get_user_message,
     job::{model::JobModel, Job},
-    staging,
+    metrics, staging,
 };
 use common_metrics::setup_metrics_routes;
 use envconfig::Envconfig;
@@ -56,7 +56,7 @@ pub async fn main() -> Result<(), Error> {
     match staging::sweep_staging_dir(&staging_dir).await {
         Ok(removed) => {
             if removed > 0 {
-                batch_import_worker::metrics::staging_sweep_removed(removed);
+                metrics::staging_sweep_removed(removed);
             }
         }
         Err(e) => {
@@ -79,7 +79,7 @@ pub async fn main() -> Result<(), Error> {
             loop {
                 interval.tick().await;
                 let bytes = staging::staging_dir_bytes(&staging_dir).await;
-                batch_import_worker::metrics::staging_dir_bytes(bytes as f64);
+                metrics::staging_dir_bytes(bytes as f64);
             }
         });
     }

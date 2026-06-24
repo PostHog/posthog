@@ -281,7 +281,7 @@ impl DataSource for GzipS3Source {
             return Ok(());
         }
 
-        info!(
+        debug!(
             "Streamed {total_bytes} bytes to {} for key: {key}",
             raw_file_path.display()
         );
