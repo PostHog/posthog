@@ -35,10 +35,38 @@ class UserIntegration(UUIDModel):
     - `integration_id` holds the GitHub App installation_id
     - `config` holds installation metadata + user identity (login, id)
     - `sensitive_config` holds installation access token + user-to-server tokens
+
+    Contents for Slack (user identity link):
+    - `integration_id` holds the Slack user id (e.g. "U123ABC"), workspace-scoped
+    - `config` holds {slack_team_id, slack_team_name, slack_email_at_link, linked_at}
+    - `sensitive_config` holds {user_access_token, user_refresh_token?} — the
+      Slack user-to-server token plus, when the Slack app has
+      `token_rotation_enabled`, a refresh token used to rotate it. Today's
+      manifest has rotation off, so `user_refresh_token` is absent and
+      `user_access_token` is long-lived; the capture is defensive so flipping
+      rotation on later requires no schema or callback-shape change.
+
+    Cardinality (Slack):
+    - One PostHog user → many rows, one per Slack workspace they've linked
+      (Slack assigns a distinct user id per workspace, so the rows have
+      different `integration_id` values).
+    - One Slack identity (workspace × Slack user id) → may have multiple
+      PostHog rows when the same Slack account is linked to more than one
+      PostHog account (e.g. personal + work). The inbound resolver picks
+      the most-recently-linked accessible row and warns when it sees more
+      than one match — see `find_linked_posthog_user`.
+
+    The `unique_together = ("user", "kind", "integration_id")` constraint only
+    forbids the same PostHog user linking the same Slack workspace identity
+    twice (which would have to be a re-OAuth that `update_or_create` already
+    folds into an in-place refresh). It does NOT forbid two PostHog users
+    sharing a Slack identity — that's a deliberate allowance the resolver
+    handles deterministically.
     """
 
     class IntegrationKind(models.TextChoices):
         GITHUB = "github"
+        SLACK = "slack"
 
     user = models.ForeignKey(
         "posthog.User",
@@ -58,6 +86,9 @@ class UserIntegration(UUIDModel):
     class Meta:
         db_table = "posthog_user_integration"
         unique_together = [("user", "kind", "integration_id")]
+        indexes = [
+            models.Index(fields=["kind", "integration_id"], name="user_integration_kind_extid"),
+        ]
 
 
 class ReauthorizationRequired(Exception):
@@ -351,4 +382,48 @@ def user_github_integration_from_installation(
                 "sensitive_config": sensitive_config,
             },
         )
+    return integration
+
+
+def user_slack_integration_from_identity(
+    user: "User",
+    *,
+    slack_user_id: str,
+    slack_team_id: str,
+    slack_team_name: str | None,
+    slack_email_at_link: str | None,
+    user_access_token: str,
+    user_refresh_token: str | None = None,
+) -> UserIntegration:
+    """Create or refresh a Slack ``UserIntegration`` from a Sign-in-with-Slack
+    identity.
+
+    Persists the Slack user-to-server token in ``sensitive_config`` in symmetry
+    with the GitHub personal integration. ``user_refresh_token`` is captured
+    defensively — Slack only returns it when the app has
+    `token_rotation_enabled`, which today is off, so it's typically ``None``.
+    Storing both fields now means flipping rotation on later requires no
+    schema or callback-shape change. ``slack_email_at_link`` is stored for
+    support diagnostics and is not consulted at resolve time.
+    """
+    config: dict[str, Any] = {
+        "slack_team_id": slack_team_id,
+        "slack_team_name": slack_team_name,
+        "slack_email_at_link": slack_email_at_link,
+        "linked_at": int(time.time()),
+    }
+    sensitive_config: dict[str, Any] = {
+        "user_access_token": user_access_token,
+    }
+    if user_refresh_token is not None:
+        sensitive_config["user_refresh_token"] = user_refresh_token
+    integration, _created = UserIntegration.objects.update_or_create(
+        user=user,
+        kind=UserIntegration.IntegrationKind.SLACK,
+        integration_id=slack_user_id,
+        defaults={
+            "config": config,
+            "sensitive_config": sensitive_config,
+        },
+    )
     return integration
