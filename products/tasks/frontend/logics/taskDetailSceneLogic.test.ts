@@ -49,7 +49,6 @@ function createJsonResponse(payload: unknown): Response {
 function createFetchMock({ runs = {} }: { runs?: Record<string, TaskRun> } = {}): typeof fetch {
     return jest.fn((input: RequestInfo | URL) => {
         const url = String(input)
-        const streamTokenMatch = url.match(/\/tasks\/([^/]+)\/runs\/([^/]+)\/stream_token\/$/)
         const taskRunMatch = url.match(/\/tasks\/([^/]+)\/runs\/([^/]+)\/$/)
         const runsListMatch = url.match(/\/tasks\/([^/]+)\/runs\/$/)
         const taskMatch = url.match(/\/tasks\/([^/]+)\/$/)
