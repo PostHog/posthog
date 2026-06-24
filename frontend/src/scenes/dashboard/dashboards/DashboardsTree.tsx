@@ -41,7 +41,8 @@ function collectPaths(nodes: FolderTreeNode[], acc: string[] = []): string[] {
 // expandedFolders reducer so collapsing sticks and the open/close animation plays. The table's Folder column
 // reads the same entryByRef the scoping uses, so the displayed folder always matches where the dashboard is.
 export function DashboardsTree(): JSX.Element {
-    const { folderTree, currentSubtreeDashboards, entryByRef, expandedFolders } = useValues(dashboardsFileSystemLogic)
+    const { folderTree, currentFolder, currentSubtreeDashboards, entryByRef, expandedFolders } =
+        useValues(dashboardsFileSystemLogic)
     const { navigateToFolder, toggleFolder, setExpandedFolders } = useActions(dashboardsFileSystemLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
 
@@ -83,34 +84,38 @@ export function DashboardsTree(): JSX.Element {
                         {allExpanded ? 'Collapse all' : 'Expand all'}
                     </LemonButton>
                 </div>
-                <LemonTree
-                    // Folder rows are accordion triggers; ButtonPrimitives shades any open / expanded trigger,
-                    // which in this panel makes every folder look selected. Neutralize the row background here
-                    // (Tailwind so HMR picks it up, unlike a new SCSS import), keeping hover.
-                    className="px-0 py-1 [&_.button-primitive]:!bg-transparent [&_.button-primitive:hover]:!bg-fill-button-tertiary-hover"
-                    data={treeData}
-                    expandedItemIds={expandedItemIds}
-                    onSetExpandedItemIds={(newIds) => {
-                        // Keyboard expand/collapse: mirror the one folder whose state changed into the reducer
-                        // (the root is always open, so it's excluded from the diff).
-                        const expanded = new Set(newIds)
-                        const toggled = folderPaths.find((id) => !!expandedFolders[id] !== expanded.has(id))
-                        if (toggled) {
-                            toggleFolder(toggled)
-                        }
-                    }}
-                    onFolderClick={(folder) => {
-                        if (!folder) {
-                            return
-                        }
-                        // A folder click selects it (scopes the table); for non-root folders it also toggles
-                        // expansion. The root stays open.
-                        navigateToFolder((folder.record?.path as string) ?? '')
-                        if (folder.id !== ROOT_ID) {
-                            toggleFolder(folder.id)
-                        }
-                    }}
-                />
+                {/* LemonTree drops its own className, so the override lives on this wrapper instead. Every
+                    open/expanded accordion trigger is shaded with the tertiary-active fill, which made all
+                    expanded folders look selected; null that fill out via the CSS variable (cascades to all
+                    rows) and re-apply it only to the actively-selected folder. */}
+                <div className="dashboards-tree-panel flex-1 min-h-0 [--color-bg-fill-button-tertiary-active:transparent] [&_.button-primitive--active]:!bg-[var(--color-bg-fill-highlight-50)]">
+                    <LemonTree
+                        data={treeData}
+                        expandedItemIds={expandedItemIds}
+                        // Highlight only the folder you're in; navigating moves it (and clears the rest).
+                        isItemActive={(item) => item.record?.path === currentFolder}
+                        onSetExpandedItemIds={(newIds) => {
+                            // Keyboard expand/collapse: mirror the one folder whose state changed into the
+                            // reducer (the root is always open, so it's excluded from the diff).
+                            const expanded = new Set(newIds)
+                            const toggled = folderPaths.find((id) => !!expandedFolders[id] !== expanded.has(id))
+                            if (toggled) {
+                                toggleFolder(toggled)
+                            }
+                        }}
+                        onFolderClick={(folder) => {
+                            if (!folder) {
+                                return
+                            }
+                            // A folder click selects it (scopes the table); for non-root folders it also
+                            // toggles expansion. The root stays open.
+                            navigateToFolder((folder.record?.path as string) ?? '')
+                            if (folder.id !== ROOT_ID) {
+                                toggleFolder(folder.id)
+                            }
+                        }}
+                    />
+                </div>
             </div>
             <div className="min-w-0" data-attr="dashboards-tree-content">
                 <DashboardsTable

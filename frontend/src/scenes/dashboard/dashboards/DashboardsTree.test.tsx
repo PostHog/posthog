@@ -50,6 +50,7 @@ describe('DashboardsTree', () => {
     function mockValues(overrides: Record<string, any>): void {
         ;(useValues as jest.Mock).mockReturnValue({
             folderTree: [],
+            currentFolder: '',
             currentSubtreeDashboards: [],
             entryByRef: {},
             expandedFolders: {},
