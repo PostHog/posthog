@@ -5,8 +5,10 @@ from datetime import datetime
 from typing import Any, Literal, cast
 
 from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import GinIndex
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
+from django.db.models.functions import Cast
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
@@ -733,6 +735,16 @@ class SignalReportArtefact(UUIDModel):
             # Latest-wins lookups: artefacts are append-only, so deriving the current status / log
             # tail is `WHERE report=? AND type=? ORDER BY created_at DESC` — this makes it a seek.
             models.Index(fields=["report", "type", "-created_at"], name="signals_sig_rpt_type_ct_idx"),
+            # Reviewer-membership lookups: the inbox's default sort surfaces "you're a suggested
+            # reviewer" first, which tests `content::jsonb @> '[{"github_login": ...}]'` over the
+            # suggested_reviewers artefacts. Without this, that's a full scan + jsonb parse of every
+            # such artefact on each inbox load; the GIN index turns it into a bitmap probe.
+            GinIndex(
+                Cast("content", output_field=models.JSONField()),
+                name="signals_artefact_reviewers_gin",
+                # Literal value of ArtefactType.SUGGESTED_REVIEWERS (not in scope inside Meta).
+                condition=models.Q(type="suggested_reviewers"),
+            ),
         ]
 
     @classmethod

@@ -885,6 +885,37 @@ class SignalReportViewSet(
             ),
         )
 
+    def _current_suggested_reviewer_report_ids(self, github_login: str):
+        """Report ids on which `github_login` is a *current* suggested reviewer.
+
+        One team-scoped pass over the latest suggested_reviewers artefacts, de-correlated
+        from the outer report row. Used to drive the `is_suggested_reviewer` annotation via a
+        single `id IN (...)` membership test instead of a per-report correlated EXISTS — the
+        latter is the inbox's default first sort key, so the correlated form re-evaluated a
+        jsonb-containment subquery across the team's entire report set on every list load.
+        """
+        has_newer = Exists(
+            SignalReportArtefact.objects.filter(
+                report_id=OuterRef("report_id"),
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+                created_at__gt=OuterRef("created_at"),
+            )
+        )
+        return (
+            SignalReportArtefact.objects.filter(
+                team=self.team,
+                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+            )
+            .filter(~has_newer)
+            # github_login comes from our own UserSocialAuth DB, not user input.
+            # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
+            .extra(
+                where=["content::jsonb @> %s::jsonb"],
+                params=[json.dumps([{"github_login": github_login}])],
+            )
+            .values("report_id")
+        )
+
     def _annotate_is_suggested_reviewer(self, queryset):
         # Annotate is_suggested_reviewer by resolving the current user's GitHub login
         # and checking jsonb containment on the artefact content list. This stays fresh
@@ -895,19 +926,17 @@ class SignalReportViewSet(
         if not github_login:
             return queryset.annotate(is_suggested_reviewer=Value(False))
 
-        # github_login comes from our own UserSocialAuth DB, not user input.
-        suggested_exists = Exists(
-            # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
-            self._latest_suggested_reviewers_qs().extra(
-                where=["content::jsonb @> %s::jsonb"],
-                params=[json.dumps([{"github_login": github_login}])],
-            )
-        )
+        # Resolve the reviewer's report-id set once (team-scoped, de-correlated) and test
+        # membership, rather than evaluating a correlated jsonb EXISTS for every report in
+        # the sort. Same result set as the per-report EXISTS, but the scan is bounded to the
+        # team's suggested_reviewers artefacts and the planner can hash the membership.
+        suggested_report_ids = self._current_suggested_reviewer_report_ids(github_login)
         return queryset.annotate(
             is_suggested_reviewer=Case(
                 When(self._Q_READY_NOT_ACTIONABLE, then=Value(False)),
                 When(status=SignalReport.Status.FAILED, then=Value(False)),
-                default=suggested_exists,
+                When(Q(id__in=suggested_report_ids), then=Value(True)),
+                default=Value(False),
                 output_field=BooleanField(),
             ),
         )
