@@ -1,4 +1,8 @@
-import { aiOtelOlderSpecEventsCounter, aiOtelSystemInstructionsCounter } from '~/ingestion/pipelines/ai/metrics'
+import {
+    aiOtelGroupsCounter,
+    aiOtelOlderSpecEventsCounter,
+    aiOtelSystemInstructionsCounter,
+} from '~/ingestion/pipelines/ai/metrics'
 import { PluginEvent } from '~/plugin-scaffold'
 import { parseJSON } from '~/utils/json-parse'
 
@@ -100,6 +104,7 @@ export function mapOtelAttributes(event: PluginEvent): void {
 
     convertOlderSpecEvents(event)
     convertSystemInstructions(event)
+    normalizeGroups(event)
 
     computeLatency(event)
     promoteRootSpanToTrace(event)
@@ -107,6 +112,29 @@ export function mapOtelAttributes(event: PluginEvent): void {
     for (const key of STRIP_ATTRIBUTES) {
         delete event.properties[key]
     }
+}
+
+type GroupsOutcome = 'parsed' | 'non_object' | 'malformed'
+
+function normalizeGroups(event: PluginEvent): void {
+    const props = event.properties!
+    if (typeof props.$groups !== 'string') {
+        return
+    }
+
+    let outcome: GroupsOutcome
+    try {
+        const parsed = parseJSON(props.$groups)
+        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+            props.$groups = parsed
+            outcome = 'parsed'
+        } else {
+            outcome = 'non_object'
+        }
+    } catch {
+        outcome = 'malformed'
+    }
+    aiOtelGroupsCounter.labels({ outcome }).inc()
 }
 
 function computeLatency(event: PluginEvent): void {

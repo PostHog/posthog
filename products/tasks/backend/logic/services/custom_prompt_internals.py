@@ -8,6 +8,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from django.conf import settings
+from django.db import InterfaceError, OperationalError, close_old_connections
+
 from asgiref.sync import sync_to_async
 
 from posthog.models.team.team import Team
@@ -151,6 +154,36 @@ async def create_task_and_trigger(
     return task, task_run
 
 
+async def _refresh_task_run(task_run_id) -> TaskRun:
+    """Re-read a ``TaskRun`` mid-poll, tolerating a dropped pooled DB connection.
+
+    ``poll_for_turn`` runs for many minutes while the activity's threadpool connection
+    sits idle; pgbouncer can drop it underneath us. The activity's ``@close_db_connections``
+    decorator only resets connections at the activity boundaries, not inside this loop, so
+    without this guard the next ORM read raises ``OperationalError``/``InterfaceError`` and
+    aborts the whole report run. ``close_old_connections()`` clears any stale/errored
+    connection before the read, and we retry once so a transparent reconnect recovers the
+    drop instead of failing the run. Mirrors the handling in ``push_dispatcher``.
+    """
+
+    def _read() -> TaskRun:
+        # Guarded like push_dispatcher: close_old_connections() health-checks live connections,
+        # which trips pytest-django's DB-access guard in unit tests that patch the ORM read.
+        if not settings.TEST:
+            close_old_connections()
+        return TaskRun.objects.get(id=task_run_id)
+
+    try:
+        return await sync_to_async(_read)()
+    except (OperationalError, InterfaceError):
+        logger.warning(
+            "custom_prompt - poll_for_turn: DB connection dropped during TaskRun refresh, reconnecting, run=%s",
+            task_run_id,
+            exc_info=True,
+        )
+        return await sync_to_async(_read)()
+
+
 async def poll_for_turn(
     task_run,
     *,
@@ -251,7 +284,7 @@ async def poll_for_turn(
         # prior poll; without the clamp we'd re-parse old lines. Doubles as the line-count high-water
         # mark handed to salvage: every line up to here was seen (and watched go quiet) during polling.
         skip_lines = max(skip_lines, total_lines)
-        refreshed = await sync_to_async(TaskRun.objects.get)(id=task_run.id)
+        refreshed = await _refresh_task_run(task_run.id)
         if refreshed.status in {
             TaskRun.Status.COMPLETED,
             TaskRun.Status.FAILED,
@@ -278,7 +311,7 @@ async def poll_for_turn(
             )
     # Poll budget exhausted. A run already terminal here was marked by something else (cancel,
     # relay-detected crash) — drain it; otherwise try to salvage below.
-    refreshed = await sync_to_async(TaskRun.objects.get)(id=task_run.id)
+    refreshed = await _refresh_task_run(task_run.id)
     if refreshed.status in {
         TaskRun.Status.COMPLETED,
         TaskRun.Status.FAILED,

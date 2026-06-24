@@ -951,6 +951,18 @@ def _schemas_from_conn(
 ) -> dict[str, PostgresDiscoveredSchema]:
     """Discover columns for tables on the given pre-opened connection."""
     with connection.cursor() as cursor:
+        # Raise statement_timeout for the catalog scan below. Some hosted/pooled Postgres set a
+        # short role/server default that cancels the `information_schema.columns` query
+        # (QueryCanceled) on large schemas before discovery finishes — the read path guards its own
+        # metadata query the same way in `_get_table`. Best-effort: engines without statement_timeout
+        # (e.g. DuckDB) reject the SET, so clear the aborted transaction and fall back to the default.
+        try:
+            cursor.execute(
+                sql.SQL("SET statement_timeout = {timeout}").format(timeout=sql.Literal(METADATA_STATEMENT_TIMEOUT_MS))
+            )
+        except psycopg.Error:
+            connection.rollback()
+
         discovered_tables, _qualify_with_schema = _get_discovered_tables(cursor, schema, names)
         if not discovered_tables:
             return {}
@@ -1759,6 +1771,13 @@ def _get_primary_keys(
         cursor.execute(child_partition_pk_query)
         child_pk_rows = cursor.fetchall()
     except Exception as e:
+        # A transient connection drop here means the fallback never ran — swallowing it would
+        # capture noise and wrongly report "no primary key" off a dead cursor. Re-raise so the
+        # setup retry loop reconnects (mirrors the unwrapped primary query above and the
+        # duplicate-PK probe). Genuine query-incompatibility errors (e.g. an engine that can't
+        # bind this pg_catalog query) still degrade to best-effort.
+        if _is_connection_dropped_error(e):
+            raise
         capture_exception(e)
         logger.warning(f"Child-partition fallback query failed for {table_name}: {e}")
     if len(child_pk_rows) > 0:
@@ -1811,6 +1830,12 @@ def _has_duplicate_primary_keys(
 
         return row is not None
     except psycopg.errors.QueryCanceled:
+        raise
+    except psycopg.OperationalError:
+        # A connection-level failure here (e.g. a foreign-data-wrapper server refusing a new
+        # connection with "too many connections") means the probe never ran — swallowing it as
+        # "no duplicate keys" would be a false negative. Propagate it so the activity's retry
+        # path handles it; these are transient and stay retryable.
         raise
     except Exception as e:
         capture_exception(e)
@@ -2124,6 +2149,23 @@ def _get_table(
     column already exists and the probed value is discarded, so the caller should gate
     probing on "is a fresh schema being created" (see the equivalent gating on
     `_get_estimated_row_count_for_partitioned_table` in `postgres_source`)."""
+    # Raise a generous statement_timeout for the whole discovery phase before issuing any query.
+    # The outer 10-minute setup timeout isn't set until `postgres_source` continues after
+    # `_get_table` returns, so without this every probe here — the `pg_matviews`/`pg_views` lookups,
+    # the metadata SELECT (whose `information_schema.columns` `numeric_*` columns invoke the slow
+    # per-column `_pg_numeric_*` functions), and even the `BEGIN` opening a scoping transaction —
+    # inherits a short role/server default that some hosted/pooled Postgres set, which cancels the
+    # statement with QueryCanceled mid-discovery. Session, not LOCAL: the connection is autocommit,
+    # so a LOCAL timeout has nothing to bind to and a scoping transaction's own `BEGIN` would itself
+    # run under the short default. Best-effort: engines without statement_timeout (e.g. DuckDB)
+    # reject the SET, so clear any aborted transaction and fall back to the default.
+    try:
+        cursor.execute(
+            sql.SQL("SET statement_timeout = {timeout}").format(timeout=sql.Literal(METADATA_STATEMENT_TIMEOUT_MS))
+        )
+    except psycopg.Error:
+        cursor.connection.rollback()
+
     is_mat_view_query = sql.SQL(
         "select {table} in (select matviewname from pg_matviews where schemaname = {schema}) as res"
     ).format(schema=sql.Literal(schema), table=sql.Literal(table_name))
@@ -2184,23 +2226,8 @@ def _get_table(
 
     _explain_query(cursor, query, logger)
     logger.debug(f"Running query: {query.as_string()}")
-    # Scope a generous statement_timeout to the schema-discovery query. On regular tables it reads
-    # `information_schema.columns`, whose `numeric_precision`/`numeric_scale` columns invoke the
-    # per-column `_pg_numeric_*` SQL functions — slow enough on large catalogs that a short
-    # role/server default `statement_timeout` (some hosted/pooled Postgres set one) cancels the
-    # query with QueryCanceled before discovery finishes. The outer 10-minute setup timeout isn't
-    # set until `postgres_source` continues after `_get_table` returns, so without this the query
-    # inherits that short default. Own transaction so the `SET LOCAL` scopes to this query and
-    # auto-resets (the connection is autocommit, so this is a self-contained BEGIN/COMMIT) without
-    # leaking onto the numeric probe below, which deliberately bounds itself tighter.
-    with cursor.connection.transaction():
-        cursor.execute(
-            sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
-                timeout=sql.Literal(METADATA_STATEMENT_TIMEOUT_MS)
-            )
-        )
-        cursor.execute(query)
-        metadata_rows = cursor.fetchall()
+    cursor.execute(query)
+    metadata_rows = cursor.fetchall()
 
     numeric_data_types = {"numeric", "decimal"}
 
@@ -2233,10 +2260,9 @@ def _get_table(
             # aggregation and auto-resets (a self-contained BEGIN/COMMIT under autocommit).
             with cursor.connection.transaction():
                 # Scope a short statement_timeout to the probe so a pathologically large table
-                # or slow aggregation can't hang schema discovery. The outer 10-minute
-                # statement_timeout isn't set until `postgres_source` continues after
-                # `_get_table` returns, so without this the probe inherits whatever role-level
-                # default postgres has — which might be "no limit" on some hosted instances.
+                # or slow aggregation can't hang schema discovery. Without this the probe would
+                # inherit the generous discovery-phase timeout set at the top of `_get_table`,
+                # which is deliberately too loose for a full-table aggregation.
                 cursor.execute(
                     sql.SQL("SET LOCAL statement_timeout = {timeout}").format(
                         timeout=sql.Literal(30 * 1000)  # 30 seconds

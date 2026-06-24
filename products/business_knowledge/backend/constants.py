@@ -181,6 +181,11 @@ BK_RERANK_SNIPPET_CHARS = 500
 # embedding service is slow, FTS alone fires (graceful degradation).
 BK_QUERY_EMBEDDING_TIMEOUT = 5.0
 
+# --- Always-on context cap ---
+# Hard char cap for always-on sources injected into every support prompt.
+# These bypass query filtering, so unbounded injection blows the token budget.
+MAX_ALWAYS_ON_CONTEXT_CHARS = 20_000
+
 # --- Drill-down (agentic read) tunables ---
 # Default chunk radius for get_document_window: returns center +/- radius
 # chunks (up to 2*radius+1 = 11 chunks ~= 13k chars at typical size).

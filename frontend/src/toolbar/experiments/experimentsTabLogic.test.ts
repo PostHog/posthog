@@ -303,7 +303,7 @@ describe('experimentsTabLogic', () => {
                 theExperimentsTabLogic.actions.submitExperimentForm()
             }).delay(0)
 
-            expect(lemonToast.error).toHaveBeenCalledWith('Experiment save failed: Invalid experiment config')
+            expect(lemonToast.error).toHaveBeenCalledWith('Invalid experiment config')
         })
 
         it('shows generic error when API returns error and json parsing fails', async () => {
@@ -324,7 +324,7 @@ describe('experimentsTabLogic', () => {
                 theExperimentsTabLogic.actions.submitExperimentForm()
             }).delay(0)
 
-            expect(lemonToast.error).toHaveBeenCalledWith('Experiment save failed: Request failed: 500')
+            expect(lemonToast.error).toHaveBeenCalledWith('Failed to save experiment')
         })
 
         it('handles network error gracefully', async () => {
@@ -339,7 +339,7 @@ describe('experimentsTabLogic', () => {
                 theExperimentsTabLogic.actions.submitExperimentForm()
             }).delay(0)
 
-            expect(lemonToast.error).toHaveBeenCalledWith('Experiment save failed: Network error')
+            expect(lemonToast.error).toHaveBeenCalledWith('Failed to save experiment')
         })
     })
 

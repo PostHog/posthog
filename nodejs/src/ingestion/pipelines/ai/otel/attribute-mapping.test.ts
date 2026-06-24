@@ -652,4 +652,39 @@ describe('mapOtelAttributes', () => {
             expect(event.properties!.events).toBeUndefined()
         })
     })
+
+    describe('$groups normalization', () => {
+        it('parses a JSON-string $groups into an object', () => {
+            const event = createEvent('$ai_generation', {
+                $groups: '{"organization":"8576566a-d932-48a7-a25b-d815619cdc48"}',
+            })
+            mapOtelAttributes(event)
+            expect(event.properties!.$groups).toEqual({ organization: '8576566a-d932-48a7-a25b-d815619cdc48' })
+        })
+
+        it('leaves an already-object $groups untouched', () => {
+            const groups = { organization: 'org-1' }
+            const event = createEvent('$ai_generation', { $groups: groups })
+            mapOtelAttributes(event)
+            expect(event.properties!.$groups).toEqual({ organization: 'org-1' })
+        })
+
+        it('keeps the original string when $groups is not valid JSON', () => {
+            const event = createEvent('$ai_generation', { $groups: 'not-json' })
+            mapOtelAttributes(event)
+            expect(event.properties!.$groups).toBe('not-json')
+        })
+
+        it.each(['"org-1"', '42', '["org-1"]'])('keeps a non-object JSON $groups (%s) as-is', (raw) => {
+            const event = createEvent('$ai_generation', { $groups: raw })
+            mapOtelAttributes(event)
+            expect(event.properties!.$groups).toBe(raw)
+        })
+
+        it('does nothing when $groups is absent', () => {
+            const event = createEvent('$ai_generation', { 'gen_ai.response.model': 'gpt-4' })
+            mapOtelAttributes(event)
+            expect(event.properties!.$groups).toBeUndefined()
+        })
+    })
 })

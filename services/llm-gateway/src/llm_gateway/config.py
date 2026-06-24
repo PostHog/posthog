@@ -30,7 +30,8 @@ DEFAULT_PRODUCT_COST_LIMITS: dict[str, "ProductCostLimit"] = {
     "posthog_code": ProductCostLimit(limit_usd=5000.0, window_seconds=3600),
     "background_agents": ProductCostLimit(limit_usd=1000.0, window_seconds=3600),
     "django": ProductCostLimit(limit_usd=5000.0, window_seconds=86400),
-    "signals": ProductCostLimit(limit_usd=5000.0, window_seconds=86400),
+    "signals": ProductCostLimit(limit_usd=25000.0, window_seconds=86400),
+    "posthog_ai": ProductCostLimit(limit_usd=5000.0, window_seconds=86400),
 }
 
 DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
@@ -53,9 +54,9 @@ DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
         sustained_window_seconds=2592000,
     ),
     "signals": UserCostLimit(
-        burst_limit_usd=500.0,
+        burst_limit_usd=2500.0,
         burst_window_seconds=604800,
-        sustained_limit_usd=1000.0,
+        sustained_limit_usd=10000.0,
         sustained_window_seconds=2592000,
     ),
 }

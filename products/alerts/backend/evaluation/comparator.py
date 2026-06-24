@@ -129,7 +129,7 @@ def evaluate_threshold(
             condition.type,
             subject=result.subject,
             framed=result.framed,
-            include_series=result.is_breakdown,
+            include_series=result.is_breakdown or result.include_series_label,
             interval_type=result.interval_type,
             series=s.label,
             is_current_interval=s.is_current_interval,

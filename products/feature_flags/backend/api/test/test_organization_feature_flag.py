@@ -27,6 +27,7 @@ from products.cohorts.backend.models.util import sort_cohorts_topologically
 from products.dashboards.backend.api.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
+from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
 from products.surveys.backend.models import Survey
@@ -96,6 +97,21 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    def test_get_feature_flag_redacts_encrypted_payloads(self):
+        FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="encrypted-key",
+            has_encrypted_payloads=True,
+            filters={"groups": [], "payloads": {"true": "ciphertext-blob"}},
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/encrypted-key"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()[0]["filters"]["payloads"]["true"], REDACTED_PAYLOAD_VALUE)
+
     def test_get_feature_flag_filters_inaccessible_teams(self):
         """Test that flags from teams the user cannot access are not returned."""
         from posthog.constants import AvailableFeature
@@ -131,6 +147,242 @@ class TestOrganizationFeatureFlagGet(APIBaseTest, QueryMatchingTest):
         response_data = response.json()
         self.assertEqual(len(response_data), 1)
         self.assertEqual(response_data[0]["team_id"], self.team_1.id)
+
+    def test_get_feature_flag_filters_flag_denied_by_object_level_access_control(self):
+        from posthog.constants import AvailableFeature
+
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
+        from ee.models.rbac.access_control import AccessControl
+
+        # Create a second user and log in as them (not the flag creator) so that
+        # the "creator is always visible" exception does not apply.
+        other_user = self._create_user("other@posthog.com")
+        self.client.force_login(other_user)
+
+        # Deny the non-creator user access to feature_flag_2 at the object level.
+        AccessControl.objects.create(
+            team=self.team_2,
+            resource="feature_flag",
+            resource_id=str(self.feature_flag_2.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/{self.feature_flag_key}"
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        # Only team_1's flag should be returned; team_2's flag is denied.
+        self.assertEqual(len(response_data), 1)
+        self.assertEqual(response_data[0]["team_id"], self.team_1.id)
+
+
+class TestOrganizationFeatureFlagKeys(APIBaseTest):
+    def setUp(self):
+        self.team_1 = self.team
+        self.team_2 = Team.objects.create(organization=self.organization)
+
+        # Shared key exists in both projects; each project also has a unique key.
+        FeatureFlag.objects.create(team=self.team_1, created_by=self.user, key="shared")
+        FeatureFlag.objects.create(team=self.team_2, created_by=self.user, key="shared")
+        FeatureFlag.objects.create(team=self.team_1, created_by=self.user, key="only-in-1")
+        FeatureFlag.objects.create(team=self.team_2, created_by=self.user, key="only-in-2")
+        FeatureFlag.objects.create(team=self.team_2, created_by=self.user, key="deleted", deleted=True)
+
+        super().setUp()
+
+    def _keys_url(self, **params: Any) -> str:
+        url = f"/api/organizations/{self.organization.id}/feature_flags/keys/"
+        query = "&".join(f"{k}={v}" for k, v in params.items())
+        return f"{url}?{query}" if query else url
+
+    def test_keys_returns_union_across_compared_projects(self):
+        response = self.client.get(self._keys_url(team_ids=self.team_1.id) + f"&team_ids={self.team_2.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["count"], 3)
+        self.assertEqual(sorted(row["key"] for row in data["results"]), ["only-in-1", "only-in-2", "shared"])
+
+    def test_keys_excludes_deleted_flags(self):
+        response = self.client.get(self._keys_url(team_ids=self.team_2.id))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        keys = [row["key"] for row in response.json()["results"]]
+        self.assertNotIn("deleted", keys)
+        self.assertCountEqual(keys, ["shared", "only-in-2"])
+
+    def test_keys_redacts_encrypted_payloads(self):
+        # Session reads must never receive encrypted remote-config ciphertext.
+        FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="secret-config",
+            has_encrypted_payloads=True,
+            filters={"groups": [], "payloads": {"true": "ciphertext-blob"}},
+        )
+
+        response = self.client.get(self._keys_url(team_ids=self.team_1.id))
+
+        row = next(r for r in response.json()["results"] if r["key"] == "secret-config")
+        self.assertEqual(row["filters"]["payloads"]["true"], REDACTED_PAYLOAD_VALUE)
+        self.assertNotIn("ciphertext-blob", str(row["filters"]))
+
+    def test_keys_representative_prefers_earlier_team_in_order(self):
+        # team_2 listed first -> the shared row should be represented by team_2's flag.
+        response = self.client.get(self._keys_url(team_ids=self.team_2.id) + f"&team_ids={self.team_1.id}")
+
+        shared = next(row for row in response.json()["results"] if row["key"] == "shared")
+        self.assertEqual(shared["team_id"], self.team_2.id)
+
+    def test_keys_deduplicates_team_ids_preserving_priority(self):
+        # team_1 repeated at the end must not override its first-seen priority over team_2.
+        response = self.client.get(
+            self._keys_url(team_ids=self.team_1.id) + f"&team_ids={self.team_2.id}&team_ids={self.team_1.id}"
+        )
+
+        shared = next(row for row in response.json()["results"] if row["key"] == "shared")
+        self.assertEqual(shared["team_id"], self.team_1.id)
+
+    def test_keys_search_picks_representative_matching_search(self):
+        # Same key in both teams, but only the lower-priority team's name matches the search term.
+        FeatureFlag.objects.create(team=self.team_1, created_by=self.user, key="billing-flag", name="Alpha")
+        FeatureFlag.objects.create(team=self.team_2, created_by=self.user, key="billing-flag", name="SearchTarget")
+
+        response = self.client.get(
+            self._keys_url(team_ids=self.team_1.id) + f"&team_ids={self.team_2.id}&search=SearchTarget"
+        )
+
+        rows = response.json()["results"]
+        self.assertEqual([row["key"] for row in rows], ["billing-flag"])
+        self.assertEqual(rows[0]["team_id"], self.team_2.id)
+        self.assertEqual(rows[0]["name"], "SearchTarget")
+
+    def test_keys_search_filters_by_key(self):
+        response = self.client.get(self._keys_url(team_ids=self.team_1.id) + f"&team_ids={self.team_2.id}&search=only")
+
+        keys = [row["key"] for row in response.json()["results"]]
+        self.assertCountEqual(keys, ["only-in-1", "only-in-2"])
+
+    def test_keys_paginates_distinct_keys(self):
+        first = self.client.get(
+            self._keys_url(team_ids=self.team_1.id) + f"&team_ids={self.team_2.id}&limit=2&offset=0"
+        )
+        self.assertEqual(first.json()["count"], 3)
+        self.assertEqual(len(first.json()["results"]), 2)
+        self.assertIsNotNone(first.json()["next"])
+        self.assertIsNone(first.json()["previous"])
+
+        second = self.client.get(
+            self._keys_url(team_ids=self.team_1.id) + f"&team_ids={self.team_2.id}&limit=2&offset=2"
+        )
+        self.assertEqual(len(second.json()["results"]), 1)
+        self.assertIsNone(second.json()["next"])
+        self.assertIsNotNone(second.json()["previous"])
+
+    def test_keys_pagination_urls_preserve_team_ids_and_search(self):
+        # The next/previous links must carry the same team_ids and search, or paging would
+        # silently switch to the wrong projects or drop the filter.
+        first = self.client.get(
+            self._keys_url(team_ids=self.team_1.id) + f"&team_ids={self.team_2.id}&search=only&limit=1&offset=0"
+        )
+        next_url = first.json()["next"]
+        self.assertIsNotNone(next_url)
+        self.assertIn(f"team_ids={self.team_1.id}", next_url)
+        self.assertIn(f"team_ids={self.team_2.id}", next_url)
+        self.assertIn("search=only", next_url)
+
+        second = self.client.get(
+            self._keys_url(team_ids=self.team_1.id) + f"&team_ids={self.team_2.id}&search=only&limit=1&offset=1"
+        )
+        previous_url = second.json()["previous"]
+        self.assertIsNotNone(previous_url)
+        self.assertIn(f"team_ids={self.team_1.id}", previous_url)
+        self.assertIn(f"team_ids={self.team_2.id}", previous_url)
+        self.assertIn("search=only", previous_url)
+
+    def test_keys_negative_limit_returns_400(self):
+        response = self.client.get(self._keys_url(team_ids=self.team_1.id) + "&limit=-5")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # A negative limit is clamped to 1, not passed to a negative slice (which would 500).
+        self.assertLessEqual(len(response.json()["results"]), 1)
+
+    def test_keys_accepts_comma_separated_team_ids(self):
+        response = self.client.get(self._keys_url(team_ids=f"{self.team_1.id},{self.team_2.id}"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(sorted(row["key"] for row in response.json()["results"]), ["only-in-1", "only-in-2", "shared"])
+
+    def test_keys_defaults_to_all_accessible_teams_when_unspecified(self):
+        response = self.client.get(self._keys_url())
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        keys = [row["key"] for row in response.json()["results"]]
+        self.assertCountEqual(keys, ["shared", "only-in-1", "only-in-2"])
+
+    def test_keys_ignores_teams_outside_the_organization(self):
+        other_org = Organization.objects.create(name="other")
+        other_team = Team.objects.create(organization=other_org)
+        FeatureFlag.objects.create(team=other_team, created_by=self.user, key="other-org-flag")
+
+        response = self.client.get(self._keys_url(team_ids=other_team.id))
+
+        # The team is not in this org, so it falls back to all accessible teams in the org.
+        keys = [row["key"] for row in response.json()["results"]]
+        self.assertNotIn("other-org-flag", keys)
+        self.assertCountEqual(keys, ["shared", "only-in-1", "only-in-2"])
+
+    def test_keys_unauthorized(self):
+        self.client.logout()
+        response = self.client.get(self._keys_url(team_ids=self.team_1.id))
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_keys_invalid_param_returns_400(self):
+        response = self.client.get(self._keys_url(team_ids=self.team_1.id) + "&limit=abc")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_keys_excludes_flags_denied_by_object_level_access_control(self):
+        from posthog.constants import AvailableFeature
+
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.ACCESS_CONTROL, "key": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
+        from ee.models.rbac.access_control import AccessControl
+
+        # Use a second user (not the flag creator) so the creator-always-visible
+        # exception in filter_queryset_by_access_level does not apply.
+        other_user = self._create_user("other-keys@posthog.com")
+        self.client.force_login(other_user)
+
+        # Deny the non-creator user access to the "shared" flag in team_2 at the object level.
+        shared_flag_team2 = FeatureFlag.objects.get(team=self.team_2, key="shared")
+        AccessControl.objects.create(
+            team=self.team_2,
+            resource="feature_flag",
+            resource_id=str(shared_flag_team2.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+
+        response = self.client.get(self._keys_url(team_ids=self.team_1.id) + f"&team_ids={self.team_2.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # "shared" key still appears because team_1's copy is accessible; team_2's is excluded.
+        rows = response.json()["results"]
+        keys = [row["key"] for row in rows]
+        self.assertIn("shared", keys)
+        shared_row = next(row for row in rows if row["key"] == "shared")
+        # Representative must be from team_1, not team_2 (team_2's flag is denied).
+        self.assertEqual(shared_row["team_id"], self.team_1.id)
 
 
 class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
@@ -187,6 +439,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "active": self.feature_flag_to_copy.active,
             "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
             "deleted": False,
+            "archived": False,
             "created_by": ANY,
             "id": ANY,
             "created_at": ANY,
@@ -281,6 +534,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "active": self.feature_flag_to_copy.active,
             "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
             "deleted": False,
+            "archived": False,
             "created_by": ANY,
             "rollback_conditions": None,
             "performed_rollback": False,
@@ -420,6 +674,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "active": self.feature_flag_to_copy.active,
             "ensure_experience_continuity": self.feature_flag_to_copy.ensure_experience_continuity,
             "deleted": False,
+            "archived": False,
             "created_by": ANY,
             "rollback_conditions": None,
             "performed_rollback": False,

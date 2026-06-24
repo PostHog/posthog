@@ -8,12 +8,15 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+import structlog
 from bingads.v13.reporting import ReportingDownloadParameters
 from dateutil.relativedelta import relativedelta
 
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 from .schemas import BingAdsResource
+
+logger = structlog.get_logger(__name__)
 
 
 @dataclasses.dataclass
@@ -76,16 +79,29 @@ def fetch_data_in_yearly_chunks(
             end_date,
         )
 
-        data_pages = client.get_data_by_resource(
-            resource=resource,
-            account_id=account_id,
-            start_date=dt.datetime.combine(current_start, dt.time.min),
-            end_date=dt.datetime.combine(chunk_end, dt.time.max),
-        )
-
-        for page in data_pages:
-            if page:
-                yield page
+        try:
+            data_pages = client.get_data_by_resource(
+                resource=resource,
+                account_id=account_id,
+                start_date=dt.datetime.combine(current_start, dt.time.min),
+                end_date=dt.datetime.combine(chunk_end, dt.time.max),
+            )
+            for page in data_pages:
+                if page:
+                    yield page
+        except Exception as e:
+            # Bing's 36-month retention boundary moves day by day, so the oldest chunk can land just
+            # outside it and get rejected with InvalidCustomDateRangeEnd. That rejection is
+            # deterministic — skip the out-of-retention chunk (advancing the checkpoint below) instead
+            # of failing the whole sync. Any other error stays fatal so it can retry.
+            if "InvalidCustomDateRangeEnd" not in str(e):
+                raise
+            logger.warning(
+                "Skipping Bing Ads report chunk outside the 36-month retention window",
+                resource=resource.value,
+                chunk_start=current_start.isoformat(),
+                chunk_end=chunk_end.isoformat(),
+            )
 
         # Move to the day after chunk_end to avoid duplicate dates at chunk boundaries
         current_start = chunk_end + dt.timedelta(days=1)
@@ -177,6 +193,12 @@ def download_and_extract_report_csv(
         )
 
         result_file_path = reporting_service_manager.download_file(download_params)
+
+        # Bing returns no file when the report completes with zero rows for the requested range
+        # (e.g. a date window with no campaign activity). Treat that as an empty report instead of
+        # crashing on Path(None).
+        if result_file_path is None:
+            return ""
 
         result_path = Path(result_file_path)
         with zipfile.ZipFile(result_path, "r") as zip_file:

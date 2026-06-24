@@ -63,10 +63,10 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
     def test_signal_scout_config_defaults(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         loaded = SignalScoutConfig.objects.get(pk=config.pk)
-        # Auto-created scouts run every 3 hours and emit on by default (live from the first tick).
+        # Auto-created scouts run every 24 hours and emit on by default (live from the first tick).
         assert loaded.enabled is True
         assert loaded.emit is True
-        assert loaded.run_interval_minutes == 180
+        assert loaded.run_interval_minutes == 1440
         assert loaded.last_run_at is None
 
     def test_signal_scout_config_one_per_team_skill(self) -> None:

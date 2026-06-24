@@ -7,6 +7,7 @@ import hashlib
 import tempfile
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
+from typing import Any
 from urllib import parse
 
 from django.conf import settings
@@ -18,7 +19,7 @@ from django.forms import ModelForm, ValidationError
 from django.http import HttpResponse, HttpResponseNotAllowed, JsonResponse
 from django.shortcuts import redirect, render
 from django.template.loader import render_to_string
-from django.urls import path, reverse
+from django.urls import NoReverseMatch, path, reverse
 from django.utils import timezone
 from django.utils.html import escapejs, format_html
 from django.utils.safestring import mark_safe
@@ -36,8 +37,16 @@ from posthog.cloud_utils import is_cloud
 from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, add_credit, get_wallet
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.models.remote_config import RemoteConfig
 from posthog.models.team.team import DEPRECATED_ATTRS
+from posthog.personhog_client.client import get_personhog_client
+from posthog.personhog_client.converters import proto_group_type_mapping_to_dict
+from posthog.personhog_client.proto import (
+    GetGroupTypeMappingsByProjectIdRequest,
+    GetGroupTypeMappingsByTeamIdRequest,
+    UpdateGroupTypeMappingRequest,
+)
 from posthog.session_recordings.recordings import recording_s3_client
 from posthog.storage.gateway_credential_cache import validate_overspend_allowance_usd
 from posthog.temporal.common.client import sync_connect
@@ -136,6 +145,7 @@ class TeamAdmin(admin.ModelAdmin):
         "ai_gateway_actions",
         "ai_gateway_wallet",
         "policy_cache_blob",
+        "group_type_mappings_display",
     ]
 
     exclude = DEPRECATED_ATTRS
@@ -243,6 +253,15 @@ class TeamAdmin(admin.ModelAdmin):
             },
         ),
         (
+            "Group type mappings",
+            {
+                "classes": ["collapse"],
+                "fields": [
+                    "group_type_mappings_display",
+                ],
+            },
+        ),
+        (
             "Session replay actions",
             {
                 "classes": ["collapse"],
@@ -296,6 +315,173 @@ class TeamAdmin(admin.ModelAdmin):
                 team.project.name,
             )
         return "-"
+
+    @admin.display(description="Group type mappings")
+    def group_type_mappings_display(self, team: Team):
+        if not team.pk:
+            return "-"
+        client = get_personhog_client()
+        if client is None:
+            return format_html("<em>personhog client not configured</em>")
+        try:
+            resp = client.get_group_type_mappings_by_team_id(GetGroupTypeMappingsByTeamIdRequest(team_id=team.id))
+            mappings_raw = sorted(
+                [proto_group_type_mapping_to_dict(m) for m in resp.mappings],
+                key=lambda d: d["group_type_index"],
+            )
+        except Exception as exc:
+            logger.warning("admin_group_type_mappings_fetch_failed", team_id=team.id, error=str(exc))
+            return format_html(
+                '<p style="color: #856404; background: #fff3cd; border: 1px solid #ffc107; '
+                'padding: 8px 12px; border-radius: 4px; margin: 4px 0; font-size: 13px;">'
+                "Failed to fetch group type mappings from personhog</p>",
+            )
+        mappings = []
+        for m in mappings_raw:
+            detail_dashboard_id = m.get("detail_dashboard") or m.get("detail_dashboard_id")
+            detail_dashboard_url = None
+            if detail_dashboard_id:
+                try:
+                    detail_dashboard_url = reverse("admin:dashboards_dashboard_change", args=[detail_dashboard_id])
+                except NoReverseMatch:
+                    pass
+            mappings.append(
+                {
+                    **m,
+                    "detail_dashboard_id": detail_dashboard_id,
+                    "detail_dashboard_url": detail_dashboard_url,
+                    "edit_url": reverse(
+                        "admin:posthog_team_edit_group_type_mapping",
+                        args=[team.pk, m["group_type_index"]],
+                    ),
+                }
+            )
+        # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe (admin-only, renders trusted template)
+        return mark_safe(
+            render_to_string(
+                "admin/posthog/team/group_type_mappings_display.html",
+                {"mappings": mappings, "team": team},
+                request=getattr(self, "_current_request", None),
+            )
+        )
+
+    def _get_personhog_client_or_error(self, request, redirect_url):
+        """Return (client, None) or (None, redirect_response) if personhog is unavailable."""
+        client = get_personhog_client()
+        if client is None:
+            messages.error(request, "personhog client is not configured — cannot manage group type mappings.")
+            return None, redirect(redirect_url)
+        return client, None
+
+    def _fetch_group_type_mapping_via_personhog(self, client, project_id, group_type_index):
+        """Fetch a single mapping from personhog by project_id + group_type_index. Returns dict or None."""
+        resp = client.get_group_type_mappings_by_project_id(
+            GetGroupTypeMappingsByProjectIdRequest(project_id=project_id)
+        )
+        for m in resp.mappings:
+            d = proto_group_type_mapping_to_dict(m)
+            if d["group_type_index"] == group_type_index:
+                return d
+        return None
+
+    def edit_group_type_mapping_view(self, request, object_id, group_type_index):
+        team = Team.objects.select_related("project").get(pk=object_id)
+        if not self.has_change_permission(request, team):
+            raise PermissionDenied
+        group_type_index = int(group_type_index)
+        team_url = reverse("admin:posthog_team_change", args=[object_id])
+
+        client, err_response = self._get_personhog_client_or_error(request, team_url)
+        if err_response is not None:
+            return err_response
+
+        try:
+            mapping_dict = self._fetch_group_type_mapping_via_personhog(client, team.project_id, group_type_index)
+        except Exception as exc:
+            logger.warning(
+                "admin_group_type_mapping_fetch_failed",
+                team_id=team.id,
+                group_type_index=group_type_index,
+                error=str(exc),
+            )
+            messages.warning(request, "Failed to fetch group type mappings from personhog")
+            return redirect(team_url)
+
+        if mapping_dict is None:
+            messages.error(request, f"Group type mapping with index {group_type_index} not found for this team.")
+            return redirect(team_url)
+
+        if request.method == "GET":
+            default_columns = mapping_dict.get("default_columns")
+            default_columns_json = json.dumps(default_columns) if default_columns else ""
+            context = {
+                **self.admin_site.each_context(request),
+                "team": team,
+                "mapping": mapping_dict,
+                "default_columns_json": default_columns_json,
+                "title": f"Edit group type mapping - {team.name} - index {group_type_index}",
+            }
+            return render(request, "admin/posthog/team/group_type_mapping_edit.html", context)
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["GET", "POST"])
+
+        name_singular = request.POST.get("name_singular", "").strip()
+        name_plural = request.POST.get("name_plural", "").strip()
+
+        default_columns_raw = request.POST.get("default_columns", "").strip()
+        parsed_default_columns: list[str] | None = None
+        if default_columns_raw:
+            try:
+                parsed = json.loads(default_columns_raw)
+                if not isinstance(parsed, list):
+                    raise ValueError
+                parsed_default_columns = parsed
+            except (json.JSONDecodeError, ValueError):
+                messages.error(request, "Default columns must be a valid JSON array.")
+                return redirect(
+                    reverse("admin:posthog_team_edit_group_type_mapping", args=[object_id, group_type_index])
+                )
+
+        update_mask = ["name_singular", "name_plural"]
+        update_kwargs: dict[str, Any] = {
+            "project_id": team.project_id,
+            "group_type_index": group_type_index,
+            "name_singular": name_singular,
+            "name_plural": name_plural,
+        }
+        if default_columns_raw:
+            update_mask.append("default_columns")
+            if parsed_default_columns is not None:
+                update_kwargs["default_columns"] = json.dumps(parsed_default_columns).encode()
+        update_kwargs["update_mask"] = update_mask
+
+        try:
+            client.update_group_type_mapping(UpdateGroupTypeMappingRequest(**update_kwargs))
+        except Exception as exc:
+            logger.exception(
+                "admin_edit_group_type_mapping_failed",
+                team_id=team.id,
+                group_type_index=group_type_index,
+                error=str(exc),
+            )
+            messages.error(request, f"Failed to update via personhog: {exc}")
+            return redirect(reverse("admin:posthog_team_edit_group_type_mapping", args=[object_id, group_type_index]))
+
+        if team.project_id:
+            invalidate_group_types_cache(team.project_id)
+
+        logger.info(
+            "admin_edit_group_type_mapping",
+            team_id=team.id,
+            group_type_index=group_type_index,
+            fields=update_kwargs["update_mask"],
+            triggered_by=request.user.email,
+        )
+        messages.success(
+            request,
+            f"Updated group type mapping (index {group_type_index}) for team '{team.name}'.",
+        )
+        return redirect(reverse("admin:posthog_team_change", args=[object_id]))
 
     @admin.display(description="PostHog system internal properties")
     def internal_properties(self, team: Team):
@@ -645,6 +831,11 @@ class TeamAdmin(admin.ModelAdmin):
     def get_urls(self):
         urls = super().get_urls()
         custom_urls = [
+            path(
+                "<path:object_id>/group-type-mapping/<int:group_type_index>/edit/",
+                self.admin_site.admin_view(self.edit_group_type_mapping_view),
+                name="posthog_team_edit_group_type_mapping",
+            ),
             path(
                 "<path:object_id>/view-cache/",
                 self.admin_site.admin_view(self.view_cache),

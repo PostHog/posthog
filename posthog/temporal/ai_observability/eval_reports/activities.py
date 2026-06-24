@@ -41,10 +41,9 @@ async def fetch_due_eval_reports_activity(
 
         return [
             str(pk)
-            for pk in EvaluationReport.objects.filter(
+            for pk in EvaluationReport.objects.deliverable()
+            .filter(
                 next_delivery_date__lte=now_with_buffer,
-                enabled=True,
-                deleted=False,
                 evaluation__output_type="boolean",
             )
             .exclude(frequency=EvaluationReport.Frequency.EVERY_N)
@@ -84,13 +83,13 @@ async def fetch_count_triggered_eval_reports_activity(
         skipped_daily_cap = 0
 
         reports = list(
-            EvaluationReport.objects.filter(
+            EvaluationReport.objects.deliverable()
+            .filter(
                 frequency=EvaluationReport.Frequency.EVERY_N,
-                enabled=True,
-                deleted=False,
                 trigger_threshold__isnull=False,
                 evaluation__output_type="boolean",
-            ).select_related("evaluation")
+            )
+            .select_related("evaluation")
         )
         total_checked = len(reports)
 

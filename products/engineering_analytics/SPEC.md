@@ -131,7 +131,7 @@ Types named in the README but not yet modeled (reviewers, deploys, file paths) w
 Two curated `build_query()` SELECTs over the existing warehouse data — columns mapped from JSON we already store, **no new ingestion, no global view registration**. Column names encode caveats so a misread is defined out of existence (`open_to_merge_seconds`, never `cycle_time`).
 
 - pull-requests builder — `number`, `title`, `author_handle`, `is_bot`, `repo_owner` / `repo_name` (from `base.repo.full_name`), `labels`, `state`, `is_draft`, `created_at`, `merged_at`, `closed_at`, `head_sha`, `open_to_merge_seconds` (coarse — see §7).
-- workflow-runs builder — `workflow_name`, `head_sha`, `conclusion`, `status`, `run_started_at`, `updated_at`, `duration_seconds`, `repo_owner` / `repo_name`.
+- workflow-runs builder — `workflow_name`, `head_sha`, `head_branch`, `conclusion`, `status`, `run_started_at`, `updated_at`, `duration_seconds`, `repo_owner` / `repo_name`.
 
 A PR's current CI status is the head-SHA join between the two (the `ci_rollup` CTE in `_curated`); defined once.
 
@@ -141,7 +141,7 @@ A PR's current CI status is the head-SHA join between the two (the `ci_rollup` C
 
 - `ci_cards` — open-PR backlog counts (open / repos / stuck >7d / failing CI).
 - `pull_requests` — PR list with head-SHA CI rollup; `date_from` recency window. Capped (newest first) and returned as `{items, truncated, limit}` so the page never silently under-counts against `ci_cards`.
-- `workflow_health` — per-workflow run count, success rate, p50/p95 duration, last failure over a `date_from`/`date_to` window.
+- `workflow_health` — per-workflow run count, success rate, p50/p95 duration, last failure over a `date_from`/`date_to` window, optionally scoped to a single git `branch` (`head_branch`).
 - `pr_lifecycle` — PR header + ordered CI-run timeline (a genuine assembly; `metric_quality = "partial"` until reviews/deploys land).
 
 **UI:** a read-only scene on the same endpoints via the generated API client — a PR list (CI status, CI duration, age), the count cards (open / stuck >7d / failing CI), and a workflow-health view. Read-only; **no saved views or stateful filters in this phase** (persisted/stateful surfaces are a later, separate decision). Columns that need deferred data — time-in-review, reviewers/approvals, per-check counts, DORA — are out until the event substrate lands (§9).

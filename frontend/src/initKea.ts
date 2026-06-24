@@ -11,7 +11,6 @@ import posthog from 'posthog-js'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/kea-router'
 import { identifierToHuman } from 'lib/utils/strings'
-import { getTabsSnapshotForHistory, sceneLogic } from 'scenes/sceneLogic'
 
 import { disposablesPlugin } from '~/kea-disposables'
 
@@ -90,20 +89,6 @@ export function initKea({
             },
             replaceInitialPathInWindow:
                 typeof replaceInitialPathInWindow === 'undefined' ? true : replaceInitialPathInWindow,
-            getRouterState: () => {
-                // This state is persisted into window.history
-                const logic = sceneLogic.findMounted()
-                if (logic) {
-                    // Strip sceneParams etc. — they are not JSON-safe and break structuredClone (cyclic/deep graphs)
-                    const tabs = getTabsSnapshotForHistory(logic.values.tabs)
-                    if (typeof structuredClone !== 'undefined') {
-                        return { tabs: structuredClone(tabs) }
-                    }
-                    // structuredClone fails in jest for some reason, despite us being on the right versions
-                    return { tabs: JSON.parse(JSON.stringify(tabs)) || [] }
-                }
-                return undefined
-            },
         }),
         formsPlugin,
         loadersPlugin({

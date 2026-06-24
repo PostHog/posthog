@@ -21,6 +21,15 @@ class AIEventType(StrEnum):
     FIELD_AI_GENERATION_CLUSTERS = "$ai_generation_clusters"
 
 
+class AccessControlLevel(StrEnum):
+    NONE = "none"
+    MEMBER = "member"
+    ADMIN = "admin"
+    VIEWER = "viewer"
+    EDITOR = "editor"
+    MANAGER = "manager"
+
+
 class MathGroupTypeIndex(float, Enum):
     NUMBER_0 = 0
     NUMBER_1 = 1
@@ -327,6 +336,11 @@ class AssistantSetPropertyFilterOperator(StrEnum):
     IS_NOT_SET = "is_not_set"
 
 
+class Compare(StrEnum):
+    CURRENT = "current"
+    PREVIOUS = "previous"
+
+
 class AssistantStickinessDisplayType(StrEnum):
     ACTIONS_LINE_GRAPH = "ActionsLineGraph"
     ACTIONS_BAR = "ActionsBar"
@@ -415,11 +429,6 @@ class AssistantTool(StrEnum):
     UPSERT_ACCOUNT = "upsert_account"
     UPSERT_ACCOUNT_NOTEBOOK = "upsert_account_notebook"
     OPEN_ACCOUNT = "open_account"
-
-
-class Compare(StrEnum):
-    CURRENT = "current"
-    PREVIOUS = "previous"
 
 
 class Display(StrEnum):
@@ -1796,6 +1805,13 @@ class ExternalDataSourceType(StrEnum):
     CUSTOM = "Custom"
     TILE38 = "Tile38"
     CHATWOOT = "Chatwoot"
+    SANITY = "Sanity"
+    METRONOME = "Metronome"
+    JOBBER = "Jobber"
+    KNOCK = "Knock"
+    LEEXI = "Leexi"
+    RB2_B = "RB2B"
+    SUPERWALL = "Superwall"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -1941,6 +1957,13 @@ class FunnelVizType(StrEnum):
     TIME_TO_CONVERT = "time_to_convert"
     TRENDS = "trends"
     FLOW = "flow"
+
+
+class LegendPosition(StrEnum):
+    TOP = "top"
+    BOTTOM = "bottom"
+    LEFT = "left"
+    RIGHT = "right"
 
 
 class Position(StrEnum):
@@ -2528,6 +2551,7 @@ class NodeKind(StrEnum):
     ENDPOINTS_USAGE_OVERVIEW_QUERY = "EndpointsUsageOverviewQuery"
     ENDPOINTS_USAGE_TABLE_QUERY = "EndpointsUsageTableQuery"
     ENDPOINTS_USAGE_TRENDS_QUERY = "EndpointsUsageTrendsQuery"
+    MCP_HARNESS_BREAKDOWN_QUERY = "MCPHarnessBreakdownQuery"
     PROPERTY_VALUES_QUERY = "PropertyValuesQuery"
 
 
@@ -3286,13 +3310,6 @@ class DetailedResultsAggregationType(StrEnum):
     TOTAL = "total"
     AVERAGE = "average"
     MEDIAN = "median"
-
-
-class LegendPosition(StrEnum):
-    TOP = "top"
-    BOTTOM = "bottom"
-    LEFT = "left"
-    RIGHT = "right"
 
 
 class UsageMetricDisplay(StrEnum):

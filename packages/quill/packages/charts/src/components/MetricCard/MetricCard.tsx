@@ -48,6 +48,8 @@ export interface MetricCardProps {
     sparklineFill?: boolean
     sparklineFillOpacity?: number
     sparklineClassName?: string
+    /** Dash the sparkline from this index onward (e.g. an in-progress trailing period). */
+    sparklineDashedFromIndex?: number
     formatValue?: (value: number) => string
     formatChange?: (percent: number) => string
     showChange?: boolean
@@ -110,6 +112,7 @@ function MetricCardInner({
     sparklineFill = false,
     sparklineFillOpacity = 0.35,
     sparklineClassName = 'mt-4',
+    sparklineDashedFromIndex,
     formatValue = DEFAULT_FORMAT_VALUE,
     formatChange = DEFAULT_FORMAT_CHANGE,
     showChange = true,
@@ -229,6 +232,7 @@ function MetricCardInner({
                     height={sparklineHeight}
                     fill={sparklineFill}
                     fillOpacity={sparklineFillOpacity}
+                    dashedFromIndex={sparklineDashedFromIndex}
                     onHoverIndexChange={setHoverIndex}
                     className={sparklineClassName}
                     dataAttr="metric-card-sparkline"

@@ -45,6 +45,8 @@ import {
     AgentApplicationsRevisionsToolsUpdateBody,
     AgentApplicationsRevisionsToolsUpdateParams,
     AgentApplicationsRevisionsValidateCreateParams,
+    AgentApplicationsSessionLogsParams,
+    AgentApplicationsSessionLogsQueryParams,
     AgentApplicationsSessionsListParams,
     AgentApplicationsSessionsListQueryParams,
     AgentApplicationsSessionsRetrieveParams,
@@ -777,6 +779,34 @@ const agentApplicationsRevisionsValidateCreate = (): ToolBase<
     },
 })
 
+const AgentApplicationsSessionLogsSchema = AgentApplicationsSessionLogsParams.omit({ project_id: true }).extend(
+    AgentApplicationsSessionLogsQueryParams.shape
+)
+
+const agentApplicationsSessionLogs = (): ToolBase<
+    typeof AgentApplicationsSessionLogsSchema,
+    Schemas.AgentApplicationSessionLogsResponse
+> => ({
+    name: 'agent-applications-session-logs',
+    schema: AgentApplicationsSessionLogsSchema,
+    handler: async (context: Context, params: z.infer<typeof AgentApplicationsSessionLogsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AgentApplicationSessionLogsResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.id))}/sessions/${encodeURIComponent(String(params.session_id))}/logs/`,
+            query: {
+                after: params.after,
+                before: params.before,
+                instance_id: params.instance_id,
+                level: params.level,
+                limit: params.limit,
+                search: params.search,
+            },
+        })
+        return result
+    },
+})
+
 const AgentApplicationsSessionsListSchema = AgentApplicationsSessionsListParams.omit({ project_id: true }).extend(
     AgentApplicationsSessionsListQueryParams.shape
 )
@@ -879,6 +909,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'agent-applications-revisions-tools-destroy': agentApplicationsRevisionsToolsDestroy,
     'agent-applications-revisions-tools-update': agentApplicationsRevisionsToolsUpdate,
     'agent-applications-revisions-validate-create': agentApplicationsRevisionsValidateCreate,
+    'agent-applications-session-logs': agentApplicationsSessionLogs,
     'agent-applications-sessions-list': agentApplicationsSessionsList,
     'agent-applications-sessions-retrieve': agentApplicationsSessionsRetrieve,
     'agent-native-tools-list': agentNativeToolsList,
