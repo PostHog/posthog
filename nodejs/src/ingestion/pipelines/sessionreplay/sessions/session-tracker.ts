@@ -7,6 +7,7 @@ import { logger } from '~/utils/logger'
 import { SessionBatchMetrics } from './metrics'
 
 const DEFAULT_LOCAL_CACHE_MAX_SIZE = 100_000
+const DEFAULT_REDIS_TIMEOUT_MS = 5000
 
 export class SessionTracker {
     private readonly keyPrefix = '@posthog/replay/session-seen'
@@ -18,7 +19,8 @@ export class SessionTracker {
     constructor(
         private readonly redisPool: RedisPool,
         localCacheTtlMs: number,
-        localCacheMaxSize: number = DEFAULT_LOCAL_CACHE_MAX_SIZE
+        localCacheMaxSize: number = DEFAULT_LOCAL_CACHE_MAX_SIZE,
+        private readonly redisTimeoutMs: number = DEFAULT_REDIS_TIMEOUT_MS
     ) {
         this.localCache = new LRUCache({
             max: localCacheMaxSize,
@@ -50,15 +52,17 @@ export class SessionTracker {
         const startTime = performance.now()
         let client
         try {
-            client = await this.redisPool.acquire()
+            const redisOp = async () => {
+                client = await this.redisPool.acquire()
+                return client.set(key, '1', 'EX', SESSION_TRACKER_REDIS_TTL_SECONDS, 'NX')
+            }
+            const timeout = new Promise<never>((_, reject) =>
+                setTimeout(() => reject(new Error(`Redis timeout after ${this.redisTimeoutMs}ms`)), this.redisTimeoutMs)
+            )
 
-            // Use SET with NX (only set if not exists) and EX (expiry) for atomic check-and-set
-            // Returns 'OK' if key was set (new session), null if already exists
-            const wasSet = await client.set(key, '1', 'EX', SESSION_TRACKER_REDIS_TTL_SECONDS, 'NX')
+            const wasSet = await Promise.race([redisOp(), timeout])
             const isNewSession = wasSet === 'OK'
 
-            // Cache the result locally regardless of whether it's new
-            // This prevents repeated Redis calls for the same session
             this.localCache.set(key, true)
 
             if (isNewSession) {
@@ -72,7 +76,7 @@ export class SessionTracker {
 
             return isNewSession
         } catch (error) {
-            // Fail open: if Redis is unavailable, assume not a new session
+            // Fail open: if Redis is unavailable or times out, assume not a new session
             logger.error('session_tracker_redis_error', {
                 teamId,
                 sessionId,
