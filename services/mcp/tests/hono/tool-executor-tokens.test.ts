@@ -29,10 +29,11 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
     return {
         reqCtx: {
             cache: { get: vi.fn(), set: vi.fn() },
-            getAnalyticsContextSafe: vi.fn().mockResolvedValue(undefined),
+            safelyGetAnalyticsContext: vi.fn().mockResolvedValue(undefined),
             trackEvent: vi.fn(),
             trackContextSwitchEvent: vi.fn(),
             getSessionUuid: vi.fn().mockResolvedValue(undefined),
+            getEffectiveSessionUuid: vi.fn().mockResolvedValue(undefined),
         } as any,
         context: {
             api: {},

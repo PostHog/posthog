@@ -62,6 +62,7 @@ from posthog.models.person.util import get_person_by_uuid, validate_person_uuids
 from posthog.models.property.property import Property
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.queries.actor_base_query import get_serialized_people
 from posthog.queries.base import determine_parsed_date_for_property_matching
 from posthog.queries.person_query import PersonQuery
@@ -1547,7 +1548,8 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             # workload=Workload.OFFLINE,  # this endpoint is only used by external API requests
         )
         actor_ids = [row[0] for row in raw_result]
-        serialized_actors = get_serialized_people(team, actor_ids, distinct_id_limit=10)
+        with personhog_caller_tag("cohorts/persons"):
+            serialized_actors = get_serialized_people(team, actor_ids, distinct_id_limit=10)
 
         _should_paginate = len(actor_ids) >= filter.limit
 
@@ -1643,8 +1645,10 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         except ValueError:
             raise ValidationError("person_id must be a valid UUID")
 
-        # Check if person exists and belongs to this team
-        person = get_person_by_uuid(team_id=self.team_id, uuid=person_id)
+        # Check if person exists and belongs to this team. Only person.uuid is used, so skip the
+        # distinct-id fetch.
+        with personhog_caller_tag("cohorts/remove-person"):
+            person = get_person_by_uuid(team_id=self.team_id, uuid=person_id, distinct_id_limit=0)
         if person is None:
             raise NotFound("Person with this UUID does not exist in the cohort's team")
         person_uuid = person.uuid

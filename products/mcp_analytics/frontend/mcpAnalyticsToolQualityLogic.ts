@@ -16,14 +16,14 @@ import { type AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/
 import toolQualityQueryTemplate from '../backend/templates/tool_quality.sql?raw'
 import type { mcpAnalyticsToolQualityLogicType } from './mcpAnalyticsToolQualityLogicType'
 
-// `$mcp_tool_category` is stamped onto every mcp_tool_call event by the producer
+// `$mcp_tool_category` is stamped onto every $mcp_tool_call event by the producer
 // (PostHog's MCP server from its catalog; external servers via the SDK). We read
 // the available categories straight from the data so the scope selector works for
 // any project's taxonomy without a hardcoded tool→category map.
 const CATEGORIES_QUERY = hogql`
 SELECT DISTINCT toString(properties.$mcp_tool_category) AS category
 FROM events
-WHERE event = 'mcp_tool_call'
+WHERE event = '$mcp_tool_call'
     AND timestamp >= now() - INTERVAL 30 DAY
     AND properties.$mcp_tool_category IS NOT NULL
     AND properties.$mcp_tool_category != ''
@@ -36,7 +36,7 @@ ORDER BY category
 const CATEGORY_COUNTS_QUERY = hogql`
 SELECT toString(properties.$mcp_tool_category) AS category, count() AS calls
 FROM events
-WHERE event = 'mcp_tool_call'
+WHERE event = '$mcp_tool_call'
     AND timestamp >= now() - INTERVAL 7 DAY
 GROUP BY category
 `
@@ -295,7 +295,7 @@ SELECT
     round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95,
     round(quantile(0.99)(toFloat(properties.$mcp_duration_ms))) AS p99
 FROM events
-WHERE event = 'mcp_tool_call'
+WHERE event = '$mcp_tool_call'
     AND properties.$mcp_tool_name IS NOT NULL
     AND properties.$mcp_tool_name != ''
     AND {filters}
@@ -397,8 +397,8 @@ ORDER BY day
         },
     })),
 
-    actionToUrl(({ values }) => ({
-        setSelectedTool: () => {
+    actionToUrl(({ values }) => {
+        const syncUrl = (): [string, Record<string, any>, Record<string, any>, { replace: boolean }] => {
             const { currentLocation } = router.values
             const searchParams = { ...currentLocation.searchParams }
             if (values.selectedTool) {
@@ -406,15 +406,35 @@ ORDER BY day
             } else {
                 delete searchParams.tool
             }
+            if (values.dateFilter.dateFrom) {
+                searchParams.date_from = values.dateFilter.dateFrom
+            } else {
+                delete searchParams.date_from
+            }
+            if (values.dateFilter.dateTo) {
+                searchParams.date_to = values.dateFilter.dateTo
+            } else {
+                delete searchParams.date_to
+            }
             return [currentLocation.pathname, searchParams, currentLocation.hashParams, { replace: true }]
-        },
-    })),
+        }
+        return {
+            setSelectedTool: syncUrl,
+            setDateFilter: syncUrl,
+        }
+    }),
 
     urlToAction(({ actions, values }) => ({
         [urls.mcpAnalyticsToolQuality()]: (_, searchParams) => {
             const tool = typeof searchParams.tool === 'string' && searchParams.tool ? searchParams.tool : null
             if (tool !== values.selectedTool) {
                 actions.setSelectedTool(tool)
+            }
+            const dateFrom =
+                typeof searchParams.date_from === 'string' ? searchParams.date_from : values.dateFilter.dateFrom
+            const dateTo = typeof searchParams.date_to === 'string' ? searchParams.date_to : null
+            if (dateFrom !== values.dateFilter.dateFrom || dateTo !== values.dateFilter.dateTo) {
+                actions.setDateFilter(dateFrom, dateTo)
             }
         },
     })),

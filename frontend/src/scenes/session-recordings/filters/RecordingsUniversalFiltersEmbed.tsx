@@ -77,6 +77,7 @@ import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLo
 import { CurrentFilterIndicator } from './CurrentFilterIndicator'
 import { DurationFilter } from './DurationFilter'
 import { ProductAnalyticsOverLimitBanner } from './ProductAnalyticsOverLimitBanner'
+import { deriveOperand } from './recordingsQueryConversions'
 import { SavedFilters } from './SavedFilters'
 
 function HideRecordingsMenu(): JSX.Element {
@@ -748,8 +749,18 @@ export const ReplayFiltersTab = ({
             )}
             <div className="flex items-center py-2 justify-between">
                 <AndOrFilterSelect
-                    value={filters.filter_group.type}
+                    // Reflect the effective operand, not just the outer group: legacy saved filters can
+                    // carry the match-any on the inner group while the outer stays AND. Toggling syncs
+                    // both below, so interacting normalizes the structure.
+                    value={deriveOperand(filters.filter_group)}
                     onChange={(type) => {
+                        // Clicking the already-effective operand is a no-op — don't rewrite the
+                        // group or mark the saved filter dirty just because the displayed value
+                        // came from a legacy inner group.
+                        if (type === deriveOperand(filters.filter_group)) {
+                            return
+                        }
+
                         let values = filters.filter_group.values
 
                         // set the type on the nested child when only using a single filter group

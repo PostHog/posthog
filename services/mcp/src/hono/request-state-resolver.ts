@@ -1,4 +1,5 @@
 import { MCPClientProfile } from '@/lib/client-detection'
+import { isLocalApi } from '@/lib/constants'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
@@ -114,7 +115,7 @@ export class RequestStateResolver {
         // the rendering prompt section on it (like `mcp-feedback-tool`).
         const allFlagKeys = [...toolFlagKeys, RENDER_UI_FEATURE_FLAG]
 
-        const flagAnalyticsContext = await reqCtx.getAnalyticsContextSafe(context)
+        const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
 
         const [allFlags, _apiKey, distinctId] = await Promise.all([
@@ -239,6 +240,13 @@ export class RequestStateResolver {
     ): Promise<EvaluatedFlags> {
         if (flagKeys.length === 0) {
             return {}
+        }
+        // Local dev runs against the locally-running project, where the dev-only
+        // surfaces these flags gate (e.g. the agent-platform product DB) exist.
+        // The flags only hide those surfaces on prod until GA, so enable them all
+        // locally — the analytics flag-eval client is disabled in dev anyway.
+        if (isLocalApi()) {
+            return Object.fromEntries(flagKeys.map((key) => [key, true]))
         }
         try {
             const distinctId = await reqCtx.getDistinctId()

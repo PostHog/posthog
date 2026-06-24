@@ -1,4 +1,11 @@
-import { getRelativeNextPath, isExternalLink, isURL, parseTagsFilter, toParams } from 'lib/utils/url'
+import {
+    getRelativeNextPath,
+    isExternalLink,
+    isURL,
+    parseNumericArrayFilter,
+    parseTagsFilter,
+    toParams,
+} from 'lib/utils/url'
 
 describe('url utils', () => {
     describe('toParams', () => {
@@ -295,6 +302,45 @@ describe('url utils', () => {
             it('handles strings with newlines and tabs', () => {
                 expect(parseTagsFilter('tag1\ntag2\ttag3')).toEqual(['tag1\ntag2\ttag3'])
             })
+        })
+    })
+
+    describe('parseNumericArrayFilter()', () => {
+        it('handles numeric arrays', () => {
+            expect(parseNumericArrayFilter([1, 2, 3])).toEqual([1, 2, 3])
+        })
+
+        it('parses a JSON-encoded list', () => {
+            expect(parseNumericArrayFilter('[1,2]')).toEqual([1, 2])
+        })
+
+        it('parses a comma-separated string', () => {
+            expect(parseNumericArrayFilter('1,2')).toEqual([1, 2])
+        })
+
+        it('handles a single number', () => {
+            expect(parseNumericArrayFilter(5)).toEqual([5])
+        })
+
+        it('returns undefined for malformed JSON rather than half-applying it', () => {
+            expect(parseNumericArrayFilter('[5')).toBeUndefined()
+        })
+
+        it('returns undefined for a non-numeric string', () => {
+            expect(parseNumericArrayFilter('abc')).toBeUndefined()
+        })
+
+        it('drops non-numeric entries from a comma-separated string', () => {
+            expect(parseNumericArrayFilter('1,abc,3')).toEqual([1, 3])
+        })
+
+        it('returns undefined for empty string', () => {
+            expect(parseNumericArrayFilter('')).toBeUndefined()
+        })
+
+        it('returns undefined for null and undefined', () => {
+            expect(parseNumericArrayFilter(null)).toBeUndefined()
+            expect(parseNumericArrayFilter(undefined)).toBeUndefined()
         })
     })
 })

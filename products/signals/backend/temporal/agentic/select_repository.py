@@ -25,7 +25,7 @@ from products.signals.backend.temporal.agentic import (
     resolve_user_id_for_team,
 )
 from products.signals.backend.temporal.types import SignalData
-from products.tasks.backend.models import SandboxEnvironment
+from products.tasks.backend.facade import api as tasks_facade
 
 # Repo discovery only runs `gh` CLI commands — limit egress to GitHub hosts.
 GITHUB_ONLY_DOMAINS = [
@@ -155,13 +155,14 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
             sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
                 input.team_id,
                 SIGNALS_REPO_DISCOVERY_ENV_NAME,
-                SandboxEnvironment.NetworkAccessLevel.CUSTOM,
+                tasks_facade.SandboxNetworkAccessLevel.CUSTOM,
                 allowed_domains=GITHUB_ONLY_DOMAINS,
             )
             result = await select_repository_for_report(
                 team_id=input.team_id,
                 user_id=user_id,
                 signals=input.signals,
+                signal_report_id=input.report_id,
                 sandbox_environment_id=sandbox_env_id,
             )
             logger.info(

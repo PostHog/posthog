@@ -83,7 +83,7 @@ export function detectMarkdown(text: string): boolean {
 // Decide what to insert when pasted plain text looks like markdown. Returns the parsed
 // nodes to insert, or null to defer to tiptap's default paste. We defer when the clipboard
 // also has an HTML representation (tiptap preserves its rendered structure) UNLESS the
-// markdown parses to a table: rich sources (AI chats, rendered docs) put flattened tables
+// markdown parses to a table: rich sources (AI responses, rendered docs) put flattened tables
 // on the clipboard as plain pipe-text in their HTML, which the default paste renders as a
 // paragraph and loses the table. Real <table> HTML is handled before this is ever called.
 export function parseMarkdownPasteContent(text: string, html: string | undefined): JSONContent[] | null {

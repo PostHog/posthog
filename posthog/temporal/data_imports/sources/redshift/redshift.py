@@ -41,6 +41,7 @@ from posthog.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
 from posthog.temporal.data_imports.sources.common.sql import (
     Column,
     Table,
+    ValidatedRowFilter,
     compute_projected_columns,
     project_arrow_columns,
 )
@@ -51,6 +52,10 @@ from posthog.temporal.data_imports.sources.common.sql.implementation import (
 )
 from posthog.temporal.data_imports.sources.common.sql.incremental import IncrementalFieldFilter
 from posthog.temporal.data_imports.sources.common.sql.location import normalize_namespace, resolve_source_location
+from posthog.temporal.data_imports.sources.common.sql.predicates_psycopg import (
+    and_join,
+    render_psycopg_row_filter_conditions,
+)
 from posthog.temporal.data_imports.sources.generated_configs import RedshiftSourceConfig
 
 from products.data_warehouse.backend.types import IncrementalFieldType
@@ -67,9 +72,25 @@ __all__ = [
 # cert paths are intentionally pointed at non-existent files so psycopg
 # uses the system default verification without picking up an unintended
 # client cert.
+#
+# TCP keepalives bound a *post-connect* socket stall. `connect_timeout` only
+# covers establishing the connection — once connected, a query blocks in
+# psycopg's `wait_c` for as long as the socket stays open with no response.
+# If the Redshift peer goes away mid-query (cluster pause/resize, network
+# drop), that wait would otherwise hang until the Temporal activity hits its
+# `start_to_close_timeout` and cancels the worker thread, surfacing a
+# misleading `CancelledError` and burning the whole activity budget. With
+# keepalives a dead peer is detected in ~30-60s and raised as a fast,
+# retryable `OperationalError` instead. These only fire when the peer stops
+# responding, so they never interrupt a healthy long-running streaming sync.
 _REDSHIFT_CONNECT_OPTS: dict[str, Any] = {
     "sslmode": "require",
     "connect_timeout": 15,
+    "keepalives": 1,
+    "keepalives_idle": 30,
+    "keepalives_interval": 10,
+    "keepalives_count": 3,
+    "tcp_user_timeout": 60000,  # 60s: force-close if sent data stays unacked
     "sslrootcert": "/tmp/no.txt",
     "sslcert": "/tmp/no.txt",
     "sslkey": "/tmp/no.txt",
@@ -80,6 +101,13 @@ _REDSHIFT_CONNECT_OPTS: dict[str, Any] = {
 # Schemas excluded from blank-namespace (all-schema) discovery. Redshift exposes the Postgres
 # system catalogs plus `pg_automv` (auto-materialized views) and per-session `pg_temp_*` schemas.
 SYSTEM_REDSHIFT_SCHEMAS = ["pg_catalog", "information_schema", "pg_internal", "pg_automv"]
+
+# Redshift stamps internal bookkeeping columns onto materialized views — e.g.
+# `padb_internal_txn_id_col` and `padb_internal_txn_seq_col`. They appear in
+# `information_schema.columns` but `SELECT *` never returns them, so leaving them in the
+# discovered schema makes the Arrow schema disagree with the streamed rows and
+# `pa.Table.from_pydict` raises a `KeyError`. The `padb_internal` prefix is Redshift-reserved.
+REDSHIFT_INTERNAL_COLUMN_LIKE = "padb_internal%"
 
 
 def _display_name(schema_name: str, table_name: str, *, qualify: bool) -> str:
@@ -161,8 +189,12 @@ def _build_query(
     add_sampling: Optional[bool] = False,
     enabled_columns: Optional[list[str]] = None,
     primary_keys: Optional[list[str]] = None,
+    row_filters: Optional[list[ValidatedRowFilter]] = None,
 ) -> sql.Composed:
     select_clause = _redshift_select_clause(enabled_columns, primary_keys, incremental_field)
+    # Row filters apply only to the real data path; sampling/row-count queries stay unfiltered
+    # (an over-estimate is harmless).
+    row_filter_conditions = render_psycopg_row_filter_conditions(row_filters or [])
 
     if not should_use_incremental_field:
         if add_sampling:
@@ -170,15 +202,14 @@ def _build_query(
             query = sql.SQL("SELECT {cols} FROM {table} WHERE random() < 0.01").format(
                 cols=select_clause, table=sql.Identifier(schema, table_name)
             )
-        else:
-            query = sql.SQL("SELECT {cols} FROM {table}").format(
-                cols=select_clause, table=sql.Identifier(schema, table_name)
-            )
-
-        if add_sampling:
             query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 1000")
             return sql.SQL(query_with_limit).format()
 
+        query = sql.SQL("SELECT {cols} FROM {table}").format(
+            cols=select_clause, table=sql.Identifier(schema, table_name)
+        )
+        if row_filter_conditions:
+            query = query + sql.SQL(" WHERE ") + and_join(row_filter_conditions)
         return query
 
     if incremental_field is None or incremental_field_type is None:
@@ -201,22 +232,21 @@ def _build_query(
             op=operator,
             last_value=sql.Literal(db_incremental_field_last_value),
         )
-    else:
-        query = sql.SQL("SELECT {cols} FROM {schema}.{table} WHERE {incremental_field} {op} {last_value}").format(
-            cols=select_clause,
-            schema=sql.Identifier(schema),
-            table=sql.Identifier(table_name),
-            incremental_field=sql.Identifier(incremental_field),
-            op=operator,
-            last_value=sql.Literal(db_incremental_field_last_value),
-        )
-
-    if add_sampling:
         query_with_limit = cast(LiteralString, f"{query.as_string()} LIMIT 1000")
         return sql.SQL(query_with_limit).format()
-    else:
-        query_str = cast(LiteralString, f"{query.as_string()} ORDER BY {{incremental_field}} ASC")
-        return sql.SQL(query_str).format(incremental_field=sql.Identifier(incremental_field))
+
+    query = sql.SQL("SELECT {cols} FROM {schema}.{table} WHERE {incremental_field} {op} {last_value}").format(
+        cols=select_clause,
+        schema=sql.Identifier(schema),
+        table=sql.Identifier(table_name),
+        incremental_field=sql.Identifier(incremental_field),
+        op=operator,
+        last_value=sql.Literal(db_incremental_field_last_value),
+    )
+    if row_filter_conditions:
+        query = query + sql.SQL(" AND ") + and_join(row_filter_conditions)
+    query_str = cast(LiteralString, f"{query.as_string()} ORDER BY {{incremental_field}} ASC")
+    return sql.SQL(query_str).format(incremental_field=sql.Identifier(incremental_field))
 
 
 def _explain_query(cursor: psycopg.Cursor, query: sql.Composed, logger: FilteringBoundLogger):
@@ -364,8 +394,8 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         qualify = selected_schema is None
 
         with conn.cursor() as cursor:
-            params: dict = {}
-            where: list[str] = []
+            params: dict = {"internal_column": REDSHIFT_INTERNAL_COLUMN_LIKE}
+            where: list[str] = ["column_name NOT LIKE %(internal_column)s"]
             if selected_schema is not None:
                 params["schema"] = selected_schema
                 where.append("table_schema = %(schema)s")
@@ -742,6 +772,15 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         except psycopg.errors.QueryCanceled:
             raise
         except Exception as e:
+            # A Redshift system-requested query abort (error code 1020, "system requested abort")
+            # is the cluster's WLM/QMR cancelling the query — the same transient, non-actionable
+            # class as `QueryCanceled`, which psycopg surfaces here as `InternalError_` rather than
+            # `QueryCanceled`. The duplicate-PK check is best-effort (the caller defaults to no
+            # duplicates), so skip gracefully instead of reporting an expected, non-actionable error
+            # to error tracking. Mirrors the graceful-skip probes elsewhere in this driver.
+            if "system requested abort" in str(e):
+                logger.debug(f"has_duplicate_primary_keys: query aborted by Redshift, skipping check: {e}")
+                return False
             capture_exception(e)
             return False
 
@@ -771,7 +810,12 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                 information_schema.columns
             WHERE
                 table_schema = {schema}
-                AND table_name = {table}""").format(schema=sql.Literal(schema), table=sql.Literal(table_name))
+                AND table_name = {table}
+                AND column_name NOT LIKE {internal_column}""").format(
+            schema=sql.Literal(schema),
+            table=sql.Literal(table_name),
+            internal_column=sql.Literal(REDSHIFT_INTERNAL_COLUMN_LIKE),
+        )
 
         if logger is not None:
             _explain_query(cursor, query, logger)
@@ -966,6 +1010,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
         incremental_field_type = inputs.incremental_field_type
         db_incremental_field_last_value = inputs.db_incremental_field_last_value
         enabled_columns = inputs.enabled_columns
+        row_filters = inputs.row_filters
 
         with self.connect(config) as connection:
             # Autocommit so each best-effort discovery probe runs in its own transaction. A probe
@@ -1018,6 +1063,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                         db_incremental_field_last_value,
                         enabled_columns=enabled_columns,
                         primary_keys=primary_keys,
+                        row_filters=row_filters,
                     )
                     logger.debug("Getting table chunk size...")
                     if chunk_size_override is not None:
@@ -1072,6 +1118,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                         db_incremental_field_last_value,
                         enabled_columns=enabled_columns,
                         primary_keys=primary_keys,
+                        row_filters=row_filters,
                     )
                     logger.debug(f"Redshift query: {query.as_string()}")
 

@@ -1,7 +1,7 @@
 import re
 import dataclasses
 from collections.abc import Callable, Iterable, Iterator
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from typing import Any, Optional, cast
 from urllib.parse import quote, urljoin
 
@@ -12,6 +12,7 @@ from requests.exceptions import HTTPError, RequestException
 from tenacity import RetryCallState, retry, retry_if_exception_type, retry_if_result, stop_after_attempt
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.sources.common.datetime_utils import coerce_datetime_to_utc
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
 from posthog.temporal.data_imports.sources.common.rest_source.fanout import build_dependent_resource
@@ -26,6 +27,7 @@ from posthog.temporal.data_imports.sources.common.resumable import ResumableSour
 from posthog.temporal.data_imports.sources.sentry.settings import (
     ALLOWED_SENTRY_API_BASE_URLS,
     DEFAULT_SENTRY_API_BASE_URL,
+    REQUIRED_SENTRY_SCOPES,
     SENTRY_ENDPOINTS,
     SentryEndpointConfig,
 )
@@ -92,21 +94,9 @@ def _rest_api_client_config(base_api_url: str, auth_token: str) -> ClientConfig:
     }
 
 
-def _coerce_datetime_to_utc(value: Any) -> datetime | None:
-    if isinstance(value, date) and not isinstance(value, datetime):
-        value = datetime.combine(value, datetime.min.time())
-
-    if not isinstance(value, datetime):
-        return None
-
-    if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
-    return value.astimezone(UTC)
-
-
 def _start_param_for_sentry(value: Any) -> str:
     """Format/cap datetime-like values for Sentry `start` and `end` params."""
-    normalized_value = _coerce_datetime_to_utc(value)
+    normalized_value = coerce_datetime_to_utc(value)
     if normalized_value is None:
         return str(value)
 
@@ -281,8 +271,8 @@ def _parse_datetime_value(value: Any) -> datetime | None:
             parsed_value = dateutil_parser.parse(value)
         except (ValueError, TypeError):
             return None
-        return _coerce_datetime_to_utc(parsed_value)
-    return _coerce_datetime_to_utc(value)
+        return coerce_datetime_to_utc(parsed_value)
+    return coerce_datetime_to_utc(value)
 
 
 # ---------------------------------------------------------------------------
@@ -487,7 +477,12 @@ def validate_credentials(
         if response.status_code == 401:
             return False, "Invalid Sentry auth token"
         if response.status_code == 403:
-            return False, "Sentry token is missing required scopes"
+            return (
+                False,
+                "Sentry token is missing required scopes. Create a token with these scopes and reconnect: "
+                + ", ".join(REQUIRED_SENTRY_SCOPES)
+                + ".",
+            )
         if response.status_code == 404:
             return False, f"Sentry organization '{organization_slug}' not found"
 
@@ -546,6 +541,33 @@ def get_resource(
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
+
+
+def _skip_endpoint_on_forbidden(resource: Iterable[Any], endpoint: str) -> Iterator[Any]:
+    """Yield pages from a fan-out resource, treating a 403 as "endpoint not
+    available for this organization" and stopping gracefully.
+
+    Sentry's project service hooks API is gated at the organization level, so it
+    returns 403 Forbidden even for tokens that already hold full project/admin
+    scopes. Letting that 403 propagate marks the whole schema as a non-retryable
+    failure (see ``SentrySource.get_non_retryable_errors``), permanently erroring
+    a source whose credentials are otherwise valid. Skipping the endpoint instead
+    lets the sync complete with an empty table — the same graceful-skip approach
+    used for persistent server errors in ``_iter_issue_tag_values_rows``. Genuine
+    scope problems still surface on the other (non-skipped) endpoints.
+    """
+    try:
+        yield from resource
+    except HTTPError as exc:
+        response = exc.response
+        if response is not None and response.status_code == 403:
+            logger.warning(
+                "sentry_source.endpoint_forbidden_skipped",
+                endpoint=endpoint,
+                status_code=response.status_code,
+            )
+            return
+        raise
 
 
 def _make_source_response(endpoint_config: SentryEndpointConfig, items_fn) -> SourceResponse:
@@ -620,6 +642,13 @@ def sentry_source(
                 incremental_config_factory=_sentry_incremental_window,
             ),
         )
+        # Sentry gates the service hooks API at the org level, so it 403s even
+        # for fully-scoped tokens. Skip it gracefully rather than permanently
+        # erroring the schema (which the non-retryable 403 handling would do).
+        if endpoint == "project_service_hooks":
+            return _make_source_response(
+                endpoint_config, lambda: _skip_endpoint_on_forbidden(dependent_resource, endpoint)
+            )
         return _make_source_response(endpoint_config, lambda: dependent_resource)
 
     # --- Flat org-level endpoints (via rest_api_resources) ---

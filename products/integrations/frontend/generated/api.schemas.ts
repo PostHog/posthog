@@ -151,6 +151,7 @@ export interface RoleLookupResponseApi {
 /**
  * * `anthropic` - Anthropic
  * * `apns` - Apple Push
+ * * `aws-s3` - Aws S3
  * * `azure-blob` - Azure Blob
  * * `bing-ads` - Bing Ads
  * * `clickup` - Clickup
@@ -178,6 +179,7 @@ export interface RoleLookupResponseApi {
  * * `pinterest-ads` - Pinterest Ads
  * * `postgresql` - Postgresql
  * * `reddit-ads` - Reddit Ads
+ * * `s3-compatible` - S3 Compatible
  * * `salesforce` - Salesforce
  * * `slack` - Slack
  * * `slack-posthog-code` - Slack Posthog Code
@@ -192,6 +194,7 @@ export type IntegrationKindEnumApi = (typeof IntegrationKindEnumApi)[keyof typeo
 export const IntegrationKindEnumApi = {
     Anthropic: 'anthropic',
     Apns: 'apns',
+    AwsS3: 'aws-s3',
     AzureBlob: 'azure-blob',
     BingAds: 'bing-ads',
     Clickup: 'clickup',
@@ -219,6 +222,7 @@ export const IntegrationKindEnumApi = {
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',
     RedditAds: 'reddit-ads',
+    S3Compatible: 's3-compatible',
     Salesforce: 'salesforce',
     Slack: 'slack',
     SlackPosthogCode: 'slack-posthog-code',
@@ -336,6 +340,72 @@ export interface GitHubTeamsResponseApi {
     has_more: boolean
 }
 
+export interface GoogleSearchConsoleSiteApi {
+    /** Site URL in canonical Google format — `https://example.com/` for URL-prefix properties (trailing slash mandatory) or `sc-domain:example.com` for Domain properties. */
+    siteUrl: string
+    /** The connected user's permission level for this site. One of `siteOwner`, `siteFullUser`, `siteRestrictedUser`, `siteUnverifiedUser`. */
+    permissionLevel: string
+}
+
+export interface GoogleSearchConsoleSitesResponseApi {
+    sites: GoogleSearchConsoleSiteApi[]
+}
+
+export interface IntegrationAccessRequestApi {
+    /** The kind of integration the member is requesting be connected (e.g. 'slack', 'github').
+     *
+     * * `anthropic` - Anthropic
+     * * `apns` - Apple Push
+     * * `aws-s3` - Aws S3
+     * * `azure-blob` - Azure Blob
+     * * `bing-ads` - Bing Ads
+     * * `clickup` - Clickup
+     * * `customerio-app` - Customerio App
+     * * `customerio-track` - Customerio Track
+     * * `customerio-webhook` - Customerio Webhook
+     * * `databricks` - Databricks
+     * * `email` - Email
+     * * `firebase` - Firebase
+     * * `github` - Github
+     * * `gitlab` - Gitlab
+     * * `google-ads` - Google Ads
+     * * `google-analytics` - Google Analytics
+     * * `google-cloud-service-account` - Google Cloud Service Account
+     * * `google-cloud-storage` - Google Cloud Storage
+     * * `google-pubsub` - Google Pubsub
+     * * `google-search-console` - Google Search Console
+     * * `google-sheets` - Google Sheets
+     * * `hubspot` - Hubspot
+     * * `intercom` - Intercom
+     * * `jira` - Jira
+     * * `linear` - Linear
+     * * `linkedin-ads` - Linkedin Ads
+     * * `meta-ads` - Meta Ads
+     * * `pinterest-ads` - Pinterest Ads
+     * * `postgresql` - Postgresql
+     * * `reddit-ads` - Reddit Ads
+     * * `s3-compatible` - S3 Compatible
+     * * `salesforce` - Salesforce
+     * * `slack` - Slack
+     * * `slack-posthog-code` - Slack Posthog Code
+     * * `snapchat` - Snapchat
+     * * `stripe` - Stripe
+     * * `tiktok-ads` - Tiktok Ads
+     * * `twilio` - Twilio
+     * * `vercel` - Vercel */
+    kind: IntegrationKindEnumApi
+    /**
+     * Explanation from the requester of why this integration is needed. Shown to admins in the notification email.
+     * @maxLength 2000
+     */
+    reason: string
+}
+
+export interface IntegrationAccessRequestResponseApi {
+    /** Whether the access request was accepted and the project admins were notified. */
+    success: boolean
+}
+
 export type RoleExternalReferencesListParams = {
     /**
      * Number of results to return per page.
@@ -374,6 +444,7 @@ export type IntegrationsListParams = {
     /**
      * * `anthropic` - Anthropic
      * * `apns` - Apple Push
+     * * `aws-s3` - Aws S3
      * * `azure-blob` - Azure Blob
      * * `bing-ads` - Bing Ads
      * * `clickup` - Clickup
@@ -401,6 +472,7 @@ export type IntegrationsListParams = {
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
      * * `reddit-ads` - Reddit Ads
+     * * `s3-compatible` - S3 Compatible
      * * `salesforce` - Salesforce
      * * `slack` - Slack
      * * `slack-posthog-code` - Slack Posthog Code
@@ -426,6 +498,7 @@ export type IntegrationsListKind = (typeof IntegrationsListKind)[keyof typeof In
 export const IntegrationsListKind = {
     Anthropic: 'anthropic',
     Apns: 'apns',
+    AwsS3: 'aws-s3',
     AzureBlob: 'azure-blob',
     BingAds: 'bing-ads',
     Clickup: 'clickup',
@@ -453,6 +526,7 @@ export const IntegrationsListKind = {
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',
     RedditAds: 'reddit-ads',
+    S3Compatible: 's3-compatible',
     Salesforce: 'salesforce',
     Slack: 'slack',
     SlackPosthogCode: 'slack-posthog-code',

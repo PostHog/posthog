@@ -39,7 +39,6 @@ export function BatchExportConfiguration(): JSX.Element {
         batchExportConfigTest,
         batchExportConfigTestLoading,
         configuration,
-        configurationChanged,
         tables,
         batchExportConfig,
         selectedModel,
@@ -360,7 +359,6 @@ export function BatchExportConfiguration(): JSX.Element {
                         <BatchExportConfigurationFields
                             isNew={isNew}
                             formValues={configuration as BatchExportConfigurationForm}
-                            configurationChanged={configurationChanged}
                         />
                     </div>
                     {batchExportConfigTest && (
@@ -387,20 +385,14 @@ export function BatchExportConfiguration(): JSX.Element {
 function BatchExportConfigurationFields({
     isNew,
     formValues,
-    configurationChanged,
 }: {
     isNew: boolean
     formValues: BatchExportConfigurationForm
-    configurationChanged: boolean
 }): JSX.Element {
     return (
         <>
             <BatchExportGeneralEditFields isNew={isNew} isPipeline batchExportConfigForm={formValues} />
-            <BatchExportsEditFields
-                isNew={isNew}
-                batchExportConfigForm={formValues}
-                configurationChanged={configurationChanged}
-            />
+            <BatchExportsEditFields isNew={isNew} batchExportConfigForm={formValues} />
         </>
     )
 }

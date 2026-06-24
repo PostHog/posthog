@@ -94,7 +94,7 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         session_start: datetime | None = None,
         session_end: datetime | None = None,
     ) -> None:
-        """Seed one mcp_tool_call event per element of ``tool_sequence``.
+        """Seed one $mcp_tool_call event per element of ``tool_sequence``.
 
         tool_call_count == len(tool_sequence); tools_used == its distinct values.
         Events span [session_start, session_end] so min/max timestamps line up.
@@ -108,11 +108,11 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
             timestamp = session_end if n == 1 else session_start + span * (i / (n - 1))
             _create_event(
                 team=self.team,
-                event="mcp_tool_call",
+                event="$mcp_tool_call",
                 distinct_id=distinct_id,
                 timestamp=timestamp,
                 properties={
-                    "$mcp_session_id": session_id,
+                    "$session_id": session_id,
                     "$mcp_tool_name": tool,
                     "$mcp_client_name": client_name,
                 },
@@ -170,14 +170,14 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
 
         assert [s.session_id for s in page.results] == [session_id]
 
-    def test_excludes_events_without_mcp_session_id(self) -> None:
-        # Events with no $mcp_session_id (e.g. the bare-schema producers) must not
+    def test_excludes_events_without_session_id(self) -> None:
+        # Events with no $session_id (e.g. the bare-schema producers) must not
         # collapse into one empty-keyed "session".
         kept = str(uuid7())
         self._seed_session(kept, ["query_run"])
         _create_event(
             team=self.team,
-            event="mcp_tool_call",
+            event="$mcp_tool_call",
             distinct_id="anon_noisy",
             timestamp=datetime.now(tz=UTC),
             properties={"$mcp_tool_name": "query_run"},
@@ -303,10 +303,10 @@ class TestGenerateSessionIntent(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTest
     def _seed_intent_event(self, session_id: str, intent: str, tool: str = "query_run") -> None:
         _create_event(
             team=self.team,
-            event="mcp_tool_call",
+            event="$mcp_tool_call",
             distinct_id="seed",
             timestamp=datetime.now(tz=UTC),
-            properties={"$mcp_session_id": session_id, "$mcp_tool_name": tool, "$mcp_intent": intent},
+            properties={"$session_id": session_id, "$mcp_tool_name": tool, "$mcp_intent": intent},
         )
 
     def test_returns_cached_intent_without_calling_llm(self) -> None:
@@ -349,13 +349,13 @@ class TestGenerateSessionIntent(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTest
 
     def test_no_recorded_intents_returns_message_without_calling_llm_or_persisting(self) -> None:
         session_id = str(uuid7())
-        # mcp_tool_call event without a $mcp_intent property.
+        # $mcp_tool_call event without a $mcp_intent property.
         _create_event(
             team=self.team,
-            event="mcp_tool_call",
+            event="$mcp_tool_call",
             distinct_id="seed",
             timestamp=datetime.now(tz=UTC),
-            properties={"$mcp_session_id": session_id, "$mcp_tool_name": "query_run"},
+            properties={"$session_id": session_id, "$mcp_tool_name": "query_run"},
         )
 
         with patch.object(intent_generation, "summarize_intents") as mock_summarize:
@@ -386,10 +386,10 @@ class TestSessionEventsLookbackBound(_MCPAnalyticsTeamScopedTestMixin, Clickhous
     def _seed_tool_call(self, session_id: str, *, timestamp: datetime, tool: str, intent: str) -> None:
         _create_event(
             team=self.team,
-            event="mcp_tool_call",
+            event="$mcp_tool_call",
             distinct_id="seed",
             timestamp=timestamp,
-            properties={"$mcp_session_id": session_id, "$mcp_tool_name": tool, "$mcp_intent": intent},
+            properties={"$session_id": session_id, "$mcp_tool_name": tool, "$mcp_intent": intent},
         )
 
     @parameterized.expand(

@@ -108,6 +108,12 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { instanceId: metalyticsInstanceId } = useValues(metalyticsLogic)
 
+    // Creating an export requires editor access to the export resource.
+    const exportAccessControlDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Export,
+        AccessControlLevel.Editor
+    )
+
     const isSavedInsight = hasDashboardItemId && !!insight?.id && !!insight?.short_id
     const canExport = exportContext != null && insight.short_id != null
     const showCohort =
@@ -254,6 +260,8 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                     {canExport && (
                         <SceneMenuBarSubMenu label="Export">
                             <SceneMenuBarItem
+                                disabled={!!exportAccessControlDisabledReason}
+                                tooltip={exportAccessControlDisabledReason ?? undefined}
                                 onClick={() =>
                                     startExport({
                                         export_format: ExporterFormat.PNG,
@@ -267,6 +275,8 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                                 PNG
                             </SceneMenuBarItem>
                             <SceneMenuBarItem
+                                disabled={!!exportAccessControlDisabledReason}
+                                tooltip={exportAccessControlDisabledReason ?? undefined}
                                 onClick={() =>
                                     startExport({
                                         export_format: ExporterFormat.CSV,
@@ -279,6 +289,8 @@ function InsightSceneMenuBarInner({ insightLogicProps }: { insightLogicProps: In
                                 CSV
                             </SceneMenuBarItem>
                             <SceneMenuBarItem
+                                disabled={!!exportAccessControlDisabledReason}
+                                tooltip={exportAccessControlDisabledReason ?? undefined}
                                 onClick={() =>
                                     startExport({
                                         export_format: ExporterFormat.XLSX,

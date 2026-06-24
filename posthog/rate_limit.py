@@ -359,6 +359,18 @@ class SignupResendInviteThrottle(UserOrEmailRateThrottle):
     rate = "5/hour"
 
 
+# Requesting PostHog AI access emails the org admins, so cap it per user and per IP
+# to keep a single member (or a shared-IP burst) from spamming admins' inboxes.
+class PostHogAIAccessRequestUserThrottle(UserRateThrottle):
+    scope = "posthog_ai_access_request_user"
+    rate = "1/day"
+
+
+class PostHogAIAccessRequestIPThrottle(IPThrottle):
+    scope = "posthog_ai_access_request_ip"
+    rate = "1/day"
+
+
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project

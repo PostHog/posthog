@@ -47,7 +47,7 @@ from products.dashboards.backend.widgets.activity_events_list import (
 )
 from products.dashboards.backend.widgets.error_tracking_list import run_error_tracking_list_widget
 from products.dashboards.backend.widgets.session_replay_list import run_session_replay_list_widget
-from products.error_tracking.backend.api.query_utils import ERROR_TRACKING_LISTING_VOLUME_RESOLUTION
+from products.error_tracking.backend.facade.query_utils import ERROR_TRACKING_LISTING_VOLUME_RESOLUTION
 
 
 class TestWidgetRegistry(APIBaseTest):
@@ -259,9 +259,7 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn(expected_detail, response.json()["detail"])
 
-    @patch(
-        "products.error_tracking.backend.hogql_queries.error_tracking_query_runner.ErrorTrackingQueryRunner.calculate"
-    )
+    @patch("products.error_tracking.backend.facade.queries.ErrorTrackingQueryRunner.calculate")
     def test_runs_widget_for_requested_tile(self, mock_calculate: MagicMock) -> None:
         mock_calculate.return_value = MagicMock(
             model_dump=lambda mode="json": {"results": [], "hasMore": False, "limit": 10, "offset": 0}
@@ -587,6 +585,64 @@ class TestDashboardRunWidgets(APIBaseTest):
         assert query.properties[0].value == ["Chrome"]
 
     @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
+    def test_session_replay_widget_attaches_matching_events_query_for_widget_filters(
+        self, mock_list_recordings: MagicMock
+    ) -> None:
+        mock_list_recordings.return_value = ([], False, None, None)
+
+        result = run_session_replay_list_widget(
+            self.team,
+            {"limit": 5, "dateRange": {"date_from": "-7d"}, "widgetFilters": self._widget_browser_filter("Chrome")},
+            user=self.user,
+        )
+
+        matching_events_query = result["matchingEventsQuery"]
+        assert matching_events_query["kind"] == "RecordingsQuery"
+        # session_ids are supplied per recording by the client, not baked into the shipped query.
+        assert "session_ids" not in matching_events_query
+        assert matching_events_query["properties"][0]["type"] == "event"
+        assert matching_events_query["properties"][0]["key"] == "$browser"
+        assert matching_events_query["properties"][0]["value"] == ["Chrome"]
+
+    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
+    def test_session_replay_widget_attaches_matching_events_query_for_saved_filter_with_events(
+        self, mock_list_recordings: MagicMock
+    ) -> None:
+        mock_list_recordings.return_value = ([], False, None, None)
+        saved_filter = SessionRecordingPlaylist.objects.create(
+            team=self.team,
+            name="Pageview filter",
+            type="filters",
+            filters={"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]},
+        )
+
+        result = run_session_replay_list_widget(
+            self.team,
+            {"limit": 5, "savedFilterId": saved_filter.short_id},
+            user=self.user,
+        )
+
+        matching_events_query = result["matchingEventsQuery"]
+        assert matching_events_query["events"][0]["id"] == "$pageview"
+        # Same invariant as the widget-filter path: session_ids are supplied per recording by the client.
+        assert "session_ids" not in matching_events_query
+
+    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
+    def test_session_replay_widget_omits_matching_events_query_without_event_filters(
+        self, mock_list_recordings: MagicMock
+    ) -> None:
+        mock_list_recordings.return_value = ([], False, None, None)
+
+        result = run_session_replay_list_widget(
+            self.team,
+            {"limit": 5, "dateRange": {"date_from": "-7d"}},
+            user=self.user,
+        )
+
+        # Nothing to highlight without an event/action/event-property filter, so the query is omitted.
+        assert "matchingEventsQuery" not in result
+
+    @patch("posthog.session_recordings.session_recording_api.list_recordings_from_query")
     def test_session_replay_widget_does_not_persist_legacy_filter_conversion(
         self, mock_list_recordings: MagicMock
     ) -> None:
@@ -896,9 +952,7 @@ class TestDashboardRunWidgets(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn(str(MAX_WIDGETS_BATCH_SIZE), response.json()["detail"])
 
-    @patch(
-        "products.error_tracking.backend.hogql_queries.error_tracking_query_runner.ErrorTrackingQueryRunner.calculate"
-    )
+    @patch("products.error_tracking.backend.facade.queries.ErrorTrackingQueryRunner.calculate")
     def test_run_widgets_deduplicates_tile_ids(self, mock_calculate: MagicMock) -> None:
         mock_calculate.return_value = MagicMock(
             model_dump=lambda mode="json": {"results": [], "hasMore": False, "limit": 10, "offset": 0}
@@ -952,9 +1006,7 @@ class TestDashboardRunWidgets(APIBaseTest):
         body = response.json()
         self.assertEqual(body["results"][0]["error"], "API key missing required scope 'error_tracking:read'")
 
-    @patch(
-        "products.error_tracking.backend.hogql_queries.error_tracking_query_runner.ErrorTrackingQueryRunner.calculate"
-    )
+    @patch("products.error_tracking.backend.facade.queries.ErrorTrackingQueryRunner.calculate")
     @patch("posthog.slo.events.posthoganalytics.capture")
     def test_run_widgets_emits_slo_on_successful_widget_delivery(
         self, mock_capture: MagicMock, mock_calculate: MagicMock

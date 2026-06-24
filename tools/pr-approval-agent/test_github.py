@@ -2,7 +2,7 @@
 
 import pytest
 
-from github import _normalize_reviews_for_prompt
+from github import _normalize_reviews_for_prompt, is_bot_author
 
 
 def test_normalize_reviews_marks_current_head_and_preserves_stale_reviews() -> None:
@@ -75,3 +75,19 @@ def test_normalize_reviews_filters_by_trust_source(
     )
 
     assert len(normalized) == expected_count
+
+
+@pytest.mark.parametrize(
+    "user,expected",
+    [
+        pytest.param({"login": "mendral-app[bot]", "type": "Bot"}, True, id="github-app-type"),
+        pytest.param({"login": "dependabot[bot]", "type": "Bot"}, True, id="dependabot"),
+        pytest.param({"login": "some-tool[bot]", "type": "User"}, True, id="bot-suffix-misreported-type"),
+        pytest.param({"login": "posthog-bot", "type": "User"}, True, id="machine-user"),
+        pytest.param({"login": "POSTHOG-BOT", "type": "User"}, True, id="machine-user-case-insensitive"),
+        pytest.param({"login": "alice", "type": "User"}, False, id="human"),
+        pytest.param({}, False, id="missing-user"),
+    ],
+)
+def test_is_bot_author(user: dict, expected: bool) -> None:
+    assert is_bot_author(user) is expected

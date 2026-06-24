@@ -199,12 +199,12 @@ describe('dashboardLogic', () => {
                 },
                 '/api/environments/:team_id/insights/1001/': () => [200, { ...insights['1001'] }],
                 '/api/environments/:team_id/insights/800/': () => [200, { ...insights['800'] }],
-                '/api/environments/:team_id/insights/:id/': (req) => {
-                    const dashboard = req.url.searchParams.get('from_dashboard')
+                '/api/environments/:team_id/insights/:id/': ({ request, params }) => {
+                    const dashboard = new URL(request.url).searchParams.get('from_dashboard')
                     if (!dashboard) {
                         throw new Error('the logic must always add this param')
                     }
-                    const matched = insights[boxToId(req.params['id'])]
+                    const matched = insights[boxToId(params.id as string | readonly string[])]
                     if (!matched) {
                         return [404, null]
                     }
@@ -215,19 +215,17 @@ describe('dashboardLogic', () => {
                 '/api/environments/:team_id/insights/cancel/': [201],
             },
             patch: {
-                '/api/environments/:team_id/dashboards/:id/': async (req) => {
+                '/api/environments/:team_id/dashboards/:id/': async ({ request, params }) => {
                     const dashboardId =
-                        typeof req.params['id'] === 'string'
-                            ? parseInt(req.params['id'])
-                            : parseInt(req.params['id'][0])
-                    const payload = await req.json()
+                        typeof params.id === 'string' ? parseInt(params.id) : parseInt((params.id as string[])[0])
+                    const payload = (await request.json()) as Record<string, any>
                     return [200, { ...dashboards[dashboardId], ...payload }]
                 },
-                '/api/environments/:team_id/dashboards/:id/move_tile/': async (req) => {
+                '/api/environments/:team_id/dashboards/:id/move_tile/': async ({ request, params }) => {
                     // backend updates the two dashboards and the insight
-                    const jsonPayload = await req.json()
+                    const jsonPayload = (await request.json()) as Record<string, any>
                     const { to_dashboard: toDashboard, tile: tileToUpdate } = jsonPayload
-                    const from = dashboards[Number(req.params.id)]
+                    const from = dashboards[Number(params.id)]
                     // remove the tile from the source dashboard
                     const fromIndex = from.tiles.findIndex(
                         (tile) => !!tile.insight && tile.insight.id === tileToUpdate.insight.id
@@ -250,13 +248,13 @@ describe('dashboardLogic', () => {
 
                     return [200, { ...from }]
                 },
-                '/api/environments/:team_id/insights/:id/': async (req) => {
+                '/api/environments/:team_id/insights/:id/': async ({ request, params }) => {
                     try {
-                        const updates = await req.json()
+                        const updates = await request.json()
                         if (typeof updates !== 'object') {
                             return [500, `this update should receive an object body not ${JSON.stringify(updates)}`]
                         }
-                        const insightId = boxToId(req.params.id)
+                        const insightId = boxToId(params.id as string | readonly string[])
 
                         const starting: QueryBasedInsightModel = insights[insightId]
                         insights[insightId] = {
@@ -432,6 +430,43 @@ describe('dashboardLogic', () => {
                     data_color_theme_id: 123,
                 })
             )
+        })
+
+        it('confirms a real save with a success toast', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            const firstTile = logic.values.dashboard!.tiles[0]
+            const currentLayouts = logic.values.layouts
+            const modifiedLayouts: any = {
+                ...currentLayouts,
+                sm: currentLayouts.sm?.map((layout) =>
+                    layout.i === String(firstTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                ),
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateLayouts(modifiedLayouts)
+            }).toFinishAllListeners()
+
+            const successToast = jest.spyOn(lemonToast, 'success')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveEditModeChanges()
+            }).toFinishAllListeners()
+
+            expect(successToast).toHaveBeenCalledWith('Dashboard saved')
+        })
+
+        it('does not show a success toast when exiting edit mode with no changes', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            const successToast = jest.spyOn(lemonToast, 'success')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveEditModeChanges()
+            }).toFinishAllListeners()
+
+            expect(successToast).not.toHaveBeenCalled()
         })
 
         it('discarding edit mode restores original layouts', async () => {
@@ -1490,6 +1525,46 @@ describe('dashboardLogic', () => {
             expect(logic.values.insightTiles[0].insight!.last_modified_at).toEqual('2021-04-01 12:00:00')
             expect(logic.values.insightTiles[0].insight!.description).toEqual('updated description')
             expect(logic.values.textTiles[0].text!.body).toEqual('I AM A TEXT')
+        })
+
+        it('preserves cached chart data when a bare PATCH returns null result', async () => {
+            // insight800() has non-null result and last_refresh from the fixture; a bare PATCH
+            // (rename, display-option save) responds with result: null. The tile must keep its
+            // previously-computed chart data rather than blanking to "Chart data didn't load".
+            const originalInsight = logic.values.insightTiles[0].insight!
+            const originalResult = originalInsight.result
+            const originalLastRefresh = originalInsight.last_refresh
+
+            insightsModel.actions.renameInsightSuccess({
+                ...insight800(),
+                name: 'renamed via bare patch',
+                result: null,
+                last_refresh: null,
+            })
+
+            await expectLogic(logic).toFinishAllListeners()
+            const updated = logic.values.insightTiles[0].insight!
+            expect(updated.name).toEqual('renamed via bare patch')
+            expect(updated.result).toEqual(originalResult)
+            expect(updated.last_refresh).toEqual(originalLastRefresh)
+        })
+
+        it('replaces cached chart data when a full refresh returns non-null result', async () => {
+            const newResult = [{ data: 'fresh' }]
+            const newLastRefresh = '2024-01-01T00:00:00Z'
+
+            insightsModel.actions.renameInsightSuccess({
+                ...insight800(),
+                name: 'refreshed',
+                result: newResult,
+                last_refresh: newLastRefresh,
+            })
+
+            await expectLogic(logic).toFinishAllListeners()
+            const updated = logic.values.insightTiles[0].insight!
+            expect(updated.name).toEqual('refreshed')
+            expect(updated.result).toEqual(newResult)
+            expect(updated.last_refresh).toEqual(newLastRefresh)
         })
 
         it('can respond to external insight update for an insight tile that is new on this dashboard', async () => {

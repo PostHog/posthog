@@ -70,6 +70,14 @@ export type CyclotronV2ManagerConfig = {
     depthCheckIntervalMs?: number
 }
 
+/**
+ * Per-poll decision returned by a rate-limited worker's hook.
+ *   `{ limit: 0, sleepMs }` → skip the dequeue and sleep.
+ *   `{ limit: N }`          → dequeue up to `min(N, batchMaxSize)` rows.
+ *   `undefined`             → fall back to the static `batchMaxSize`.
+ */
+export type CyclotronV2BatchLimit = { limit: number; sleepMs?: number }
+
 export type CyclotronV2WorkerConfig = {
     pool: CyclotronV2PoolConfig
     queueName: string
@@ -77,6 +85,13 @@ export type CyclotronV2WorkerConfig = {
     pollDelayMs?: number
     heartbeatTimeoutMs?: number
     includeEmptyBatches?: boolean
+    /**
+     * When true, dequeue orders by `dequeue_seq ASC NULLS FIRST` (per-team
+     * round-robin via the sort key assigned at insert time) instead of the
+     * default `priority, scheduled` FIFO. Intended for the email queue
+     * specifically; non-email queues should leave this off.
+     */
+    fairDequeue?: boolean
 }
 
 export type CyclotronV2JanitorConfig = {

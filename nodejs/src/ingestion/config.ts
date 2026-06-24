@@ -1,4 +1,4 @@
-import type { CommonConfig } from '../common/config'
+import type { CommonConfig } from '~/common/config'
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
@@ -14,10 +14,14 @@ import {
     KAFKA_LOG_ENTRIES,
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
-} from '../config/kafka-topics'
-import type { PostgresRouterConfig } from '../utils/db/postgres'
-import { isDevEnv, isProdEnv } from '../utils/env-utils'
-import { INGESTION_DOWNSTREAM_PRODUCER, INGESTION_UPSTREAM_PRODUCER, type ProducerName } from './common/outputs'
+} from '~/config/kafka-topics'
+import {
+    INGESTION_DOWNSTREAM_PRODUCER,
+    INGESTION_UPSTREAM_PRODUCER,
+    type ProducerName,
+} from '~/ingestion/common/producers'
+import type { PostgresRouterConfig } from '~/utils/db/postgres'
+import { isDevEnv, isProdEnv } from '~/utils/env-utils'
 
 /** Default for FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: '' disables the personless default so it is opt-in per team via config. */
 export const DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS = ''
@@ -56,27 +60,6 @@ export type RedisConnectionsConfig = Pick<
     | 'POSTHOG_REDIS_HOST'
     | 'POSTHOG_REDIS_PORT'
     | 'POSTHOG_REDIS_PASSWORD'
->
-
-/** PersonHog gRPC client config */
-export type PersonHogConfig = Pick<
-    CommonConfig,
-    | 'PERSONHOG_ENABLED'
-    | 'PERSONHOG_ADDR'
-    | 'PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE'
-    | 'PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS'
-    | 'PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE'
-    | 'PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS'
-    | 'PERSONHOG_TLS'
-    | 'PERSONHOG_TIMEOUT_MS'
-    | 'PERSONHOG_READ_MAX_BYTES'
-    | 'PERSONHOG_WRITE_MAX_BYTES'
-    | 'PERSONHOG_PING_INTERVAL_MS'
-    | 'PERSONHOG_PING_TIMEOUT_MS'
-    | 'PERSONHOG_PING_IDLE_CONNECTION'
-    | 'PERSONHOG_IDLE_CONNECTION_TIMEOUT_MS'
-    | 'PERSONHOG_STATE_MONITOR_POLL_INTERVAL_MS'
-    | 'PLUGIN_SERVER_MODE'
 >
 
 /** Kafka consumer loop tuning config */
@@ -139,6 +122,10 @@ export type IngestionConsumerConfig = {
     PERSON_MERGE_ASYNC_TOPIC: string
     PERSON_MERGE_ASYNC_ENABLED: boolean
     PERSON_MERGE_SYNC_BATCH_SIZE: number
+    // Kill switch for emitting person_merge_events to the cohort-stream-processor.
+    PERSON_MERGE_EVENTS_ENABLED: boolean
+    // Must equal the person_merge_events topic partition count and the Rust COHORT_PARTITION_COUNT.
+    PERSON_MERGE_EVENTS_PARTITION_COUNT: number
 
     // Group batch writing config
     GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number
@@ -165,6 +152,19 @@ export type IngestionConsumerConfig = {
     KAFKA_BATCH_START_LOGGING_ENABLED: boolean
     /** Teams whose $feature_flag_called events default to personless: '*' for all, '' to disable, or comma-separated team IDs */
     FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: string
+
+    // $feature_flag_called keep-first dedup config
+    /** 'disabled' | 'shadow' (claim + count, never drop) | 'drop' */
+    INGESTION_FEATURE_FLAG_CALLED_DEDUP_MODE: string
+    /** '*' for all teams, or comma-separated team IDs */
+    INGESTION_FEATURE_FLAG_CALLED_DEDUP_TEAMS: string
+    /** Comma-separated team IDs never deduped, even when TEAMS is '*' */
+    INGESTION_FEATURE_FLAG_CALLED_DEDUP_EXCLUDED_TEAMS: string
+    /** Claim TTL: the keep-first dedup window */
+    INGESTION_FEATURE_FLAG_CALLED_DEDUP_TTL_SECONDS: number
+    /** Dedicated Redis host for dedup claims; empty reuses the ingestion Redis */
+    INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_HOST: string
+    INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_PORT: number
 
     // AI event splitting config
     INGESTION_AI_EVENT_SPLITTING_ENABLED: boolean
@@ -252,6 +252,8 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_ASYNC_TOPIC: '',
         PERSON_MERGE_ASYNC_ENABLED: false,
         PERSON_MERGE_SYNC_BATCH_SIZE: 0,
+        PERSON_MERGE_EVENTS_ENABLED: false,
+        PERSON_MERGE_EVENTS_PARTITION_COUNT: 64,
 
         // Group batch writing config
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
@@ -277,6 +279,16 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         EVENT_SCHEMA_ENFORCEMENT_ENABLED: true,
         KAFKA_BATCH_START_LOGGING_ENABLED: false,
         FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: DEFAULT_FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
+
+        // $feature_flag_called keep-first dedup config
+        INGESTION_FEATURE_FLAG_CALLED_DEDUP_MODE: 'disabled',
+
+        INGESTION_FEATURE_FLAG_CALLED_DEDUP_TEAMS: '',
+
+        INGESTION_FEATURE_FLAG_CALLED_DEDUP_EXCLUDED_TEAMS: '',
+        INGESTION_FEATURE_FLAG_CALLED_DEDUP_TTL_SECONDS: 60 * 60,
+        INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_HOST: '',
+        INGESTION_FEATURE_FLAG_CALLED_DEDUP_REDIS_PORT: 6379,
 
         // AI event splitting config
         INGESTION_AI_EVENT_SPLITTING_ENABLED: false,
@@ -349,6 +361,9 @@ export type IngestionOutputsConfig = {
     INGESTION_OUTPUT_PERSON_DISTINCT_IDS_TOPIC: string
     INGESTION_OUTPUT_PERSON_DISTINCT_IDS_PRODUCER: ProducerName
 
+    INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC: string
+    INGESTION_OUTPUT_PERSON_MERGE_EVENTS_PRODUCER: ProducerName
+
     INGESTION_OUTPUT_APP_METRICS_TOPIC: string
     INGESTION_OUTPUT_APP_METRICS_PRODUCER: ProducerName
 
@@ -381,6 +396,9 @@ export function getDefaultIngestionOutputsConfig(): IngestionOutputsConfig {
         INGESTION_OUTPUT_PERSONS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
         INGESTION_OUTPUT_PERSON_DISTINCT_IDS_TOPIC: KAFKA_PERSON_DISTINCT_ID,
         INGESTION_OUTPUT_PERSON_DISTINCT_IDS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
+        // Empty topic skips the startup topic-existence check.
+        INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC: '',
+        INGESTION_OUTPUT_PERSON_MERGE_EVENTS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
         INGESTION_OUTPUT_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
         INGESTION_OUTPUT_APP_METRICS_PRODUCER: INGESTION_DOWNSTREAM_PRODUCER,
         INGESTION_OUTPUT_LOG_ENTRIES_TOPIC: KAFKA_LOG_ENTRIES,

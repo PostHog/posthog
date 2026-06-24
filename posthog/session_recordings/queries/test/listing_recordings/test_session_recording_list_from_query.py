@@ -216,6 +216,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             {
                 "session_id": session_id_two,
                 "activity_score": 40.16,
+                "surfacing_score": 0.36,
                 "team_id": self.team.pk,
                 "distinct_id": user,
                 "click_count": 2,
@@ -238,6 +239,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             {
                 "session_id": session_id_one,
                 "activity_score": 61.11,
+                "surfacing_score": 0.36,
                 "team_id": self.team.pk,
                 "distinct_id": user,
                 "click_count": 4,
@@ -450,6 +452,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         assert session_recordings == [
             {
                 "activity_score": 40.16,
+                "surfacing_score": 0.36,
                 "session_id": session_id_two,
                 "team_id": self.team.pk,
                 "distinct_id": user,
@@ -480,6 +483,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             {
                 "session_id": session_id_one,
                 "activity_score": 61.11,
+                "surfacing_score": 0.36,
                 "team_id": self.team.pk,
                 "distinct_id": user,
                 "click_count": 4,
@@ -1620,6 +1624,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
         assert session_recordings == [
             {
                 "activity_score": 0,
+                "surfacing_score": 0.36,
                 "session_id": session_id,
                 "distinct_id": user,
                 "duration": 60,
@@ -3230,6 +3235,59 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             [session_id_three],
         )
 
+        # Two AND'd visited_page filters require both pages in one session - none match
+        two_page_filters = (
+            '[{"key": "visited_page", "value": ["https://example.com/pricing"], "operator": "exact", "type": "recording"},'
+            ' {"key": "visited_page", "value": ["https://example.com/billing"], "operator": "exact", "type": "recording"}]'
+        )
+        self._assert_query_matches_session_ids(
+            {"properties": two_page_filters},
+            [],
+        )
+
+        # Same two filters OR'd - match either page
+        self._assert_query_matches_session_ids(
+            {"properties": two_page_filters, "operand": "OR"},
+            [session_id_one, session_id_two],
+        )
+
+    def test_duration_always_anded_with_visited_page_under_or(self):
+        user = "test_duration_visited_page-user"
+        Person.objects.create(team=self.team, distinct_ids=[user], properties={"email": "bla"})
+
+        # Visited /pricing but too short to clear the duration control
+        short_session = "short pricing session"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=short_session,
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=10)),
+            team_id=self.team.id,
+            all_urls=["https://example.com/pricing"],
+        )
+
+        # Visited /pricing and long enough to clear the duration control
+        long_session = "long pricing session"
+        produce_replay_summary(
+            distinct_id=user,
+            session_id=long_session,
+            first_timestamp=self.an_hour_ago,
+            last_timestamp=(self.an_hour_ago + relativedelta(seconds=120)),
+            team_id=self.team.id,
+            all_urls=["https://example.com/pricing"],
+        )
+
+        # The duration control is always AND'd, even under operand OR, so the short session that
+        # matches visited_page but fails the duration bound is still excluded.
+        self._assert_query_matches_session_ids(
+            {
+                "operand": "OR",
+                "having_predicates": '[{"type":"recording","key":"duration","value":60,"operator":"gt"}]',
+                "properties": '[{"key": "visited_page", "value": ["https://example.com/pricing"], "operator": "exact", "type": "recording"}]',
+            },
+            [long_session],
+        )
+
     @also_test_with_materialized_columns(
         event_properties=["is_internal_user"],
         person_properties=["email"],
@@ -4157,6 +4215,7 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             {
                 "active_seconds": 0.0,
                 "activity_score": 0.28,
+                "surfacing_score": 0.36,
                 "click_count": 10,  # in the bug this value was 10 X number of events in the session
                 "console_error_count": 0,
                 "console_log_count": 0,
