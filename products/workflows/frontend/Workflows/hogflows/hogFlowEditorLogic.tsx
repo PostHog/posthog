@@ -872,6 +872,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 actions.hideDropzones()
             },
             copyNodeToHighlightedDropzone: () => {
+                const dropzoneNode = values.dropzoneNodes.find((x) => x.id === values.highlightedDropzoneNodeId)
+                if (!dropzoneNode) {
+                    lemonToast.error("Couldn't copy this step there. Try dropping it on a highlighted spot.")
+                    actions.stopCopyingNode()
+                    return
+                }
                 actions.onDrop()
                 actions.stopCopyingNode()
             },
@@ -889,12 +895,14 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 const movingNodeId = values.movingNodeId!
                 const dropzoneNode = values.dropzoneNodes.find((x) => x.id === values.highlightedDropzoneNodeId)
                 if (!dropzoneNode) {
+                    lemonToast.error("Couldn't move this step there. Try dropping it on a highlighted spot.")
                     actions.stopMovingNode()
                     return
                 }
 
                 const targetHogFlowEdge = dropzoneNode.data.edge.data?.edge
                 if (!targetHogFlowEdge) {
+                    lemonToast.error("Couldn't move this step there. Try a different spot.")
                     actions.stopMovingNode()
                     return
                 }
@@ -908,6 +916,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 )
 
                 if (!newEdges) {
+                    lemonToast.error("Couldn't move this step there. Try a different spot.")
                     actions.stopMovingNode()
                     return
                 }

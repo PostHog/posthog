@@ -233,7 +233,12 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                                 },
                             ]}
                         >
-                            <LemonButton icon={<IconEllipsis />} size="xsmall" noPadding />
+                            <LemonButton
+                                icon={<IconEllipsis />}
+                                size="xsmall"
+                                tooltip="Step actions"
+                                className="border shadow-sm bg-surface-primary"
+                            />
                         </LemonMenu>
                     </div>
                 )}
