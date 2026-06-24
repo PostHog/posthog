@@ -11,7 +11,7 @@ from products.conversations.backend.temporal.pipeline import (
     refine_queries_activity,
     retrieve_activity,
     review_reply_activity,
-    safety_filter_activity,
+    support_safety_filter_activity,
     validate_activity,
 )
 
@@ -22,7 +22,7 @@ WORKFLOWS = [
 
 ACTIVITIES = [
     build_context_activity,
-    safety_filter_activity,
+    support_safety_filter_activity,
     classify_activity,
     refine_queries_activity,
     retrieve_activity,

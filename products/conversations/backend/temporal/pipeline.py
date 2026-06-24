@@ -510,7 +510,7 @@ def _build_context_sync(team_id: int, ticket_id: str) -> BuildContextOutput:
 
 
 @activity.defn
-async def safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput:
+async def support_safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput:
     """Screen ticket for prompt injection / data exfiltration before the draft loop."""
     async with Heartbeater():
         return await _safety_filter(input.team_id, input.ticket_context)
@@ -1083,7 +1083,7 @@ class SupportReplyWorkflow:
         # Input safety gate: block prompt-injection / exfiltration attempts before any LLM
         # draft work. Mirrored from the signals product's safety_filter_activity pattern.
         safety_output = await workflow.execute_activity(
-            safety_filter_activity,
+            support_safety_filter_activity,
             SafetyFilterInput(team_id=input.team_id, ticket_context=reviewed_context),
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),

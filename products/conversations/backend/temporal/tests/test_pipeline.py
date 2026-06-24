@@ -26,7 +26,7 @@ from products.conversations.backend.temporal.pipeline import (
     refine_queries_activity,
     retrieve_activity,
     review_reply_activity,
-    safety_filter_activity,
+    support_safety_filter_activity,
     validate_activity,
 )
 
@@ -91,7 +91,7 @@ async def test_workflow_persists_on_high_score(
             workflows=[SupportReplyWorkflow],
             activities=[
                 build_context_activity,
-                safety_filter_activity,
+                support_safety_filter_activity,
                 classify_activity,
                 refine_queries_activity,
                 retrieve_activity,
@@ -172,7 +172,7 @@ async def test_workflow_widens_on_low_score(
             workflows=[SupportReplyWorkflow],
             activities=[
                 build_context_activity,
-                safety_filter_activity,
+                support_safety_filter_activity,
                 classify_activity,
                 refine_queries_activity,
                 retrieve_activity,
@@ -241,7 +241,7 @@ async def test_workflow_escalates_after_max_attempts(
             workflows=[SupportReplyWorkflow],
             activities=[
                 build_context_activity,
-                safety_filter_activity,
+                support_safety_filter_activity,
                 classify_activity,
                 refine_queries_activity,
                 retrieve_activity,
@@ -305,7 +305,7 @@ async def test_workflow_drafts_via_mcp_when_no_seed_chunks(
             workflows=[SupportReplyWorkflow],
             activities=[
                 build_context_activity,
-                safety_filter_activity,
+                support_safety_filter_activity,
                 classify_activity,
                 refine_queries_activity,
                 retrieve_activity,
@@ -595,7 +595,7 @@ class TestSafetyFilterActivity:
                     workflows=[SupportReplyWorkflow],
                     activities=[
                         build_context_activity,
-                        safety_filter_activity,
+                        support_safety_filter_activity,
                         classify_activity,
                         refine_queries_activity,
                         retrieve_activity,
@@ -711,7 +711,7 @@ class TestReviewReplyActivity:
                     workflows=[SupportReplyWorkflow],
                     activities=[
                         build_context_activity,
-                        safety_filter_activity,
+                        support_safety_filter_activity,
                         classify_activity,
                         refine_queries_activity,
                         retrieve_activity,
@@ -941,7 +941,7 @@ async def test_always_on_context_plumbed_to_draft(
             workflows=[SupportReplyWorkflow],
             activities=[
                 build_context_activity,
-                safety_filter_activity,
+                support_safety_filter_activity,
                 classify_activity,
                 refine_queries_activity,
                 retrieve_activity,
@@ -999,7 +999,7 @@ async def test_workflow_short_circuits_unactionable(
             workflows=[SupportReplyWorkflow],
             activities=[
                 build_context_activity,
-                safety_filter_activity,
+                support_safety_filter_activity,
                 classify_activity,
                 refine_queries_activity,
                 retrieve_activity,
@@ -1075,7 +1075,7 @@ async def test_classify_runs_once_and_threads_ticket_type(
             workflows=[SupportReplyWorkflow],
             activities=[
                 build_context_activity,
-                safety_filter_activity,
+                support_safety_filter_activity,
                 classify_activity,
                 refine_queries_activity,
                 retrieve_activity,
@@ -1157,7 +1157,7 @@ async def test_diagnostics_gated_off_when_team_not_opted_in(
             workflows=[SupportReplyWorkflow],
             activities=[
                 build_context_activity,
-                safety_filter_activity,
+                support_safety_filter_activity,
                 classify_activity,
                 refine_queries_activity,
                 retrieve_activity,
