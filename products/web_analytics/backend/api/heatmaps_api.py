@@ -294,6 +294,14 @@ class HeatmapsRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError("events must be a JSON array of event objects")
         if any(not isinstance(event.get("id"), str) for event in events):
             raise serializers.ValidationError("each event must have a string 'id'")
+        for event in events:
+            properties = event.get("properties")
+            # `properties` flows into property_to_expr at query-build time; a non-list would raise there (a 500),
+            # so reject malformed shapes here as a 400.
+            if properties is not None and (
+                not isinstance(properties, list) or not all(isinstance(prop, dict) for prop in properties)
+            ):
+                raise serializers.ValidationError("event 'properties' must be a JSON array of property objects")
         return events
 
     def validate_date(self, value, label: Literal["date_from", "date_to"]) -> date:

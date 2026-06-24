@@ -651,6 +651,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         ]
 
     @freezegun.freeze_time("2025-03-31")
+    @snapshot_clickhouse_queries
     def test_can_filter_by_events(self) -> None:
         self._create_heatmap_event("session_1", "click", "2023-03-08T08:00:00", viewport_width=100, x=5, y=10)
         self._create_heatmap_event("session_2", "click", "2023-03-08T08:00:00", viewport_width=100, x=5, y=10)
@@ -674,6 +675,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         ]
 
     @freezegun.freeze_time("2025-03-31")
+    @snapshot_clickhouse_queries
     def test_can_filter_by_event_with_property(self) -> None:
         self._create_heatmap_event("session_1", "click", "2023-03-08T08:00:00", viewport_width=100, x=5, y=10)
         self._create_heatmap_event("session_2", "click", "2023-03-08T08:00:00", viewport_width=100, x=100, y=10)
@@ -699,6 +701,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         ]
 
     @freezegun.freeze_time("2025-03-31")
+    @snapshot_clickhouse_queries
     def test_event_filter_combines_with_test_accounts(self) -> None:
         self.team.test_account_filters = [
             {"key": "$host", "value": "127.0.0.1", "operator": "not_icontains", "type": "event"}
@@ -746,6 +749,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         ]
 
     @freezegun.freeze_time("2025-03-31")
+    @snapshot_clickhouse_queries
     def test_event_filter_ignored_without_flag(self) -> None:
         self._create_heatmap_event("session_1", "click", "2023-03-08T08:00:00", viewport_width=100, x=5, y=10)
         self._create_heatmap_event("session_2", "click", "2023-03-08T08:00:00", viewport_width=100, x=100, y=10)
@@ -767,6 +771,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             ("not_json", "not-json"),
             ("not_a_list", '{"id": "purchase"}'),
             ("id_not_a_string", '[{"id": 123, "type": "events"}]'),
+            ("properties_not_a_list", '[{"id": "purchase", "properties": "nope"}]'),
+            ("properties_not_objects", '[{"id": "purchase", "properties": [1, 2]}]'),
         ]
     )
     def test_event_filter_rejects_invalid_events(self, _name: str, events_param: str) -> None:
