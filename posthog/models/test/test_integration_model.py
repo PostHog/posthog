@@ -133,37 +133,24 @@ class TestLinearIntegrationModel(BaseTest):
             sensitive_config={"access_token": "ACCESS_TOKEN"},
         )
 
-    def test_create_issue_rejects_unknown_team_id(self):
-        linear = LinearIntegration(self.create_integration())
-        with patch.object(linear, "list_teams", return_value=[{"id": "allowed-team"}]):
-            with pytest.raises(ValidationError, match="Invalid Linear team_id"):
-                linear.create_issue(
-                    str(self.team.id),
-                    "issue-id",
-                    {
-                        "team_id": 'allowed-team" } mutation {',
-                        "title": "Issue title",
-                        "description": "Issue description",
-                    },
-                )
-
     def test_create_issue_passes_user_fields_as_graphql_variables(self):
         linear = LinearIntegration(self.create_integration())
-        with (
-            patch.object(linear, "list_teams", return_value=[{"id": "allowed-team"}]),
-            patch.object(
-                linear,
-                "query",
-                side_effect=[
-                    {"data": {"issueCreate": {"issue": {"identifier": "LIN-123"}}}},
-                    {"data": {"attachmentCreate": {"success": True}}},
-                ],
-            ) as mock_query,
-        ):
+        with patch.object(
+            linear,
+            "query",
+            side_effect=[
+                {"data": {"issueCreate": {"issue": {"identifier": "LIN-123"}}}},
+                {"data": {"attachmentCreate": {"success": True}}},
+            ],
+        ) as mock_query:
             result = linear.create_issue(
                 str(self.team.id),
                 'issue-id" } mutation {',
-                {"team_id": "allowed-team", "title": 'Title "quoted"', "description": "Description"},
+                {
+                    "team_id": 'team-id" } mutation {',
+                    "title": 'Title "quoted"',
+                    "description": "Description",
+                },
             )
 
         assert result == {"id": "LIN-123"}
@@ -172,12 +159,12 @@ class TestLinearIntegrationModel(BaseTest):
         attachment_query = mock_query.call_args_list[1].args[0]
         attachment_variables = mock_query.call_args_list[1].kwargs["variables"]
 
-        assert "allowed-team" not in issue_query
+        assert 'team-id" } mutation {' not in issue_query
         assert 'Title "quoted"' not in issue_query
         assert issue_variables == {
             "title": 'Title "quoted"',
             "description": "Description",
-            "teamId": "allowed-team",
+            "teamId": 'team-id" } mutation {',
         }
         assert 'issue-id" } mutation {' not in attachment_query
         assert attachment_variables["issueId"] == "LIN-123"

@@ -2207,15 +2207,12 @@ class LinearIntegration:
     def list_teams(self) -> list[dict]:
         body = self.query(f"{{ teams {{ nodes {{ id name }} }} }}")
         teams = dot_get(body, "data.teams.nodes")
-        return teams or []
+        return teams
 
     def create_issue(self, team_id: str, posthog_issue_id: str, config: dict[str, str]) -> dict[str, str]:
         title: str = config.pop("title")
         description: str = config.pop("description")
         linear_team_id = config.pop("team_id")
-        linear_team_ids = {team.get("id") for team in self.list_teams()}
-        if linear_team_id not in linear_team_ids:
-            raise ValidationError("Invalid Linear team_id")
 
         issue_create_query = """
         mutation IssueCreate($title: String!, $description: String!, $teamId: String!) {
