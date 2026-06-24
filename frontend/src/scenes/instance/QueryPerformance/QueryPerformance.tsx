@@ -9,6 +9,7 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
@@ -238,7 +239,11 @@ export function QueryPerformance(): JSX.Element {
                 const preview = firstLine.length > 60 ? firstLine.slice(0, 60) + '…' : firstLine
                 return (
                     <div className="flex items-center gap-1 min-w-0">
-                        <LemonTag type="danger">Error</LemonTag>
+                        <Tooltip
+                            title={<span className="font-mono text-xs whitespace-pre-wrap">{item.exception}</span>}
+                        >
+                            <LemonTag type="danger">Error</LemonTag>
+                        </Tooltip>
                         <span className="font-mono text-xs text-danger truncate">{preview}</span>
                     </div>
                 )
