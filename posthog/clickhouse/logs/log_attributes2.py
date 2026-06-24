@@ -35,7 +35,7 @@ SETTINGS
 
 def LOG_ATTRIBUTES2_DISTRIBUTED_TABLE_SQL():
     return """
-CREATE TABLE IF NOT EXISTS {database}.log_attributes_distributed AS {database}.{table_name} ENGINE = {engine}
+CREATE OR REPLACE TABLE {database}.log_attributes_distributed AS {database}.{table_name} ENGINE = {engine}
 """.format(
         engine=Distributed(
             data_table=TABLE_NAME,

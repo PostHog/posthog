@@ -91,7 +91,7 @@ SETTINGS
 
 def LOGS_DISTRIBUTED_TABLE_SQL():
     return """
-CREATE TABLE IF NOT EXISTS {database}.logs_distributed AS {database}.{table_name} ENGINE = {engine}
+CREATE OR REPLACE TABLE {database}.logs_distributed AS {database}.{table_name} ENGINE = {engine}
 """.format(
         engine=Distributed(
             data_table=TABLE_NAME,
