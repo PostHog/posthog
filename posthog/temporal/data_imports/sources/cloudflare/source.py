@@ -16,6 +16,7 @@ from posthog.temporal.data_imports.sources.cloudflare.cloudflare import (
 )
 from posthog.temporal.data_imports.sources.cloudflare.settings import ENDPOINTS
 from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import CloudflareSourceConfig
@@ -61,6 +62,11 @@ Create an API token in the [Cloudflare dashboard](https://dash.cloudflare.com/pr
                 ],
             ),
         )
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.cloudflare.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
 
     def get_schemas(
         self,

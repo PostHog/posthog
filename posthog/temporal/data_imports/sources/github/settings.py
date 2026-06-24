@@ -164,12 +164,16 @@ GITHUB_ENDPOINTS: dict[str, GithubEndpointConfig] = {
         # filter=all returns jobs across every run_attempt (retries), not just the
         # latest execution — required for retry/runner-utilization analysis.
         extra_params={"filter": "all"},
-        # One /jobs call per run makes an unbounded first sync a multi-day,
-        # rate-limited crawl of the whole repo history (the OAuth budget is shared
-        # with Tasks/Code/deploys). A busy repo merges ~100 PRs/day, so even a few
-        # days seeds plenty of rows to start from; the webhook carries everything
-        # after. Keep the initial backfill tiny — just enough to not start empty.
-        initial_lookback_days=3,
+        # One /jobs call per run, and a busy repo produces tens of thousands of runs
+        # per day (every push, re-run, scheduled trigger, and matrix leg is a run —
+        # not just PRs). At that volume even a few days of fan-out is hundreds of
+        # thousands of requests against a shared, rate-limited OAuth budget. So poll
+        # does no historical backfill: the webhook is the source of truth for jobs.
+        # With a zero-day floor the first sync fans out over nothing, the watermark
+        # stays unset, and once webhook rows land the poll only re-fans the tiny
+        # window since the latest job. Repos that genuinely want history should run a
+        # deliberate one-off backfill, not pay for it on every connect.
+        initial_lookback_days=0,
     ),
 }
 

@@ -17,6 +17,7 @@ from posthog.temporal.data_imports.sources.apollo.apollo import (
 )
 from posthog.temporal.data_imports.sources.apollo.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -63,6 +64,11 @@ You can create an API key in Apollo under Settings > Integrations > API. API acc
                 ],
             ),
         )
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.apollo.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
 
     def get_schemas(
         self,

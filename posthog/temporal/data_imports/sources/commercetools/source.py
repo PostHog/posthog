@@ -19,6 +19,7 @@ from posthog.temporal.data_imports.sources.commercetools.commercetools import (
 )
 from posthog.temporal.data_imports.sources.commercetools.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -39,6 +40,11 @@ class CommercetoolsSource(ResumableSource[CommercetoolsSourceConfig, Commercetoo
         # minted bearer token) are sent to; retargeting either must re-require the secret so it
         # can't be aimed at a different commercetools project or region.
         return ["region", "project_key"]
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.commercetools.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
