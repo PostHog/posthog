@@ -1129,16 +1129,24 @@ class CDCExtractActivity:
         info = classify_cdc_error(exc, self.adapter)
         friendly = info.friendly_message[:MAX_FRIENDLY_MESSAGE_LENGTH]
         self._fail_created_jobs(friendly)
+        # A missing slot/publication won't recover on retry: mark the source broken — that persists
+        # the per-schema FAILED state + the cdc_broken marker the UI/health check read and pauses the
+        # schedule, so it stops firing hourly against a resource that is gone (the same zombie the lag
+        # safety net produces). Any other failure just fails this run's schemas.
+        marked_broken = info.category in (CDCErrorCategory.SLOT_MISSING, CDCErrorCategory.PUBLICATION_MISSING)
+        if marked_broken:
+            assert self.source is not None
+            mark_cdc_broken(self.source, info.category.value, friendly)
         for schema in self.cdc_schemas:
-            schema.status = ExternalDataSchema.Status.FAILED
-            schema.latest_error = friendly
-            schema.save(update_fields=["status", "latest_error", "updated_at"])
+            if not marked_broken:
+                schema.status = ExternalDataSchema.Status.FAILED
+                schema.latest_error = friendly
+                schema.save(update_fields=["status", "latest_error", "updated_at"])
             # User-facing column gets the friendly copy; the raw error still routes to structured
             # logs / the Syncs log viewer for debugging.
             self._schema_log(schema).error(
                 "cdc_extract_schema_failed", error=str(exc), category=info.category, retryable=info.retryable
             )
-<<<<<<< HEAD:products/warehouse_sources/backend/temporal/data_imports/cdc/activities.py
         # A failure before the first micro-flush creates no ExternalDataJob, so the Syncs tab stays
         # empty while the schema reads FAILED. Backfill a terminal FAILED row per schema so the run
         # is visible — but only once retries are exhausted or the error is non-retryable, otherwise
@@ -1148,7 +1156,6 @@ class CDCExtractActivity:
                 self._create_failure_visibility_jobs(friendly)
             except Exception:
                 self.log.warning("cdc_failure_visibility_jobs_failed", exc_info=True)
-=======
         # A missing slot/publication won't recover on retry, so don't just fail this run — move the
         # source to the broken state and pause the schedule (mark_cdc_broken also records the
         # cdc_broken marker the UI/health check read). Otherwise the schedule keeps firing hourly
@@ -1156,7 +1163,6 @@ class CDCExtractActivity:
         if info.category in (CDCErrorCategory.SLOT_MISSING, CDCErrorCategory.PUBLICATION_MISSING):
             assert self.source is not None
             mark_cdc_broken(self.source, info.category.value, friendly)
->>>>>>> 06966001bee (feat(data-warehouse): mark CDC sources broken instead of looping):posthog/temporal/data_imports/cdc/activities.py
         self._emit_run_duration("failed")
         return info
 

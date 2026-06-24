@@ -109,7 +109,7 @@ def _notify(source: ExternalDataSource, message: str, log: typing.Any) -> None:
                 team_id=source.team_id,
                 notification_type=NotificationType.PIPELINE_FAILURE,
                 priority=Priority.NORMAL,
-                title="Change data capture stopped",
+                title="Change data capture needs attention",
                 body=message,
                 target_type=TargetType.TEAM,
                 target_id=str(source.team_id),
@@ -123,7 +123,7 @@ def _capture(source: ExternalDataSource, reason: str, *, paused: bool, log: typi
     try:
         posthoganalytics.capture(
             distinct_id=get_machine_id(),
-            event="cdc auto disabled",
+            event="cdc marked broken",
             properties={
                 "team_id": source.team_id,
                 "source_id": str(source.id),

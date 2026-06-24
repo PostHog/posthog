@@ -68,7 +68,7 @@ def test_persists_broken_state_on_source_and_schemas(team):
     mock_pause.assert_called_once_with(str(source.id))
     mock_notify.assert_called_once()
     mock_capture.assert_called_once()
-    assert mock_capture.call_args.kwargs["event"] == "cdc auto disabled"
+    assert mock_capture.call_args.kwargs["event"] == "cdc marked broken"
 
 
 @pytest.mark.parametrize("pause", [True, False])
