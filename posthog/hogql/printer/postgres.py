@@ -53,6 +53,9 @@ class PostgresPrinter(BasePrinter):
     def _assert_set_operator_supported(self, set_operator: str) -> None:
         return
 
+    def _parenthesize_union_member_with_limit(self) -> bool:
+        return True
+
     def _assert_recursive_cte_supported(self) -> None:
         return
 
