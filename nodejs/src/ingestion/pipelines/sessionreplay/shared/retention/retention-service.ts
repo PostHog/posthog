@@ -43,11 +43,15 @@ export class RetentionService {
         const redisKey = this.generateRedisKey(sessionId)
 
         try {
-            const cached = await client.get(redisKey)
-            if (cached !== null) {
-                retentionPeriod = cached
-            } else {
+            // Attempt to look up the retention period for the session in Redis
+            retentionPeriod = await client.get(redisKey)
+
+            // ...if no retention period exists for the session
+            if (retentionPeriod === null) {
+                // ...get the value from Postgres
                 retentionPeriod = await this.getRetentionByTeamId(teamId)
+
+                // ...and then set it in Redis for future batches, with a TTL of 24 hours
                 await client.set(redisKey, retentionPeriod, 'EX', 24 * 60 * 60)
             }
         } finally {
