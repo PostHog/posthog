@@ -225,9 +225,10 @@ def evaluate_billing_alert(
         threshold_percentage = alert.threshold_percentage or Decimal("0")
         threshold_value = baseline_value * (Decimal("1") + (threshold_percentage / Decimal("100")))
         breached = current_value >= max(alert.minimum_value, threshold_value)
+        direction = "above" if relative_delta_percentage >= 0 else "below"
         reason = (
-            f"Current value {current_value} was {relative_delta_percentage.quantize(Decimal('0.01'))}% "
-            f"above baseline {baseline_value.quantize(Decimal('0.000001'))}; "
+            f"Current value {current_value} was {abs(relative_delta_percentage).quantize(Decimal('0.01'))}% "
+            f"{direction} baseline {baseline_value.quantize(Decimal('0.000001'))}; "
             f"threshold is {threshold_percentage}%."
         )
 

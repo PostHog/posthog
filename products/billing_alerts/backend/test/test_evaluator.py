@@ -52,6 +52,15 @@ class TestBillingAlertEvaluator(BaseTest):
         assert evaluation.threshold_breached is True
         assert evaluation.payload["expected_evaluation_date"] == "2026-06-22"
 
+    def test_relative_increase_reason_describes_negative_delta_as_below_baseline(self) -> None:
+        alert = self._alert()
+
+        evaluation = evaluate_billing_alert(alert, now=NOW, billing_response=_billing_response([80, 80, 60]))
+
+        assert evaluation.relative_delta_percentage == Decimal("-25.000000")
+        assert evaluation.threshold_breached is False
+        assert "25.00% below baseline" in evaluation.reason
+
     def test_missing_expected_billing_day_does_not_fall_back_to_older_data(self) -> None:
         alert = self._alert()
         response = {
