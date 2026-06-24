@@ -18,18 +18,15 @@ def _mock_response(status_code: int, ok: bool, json_data: dict | None = None) ->
     return response
 
 
-def _patched_token_call(response: mock.MagicMock):
-    return mock.patch(
-        "posthog.temporal.data_imports.sources.shopify.shopify.make_tracked_session",
-        return_value=mock.MagicMock(post=mock.MagicMock(return_value=response)),
-    )
-
-
 def _patched_token_post(post: mock.MagicMock):
     return mock.patch(
         "posthog.temporal.data_imports.sources.shopify.shopify.make_tracked_session",
         return_value=mock.MagicMock(post=post),
     )
+
+
+def _patched_token_call(response: mock.MagicMock):
+    return _patched_token_post(mock.MagicMock(return_value=response))
 
 
 @pytest.mark.parametrize("status_code", [400, 401, 403, 404])
