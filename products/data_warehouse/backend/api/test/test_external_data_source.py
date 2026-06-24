@@ -427,6 +427,70 @@ class TestExternalDataSource(APIBaseTest):
         assert source.direct_query_enabled is False
 
     @patch(
+        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials_for_access_method",
+        return_value=(True, None),
+    )
+    def test_patch_external_data_source_preserves_cdc_config_when_schema_cleared(self, _mock_validate):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            job_inputs={
+                "host": "localhost",
+                "port": 5432,
+                "database": "testdb",
+                "user": "test",
+                "password": "test",
+                "schema": "public",
+                "cdc_enabled": True,
+                "cdc_management_mode": "posthog",
+                "cdc_slot_name": "posthog_slot",
+                "cdc_publication_name": "posthog_pub",
+                "cdc_auto_drop_slot": False,
+                "cdc_lag_warning_threshold_mb": 512,
+                "cdc_lag_critical_threshold_mb": 1024,
+                "cdc_consistent_point": "0/AA",
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "host": "localhost",
+                    "port": 5432,
+                    "database": "testdb",
+                    "user": "test",
+                    "schema": "",
+                    "cdc_enabled": False,
+                    "cdc_management_mode": "self_managed",
+                    "cdc_slot_name": "attacker_slot",
+                    "cdc_publication_name": "attacker_pub",
+                    "cdc_auto_drop_slot": True,
+                    "cdc_lag_warning_threshold_mb": 1,
+                    "cdc_lag_critical_threshold_mb": 2,
+                    "cdc_consistent_point": "0/BAD",
+                }
+            },
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["schema"] == ""
+        assert str(source.job_inputs["cdc_enabled"]) == "True"
+        assert source.job_inputs["cdc_management_mode"] == "posthog"
+        assert source.job_inputs["cdc_slot_name"] == "posthog_slot"
+        assert source.job_inputs["cdc_publication_name"] == "posthog_pub"
+        assert str(source.job_inputs["cdc_auto_drop_slot"]) == "False"
+        assert str(source.job_inputs["cdc_lag_warning_threshold_mb"]) == "512"
+        assert str(source.job_inputs["cdc_lag_critical_threshold_mb"]) == "1024"
+        assert source.job_inputs["cdc_consistent_point"] == "0/AA"
+
+    @patch(
         "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
         return_value=False,
     )
@@ -8607,12 +8671,18 @@ class TestEnableCDC(APIBaseTest):
     @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.publication_exists", return_value=False)
     @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.slot_exists", return_value=False)
     @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.drop_slot_and_publication")
-    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.create_slot_and_publication")
+    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.drop_slot")
+    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.drop_publication")
+    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.create_slot")
+    @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.create_publication")
     @patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.cdc_pg_connection")
     def test_enable_cdc_posthog_rolls_back_partial_slot_on_failure(
         self,
         mock_cdc_pg_connection,
-        mock_create_slot_and_publication,
+        mock_create_publication,
+        mock_create_slot,
+        mock_drop_publication,
+        mock_drop_slot,
         mock_drop_slot_and_publication,
         _mock_slot_exists,
         _mock_publication_exists,
@@ -8625,7 +8695,8 @@ class TestEnableCDC(APIBaseTest):
         mock_cdc_pg_connection.return_value.__enter__.return_value = object()
         mock_cdc_pg_connection.return_value.__exit__.return_value = None
 
-        mock_create_slot_and_publication.side_effect = RuntimeError("max_replication_slots reached")
+        # Publication is created first; the slot creation then fails (e.g. max_replication_slots reached).
+        mock_create_slot.side_effect = RuntimeError("max_replication_slots reached")
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/enable_cdc/",
@@ -8640,11 +8711,12 @@ class TestEnableCDC(APIBaseTest):
         assert response.status_code == 400
         assert "max_replication_slots reached" in response.json()["message"]
 
-        # Best-effort cleanup must run with the exact slot + publication we tried to create.
-        mock_drop_slot_and_publication.assert_called_once()
-        call = mock_drop_slot_and_publication.call_args
-        assert call.args[1] == "leaky_slot"
-        assert call.args[2] == "leaky_pub"
+        # Only the publication was created before the slot failed, so rollback drops just the publication.
+        mock_create_publication.assert_called_once()
+        mock_drop_publication.assert_called_once()
+        assert mock_drop_publication.call_args.args[1] == "leaky_pub"
+        mock_drop_slot.assert_not_called()
+        mock_drop_slot_and_publication.assert_not_called()
 
         # Source's job_inputs must NOT have been persisted with cdc_enabled — we never reached save().
         source.refresh_from_db()
