@@ -4,6 +4,7 @@ import collections.abc
 from dataclasses import dataclass
 
 import structlog
+from dateutil.relativedelta import relativedelta
 
 from posthog.settings import integrations
 from posthog.temporal.data_imports.naming_convention import NamingConvention
@@ -18,6 +19,11 @@ from .schemas import RESOURCE_SCHEMAS, BingAdsResource
 from .utils import BingAdsResumeConfig, fetch_data_in_yearly_chunks
 
 logger = structlog.get_logger()
+
+# Microsoft Advertising retains daily-aggregated performance report data for 36 months. Requesting an
+# end date older than that is rejected with InvalidCustomDateRangeEnd, so don't look back past it —
+# older data simply doesn't exist to fetch.
+BING_ADS_REPORT_RETENTION = relativedelta(months=36)
 
 
 @dataclass
@@ -116,7 +122,7 @@ def bing_ads_source(
                 is_first_sync = db_incremental_field_last_value is None
 
                 if is_first_sync:
-                    start_date = today - dt.timedelta(days=365 * 5)
+                    start_date = today - BING_ADS_REPORT_RETENTION
                 else:
                     last_value = db_incremental_field_last_value
 
@@ -138,7 +144,7 @@ def bing_ads_source(
                     resumable_source_manager=resumable_source_manager,
                 )
             else:
-                start_date = today - dt.timedelta(days=365 * 5)
+                start_date = today - BING_ADS_REPORT_RETENTION
                 yield from fetch_data_in_yearly_chunks(
                     client=client,
                     resource=resource,

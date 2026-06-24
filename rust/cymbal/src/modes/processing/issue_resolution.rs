@@ -6,12 +6,10 @@ use common_kafka::kafka_producer::{send_iter_to_kafka, KafkaProduceError};
 
 use rdkafka::types::RDKafkaErrorCode;
 use serde::{Deserialize, Serialize};
-use sqlx::PgConnection;
 use uuid::Uuid;
 
-use crate::modes::processing::rules::assignment::{try_assignment_rules, Assignee, Assignment};
-use crate::teams::TeamManager;
-use crate::types::{FingerprintedErrProps, OutputErrProps};
+use crate::modes::processing::rules::assignment::{Assignee, Assignment};
+use crate::types::OutputErrProps;
 use crate::{
     analytics::capture_issue_reopened, app_context::AppContext, error::UnhandledError,
     metric_consts::ISSUE_REOPENED,
@@ -352,33 +350,6 @@ impl IssueFingerprintOverride {
 
         Ok(res)
     }
-}
-
-pub async fn process_assignment(
-    conn: &mut PgConnection,
-    team_manager: &TeamManager,
-    issue: &Issue,
-    props: FingerprintedErrProps,
-) -> Result<Option<Assignment>, UnhandledError> {
-    let new_assignment = if let Some(new) = props.fingerprint.assignment.clone() {
-        Some(new)
-    } else {
-        try_assignment_rules(
-            conn,
-            team_manager,
-            issue.clone(),
-            &props.to_output(issue.id),
-        )
-        .await?
-    };
-
-    let assignment = if let Some(new_assignment) = new_assignment {
-        Some(new_assignment.apply(&mut *conn, issue.id).await?)
-    } else {
-        issue.get_assignments(&mut *conn).await?.first().cloned()
-    };
-
-    Ok(assignment)
 }
 
 pub async fn send_issue_created_alert(

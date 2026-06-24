@@ -2757,6 +2757,7 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "zip 4.6.1",
+ "zstd",
 ]
 
 [[package]]
@@ -3494,6 +3495,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "chrono",
+ "chrono-tz",
  "clap",
  "common-alloc",
  "common-cache",
@@ -4358,7 +4360,7 @@ dependencies = [
 
 [[package]]
 name = "hogql_parser_rs"
-version = "1.3.96"
+version = "1.3.99"
 dependencies = [
  "pyo3",
  "serde_json",

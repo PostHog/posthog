@@ -98,7 +98,7 @@ the row lists both.
 | eventbrite        | HTTP                        | requests                                                        | ✅                          |
 | front             | HTTP                        | requests                                                        | ✅                          |
 | fullstory         | HTTP                        | requests                                                        | ✅                          |
-| github            | HTTP                        | requests                                                        | ✅                          |
+| github            | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | gitlab            | HTTP                        | requests                                                        | ✅                          |
 | gladly            | HTTP                        | requests                                                        | ✅                          |
 | gocardless        | HTTP                        | requests                                                        | ✅                          |
@@ -436,6 +436,7 @@ doesn't conflict with concurrent PRs.
 - invoiceninja
 - ip2whois
 - jamf_pro
+- jobber
 - jobnimbus
 - jotform
 - judgeme_reviews
@@ -449,9 +450,11 @@ doesn't conflict with concurrent PRs.
 - kissmetrics
 - klarna
 - klaus
+- knock
 - kyve
 - lago
 - leadfeeder
+- leexi
 - lemlist
 - less_annoying_crm
 - lever
@@ -475,6 +478,7 @@ doesn't conflict with concurrent PRs.
 - merge
 - metabase
 - metricool
+- metronome
 - microsoft_dataverse
 - microsoft_entra_id
 - microsoft_lists
@@ -566,6 +570,7 @@ doesn't conflict with concurrent PRs.
 - quickbooks
 - railz
 - razorpay
+- rb2b
 - rd_station_marketing
 - recreation
 - recruitee
@@ -590,6 +595,7 @@ doesn't conflict with concurrent PRs.
 - sailthru
 - salesflare
 - salesforce_marketing_cloud
+- sanity
 - sap_concur
 - sap_erp
 - sap_fieldglass
@@ -634,6 +640,7 @@ doesn't conflict with concurrent PRs.
 - strava
 - streamelements
 - streamlabs
+- superwall
 - surveymonkey
 - surveysparrow
 - survicate

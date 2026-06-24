@@ -21,4 +21,4 @@ from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db 
 
 async def process_batch(batch: PendingBatch) -> None:
     """Load a single batch into Delta Lake, reusing the existing processor."""
-    await sync_to_async(process_message)(batch.to_export_signal())
+    await sync_to_async(process_message, thread_sensitive=False)(batch.to_export_signal())

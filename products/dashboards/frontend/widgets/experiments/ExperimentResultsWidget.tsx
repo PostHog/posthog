@@ -1,11 +1,12 @@
 import posthog from 'posthog-js'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ExperimentsHog } from 'lib/components/hedgehogs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { StatusTag } from 'scenes/experiments/ExperimentView/StatusTag'
 import { urls } from 'scenes/urls'
 
@@ -34,10 +35,30 @@ export type ExperimentResultsWidgetResult = {
         feature_flag_key: string
     } | null
     metrics: ExperimentResultsWidgetMetricEntry[]
+    secondaryMetrics?: ExperimentResultsWidgetMetricEntry[]
     needsConfiguration?: boolean
     experimentNotFound?: boolean
     hasExperiments?: boolean
     totalMetricsCount?: number
+    totalSecondaryMetricsCount?: number
+}
+
+// Sample count of the first primary metric that has results (baseline + every variant). This is that
+// metric's analysis population, not a canonical exposure count — metrics with custom exposure criteria
+// can differ. We read it off primary only so the headline doesn't silently come from a secondary metric.
+function getPrimarySampleCount(metrics: ExperimentResultsWidgetMetricEntry[]): number | null {
+    for (const entry of metrics) {
+        const variantResults = entry.result?.variant_results
+        if (!variantResults?.length) {
+            continue
+        }
+        let total = entry.result?.baseline?.number_of_samples ?? 0
+        for (const variant of variantResults) {
+            total += variant.number_of_samples ?? 0
+        }
+        return total
+    }
+    return null
 }
 
 function ExperimentResultsWidgetMessage({
@@ -77,6 +98,40 @@ function ExperimentResultsWidgetMetric({ entry }: { entry: ExperimentResultsWidg
             ) : (
                 <NotebookCompactTable result={entry.result} metric={entry.metric} />
             )}
+        </div>
+    )
+}
+
+function ExperimentMetricsSection({
+    label,
+    metrics,
+    totalCount,
+    emptyMessage,
+}: {
+    label: string
+    metrics: ExperimentResultsWidgetMetricEntry[]
+    totalCount?: number
+    emptyMessage?: string
+}): JSX.Element {
+    return (
+        <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+                <h5 className="m-0 shrink-0 text-xs font-semibold uppercase tracking-wide text-muted">{label}</h5>
+                <LemonDivider className="my-0 flex-1" />
+            </div>
+            {metrics.length === 0 ? (
+                <LemonBanner type="info" className="text-sm">
+                    {emptyMessage}
+                </LemonBanner>
+            ) : (
+                metrics.map((entry, index) => <ExperimentResultsWidgetMetric key={entry.uuid ?? index} entry={entry} />)
+            )}
+            {totalCount != null && totalCount > metrics.length ? (
+                <span className="text-xs text-muted">
+                    Showing the first {metrics.length} of {totalCount} {label.toLowerCase()}. Open the experiment to see
+                    all of them.
+                </span>
+            ) : null}
         </div>
     )
 }
@@ -166,7 +221,9 @@ export function ExperimentResultsWidget({
     }
 
     const { experiment, metrics } = payload
+    const secondaryMetrics = payload.secondaryMetrics ?? []
     const isDraft = experiment.status === 'draft'
+    const primarySampleCount = getPrimarySampleCount(metrics)
 
     return (
         <WidgetCardContent>
@@ -182,25 +239,32 @@ export function ExperimentResultsWidget({
                     </Link>
                     <StatusTag status={experiment.status as ExperimentStatus} />
                 </div>
+                {primarySampleCount != null ? (
+                    <span className="text-xs text-muted">
+                        {humanFriendlyNumber(primarySampleCount)} total exposures
+                    </span>
+                ) : null}
                 {isDraft ? (
                     <LemonBanner type="info" className="text-sm">
                         This experiment has not launched yet. Results will appear once it is running.
                     </LemonBanner>
-                ) : metrics.length === 0 ? (
-                    <LemonBanner type="info" className="text-sm">
-                        This experiment has no primary metrics to show.
-                    </LemonBanner>
                 ) : (
-                    metrics.map((entry, index) => (
-                        <ExperimentResultsWidgetMetric key={entry.uuid ?? index} entry={entry} />
-                    ))
+                    <>
+                        <ExperimentMetricsSection
+                            label="Primary metrics"
+                            metrics={metrics}
+                            totalCount={payload.totalMetricsCount}
+                            emptyMessage="This experiment has no primary metrics to show."
+                        />
+                        {secondaryMetrics.length > 0 ? (
+                            <ExperimentMetricsSection
+                                label="Secondary metrics"
+                                metrics={secondaryMetrics}
+                                totalCount={payload.totalSecondaryMetricsCount}
+                            />
+                        ) : null}
+                    </>
                 )}
-                {payload.totalMetricsCount && payload.totalMetricsCount > metrics.length ? (
-                    <span className="text-xs text-muted">
-                        Showing the first {metrics.length} of {payload.totalMetricsCount} primary metrics. Open the
-                        experiment to see all of them.
-                    </span>
-                ) : null}
             </div>
         </WidgetCardContent>
     )

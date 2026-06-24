@@ -362,6 +362,7 @@ class PipelineV3(Generic[ResumableData]):
             self._earliest_incremental_field_value,
             self._logger,
             log_prefix="V3 Pipeline: ",
+            staging_run_uuid=self._s3_batch_writer.get_run_uuid(),
         )
 
         await update_row_tracking_after_batch(
@@ -396,7 +397,12 @@ class PipelineV3(Generic[ResumableData]):
         )
 
         await finalize_desc_sort_incremental_value(
-            self._resource, self._schema, self._last_incremental_field_value, self._logger, log_prefix="V3 Pipeline: "
+            self._resource,
+            self._schema,
+            self._last_incremental_field_value,
+            self._logger,
+            log_prefix="V3 Pipeline: ",
+            staging_run_uuid=self._s3_batch_writer.get_run_uuid(),
         )
 
         await advance_xmin_state(self._resource, self._schema, self._logger, log_prefix="V3 Pipeline: ")

@@ -89,7 +89,7 @@ async def call_llm(
 ) -> T:
     # Native Anthropic Messages endpoint so prefilling and extended thinking carry over unchanged.
     thinking = thinking and MATCHING_MODEL in ANTHROPIC_THINKING_MODELS
-    client = get_async_anthropic_gateway_client(product="signals", team_id=team_id)
+    client = get_async_anthropic_gateway_client(product="signals", team_id=team_id, use_bedrock_fallback=True)
 
     messages: list[MessageParam] = [
         {"role": "user", "content": user_prompt},

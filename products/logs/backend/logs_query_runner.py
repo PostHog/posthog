@@ -528,10 +528,14 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
     paginator: HogQLHasMorePaginator
 
     def validate_query_runner_access(self, user: "User") -> bool:
-        # LogsQuery is registered in get_query_runner solely for server-side CSV export
-        # (via ExportedAsset + Celery, which runs without a user context and skips this check).
-        # Block all user-initiated queries via the generic /api/projects/:id/query/ endpoint
+        # LogsQuery is registered in get_query_runner solely for server-side CSV export.
+        # The export runs via ExportedAsset + Celery and attributes the read to the export
+        # owner (LimitContext.EXPORT), which must be allowed through. Block everything else —
+        # i.e. user-initiated queries via the generic /api/projects/:id/query/ endpoint —
         # until the LogsQuery schema is stable and ready to be a public API.
+        if self.limit_context == LimitContext.EXPORT:
+            return True
+
         from posthog.rbac.user_access_control import UserAccessControlError
 
         raise UserAccessControlError("logs", "viewer")

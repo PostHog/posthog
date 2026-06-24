@@ -60,6 +60,7 @@
     (subpath (string-append (param "HOME") "/.local/share/uv"))   ; uv-managed Python interpreters (venv links here)
     (subpath (string-append (param "HOME") "/.local/share/flox")) ; flox metadata
     (subpath (string-append (param "HOME") "/Library/pnpm"))       ; pnpm content-addressed store
+    (subpath (string-append (param "HOME") "/.local/share/pnpm"))  ; pnpm content-addressed store (PNPM_HOME)
     ;; turbo (Vercel) global config — turbo reads auth.json on every run to check
     ;; remote-cache login. A sandbox *deny* surfaces as EPERM, which turbo treats
     ;; as a fatal "I/O error" (unlike a missing file, which it tolerates), killing

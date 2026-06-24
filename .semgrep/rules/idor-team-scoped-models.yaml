@@ -621,6 +621,7 @@ rules:
                               |Plugin
                               |Project
                               |ProxyRecord
+                              |ReplayObservationUsage
                               |ReplayQuotaGrant
                               |Role
                               |RoleExternalReference
@@ -689,6 +690,7 @@ rules:
                         |Plugin
                         |Project
                         |ProxyRecord
+                        |ReplayObservationUsage
                         |ReplayQuotaGrant
                         |Role
                         |RoleExternalReference
