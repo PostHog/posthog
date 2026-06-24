@@ -79,6 +79,7 @@ from products.data_warehouse.backend.api.external_data_schema import (
     source_supports_column_selection,
     unsupported_row_filter_reason,
 )
+from products.data_warehouse.backend.api.public_source_configs import build_source_configs
 from products.data_warehouse.backend.data_load.service import (
     bulk_create_external_data_job_schedules,
     bulk_delete_external_data_schedules,
@@ -854,6 +855,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
 
+        # CDC resource ownership changes must go through the CDC-specific endpoints.
+        for key in _CDC_EXPOSED_JOB_INPUT_KEYS:
+            if key in existing_job_inputs:
+                new_job_inputs[key] = existing_job_inputs[key]
+            else:
+                new_job_inputs.pop(key, None)
+
         # If the connection target changed, require credentials to be re-entered. Covers
         # both the generic `host` field and source-specific URL fields like ServiceNow's
         # `instance_url`, so a stored credential can't be redirected to a new host.
@@ -973,7 +981,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             apply_sql_warehouse_schema_clear_migration(instance, old_schema)
 
         source_config: Config = source.parse_config(new_job_inputs)
-        validated_data["job_inputs"] = source_config.to_dict()
+        validated_job_inputs = source_config.to_dict()
+        for key in _CDC_EXPOSED_JOB_INPUT_KEYS:
+            if key in existing_job_inputs:
+                validated_job_inputs[key] = existing_job_inputs[key]
+        validated_data["job_inputs"] = validated_job_inputs
 
         if job_inputs_were_submitted:
             if isinstance(source, (PostgresSource, MySQLSource)):
@@ -1310,7 +1322,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
+        # Building the full HogQL Database and serializing per-schema table columns is expensive
+        # and only needed when a caller reads `schemas[].table.columns` — which the source list view
+        # never does (it only reads name/row_count). Gate both to single-source reads.
+        include_columns = self.action != "list"
+        context["include_columns"] = include_columns
+        if include_columns:
+            context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
 
         return context
 
@@ -3167,14 +3185,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
     @action(methods=["GET"], detail=False)
     def wizard(self, request: Request, *arg: Any, **kwargs: Any):
-        sources = SourceRegistry.get_all_sources()
-        results = {}
-        for source_type, source in sources.items():
-            config = source.get_source_config.model_dump()
-            config["supportsColumnSelection"] = bool(source.supports_column_selection)
-            results[str(source_type)] = config
-
-        return Response(status=status.HTTP_200_OK, data=results)
+        return Response(status=status.HTTP_200_OK, data=build_source_configs())
 
     @extend_schema(
         parameters=[
@@ -3598,6 +3609,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 context={**serializer_context, "post_commit_actions": schema_post_commit_actions},
             )
             schema_serializer.is_valid(raise_exception=True)
+            # Do the webhook-only source-discovery call (e.g. Google Ads token refresh + field query)
+            # here, before the per-schema transaction below. Running it inside update()'s transaction
+            # held the DB connection idle-in-transaction long enough for the server to close it.
+            # update() reads the cached result, so it still validates and fails per-schema.
+            schema_serializer.warm_webhook_only_check(schema)
             prepared.append((schema, schema_serializer, schema_post_commit_actions))
 
         # Commit each schema in its own transaction. A single atomic block around the whole batch

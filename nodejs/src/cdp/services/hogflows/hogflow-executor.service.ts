@@ -71,6 +71,7 @@ export function createHogFlowInvocation(
         functionId: hogFlow.id, // TODO: Include version?
         hogFlow,
         person: globals.person, // This is outside of state as we don't persist it
+        groups: globals.groups, // Same as person: in-memory only (test path); real execution re-resolves on dequeue
         filterGlobals,
         queue: 'hogflow',
         queuePriority: 1,
