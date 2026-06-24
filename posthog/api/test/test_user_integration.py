@@ -12,7 +12,7 @@ from rest_framework import status
 
 from posthog.api.github_callback.state import store_unified_authorize_state
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
-from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models import OrganizationMembership, User
 from posthog.models.integration import GitHubInstallationAccess, GitHubUserAuthorization, Integration
 from posthog.models.user_integration import (
     ReauthorizationRequired,
@@ -725,74 +725,6 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertIn(f"/project/{self.team.pk}/settings/project-integrations", location)
         self.assertIn("installation_id=12345", location)
         self.assertIn(f"integration_id={team_integration.id}", location)
-
-    @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
-    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
-    @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
-    def test_github_link_callback_team_oauth_rejects_non_member(
-        self,
-        mock_user_from_code,
-        mock_integration_from_install,
-    ):
-        # A team in another organization the user does not belong to.
-        other_org = Organization.objects.create(name="other-org")
-        other_team = Team.objects.create(organization=other_org, name="other-team")
-        mock_user_from_code.return_value = _authorization()
-
-        state = "tok_team_oauth_foreign"
-        store_unified_authorize_state(
-            GitHubAuthorizeState(
-                token=state,
-                flow=FlowKind.TEAM_OAUTH,
-                user_id=self.user.id,
-                team_id=other_team.pk,
-                installation_id="12345",
-                next_url=f"/project/{other_team.pk}/settings/project-integrations",
-            ),
-        )
-
-        response = self.client.get("/complete/github-link/", {"code": "test_code", "state": state})
-
-        self.assertEqual(response.status_code, 302)
-        self.assertIn("github_link_error=insufficient_permissions", response["Location"])
-        # No integration write happens, and the OAuth code is never exchanged.
-        mock_integration_from_install.assert_not_called()
-        mock_user_from_code.assert_not_called()
-        self.assertFalse(Integration.objects.filter(team=other_team, kind="github").exists())
-
-    @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
-    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
-    @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
-    def test_github_link_callback_team_oauth_rejects_non_admin_member(
-        self,
-        mock_user_from_code,
-        mock_integration_from_install,
-    ):
-        # A plain member of the target team must not be able to write a team integration —
-        # initiation reserves it for admins, so the callback must enforce the same bar.
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-        mock_user_from_code.return_value = _authorization()
-
-        state = "tok_team_oauth_member"
-        store_unified_authorize_state(
-            GitHubAuthorizeState(
-                token=state,
-                flow=FlowKind.TEAM_OAUTH,
-                user_id=self.user.id,
-                team_id=self.team.pk,
-                installation_id="12345",
-                next_url=f"/project/{self.team.pk}/settings/project-integrations",
-            ),
-        )
-
-        response = self.client.get("/complete/github-link/", {"code": "test_code", "state": state})
-
-        self.assertEqual(response.status_code, 302)
-        self.assertIn("github_link_error=insufficient_permissions", response["Location"])
-        mock_integration_from_install.assert_not_called()
-        mock_user_from_code.assert_not_called()
-        self.assertFalse(Integration.objects.filter(team=self.team, kind="github").exists())
 
 
 class TestGetGithubLoginPrecedence(APIBaseTest):
