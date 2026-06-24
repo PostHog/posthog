@@ -21,14 +21,17 @@ describe('sharedMetricsLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team_id/experiment_saved_metrics': (req) => [
-                    200,
-                    makeMetrics(
-                        2,
-                        req.url.searchParams.get('search') ?? '',
-                        parseInt(req.url.searchParams.get('offset') ?? '0')
-                    ),
-                ],
+                '/api/projects/:team_id/experiment_saved_metrics': ({ request }) => {
+                    const url = new URL(request.url)
+                    return [
+                        200,
+                        makeMetrics(
+                            2,
+                            url.searchParams.get('search') ?? '',
+                            parseInt(url.searchParams.get('offset') ?? '0')
+                        ),
+                    ]
+                },
             },
         })
         initKeaTests()

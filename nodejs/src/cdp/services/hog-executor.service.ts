@@ -28,6 +28,7 @@ import type {
     MinimalLogEntry,
 } from '../types'
 import { createAddLogFunction, destinationE2eLagMsSummary, sanitizeLogMessage } from '../utils'
+import { resolveAwsSigV4Credentials, signAwsRequest } from '../utils/aws-sigv4'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
@@ -35,6 +36,12 @@ import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { HogInputsService } from './hog-inputs.service'
 import { EmailService } from './messaging/email.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
+import {
+    SelfLoopGuardMode,
+    isPostHogIngestUrl,
+    isSelfReferentialIngestFetch,
+    selfLoopGuardCounter,
+} from './self-loop-guard'
 
 /** Narrowed config type for CDP fetch retry settings, used by native/segment destination executors */
 export type CdpFetchConfig = Pick<
@@ -48,6 +55,7 @@ export interface HogExecutorConfig {
     fetchRetries: number
     fetchBackoffBaseMs: number
     fetchBackoffMaxMs: number
+    selfLoopGuardMode: SelfLoopGuardMode
     emailQueueRouting: string
 }
 
@@ -385,7 +393,12 @@ export class HogExecutorService {
                     if (routeToEmailQueue) {
                         result = this.routeEmailToQueue(nextInvocation)
                     } else {
-                        result = await this.emailService.executeSendEmail(nextInvocation)
+                        // `sendEmailsInline` is only set by the test panel, so it doubles as the
+                        // "this is a test send" signal — propagated into the email's tracking code.
+                        result = await this.emailService.executeSendEmail(
+                            nextInvocation,
+                            options?.sendEmailsInline ?? false
+                        )
                     }
                 } else {
                     throw new Error(`Unknown queue type: ${queueParamsType}`)
@@ -757,7 +770,56 @@ export class HogExecutorService {
             }
         }
 
-        const fetchParams: FetchOptions = { method, headers }
+        // Observe-only detection of event-forwarding loops: a fetch back into this
+        // project's own ingestion endpoint re-enters the pipeline and can re-trigger this
+        // same function. We only measure for now (a follow-up will design enforcement from
+        // this signal). The ingest-URL check gates the team lookup so external fetches (the
+        // common case) pay nothing, and the whole block fails open - detection must never
+        // break a destination it was only meant to watch.
+        if (this.config.selfLoopGuardMode !== 'disabled' && isPostHogIngestUrl(params.url)) {
+            try {
+                const team = await this.asyncContext.teamManager.getTeam(invocation.teamId)
+                if (team && isSelfReferentialIngestFetch({ url: params.url, body: params.body, team })) {
+                    selfLoopGuardCounter.inc({ mode: this.config.selfLoopGuardMode, action: 'detected' })
+                    addLog(
+                        'warn',
+                        `This fetch targets a PostHog ingestion endpoint using this project's own API key, which can form an event-forwarding loop. To capture an event back into this project use the 'postHogCapture' helper, or to enrich incoming events use a transformation.`
+                    )
+                }
+            } catch (err) {
+                logger.warn('🦔', '[HogExecutor] Self-loop guard detection skipped due to an internal error', {
+                    error: err,
+                    teamId: invocation.teamId,
+                })
+            }
+        }
+
+        // AWS SigV4 signatures expire after ~5 minutes. Sign immediately before the
+        // fetch (every attempt — including retries) so a request that sat in the
+        // backoff queue or whose first attempt timed out cannot reach AWS with a
+        // stale signature. Signing artifacts (Authorization, X-Amz-Date) are
+        // regenerated here and never persisted back to queueParameters. Credential
+        // resolution + missing-input handling live in `aws-sigv4.ts` — see
+        // `resolveAwsSigV4Credentials` for the encrypted_inputs/inputs lookup order.
+        let signedHeaders = headers
+        if (params.aws_sigv4) {
+            const resolved = resolveAwsSigV4Credentials(params.aws_sigv4, invocation.hogFunction)
+            if (!resolved.ok) {
+                addLog('error', resolved.error)
+                result.error = new Error(resolved.error)
+                result.finished = true
+                return result
+            }
+            signedHeaders = signAwsRequest({
+                method,
+                url: params.url,
+                body: params.body ?? '',
+                headers,
+                credentials: resolved.credentials,
+            })
+        }
+
+        const fetchParams: FetchOptions = { method, headers: signedHeaders }
 
         if (!['GET', 'HEAD'].includes(method) && params.body) {
             fetchParams.body = params.body

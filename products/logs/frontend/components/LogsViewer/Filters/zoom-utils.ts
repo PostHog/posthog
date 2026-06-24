@@ -1,5 +1,5 @@
 import { dayjs } from 'lib/dayjs'
-import { dateStringToDayJs } from 'lib/utils'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
 
 const RELATIVE_DATE_REGEX = /(^-?)(\d+)([hdwmy])$/
 

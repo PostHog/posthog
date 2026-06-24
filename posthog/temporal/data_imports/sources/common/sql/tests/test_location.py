@@ -96,14 +96,14 @@ class TestResolveSourceLocation:
 
     def test_storage_key_preserves_legacy_delta_path(self) -> None:
         # Migrated row keeps the legacy Delta subdir (`users`, not `public_users`) or its data is orphaned.
-        inputs = _source_inputs(schema_name="public.users", dwh_storage_key="users")
+        inputs = _source_inputs(schema_name="public.users", s3_folder_name="users")
         location = resolve_source_location(inputs, config_namespace=None)
         assert location.response_name == "users"
         assert location.schema == "public"
         assert location.table_name == "users"
 
     def test_storage_key_is_normalized(self) -> None:
-        inputs = _source_inputs(schema_name="public.My Table", dwh_storage_key="My Table")
+        inputs = _source_inputs(schema_name="public.My Table", s3_folder_name="My Table")
         location = resolve_source_location(inputs, config_namespace=None)
         assert location.response_name == "my_table"
 

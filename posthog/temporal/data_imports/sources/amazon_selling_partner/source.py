@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class AmazonSellingPartnerSource(SimpleSource[AmazonSellingPartnerSourceConfig])
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.AMAZON_SELLING_PARTNER,
+            category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Amazon Selling Partner",
             iconPath="/static/services/amazon_selling_partner.png",
             fields=cast(list[FieldType], []),

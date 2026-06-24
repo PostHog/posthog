@@ -3,6 +3,7 @@ from typing import Optional, cast
 import structlog
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -12,6 +13,7 @@ from posthog.schema import (
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -31,14 +33,28 @@ logger = structlog.get_logger(__name__)
 
 @SourceRegistry.register
 class WebflowSource(ResumableSource[WebflowSourceConfig, WebflowResumeConfig]):
+    # Only the static endpoint catalog is credential-free; CMS-collection discovery (a network
+    # call) is skipped when credentials are absent, so the public-docs path stays I/O-free.
+    lists_tables_without_credentials = True
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.WEBFLOW
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.webflow.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error": "Your Webflow API token is invalid or expired. Please generate a new token and reconnect.",
             "403 Client Error": "Your Webflow API token is missing a required scope. Grant the read scopes for the resources you want to sync and reconnect.",
+            # Webflow returns 409 Conflict on the Products/Orders list endpoints when the
+            # connected site does not have ecommerce enabled, and on other resources when
+            # the site has unpublished changes. Both are deterministic state/config issues
+            # that retrying can't resolve, so stop retrying and tell the user how to fix it.
+            "409 Client Error: Conflict": "Webflow returned a 409 Conflict. For the Products and Orders tables this means the connected site does not have ecommerce enabled — enable ecommerce in Webflow or remove those tables from the sync. For other resources it can mean the site has unpublished changes; publish your Webflow site, then try again.",
         }
 
     def get_schemas(
@@ -61,24 +77,27 @@ class WebflowSource(ResumableSource[WebflowSourceConfig, WebflowResumeConfig]):
         # dynamically and expose one schema per collection. Best-effort: if the
         # token can't list collections (missing scope, transient error) we still
         # return the static endpoints rather than failing the whole source.
-        try:
-            for collection in list_collections(config.api_token, config.site_id):
-                slug = collection.get("slug")
-                if not slug:
-                    continue
-                schemas.append(
-                    SourceSchema(
-                        name=f"{COLLECTION_SCHEMA_PREFIX}{slug}",
-                        supports_incremental=False,
-                        supports_append=False,
-                        incremental_fields=[],
-                        label=collection.get("displayName"),
+        # Skip the network call entirely without credentials (e.g. the credential-free
+        # public-docs catalog path), so an unauthenticated caller can't trigger it.
+        if config.api_token and config.site_id:
+            try:
+                for collection in list_collections(config.api_token, config.site_id):
+                    slug = collection.get("slug")
+                    if not slug:
+                        continue
+                    schemas.append(
+                        SourceSchema(
+                            name=f"{COLLECTION_SCHEMA_PREFIX}{slug}",
+                            supports_incremental=False,
+                            supports_append=False,
+                            incremental_fields=[],
+                            label=collection.get("displayName"),
+                        )
                     )
-                )
-        except Exception as e:
-            # Best-effort: a missing scope, transient network error, or schema-discovery
-            # bug shouldn't fail the whole source. Log so the cause is debuggable.
-            logger.debug("Webflow: failed to discover CMS collections, returning static endpoints only", exc_info=e)
+            except Exception as e:
+                # Best-effort: a missing scope, transient network error, or schema-discovery
+                # bug shouldn't fail the whole source. Log so the cause is debuggable.
+                logger.debug("Webflow: failed to discover CMS collections, returning static endpoints only", exc_info=e)
 
         if names is not None:
             names_set = set(names)
@@ -112,6 +131,7 @@ class WebflowSource(ResumableSource[WebflowSourceConfig, WebflowResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.WEBFLOW,
+            category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Webflow",
             caption="""Enter your Webflow v2 API token and Site ID to pull your Webflow site data into the PostHog Data warehouse.
 

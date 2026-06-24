@@ -412,6 +412,20 @@ def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: d
         try:
             response = make_api_call(access_token, body, limit, method, next_url, path)
         except HTTPError as e:
+            # The underlying resource (e.g. a cohort) can be deleted or become unresolvable
+            # mid-export, which surfaces as a 404 partway through pagination. Treat that as
+            # end-of-data and return what we have rather than failing the whole export.
+            if e.response is not None and e.response.status_code == 404:
+                logger.warning(
+                    "csv_exporter.resource_gone",
+                    exc=e,
+                    exc_info=True,
+                    path=path,
+                    next_url=next_url,
+                    total=total,
+                )
+                break
+
             if "Query size exceeded" not in e.response.text:
                 raise
 
@@ -490,6 +504,9 @@ def get_from_query(
                 query_json=paginated_query,
                 limit_context=LimitContext.EXPORT,
                 execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                # Background export (no request user); attribute the read to the export owner so
+                # warehouse HogQL access control resolves against their access.
+                user=exported_asset.created_by,
                 pagination_cursor=cursor,
                 analytics_props=analytics_props,
             )

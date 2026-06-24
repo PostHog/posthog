@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -24,6 +25,8 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AirtableSource(SimpleSource[AirtableSourceConfig]):
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.AIRTABLE
@@ -38,6 +41,7 @@ class AirtableSource(SimpleSource[AirtableSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.AIRTABLE,
+            category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Airtable",
             caption="""Enter your Airtable personal access token to pull your Airtable bases into the PostHog Data warehouse.
 

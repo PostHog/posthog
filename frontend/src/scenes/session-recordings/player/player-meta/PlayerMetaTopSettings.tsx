@@ -7,8 +7,8 @@ import { LemonButton, LemonDialog, Link } from '@posthog/lemon-ui'
 
 import { SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS } from 'lib/constants'
 import { IconHeatmap } from 'lib/lemon-ui/icons'
-import { humanFriendlyDuration } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import {
     SettingsBar,
     SettingsButton,

@@ -218,7 +218,7 @@ def _merge_fingerprint_into_closest_issue(
 ) -> int:
     closest_fingerprint = closest_fingerprints[0] if closest_fingerprints else None
     team_id = team.id
-    if team_id not in settings.ERROR_TRACKING_AUTO_MERGE_FINGERPRINT_TEAM_IDS or closest_fingerprint is None:
+    if not settings.ERROR_TRACKING_AUTO_MERGE_ENABLED or closest_fingerprint is None:
         return 0
     if closest_fingerprint.distance >= AUTO_MERGE_DISTANCE_THRESHOLD:
         return 0

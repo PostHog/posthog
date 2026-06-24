@@ -53,6 +53,10 @@ class CreateRunInput:
     purpose: str = "review"
     # Run-level metadata (pr_title, ci_job_url, base_branch, etc.)
     metadata: dict = field(default_factory=dict)
+    # True when CI only rendered a subset of the suite.
+    # Tells the classifier to leave omitted baseline identifiers alone instead
+    # of marking them as removed.
+    is_partial: bool = False
 
 
 @dataclass(frozen=True)
@@ -93,6 +97,7 @@ class FinalizeRunRequestInput:
 
     approve_all: bool = False
     commit_to_github: bool = True
+    add_images_to_comment_on_pr: bool = False
 
 
 # --- Output DTOs ---
@@ -267,6 +272,8 @@ class Run:
     approved_by: UserBasicInfo | None = None
     # Flexible metadata (pr_title, ci_job_url, base_branch, etc.)
     metadata: dict = field(default_factory=dict)
+    # How this row matched the `search` query param: "exact", "similar", or None when not searching.
+    search_match_type: str | None = None
 
 
 @dataclass(frozen=True)

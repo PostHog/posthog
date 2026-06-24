@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,8 @@ class Dynamics365Source(SimpleSource[Dynamics365SourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.DYNAMICS365,
+            category=DataWarehouseSourceCategory.CRM,
+            keywords=["microsoft dynamics", "dynamics"],
             label="Microsoft Dynamics 365",
             iconPath="/static/services/dynamics365.png",
             fields=cast(list[FieldType], []),

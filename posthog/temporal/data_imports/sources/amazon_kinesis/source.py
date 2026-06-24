@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class AmazonKinesisSource(SimpleSource[AmazonKinesisSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.AMAZON_KINESIS,
+            category=DataWarehouseSourceCategory.DATABASES,
             label="Amazon Kinesis",
             iconPath="/static/services/aws-kinesis.png",
             fields=cast(list[FieldType], []),

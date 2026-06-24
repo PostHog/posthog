@@ -1,5 +1,7 @@
 """DRF serializers for business_knowledge."""
 
+from urllib.parse import urlparse
+
 from django.core.files.uploadedfile import UploadedFile
 from django.utils import timezone
 
@@ -25,6 +27,21 @@ from ..models import (
     RefreshInterval,
     SourceType,
 )
+
+
+def _derive_scope_globs(url: str) -> list[str]:
+    """
+    Auto-derive include globs from the entry URL path so that same-origin
+    crawls are scoped to the URL's section by default.
+
+    - Root path (``/`` or empty) → empty list (crawl the whole origin).
+    - Non-root → ``[path, path/*]`` to match the index page + descendants
+      without sibling bleed (e.g. ``/docs/support`` won't grab ``/docs/support-center``).
+    """
+    path = urlparse(url).path.rstrip("/") or "/"
+    if path == "/":
+        return []
+    return [path, f"{path}/*"]
 
 
 class _GlobListField(serializers.ListField):
@@ -114,6 +131,7 @@ class KnowledgeSourceSerializer(serializers.ModelSerializer):
             "original_filename",
             "file_content_type",
             "file_size_bytes",
+            "always_include",
         ]
         read_only_fields = fields
 
@@ -167,6 +185,11 @@ class CreateTextSourceSerializer(_NameValidationMixin, serializers.Serializer):
             "or wait for URL/file support in Stage 2/3."
         ),
     )
+    always_include = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true, this source's content is injected into every support reply prompt as general context (tone, policies, direction).",
+    )
 
     def validate_text(self, value: str) -> str:
         if not value.strip():
@@ -185,8 +208,8 @@ class CreateTextSourceSerializer(_NameValidationMixin, serializers.Serializer):
 
 class UpdateTextSourceSerializer(_NameValidationMixin, serializers.Serializer):
     """
-    PATCH payload for text sources. Both fields optional, at least one
-    required. `text` triggers a re-chunk; `name` alone does not.
+    PATCH payload for text sources. All fields optional, at least one
+    required. `text` triggers a re-chunk; `name` or `always_include` alone does not.
     """
 
     name = serializers.CharField(
@@ -199,6 +222,10 @@ class UpdateTextSourceSerializer(_NameValidationMixin, serializers.Serializer):
         trim_whitespace=False,
         help_text="Replacement text. Omit to keep the existing content.",
     )
+    always_include = serializers.BooleanField(
+        required=False,
+        help_text="When true, this source's content is injected into every support reply prompt as general context.",
+    )
 
     def validate_text(self, value: str) -> str:
         if not value.strip():
@@ -210,8 +237,8 @@ class UpdateTextSourceSerializer(_NameValidationMixin, serializers.Serializer):
         return value
 
     def validate(self, attrs: dict) -> dict:
-        if "name" not in attrs and "text" not in attrs:
-            raise serializers.ValidationError("Provide at least one of `name` or `text`.")
+        if "name" not in attrs and "text" not in attrs and "always_include" not in attrs:
+            raise serializers.ValidationError("Provide at least one of `name`, `text`, or `always_include`.")
         return attrs
 
 
@@ -240,6 +267,10 @@ class UpdateUrlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, seria
         choices=RefreshInterval.choices,
         required=False,
         help_text="How often to auto-refresh this source in the background. `manual` disables auto-refresh. Changing it alone does not trigger a re-crawl.",
+    )
+    always_include = serializers.BooleanField(
+        required=False,
+        help_text="When true, this source's content is injected into every support reply prompt as general context.",
     )
     include_globs = _GlobListField(
         required=False,
@@ -271,6 +302,14 @@ class UpdateUrlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, seria
         attrs = super().to_internal_value(data)
         crawl_config_keys = {"include_globs", "exclude_globs", "max_pages", "max_depth"}
         crawl_fields = {k: attrs.pop(k) for k in crawl_config_keys if k in attrs}
+        # Re-derive scope when include_globs was NOT sent (user didn't override),
+        # the URL is changing, and mode is same-origin.
+        if (
+            "include_globs" not in crawl_fields
+            and "url" in attrs
+            and attrs.get("crawl_mode", data.get("crawl_mode")) == CrawlMode.SAME_ORIGIN.value
+        ):
+            crawl_fields["include_globs"] = _derive_scope_globs(attrs["url"])
         if crawl_fields:
             attrs["crawl_config"] = crawl_fields
         return attrs
@@ -300,6 +339,11 @@ class CreateUrlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, seria
         required=False,
         default=RefreshInterval.MANUAL,
         help_text="How often to auto-refresh this source in the background. `manual` disables auto-refresh.",
+    )
+    always_include = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true, this source's content is injected into every support reply prompt as general context.",
     )
 
     def to_internal_value(self, data: dict) -> dict:
@@ -335,6 +379,11 @@ class CreateCrawlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, ser
         default=RefreshInterval.MANUAL,
         help_text="How often to auto-refresh this source in the background. `manual` disables auto-refresh.",
     )
+    always_include = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true, this source's content is injected into every support reply prompt as general context.",
+    )
     include_globs = _GlobListField(
         required=False,
         default=list,
@@ -363,8 +412,11 @@ class CreateCrawlSourceSerializer(_NameValidationMixin, _UrlValidationMixin, ser
     def to_internal_value(self, data: dict) -> dict:
         attrs = super().to_internal_value(data)
         attrs["source_type"] = SourceType.URL.value
+        include_globs = attrs.pop("include_globs")
+        if not include_globs and attrs.get("crawl_mode") == CrawlMode.SAME_ORIGIN.value:
+            include_globs = _derive_scope_globs(attrs["url"])
         attrs["crawl_config"] = {
-            "include_globs": attrs.pop("include_globs"),
+            "include_globs": include_globs,
             "exclude_globs": attrs.pop("exclude_globs"),
             "max_pages": attrs.pop("max_pages"),
             "max_depth": attrs.pop("max_depth"),
@@ -468,6 +520,11 @@ class CreateFileSourceSerializer(_NameValidationMixin, serializers.Serializer):
         help_text=(
             f"PDF, DOCX, Markdown (.md), CSV, or plain text (.txt) file. Max {MAX_FILE_SIZE_BYTES // (1024 * 1024)} MB."
         ),
+    )
+    always_include = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="When true, this source's content is injected into every support reply prompt as general context.",
     )
 
     def validate_file(self, value: UploadedFile) -> UploadedFile:  # noqa: F821

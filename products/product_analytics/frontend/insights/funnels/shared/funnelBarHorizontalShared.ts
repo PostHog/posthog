@@ -33,10 +33,13 @@ export interface FunnelBarHorizontalStepData {
     series: Series<FunnelBarHorizontalSegmentMeta>[]
 }
 
-/** Trailing grey band that fills the bar up to 100% so every step reads against the same axis. */
+/** Trailing grey band that fills the bar up to 100% so every step reads against the same axis.
+ *  `breakdownIndex` tags the filler with its period/variant in compare mode so a drop-off click
+ *  resolves the right series; it stays null for the single-bar and breakdown paths. */
 export function buildFunnelBarHorizontalFiller(
     segments: Series<FunnelBarHorizontalSegmentMeta>[],
-    color: string
+    color: string,
+    breakdownIndex: number | null = null
 ): Series<FunnelBarHorizontalSegmentMeta> {
     const covered = segments.reduce((sum, s) => sum + (s.data[0] ?? 0), 0)
     return {
@@ -45,7 +48,7 @@ export function buildFunnelBarHorizontalFiller(
         data: [Math.max(0, RATE_TO_PERCENT - covered)],
         color,
         visibility: { tooltip: false },
-        meta: { isDropOff: true, breakdownIndex: null },
+        meta: { isDropOff: true, breakdownIndex },
     }
 }
 

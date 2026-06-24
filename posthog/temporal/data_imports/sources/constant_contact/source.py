@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class ConstantContactSource(SimpleSource[ConstantContactSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CONSTANT_CONTACT,
+            category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Constant Contact",
             iconPath="/static/services/constant_contact.png",
             fields=cast(list[FieldType], []),

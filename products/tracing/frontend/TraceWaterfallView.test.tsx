@@ -71,4 +71,76 @@ describe('TraceWaterfallView', () => {
         expect(onSpanSelect).toHaveBeenNthCalledWith(1, 'span-child')
         expect(onSpanSelect).toHaveBeenNthCalledWith(2, null)
     })
+
+    it('collapses a span subtree, hiding descendants without selecting the row', () => {
+        const onSpanSelect = jest.fn()
+        const { container } = render(<TraceWaterfallView spans={[root, child]} onSpanSelect={onSpanSelect} />)
+
+        expect(within(container).queryAllByText('child-operation').length).toBeGreaterThan(0)
+
+        fireEvent.click(within(container).getByLabelText('Collapse child spans'))
+
+        expect(within(container).queryByText('child-operation')).toBeNull()
+        // Toggling collapse must not double as selecting the row.
+        expect(onSpanSelect).not.toHaveBeenCalled()
+        // Re-expanding brings the child back.
+        fireEvent.click(within(container).getByLabelText('Expand child spans'))
+        expect(within(container).queryAllByText('child-operation').length).toBeGreaterThan(0)
+    })
+
+    it('collapses and expands every span via the header toggle', () => {
+        const { container } = render(<TraceWaterfallView spans={[root, child]} />)
+
+        fireEvent.click(within(container).getByLabelText('Collapse all spans'))
+        expect(within(container).queryByText('child-operation')).toBeNull()
+
+        fireEvent.click(within(container).getByLabelText('Expand all spans'))
+        expect(within(container).queryAllByText('child-operation').length).toBeGreaterThan(0)
+    })
+
+    it('does not render a collapse toggle for leaf spans', () => {
+        const { container } = render(<TraceWaterfallView spans={[child]} />)
+
+        expect(within(container).queryByLabelText('Collapse child spans')).toBeNull()
+        expect(within(container).queryByLabelText('Collapse all spans')).toBeNull()
+    })
+
+    it('does not request more spans when hasMore is false', () => {
+        const onLoadMore = jest.fn()
+        render(<TraceWaterfallView spans={[root, child]} hasMore={false} onLoadMore={onLoadMore} />)
+
+        expect(onLoadMore).not.toHaveBeenCalled()
+    })
+
+    it('requests more spans at most once per loaded count, even across rerenders with the same spans', () => {
+        // The runaway bug: a page that returns no new rows leaves the window pinned at the bottom, so
+        // the trigger refires every render. The guard pages once per loaded count — re-rendering with
+        // the same spans (the loading-more flag toggling back) must not refire.
+        const onLoadMore = jest.fn()
+        const { rerender } = render(<TraceWaterfallView spans={[root, child]} hasMore onLoadMore={onLoadMore} />)
+
+        expect(onLoadMore).toHaveBeenCalledTimes(1)
+
+        rerender(<TraceWaterfallView spans={[root, child]} hasMore loadingMore onLoadMore={onLoadMore} />)
+        rerender(<TraceWaterfallView spans={[root, child]} hasMore onLoadMore={onLoadMore} />)
+
+        expect(onLoadMore).toHaveBeenCalledTimes(1)
+    })
+
+    it('requests more again once new spans grow the loaded count', () => {
+        const grandchild = makeSpan({
+            uuid: 'uuid-grandchild',
+            span_id: 'span-grandchild',
+            parent_span_id: 'span-child',
+            name: 'grandchild-operation',
+        })
+        const onLoadMore = jest.fn()
+        const { rerender } = render(<TraceWaterfallView spans={[root, child]} hasMore onLoadMore={onLoadMore} />)
+
+        expect(onLoadMore).toHaveBeenCalledTimes(1)
+
+        rerender(<TraceWaterfallView spans={[root, child, grandchild]} hasMore onLoadMore={onLoadMore} />)
+
+        expect(onLoadMore).toHaveBeenCalledTimes(2)
+    })
 })

@@ -1,6 +1,5 @@
 import csv
 import uuid
-import typing
 import zipfile
 import datetime as dt
 import tempfile
@@ -17,6 +16,8 @@ from posthog.temporal.data_imports.sources.common.resumable import ResumableSour
 
 from .schemas import BingAdsResource
 
+logger = structlog.get_logger(__name__)
+
 
 @dataclasses.dataclass
 class BingAdsResumeConfig:
@@ -30,8 +31,6 @@ class BingAdsResumeConfig:
     next_start_date: str
     end_date: str
 
-
-logger = structlog.get_logger(__name__)
 
 ENVIRONMENT = "production"
 REPORT_POLL_INTERVAL_MS = 5000
@@ -73,7 +72,6 @@ def fetch_data_in_yearly_chunks(
         end_date = dt.date.fromisoformat(saved_state.end_date)
 
     current_start = start_date
-    errors: list[dict[str, typing.Any]] = []
 
     while current_start <= end_date:
         chunk_end = min(
@@ -88,37 +86,33 @@ def fetch_data_in_yearly_chunks(
                 start_date=dt.datetime.combine(current_start, dt.time.min),
                 end_date=dt.datetime.combine(chunk_end, dt.time.max),
             )
-
             for page in data_pages:
                 if page:
                     yield page
         except Exception as e:
-            errors.append(
-                {
-                    "start_date": current_start.isoformat(),
-                    "end_date": chunk_end.isoformat(),
-                    "error": str(e),
-                    "error_type": type(e).__name__,
-                }
+            # Bing's 36-month retention boundary moves day by day, so the oldest chunk can land just
+            # outside it and get rejected with InvalidCustomDateRangeEnd. That rejection is
+            # deterministic — skip the out-of-retention chunk (advancing the checkpoint below) instead
+            # of failing the whole sync. Any other error stays fatal so it can retry.
+            if "InvalidCustomDateRangeEnd" not in str(e):
+                raise
+            logger.warning(
+                "Skipping Bing Ads report chunk outside the 36-month retention window",
+                resource=resource.value,
+                chunk_start=current_start.isoformat(),
+                chunk_end=chunk_end.isoformat(),
             )
 
         # Move to the day after chunk_end to avoid duplicate dates at chunk boundaries
         current_start = chunk_end + dt.timedelta(days=1)
 
-        # Checkpoint after each chunk boundary (both success and error paths) so resume
-        # always advances past chunks we've already attempted.
+        # Checkpoint only after a chunk has been fetched, so a resume re-attempts a failed
+        # chunk rather than skipping past it.
         resumable_source_manager.save_state(
             BingAdsResumeConfig(
                 next_start_date=current_start.isoformat(),
                 end_date=end_date.isoformat(),
             )
-        )
-
-    if errors:
-        logger.error(
-            "Some data chunks failed to fetch",
-            failed_chunks=len(errors),
-            total_errors=errors,
         )
 
 
@@ -199,6 +193,12 @@ def download_and_extract_report_csv(
         )
 
         result_file_path = reporting_service_manager.download_file(download_params)
+
+        # Bing returns no file when the report completes with zero rows for the requested range
+        # (e.g. a date window with no campaign activity). Treat that as an empty report instead of
+        # crashing on Path(None).
+        if result_file_path is None:
+            return ""
 
         result_path = Path(result_file_path)
         with zipfile.ZipFile(result_path, "r") as zip_file:

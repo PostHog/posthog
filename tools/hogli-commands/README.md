@@ -50,7 +50,7 @@ That's it. No side-effect imports, no central registration list to maintain.
 `config.boot_modules` in `hogli.yaml` lists modules imported once at startup. They register hooks via `hogli.hooks`:
 
 - `hogli_commands.prechecks` — declares the `migrations` precheck (used by `dev:start`).
-- `hogli_commands.telemetry_props` — adds PostHog environment props (`in_flox`, `is_worktree`, `is_posthog_dev`, `process_manager`, `has_devenv_config`) to every `command_completed` event.
+- `hogli_commands.telemetry_props` — adds PostHog environment props (`environment`, `agent`, `is_agent`, `in_flox`, `is_worktree`, `is_posthog_dev`, `process_manager`, `has_devenv_config`, `repo_sha`, `repo_commit_date`) to every `command_started` / `command_completed` event.
 - `hogli_commands.hint_hook` — shows a contextual hint after successful commands.
 
 Add a new boot module by creating a file that calls one of the `register_*` helpers from `hogli.hooks` at import time, then list it under `config.boot_modules:`. Keep these modules import-light: the precheck handler in `prechecks.py` is the canonical example of deferring its heavy import until the handler actually fires.

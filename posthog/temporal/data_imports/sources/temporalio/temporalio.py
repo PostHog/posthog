@@ -3,14 +3,14 @@ import asyncio
 import datetime
 import threading
 import dataclasses
-from collections.abc import Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from enum import StrEnum
 from queue import Queue
-from typing import Any, Optional
+from typing import Any, Optional, TypeVar
 
 from structlog.types import FilteringBoundLogger
 from temporalio.client import Client
-from temporalio.service import RPCError
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.common.client import connect
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -51,6 +51,35 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
 @dataclasses.dataclass
 class TemporalIOResumeConfig:
     next_page_token: str  # Base64-encoded bytes for JSON serialization
+
+
+T = TypeVar("T")
+
+# Temporal Cloud throttles per-namespace RPCs (RPS / concurrency / overload) with a gRPC
+# RESOURCE_EXHAUSTED status — e.g. "namespace rate limit exceeded". It's transient: a short backoff
+# usually clears the window. Riding it out in-process keeps a brief throttle from failing the whole
+# import activity (which would rebuild the client and restart pagination) and avoids error-tracking
+# noise. Persistent throttling re-raises so Temporal's activity retry still applies.
+_MAX_RATE_LIMIT_ATTEMPTS = 6
+
+
+async def _with_rate_limit_retry(
+    operation: Callable[[], Awaitable[T]],
+    logger: FilteringBoundLogger,
+    *,
+    max_attempts: int = _MAX_RATE_LIMIT_ATTEMPTS,
+) -> T:
+    attempt = 0
+    while True:
+        try:
+            return await operation()
+        except RPCError as e:
+            attempt += 1
+            if attempt >= max_attempts or e.status != RPCStatusCode.RESOURCE_EXHAUSTED:
+                raise
+            backoff = min(2 * attempt, 30)
+            logger.debug("TemporalIO: namespace rate limited", backoff_seconds=backoff, attempt=attempt)
+            await asyncio.sleep(backoff)
 
 
 def _async_iter_to_sync(async_iter):
@@ -118,13 +147,21 @@ class FakeSettings:
 
 
 async def _get_temporal_client(config: TemporalIOSourceConfig) -> Client:
+    if config.fallback_decryption_keys:
+        fallback_keys = [k.strip() for k in config.fallback_decryption_keys.split(",") if k.strip()]
+    else:
+        fallback_keys = []
+
     return await connect(
         host=config.host,
         port=config.port,
         namespace=config.namespace,
         client_cert=config.client_certificate,
         client_key=config.client_private_key,
-        settings=FakeSettings(config.encryption_key)
+        settings=FakeSettings(
+            TEMPORAL_SECRET_KEY=config.encryption_key,
+            TEMPORAL_FALLBACK_SECRET_KEYS=fallback_keys,
+        )
         if config.encryption_key and len(config.encryption_key) > 0
         else None,
     )
@@ -169,7 +206,7 @@ async def _get_workflows(
         # Save the token that will be used to fetch this page *before* fetching.
         # On resume we re-fetch this same page — duplicates are safe thanks to primary keys.
         pre_fetch_token = workflows.next_page_token
-        await workflows.fetch_next_page()
+        await _with_rate_limit_retry(workflows.fetch_next_page, logger)
         page = workflows.current_page
         if not page:
             break
@@ -220,7 +257,7 @@ async def _get_workflow_histories(
         # Save the token that will be used to fetch this page *before* fetching.
         # On resume we re-fetch this same page — duplicates are safe thanks to primary keys.
         pre_fetch_token = workflows.next_page_token
-        await workflows.fetch_next_page()
+        await _with_rate_limit_retry(workflows.fetch_next_page, logger)
         page = workflows.current_page
         if not page:
             break
@@ -236,7 +273,8 @@ async def _get_workflow_histories(
 
         for item in page:
             try:
-                history = await client.get_workflow_handle(item.id, run_id=item.run_id).fetch_history()
+                handle = client.get_workflow_handle(item.id, run_id=item.run_id)
+                history = await _with_rate_limit_retry(handle.fetch_history, logger)
                 history_dict = history.to_json_dict()
                 events = history_dict["events"]
                 for event in events:

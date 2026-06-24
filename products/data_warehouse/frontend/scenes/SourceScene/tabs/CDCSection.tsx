@@ -22,11 +22,12 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { humanizeBytes } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { humanizeBytes } from 'lib/utils/numbers'
 
 import { AccessControlLevel, AccessControlResourceType, ExternalDataSource } from '~/types'
 
+import { CDC_SOURCE_TYPES } from '../../../shared/cdc'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
 
 type ManagementMode = 'posthog' | 'self_managed'
@@ -146,7 +147,7 @@ function confirmThen(opts: {
 export function CDCSection({ source }: { source: ExternalDataSource }): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
 
-    if (source.source_type !== 'Postgres') {
+    if (!CDC_SOURCE_TYPES.includes(source.source_type)) {
         return null
     }
     if (source.access_method !== 'warehouse') {
@@ -331,6 +332,27 @@ function EnabledControls({ source }: { source: ExternalDataSource }): JSX.Elemen
                             ? 'The replication slot is missing on your database — CDC syncs will fail until it is recreated. Disable and re-enable CDC to recreate it.'
                             : 'The publication is missing on your database — recreate it (self-managed) or disable and re-enable CDC (PostHog-managed).'}
                     </LemonBanner>
+                )}
+                {status?.publication_exists && (
+                    <div className="mt-3">
+                        <div className="text-secondary text-xs mb-1">
+                            Replicated tables {status.published_tables ? `(${status.published_tables.length})` : ''}
+                        </div>
+                        {status.published_tables && status.published_tables.length > 0 ? (
+                            <div className="flex flex-wrap gap-1">
+                                {status.published_tables.map((table: string) => (
+                                    <LemonTag key={table} type="muted">
+                                        <code className="text-xs">{table}</code>
+                                    </LemonTag>
+                                ))}
+                            </div>
+                        ) : (
+                            <p className="text-xs text-secondary m-0">
+                                No tables are in the publication yet — pick CDC as the sync type on the Schemas tab to
+                                add one.
+                            </p>
+                        )}
+                    </div>
                 )}
             </div>
 

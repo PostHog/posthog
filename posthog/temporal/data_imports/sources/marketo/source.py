@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class MarketoSource(SimpleSource[MarketoSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.MARKETO,
+            category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Marketo",
             iconPath="/static/services/marketo.png",
             fields=cast(list[FieldType], []),

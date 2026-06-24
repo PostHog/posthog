@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,8 @@ class MicrosoftTeamsSource(SimpleSource[MicrosoftTeamsSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.MICROSOFT_TEAMS,
+            category=DataWarehouseSourceCategory.COMMUNICATION,
+            keywords=["ms teams", "teams"],
             label="Microsoft Teams",
             iconPath="/static/services/microsoft_teams.png",
             fields=cast(list[FieldType], []),

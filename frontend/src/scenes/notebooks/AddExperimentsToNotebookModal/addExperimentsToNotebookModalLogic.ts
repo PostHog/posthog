@@ -3,7 +3,8 @@ import { loaders } from 'kea-loaders'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
-import { objectsEqual, toParams } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
+import { toParams } from 'lib/utils/url'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { Experiment } from '~/types'

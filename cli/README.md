@@ -55,3 +55,41 @@ Commands require different API scopes. Make sure to set these scopes on your per
 | `exp endpoints push`          | `endpoint:write`, `insight_variable:write` |
 | `exp endpoints run`           | `query:read`                               |
 | `exp tasks`                   | `task:read`                                |
+
+## Agent-first API tools
+
+`posthog-cli api` exposes PostHog's MCP tool catalog through a shell-friendly interface for coding agents:
+
+```bash
+posthog-cli api --agent-help
+posthog-cli api search feature-flag
+posthog-cli api info feature-flag-get-all
+posthog-cli api schema query-trends series
+posthog-cli api call --json feature-flag-get-all '{"limit":5}'
+posthog-cli api call --dry-run feature-flags-bulk-delete-create '{"ids":[123]}'
+posthog-cli api skill list
+posthog-cli api skill install audit
+posthog-cli api agents-md install
+```
+
+Destructive tools require `--confirm` when executed. Use `--dry-run` before mutations.
+
+`posthog-cli api --agent-help` prints the full agent-facing guide — the same exec tool reference the PostHog MCP server serves, rewritten for CLI invocation — so agents can load it into context before interacting with PostHog APIs.
+
+### Agent steering instructions
+
+Install the PostHog CLI steering instructions into the agent instructions file for your project:
+
+```bash
+posthog-cli api agents-md install
+```
+
+By default this updates `AGENTS.md` in the current directory. If your agent reads a different instructions file, pass it explicitly:
+
+```bash
+posthog-cli api agents-md install --path path/to/AGENTS.md
+```
+
+The installed instructions come from the shared snippet at [`services/mcp/src/cli/agents-md-snippet.md`](../services/mcp/src/cli/agents-md-snippet.md), so the installer and this README point at the same source of truth.
+
+The snippet is written as a `<posthog>...</posthog>` block. Rerunning the install replaces the existing block in place, so upgrading the CLI and reinstalling refreshes stale instructions without duplicating them.

@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class OneDriveSource(SimpleSource[OneDriveSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.ONE_DRIVE,
+            category=DataWarehouseSourceCategory.FILE_STORAGE,
             label="OneDrive",
             iconPath="/static/services/onedrive.png",
             fields=cast(list[FieldType], []),

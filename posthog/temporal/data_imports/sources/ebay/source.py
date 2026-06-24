@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class EbaySource(SimpleSource[EbaySourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.EBAY,
+            category=DataWarehouseSourceCategory.E_COMMERCE,
             label="eBay",
             iconPath="/static/services/ebay.png",
             fields=cast(list[FieldType], []),

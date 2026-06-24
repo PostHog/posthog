@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconInfo, IconOpenSidebar } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
@@ -22,6 +22,7 @@ import {
     NotebookCollabStatus,
     NotebookExpandButton,
     NotebookKernelInfoButton,
+    NotebookPresence,
     NotebookSyncInfo,
     NotebookTableOfContentsButton,
 } from './Notebook/NotebookMeta'
@@ -53,6 +54,7 @@ export function NotebookScene(): JSX.Element {
     const isMarkdownNotebook = isMarkdownNotebookContent(content)
     const { selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
     const { selectedNotebook, visibility } = useValues(notebookPanelLogic)
+    const [isMarkdownSourceOpen, setIsMarkdownSourceOpen] = useState(false)
 
     useEffect(() => {
         if (notebookId === 'new') {
@@ -76,6 +78,10 @@ export function NotebookScene(): JSX.Element {
             createNotebook(NotebookTarget.Scene, title, content)
         }
         // oxlint-disable-next-line exhaustive-deps
+    }, [notebookId])
+
+    useEffect(() => {
+        setIsMarkdownSourceOpen(false)
     }, [notebookId])
 
     useFileSystemLogView({
@@ -129,30 +135,43 @@ export function NotebookScene(): JSX.Element {
                 <div className="flex gap-2 items-center">
                     <NotebookCollabStatus shortId={notebookId} />
                     <NotebookSyncInfo shortId={notebookId} />
+                    <NotebookPresence shortId={notebookId} />
 
                     <NotebookMenu shortId={notebookId} />
 
-                    <LemonButton
+                    {!isMarkdownNotebook ? (
+                        <>
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconInfo />}
+                                size="small"
+                                onClick={() => {
+                                    if (
+                                        selectedNotebook === LOCAL_NOTEBOOK_TEMPLATES[0].short_id &&
+                                        visibility === 'visible'
+                                    ) {
+                                        closeSidePanel()
+                                    } else {
+                                        selectNotebook(LOCAL_NOTEBOOK_TEMPLATES[0].short_id)
+                                    }
+                                }}
+                            >
+                                {selectedNotebook === LOCAL_NOTEBOOK_TEMPLATES[0].short_id && visibility === 'visible'
+                                    ? 'Close '
+                                    : ''}
+                                Guide
+                            </LemonButton>
+                            <NotebookTableOfContentsButton type="secondary" size="small" />
+                        </>
+                    ) : null}
+                    <NotebookKernelInfoButton
                         type="secondary"
-                        icon={<IconInfo />}
                         size="small"
-                        onClick={() => {
-                            if (selectedNotebook === LOCAL_NOTEBOOK_TEMPLATES[0].short_id && visibility === 'visible') {
-                                closeSidePanel()
-                            } else {
-                                selectNotebook(LOCAL_NOTEBOOK_TEMPLATES[0].short_id)
-                            }
-                        }}
-                    >
-                        {selectedNotebook === LOCAL_NOTEBOOK_TEMPLATES[0].short_id && visibility === 'visible'
-                            ? 'Close '
-                            : ''}
-                        Guide
-                    </LemonButton>
-                    <NotebookTableOfContentsButton type="secondary" size="small" />
-                    <NotebookKernelInfoButton type="secondary" size="small" />
-                    {/* Markdown notebooks have no width toggle — they always fill the content width. */}
-                    {!isMarkdownNotebook && <NotebookExpandButton type="secondary" size="small" inPanel={false} />}
+                        onBeforeShowKernelInfo={isMarkdownNotebook ? () => setIsMarkdownSourceOpen(false) : undefined}
+                    />
+                    {!isMarkdownNotebook ? (
+                        <NotebookExpandButton type="secondary" size="small" inPanel={false} />
+                    ) : null}
                     <LemonButton
                         type="secondary"
                         size="small"
@@ -174,7 +193,13 @@ export function NotebookScene(): JSX.Element {
                 </div>
             </div>
 
-            <Notebook key={notebookId} shortId={notebookId} editable={!isTemplate} />
+            <Notebook
+                key={notebookId}
+                shortId={notebookId}
+                editable={!isTemplate}
+                markdownSourceOpen={isMarkdownSourceOpen}
+                onMarkdownSourceOpenChange={setIsMarkdownSourceOpen}
+            />
             <NotebookShareModal shortId={notebookId} />
         </>
     )

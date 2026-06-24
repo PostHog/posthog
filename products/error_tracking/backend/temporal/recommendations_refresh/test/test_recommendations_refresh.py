@@ -14,13 +14,13 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import Team
 
+from products.error_tracking.backend.logic.recommendations.long_running_issues import LongRunningIssuesRecommendation
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,
     ErrorTrackingRecommendation,
     sync_issues_to_clickhouse,
 )
-from products.error_tracking.backend.recommendations.long_running_issues import LongRunningIssuesRecommendation
 from products.error_tracking.backend.sql import TRUNCATE_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL
 from products.error_tracking.backend.temporal.recommendations_refresh.activities import (
     get_team_batches_activity,
@@ -37,15 +37,15 @@ from products.error_tracking.backend.temporal.recommendations_refresh.workflow i
     ErrorTrackingRecommendationsRefreshWorkflow,
 )
 
-_ALERTS_COMPUTE_BATCH = "products.error_tracking.backend.recommendations.alerts.AlertsRecommendation.compute_batch"
-_LONG_RUNNING_COMPUTE_BATCH = (
-    "products.error_tracking.backend.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute_batch"
+_ALERTS_COMPUTE_BATCH = (
+    "products.error_tracking.backend.logic.recommendations.alerts.AlertsRecommendation.compute_batch"
 )
+_LONG_RUNNING_COMPUTE_BATCH = "products.error_tracking.backend.logic.recommendations.long_running_issues.LongRunningIssuesRecommendation.compute_batch"
 _SOURCE_MAPS_COMPUTE_BATCH = (
-    "products.error_tracking.backend.recommendations.source_maps.SourceMapsRecommendation.compute_batch"
+    "products.error_tracking.backend.logic.recommendations.source_maps.SourceMapsRecommendation.compute_batch"
 )
 _RATE_LIMITS_COMPUTE_BATCH = (
-    "products.error_tracking.backend.recommendations.rate_limits.RateLimitsRecommendation.compute_batch"
+    "products.error_tracking.backend.logic.recommendations.rate_limits.RateLimitsRecommendation.compute_batch"
 )
 
 _ALERTS_META = {"alerts": [{"key": "error-tracking-issue-created", "enabled": False}]}

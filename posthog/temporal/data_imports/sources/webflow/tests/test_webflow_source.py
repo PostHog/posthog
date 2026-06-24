@@ -57,6 +57,19 @@ class TestWebflowSource:
         errors = WebflowSource().get_non_retryable_errors()
         assert "401 Client Error" in errors
         assert "403 Client Error" in errors
+        assert "409 Client Error: Conflict" in errors
+
+    def test_409_conflict_message_is_recognised_as_non_retryable(self) -> None:
+        # Webflow returns 409 on /products when the site has no ecommerce; the raised
+        # HTTPError message embeds a volatile site id and URL, so we must match on a
+        # stable substring that excludes them.
+        errors = WebflowSource().get_non_retryable_errors()
+        raised_message = (
+            "409 Client Error: Conflict for url: "
+            "https://api.webflow.com/v2/sites/691afa9e7404e1259a4d0802/products?limit=100&offset=0"
+        )
+        matches = [pattern for pattern in errors if pattern in raised_message]
+        assert matches == ["409 Client Error: Conflict"]
 
     def test_get_schemas_includes_static_and_dynamic_collections(self) -> None:
         with patch(

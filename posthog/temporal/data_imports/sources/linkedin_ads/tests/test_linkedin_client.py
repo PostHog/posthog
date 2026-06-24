@@ -5,6 +5,7 @@ import pytest
 from unittest import mock
 
 import requests
+from linkedin_api.common.errors import ResponseFormattingError
 from structlog.testing import capture_logs
 
 from posthog.temporal.data_imports.sources.linkedin_ads.client import (
@@ -346,6 +347,11 @@ class TestLinkedinAdsClient:
                 2,
                 id="http_429",
             ),
+            pytest.param(
+                lambda: ResponseFormattingError("Expecting value: line 1 column 1 (char 0)"),
+                3,
+                id="non_json_response",
+            ),
         ],
     )
     @mock.patch("tenacity.nap.time.sleep", return_value=None)
@@ -491,6 +497,21 @@ class TestLinkedinAdsClient:
         # Whatever wait we chose, it must be non-negative (tenacity would raise otherwise).
         assert mock_sleep.call_count == 1
         assert mock_sleep.call_args[0][0] >= 0
+
+    @mock.patch("tenacity.nap.time.sleep", return_value=None)
+    @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
+    def test_non_json_response_exhausts_retries_as_retryable_error(self, mock_restli_client, _mock_sleep):
+        """A persistently non-JSON response is retried, then reraised as LinkedinAdsRetryableError
+        rather than crashing the sync with a bare JSONDecodeError from the Restli client."""
+        mock_client_instance = mock_restli_client.return_value
+        mock_client_instance.finder.side_effect = ResponseFormattingError("Expecting value: line 1 column 1 (char 0)")
+
+        client = LinkedinAdsClient(self.access_token)
+
+        with pytest.raises(LinkedinAdsRetryableError, match="malformed \\(non-JSON\\) response"):
+            client.get_accounts()
+
+        assert mock_client_instance.finder.call_count == 5
 
     def test_retryable_error_is_exported(self):
         assert issubclass(LinkedinAdsRetryableError, Exception)

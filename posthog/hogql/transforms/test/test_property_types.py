@@ -440,6 +440,31 @@ class TestPropertyTypes(BaseTest):
 
         assert printed == self.snapshot
 
+    @parameterized.expand(
+        [
+            ("to_float_or_zero", "toFloatOrZero(properties.$screen_width)", "toFloat64OrZero"),
+            ("to_int_or_zero", "toIntOrZero(properties.$screen_width)", "toInt64OrZero"),
+            ("to_float_or_default", "toFloatOrDefault(properties.$screen_width, 0)", "toFloat64OrDefault"),
+        ]
+    )
+    def test_numeric_property_not_double_cast_inside_string_parser(self, _name: str, expr: str, ch_fn: str):
+        # toFloat64OrZero/toInt64OrZero/toFloat64OrDefault require a String first argument.
+        # A Numeric property must keep its raw string value here instead of being cast to
+        # Float, otherwise ClickHouse raises ILLEGAL_TYPE_OF_ARGUMENT on a Float64 argument.
+        printed = self._print_select(f"select {expr} from events")
+        assert f"{ch_fn}(accurateCastOrNull" not in printed
+        assert f"{ch_fn}(" in printed
+
+    def test_numeric_property_still_cast_outside_string_parser(self):
+        # Without an explicit string parser, a Numeric property is still cast to Float.
+        printed = self._print_select("select properties.$screen_width from events")
+        assert "accurateCastOrNull" in printed
+
+    def test_numeric_property_cast_when_explicitly_stringified_inside_parser(self):
+        # toString resets the suppression, so the inner Numeric property is cast again.
+        printed = self._print_select("select toFloatOrZero(toString(properties.$screen_width)) from events")
+        assert "toFloat64OrZero(toString(accurateCastOrNull" in printed
+
     def _print_select(self, select: str) -> str:
         expr = parse_select(select)
         query, _ = prepare_and_print_ast(

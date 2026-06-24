@@ -1,5 +1,4 @@
 import 'jest-canvas-mock'
-import 'whatwg-fetch'
 
 import { configure } from '@testing-library/react'
 import { TextDecoder, TextEncoder } from 'util'

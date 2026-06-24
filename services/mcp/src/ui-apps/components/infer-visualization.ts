@@ -1,6 +1,6 @@
 import type { FunnelResult, HogQLResult, LifecycleResult, PathsResult, RetentionResult, TrendsResult } from './types'
 
-export type VisualizationType = 'trends' | 'funnel' | 'lifecycle' | 'retention' | 'paths' | 'table'
+export type VisualizationType = 'trends' | 'stickiness' | 'funnel' | 'lifecycle' | 'retention' | 'paths' | 'table'
 
 /**
  * Lifecycle results share the trends shape but each item carries a `status` field
@@ -129,6 +129,13 @@ export function inferVisualizationType(data: unknown): VisualizationType | null 
     const d = data as Record<string, unknown>
     const results = d.results
 
+    // Resolve the query kind up front. Wrapper nodes (`DataVisualizationNode` for HogQL/SQL
+    // insights, `InsightVizNode` for standard insights) carry the real query kind on
+    // `source.kind` — unwrap so a formatted-results payload (where the structural guards below
+    // can't match) still resolves to the right visualization.
+    const query = d.query as Record<string, unknown> | undefined
+    const kind = unwrapQueryKind(query)
+
     // Infer from results structure first (most reliable)
     if (isHogQLResult(results)) {
         return 'table'
@@ -145,6 +152,12 @@ export function inferVisualizationType(data: unknown): VisualizationType | null 
     if (isPathsResult(results)) {
         return 'paths'
     }
+    // Stickiness rows are structurally identical to trends (`data`/`labels`/`days`), so the query
+    // kind is the only reliable signal — it must be checked before the `isTrendsResult` guard.
+    // Stickiness renders a percentage-of-users distribution, not a raw-count time series.
+    if (kind === 'StickinessQuery') {
+        return 'stickiness'
+    }
     if (isTrendsResult(results)) {
         return 'trends'
     }
@@ -152,26 +165,44 @@ export function inferVisualizationType(data: unknown): VisualizationType | null 
         return 'funnel'
     }
 
-    // Infer from query kind as fallback
-    const query = d.query as Record<string, unknown> | undefined
-    if (query?.kind === 'LifecycleQuery') {
+    // Fall back to the query kind when the structural guards above can't match (e.g. a
+    // formatted-results payload). Stickiness is handled above, ahead of the trends shape guard.
+    if (kind === 'LifecycleQuery') {
         return 'lifecycle'
     }
-    if (query?.kind === 'TrendsQuery') {
+    if (kind === 'TrendsQuery') {
         return 'trends'
     }
-    if (query?.kind === 'FunnelsQuery') {
+    if (kind === 'FunnelsQuery') {
         return 'funnel'
     }
-    if (query?.kind === 'RetentionQuery') {
+    if (kind === 'RetentionQuery') {
         return 'retention'
     }
-    if (query?.kind === 'PathsQuery') {
+    if (kind === 'PathsQuery') {
         return 'paths'
     }
-    if (query?.kind === 'HogQLQuery') {
+    if (kind === 'HogQLQuery') {
         return 'table'
     }
 
     return null
+}
+
+/**
+ * Resolve the effective query kind, unwrapping the wrapper nodes that carry their real
+ * query on `source.kind`: `DataVisualizationNode` (HogQL/SQL insights) and `InsightVizNode`
+ * (standard insights). Returns the wrapper's own kind when there's nothing to unwrap.
+ */
+function unwrapQueryKind(query: Record<string, unknown> | undefined): string | undefined {
+    if (!query) {
+        return undefined
+    }
+    if (query.kind === 'DataVisualizationNode' || query.kind === 'InsightVizNode') {
+        const source = query.source as Record<string, unknown> | undefined
+        if (source && typeof source.kind === 'string') {
+            return source.kind
+        }
+    }
+    return typeof query.kind === 'string' ? query.kind : undefined
 }

@@ -77,6 +77,11 @@ export const CODING_AGENT_CLIENT_NAME_FRAGMENTS = [
     // but an LLM-driven consumer that benefits from the same single-exec mode
     // and formatted-text rendering as coding agents).
     'notion',
+    // OpenCode is a terminal coding agent (and the engine behind clients like
+    // OpenWork). It connects through OpenCode's MCP client, which self-reports
+    // `clientInfo.name` as `opencode`. It renders text, not MCP Apps UI, so it
+    // wants single-exec mode like the other coding agents.
+    'opencode',
 ] as const
 
 // Known `x-anthropic-client` (`vendorClient`) header values. Anthropic pools

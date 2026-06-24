@@ -240,7 +240,7 @@ class TestBuildSnapshot:
 
 
 class TestFetchIntentCorpus(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, BaseTest):
-    """End-to-end: posthog_mcp_session in Postgres + mcp_tool_call in ClickHouse."""
+    """End-to-end: posthog_mcp_session in Postgres + $mcp_tool_call in ClickHouse."""
 
     def _seed_session(
         self,
@@ -256,7 +256,7 @@ class TestFetchIntentCorpus(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixi
     def _seed_tool_call(self, session_id: str, tool_name: str, is_error: bool = False) -> None:
         _create_event(
             event_uuid=uuid.uuid4(),
-            event="mcp_tool_call",
+            event="$mcp_tool_call",
             team=self.team,
             distinct_id="seed",
             timestamp=datetime.now(tz=UTC) - timedelta(hours=1),
