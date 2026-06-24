@@ -223,6 +223,17 @@ const PersonPropertyFilter = z.object({
     value: PropertyFilterValue.optional(),
 })
 
+const PersonMetadataPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z
+        .literal('person_metadata')
+        .describe('Top-level columns on the persons table (e.g. created_at), not properties JSON')
+        .default('person_metadata'),
+    value: PropertyFilterValue.optional(),
+})
+
 const ElementPropertyFilter = z.object({
     key: z.enum(['tag_name', 'text', 'href', 'selector']),
     label: z.string().optional(),
@@ -377,6 +388,7 @@ const WorkflowVariablePropertyFilter = z.object({
 const AnyPropertyFilter = z.union([
     EventPropertyFilter,
     PersonPropertyFilter,
+    PersonMetadataPropertyFilter,
     ElementPropertyFilter,
     EventMetadataPropertyFilter,
     SessionPropertyFilter,

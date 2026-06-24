@@ -26229,7 +26229,7 @@ export namespace Schemas {
       kind?: 'MCPHarnessBreakdownQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
-      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
+      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[] | null;
       response?: MCPHarnessBreakdownQueryResponse | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
