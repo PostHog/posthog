@@ -25,4 +25,13 @@ def test_exceeded_denies() -> None:
 def test_within_budget_reports_remaining() -> None:
     d = evaluate_request(20, 12)
     assert d.allow is True
+    assert d.headers["x-posthog-budget"] == "ok"
     assert d.headers["x-posthog-budget-remaining-usd"] == "8.00"
+
+
+def test_warns_when_approaching_cap() -> None:
+    # 18/20 = 90% > 85% warn threshold
+    d = evaluate_request(20, 18)
+    assert d.allow is True
+    assert d.headers["x-posthog-budget"] == "warn"
+    assert d.headers["x-posthog-budget-remaining-usd"] == "2.00"

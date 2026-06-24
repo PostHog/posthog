@@ -42,6 +42,12 @@ def evaluate_request(
             {"x-posthog-budget": "exceeded", "x-posthog-budget-remaining-usd": "0.00"},
         )
     remaining = monthly_budget_usd - scoped_spend_usd
+    if scoped_spend_usd / monthly_budget_usd >= 0.85:
+        return GuardDecision(
+            True,
+            "approaching budget cap",
+            {"x-posthog-budget": "warn", "x-posthog-budget-remaining-usd": f"{remaining:.2f}"},
+        )
     return GuardDecision(
         True,
         "within budget",

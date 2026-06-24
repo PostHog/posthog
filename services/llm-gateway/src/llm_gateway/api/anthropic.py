@@ -23,6 +23,7 @@ from llm_gateway.bedrock import (
     ensure_bedrock_configured,
     map_to_bedrock_model,
 )
+from llm_gateway.budget_guard import evaluate_request as evaluate_budget
 from llm_gateway.cache_ttl import upgrade_cache_ttl
 from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
 from llm_gateway.config import get_settings
@@ -322,6 +323,12 @@ async def _handle_anthropic_messages(
     # force a full cache rewrite. Bedrock strips cache_control, so skip it there.
     if cost_controls_enabled(get_posthog_flags()) and provider != "bedrock":
         upgrade_cache_ttl(data, product=product)
+        # Budget guard: deny if the user's self-set monthly cap is exceeded.
+        # monthly_budget_usd / scoped_spend_usd come from user settings once the
+        # PostHog Code billing API is wired — pass None for now (fail-open).
+        guard = evaluate_budget(monthly_budget_usd=None, scoped_spend_usd=None)
+        if not guard.allow:
+            raise HTTPException(status_code=429, detail={"error": {"message": guard.reason, "type": "budget_exceeded"}})
     use_bedrock_fallback = _get_use_bedrock_fallback_from_headers(request)
 
     if provider == "bedrock":
