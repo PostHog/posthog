@@ -88,8 +88,6 @@ class HogQLFunctionMeta:
     """Some ClickHouse functions take a constant string function name as the first argument. Check that it's one of our allowed function names."""
     requires_within_group: bool = False
     """Whether the aggregation requires WITHIN GROUP syntax."""
-    is_udf: bool = False
-    """Whether this is a PostHog-deployed user-defined function. The printer appends the deployment's UDF version suffix (``EngineConfig.udf_version``) to the printed name."""
 
 
 def compare_types(

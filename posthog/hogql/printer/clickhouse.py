@@ -162,7 +162,7 @@ class ClickHousePrinter(BasePrinter):
                         )
                 args.append(self.visit(suffix_arg))
 
-        relevant_clickhouse_name = self._registry_clickhouse_name(func_meta)
+        relevant_clickhouse_name = func_meta.clickhouse_name
         if func_meta.overloads:
             # Prefer concrete fields/calls: transforms can leave a call's
             # recorded arg_types stale after fields are rewritten.
@@ -487,10 +487,7 @@ class ClickHousePrinter(BasePrinter):
             return field_sql
 
         keys_placeholder = self.context.add_sensitive_value(sorted(keys_to_drop))
-        function_name = JSON_DROP_KEYS_CLICKHOUSE_NAME
-        if udf_version := self.context.config.udf_version:
-            function_name = f"{function_name}_{udf_version}"
-        return f"{function_name}({keys_placeholder})({field_sql})"
+        return f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}({keys_placeholder})({field_sql})"
 
     def _get_events_session_id_table_type(self, node: ast.Expr) -> ast.BaseTableType | None:
         """If the expression resolves to $session_id on the events table, return the table type."""

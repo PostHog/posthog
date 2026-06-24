@@ -3,7 +3,6 @@ from functools import cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.engine_config import EngineConfig
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.clickhouse.workload import Workload
@@ -60,10 +59,6 @@ class HogQLContext:
     # cohorts, catalogs). Defaults to the ORM-backed provider built from team/team_id;
     # inject a fake to compile without a database.
     data_provider: Optional["DataProvider"] = None
-
-    # Deployment-level engine configuration. Defaults to the Django-side resolution
-    # from settings; inject explicitly to compile without Django.
-    engine_config: Optional[EngineConfig] = None
 
     # Virtual database we're querying, will be populated from team_id if not present
     database: Optional["Database"] = None
@@ -209,13 +204,3 @@ class HogQLContext:
 
             self.data_provider = DjangoDataProvider(team=self.team, team_id=self.team_id, user=self.user)
         return self.data_provider
-
-    @property
-    def config(self) -> EngineConfig:
-        # Same weak point as `data` above: a lazy Django default, kept until config is injected
-        # at the execution entry points.
-        if self.engine_config is None:
-            from posthog.hogql_django_provider import default_engine_config  # noqa: PLC0415
-
-            self.engine_config = default_engine_config()
-        return self.engine_config

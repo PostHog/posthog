@@ -222,12 +222,6 @@ class BasePrinter(Visitor[str]):
         Default: use the ClickHouse name from the function registry. HogQL overrides
         to preserve `node.name` (PR 3).
         """
-        return self._registry_clickhouse_name(func_meta)
-
-    def _registry_clickhouse_name(self, func_meta) -> str:
-        """ClickHouse-side name of a registry function, with the deployment's UDF version applied."""
-        if func_meta.is_udf and (udf_version := self.context.config.udf_version):
-            return f"{func_meta.clickhouse_name}_{udf_version}"
         return func_meta.clickhouse_name
 
     def _get_connection_supported_functions(self) -> set[str]:

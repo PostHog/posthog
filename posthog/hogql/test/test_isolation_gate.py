@@ -29,7 +29,6 @@ from posthog.hogql.data_provider import (
     StaticDataProvider,
 )
 from posthog.hogql.database.database import Database
-from posthog.hogql.engine_config import EngineConfig
 from posthog.hogql.filters import replace_filters_core
 from posthog.hogql.modifiers import create_default_modifiers_for_team_context
 from posthog.hogql.parser import parse_select
@@ -63,9 +62,7 @@ def _provider(**overrides) -> StaticDataProvider:
 
 
 class TestEngineIsolationGate(SimpleTestCase):
-    def _print_context(
-        self, provider: StaticDataProvider | None = None, engine_config: EngineConfig | None = None
-    ) -> HogQLContext:
+    def _print_context(self, provider: StaticDataProvider | None = None) -> HogQLContext:
         provider = provider or _provider()
         modifiers = create_default_modifiers_for_team_context(
             provider.team_context,
@@ -75,7 +72,6 @@ class TestEngineIsolationGate(SimpleTestCase):
         return HogQLContext(
             team_id=provider.team_context.team_id,
             data_provider=provider,
-            engine_config=engine_config or EngineConfig(),
             database=Database(),
             enable_select_queries=True,
             modifiers=modifiers,
@@ -132,24 +128,6 @@ class TestEngineIsolationGate(SimpleTestCase):
         )
         self.assertIn("mat_$browser", printed)
         self.assertNotIn("JSONExtract", printed)
-
-    @parameterized.expand(
-        [
-            ("versioned", EngineConfig(udf_version="v12"), "aggregate_funnel_v12("),
-            ("unversioned", EngineConfig(), "aggregate_funnel("),
-        ]
-    )
-    def test_udf_name_versioned_from_engine_config(
-        self, _name: str, engine_config: EngineConfig, expected_call: str
-    ) -> None:
-        printed, _ = prepare_and_print_ast(
-            parse_select("SELECT aggregate_funnel(3, 604800, 'first_touch', 'ordered', [''], [], []) FROM events"),
-            self._print_context(engine_config=engine_config),
-            dialect="clickhouse",
-        )
-        self.assertIn(expected_call, printed)
-        if engine_config.udf_version is None:
-            self.assertNotIn("aggregate_funnel_v", printed)
 
     def test_unmaterialized_property_falls_back_to_json_read(self) -> None:
         printed, _ = prepare_and_print_ast(
