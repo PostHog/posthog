@@ -405,7 +405,7 @@ pub async fn process_events(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::{now_unix_millis, uuid_v7};
+    use crate::utils::uuid_v7_from_event_timestamp;
     use crate::v0_request::{OverflowReason, ProcessingContext};
     use chrono::{DateTime, TimeZone, Utc};
     use common_types::RawEvent;
@@ -454,7 +454,7 @@ mod tests {
         properties.insert("distinct_id".to_string(), json!("test_user"));
 
         RawEvent {
-            uuid: Some(uuid_v7(now_unix_millis())),
+            uuid: None,
             distinct_id: None,
             event: event_name.to_string(),
             properties,
@@ -1977,12 +1977,17 @@ mod tests {
             }
         }
 
+        let timestamp = "2023-01-01T11:00:00Z";
         RawEvent {
-            uuid: Some(uuid_v7(now_unix_millis())),
+            uuid: Some(uuid_v7_from_event_timestamp(
+                DateTime::parse_from_rfc3339(timestamp)
+                    .unwrap()
+                    .with_timezone(&Utc),
+            )),
             distinct_id: None,
             event: "$pageview".to_string(),
             properties,
-            timestamp: Some("2023-01-01T11:00:00Z".to_string()),
+            timestamp: Some(timestamp.to_string()),
             offset: None,
             set: None,
             set_once: None,
@@ -2008,7 +2013,7 @@ mod tests {
         }
 
         let event = RawEvent {
-            uuid: Some(uuid_v7(now_unix_millis())),
+            uuid: None,
             distinct_id: None,
             event: "$pageview".to_string(),
             properties,
