@@ -126,7 +126,7 @@ class MarketingAnalyticsConfig:
 
         # Gate cost precomputation (reads native CH instead of the S3 cost tables) behind its own flag,
         # so it rolls out independently of the conversion/touchpoint precompute.
-        config.costs_precomputation_enabled = posthoganalytics.feature_enabled(
+        config.costs_precomputation_enabled = feature_enabled_or_false(
             "marketing-analytics-costs-precomputation",
             str(team.uuid),
             groups={"organization": str(team.organization.id)},
