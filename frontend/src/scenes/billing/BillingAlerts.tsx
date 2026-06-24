@@ -1,7 +1,16 @@
 import { useActions, useValues } from 'kea'
 
 import { IconBell, IconCreditCard, IconPlay, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDialog,
+    LemonInput,
+    LemonModal,
+    LemonSelect,
+    LemonTag,
+    Link,
+    Spinner,
+} from '@posthog/lemon-ui'
 
 import { AlertingChoiceCard, AlertingListToolbar, AlertingTable, AlertingWizardLayout } from 'lib/components/Alerting'
 import type { AlertingWizardStep } from 'lib/components/Alerting'
@@ -81,14 +90,15 @@ const BILLING_ALERT_NUMBER_FIELDS: {
     key: BillingAlertNumericFormKey
     label: string
     min: number
+    max?: number
     suffix?: string
     prefixSpend?: boolean
 }[] = [
     { key: 'minimum_value', label: 'Minimum current value', min: 0, prefixSpend: true },
-    { key: 'baseline_window_days', label: 'Baseline window', min: 1, suffix: 'days' },
-    { key: 'evaluation_delay_hours', label: 'Evaluation delay', min: 0, suffix: 'hours' },
-    { key: 'check_interval_hours', label: 'Check interval', min: 1, suffix: 'hours' },
-    { key: 'cooldown_hours', label: 'Cooldown', min: 0, suffix: 'hours' },
+    { key: 'baseline_window_days', label: 'Baseline window', min: 1, max: 90, suffix: 'days' },
+    { key: 'evaluation_delay_hours', label: 'Evaluation delay', min: 0, max: 72, suffix: 'hours' },
+    { key: 'check_interval_hours', label: 'Check interval', min: 1, max: 24, suffix: 'hours' },
+    { key: 'cooldown_hours', label: 'Cooldown', min: 0, max: 720, suffix: 'hours' },
 ]
 
 function metricLabel(metric: MetricEnumApi | undefined): string {
@@ -155,7 +165,16 @@ function destinationDisabledReason(destinationKey: BillingAlertDestinationKey): 
     return `Enter a valid ${destinationWebhookLabel(destinationKey).toLowerCase()}.`
 }
 
-function BillingAlertEvents({ events }: { events: BillingAlertEventApi[] | undefined }): JSX.Element {
+function BillingAlertEvents({
+    events,
+    failed,
+}: {
+    events: BillingAlertEventApi[] | undefined
+    failed?: boolean
+}): JSX.Element {
+    if (failed) {
+        return <div className="p-2 text-danger">Couldn't load checks.</div>
+    }
     if (!events) {
         return <Spinner />
     }
@@ -188,6 +207,8 @@ export function BillingAlerts(): JSX.Element {
         filters,
         creationView,
         eventsByAlert,
+        eventsLoadFailedIds,
+        alertsLoadFailed,
         canAccessBilling,
         checkingAlertId,
         updatingAlertIds,
@@ -274,7 +295,20 @@ export function BillingAlerts(): JSX.Element {
                                         label: 'Check now',
                                         icon: <IconPlay />,
                                         disabledReason: checkingAlertId ? 'Another alert is checking' : undefined,
-                                        onClick: () => checkNow(alert),
+                                        onClick: () =>
+                                            LemonDialog.open({
+                                                title: 'Check billing alert now?',
+                                                description:
+                                                    'This can send notifications if the alert fires, resolves, or errors.',
+                                                primaryButton: {
+                                                    children: 'Check now',
+                                                    icon: <IconPlay />,
+                                                    onClick: () => checkNow(alert),
+                                                },
+                                                secondaryButton: {
+                                                    children: 'Cancel',
+                                                },
+                                            }),
                                     },
                                     {
                                         label: 'Add destination',
@@ -285,7 +319,19 @@ export function BillingAlerts(): JSX.Element {
                                         label: 'Delete',
                                         status: 'danger' as const,
                                         disabledReason: updating ? 'Deleting' : undefined,
-                                        onClick: () => deleteAlert(alert),
+                                        onClick: () =>
+                                            LemonDialog.open({
+                                                title: 'Delete billing alert?',
+                                                description: `This deletes "${alert.name}" and its destinations.`,
+                                                primaryButton: {
+                                                    children: 'Delete',
+                                                    status: 'danger',
+                                                    onClick: () => deleteAlert(alert),
+                                                },
+                                                secondaryButton: {
+                                                    children: 'Cancel',
+                                                },
+                                            }),
                                     },
                                 ]}
                             />
@@ -331,7 +377,9 @@ export function BillingAlerts(): JSX.Element {
                 nouns={['billing alert', 'billing alerts']}
                 loading={alertsLoading}
                 emptyState={
-                    alerts.length === 0 && !alertsLoading ? (
+                    alertsLoadFailed ? (
+                        "Couldn't load billing alerts."
+                    ) : alerts.length === 0 && !alertsLoading ? (
                         'No billing alerts found'
                     ) : (
                         <>
@@ -357,7 +405,12 @@ export function BillingAlerts(): JSX.Element {
                 data-attr="billing-alerts-table"
                 pagination={{ pageSize: 30 }}
                 expandable={{
-                    expandedRowRender: (alert) => <BillingAlertEvents events={eventsByAlert[alert.id]} />,
+                    expandedRowRender: (alert) => (
+                        <BillingAlertEvents
+                            events={eventsByAlert[alert.id]}
+                            failed={eventsLoadFailedIds.has(alert.id)}
+                        />
+                    ),
                     onRowExpand: (alert) => loadEvents(alert.id),
                 }}
             />
@@ -555,6 +608,7 @@ function BillingAlertNumberField({
                 prefix={field.prefixSpend && form.metric === 'spend' ? <span>$</span> : undefined}
                 suffix={field.suffix ? <span>{field.suffix}</span> : undefined}
                 min={field.min}
+                max={field.max}
             />
         </LemonField.Pure>
     )

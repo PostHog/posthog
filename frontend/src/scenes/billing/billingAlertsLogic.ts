@@ -136,8 +136,57 @@ function triggerDefaults(triggerKey: BillingAlertTriggerKey): Partial<BillingAle
     }
 }
 
+const BILLING_ALERT_FORM_LIMITS: Partial<Record<keyof BillingAlertForm, { min: number; max?: number }>> = {
+    threshold_percentage: { min: 0 },
+    threshold_value: { min: 0 },
+    minimum_value: { min: 0 },
+    baseline_window_days: { min: 1, max: 90 },
+    evaluation_delay_hours: { min: 0, max: 72 },
+    check_interval_hours: { min: 1, max: 24 },
+    cooldown_hours: { min: 0, max: 720 },
+}
+
+function numberInRange(value: number | undefined, limits: { min: number; max?: number }): boolean {
+    return value !== undefined && value >= limits.min && (limits.max === undefined || value <= limits.max)
+}
+
+function formValuesInRange(form: BillingAlertForm): boolean {
+    return Object.entries(BILLING_ALERT_FORM_LIMITS).every(([key, limits]) => {
+        if (key === 'threshold_value' && form.threshold_type === 'relative_increase') {
+            return true
+        }
+        return numberInRange(form[key as keyof BillingAlertForm] as number | undefined, limits)
+    })
+}
+
+function firstApiMessage(value: unknown): string | null {
+    if (typeof value === 'string') {
+        return value
+    }
+    if (Array.isArray(value)) {
+        for (const item of value) {
+            const message = firstApiMessage(item)
+            if (message) {
+                return message
+            }
+        }
+        return null
+    }
+    if (value && typeof value === 'object') {
+        for (const [key, item] of Object.entries(value)) {
+            const message = firstApiMessage(item)
+            if (message) {
+                return key === 'non_field_errors' || key === 'detail' ? message : `${key}: ${message}`
+            }
+        }
+    }
+    return null
+}
+
 function apiMessage(error: unknown): string {
-    return error instanceof ApiError ? error.detail || 'Request failed.' : 'Request failed.'
+    return error instanceof ApiError
+        ? error.detail || firstApiMessage(error.data) || 'Request failed.'
+        : 'Request failed.'
 }
 
 function splitSlackChannel(slackChannel: string): { channelId: string; channelName: string } {
@@ -228,6 +277,8 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
         checkNow: (alert: BillingAlertConfiguration) => ({ alert }),
         loadEvents: (alertId: string) => ({ alertId }),
         setEvents: (alertId: string, events: BillingAlertEventApi[]) => ({ alertId, events }),
+        setEventsFailed: (alertId: string) => ({ alertId }),
+        setAlertsLoadFailed: (failed: boolean) => ({ failed }),
         openDestinationPanel: (alertId: string) => ({ alertId }),
         setDestinationAlertId: (alertId: string | null) => ({ alertId }),
         setSlackIntegrationId: (integrationId: number | null) => ({ integrationId }),
@@ -304,6 +355,19 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
                 setEvents: (state, { alertId, events }) => ({ ...state, [alertId]: events }),
             },
         ],
+        eventsLoadFailedIds: [
+            new Set<string>(),
+            {
+                setEvents: (state, { alertId }) => new Set([...state].filter((id) => id !== alertId)),
+                setEventsFailed: (state, { alertId }) => new Set([...state, alertId]),
+            },
+        ],
+        alertsLoadFailed: [
+            false,
+            {
+                setAlertsLoadFailed: (_, { failed }) => failed,
+            },
+        ],
         destinationAlertId: [
             null as string | null,
             {
@@ -367,7 +431,7 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
         ],
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         alerts: [
             [] as BillingAlertConfiguration[],
             {
@@ -376,8 +440,15 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
                     if (!organizationId || !values.canAccessBilling) {
                         return []
                     }
-                    const response = await billingAlertsList(organizationId, { limit: 500 })
-                    return response.results as BillingAlertConfiguration[]
+                    actions.setAlertsLoadFailed(false)
+                    try {
+                        const response = await billingAlertsList(organizationId, { limit: 500 })
+                        return response.results as BillingAlertConfiguration[]
+                    } catch (error) {
+                        actions.setAlertsLoadFailed(true)
+                        lemonToast.error(apiMessage(error))
+                        return values.alerts
+                    }
                 },
             },
         ],
@@ -429,7 +500,7 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
                     slackChannel,
                     webhookUrl,
                 })
-                return !!form.name.trim() && hasThreshold && hasDestination
+                return !!form.name.trim() && hasThreshold && hasDestination && formValuesInRange(form)
             },
         ],
         canCreateDestination: [
@@ -468,13 +539,19 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
                     webhookUrl: values.webhookUrl,
                 })
                 if (payload) {
-                    await billingAlertsDestinationsCreate(organizationId, created.id, payload)
+                    try {
+                        await billingAlertsDestinationsCreate(organizationId, created.id, payload)
+                    } catch (destinationError) {
+                        await billingAlertsDestroy(organizationId, created.id).catch(() => null)
+                        throw destinationError
+                    }
                 }
                 lemonToast.success('Billing alert created.')
                 actions.resetCreation()
                 actions.loadAlerts()
             } catch (error) {
                 lemonToast.error(apiMessage(error))
+                actions.loadAlerts()
             } finally {
                 actions.setSaving(false)
             }
@@ -540,6 +617,7 @@ export const billingAlertsLogic = kea<billingAlertsLogicType>([
                 const response = await billingAlertsEventsList(organizationId, alertId, { limit: 5 })
                 actions.setEvents(alertId, response.results)
             } catch (error) {
+                actions.setEventsFailed(alertId)
                 lemonToast.error(apiMessage(error))
             }
         },

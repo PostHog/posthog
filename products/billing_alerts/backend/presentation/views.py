@@ -17,7 +17,12 @@ from posthog.event_usage import report_user_action
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.billing_alerts.backend.alert_destinations import EVENT_KINDS, EventKind, build_destination_config
+from products.billing_alerts.backend.alert_destinations import (
+    EVENT_KINDS,
+    TEMPLATE_ID_BY_DESTINATION_TYPE,
+    EventKind,
+    build_destination_config,
+)
 from products.billing_alerts.backend.logic.notifications import dispatch_billing_alert_event
 from products.billing_alerts.backend.logic.state_machine import evaluate_and_record_billing_alert, event_should_dispatch
 from products.billing_alerts.backend.models import BillingAlertConfiguration, BillingAlertEvent
@@ -71,6 +76,16 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer.save(updated_by_id=user.id)
         report_user_action(user, "billing alert updated", request=self.request)
 
+    def perform_destroy(self, instance: BillingAlertConfiguration) -> None:
+        with transaction.atomic():
+            HogFunction.objects.filter(
+                team_id=instance.execution_team_id,
+                deleted=False,
+                template_id__in=list(TEMPLATE_ID_BY_DESTINATION_TYPE.values()),
+                filters__properties__contains=[{"key": "alert_id", "value": str(instance.id)}],
+            ).update(deleted=True, enabled=False)
+            instance.delete()
+
     @extend_schema(
         request=None,
         responses={200: BillingAlertEventSerializer(many=True)},
@@ -110,7 +125,7 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=["POST"], url_path="destinations", required_scopes=["billing:write"])
     def create_destination(self, request: Request, *args: object, **kwargs: object) -> Response:
         alert = self.get_object()
-        serializer = BillingAlertCreateDestinationSerializer(data=request.data)
+        serializer = BillingAlertCreateDestinationSerializer(data=request.data, context={"alert": alert})
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
@@ -144,7 +159,7 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 team_id=alert.execution_team_id,
                 id__in=hog_function_ids,
                 filters__properties__contains=[{"key": "alert_id", "value": str(alert.id)}],
-            ).update(deleted=True)
+            ).update(deleted=True, enabled=False)
             if updated != len(hog_function_ids):
                 raise ValidationError("One or more HogFunctions do not belong to this alert.")
 

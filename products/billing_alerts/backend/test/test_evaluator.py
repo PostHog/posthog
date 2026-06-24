@@ -77,7 +77,51 @@ class TestBillingAlertEvaluator(BaseTest):
         assert evaluation.evaluation_date.isoformat() == "2026-06-22"
         assert evaluation.current_value is None
         assert evaluation.threshold_breached is False
+        assert evaluation.is_inconclusive is True
         assert "not available yet" in evaluation.reason
+
+    def test_partial_baseline_window_is_inconclusive_and_preserves_state(self) -> None:
+        alert = self._alert(state=BillingAlertConfiguration.State.FIRING)
+        response = {
+            "status": "ok",
+            "results": [{"id": 1, "label": "Total", "dates": ["2026-06-21", "2026-06-22"], "data": [60, 100]}],
+        }
+
+        event = evaluate_and_record_billing_alert(alert, now=NOW, billing_response=response)
+        alert.refresh_from_db()
+
+        assert event.kind == BillingAlertEvent.Kind.CHECK
+        assert event.threshold_breached is False
+        assert event.payload["missing_baseline_dates"] == ["2026-06-20"]
+        assert alert.state == BillingAlertConfiguration.State.FIRING
+
+    def test_absolute_value_alerts_do_not_require_baseline_data(self) -> None:
+        alert = self._alert(
+            threshold_type=BillingAlertConfiguration.ThresholdType.ABSOLUTE_VALUE,
+            threshold_percentage=None,
+            threshold_value=Decimal("100"),
+        )
+        response = {
+            "status": "ok",
+            "results": [{"id": 1, "label": "Total", "dates": ["2026-06-22"], "data": [100]}],
+        }
+
+        evaluation = evaluate_billing_alert(alert, now=NOW, billing_response=response)
+
+        assert evaluation.threshold_breached is True
+        assert evaluation.baseline_value is None
+        assert evaluation.is_inconclusive is False
+
+    def test_invalid_billing_cell_records_error_event(self) -> None:
+        alert = self._alert()
+
+        event = evaluate_and_record_billing_alert(alert, now=NOW, billing_response=_billing_response([60, "bad", 100]))
+        alert.refresh_from_db()
+
+        assert event.kind == BillingAlertEvent.Kind.ERRORED
+        assert event.error_code == "BillingAlertEvaluationError"
+        assert "Invalid billing value" in (event.error_message or "")
+        assert alert.state == BillingAlertConfiguration.State.ERRORED
 
     def test_billing_service_error_records_dispatchable_error_event(self) -> None:
         alert = self._alert()
@@ -153,3 +197,27 @@ class TestBillingAlertEvaluator(BaseTest):
         assert resolved.threshold_breached is False
         assert event_should_dispatch(resolved) is True
         assert alert.state == BillingAlertConfiguration.State.NOT_FIRING
+
+    def test_cooldown_only_suppresses_repeated_firing_notifications(self) -> None:
+        alert = self._alert(
+            state=BillingAlertConfiguration.State.NOT_FIRING,
+            last_notified_at=NOW.replace(hour=11),
+            cooldown_hours=24,
+        )
+
+        firing = evaluate_and_record_billing_alert(alert, now=NOW, billing_response=_billing_response([60, 60, 100]))
+        alert.refresh_from_db()
+
+        assert firing.kind == BillingAlertEvent.Kind.FIRING
+        assert alert.state == BillingAlertConfiguration.State.FIRING
+
+        repeated = evaluate_and_record_billing_alert(
+            alert,
+            now=NOW.replace(hour=13),
+            billing_response=_billing_response([60, 60, 100]),
+        )
+        alert.refresh_from_db()
+
+        assert repeated.kind == BillingAlertEvent.Kind.CHECK
+        assert repeated.threshold_breached is True
+        assert alert.state == BillingAlertConfiguration.State.FIRING

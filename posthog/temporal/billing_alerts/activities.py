@@ -9,6 +9,7 @@ from django.db.models import F, Q
 import structlog
 import temporalio.activity
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Organization
 from posthog.sync import database_sync_to_async
 from posthog.temporal.billing_alerts.types import (
@@ -20,21 +21,16 @@ from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.billing_alerts.backend.logic.evaluator import fetch_billing_data
 from products.billing_alerts.backend.logic.notifications import dispatch_billing_alert_event
-from products.billing_alerts.backend.logic.state_machine import evaluate_and_record_billing_alert, event_should_dispatch
+from products.billing_alerts.backend.logic.state_machine import (
+    evaluate_and_record_billing_alert,
+    event_should_dispatch,
+    record_billing_alert_failure,
+)
 from products.billing_alerts.backend.models import BillingAlertConfiguration, BillingAlertEvent
-
-logger = structlog.get_logger(__name__)
 
 BILLING_ALERT_BATCH_SIZE = 50
 MAX_DUE_BILLING_ALERTS_PER_TICK = 500
-
-
-def _billing_error_response(error: Exception) -> dict[str, Any]:
-    return {
-        "status": "error",
-        "code": error.__class__.__name__,
-        "detail": str(error) or repr(error),
-    }
+logger = structlog.get_logger(__name__)
 
 
 def _group_key(alert: BillingAlertConfiguration) -> tuple[Any, ...]:
@@ -46,6 +42,92 @@ def _group_key(alert: BillingAlertConfiguration) -> tuple[Any, ...]:
         alert.baseline_window_days,
         alert.evaluation_delay_hours,
     )
+
+
+def _record_group_failure(
+    alert_group: list[BillingAlertConfiguration],
+    error: Exception,
+    *,
+    now: datetime,
+    is_transient_error: bool,
+    reason: str,
+) -> list[str]:
+    first_alert = alert_group[0]
+    alert_ids = [str(alert.id) for alert in alert_group]
+    capture_exception(error, {"alert_ids": alert_ids, "feature": "billing_alerts"})
+    logger.exception(
+        "Billing alert group failure",
+        alert_ids=alert_ids,
+        organization_id=str(first_alert.organization_id),
+        reason=reason,
+    )
+
+    dispatch_event_ids: list[str] = []
+    for alert in alert_group:
+        event = record_billing_alert_failure(
+            alert,
+            error,
+            now=now,
+            is_transient_error=is_transient_error,
+            reason=reason,
+        )
+        if event_should_dispatch(event):
+            dispatch_event_ids.append(str(event.id))
+    return dispatch_event_ids
+
+
+def _evaluate_billing_alerts(inputs: EvaluateBillingAlertBatchActivityInputs) -> list[str]:
+    now = datetime.now(UTC)
+    alerts = list(
+        BillingAlertConfiguration.objects.filter(id__in=inputs.alert_ids, enabled=True)
+        .exclude(state=BillingAlertConfiguration.State.BROKEN)
+        .order_by("organization_id", "metric", "id")
+    )
+    grouped: dict[tuple[Any, ...], list[BillingAlertConfiguration]] = defaultdict(list)
+    for alert in alerts:
+        grouped[_group_key(alert)].append(alert)
+
+    dispatch_event_ids: list[str] = []
+    for alert_group in grouped.values():
+        first_alert = alert_group[0]
+        try:
+            organization = Organization.objects.get(id=first_alert.organization_id)
+        except Organization.DoesNotExist as e:
+            dispatch_event_ids.extend(
+                _record_group_failure(
+                    alert_group,
+                    e,
+                    now=now,
+                    is_transient_error=False,
+                    reason="Billing alert organization was not found.",
+                )
+            )
+            continue
+
+        try:
+            billing_response, query_duration_ms = fetch_billing_data(first_alert, organization, now=now)
+        except Exception as e:
+            dispatch_event_ids.extend(
+                _record_group_failure(
+                    alert_group,
+                    e,
+                    now=now,
+                    is_transient_error=True,
+                    reason="Billing alert data fetch failed.",
+                )
+            )
+            continue
+
+        for alert in alert_group:
+            event = evaluate_and_record_billing_alert(
+                alert,
+                now=now,
+                billing_response=billing_response,
+                query_duration_ms=query_duration_ms,
+            )
+            if event_should_dispatch(event):
+                dispatch_event_ids.append(str(event.id))
+    return dispatch_event_ids
 
 
 @temporalio.activity.defn
@@ -70,47 +152,8 @@ async def discover_due_billing_alerts_activity() -> list[BillingAlertInfo]:
 
 @temporalio.activity.defn
 async def evaluate_billing_alert_batch_activity(inputs: EvaluateBillingAlertBatchActivityInputs) -> list[str]:
-    @database_sync_to_async(thread_sensitive=False)
-    def evaluate_alerts() -> list[str]:
-        now = datetime.now(UTC)
-        alerts = list(
-            BillingAlertConfiguration.objects.filter(id__in=inputs.alert_ids, enabled=True)
-            .exclude(state=BillingAlertConfiguration.State.BROKEN)
-            .order_by("organization_id", "metric", "id")
-        )
-        grouped: dict[tuple[Any, ...], list[BillingAlertConfiguration]] = defaultdict(list)
-        for alert in alerts:
-            grouped[_group_key(alert)].append(alert)
-
-        dispatch_event_ids: list[str] = []
-        for alert_group in grouped.values():
-            first_alert = alert_group[0]
-            billing_response = None
-            query_duration_ms = None
-            try:
-                organization = Organization.objects.get(id=first_alert.organization_id)
-                billing_response, query_duration_ms = fetch_billing_data(first_alert, organization, now=now)
-            except Exception as error:
-                logger.exception(
-                    "Failed to fetch billing data for billing alert group",
-                    organization_id=str(first_alert.organization_id),
-                    metric=first_alert.metric,
-                )
-                billing_response = _billing_error_response(error)
-
-            for alert in alert_group:
-                event = evaluate_and_record_billing_alert(
-                    alert,
-                    now=now,
-                    billing_response=billing_response,
-                    query_duration_ms=query_duration_ms,
-                )
-                if event_should_dispatch(event):
-                    dispatch_event_ids.append(str(event.id))
-        return dispatch_event_ids
-
     async with Heartbeater():
-        return await evaluate_alerts()
+        return await database_sync_to_async(_evaluate_billing_alerts, thread_sensitive=False)(inputs)
 
 
 @temporalio.activity.defn

@@ -10,6 +10,7 @@ from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
 from posthog.api.shared import UserBasicSerializer
+from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -338,6 +339,7 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
                     "last_name",
                     "email",
                     "is_email_verified",
+                    "role_at_organization",
                     "hedgehog_config",
                 )
                 .first()
@@ -416,6 +418,18 @@ class BillingAlertCreateDestinationSerializer(serializers.Serializer):
         if destination_type == "slack":
             if not attrs.get("slack_workspace_id") or not attrs.get("slack_channel_id"):
                 raise ValidationError("slack_workspace_id and slack_channel_id are required for slack destinations.")
+            alert = self.context.get("alert")
+            if (
+                alert is not None
+                and not Integration.objects.filter(
+                    id=attrs["slack_workspace_id"],
+                    team_id=alert.execution_team_id,
+                    kind=Integration.IntegrationKind.SLACK,
+                ).exists()
+            ):
+                raise ValidationError(
+                    {"slack_workspace_id": "Slack integration does not belong to this billing alert execution team."}
+                )
         elif destination_type in ("webhook", "teams") and not attrs.get("webhook_url"):
             raise ValidationError(f"webhook_url is required for {destination_type} destinations.")
         return attrs

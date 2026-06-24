@@ -10,6 +10,8 @@ from products.billing_alerts.backend.models import BillingAlertConfiguration
 EventKind = Literal["firing", "resolved", "errored", "broken"]
 DestinationType = Literal["slack", "webhook", "teams"]
 
+BILLING_ALERT_DESTINATION_IDS_PROPERTY = "billing_alert_destination_ids"
+
 TEMPLATE_ID_BY_DESTINATION_TYPE: dict[DestinationType, str] = {
     "slack": "template-slack",
     "webhook": "template-webhook",

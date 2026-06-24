@@ -26,7 +26,7 @@ from posthog.temporal.billing_alerts.types import (
 from posthog.temporal.common.base import PostHogWorkflow
 
 BILLING_ALERT_BATCH_SIZE = 50
-BILLING_ALERT_BATCH_EXECUTION_TIMEOUT = dt.timedelta(minutes=20)
+BILLING_ALERT_BATCH_EXECUTION_TIMEOUT = dt.timedelta(minutes=70)
 
 
 def _chunks(items: list[str], size: int) -> list[list[str]]:

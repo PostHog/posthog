@@ -25,6 +25,7 @@ export function AlertingChoiceCard({
             type="button"
             onClick={onClick}
             disabled={disabled}
+            aria-pressed={!!selected}
             className={clsx(
                 'group relative text-left rounded-lg border border-border bg-bg-light transition-all cursor-pointer p-5 w-full',
                 'hover:border-border-bold hover:shadow-sm',
