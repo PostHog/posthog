@@ -21,6 +21,7 @@ from posthog.temporal.data_imports.sources.mysql.mysql import (
     _build_query,
     _is_bad_plan_error,
     _is_transient_connect_drop,
+    _is_transient_connect_timeout,
     _is_transient_tablet_unavailable,
     _release_streaming_cursor,
     _retry_on_transient_tablet_unavailable,
@@ -862,9 +863,23 @@ class TestIsTransientConnectDrop:
             )
         )
 
+    def test_matches_ssl_unexpected_eof_on_connect(self):
+        # The peer aborted the TLS handshake with an unexpected EOF, wrapped by pymysql as the
+        # 2003 connect failure. A transient drop (overloaded server, proxy idle cull, failover) —
+        # the in-process retry must catch it instead of letting the first blip surface as noise.
+        assert _is_transient_connect_drop(
+            pymysql.err.OperationalError(
+                2003,
+                "Can't connect to MySQL server on 'db.example.com' "
+                "([SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1032))",
+            )
+        )
+
     @pytest.mark.parametrize(
         "code,message",
         [
+            # The generic 2003 (wrong host/port, firewall) is a deterministic config error and
+            # stays non-retryable — only the SSL unexpected-EOF flavour above is transient.
             (2003, "Can't connect to MySQL server on 'db.example.com'"),
             (1045, "Access denied for user"),
         ],
@@ -874,6 +889,43 @@ class TestIsTransientConnectDrop:
 
     def test_does_not_match_error_without_args(self):
         assert not _is_transient_connect_drop(pymysql.err.OperationalError())
+
+
+class TestIsTransientConnectTimeout:
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "Can't connect to MySQL server on 'gcp.connect.psdb.cloud' (timed out)",
+            "Can't connect to MySQL server on 'db.example.com' ([Errno 110] Connection timed out)",
+        ],
+    )
+    def test_matches_connect_timeout(self, message):
+        assert _is_transient_connect_timeout(pymysql.err.OperationalError(2003, message))
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            # Refused connection and failed DNS lookup are also 2003 but deterministic
+            # host/port misconfig — they must stay non-retryable, not be absorbed here.
+            "Can't connect to MySQL server on 'db.example.com' ([Errno 111] Connection refused)",
+            "Can't connect to MySQL server on 'nope.example.com' ([Errno -2] Name or service not known)",
+        ],
+    )
+    def test_does_not_match_non_timeout_connect_errors(self, message):
+        assert not _is_transient_connect_timeout(pymysql.err.OperationalError(2003, message))
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            (2013, "Lost connection to MySQL server during query"),
+            (1045, "Access denied for user"),
+        ],
+    )
+    def test_does_not_match_other_error_codes(self, code, message):
+        assert not _is_transient_connect_timeout(pymysql.err.OperationalError(code, message))
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_transient_connect_timeout(pymysql.err.OperationalError())
 
 
 class TestConnectTransientRetry:
@@ -902,6 +954,60 @@ class TestConnectTransientRetry:
 
         assert mock_connect.call_count == fail_count + 1
         assert [c.args[0] for c in sleep.call_args_list] == expected_sleeps
+
+    def test_retries_ssl_unexpected_eof_then_succeeds(self, mocker):
+        sleep = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        conn = MagicMock()
+        conn.__enter__.return_value = conn
+        drop = pymysql.err.OperationalError(
+            2003,
+            "Can't connect to MySQL server on 'db.example.com' "
+            "([SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1032))",
+        )
+        mock_connect = mocker.patch(
+            "posthog.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=[drop, conn],
+        )
+
+        with MySQLImplementation().connect(_make_config()) as yielded:
+            assert yielded is conn
+
+        assert mock_connect.call_count == 2
+        sleep.assert_called_once_with(2)
+
+    def test_retries_connect_timeout_then_succeeds(self, mocker):
+        sleep = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        conn = MagicMock()
+        conn.__enter__.return_value = conn
+        mock_connect = mocker.patch(
+            "posthog.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=[
+                pymysql.err.OperationalError(2003, "Can't connect to MySQL server on 'host' (timed out)"),
+                conn,
+            ],
+        )
+
+        with MySQLImplementation().connect(_make_config()) as yielded:
+            assert yielded is conn
+
+        assert mock_connect.call_count == 2
+        sleep.assert_called_once_with(2)
+
+    def test_does_not_retry_connection_refused(self, mocker):
+        sleep = mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        mock_connect = mocker.patch(
+            "posthog.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=pymysql.err.OperationalError(
+                2003, "Can't connect to MySQL server on 'host' ([Errno 111] Connection refused)"
+            ),
+        )
+
+        with pytest.raises(pymysql.err.OperationalError):
+            with MySQLImplementation().connect(_make_config()):
+                pass
+
+        assert mock_connect.call_count == 1
+        sleep.assert_not_called()
 
     def test_gives_up_after_max_attempts(self, mocker):
         mocker.patch("posthog.temporal.data_imports.sources.mysql.mysql.time.sleep")
@@ -1317,6 +1423,25 @@ class TestMySQLSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Host-not-privileged error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw pymysql str(error) form the import/sync path classifies (`_handle_import_error`
+            # matches `str(error)`, which has no class-name prefix).
+            str(
+                pymysql.err.OperationalError(
+                    1142, "SELECT command denied to user 'reader'@'10.0.1.5' for table 'orders'"
+                )
+            ),
+            # Temporal-wrapped str(e.cause) form — different user/host/table, same stable code.
+            "OperationalError: (1142, \"SELECT command denied to user 'ro'@'10.0.1.5' for table 'events'\")",
+        ],
+    )
+    def test_table_access_denied_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Table-access-denied error should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",

@@ -151,7 +151,7 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
 
 
 @activity.defn
-async def collect_eligible_tickets_activity(_input: CoordinatorInput) -> CollectEligibleTicketsOutput:
+async def support_collect_eligible_tickets_activity(_input: CoordinatorInput) -> CollectEligibleTicketsOutput:
     """Scan for recent tickets and gate them through all eligibility checks."""
     async with Heartbeater():
         tickets = await database_sync_to_async(_collect_eligible, thread_sensitive=False)()
@@ -182,7 +182,7 @@ class SupportReplyCoordinatorWorkflow:
     @workflow.run
     async def run(self, _input: CoordinatorInput) -> CoordinatorOutput:
         result = await workflow.execute_activity(
-            collect_eligible_tickets_activity,
+            support_collect_eligible_tickets_activity,
             _input,
             start_to_close_timeout=timedelta(minutes=3),
             retry_policy=RetryPolicy(maximum_attempts=3),

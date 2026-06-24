@@ -315,6 +315,19 @@ class TestGetTableMetadata:
         assert table.columns[0].numeric_precision == 10
         assert table.columns[0].numeric_scale == 2
 
+    def test_excludes_redshift_internal_columns_from_arrow_schema(self, impl, cursor):
+        # Materialized views expose `padb_internal_*` bookkeeping columns in
+        # `information_schema.columns`, but `SELECT *` never returns them. Leaving them in the
+        # Arrow schema made `pa.Table.from_pydict` raise `KeyError: 'padb_internal_txn_id_col'`.
+        cursor.execute.return_value = cursor
+        cursor.fetchone.return_value = (False,)
+        cursor.__iter__.return_value = iter([("id", "integer", "NO", None, None)])
+
+        impl.get_table_metadata(cursor, "public", "my_mat_view")
+
+        metadata_query = cursor.execute.call_args.args[0].as_string()
+        assert "column_name NOT LIKE 'padb_internal%'" in metadata_query
+
 
 class TestGetRowsToSync:
     def _inner(self):
@@ -551,6 +564,21 @@ class TestGetColumns:
         conn.cursor.return_value = cur
 
         assert impl.get_columns(conn, _make_config(), names=["foo"]) == {}
+
+    def test_excludes_redshift_internal_columns(self, impl):
+        # Discovery must drop the `padb_internal_*` columns Redshift stamps onto materialized
+        # views — they never come back from `SELECT *`, so surfacing them desyncs the schema.
+        conn = MagicMock()
+        cur = MagicMock()
+        cur.__enter__.return_value = cur
+        cur.fetchall.return_value = []
+        conn.cursor.return_value = cur
+
+        impl.get_columns(conn, _make_config(), names=None)
+
+        executed_sql, executed_params = cur.execute.call_args.args
+        assert "column_name NOT LIKE %(internal_column)s" in executed_sql
+        assert executed_params["internal_column"] == "padb_internal%"
 
     def test_blank_schema_qualifies_and_excludes_system_schemas(self, impl):
         conn = MagicMock()
