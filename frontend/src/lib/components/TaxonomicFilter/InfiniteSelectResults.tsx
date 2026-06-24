@@ -77,29 +77,24 @@ function CategoryPillContent({
         groupType === TaxonomicFilterGroupType.SuggestedFilters
     const showLoading = (isLoading && hasRemoteDataSource) || isLocalDataLoading
 
-    const disabledReason = getCategoryPillDisabledReason(
-        canInteract,
-        groupType,
-        hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
-    )
+    const hasPathsAdvanced = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
+    const disabledReason = getCategoryPillDisabledReason(canInteract, groupType, hasPathsAdvanced)
     // Wildcard groups are gated behind Advanced paths. LemonTag's `disabledReason` only renders as a slow
-    // native `title`, so surface the upgrade hint via a proper Tooltip instead (and skip the native title to
-    // avoid a duplicate tooltip). Other groups keep the existing `disabledReason` ("No results") behavior.
-    const isGatedWildcards =
-        !canInteract &&
-        groupType === TaxonomicFilterGroupType.Wildcards &&
-        !hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
+    // native `title`, so surface the upgrade hint via a proper Tooltip (below) instead. Other groups keep the
+    // existing `disabledReason` ("No results") behavior.
+    const isGatedWildcards = !canInteract && groupType === TaxonomicFilterGroupType.Wildcards && !hasPathsAdvanced
 
     const tag = (
         <LemonTag
             type={isActive ? 'primary' : canInteract ? 'option' : 'muted'}
             data-attr={`taxonomic-tab-${groupType}`}
             onClick={canInteract ? onClick : undefined}
-            disabledReason={isGatedWildcards ? undefined : disabledReason}
-            // The gated case drops `disabledReason` (and its native title) in favor of the Tooltip below; keep the
-            // reason screen-reader-accessible via aria-label since the tag isn't focusable.
-            aria-label={isGatedWildcards ? (disabledReason ?? undefined) : undefined}
-            className={cn('font-normal', isGatedWildcards && 'cursor-not-allowed')}
+            disabledReason={disabledReason}
+            className="font-normal"
+            // For the gated case the reason is shown via the Tooltip below, so suppress LemonTag's native `title`
+            // to avoid a duplicate tooltip while keeping its disabled semantics (aria-disabled, cursor, styling).
+            // aria-label keeps the reason screen-reader-accessible since the suppressed title no longer can.
+            {...(isGatedWildcards ? { title: '', 'aria-label': disabledReason ?? undefined } : {})}
         >
             {group?.categoryLabel ? (
                 group.categoryLabel(totalResultCount)

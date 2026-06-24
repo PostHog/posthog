@@ -210,5 +210,4 @@ Use `excludeEvents` to remove specific path items that clutter the visualization
 - Always specify `includeEventTypes` to scope the analysis to relevant event types. If omitted, all events are included which may produce noisy results.
 - Use `$pageview` as the default event type for web navigation questions.
 - Path cleaning filters (`localPathCleaningFilters`) use ClickHouse regex and are only needed when dynamic URL segments would fragment the visualization. Path groupings (`pathGroupings`) use glob-like patterns with `*` wildcards for simpler cases.
-- Path groupings (`pathGroupings`, "wildcard groups") are a paid "Advanced paths" feature — unavailable on the free plan. If a user is on the free plan, tell them wildcard groups require upgrading to a paid plan rather than suggesting workarounds.
 - Paths group events into sessions with a 30-minute inactivity threshold — events more than 30 minutes apart start a new path session.
