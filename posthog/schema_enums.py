@@ -1801,6 +1801,8 @@ class ExternalDataSourceType(StrEnum):
     JOBBER = "Jobber"
     KNOCK = "Knock"
     LEEXI = "Leexi"
+    RB2_B = "RB2B"
+    SUPERWALL = "Superwall"
 
 
 class ExternalQueryErrorCode(StrEnum):
