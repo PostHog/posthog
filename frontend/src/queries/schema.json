@@ -18,6 +18,10 @@
             ],
             "type": "string"
         },
+        "AccessControlLevel": {
+            "enum": ["none", "member", "admin", "viewer", "editor", "manager"],
+            "type": "string"
+        },
         "AccountsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -576,6 +580,12 @@
                 "p95_duration_nano": {
                     "type": "number"
                 },
+                "p999_duration_nano": {
+                    "type": "number"
+                },
+                "p99_duration_nano": {
+                    "type": "number"
+                },
                 "service_name": {
                     "type": "string"
                 },
@@ -591,6 +601,8 @@
                 "avg_duration_nano",
                 "p50_duration_nano",
                 "p95_duration_nano",
+                "p99_duration_nano",
+                "p999_duration_nano",
                 "error_count"
             ],
             "type": "object"
@@ -19591,6 +19603,10 @@
                 },
                 "updated_at": {
                     "type": ["string", "null"]
+                },
+                "user_access_level": {
+                    "$ref": "#/definitions/AccessControlLevel",
+                    "description": "Read-only, server-computed effective access level; absent on a not-yet-created holdout."
                 }
             },
             "required": ["id", "name", "description", "filters", "created_by", "created_at", "updated_at"],
@@ -21464,7 +21480,11 @@
                 "Chatwoot",
                 "Sanity",
                 "Metronome",
-                "Jobber"
+                "Jobber",
+                "Knock",
+                "Leexi",
+                "RB2B",
+                "Superwall"
             ],
             "type": "string"
         },
@@ -22413,6 +22433,11 @@
         "FunnelsActorsQuery": {
             "additionalProperties": false,
             "properties": {
+                "compare": {
+                    "description": "When the source funnel has compare-to-previous enabled, scopes the actors to a single period. The runner resolves `'previous'` to the shifted date range; `'current'` (or unset) uses the source's own date range.",
+                    "enum": ["current", "previous"],
+                    "type": "string"
+                },
                 "funnelStep": {
                     "$ref": "#/definitions/integer",
                     "description": "Index of the step for which we want to get the timestamp for, per person. Positive for converted persons, negative for dropped of persons."
@@ -41552,6 +41577,12 @@
                 "p95_duration_nano": {
                     "type": "number"
                 },
+                "p999_duration_nano": {
+                    "type": "number"
+                },
+                "p99_duration_nano": {
+                    "type": "number"
+                },
                 "parent_name": {
                     "type": "string"
                 },
@@ -41575,6 +41606,8 @@
                 "avg_duration_nano",
                 "p50_duration_nano",
                 "p95_duration_nano",
+                "p99_duration_nano",
+                "p999_duration_nano",
                 "error_count",
                 "avg_start_offset_nano"
             ],

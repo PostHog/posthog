@@ -29,6 +29,14 @@ use ingestion_consumer::worker_registry::{WorkerRegistry, WorkerRegistryConfig};
 common_alloc::used!();
 
 fn main() -> Result<()> {
+    // Install a process-wide rustls CryptoProvider before any TLS use. kube's
+    // HTTPS client (EndpointSlice discovery) uses rustls 0.23, which can't
+    // auto-pick a provider with both aws-lc-rs and ring compiled in — it panics.
+    // Matches personhog-router / cymbal / kafka-assigner.
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("failed to install rustls ring CryptoProvider");
+
     let config = Config::init_from_env()
         .context("Failed to load configuration from environment variables")?;
 

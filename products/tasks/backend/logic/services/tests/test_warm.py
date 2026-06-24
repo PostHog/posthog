@@ -114,7 +114,7 @@ class TestSandboxWarmerWarm(APIBaseTest):
 
     def test_unregistered_origin_product_is_rejected(self):
         # Fail-closed: only origin products with a registered quota gate may warm.
-        task = self._task(origin=Task.OriginProduct.USER_CREATED)
+        task = self._task(origin=Task.OriginProduct.ERROR_TRACKING)
         with self.assertRaises(PermissionDenied):
             SandboxWarmer(task, user=self.user).warm()
         assert task.runs.count() == 0

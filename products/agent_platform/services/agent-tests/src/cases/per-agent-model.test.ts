@@ -106,7 +106,6 @@ describe('per-agent spec.model resolution: real e2e', () => {
             broker: new SecretBroker(),
             approvals: new PgApprovalStore(pool),
             bus,
-            resolveIntegrations: async () => ({}),
             resolveSecrets: async () => ({}),
             // Per-agent model resolution — keys off spec.model verbatim. This is
             // the seam the driver streams with, so recording here proves routing.
@@ -163,6 +162,7 @@ describe('per-agent spec.model resolution: real e2e', () => {
                 usage_total: { ...EMPTY_USAGE_TOTAL },
                 acl: [],
                 pending_elevation_requests: [],
+                is_preview: false,
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
             })

@@ -669,6 +669,7 @@ class ModalSandbox(SandboxBase):
         mcp_servers_arg: str = "",
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
+        event_ingest_url: str | None = None,
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
             interaction_origin=interaction_origin,
@@ -677,6 +678,7 @@ class ModalSandbox(SandboxBase):
             model=model,
             reasoning_effort=reasoning_effort,
             event_ingest_token=event_ingest_token,
+            event_ingest_url=event_ingest_url,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
@@ -773,6 +775,7 @@ class ModalSandbox(SandboxBase):
         mcp_configs: list[McpServerConfig] | None = None,
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
+        event_ingest_url: str | None = None,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -818,6 +821,7 @@ class ModalSandbox(SandboxBase):
             mcp_servers_arg,
             allowed_domains=allowed_domains,
             event_ingest_token=event_ingest_token,
+            event_ingest_url=event_ingest_url,
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
