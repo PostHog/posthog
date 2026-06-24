@@ -63,7 +63,21 @@ tools:
         enabled: false
     error-tracking-external-references-create:
         operation: error_tracking_external_references_create
-        enabled: false
+        enabled: true
+        scopes:
+            - error_tracking:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create error tracking external reference
+        description: >
+            Link an error tracking issue to an external issue tracker (GitHub, GitLab, Linear, or Jira) by creating the
+            external issue. Provide the error tracking issue id as `issue`, the connected integration as
+            `integration_id`, and a `config` object with the provider-specific fields. Required `config` keys by
+            integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title,
+            description}; jira -> {project_key, title, description}. Look up the project's integrations first to find the
+            `integration_id` and its kind.
     error-tracking-external-references-destroy:
         operation: error_tracking_external_references_destroy
         enabled: false
