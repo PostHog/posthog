@@ -1180,9 +1180,10 @@ class TestExternalDataSchema(APIBaseTest):
             # Rejected before the interval is persisted.
             assert schema.sync_frequency_interval != timedelta(minutes=1)
 
-    def test_update_schema_one_minute_cannot_survive_switch_away_from_cdc(self):
-        # Closing the gap where a CDC schema on a 1-minute schedule is switched to a non-CDC sync
-        # type without re-sending sync_frequency — the existing 1-minute interval must be rejected.
+    def test_update_schema_one_minute_clamps_on_switch_away_from_cdc(self):
+        # A CDC schema on a 1-minute schedule switched to a non-CDC sync type without re-sending
+        # sync_frequency would otherwise dead-end (1-minute is CDC-only). Instead of rejecting the
+        # switch, clamp the inherited cadence to the non-CDC floor so the switch goes through.
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_type=ExternalDataSourceType.POSTGRES,
@@ -1199,16 +1200,23 @@ class TestExternalDataSchema(APIBaseTest):
             sync_frequency_interval=timedelta(minutes=1),
         )
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
-            data={"sync_type": "incremental"},
-        )
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch("products.data_warehouse.backend.api.external_data_schema.sync_external_data_job_workflow"),
+            mock.patch("products.data_warehouse.backend.api.external_data_schema.sync_cdc_extraction_schedule"),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "full_refresh"},
+            )
 
-        assert response.status_code == 400, response.content
-        assert "cdc" in str(response.json()).lower()
+        assert response.status_code == 200, response.content
         schema.refresh_from_db()
-        assert schema.sync_frequency_interval == timedelta(minutes=1)
-        assert schema.sync_type == ExternalDataSchema.SyncType.CDC
+        assert schema.sync_frequency_interval == timedelta(minutes=5)
+        assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
     def test_update_schema_frequency_on_disabled_schema_does_not_touch_missing_schedule(self):
         # A disabled / never-activated schema has no Temporal schedule. Changing its sync frequency
@@ -2548,6 +2556,58 @@ class TestUpdateExternalDataSchema:
         assert schema.sync_type_config.get("reset_pipeline") is None
         mock_trigger.assert_not_called()
 
+    def test_update_cdc_schema_reenable_triggers_reset_pipeline(self, team, user, client: HttpClient, temporal):
+        client.force_login(user)
+        source = ExternalDataSource.objects.create(
+            team=team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={
+                "schema": "public",
+                "cdc_enabled": True,
+                "cdc_management_mode": "posthog",
+                "cdc_slot_name": "test_slot",
+                "cdc_publication_name": "test_pub",
+            },
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="public.events",
+            team=team,
+            source=source,
+            should_sync=False,
+            initial_sync_complete=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            sync_type_config={"cdc_mode": "streaming", "primary_key_columns": ["id"]},
+        )
+
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.is_cdc_enabled_for_team",
+                return_value=True,
+            ),
+            mock.patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch("products.data_warehouse.backend.api.external_data_schema.sync_external_data_job_workflow"),
+            mock.patch("products.data_warehouse.backend.api.external_data_schema.sync_cdc_extraction_schedule"),
+        ):
+            response = client.patch(
+                f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+                data={"should_sync": True},
+                content_type="application/json",
+            )
+
+        assert response.status_code == 200, response.content
+
+        schema.refresh_from_db()
+        assert schema.should_sync is True
+        # Re-enable must wipe the warehouse table, not merge current rows over stale pre-disable ones.
+        assert schema.sync_type_config.get("reset_pipeline") is True
+        assert schema.sync_type_config["cdc_mode"] == "snapshot"
+        assert schema.initial_sync_complete is False
+
 
 class TestCancelExternalDataSchema(APIBaseTest):
     @mock.patch("products.data_warehouse.backend.api.external_data_schema.cancel_external_data_workflow")
@@ -2789,6 +2849,8 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
             (ExternalDataSourceType.BIGQUERY, True),
             (ExternalDataSourceType.SNOWFLAKE, True),
             (ExternalDataSourceType.REDSHIFT, True),
+            # ClickHouse isn't a SQLSource but opts into column selection.
+            (ExternalDataSourceType.CLICKHOUSE, True),
             # Non-SQL sources stay False
             (ExternalDataSourceType.STRIPE, False),
         ]

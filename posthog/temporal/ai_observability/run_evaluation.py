@@ -140,8 +140,14 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                     details = e.cause.details[0]
                     error_type = details.get("error_type")
 
-                    if error_type in ("trial_limit_reached", "key_invalid", "parse_error", "model_not_allowed"):
-                        if error_type in ("trial_limit_reached", "model_not_allowed"):
+                    if error_type in (
+                        "trial_limit_reached",
+                        "key_invalid",
+                        "parse_error",
+                        "model_not_allowed",
+                        "no_default_model",
+                    ):
+                        if error_type in ("trial_limit_reached", "model_not_allowed", "no_default_model"):
                             await temporalio.workflow.execute_activity(
                                 disable_evaluation_activity,
                                 args=[evaluation["id"], evaluation["team_id"], error_type],
@@ -163,7 +169,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                                             "Failed to send trial exhausted email",
                                             team_id=evaluation["team_id"],
                                         )
-                            else:
+                            elif error_type == "model_not_allowed":
                                 if temporalio.workflow.patched("eval-disabled-email"):
                                     model = details.get("model", "the selected model")
                                     try:

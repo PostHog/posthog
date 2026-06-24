@@ -269,6 +269,16 @@ class ScratchpadEntrySerializer(serializers.Serializer):
         allow_null=True,
         help_text="Run that wrote this entry, or null if human-authored.",
     )
+    created_by_skill = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Canonical skill name of the scout that created this entry (e.g. `signals-scout-apm`), or null if human-authored.",
+    )
+    created_by_run_url = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Relative Tasks UI deep-link to the run that created this entry, or null if the run linkage isn't captured.",
+    )
 
 
 class SearchMemoryQuerySerializer(serializers.Serializer):
@@ -1101,7 +1111,7 @@ class SignalScoutConfigCreateSerializer(serializers.Serializer):
         required=False,
         min_value=10,
         max_value=43200,
-        help_text="Minutes between runs (10–43200). Defaults to 180 (every 3 hours).",
+        help_text="Minutes between runs (10–43200). Defaults to 1440 (every 24 hours).",
     )
 
     def validate_skill_name(self, value: str) -> str:
@@ -1145,7 +1155,11 @@ class ScoutMetadataSerializer(serializers.Serializer):
     change without a deploy to either app."""
 
     enrolled = serializers.BooleanField(
-        help_text="Whether this project is enrolled to run scouts (set via the signals-scout flag allowlist)."
+        help_text=(
+            "Whether this project runs scouts. True when the project is in the signals-scout flag's "
+            'enrollment set — either listed explicitly in guaranteed_team_ids or covered by the "*" '
+            "wildcard (every project that turns scouts on) — and not in skip_team_ids."
+        )
     )
     banner_message = serializers.CharField(
         allow_null=True,

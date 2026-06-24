@@ -495,7 +495,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         """Create the Task row without an initial run or workflow.
 
         For callers that own run creation themselves — e.g. the sandbox warm path
-        (`products/tasks/backend/services/warm.py`), which creates the first run with its
+        (`products/tasks/backend/logic/services/warm.py`), which creates the first run with its
         own state. The run `extra_state` assembled by `_build_task` is discarded here.
         """
         task, _ = Task._build_task(
@@ -777,6 +777,9 @@ class TaskRun(models.Model):
                 name="task_run_output_pr_url_idx",
                 condition=models.Q(output__pr_url__isnull=False),
             ),
+            # Time-range scans over runs (default ordering, recent-runs lookups, and the
+            # signals outcome-billing query that buckets PR runs into a period).
+            models.Index(fields=["created_at"], name="task_run_created_at_idx"),
         ]
 
     def __str__(self):

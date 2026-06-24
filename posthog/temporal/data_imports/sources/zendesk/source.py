@@ -11,6 +11,7 @@ from posthog.schema import (
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import ZendeskSourceConfig
@@ -34,6 +35,11 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.ZENDESK
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.zendesk.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
@@ -76,7 +82,11 @@ class ZendeskSource(SimpleSource[ZendeskSourceConfig]):
         if validate_credentials(subdomain, config.api_key, config.email_address):
             return True, None
 
-        return False, "Invalid credentials"
+        return (
+            False,
+            "Zendesk rejected the credentials. Check the subdomain, email address, and API token are correct, "
+            "and that token access is enabled for your account.",
+        )
 
     @property
     def get_source_config(self) -> SourceConfig:

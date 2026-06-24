@@ -193,6 +193,16 @@ class TestIdentityMatchingLinksAPI(APIBaseTest):
         assert runs_response.status_code == status.HTTP_200_OK
         assert runs_response.json() == {"results": []}
 
+    @parameterized.expand([("links", ""), ("runs", "runs/")])
+    def test_returns_503_when_scratch_bucket_unconfigured_on_cloud(self, _name: str, suffix: str) -> None:
+        # On Cloud, an unset IDENTITY_MATCHING_S3_BUCKET falls back to OBJECT_STORAGE_BUCKET; both
+        # equal means the env is missing, so the endpoint should fail loudly instead of reading the
+        # wrong bucket. Force equality so the assertion holds regardless of the CI environment.
+        with override_settings(CLOUD_DEPLOYMENT="US", IDENTITY_MATCHING_S3_BUCKET="b", OBJECT_STORAGE_BUCKET="b"):
+            response = self.client.get(f"/api/projects/{self.team.pk}/identity_matching_links/{suffix}")
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert "IDENTITY_MATCHING_S3_BUCKET" in response.json()["detail"]
+
     def test_runs_lists_link_counts_per_model(self) -> None:
         self._seed()
         response = self.client.get(f"/api/projects/{self.team.pk}/identity_matching_links/runs/")
@@ -201,3 +211,13 @@ class TestIdentityMatchingLinksAPI(APIBaseTest):
         assert [run["job_id"] for run in results] == [RUN_A, RUN_B]
         run_a_models = {model["model_version"]: model["link_count"] for model in results[0]["models"]}
         assert run_a_models == {"rules_v1": 2, "logreg_v1": 1}
+        run_a = results[0]
+        assert run_a["total_links"] == 3
+        assert run_a["unique_orphans"] == 2
+        assert run_a["paid_touches"] == 1  # phone-2 has orphan_paid_touch=1
+        assert run_a["first_link_at"] is not None
+        assert run_a["last_link_at"] is not None
+        run_a_rules = {m["model_version"]: m for m in run_a["models"]}["rules_v1"]
+        assert run_a_rules["high_confidence"] == 1
+        assert run_a_rules["medium_confidence"] == 1
+        assert run_a_rules["low_confidence"] == 0

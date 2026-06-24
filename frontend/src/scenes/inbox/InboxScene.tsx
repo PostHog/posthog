@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBug } from '@posthog/icons'
+import { IconArrowLeft, IconBug } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -14,6 +14,8 @@ import { ScoutDetailView } from './components/config/scouts/ScoutDetailView'
 import { AgentRunDetail } from './components/detail/AgentRunDetail'
 import { InboxDetailHeader } from './components/detail/InboxDetailHeader'
 import { ReportDetail, ReportDetailSkeleton } from './components/detail/ReportDetail'
+import { InboxOnboardingBanner, InboxOnboardingTakeover } from './components/onboarding/InboxOnboarding'
+import { ScratchpadPanel } from './components/scratchpad/ScratchpadPanel'
 import { AgentSetupColumn } from './components/shell/AgentSetupColumn'
 import { InboxScopeSelect } from './components/shell/InboxScopeSelect'
 import { InboxTabBar } from './components/shell/InboxTabBar'
@@ -23,6 +25,7 @@ import { PullRequestsTab } from './components/tabs/PullRequestsTab'
 import { ReportsTab } from './components/tabs/ReportsTab'
 import { RunsTab } from './components/tabs/RunsTab'
 import { inboxSceneLogic } from './inboxSceneLogic'
+import { inboxOnboardingLogic } from './logics/inboxOnboardingLogic'
 import { InboxTabKey, SignalReport } from './types'
 
 export const scene: SceneExport = {
@@ -65,11 +68,17 @@ function ActiveTabBody({ tab, runsReports }: { tab: InboxTabKey; runsReports: Si
  */
 function InboxListView(): JSX.Element {
     const { activeTab, runsTabReports } = useValues(inboxSceneLogic)
+    const { onboardingMode } = useValues(inboxOnboardingLogic)
     const { ref: widthRef, size } = useResizeBreakpoints(
         { 0: 'narrow', [SETUP_RAIL_MIN_PX]: 'wide' },
         { initialSize: 'wide' }
     )
-    const showRail = size === 'wide'
+    const wide = size === 'wide'
+    // Self-driving isn't set up and the inbox is empty: the inbox becomes a single locked "Welcome"
+    // tab (the other tabs are visible but disabled) whose body is the onboarding card. The setup rail
+    // is dropped too, so the onboarding is the whole story – just run the one command.
+    const onboarding = onboardingMode === 'takeover'
+    const showRail = wide && !onboarding
     // The rail and the Configuration tab are mutually exclusive – never leave 'config' active
     // (e.g. via a deep link) while the rail shows, or the rail and a config body would both appear.
     const effectiveTab = showRail && activeTab === 'config' ? 'pulls' : activeTab
@@ -79,15 +88,19 @@ function InboxListView(): JSX.Element {
             <div className="flex flex-col min-h-0 flex-1 min-w-0">
                 {/* pl-5 (20px) aligns the first tab label with the SceneTitleSection description above. */}
                 <div className="flex items-end justify-between gap-2 border-b border-primary pl-5 pr-2 shrink-0">
-                    <InboxTabBar showConfigTab={!showRail} />
-                    {isReportListTab(effectiveTab) && (
+                    <InboxTabBar showConfigTab={!wide} onboarding={onboarding} />
+                    {!onboarding && isReportListTab(effectiveTab) && (
                         <div className="pb-1.5">
                             <InboxScopeSelect />
                         </div>
                     )}
                 </div>
                 <div className="flex-1 overflow-auto min-h-0">
-                    <ActiveTabBody tab={effectiveTab} runsReports={runsTabReports} />
+                    {onboarding ? (
+                        <InboxOnboardingTakeover />
+                    ) : (
+                        <ActiveTabBody tab={effectiveTab} runsReports={runsTabReports} />
+                    )}
                 </div>
             </div>
             {showRail && (
@@ -123,6 +136,31 @@ function InboxDetailView({ report }: { report: SignalReport }): JSX.Element {
     )
 }
 
+/**
+ * Fleet-memory (scratchpad) detail surface: the browse/search panel under a back link, rendered
+ * full-width over the list like the scout detail. Reached from the fleet-memory callout.
+ */
+function InboxScratchpadView(): JSX.Element {
+    const { setScratchpadOpen } = useActions(inboxSceneLogic)
+
+    return (
+        <div className="flex flex-col min-h-0 flex-1 overflow-auto">
+            <div className="px-4 pt-3">
+                <LemonButton
+                    type="tertiary"
+                    size="small"
+                    icon={<IconArrowLeft />}
+                    onClick={() => setScratchpadOpen(false)}
+                    className="self-start"
+                >
+                    Scouts
+                </LemonButton>
+            </div>
+            <ScratchpadPanel />
+        </div>
+    )
+}
+
 export function InboxScene(): JSX.Element {
     const {
         isRunningSessionAnalysis,
@@ -130,22 +168,26 @@ export function InboxScene(): JSX.Element {
         selectedReport,
         selectedReportLoading,
         selectedScoutSkillName,
+        isScratchpadOpen,
     } = useValues(inboxSceneLogic)
     const { runSessionAnalysis } = useActions(inboxSceneLogic)
+    const { onboardingMode } = useValues(inboxOnboardingLogic)
     const { isDev } = useValues(preflightLogic)
 
     // Detail routes (report or scout) render full-width over the list (desktop parity), but the list view
     // stays *mounted* (just hidden) rather than being unmounted. That keeps `reportListLogic` and the scroll
     // container alive, so clicking "back" lands on the same scroll position with the same loaded pages —
     // instead of remounting and resetting to the first page at the top.
-    const showDetail = !!selectedReportId || !!selectedScoutSkillName
+    const showDetail = !!selectedReportId || !!selectedScoutSkillName || isScratchpadOpen
 
     return (
         <SceneContent className="gap-y-0 border-b-0 flex-1 min-h-0">
-            <div className={showDetail ? 'hidden' : 'flex flex-col gap-y-2 flex-1 min-h-0'}>
+            <div className={showDetail ? 'hidden' : 'flex flex-col gap-y-4 flex-1 min-h-0'}>
                 <SceneTitleSection
                     name="Inbox"
-                    description="Work done by your agents – pull requests, reports, and live runs."
+                    // The takeover's hero carries its own headline + pitch, so the scene description
+                    // would be redundant there; keep it for the normal/banner states.
+                    description="Self-driving for your product. Look through work done by PostHog agents – code changes and reports."
                     resourceType={{ type: 'inbox' }}
                     actions={
                         isDev ? (
@@ -166,14 +208,20 @@ export function InboxScene(): JSX.Element {
                     }
                 />
 
-                <div className="flex flex-col -mx-4 flex-1 min-h-0">
+                <div className="flex flex-col -mx-4 -mt-4 flex-1 min-h-0">
+                    {/* The inbox always renders (its own list skeleton covers loading). When self-driving
+                        isn't set up, the list view itself swaps in a locked "Welcome" onboarding tab; the
+                        banner sits above the otherwise-normal inbox when there's already work to keep. */}
+                    {onboardingMode === 'banner' && <InboxOnboardingBanner />}
                     <InboxListView />
                 </div>
             </div>
 
             {showDetail && (
                 <div className="flex flex-col -mx-4 flex-1 min-h-0">
-                    {selectedScoutSkillName ? (
+                    {isScratchpadOpen ? (
+                        <InboxScratchpadView />
+                    ) : selectedScoutSkillName ? (
                         <ScoutDetailView skillName={selectedScoutSkillName} />
                     ) : selectedReport ? (
                         <InboxDetailView report={selectedReport} />

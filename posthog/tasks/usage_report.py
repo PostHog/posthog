@@ -51,6 +51,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.error_tracking.backend.facade import api as error_tracking_api
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.signals.backend.billing import get_signals_billing_credits_by_team
 from products.surveys.backend.models import Survey
 from products.surveys.backend.util import (
     SurveyEventProperties,
@@ -213,8 +214,11 @@ class UsageReportCounters:
     # AI Billing Credits (PostHog AI feature usage)
     ai_credits_used_in_period: int
 
-    # Signals Billing Credits (Signals product usage — same cost math as ai_credits, scoped to ai_product='signals')
+    # Signals Billing Credits (flat credits per report whose implementation shipped a PR)
     signals_credits_used_in_period: int
+
+    # PostHog Code Billing Credits (PostHog Code product usage — same cost math as ai_credits, scoped to ai_product='posthog_code')
+    posthog_code_credits_used_in_period: int
 
     # CDP Delivery
     hog_function_calls_in_period: int
@@ -1167,8 +1171,8 @@ POSTHOG_AI_PRODUCTS = [
     "surveys",
 ]
 
-# ai_product values billed as signals credits.
-SIGNALS_AI_PRODUCTS = ["signals"]
+# ai_product values billed as PostHog Code credits.
+POSTHOG_CODE_AI_PRODUCTS = ["posthog_code"]
 
 
 def get_ai_billing_instance_group_type_index(team_id: int) -> int | None:
@@ -1383,18 +1387,30 @@ def get_teams_with_ai_credits_used_in_period(
 
 
 @timed_log()
-@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_signals_credits_used_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
-    """Signals billing credits — only events tagged with ai_product='signals'."""
+    """Signals billing — a flat credit charge per report whose implementation shipped a PR.
+
+    Outcome-based, not LLM spend: see `products/signals/backend/billing.py`.
+    """
+    return get_signals_billing_credits_by_team(begin, end)
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_posthog_code_credits_used_in_period(
+    begin: datetime,
+    end: datetime,
+) -> list[tuple[int, int]]:
+    """PostHog Code billing credits — only events tagged with ai_product='posthog_code'."""
     return _get_teams_with_ai_credits_for_products(
         begin,
         end,
-        ai_products=SIGNALS_AI_PRODUCTS,
-        usage_report_tag="signals_credits",
-        product_tag=Product.SIGNALS,
+        ai_products=POSTHOG_CODE_AI_PRODUCTS,
+        usage_report_tag="posthog_code_credits",
+        product_tag=Product.POSTHOG_CODE,
     )
 
 
@@ -2110,6 +2126,7 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.ai_event_count_in_period > 0
         or report.ai_credits_used_in_period > 0
         or report.signals_credits_used_in_period > 0
+        or report.posthog_code_credits_used_in_period > 0
         or report.logs_bytes_in_period > 0
         or report.workflow_emails_sent_in_period > 0
         or report.workflow_push_sent_in_period > 0
@@ -2371,6 +2388,9 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_signals_credits_used_in_period": get_teams_with_signals_credits_used_in_period(
             period_start, period_end
         ),
+        "teams_with_posthog_code_credits_used_in_period": get_teams_with_posthog_code_credits_used_in_period(
+            period_start, period_end
+        ),
         "teams_with_active_hog_destinations_in_period": get_teams_with_active_hog_destinations_in_period(),
         "teams_with_active_hog_transformations_in_period": get_teams_with_active_hog_transformations_in_period(),
         "teams_with_workflow_emails_sent_in_period": get_teams_with_workflow_emails_sent_in_period(
@@ -2544,6 +2564,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         ai_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
         ai_credits_used_in_period=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
         signals_credits_used_in_period=all_data["teams_with_signals_credits_used_in_period"].get(team.id, 0),
+        posthog_code_credits_used_in_period=all_data["teams_with_posthog_code_credits_used_in_period"].get(team.id, 0),
         active_hog_destinations_in_period=all_data["teams_with_active_hog_destinations_in_period"].get(team.id, 0),
         active_hog_transformations_in_period=all_data["teams_with_active_hog_transformations_in_period"].get(
             team.id, 0

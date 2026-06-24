@@ -45,14 +45,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                          events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -118,14 +120,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                          events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -190,14 +194,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                          events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -262,14 +268,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                          events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -335,14 +343,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                          events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -408,14 +418,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                          events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -510,14 +522,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                          events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -582,14 +596,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                          events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -668,14 +684,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                          events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -741,14 +759,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                          events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -813,14 +833,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                          events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -885,14 +907,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                          events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -958,14 +982,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                          events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -1031,14 +1057,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                          events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -1133,14 +1161,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                          events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -1205,14 +1235,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                          events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -1291,14 +1323,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                          events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -1364,14 +1398,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                          events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -1436,14 +1472,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                          events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -1508,14 +1546,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                          events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -1581,14 +1621,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                          events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -1654,14 +1696,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                          events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -1756,14 +1800,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                          events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,
@@ -1828,14 +1874,16 @@
   GROUP BY raw_sessions.session_id_v7) AS events__session ON equals(events.`$session_id_uuid`,
                                                                     events__session.session_id_v7)
   LEFT OUTER JOIN (
-  SELECT tupleElement(argMax(tuple(person_distinct_id_overrides.person_id), person_distinct_id_overrides.version), 1) AS person_id,
-                                                                                                                   person_distinct_id_overrides.distinct_id AS distinct_id
+  SELECT argMax(person_distinct_id_overrides.person_id,
+                person_distinct_id_overrides.version) AS person_id,
+                person_distinct_id_overrides.distinct_id AS distinct_id
   FROM person_distinct_id_overrides
   WHERE equals(person_distinct_id_overrides.team_id,
                99999)
   GROUP BY person_distinct_id_overrides.distinct_id
-  HAVING equals(tupleElement(argMax(tuple(person_distinct_id_overrides.is_deleted), person_distinct_id_overrides.version), 1), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
-                                                                                                                                                                                                          events__override.distinct_id)
+  HAVING equals(argMax(person_distinct_id_overrides.is_deleted,
+                       person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id,
+                                                                                                                                         events__override.distinct_id)
   WHERE and(equals(events.team_id,
                    99999), and(or(equals(events.event,
                                          '$pageview'), equals(events.event,

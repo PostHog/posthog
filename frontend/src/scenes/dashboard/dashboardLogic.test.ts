@@ -1490,6 +1490,46 @@ describe('dashboardLogic', () => {
             expect(logic.values.textTiles[0].text!.body).toEqual('I AM A TEXT')
         })
 
+        it('preserves cached chart data when a bare PATCH returns null result', async () => {
+            // insight800() has non-null result and last_refresh from the fixture; a bare PATCH
+            // (rename, display-option save) responds with result: null. The tile must keep its
+            // previously-computed chart data rather than blanking to "Chart data didn't load".
+            const originalInsight = logic.values.insightTiles[0].insight!
+            const originalResult = originalInsight.result
+            const originalLastRefresh = originalInsight.last_refresh
+
+            insightsModel.actions.renameInsightSuccess({
+                ...insight800(),
+                name: 'renamed via bare patch',
+                result: null,
+                last_refresh: null,
+            })
+
+            await expectLogic(logic).toFinishAllListeners()
+            const updated = logic.values.insightTiles[0].insight!
+            expect(updated.name).toEqual('renamed via bare patch')
+            expect(updated.result).toEqual(originalResult)
+            expect(updated.last_refresh).toEqual(originalLastRefresh)
+        })
+
+        it('replaces cached chart data when a full refresh returns non-null result', async () => {
+            const newResult = [{ data: 'fresh' }]
+            const newLastRefresh = '2024-01-01T00:00:00Z'
+
+            insightsModel.actions.renameInsightSuccess({
+                ...insight800(),
+                name: 'refreshed',
+                result: newResult,
+                last_refresh: newLastRefresh,
+            })
+
+            await expectLogic(logic).toFinishAllListeners()
+            const updated = logic.values.insightTiles[0].insight!
+            expect(updated.name).toEqual('refreshed')
+            expect(updated.result).toEqual(newResult)
+            expect(updated.last_refresh).toEqual(newLastRefresh)
+        })
+
         it('can respond to external insight update for an insight tile that is new on this dashboard', async () => {
             await expectLogic(logic, () => {
                 dashboardsModel.actions.updateDashboardInsight({

@@ -7,16 +7,6 @@ import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api'
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
-import {
-    canToggleAnnotationsInInsightQuery,
-    getAnnotationsToggleText,
-} from 'lib/components/Cards/InsightCard/annotationsToggle'
-import {
-    canToggleDisplayLabelsInInsightQuery,
-    getDisplayLabelsToggleText,
-    isDisplayLabelsEnabledInInsightQuery,
-} from 'lib/components/Cards/InsightCard/displayLabelsToggle'
-import { canToggleLegendInInsightQuery, getLegendToggleText } from 'lib/components/Cards/InsightCard/legendToggle'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -470,28 +460,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                           AccessControlLevel.Editor
                       )
                     : true,
-        ],
-        canToggleDisplayLabelsForInsight: [
-            (s) => [s.query],
-            (query) => !!query && canToggleDisplayLabelsInInsightQuery(query),
-        ],
-        canToggleLegendForInsight: [(s) => [s.query], (query) => !!query && canToggleLegendInInsightQuery(query)],
-        canToggleAnnotationsForInsight: [
-            (s) => [s.query],
-            (query) => !!query && canToggleAnnotationsInInsightQuery(query),
-        ],
-        displayLabelsShownForInsight: [
-            (s) => [s.query],
-            (query) => !!query && isDisplayLabelsEnabledInInsightQuery(query),
-        ],
-        displayLabelsToggleTextForInsight: [
-            (s) => [s.query],
-            (query) => (query ? getDisplayLabelsToggleText(query) : 'Show values on series'),
-        ],
-        legendToggleTextForInsight: [(s) => [s.query], (query) => (query ? getLegendToggleText(query) : 'Show legend')],
-        annotationsToggleTextForInsight: [
-            (s) => [s.query],
-            (query) => (query ? getAnnotationsToggleText(query) : 'Hide annotations'),
         ],
         insightChanged: [
             (s) => [s.insight, s.savedInsight],

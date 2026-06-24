@@ -132,6 +132,7 @@ def _reset_cdc_for_full_resnapshot(instance: ExternalDataSchema) -> None:
 
 # Sync frequencies that only CDC schemas may use. Every other sync type floors at 5 minutes.
 CDC_ONLY_SYNC_FREQUENCIES = {"1min"}
+NON_CDC_FLOOR_SYNC_FREQUENCY = "5min"
 
 
 @extend_schema_field(
@@ -423,17 +424,23 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     def get_table(self, schema: ExternalDataSchema) -> Optional[dict]:
         from products.data_warehouse.backend.api.table import SimpleTableSerializer
 
-        hogql_context = self.context.get("database", None)
-        if not hogql_context:
-            hogql_context = Database.create_for(
-                team_id=self.context["team_id"],
-                user=cast(User, self.context["request"].user),
-            )
-
         if schema.table and schema.table.deleted:
             return None
 
-        return SimpleTableSerializer(schema.table, context={"database": hogql_context}).data or None
+        # Serializing table columns requires the full HogQL Database, which is expensive to build.
+        # Callers that don't need columns (e.g. the source list) set include_columns=False so we skip it.
+        include_columns = self.context.get("include_columns", True)
+        table_context: dict[str, Any] = {"include_columns": include_columns, "team_id": self.context.get("team_id")}
+        if include_columns:
+            hogql_context = self.context.get("database", None)
+            if not hogql_context:
+                hogql_context = Database.create_for(
+                    team_id=self.context["team_id"],
+                    user=cast(User, self.context["request"].user),
+                )
+            table_context["database"] = hogql_context
+
+        return SimpleTableSerializer(schema.table, context=table_context).data or None
 
     def to_representation(self, instance: ExternalDataSchema) -> dict:
         ret = super().to_representation(instance)
@@ -558,8 +565,8 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
 
         # Reject non-webhook sync types for webhook-only schemas (e.g. Stripe Discount —
         # no API list endpoint, so anything other than webhook produces an empty sync).
-        if "sync_type" in data and sync_type != ExternalDataSchema.SyncType.WEBHOOK:
-            if self._is_webhook_only_schema(instance):
+        if self._webhook_only_check_applies():
+            if self._is_webhook_only_schema_cached(instance):
                 raise ValidationError(
                     f"{instance.name} can only be synced via webhooks — pick the Webhook sync method."
                 )
@@ -702,14 +709,22 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         # frequency the schema will actually end up with — the new value if one is supplied, else
         # the existing interval — against the sync type it will end up with. This also catches
         # switching a 1-minute CDC schema to a non-CDC type without re-sending the frequency.
+        resulting_sync_type = sync_type if "sync_type" in data else instance.sync_type
         resulting_frequency = sync_frequency
         if not resulting_frequency and instance.sync_frequency_interval is not None:
             resulting_frequency = sync_frequency_interval_to_sync_frequency(instance.sync_frequency_interval)
         if resulting_frequency in CDC_ONLY_SYNC_FREQUENCIES and resulting_sync_type != ExternalDataSchema.SyncType.CDC:
-            raise ValidationError(
-                "A 1-minute sync frequency is only available for CDC schemas. "
-                "The fastest frequency for other sync types is 5 minutes."
-            )
+            if sync_frequency:
+                # The caller explicitly asked for a CDC-only cadence on a non-CDC schema — a direct
+                # contradiction, so reject it.
+                raise ValidationError(
+                    "A 1-minute sync frequency is only available for CDC schemas. "
+                    "The fastest frequency for other sync types is 5 minutes."
+                )
+            # Switching a CDC schema to a non-CDC type while it still carries a CDC-only cadence:
+            # clamp to the non-CDC floor instead of dead-ending the switch. The clamp flows through
+            # the sync_frequency handling below.
+            sync_frequency = NON_CDC_FLOOR_SYNC_FREQUENCY
 
         if sync_frequency:
             sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
@@ -927,6 +942,31 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             return False
         return any(s.name == schema.name and s.supports_xmin for s in source_schemas)
 
+    def warm_webhook_only_check(self, instance: ExternalDataSchema) -> None:
+        """Pre-run the webhook-only validation that reaches the external source, caching the result.
+
+        `_is_webhook_only_schema` calls the source's `get_schemas`, which is a network round-trip (e.g.
+        Google Ads OAuth refresh + field query). update() runs this same check, but bulk_update_schemas
+        wraps each update() in a transaction — making the call there held the DB connection idle-in-
+        transaction long enough for the server to close it ("the connection is closed"). Calling this
+        first (outside the transaction) does the network work up front; update() then reads the cached
+        result and still raises per-schema, so failures stay isolated to one schema.
+        """
+        if self._webhook_only_check_applies():
+            self._is_webhook_only_schema_cached(instance)
+
+    def _webhook_only_check_applies(self) -> bool:
+        # Single source of truth for when the webhook-only check runs, so update() and the
+        # pre-transaction warm step can't drift apart and push the network call back into the
+        # transaction. Reads `initial_data` (the raw request payload), like update() does.
+        data = self.initial_data if isinstance(self.initial_data, dict) else {}
+        return "sync_type" in data and data.get("sync_type") != ExternalDataSchema.SyncType.WEBHOOK
+
+    def _is_webhook_only_schema_cached(self, schema: ExternalDataSchema) -> bool:
+        if "_webhook_only_result" not in self.__dict__:
+            self.__dict__["_webhook_only_result"] = self._is_webhook_only_schema(schema)
+        return self.__dict__["_webhook_only_result"]
+
     def _maybe_create_webhook(self, schema: ExternalDataSchema) -> None:
         source = schema.source
         if not source.job_inputs:
@@ -1034,8 +1074,11 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             # Always force a full re-snapshot on re-enable: while removed from the
             # publication the replication slot kept advancing, so any changes made
             # during that window are permanently lost regardless of how short it was.
+            # reset_pipeline wipes the warehouse table first — otherwise the snapshot
+            # merges current rows over the stale pre-disable ones and never drops deletes.
             if should_sync is True and not newly_set_to_cdc:
                 instance.sync_type_config["cdc_mode"] = "snapshot"
+                instance.sync_type_config["reset_pipeline"] = True
                 instance.initial_sync_complete = False
                 instance.save(update_fields=["sync_type_config", "initial_sync_complete", "updated_at"])
 
