@@ -186,6 +186,7 @@ the row lists both.
 | revenuecat        | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | rippling          | HTTP                        | requests                                                        | ✅                          |
 | rollbar           | HTTP                        | requests                                                        | ✅                          |
+| rootly            | HTTP                        | requests                                                        | ✅                          |
 | salesforce        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | salesloft         | HTTP                        | requests                                                        | ✅                          |
 | segment           | HTTP                        | requests                                                        | ✅                          |
@@ -596,7 +597,6 @@ doesn't conflict with concurrent PRs.
 - rki_covid
 - rocket_chat
 - rocketlane
-- rootly
 - rss
 - ruddr
 - safetyculture
