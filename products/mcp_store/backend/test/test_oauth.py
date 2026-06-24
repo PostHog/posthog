@@ -183,6 +183,7 @@ class TestRefreshOauthToken(TestCase):
 
     def test_http_error_raises_token_refresh_error(self):
         mock_resp = MagicMock()
+        mock_resp.status_code = 401
         mock_resp.raise_for_status.side_effect = requests.HTTPError("401 Unauthorized", response=mock_resp)
 
         with patch("products.mcp_store.backend.oauth.requests.post", return_value=mock_resp):
@@ -898,6 +899,7 @@ class TestRegisterDCRClient(TestCase):
     ):
         mock_response = MagicMock()
         mock_response.ok = True
+        mock_response.status_code = 201
         mock_response.json.return_value = response_body
         mock_post.return_value = mock_response
 

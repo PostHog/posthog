@@ -285,8 +285,7 @@ def register_dcr_client(metadata: dict, redirect_uri: str) -> tuple[str, str | N
 
     _validate_url(registration_endpoint)
     resp = requests.post(registration_endpoint, json=payload, timeout=TIMEOUT, allow_redirects=False)
-    status_code = resp.status_code if isinstance(resp.status_code, int) else 0
-    if 300 <= status_code < 400:
+    if 300 <= resp.status_code < 400:
         raise ValueError("Dynamic Client Registration endpoint redirected")
     if not resp.ok:
         logger.error(
@@ -451,8 +450,7 @@ def refresh_oauth_token(
     try:
         _validate_url(token_url)
         resp = requests.post(token_url, data=data, auth=auth, timeout=TIMEOUT, allow_redirects=False)
-        status_code = resp.status_code if isinstance(resp.status_code, int) else 0
-        if 300 <= status_code < 400:
+        if 300 <= resp.status_code < 400:
             raise TokenRefreshError("Token refresh endpoint redirected")
         resp.raise_for_status()
     except SSRFBlockedError:
@@ -574,8 +572,7 @@ def exchange_oauth_token(
     token_response = requests.post(token_endpoint, data=form, auth=auth, timeout=TIMEOUT, allow_redirects=False)
 
     # RFC 6749 specifies 200, but some providers (e.g. Supabase) return 201.
-    status_code = token_response.status_code if isinstance(token_response.status_code, int) else 0
-    if 300 <= status_code < 400:
+    if 300 <= token_response.status_code < 400:
         raise OAuthTokenExchangeError("Token endpoint redirected")
     if not token_response.ok:
         logger.error(
