@@ -5929,6 +5929,7 @@ class TestBatchCommitsEndToEnd:
             assert person.version == 2, f"Person {i} version not incremented. Expected 2, got {person.version}"
 
             # properties_last_updated_at should have new timestamp for email
+            assert person.properties_last_updated_at is not None
             assert "email" in person.properties_last_updated_at, (
                 f"Person {i} properties_last_updated_at missing 'email' key"
             )
@@ -5939,6 +5940,7 @@ class TestBatchCommitsEndToEnd:
             )
 
             # properties_last_operation should be 'set' for email
+            assert person.properties_last_operation is not None
             assert person.properties_last_operation.get("email") == "set", (
                 f"Person {i} properties_last_operation['email'] should be 'set', "
                 f"got '{person.properties_last_operation.get('email')}'"
@@ -6099,6 +6101,7 @@ class TestBatchCommitsEndToEnd:
             assert person.version == 2, f"Person {i} version not incremented. Expected 2, got {person.version}"
 
             # properties_last_updated_at should have new timestamp
+            assert person.properties_last_updated_at is not None
             assert "name" in person.properties_last_updated_at, (
                 f"Person {i} properties_last_updated_at missing 'name' key"
             )
@@ -6108,6 +6111,7 @@ class TestBatchCommitsEndToEnd:
             )
 
             # properties_last_operation should be 'set'
+            assert person.properties_last_operation is not None
             assert person.properties_last_operation.get("name") == "set", (
                 f"Person {i} properties_last_operation['name'] should be 'set', "
                 f"got '{person.properties_last_operation.get('name')}'"

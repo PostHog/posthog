@@ -1841,7 +1841,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # Verify: PG person version is updated so future plugin-server updates aren't ignored
         person.refresh_from_db()
-        assert person.version > 105
+        assert person.version is not None and person.version > 105
 
     @mock.patch(
         f"{posthog.models.person.deletion.__name__}.create_person_distinct_id",
