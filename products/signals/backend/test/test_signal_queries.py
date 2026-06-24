@@ -1,0 +1,136 @@
+from __future__ import annotations
+
+import json
+from datetime import UTC, datetime, timedelta
+
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+
+from parameterized import parameterized
+
+from posthog.clickhouse.client import sync_execute
+
+from products.signals.backend.temporal.signal_queries import EMBEDDING_MODEL, fetch_source_products_for_reports
+
+_MODEL_TABLE = f"distributed_posthog_document_embeddings_{EMBEDDING_MODEL.value.replace('-', '_')}"
+_EMBEDDING = [0.0] * 1536
+
+
+class TestFetchSourceProductsForReports(ClickhouseTestMixin, APIBaseTest):
+    def _emit_version(
+        self,
+        *,
+        document_id: str,
+        report_id: str,
+        source_product: str,
+        inserted_at: datetime,
+        deleted: bool = False,
+    ) -> None:
+        """Write one version of a signal document straight to the model-specific embeddings table.
+
+        Multiple versions of the same document_id (varying inserted_at) model the
+        ReplacingMergeTree's pre-merge state that the argMax dedup has to resolve.
+        """
+        metadata = {
+            "report_id": report_id,
+            "source_product": source_product,
+            "source_type": "some_type",
+            "source_id": f"src-{document_id}",
+            "deleted": deleted,
+        }
+        sync_execute(
+            f"""
+            INSERT INTO {_MODEL_TABLE} (
+                team_id, product, document_type, rendering, document_id,
+                timestamp, inserted_at, content, metadata, embedding,
+                _timestamp, _offset, _partition
+            ) VALUES
+            """,
+            [
+                (
+                    self.team.pk,
+                    "signals",
+                    "signal",
+                    "plain",
+                    document_id,
+                    inserted_at,
+                    inserted_at,
+                    "the signal content",
+                    json.dumps(metadata),
+                    _EMBEDDING,
+                    inserted_at,
+                    0,
+                    0,
+                )
+            ],
+            flush=False,
+            team_id=self.team.pk,
+        )
+
+    def setUp(self) -> None:
+        super().setUp()
+        # Anchor to "now" so rows stay inside the table's 3-month TTL window; assertions depend
+        # only on the relative inserted_at ordering between versions, not the absolute timestamp.
+        self.base = datetime.now(UTC) - timedelta(days=2)
+        sync_execute(f"TRUNCATE TABLE {_MODEL_TABLE}", flush=False, team_id=self.team.pk)
+
+    def test_empty_report_ids_returns_empty_without_querying(self) -> None:
+        # Guards the early return: an empty list would otherwise compile to `report_id IN ()` and raise.
+        assert fetch_source_products_for_reports(self.team, []) == {}
+
+    def test_maps_each_report_to_its_sorted_distinct_source_products(self) -> None:
+        self._emit_version(document_id="d1", report_id="rA", source_product="errors", inserted_at=self.base)
+        self._emit_version(document_id="d2", report_id="rA", source_product="replay", inserted_at=self.base)
+        # duplicate source_product within a report collapses to one entry
+        self._emit_version(document_id="d3", report_id="rA", source_product="errors", inserted_at=self.base)
+        self._emit_version(document_id="d4", report_id="rB", source_product="surveys", inserted_at=self.base)
+
+        result = fetch_source_products_for_reports(self.team, ["rA", "rB"])
+
+        assert result == {"rA": ["errors", "replay"], "rB": ["surveys"]}
+
+    def test_only_returns_requested_reports(self) -> None:
+        self._emit_version(document_id="d1", report_id="wanted", source_product="errors", inserted_at=self.base)
+        self._emit_version(document_id="d2", report_id="unwanted", source_product="replay", inserted_at=self.base)
+
+        result = fetch_source_products_for_reports(self.team, ["wanted"])
+
+        assert result == {"wanted": ["errors"]}
+
+    @parameterized.expand(
+        [
+            # A signal re-grouped to a different report must count under its latest report only —
+            # never the old one. Pushing the report_id filter before the argMax would resurface it
+            # under rOld; keeping it after preserves "latest version wins".
+            ("regrouped_to_new_report", ("rOld", False), ("rNew", False), ["rOld", "rNew"], {"rNew": ["errors"]}),
+            # Soft-delete re-emits the signal with deleted=True and a newer inserted_at -> it drops out.
+            ("deleted_in_latest_version", ("rA", False), ("rA", True), ["rA"], {}),
+            # ...and a delete that was later undone (newer non-deleted version) comes back.
+            ("revived_in_latest_version", ("rA", True), ("rA", False), ["rA"], {"rA": ["errors"]}),
+        ]
+    )
+    def test_latest_version_wins(
+        self,
+        _name: str,
+        first: tuple[str, bool],
+        latest: tuple[str, bool],
+        report_ids: list[str],
+        expected: dict[str, list[str]],
+    ) -> None:
+        first_report, first_deleted = first
+        latest_report, latest_deleted = latest
+        self._emit_version(
+            document_id="moving",
+            report_id=first_report,
+            source_product="errors",
+            inserted_at=self.base,
+            deleted=first_deleted,
+        )
+        self._emit_version(
+            document_id="moving",
+            report_id=latest_report,
+            source_product="errors",
+            inserted_at=self.base + timedelta(hours=1),
+            deleted=latest_deleted,
+        )
+
+        assert fetch_source_products_for_reports(self.team, report_ids) == expected

@@ -1,4 +1,5 @@
 import re
+import random
 import dataclasses
 from collections.abc import AsyncIterator, Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
@@ -9,8 +10,10 @@ import requests
 from asgiref.sync import async_to_sync
 from dateutil import parser as dateutil_parser
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib3.util.retry import Retry
 
+from posthog.models.integration import GitHubRateLimitError, raise_if_github_rate_limited
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.base import (
@@ -310,17 +313,56 @@ def _get_item_filter(endpoint: str) -> Callable[[dict[str, Any]], bool] | None:
     return None
 
 
+# Upper bound on how long we'll honor GitHub's rate-limit reset before retrying,
+# so a misreported reset header can't stall a worker indefinitely. The source
+# iterator runs in a thread pool while the activity's liveness heartbeat fires
+# from the event loop every heartbeat_timeout/30 (~4s), so a 300s wait here does
+# not trip the 2-min heartbeat timeout. Mirrors common/rest_source/rest_client.py.
+GITHUB_MAX_RETRY_AFTER_SECONDS = 300.0
+
+# Plain backoff for transient blips (5xx, connection resets) where GitHub gives
+# us no reset to honor.
+_github_backoff_wait = wait_exponential_jitter(initial=1, max=30)
+
+# Disable the tracked session's default adapter retries on this path. That policy
+# retries 429/5xx and honors Retry-After *uncapped*, underneath _fetch_page — which
+# would defeat the 300s cap below and stack a second, untested retry layer. With
+# adapter retries off, _fetch_page sees every response/exception and our tenacity
+# layer is the single, rate-limit-aware retry authority.
+_NO_ADAPTER_RETRY = Retry(total=0)
+
+
+def _github_retry_wait(state: RetryCallState) -> float:
+    """Sleep until GitHub's advertised rate-limit reset when it gave us one
+    (capped, plus a little jitter so the sources sharing one installation's
+    budget don't all wake at the same reset instant); otherwise fall back to
+    exponential backoff."""
+    if state.outcome is not None and state.outcome.failed:
+        exc = state.outcome.exception()
+        if isinstance(exc, GitHubRateLimitError) and exc.retry_after_seconds is not None:
+            return min(exc.retry_after_seconds, GITHUB_MAX_RETRY_AFTER_SECONDS) + random.uniform(0, 1)
+    return _github_backoff_wait(state)
+
+
 @retry(
-    retry=retry_if_exception_type((GithubRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    retry=retry_if_exception_type(
+        (GithubRetryableError, GitHubRateLimitError, requests.ReadTimeout, requests.ConnectionError)
+    ),
     stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
+    wait=_github_retry_wait,
     reraise=True,
 )
 def _fetch_page(page_url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> requests.Response:
-    response = make_tracked_session().get(page_url, headers=headers, timeout=60)
+    response = make_tracked_session(retry=_NO_ADAPTER_RETRY).get(page_url, headers=headers, timeout=60)
 
-    if response.status_code == 429 or response.status_code >= 500:
+    # Transient server errors: retry with plain exponential backoff.
+    if response.status_code >= 500:
         raise GithubRetryableError(f"Github API error (retryable): status={response.status_code}, url={page_url}")
+
+    # Rate limited (secondary 429, or primary 403 with a rate-limit body): raise
+    # so we retry honoring the reset/Retry-After. A genuine permission 403 carries
+    # no rate-limit body and falls through to raise_for_status below, staying fatal.
+    raise_if_github_rate_limited(response)
 
     # An empty repository (no commits yet) returns 409 on the commits
     # endpoint. Signal it so the loop can sync zero rows without raising
@@ -588,8 +630,18 @@ def github_source(
     # Steady-state webhook ingestion replaces the poll fan-out once the initial
     # backfill is complete and a webhook function is enabled. When no manager is
     # passed (or it isn't enabled), the poll path below stays unchanged.
+    #
+    # An endpoint whose poll does no first-sync backfill (initial_lookback_days == 0,
+    # i.e. workflow_jobs) would otherwise deadlock a fresh webhook schema: the
+    # zero-row poll never creates a table, so initial_sync_complete is never set, so
+    # webhook_enabled stays False forever and queued webhook files never drain. There
+    # is no backfill to lose for these, so activate webhook mode from the first run
+    # (skip the initial_sync_complete gate), the same way the Slack source does.
+    skip_initial_sync_complete_check = endpoint_config.initial_lookback_days == 0
     webhook_enabled = (
-        async_to_sync(webhook_source_manager.webhook_enabled)() if webhook_source_manager is not None else False
+        async_to_sync(webhook_source_manager.webhook_enabled)(skip_initial_sync_complete_check)
+        if webhook_source_manager is not None
+        else False
     )
 
     def items() -> Iterator[Any] | AsyncIterator[Any]:

@@ -1368,6 +1368,16 @@ export interface ScratchpadEntryApi {
      * @nullable
      */
     created_by_run_id: string | null
+    /**
+     * Canonical skill name of the scout that created this entry (e.g. `signals-scout-apm`), or null if human-authored.
+     * @nullable
+     */
+    created_by_skill?: string | null
+    /**
+     * Relative Tasks UI deep-link to the run that created this entry, or null if the run linkage isn't captured.
+     * @nullable
+     */
+    created_by_run_url?: string | null
 }
 
 /**
