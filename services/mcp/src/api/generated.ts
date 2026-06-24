@@ -31,6 +31,18 @@ export namespace Schemas {
       AiGenerationClusters: '$ai_generation_clusters',
     } as const;
 
+    export type AccessControlLevel = typeof AccessControlLevel[keyof typeof AccessControlLevel];
+
+
+    export const AccessControlLevel = {
+      None: 'none',
+      Member: 'member',
+      Admin: 'admin',
+      Viewer: 'viewer',
+      Editor: 'editor',
+      Manager: 'manager',
+    } as const;
+
     /**
      * * `read_write` - read_write
      * * `read` - read
@@ -20914,6 +20926,8 @@ export namespace Schemas {
       id: number;
       name: string;
       updated_at?: string | null;
+      /** Read-only, server-computed effective access level; absent on a not-yet-created holdout. */
+      user_access_level?: AccessControlLevel | null;
     }
 
     export type SampleRatioMismatchExpected = {[key: string]: number};
