@@ -190,6 +190,18 @@ class TestSessionRiskMiddleware(BaseTest):
         self.assertEqual(response.url, "/login?reason=session_risk")
         self.assertFalse(Session.objects.filter(session_key=key).exists())  # flushed server-side
 
+    @patch("posthog.session.middleware.evaluate_session_risk", return_value=RiskTier.HIGH)
+    def test_high_only_ends_current_session_other_sessions_survive(self, _evaluate):
+        user = self._make_user()
+        current_key = self._login_session(user)
+        other_key = self._login_session(user)
+        request = self._request(user, current_key)
+
+        SessionRiskMiddleware(lambda _req: HttpResponse("ok"))(request)
+
+        self.assertFalse(Session.objects.filter(session_key=current_key).exists())
+        self.assertTrue(Session.objects.filter(session_key=other_key).exists())
+
     @patch("posthog.session.middleware.evaluate_session_risk", return_value=RiskTier.NONE)
     def test_non_high_passes_through(self, _evaluate):
         user = self._make_user()

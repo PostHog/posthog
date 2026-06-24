@@ -24,6 +24,7 @@ import { urls } from 'scenes/urls'
 import { LoginMethod } from '~/types'
 
 import { loginLogic } from '../../loginLogic'
+import { SessionRiskBanner } from '../../SessionRiskBanner'
 
 const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'
 
@@ -76,6 +77,7 @@ function Login(): JSX.Element {
                     title={isEmailVerificationSent ? 'Check your email' : 'Log in to PostHog'}
                     sub={isEmailVerificationSent ? undefined : "Welcome back. Let's go ship something."}
                 />
+                <SessionRiskBanner className="mb-4" />
                 {generalError && (
                     <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded">
                         {generalError.detail ||
