@@ -6,7 +6,7 @@ import { Spinner } from '@posthog/lemon-ui'
 import { cn } from 'lib/utils/css-classes'
 
 import { isTerminalRunStatus, sandboxStreamLogic } from '../sandboxStreamLogic'
-import { SandboxComposer } from './SandboxComposer'
+import { Composer } from './composer/Composer'
 import { SandboxContextUsage } from './SandboxContextUsage'
 import { SandboxPermissionInput } from './SandboxPermissionInput'
 import { SandboxQuestionInput } from './SandboxQuestionInput'
@@ -162,14 +162,26 @@ function SandboxRunViewerContent({
             )}
 
             {showComposer && (
-                <div className="border-t px-4 py-3">
-                    <SandboxComposer
+                // Composed from the logic-free Composer.* primitives directly (rather than via
+                // SandboxComposer) so the run surface can slot its own footer/actions later. The
+                // wrapper keeps a stable `data-attr` for the gating tests above.
+                <div data-attr="composer" className="border-t px-4 py-3">
+                    <Composer.Root
                         value={composerValue!}
                         onChange={onComposerChange!}
                         onSubmit={onComposerSubmit!}
                         loading={composerLoading}
-                        placeholder={composerPlaceholder}
-                    />
+                    >
+                        <Composer.Frame>
+                            <Composer.Field>
+                                <Composer.Placeholder>
+                                    {composerPlaceholder ?? 'Send a follow-up message…'}
+                                </Composer.Placeholder>
+                                <Composer.Textarea data-attr="sandbox-composer-input" submitShortcut="cmd-enter" />
+                            </Composer.Field>
+                        </Composer.Frame>
+                        <Composer.Submit data-attr="sandbox-composer-send" />
+                    </Composer.Root>
                 </div>
             )}
 

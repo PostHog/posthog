@@ -9,6 +9,13 @@ export { SandboxRunViewer } from './components/SandboxRunViewer'
 export type { SandboxRunViewerProps } from './components/SandboxRunViewer'
 export { SandboxComposer } from './components/SandboxComposer'
 export type { SandboxComposerProps } from './components/SandboxComposer'
+export { Composer } from './components/composer/Composer'
+export type {
+    ComposerRootProps,
+    ComposerFrameProps,
+    ComposerTextareaProps,
+    ComposerSubmitProps,
+} from './components/composer/Composer'
 export { SandboxThreadView } from './components/SandboxThreadView'
 
 export { sandboxStreamLogic, isTerminalRunStatus, SANDBOX_INITIAL_PERMISSION_MODE } from './sandboxStreamLogic'

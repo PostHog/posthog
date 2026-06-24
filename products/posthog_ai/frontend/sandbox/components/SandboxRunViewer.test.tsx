@@ -23,7 +23,6 @@ jest.mock('../sandboxStreamLogic', () => ({
 jest.mock('./SandboxThreadView', () => ({ SandboxThreadView: () => <div data-attr="thread" /> }))
 jest.mock('./SandboxResourcesBar', () => ({ SandboxResourcesBar: () => <div data-attr="resources" /> }))
 jest.mock('./SandboxContextUsage', () => ({ SandboxContextUsage: () => <div data-attr="context" /> }))
-jest.mock('./SandboxComposer', () => ({ SandboxComposer: () => <div data-attr="composer" /> }))
 jest.mock('./SandboxPermissionInput', () => ({ SandboxPermissionInput: () => <div data-attr="permission" /> }))
 jest.mock('./SandboxQuestionInput', () => ({ SandboxQuestionInput: () => <div data-attr="question" /> }))
 
