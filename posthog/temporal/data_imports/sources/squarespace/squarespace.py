@@ -207,14 +207,15 @@ def get_rows(
 
         items = data.get(config.data_key, [])
         pagination = data.get("pagination") or {}
-        next_cursor = pagination.get("nextPageCursor")
-        has_next = bool(pagination.get("hasNextPage")) and bool(next_cursor)
+        raw_next_cursor = pagination.get("nextPageCursor")
+        next_cursor = str(raw_next_cursor) if raw_next_cursor else None
+        has_next = bool(pagination.get("hasNextPage")) and next_cursor is not None
 
         if items:
             yield items
             # Save state only after yielding, so a crash re-yields the last batch rather
             # than skipping it (merge dedupes on the primary key).
-            if has_next:
+            if has_next and next_cursor is not None:
                 resumable_source_manager.save_state(SquarespaceResumeConfig(cursor=next_cursor))
 
         if not has_next:

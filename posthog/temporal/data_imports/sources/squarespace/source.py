@@ -98,9 +98,9 @@ The Commerce APIs (orders, inventory) require the merchant to be on a Commerce p
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=len(INCREMENTAL_FIELDS.get(endpoint, [])) > 0,
-                supports_append=len(INCREMENTAL_FIELDS.get(endpoint, [])) > 0,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                supports_incremental=len(INCREMENTAL_FIELDS[endpoint]) > 0,
+                supports_append=len(INCREMENTAL_FIELDS[endpoint]) > 0,
+                incremental_fields=INCREMENTAL_FIELDS[endpoint],
             )
             for endpoint in ENDPOINTS
         ]
