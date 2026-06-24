@@ -105,4 +105,12 @@ describe('projectTreeDataLogic', () => {
 
         eventUsage.unmount()
     })
+
+    it('deleteSavedItem does not crash when the parent folder is not loaded (lazy store)', () => {
+        // Folders load lazily; deleting an item whose parent folder was never loaded must not throw on
+        // state[folder].filter (previously "Cannot read properties of undefined (reading 'filter')").
+        expect(() =>
+            logic.actions.deleteSavedItem({ id: 'fs-x', type: 'dashboard', path: 'Marketing/Q1/X', ref: '9' } as any)
+        ).not.toThrow()
+    })
 })

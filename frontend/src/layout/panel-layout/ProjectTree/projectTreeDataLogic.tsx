@@ -555,9 +555,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 },
                 deleteSavedItem: (state, { savedItem }) => {
                     const folder = joinPath(splitPath(savedItem.path).slice(0, -1))
-                    const newState = {
-                        ...state,
-                        [folder]: state[folder].filter((item) => item.id !== savedItem.id),
+                    const newState = { ...state }
+                    // The parent folder may not be loaded into the store yet (folders load lazily); only
+                    // prune it when it's present — otherwise state[folder] is undefined and .filter throws.
+                    if (newState[folder]) {
+                        newState[folder] = newState[folder].filter((item) => item.id !== savedItem.id)
                     }
                     if (savedItem.type === 'folder') {
                         for (const folder of Object.keys(newState)) {
