@@ -67,6 +67,8 @@ export function openFeedbackReportDialog({ reportTitle, onConfirm }: OpenFeedbac
                         placeholder="Optional: what was useful or off?"
                         maxLength={FEEDBACK_NOTE_MAX_LENGTH}
                         rows={4}
+                        // Keep Enter for newlines – without this it bubbles to the dialog's submit-on-Enter handler.
+                        stopPropagation
                     />
                 </LemonField>
             </div>
