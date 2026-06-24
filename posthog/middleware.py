@@ -1131,6 +1131,23 @@ class CSPMiddleware:
                 resource_url = "https://*.dev.posthog.dev"
 
             connect_debug_url = "ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
+            if request.path.endswith("/static/vega-iframe-renderer.html"):
+                csp_parts = [
+                    "default-src 'none'",
+                    "style-src 'unsafe-inline'",
+                    f"script-src 'self' {resource_url}",
+                    "connect-src * data: blob:",
+                    "img-src * data: blob:",
+                    "font-src * data:",
+                    "worker-src 'none'",
+                    "child-src 'none'",
+                    "object-src 'none'",
+                    "frame-ancestors 'self'",
+                    "base-uri 'none'",
+                ]
+                response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
+                return response
+
             csp_parts = [
                 "default-src 'self'",
                 f"style-src 'self' 'unsafe-inline' {resource_url} https://fonts.googleapis.com",
@@ -1144,7 +1161,7 @@ class CSPMiddleware:
                 "frame-ancestors https://posthog.com https://preview.posthog.com https://vercel.com",
                 f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com https://api.github.com",
                 # allow all sites for displaying heatmaps
-                "frame-src https:",
+                f"frame-src https: {resource_url}",
                 "manifest-src 'self'",
                 "base-uri 'self'",
                 "report-uri https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&sample_rate=0.1&v=2",

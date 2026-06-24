@@ -7,8 +7,10 @@ import {
     RealNotebookNodeEdit,
     getEditableNodeAttributeKeys,
     getMarkdownNodeAttributeLabel,
+    getNodeAttributes,
     getSerializableAttributeInputValue,
     getSerializableProps,
+    shouldExposeMarkdownFiltersStateToRealNode,
 } from './markdownNotebookRegistry'
 
 describe('markdownNotebookRegistry', () => {
@@ -74,6 +76,56 @@ describe('markdownNotebookRegistry', () => {
         expect(getSerializableAttributeInputValue(NotebookNodeType.Group, 'groupTypeIndex', ' not-a-number ')).toEqual(
             'not-a-number'
         )
+    })
+
+    it('exposes settings state to real nodes while markdown filters are open', () => {
+        const queryProps = {
+            query: {
+                kind: 'HogQLQuery',
+                query: 'select 1',
+            },
+        }
+
+        expect(
+            shouldExposeMarkdownFiltersStateToRealNode({
+                editOnly: false,
+                mode: 'view',
+                notebookMode: 'edit',
+                options: KNOWN_NODES[NotebookNodeType.Query],
+                props: queryProps,
+            })
+        ).toBe(true)
+        expect(
+            shouldExposeMarkdownFiltersStateToRealNode({
+                editOnly: false,
+                mode: 'view',
+                notebookMode: 'edit',
+                options: KNOWN_NODES[NotebookNodeType.Query],
+                props: { ...queryProps, hideFilters: true },
+            })
+        ).toBe(false)
+        expect(
+            shouldExposeMarkdownFiltersStateToRealNode({
+                editOnly: false,
+                mode: 'view',
+                notebookMode: 'edit',
+                options: KNOWN_NODES[NotebookNodeType.Latex],
+                props: { content: 'E = mc^2' },
+            })
+        ).toBe(false)
+        expect(
+            getNodeAttributes(queryProps, 'sql-node', KNOWN_NODES[NotebookNodeType.Query], NotebookNodeType.Query, true)
+                .showSettings
+        ).toBe(true)
+        expect(
+            getNodeAttributes(
+                { ...queryProps, hideFilters: true },
+                'sql-node',
+                KNOWN_NODES[NotebookNodeType.Query],
+                NotebookNodeType.Query,
+                false
+            ).showSettings
+        ).toBe(false)
     })
 
     describe('getSerializableProps', () => {

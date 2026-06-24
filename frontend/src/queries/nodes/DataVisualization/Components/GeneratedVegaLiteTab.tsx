@@ -93,7 +93,7 @@ export const GeneratedVegaLiteTab = (): JSX.Element => {
                     type="secondary"
                     icon={<IconCopy />}
                     disabledReason={!specForJson ? 'No JSON to copy' : undefined}
-                    onClick={() => void copyToClipboard(JSON.stringify(specForJson, null, 2), 'Vega-Lite JSON')}
+                    onClick={() => void copyToClipboard(JSON.stringify(specForJson, null, 2), 'Vega JSON')}
                 >
                     Copy JSON
                 </LemonButton>

@@ -52,6 +52,17 @@ export const GeneratedVegaLiteVisualization = ({
         [updateChartSettings]
     )
 
+    const handleRenderSuccess = useCallback(() => {
+        setLocalRenderError(null)
+        if (generatedSettings?.renderError) {
+            updateChartSettings({
+                generatedVegaLite: {
+                    renderError: undefined,
+                },
+            })
+        }
+    }, [generatedSettings?.renderError, updateChartSettings])
+
     const tableFallback = (
         <div className="min-h-64 flex-1 overflow-auto">
             <Table
@@ -73,7 +84,7 @@ export const GeneratedVegaLiteVisualization = ({
         )
     }
 
-    const renderError = localRenderError || generatedSettings?.renderError
+    const renderError = localRenderError || (!generatedSettings?.validatedSpec ? generatedSettings?.renderError : null)
 
     if (generatedVegaLiteResponseLoading && (!generatedSettings?.validatedSpec || renderError)) {
         return (
@@ -116,6 +127,7 @@ export const GeneratedVegaLiteVisualization = ({
                 spec={generatedSettings.validatedSpec}
                 fields={generatedSettings.fields}
                 onRenderError={handleRenderError}
+                onRenderSuccess={handleRenderSuccess}
             />
         )
     }

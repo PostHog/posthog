@@ -100,6 +100,13 @@ await buildInParallel(
             ...common,
         },
         {
+            name: 'Vega Iframe Renderer',
+            entryPoints: ['src/queries/nodes/DataVisualization/Components/Charts/vegaIframeRenderer.ts'],
+            format: 'iife',
+            outfile: path.resolve(__dirname, 'dist', 'vega-iframe-renderer.js'),
+            ...common,
+        },
+        {
             ...getToolbarBuildConfig(__dirname),
             ...common,
         },

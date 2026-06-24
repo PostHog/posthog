@@ -63,195 +63,149 @@ describe('generatedVegaLiteUtils', () => {
             { field: 'name', sourceColumn: 'name', label: 'name', type: 'String', semanticType: 'nominal' as const },
         ]
 
-        const validBaseSpec = {
-            data: { name: 'posthog_results' },
-            mark: 'line',
-            encoding: {
-                x: { field: 'day', type: 'temporal' },
-                y: { field: 'count', type: 'quantitative' },
-            },
-        }
-
-        it.each([
-            ['line', { ...validBaseSpec, mark: 'line' }],
-            ['bar', { ...validBaseSpec, mark: 'bar' }],
-            [
-                'scatter',
-                {
-                    data: { name: 'posthog_results' },
-                    mark: 'point',
-                    encoding: {
-                        x: { field: 'count', type: 'quantitative' },
-                        y: { field: 'name', type: 'nominal' },
+        it('normalizes a Vega-Lite spec with the PostHog data source', () => {
+            expect(
+                validateVegaLiteSpec(
+                    {
+                        mark: 'line',
+                        encoding: {
+                            x: { field: 'day', type: 'temporal' },
+                            y: { field: 'count', type: 'quantitative' },
+                        },
                     },
-                },
-            ],
-        ])('accepts a simple %s spec', (_, spec) => {
-            expect(validateVegaLiteSpec(spec, fields).spec).toEqual(
+                    fields
+                ).spec
+            ).toEqual(
                 expect.objectContaining({
                     $schema: 'https://vega.github.io/schema/vega-lite/v6.json',
                     data: { name: 'posthog_results' },
+                    mark: 'line',
                 })
             )
         })
 
-        it('accepts pie and donut specs with safe arc mark properties', () => {
+        it('accepts full Vega-Lite transforms, params, datasets, inline values, and URLs', () => {
             const result = validateVegaLiteSpec(
                 {
-                    data: { name: 'posthog_results' },
-                    mark: { type: 'arc', innerRadius: 60, outerRadius: 240, cornerRadius: 4, padAngle: 0.02 },
+                    $schema: 'https://vega.github.io/schema/vega-lite/v6.json',
+                    datasets: {
+                        thresholds: [{ level: 10 }],
+                    },
+                    data: { url: 'https://example.com/data.json', format: { type: 'json' } },
+                    params: [{ name: 'hover', select: { type: 'point', on: 'pointerover' } }],
+                    transform: [
+                        { calculate: 'datum.count * 2', as: 'double_count' },
+                        { filter: 'datum.double_count > 0' },
+                        { lookup: 'name', from: { data: { name: 'thresholds' }, key: 'name', fields: ['level'] } },
+                    ],
+                    mark: { type: 'bar', href: 'https://example.com' },
                     encoding: {
-                        theta: { field: 'count', type: 'quantitative' },
-                        color: { field: 'name', type: 'nominal', legend: { orient: 'right' } },
-                        tooltip: [
-                            { field: 'name', type: 'nominal' },
-                            { field: 'count', type: 'quantitative' },
-                        ],
+                        x: { field: 'name', type: 'nominal' },
+                        y: { field: 'double_count', type: 'quantitative' },
                     },
                 },
                 fields
             )
 
-            expect(result.spec.mark).toEqual(
-                expect.objectContaining({ type: 'arc', innerRadius: 60, outerRadius: 130 })
-            )
             expect(result.spec).toEqual(
                 expect.objectContaining({
-                    encoding: expect.objectContaining({
-                        color: expect.objectContaining({
-                            legend: expect.objectContaining({
-                                orient: 'bottom',
-                                direction: 'horizontal',
-                                labelLimit: 180,
-                            }),
-                        }),
-                    }),
-                })
-            )
-            expect(result.spec.padding).toEqual({ top: 24, right: 32, bottom: 72, left: 32 })
-            expect(result.warnings).toEqual([])
-        })
-
-        it('accepts rounded bar corner properties', () => {
-            const result = validateVegaLiteSpec(
-                {
-                    data: { name: 'posthog_results' },
-                    mark: { type: 'bar', cornerRadiusTopLeft: 4, cornerRadiusTopRight: 4 },
-                    encoding: {
-                        x: { field: 'name', type: 'nominal' },
-                        y: { field: 'count', type: 'quantitative' },
-                    },
-                },
-                fields
-            )
-
-            expect(result.spec.mark).toEqual(
-                expect.objectContaining({ cornerRadiusTopLeft: 4, cornerRadiusTopRight: 4 })
-            )
-            expect(result.spec.padding).toEqual({ top: 24, right: 32, bottom: 56, left: 64 })
-        })
-
-        it('accepts common axis and legend typography config', () => {
-            const result = validateVegaLiteSpec(
-                {
-                    data: { name: 'posthog_results' },
-                    mark: 'bar',
-                    encoding: {
-                        x: {
-                            field: 'name',
-                            type: 'nominal',
-                            axis: { labelFontSize: 11, titleFontSize: 13, labelColor: '#666' },
-                        },
-                        y: { field: 'count', type: 'quantitative' },
-                        color: {
-                            field: 'name',
-                            type: 'nominal',
-                            legend: { labelFontSize: 11, titleFontSize: 13 },
-                        },
-                    },
-                    config: {
-                        axis: { labelFontSize: 12, titleFontSize: 14, gridDash: [2, 2] },
-                        axisBottom: { labelAngle: -30, labelFontSize: 10 },
-                        legend: { labelFontSize: 11, titleFontSize: 13 },
-                        title: { subtitleFontSize: 12 },
-                    },
-                },
-                fields
-            )
-
-            expect(result.spec.config).toEqual(
-                expect.objectContaining({
-                    axis: expect.objectContaining({ labelFontSize: 12, titleFontSize: 14 }),
-                    axisBottom: expect.objectContaining({ labelFontSize: 10 }),
-                    legend: expect.objectContaining({ labelFontSize: 11, titleFontSize: 13 }),
-                    title: expect.objectContaining({ subtitleFontSize: 12 }),
+                    data: { url: 'https://example.com/data.json', format: { type: 'json' } },
+                    params: [{ name: 'hover', select: { type: 'point', on: 'pointerover' } }],
+                    transform: expect.arrayContaining([{ calculate: 'datum.count * 2', as: 'double_count' }]),
                 })
             )
             expect(result.warnings).toEqual([])
         })
 
-        it('strips null config blocks before rendering', () => {
+        it('accepts raw Vega specs and adds a PostHog dataset when data is omitted', () => {
             const result = validateVegaLiteSpec(
                 {
-                    data: { name: 'posthog_results' },
-                    mark: 'bar',
-                    encoding: {
-                        x: { field: 'name', type: 'nominal' },
-                        y: { field: 'count', type: 'quantitative' },
-                    },
-                    config: {
-                        axis: null,
-                        legend: null,
-                    },
+                    $schema: 'https://vega.github.io/schema/vega/v6.json',
+                    width: 400,
+                    height: 200,
+                    signals: [{ name: 'barStep', value: 20 }],
+                    scales: [
+                        {
+                            name: 'xscale',
+                            type: 'band',
+                            domain: { data: 'posthog_results', field: 'name' },
+                            range: 'width',
+                        },
+                        {
+                            name: 'yscale',
+                            type: 'linear',
+                            domain: { data: 'posthog_results', field: 'count' },
+                            range: 'height',
+                        },
+                    ],
+                    marks: [
+                        {
+                            type: 'rect',
+                            from: { data: 'posthog_results' },
+                            encode: {
+                                enter: {
+                                    x: { scale: 'xscale', field: 'name' },
+                                    y: { scale: 'yscale', field: 'count' },
+                                    y2: { scale: 'yscale', value: 0 },
+                                },
+                            },
+                        },
+                    ],
                 },
                 fields
             )
 
-            expect(result.spec.config).toEqual({})
-            expect(result.warnings).toEqual([
-                'Removed null config block "axis".',
-                'Removed null config block "legend".',
-            ])
+            expect(result.spec.data).toEqual([{ name: 'posthog_results' }])
+            expect(result.spec.marks).toEqual(expect.any(Array))
         })
 
-        it('strips unsupported decorative keys and returns warnings', () => {
+        it('infers raw Vega when Vega-only top-level keys are present', () => {
             const result = validateVegaLiteSpec(
                 {
-                    data: { name: 'posthog_results' },
-                    mark: { type: 'bar', madeUpSparkle: true },
-                    encoding: {
-                        x: { field: 'name', type: 'nominal', madeUpAxisThing: true },
-                        y: { field: 'count', type: 'quantitative' },
-                    },
+                    width: 400,
+                    height: 200,
+                    data: [{ name: 'external', url: 'https://example.com/data.csv', format: { type: 'csv' } }],
+                    marks: [
+                        { type: 'text', from: { data: 'external' }, encode: { enter: { text: { field: 'name' } } } },
+                    ],
                 },
                 fields
             )
 
-            expect(result.spec.mark).toEqual({ type: 'bar' })
-            expect(result.spec.encoding).toEqual({
-                x: { field: 'name', type: 'nominal' },
-                y: { field: 'count', type: 'quantitative' },
-            })
-            expect(result.warnings).toEqual([
-                'Removed unsupported key "madeUpSparkle" at spec.mark.',
-                'Removed unsupported key "madeUpAxisThing" at encoding.x.',
+            expect(result.spec.$schema).toBe('https://vega.github.io/schema/vega/v6.json')
+            expect(result.spec.data).toEqual([
+                { name: 'external', url: 'https://example.com/data.csv', format: { type: 'csv' } },
             ])
         })
 
-        it.each([
-            ['data.url', { ...validBaseSpec, data: { name: 'posthog_results', url: 'https://example.com/data.json' } }],
-            ['transform', { ...validBaseSpec, transform: [{ calculate: 'datum.count * 2', as: 'double_count' }] }],
-            ['unknown field', { ...validBaseSpec, encoding: { y: { field: 'missing', type: 'quantitative' } } }],
-            ['external resource string', { ...validBaseSpec, title: 'https://example.com' }],
-            ['inline values', { ...validBaseSpec, data: { name: 'posthog_results', values: [{ count: 1 }] } }],
-        ])('rejects %s', (_, spec) => {
-            expect(() => validateVegaLiteSpec(spec, fields)).toThrow(VegaLiteValidationError)
+        it('rejects unsupported schemas', () => {
+            expect(() =>
+                validateVegaLiteSpec(
+                    {
+                        $schema: 'https://example.com/not-vega.json',
+                        data: { name: 'posthog_results' },
+                        mark: 'bar',
+                    },
+                    fields
+                )
+            ).toThrow(VegaLiteValidationError)
         })
 
         it('rejects oversized specs', () => {
-            expect(() => validateVegaLiteSpec({ ...validBaseSpec, description: 'x'.repeat(25000) }, fields)).toThrow(
-                VegaLiteValidationError
-            )
+            expect(() =>
+                validateVegaLiteSpec(
+                    {
+                        data: { name: 'posthog_results' },
+                        mark: 'bar',
+                        description: 'x'.repeat(250001),
+                    },
+                    fields
+                )
+            ).toThrow(VegaLiteValidationError)
+        })
+
+        it('rejects non-object specs', () => {
+            expect(() => validateVegaLiteSpec([], fields)).toThrow(VegaLiteValidationError)
         })
     })
 })

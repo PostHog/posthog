@@ -47,6 +47,7 @@ import {
     NotebookComponentRenderProps,
     NotebookComponentRegistry,
     NotebookPropValue,
+    NotebookMode,
 } from 'lib/components/MarkdownNotebook/types'
 import { isNotebookPropValue, toSerializablePropValue } from 'lib/components/MarkdownNotebook/utils'
 
@@ -442,9 +443,17 @@ export function MountedRealNotebookNodeComponent({
 }): JSX.Element {
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const contentRef = useRef<HTMLDivElement | null>(null)
+    const isFiltersPanelVisible = shouldExposeMarkdownFiltersStateToRealNode({
+        editOnly,
+        mode,
+        notebookMode,
+        options,
+        props: node.props,
+    })
+    const exposeSettingsStateToNode = forceEditing || isFiltersPanelVisible
     const attributes = useMemo(
-        () => getNodeAttributes(node.props, node.id, options, notebookNodeType, forceEditing),
-        [forceEditing, node.id, node.props, notebookNodeType, options]
+        () => getNodeAttributes(node.props, node.id, options, notebookNodeType, exposeSettingsStateToNode),
+        [exposeSettingsStateToNode, node.id, node.props, notebookNodeType, options]
     )
     const updateAttributes = useCallback(
         (nextAttributes: Partial<NotebookNodeAttributes<any>>): void => {
@@ -640,8 +649,27 @@ export function getNodeAttributes(
     if (nodeType === NotebookNodeType.Latex && !forceEditing) {
         attributes.editing = false
     }
+    if (forceEditing && options?.Settings) {
+        attributes.showSettings = true
+    }
 
     return attributes
+}
+
+export function shouldExposeMarkdownFiltersStateToRealNode({
+    editOnly,
+    mode,
+    notebookMode,
+    options,
+    props,
+}: {
+    editOnly: boolean
+    mode: NotebookMode
+    notebookMode?: NotebookMode
+    options: CreatePostHogWidgetNodeOptions<any>
+    props: NotebookComponentProps
+}): boolean {
+    return !editOnly && !!options.Settings && (notebookMode ?? mode) === 'edit' && props.hideFilters !== true
 }
 
 export function getNodeAttributeProps(props: NotebookComponentProps): NotebookComponentProps {

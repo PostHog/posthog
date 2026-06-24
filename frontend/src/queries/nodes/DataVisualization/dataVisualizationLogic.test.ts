@@ -654,7 +654,7 @@ describe('dataVisualizationLogic', () => {
         )
     })
 
-    it('stores a validation error instead of a validated spec when AI returns unsafe Vega-Lite', async () => {
+    it('stores a validated spec when AI returns Vega-Lite with a data URL', async () => {
         mockSqlVisualizationCreate.mockResolvedValue({
             spec: {
                 data: { name: 'posthog_results', url: 'https://example.com/data.json' },
@@ -681,8 +681,10 @@ describe('dataVisualizationLogic', () => {
             expect.objectContaining({
                 spec: expect.any(Object),
                 traceId: 'trace-2',
-                validatedSpec: undefined,
-                validationError: expect.stringContaining('Unsupported key "url"'),
+                validatedSpec: expect.objectContaining({
+                    data: { name: 'posthog_results', url: 'https://example.com/data.json' },
+                }),
+                validationError: undefined,
             })
         )
     })

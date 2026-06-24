@@ -56,24 +56,22 @@ class SQLVisualizationGenerationPayload(TypedDict, total=False):
 class SQLVisualizationGenerationOutput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    spec: dict[str, object] = Field(description="A Vega-Lite JSON specification object.")
+    spec: dict[str, object] = Field(description="A Vega or Vega-Lite JSON specification object.")
     explanation: str | None = Field(default=None, description="Short explanation of the chosen chart.")
     warnings: list[str] = Field(default_factory=list, description="Warnings about limitations in the generated chart.")
 
 
 SYSTEM_PROMPT = """
-You generate safe Vega-Lite visualizations for PostHog SQL query results.
+You generate Vega or Vega-Lite visualizations for PostHog SQL query results.
 
-Return a Vega-Lite spec that uses the named data source `posthog_results`.
-Use only the provided fields. If field aliases are present, use the alias in the `field` property and use labels in titles.
+Use the named data source `posthog_results` for SQL result rows. If field aliases are present, use the alias in field references and use labels in titles.
 
-Allowed top-level keys include unit and composition Vega-Lite specs such as mark, encoding, layer, concat, facet, config, width, and height.
-Required data block: {"name": "posthog_results"}.
-Allowed marks include bar, line, area, point, circle, rect, arc, tick, rule, text, trail, boxplot, errorbar, and errorband.
-Use the provided view width and height to choose a readable layout. Prefer width "container" and a numeric height that fits the view.
+You may use full Vega or Vega-Lite features, including transforms, params, selections, projections, datasets, inline values, expressions, and data URLs when they make the chart clearer.
+For PostHog SQL result data, prefer `{"name": "posthog_results"}`. If you need to load the SQL result rows through a URL-style data source, use `posthog://dataset/posthog_results`.
+Use the provided view width and height to choose a readable layout. Prefer width "container" for Vega-Lite specs and a numeric height that fits the view.
 
-Do not include external data, URLs, inline data.values, datasets, transforms, params, selections, JavaScript, HTML, hrefs, image marks, geoshapes, projections, event streams, or expression strings.
-Prefer simple readable charts when appropriate, but richer Vega-Lite marks are fine when they make the result clearer.
+Prefer simple readable charts when appropriate, but richer Vega or Vega-Lite features are fine when they make the result clearer.
+Return only Vega or Vega-Lite JSON.
 """.strip()
 
 USER_PROMPT = """

@@ -881,7 +881,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                         })
                     } catch (error) {
                         const validationError =
-                            error instanceof Error ? error.message : 'The generated Vega-Lite spec is invalid.'
+                            error instanceof Error ? error.message : 'The generated Vega spec is invalid.'
                         actions.updateChartSettings({
                             generatedVegaLite: {
                                 prompt,

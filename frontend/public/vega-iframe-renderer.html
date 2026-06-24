@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="robots" content="noindex" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta
+            http-equiv="Content-Security-Policy"
+            content="default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; connect-src * data: blob:; img-src * data: blob:; font-src * data:; worker-src 'none'; child-src 'none'; object-src 'none'; base-uri 'none'"
+        />
+        <style>
+            html,
+            body {
+                min-height: 320px;
+                margin: 0;
+                overflow: hidden;
+                background: transparent;
+                color-scheme: light dark;
+                font-family:
+                    Inter,
+                    -apple-system,
+                    BlinkMacSystemFont,
+                    'Segoe UI',
+                    sans-serif;
+            }
+
+            #vis {
+                box-sizing: border-box;
+                width: 100%;
+                min-height: 320px;
+            }
+
+            #vis > .vega-embed {
+                box-sizing: border-box;
+                width: 100%;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="vis"></div>
+        <script src="./vega-iframe-renderer.js?v=2"></script>
+    </body>
+</html>
