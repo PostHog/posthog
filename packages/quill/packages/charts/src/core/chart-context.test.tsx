@@ -44,7 +44,7 @@ describe('chart-context split', () => {
             setHover = _setHover
             return (
                 <ChartLayoutContext.Provider value={LAYOUT}>
-                    <ChartHoverContext.Provider value={{ hoverIndex }}>
+                    <ChartHoverContext.Provider value={{ hoverIndex, modifierActive: false }}>
                         <LayoutConsumer />
                         <HoverConsumer />
                     </ChartHoverContext.Provider>
@@ -79,7 +79,7 @@ describe('chart-context split', () => {
             setHover = _setHover
             return (
                 <ChartLayoutContext.Provider value={LAYOUT}>
-                    <ChartHoverContext.Provider value={{ hoverIndex }}>
+                    <ChartHoverContext.Provider value={{ hoverIndex, modifierActive: false }}>
                         <Consumer />
                     </ChartHoverContext.Provider>
                 </ChartLayoutContext.Provider>
