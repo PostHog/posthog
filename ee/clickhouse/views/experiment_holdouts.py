@@ -15,8 +15,6 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from products.experiments.backend.models.experiment import ExperimentHoldout, holdout_filters_for_flag
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 
-from ee.api.rbac.access_control import AccessControlViewSetMixin
-
 
 class ExperimentHoldoutSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     """A holdout group — a stable slice of users excluded from experiment exposure."""
@@ -109,7 +107,10 @@ class ExperimentHoldoutSerializer(UserAccessControlSerializerMixin, serializers.
 
 
 @extend_schema(extensions={"x-swagger-tag": "experiment_holdouts", "x-product": "experiments"})
-class ExperimentHoldoutViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
+class ExperimentHoldoutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    # Deliberately NOT an AccessControlViewSetMixin: holdouts are shared project config that
+    # inherit experiment access, with no per-holdout grants. Exposing `/{id}/access_controls`
+    # would let an object-level holdout grant bypass resource-level experiment access.
     scope_object = "experiment_holdout"
     queryset = ExperimentHoldout.objects.prefetch_related("created_by").all()
     serializer_class = ExperimentHoldoutSerializer

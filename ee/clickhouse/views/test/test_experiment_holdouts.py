@@ -314,3 +314,20 @@ class TestExperimentHoldoutAccessControl(APILicensedTest):
             format="json",
         )
         self.assertEqual(update_res.status_code, status.HTTP_200_OK)
+
+        delete_res = self.client.delete(f"/api/projects/{self.team.id}/experiment_holdouts/{self.holdout.id}/")
+        self.assertEqual(delete_res.status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_holdout_access_controls_endpoint_not_exposed(self):
+        # Holdouts inherit experiment access and must not support per-object grants. The
+        # access_controls action would otherwise let a holdout-specific grant bypass
+        # resource-level experiment access. Even an org admin must get 404 — the route is absent.
+        get_res = self.client.get(f"/api/projects/{self.team.id}/experiment_holdouts/{self.holdout.id}/access_controls")
+        self.assertEqual(get_res.status_code, status.HTTP_404_NOT_FOUND)
+
+        put_res = self.client.put(
+            f"/api/projects/{self.team.id}/experiment_holdouts/{self.holdout.id}/access_controls",
+            {"access_level": "editor"},
+            format="json",
+        )
+        self.assertEqual(put_res.status_code, status.HTTP_404_NOT_FOUND)
