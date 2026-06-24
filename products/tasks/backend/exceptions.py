@@ -35,6 +35,22 @@ class TaskNotFoundError(ProcessTaskFatalError):
     pass
 
 
+class TaskRunNotReadyError(ProcessTaskTransientError):
+    """The TaskRun row is not yet visible to this activity.
+
+    Typically the creating transaction has not committed by the time the activity's
+    first read runs (the run was created inside an enclosing transaction.atomic block).
+    Retryable so the activity's existing retry policy recovers once the row is visible.
+    Intentionally does not capture to error tracking — this is an expected transient
+    window the retry absorbs, not a fault worth an issue.
+    """
+
+    def __init__(self, message: str, context: dict[str, Any]):
+        # Bypass ProcessTaskTransientError.__init__ to pass cause=None, which skips the
+        # capture_exception() call in ProcessTaskError — avoiding error-tracking noise.
+        ProcessTaskError.__init__(self, message, context, None, non_retryable=False)
+
+
 class TaskInvalidStateError(ProcessTaskFatalError):
     pass
 
