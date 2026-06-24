@@ -138,7 +138,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$$heatmap": {
             "label": "Heatmap",
-            "description": "Heatmap events carry heatmap data to the backend, they do not contribute to event counts.",
+            "description": "Internal carrier for heatmap data. Routed to a separate heatmaps store during ingestion and do not contribute to event counts.",
             "ignored_in_assistant": True,  # Heatmap events are not useful for LLM
         },
         "$copy_autocapture": {
