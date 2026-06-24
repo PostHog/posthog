@@ -81,9 +81,12 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
             },
         ],
         // Folders the user has explicitly expanded. The tree starts collapsed except for the root, so it
-        // opens with just the top-level folders; clicking a folder expands it.
+        // opens with just the top-level folders; clicking a folder expands it. Persisted to localStorage
+        // (like the sidebar tree) so an accidental reload keeps your folders open; stale paths from since-
+        // deleted folders are harmless — they're filtered against the live tree before use.
         expandedFolders: [
             {} as Record<string, boolean>,
+            { persist: true },
             {
                 toggleFolder: (state, { folder }) => ({ ...state, [folder]: !state[folder] }),
                 setExpandedFolders: (_, { folders }) => folders,
