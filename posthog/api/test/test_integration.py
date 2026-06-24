@@ -9,7 +9,6 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.conf import settings as django_settings
 from django.core.cache import cache
 from django.test.client import Client as HttpClient
 from django.utils import timezone
