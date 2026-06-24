@@ -32,8 +32,9 @@ class TestPersonsDbUrl:
 def test_sync_connection_targets_persons_db():
     with persons_db_connection() as conn, conn.cursor() as cursor:
         cursor.execute("SELECT current_database()")
-        (database,) = cursor.fetchone()
-    assert database.endswith("_persons")
+        row = cursor.fetchone()
+    assert row is not None
+    assert row[0].endswith("_persons")
 
 
 @pytest.mark.django_db(databases=["persons_db_writer", "persons_db_reader"])
@@ -48,4 +49,5 @@ async def test_async_connection_targets_persons_db():
     async with persons_db_aconnection() as conn, conn.cursor() as cursor:
         await cursor.execute("SELECT current_database()")
         row = await cursor.fetchone()
+    assert row is not None
     assert row[0].endswith("_persons")
