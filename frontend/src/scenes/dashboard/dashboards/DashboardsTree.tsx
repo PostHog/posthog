@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { IconCollapse, IconExpand } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonTree, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -83,20 +84,22 @@ export function DashboardsTree(): JSX.Element {
     return (
         <div className="grid grid-cols-[260px_1fr] gap-4" data-attr="dashboards-tree">
             <div className="flex flex-col gap-1 border-r border-border pr-2" aria-label="Folder tree">
-                <div className="flex items-center justify-end">
-                    {/* New folder now lives in each folder's hover menu (and the root's), mirroring the sidebar. */}
+                <div className="flex items-center">
+                    {/* Compact IDE-style expand/collapse-all toggle. New folder lives in each folder's
+                        hover menu (and the root's), mirroring the sidebar — no standalone button. */}
                     <LemonButton
                         size="small"
                         type="tertiary"
+                        icon={allExpanded ? <IconCollapse /> : <IconExpand />}
+                        tooltip={allExpanded ? 'Collapse all folders' : 'Expand all folders'}
                         onClick={() =>
                             setExpandedFolders(
                                 allExpanded ? {} : Object.fromEntries(expandablePaths.map((id) => [id, true]))
                             )
                         }
                         disabledReason={expandablePaths.length === 0 ? 'No nested folders' : undefined}
-                    >
-                        {allExpanded ? 'Collapse all' : 'Expand all'}
-                    </LemonButton>
+                        data-attr="dashboards-tree-expand-toggle"
+                    />
                 </div>
                 {/* LemonTree drops its own className, so the override lives on this wrapper instead. Every
                     open/expanded accordion trigger is shaded with the tertiary-active fill, which made all

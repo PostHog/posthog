@@ -113,7 +113,11 @@ describe('DashboardsTree', () => {
         expect(navigateToFolder).toHaveBeenCalledWith('')
     })
 
-    it('"Expand all" expands only folders that have subfolders (childless ones are skipped)', () => {
+    const clickExpandToggle = (container: HTMLElement): void => {
+        fireEvent.click(container.querySelector('[data-attr="dashboards-tree-expand-toggle"]') as HTMLElement)
+    }
+
+    it('the expand toggle expands only folders that have subfolders (childless ones are skipped)', () => {
         mockValues({
             folderTree: [
                 {
@@ -124,12 +128,12 @@ describe('DashboardsTree', () => {
                 },
             ],
         })
-        render(<DashboardsTree />)
-        fireEvent.click(screen.getByText('Expand all'))
+        const { container } = render(<DashboardsTree />)
+        clickExpandToggle(container)
         expect(setExpandedFolders).toHaveBeenCalledWith({ Marketing: true })
     })
 
-    it('collapses every folder when "Collapse all" is clicked (all currently expanded)', () => {
+    it('the toggle collapses everything when all folders are currently expanded', () => {
         mockValues({
             folderTree: [
                 {
@@ -140,8 +144,8 @@ describe('DashboardsTree', () => {
             ],
             expandedFolders: { Marketing: true },
         })
-        render(<DashboardsTree />)
-        fireEvent.click(screen.getByText('Collapse all'))
+        const { container } = render(<DashboardsTree />)
+        clickExpandToggle(container)
         expect(setExpandedFolders).toHaveBeenCalledWith({})
     })
 
