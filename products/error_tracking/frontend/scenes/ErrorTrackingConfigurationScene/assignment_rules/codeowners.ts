@@ -1,4 +1,4 @@
-import type { RoleType } from '~/types'
+import type { OrganizationMemberType, RoleType } from '~/types'
 
 export interface CodeownersEntry {
     pattern: string
@@ -16,6 +16,10 @@ export interface RoleMatch {
     score: number
 }
 
+export type AssigneeMatch =
+    | { type: 'role'; role: RoleType; score: number }
+    | { type: 'user'; user: OrganizationMemberType['user']; score: number }
+
 export interface OwnerIdentity {
     org: string
     slug: string
@@ -27,9 +31,8 @@ export interface SourceMatch {
 }
 
 /**
- * Split an `@org/team` owner token into its org and team slug — the shape a GitHub-team
- * RoleExternalReference is keyed on. Returns null for bare users (`@alice`) and emails, which have
- * no org and so cannot be persisted as a team mapping.
+ * Split an `@org/team` owner token into its org and team slug. Returns null for bare users
+ * (`@alice`) and emails, which do not identify a team.
  */
 export function splitOwner(owner: string): OwnerIdentity | null {
     const withoutAt = owner.replace(/^@/, '')
@@ -43,9 +46,8 @@ export function splitOwner(owner: string): OwnerIdentity | null {
 }
 
 /**
- * Parse CODEOWNERS-style text into (pattern, owners) entries. Mirrors the parsing in
- * .github/scripts/codeowners.js: skip blank lines and `#` comments, first token is the path
- * pattern and the rest are owners (`@org/team`, `@user`, or an email).
+ * Parse code owners-style text into (pattern, owners) entries: skip blank lines and `#` comments,
+ * first token is the path pattern and the rest are owners (`@org/team`, `@user`, or an email).
  */
 export function parseCodeowners(text: string): CodeownersEntry[] {
     const entries: CodeownersEntry[] = []
@@ -73,7 +75,7 @@ const OWNER_RE = /^@[A-Za-z0-9/_.-]+$/
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 
 /**
- * Validate CODEOWNERS-style text line by line, returning a parse error per malformed line: a path
+ * Validate code owners-style text line by line, returning a parse error per malformed line: a path
  * with no owner, or an owner token that isn't a `@team`/`@user` handle or an email. Blank lines and
  * `#` comments are skipped.
  */
@@ -121,7 +123,7 @@ export function groupByOwner(entries: CodeownersEntry[]): OwnerGroup[] {
 }
 
 /**
- * Turn a CODEOWNERS glob into a path fragment for an `icontains` match against `$exception_sources`.
+ * Turn a code owners glob into a path fragment for an `icontains` match against `$exception_sources`.
  * Stack-frame source paths are often absolute or transformed, so we match a substring rather than
  * trying to honor full glob semantics. Extension-only patterns become their extension (`.py`, `.tsx`).
  * Returns an empty string for catch-all patterns (e.g. `*`), which callers should skip.
@@ -200,44 +202,72 @@ function normalizeOwnerToken(owner: string): string {
     return normalizeName(lastSlash >= 0 ? withoutAt.slice(lastSlash + 1) : withoutAt)
 }
 
-/** Standard iterative Levenshtein edit distance between two strings. */
-export function levenshtein(a: string, b: string): number {
-    if (a.length === 0) {
-        return b.length
+export function longestCommonSubstringLength(a: string, b: string): number {
+    if (!a || !b) {
+        return 0
     }
-    if (b.length === 0) {
-        return a.length
-    }
-    let prev = Array.from({ length: b.length + 1 }, (_, i) => i)
-    let curr = Array.from({ length: b.length + 1 }, () => 0)
+
+    let best = 0
+    let previous = Array.from({ length: b.length + 1 }, () => 0)
+    let current = Array.from({ length: b.length + 1 }, () => 0)
+
     for (let i = 1; i <= a.length; i++) {
-        curr[0] = i
         for (let j = 1; j <= b.length; j++) {
-            const cost = a[i - 1] === b[j - 1] ? 0 : 1
-            curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost)
+            current[j] = a[i - 1] === b[j - 1] ? previous[j - 1] + 1 : 0
+            best = Math.max(best, current[j])
         }
-        ;[prev, curr] = [curr, prev]
+        ;[previous, current] = [current, previous]
+        current.fill(0)
     }
-    return prev[b.length]
+
+    return best
+}
+
+function commonSubstringScore(target: string, candidate: string): number {
+    const commonLength = longestCommonSubstringLength(target, candidate)
+    return commonLength / Math.max(Math.min(target.length, candidate.length), 1)
+}
+
+function userNames(member: OrganizationMemberType): string[] {
+    const { user } = member
+    return [user.first_name, user.email.split('@')[0], user.email]
+        .map((value) => normalizeName(value))
+        .filter((value) => value.length > 0)
 }
 
 /**
- * Find the existing Role whose name is closest to a CODEOWNERS owner token by normalized
- * Levenshtein similarity. Returns null when no role clears `threshold` (default 0.5).
+ * Find the existing role or user whose name has the longest normalized common substring with a
+ * code owner token. Returns null when no assignee clears `threshold` (default 0.75).
  */
-export function bestRoleMatch(owner: string, roles: RoleType[], threshold: number = 0.5): RoleMatch | null {
+export function bestAssigneeMatch(
+    owner: string,
+    roles: RoleType[],
+    members: OrganizationMemberType[],
+    threshold: number = 0.75
+): AssigneeMatch | null {
     const target = normalizeOwnerToken(owner)
-    if (!target || roles.length === 0) {
+    if (!target || (roles.length === 0 && members.length === 0)) {
         return null
     }
-    let best: RoleMatch | null = null
+
+    let best: AssigneeMatch | null = null
     for (const role of roles) {
-        const name = normalizeName(role.name)
-        const distance = levenshtein(target, name)
-        const score = 1 - distance / Math.max(target.length, name.length, 1)
+        const score = commonSubstringScore(target, normalizeName(role.name))
         if (!best || score > best.score) {
-            best = { role, score }
+            best = { type: 'role', role, score }
         }
     }
+    for (const member of members) {
+        const score = Math.max(...userNames(member).map((name) => commonSubstringScore(target, name)), 0)
+        if (!best || score > best.score) {
+            best = { type: 'user', user: member.user, score }
+        }
+    }
+
     return best && best.score >= threshold ? best : null
+}
+
+export function bestRoleMatch(owner: string, roles: RoleType[], threshold: number = 0.75): RoleMatch | null {
+    const match = bestAssigneeMatch(owner, roles, [], threshold)
+    return match?.type === 'role' ? { role: match.role, score: match.score } : null
 }

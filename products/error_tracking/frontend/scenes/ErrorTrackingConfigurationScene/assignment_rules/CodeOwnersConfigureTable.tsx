@@ -66,7 +66,7 @@ export function CodeOwnersConfigureTable(): JSX.Element {
             <Table>
                 <TableHeader>
                     <TableRow>
-                        <TableHead className="px-0">GitHub handle</TableHead>
+                        <TableHead className="px-0">Owner</TableHead>
                         <TableHead className="px-0 text-right">PostHog role / user</TableHead>
                     </TableRow>
                 </TableHeader>
@@ -118,9 +118,6 @@ export function CodeOwnersConfigureTable(): JSX.Element {
                                             )}
                                         </AssigneeSelect>
                                     </div>
-                                    {row.source === 'saved' && (
-                                        <span className="text-xs text-secondary">saved mapping</span>
-                                    )}
                                 </TableCell>
                             </TableRow>
                         )

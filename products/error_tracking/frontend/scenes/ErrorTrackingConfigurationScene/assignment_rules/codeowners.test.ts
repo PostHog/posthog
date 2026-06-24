@@ -1,10 +1,11 @@
-import type { RoleType } from '~/types'
+import type { OrganizationMemberType, RoleType } from '~/types'
 
 import {
+    bestAssigneeMatch,
     bestRoleMatch,
     findCodeownersErrors,
     groupByOwner,
-    levenshtein,
+    longestCommonSubstringLength,
     ownerMatchFragments,
     patternToSourceMatch,
     parseCodeowners,
@@ -14,6 +15,10 @@ import {
 
 function makeRole(name: string): RoleType {
     return { id: name.toLowerCase(), name } as RoleType
+}
+
+function makeMember(firstName: string, email: string, id: number = 1): OrganizationMemberType {
+    return { user: { id, first_name: firstName, email } } as OrganizationMemberType
 }
 
 describe('codeowners helpers', () => {
@@ -81,15 +86,15 @@ describe('codeowners helpers', () => {
         })
     })
 
-    describe('levenshtein', () => {
+    describe('longestCommonSubstringLength', () => {
         it.each([
             ['', '', 0],
-            ['abc', '', 3],
-            ['', 'abc', 3],
-            ['kitten', 'sitting', 3],
-            ['frontend', 'frontend', 0],
-        ])('distance(%s, %s) = %i', (a, b, expected) => {
-            expect(levenshtein(a, b)).toBe(expected)
+            ['abc', '', 0],
+            ['', 'abc', 0],
+            ['error tracking', 'error tracking', 14],
+            ['error tracking', 'product analytics', 2],
+        ])('longest common substring length for %s and %s is %i', (a, b, expected) => {
+            expect(longestCommonSubstringLength(a, b)).toBe(expected)
         })
     })
 
@@ -110,6 +115,28 @@ describe('codeowners helpers', () => {
 
         it('returns null when there are no roles', () => {
             expect(bestRoleMatch('@posthog/frontend', [])).toBeNull()
+        })
+    })
+
+    describe('bestAssigneeMatch', () => {
+        const roles = [makeRole('Error Tracking')]
+        const members = [
+            makeMember('Alice Example', 'alice@example.com'),
+            makeMember('Max Backend', 'max@example.com', 2),
+        ]
+
+        it('matches roles by longest common substring', () => {
+            expect(bestAssigneeMatch('@posthog/error-tracking', roles, members)).toMatchObject({
+                type: 'role',
+                role: { name: 'Error Tracking' },
+            })
+        })
+
+        it('matches users by name or email local part', () => {
+            expect(bestAssigneeMatch('@alice', roles, members)).toMatchObject({
+                type: 'user',
+                user: { email: 'alice@example.com' },
+            })
         })
     })
 

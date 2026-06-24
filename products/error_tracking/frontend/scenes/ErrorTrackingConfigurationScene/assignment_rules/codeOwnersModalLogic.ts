@@ -13,45 +13,34 @@ import {
     FilterLogicalOperator,
     PropertyFilterType,
     PropertyOperator,
+    OrganizationMemberType,
     RoleType,
     UniversalFiltersGroup,
 } from '~/types'
 
-import { roleExternalReferencesCreate, roleExternalReferencesList } from 'products/integrations/frontend/generated/api'
-import { RoleExternalReferenceApi } from 'products/integrations/frontend/generated/api.schemas'
-
+import { assigneeSelectLogic } from '../../../components/Assignee/assigneeSelectLogic'
 import { rulesLogic } from '../rules/rulesLogic'
 import { ErrorTrackingAssignmentRule, ErrorTrackingRuleType } from '../rules/types'
 import {
     CodeownersError,
     OwnerGroup,
-    bestRoleMatch,
+    bestAssigneeMatch,
     findCodeownersErrors,
     groupByOwner,
     ownerMatchFragments,
     parseCodeowners,
     patternToSourceMatch,
-    splitOwner,
 } from './codeowners'
 import type { codeOwnersModalLogicType } from './codeOwnersModalLogicType'
 
-// CODEOWNERS owners are GitHub teams (`@org/team`), so saved mappings live on the `github` provider —
-// interoperable with any real GitHub-team → role references.
-const MAPPING_PROVIDER = 'github'
-
-/** Stable key for a persisted owner mapping: lowercased `org/slug`. */
-function referenceKey(org: string, slug: string): string {
-    return `${org.toLowerCase()}/${slug.toLowerCase()}`
-}
-
-export type MatchSource = 'saved' | 'matched' | 'manual' | null
+export type MatchSource = 'matched' | 'manual' | null
 
 export interface CodeOwnerRow {
     owner: string
     patterns: string[]
     matchFragments: string[]
     assignee: ErrorTrackingIssueAssignee | null
-    /** How `assignee` was resolved: a saved mapping, a fuzzy name match, a manual pick, or unmatched. */
+    /** How `assignee` was resolved: an automatic name match, a manual pick, or unmatched. */
     source: MatchSource
     /** Normalized similarity of the fuzzy match, when `source === 'matched'`. */
     suggestionScore: number | null
@@ -84,8 +73,15 @@ export const codeOwnersModalLogic = kea<codeOwnersModalLogicType>([
     ]),
 
     connect(() => ({
-        values: [rolesLogic, ['roles'], organizationLogic, ['currentOrganization']],
-        actions: [rolesLogic, ['loadRoles']],
+        values: [
+            rolesLogic,
+            ['roles'],
+            assigneeSelectLogic,
+            ['meFirstMembers'],
+            organizationLogic,
+            ['currentOrganization'],
+        ],
+        actions: [rolesLogic, ['loadRoles'], assigneeSelectLogic, ['ensureAssigneeTypesLoaded']],
     })),
 
     actions({
@@ -96,7 +92,6 @@ export const codeOwnersModalLogic = kea<codeOwnersModalLogicType>([
         setParsedOwners: (owners: OwnerGroup[]) => ({ owners }),
         setOwnerAssignee: (owner: string, assignee: ErrorTrackingIssueAssignee | null) => ({ owner, assignee }),
         setMappingOwners: (owners: string[]) => ({ owners }),
-        setSaveMapping: (saveMapping: boolean) => ({ saveMapping }),
         goToConfigure: true,
         goToImpact: true,
         backToMapping: true,
@@ -134,26 +129,10 @@ export const codeOwnersModalLogic = kea<codeOwnersModalLogicType>([
                 backToPaste: () => [],
             },
         ],
-        saveMapping: [false, { setSaveMapping: (_, { saveMapping }) => saveMapping, openModal: () => false }],
         dateRange: ['-7d' as string, { setDateRange: (_, { dateRange }) => dateRange, openModal: () => '-7d' }],
     }),
 
     loaders(({ values }) => ({
-        externalReferences: [
-            [] as RoleExternalReferenceApi[],
-            {
-                loadExternalReferences: async () => {
-                    const orgId = values.currentOrganization?.id
-                    if (!orgId) {
-                        return []
-                    }
-                    const response = await roleExternalReferencesList(orgId, { limit: 1000 })
-                    return response.results.filter(
-                        (ref) => ref.provider === MAPPING_PROVIDER && !!ref.provider_role_slug
-                    )
-                },
-            },
-        ],
         matchResults: [
             {} as Record<string, MatchCount | null>,
             {
@@ -198,21 +177,13 @@ export const codeOwnersModalLogic = kea<codeOwnersModalLogicType>([
                                 filters: buildOwnerFilters(row.patterns),
                                 assignee: row.assignee,
                                 disabled_data: null,
-                                // Later CODEOWNERS entries win (GitHub's last-match-wins): rules are
-                                // first-match by ascending order_key, so the last owner gets the lowest key.
+                                // Later code owner entries win: rules are first-match by ascending order_key,
+                                // so the last owner gets the lowest key.
                                 order_key: rows.length - 1 - index,
                             }
                             return api.errorTracking.createRule(ErrorTrackingRuleType.Assignment, rule)
                         })
                     )
-                    // Persist owner → role mappings best-effort: rules are the primary action, so a
-                    // failed mapping write (e.g. an already-existing reference) must not fail the save.
-                    const orgId = values.currentOrganization?.id
-                    if (values.saveMapping && orgId) {
-                        await Promise.allSettled(
-                            values.mappingsToPersist.map((ref) => roleExternalReferencesCreate(orgId, ref))
-                        )
-                    }
                     return true
                 },
             },
@@ -222,7 +193,7 @@ export const codeOwnersModalLogic = kea<codeOwnersModalLogicType>([
     listeners(({ actions, values }) => ({
         openModal: () => {
             actions.loadRoles()
-            actions.loadExternalReferences()
+            actions.ensureAssigneeTypesLoaded()
             actions.resetMatchResults()
         },
         setRawText: () => {
@@ -253,26 +224,12 @@ export const codeOwnersModalLogic = kea<codeOwnersModalLogicType>([
     })),
 
     selectors({
-        // Saved owner → role id, keyed by lowercased `org/slug`, restricted to roles that still exist.
-        referenceRoleByKey: [
-            (s) => [s.externalReferences, s.roles],
-            (externalReferences: RoleExternalReferenceApi[], roles: RoleType[]): Record<string, string> => {
-                const roleIds = new Set(roles.map((role) => role.id))
-                const map: Record<string, string> = {}
-                for (const ref of externalReferences) {
-                    if (ref.provider_role_slug && roleIds.has(ref.role)) {
-                        map[referenceKey(ref.provider_organization_id, ref.provider_role_slug)] = ref.role
-                    }
-                }
-                return map
-            },
-        ],
         ownerRows: [
-            (s) => [s.parsedOwners, s.roles, s.referenceRoleByKey, s.assigneeOverrides],
+            (s) => [s.parsedOwners, s.roles, s.meFirstMembers, s.assigneeOverrides],
             (
                 parsedOwners: OwnerGroup[],
                 roles: RoleType[],
-                referenceRoleByKey: Record<string, string>,
+                meFirstMembers: OrganizationMemberType[],
                 assigneeOverrides: Record<string, ErrorTrackingIssueAssignee | null>
             ): CodeOwnerRow[] =>
                 parsedOwners.map(({ owner, patterns }) => {
@@ -283,23 +240,14 @@ export const codeOwnersModalLogic = kea<codeOwnersModalLogicType>([
                         return { ...base, assignee, source: assignee ? 'manual' : null, suggestionScore: null }
                     }
 
-                    const identity = splitOwner(owner)
-                    const savedRoleId = identity
-                        ? referenceRoleByKey[referenceKey(identity.org, identity.slug)]
-                        : undefined
-                    if (savedRoleId) {
-                        return {
-                            ...base,
-                            assignee: { type: 'role', id: savedRoleId },
-                            source: 'saved',
-                            suggestionScore: null,
-                        }
-                    }
-
-                    const match = bestRoleMatch(owner, roles)
+                    const match = bestAssigneeMatch(owner, roles, meFirstMembers)
                     return {
                         ...base,
-                        assignee: match ? { type: 'role', id: match.role.id } : null,
+                        assignee: match
+                            ? match.type === 'role'
+                                ? { type: 'role', id: match.role.id }
+                                : { type: 'user', id: match.user.id }
+                            : null,
                         source: match ? 'matched' : null,
                         suggestionScore: match?.score ?? null,
                     }
@@ -332,31 +280,6 @@ export const codeOwnersModalLogic = kea<codeOwnersModalLogicType>([
             (s) => [s.ownerRows, s.mappingOwners],
             (rows: CodeOwnerRow[], mappingOwners: string[]): CodeOwnerRow[] =>
                 rows.filter((row) => mappingOwners.includes(row.owner)),
-        ],
-        // Role mappings worth persisting: role assignees with an `@org/team` owner not already saved.
-        mappingsToPersist: [
-            (s) => [s.ownerRows, s.referenceRoleByKey],
-            (ownerRows: CodeOwnerRow[], referenceRoleByKey: Record<string, string>): RoleExternalReferenceApi[] => {
-                const refs: RoleExternalReferenceApi[] = []
-                for (const row of ownerRows) {
-                    const identity = splitOwner(row.owner)
-                    if (!identity || row.assignee?.type !== 'role') {
-                        continue
-                    }
-                    if (referenceRoleByKey[referenceKey(identity.org, identity.slug)]) {
-                        continue
-                    }
-                    refs.push({
-                        provider: MAPPING_PROVIDER,
-                        provider_organization_id: identity.org,
-                        provider_role_id: '',
-                        provider_role_slug: identity.slug,
-                        provider_role_name: row.owner,
-                        role: String(row.assignee.id),
-                    } as RoleExternalReferenceApi)
-                }
-                return refs
-            },
         ],
         hasParsedOwners: [(s) => [s.parsedOwners], (owners: OwnerGroup[]): boolean => owners.length > 0],
         parseErrors: [(s) => [s.rawText], (rawText: string): CodeownersError[] => findCodeownersErrors(rawText)],

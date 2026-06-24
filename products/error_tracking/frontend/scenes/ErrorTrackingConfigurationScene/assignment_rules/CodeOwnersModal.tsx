@@ -16,7 +16,7 @@ import {
 import { CodeOwnersConfigureTable, CodeOwnersImpactTable } from './CodeOwnersConfigureTable'
 import { codeOwnersModalLogic } from './codeOwnersModalLogic'
 
-const CODEOWNERS_PLACEHOLDER = 'products/error_tracking/** @posthog/error-tracking'
+const CODE_OWNERS_PLACEHOLDER = 'products/error_tracking/** @team/error-tracking'
 const BASE_MODAL_CLASS = 'max-h-[80vh] max-w-[56rem] bg-surface-primary flex flex-col overflow-hidden p-0 gap-0'
 
 export function CodeOwnersModal(): JSX.Element {
@@ -49,7 +49,7 @@ export function CodeOwnersModal(): JSX.Element {
                                 </DialogTitle>
                             </div>
                             <p className="m-0 text-sm text-secondary">
-                                Paste your CODEOWNERS file. Each owner becomes one assignment rule for exceptions whose
+                                Paste your code owners file. Each owner becomes one assignment rule for exceptions whose
                                 source files match its paths.
                             </p>
                         </div>
@@ -62,7 +62,7 @@ export function CodeOwnersModal(): JSX.Element {
                                     onChange={(value) => setRawText(value ?? '')}
                                     height={420}
                                     options={{
-                                        placeholder: CODEOWNERS_PLACEHOLDER,
+                                        placeholder: CODE_OWNERS_PLACEHOLDER,
                                         minimap: { enabled: false },
                                         scrollBeyondLastLine: false,
                                         wordWrap: 'on',
@@ -95,7 +95,7 @@ export function CodeOwnersModal(): JSX.Element {
                                     disabled={!hasParsedOwners || hasParseErrors}
                                     title={
                                         hasParseErrors
-                                            ? 'Fix CODEOWNERS parsing errors before continuing'
+                                            ? 'Fix code owners parsing errors before continuing'
                                             : hasParsedOwners
                                               ? undefined
                                               : 'Paste at least one code owner line'
@@ -119,7 +119,7 @@ export function CodeOwnersModal(): JSX.Element {
                                 </DialogTitle>
                             </div>
                             <p className="m-0 text-sm text-secondary">
-                                Match unresolved GitHub handles to a PostHog role or user.
+                                Match unresolved owners to a PostHog role or user.
                             </p>
                         </div>
                         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
@@ -130,11 +130,11 @@ export function CodeOwnersModal(): JSX.Element {
                         <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-primary p-4">
                             {mappingUnresolvedCount > 0 ? (
                                 <span className="text-xs text-warning">
-                                    {mappingUnresolvedCount} GitHub handle{mappingUnresolvedCount === 1 ? '' : 's'}{' '}
-                                    still need a PostHog mapping.
+                                    {mappingUnresolvedCount} owner{mappingUnresolvedCount === 1 ? '' : 's'} still need a
+                                    PostHog mapping.
                                 </span>
                             ) : (
-                                <span className="text-xs text-success">All GitHub handles are mapped.</span>
+                                <span className="text-xs text-success">All owners are mapped.</span>
                             )}
                             <div className="flex gap-2 shrink-0">
                                 <>
@@ -147,7 +147,7 @@ export function CodeOwnersModal(): JSX.Element {
                                         disabled={mappingUnresolvedCount > 0}
                                         title={
                                             mappingUnresolvedCount > 0
-                                                ? 'Map every unresolved GitHub handle before reviewing impact'
+                                                ? 'Map every unresolved owner before reviewing impact'
                                                 : undefined
                                         }
                                     >
