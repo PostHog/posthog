@@ -15,12 +15,18 @@ from django.core.wsgi import get_wsgi_application
 from posthog.caching.redis_cluster_connection_factory import prewarm_query_cache_cluster_in_background
 from posthog.continuous_profiling import start_continuous_profiling
 from posthog.otel_instrumentation import initialize_otel
+from posthog.web_memory_sampler import start_web_memory_sampler
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
 os.environ.setdefault("SERVER_GATEWAY_INTERFACE", "WSGI")
 
 start_continuous_profiling()
 initialize_otel()
+
+# Periodically log this worker's RSS (`worker_memory`) so the climb toward the cgroup
+# limit that precedes an OOM kill is visible in PostHog logs. Web-only: non-web processes
+# never import this module. No-op when WEB_MEMORY_SAMPLE_INTERVAL_SECONDS <= 0.
+start_web_memory_sampler()
 
 # Boot allocations are almost all permanent, so cyclic GC during django.setup() only adds
 # pauses (~300ms). Disable it for the boot, then freeze the survivors so later full
