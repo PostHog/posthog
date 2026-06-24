@@ -146,7 +146,7 @@ function DatePickerQuill({
                     <QuillDatePicker
                         value={value ? value.toDate() : new Date()}
                         maxDate={maxDate?.toDate()}
-                        showTime={granularity === 'minute'}
+                        showTime={includeTime}
                         showTimeToggle={!!showTimeToggle}
                         onIncludeTimeChange={handleIncludeTimeChange}
                         onApply={applyDate}
