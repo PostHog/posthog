@@ -19,6 +19,8 @@ import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import { register } from 'prom-client'
 
+import { InternalPersonWithDistinctId, PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
@@ -31,18 +33,14 @@ import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
 import { UUIDT } from '../../src/utils/utils'
-import {
-    InternalPersonWithDistinctId,
-    PersonReadRepository,
-} from '../../src/worker/ingestion/persons/repositories/person-repository'
 import { createRedisV2PoolFromConfig } from '../common/redis/redis-v2'
 import { FixtureHogFlowBuilder } from './_tests/builders/hogflow.builder'
 import { HOG_FILTERS_EXAMPLES } from './_tests/examples'
 import { createHogExecutionGlobals, insertHogFunctionTemplate, insertIntegration } from './_tests/fixtures'
 import { insertHogFlow } from './_tests/fixtures-hogflows'
-import { deleteKeysWithPrefix } from './_tests/redis'
 import { CdpCyclotronWorkerEmail } from './consumers/cdp-cyclotron-worker-email.consumer'
 import { CdpCyclotronWorkerHogFlow } from './consumers/cdp-cyclotron-worker-hogflow.consumer'
+import { CdpDatawarehouseEventsConsumer } from './consumers/cdp-data-warehouse-events.consumer'
 import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
 import { CdpHogflowSubscriptionMatcherConsumer } from './consumers/cdp-hogflow-subscription-matcher.consumer'
 import { CyclotronJobQueueKafka } from './services/job-queue/job-queue-kafka'
@@ -67,6 +65,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
     jest.setTimeout(30000)
 
     let eventsConsumer: CdpEventsConsumer
+    let dwhConsumer: CdpDatawarehouseEventsConsumer
     let hogflowWorker: CdpCyclotronWorkerHogFlow
     let hogflowQueue: JobQueue
 
@@ -149,6 +148,12 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             hogQueue: kafkaQueue,
             hogflowQueue,
         })
+        // Drives the data-warehouse-table trigger path. We call processBatch() directly, so the
+        // Kafka consumer is never connected — the shared queues below are the only producers.
+        dwhConsumer = new CdpDatawarehouseEventsConsumer(hub, deps, {
+            hogQueue: kafkaQueue,
+            hogflowQueue,
+        })
         await Promise.all([kafkaQueue.startAsProducer(), hogflowQueue.startAsProducer()])
 
         // Start hogflow worker (consumer side — polls from the mode's backend)
@@ -165,6 +170,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
     })
 
     afterEach(async () => {
+        // dwhConsumer shares the already-stopped queues with eventsConsumer, so it has nothing to stop.
         await Promise.all([eventsConsumer?.stop() ?? Promise.resolve(), hogflowWorker?.stop() ?? Promise.resolve()])
         await kafkaProducer.disconnect()
         await closeHub(hub)
@@ -206,6 +212,33 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
     /** Send an event through the events consumer and wait for it to be queued to v2 */
     async function triggerWorkflow(eventGlobals: HogFunctionInvocationGlobals): Promise<void> {
         const { backgroundTask } = await eventsConsumer.processBatch([eventGlobals])
+        await backgroundTask
+    }
+
+    /**
+     * Build the row-scoped globals the DWH consumer produces for a synced warehouse row: a synthetic
+     * event named `$warehouse_source_row` with no real person, and the source table on
+     * `event.properties.$source_table` so the consumer's eligibilityFn matches warehouse-table triggers.
+     */
+    function createDwhGlobals(
+        tableName: string,
+        rowProperties: Record<string, any> = {}
+    ): HogFunctionInvocationGlobals {
+        return createHogExecutionGlobals({
+            project: { id: team.id } as any,
+            event: {
+                uuid: new UUIDT().toString(),
+                event: '$warehouse_source_row',
+                distinct_id: '',
+                properties: { ...rowProperties, $source_table: tableName },
+                timestamp: '2024-09-03T09:00:00Z',
+            } as any,
+        })
+    }
+
+    /** Send a synced warehouse row through the DWH consumer and wait for it to be queued */
+    async function triggerDwhWorkflow(rowGlobals: HogFunctionInvocationGlobals): Promise<void> {
+        const { backgroundTask } = await dwhConsumer.processBatch([rowGlobals])
         await backgroundTask
     }
 
@@ -840,6 +873,46 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
         })
 
+        it('does not collapse a delay before a wait when the wait event fires during the delay', async () => {
+            // trigger -> delay(5m) -> wait_until_condition(wakeup_event) -> matched / timeout. The
+            // wait's event firing DURING the delay must not wake the job: the delay handler no longer
+            // pre-advances currentAction to the wait, so while parked the job is at the delay (not the
+            // wait) and the matcher leaves it alone. The delay is honored.
+            await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    delay: { type: 'delay', config: { delay_duration: '5m' } },
+                    wait_condition: {
+                        type: 'wait_until_condition',
+                        config: {
+                            events: [eventNameFilter('wakeup_event')],
+                            condition: { filters: null },
+                            max_wait_duration: '5m',
+                        },
+                    },
+                    function_matched: fetchAction('https://example.com/matched'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'delay', type: 'continue' },
+                    { from: 'delay', to: 'wait_condition', type: 'continue' },
+                    { from: 'wait_condition', to: 'function_matched', type: 'branch', index: 0 },
+                    { from: 'wait_condition', to: 'exit', type: 'continue' },
+                    { from: 'function_matched', to: 'exit', type: 'continue' },
+                ],
+            })
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            // The wait's event fires during the delay — the job must stay parked in the delay.
+            await matcher.processBatch([createGlobals({ event: 'wakeup_event' })])
+
+            await new Promise((resolve) => setTimeout(resolve, 1000))
+            const jobs = await queryCyclotronJobs()
+            expect(jobs.every((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
+
         it('does not run the next step early when a conversion event fires during a delay', async () => {
             // trigger -> delay -> fetch, with an event-based conversion goal used only for
             // measurement (exit_only_at_end). A conversion event arriving while the job is parked
@@ -951,10 +1024,10 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             globals = createGlobals()
         })
 
-        it('should reschedule to the time window start and execute after it opens', async () => {
+        it('parks until the window opens and does not advance early on a premature resume', async () => {
             await triggerWorkflow(globals)
 
-            // Job should be rescheduled to the future time window
+            // Job should be rescheduled to the future time window.
             await waitForExpect(async () => {
                 const jobs = await queryCyclotronJobs()
                 const rescheduled = jobs.filter(
@@ -962,18 +1035,47 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
                 )
                 expect(rescheduled.length).toBe(1)
             }, 5000)
-
-            // Fetch should NOT be called yet
             expect(mockFetch).not.toHaveBeenCalled()
 
-            // Fast-forward: set the scheduled time to now so the worker picks it up
+            // A premature resume (the window is still in the future) must re-park, not advance to the
+            // next step. The handler stays at the wait_until_time_window step and reschedules, so the
+            // step that follows the window never runs early.
             await cyclotronPool.query(`UPDATE cyclotron_jobs SET scheduled = NOW() WHERE ${statusColumn} = 'available'`)
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                expect(jobs.some((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
+            }, 10000)
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('wait_until_time_window: window currently open', () => {
+        it('advances through the window and runs the next step', async () => {
+            // day: 'any', time: 'any' is always open, so the step must advance and run the next action
+            // instead of parking forever.
+            await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    wait_window: {
+                        type: 'wait_until_time_window',
+                        config: { timezone: 'UTC', day: 'any', time: 'any' },
+                    },
+                    function_1: fetchAction('https://example.com/window-open'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'wait_window', type: 'continue' },
+                    { from: 'wait_window', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
+            })
+
+            await triggerWorkflow(createGlobals())
 
             await waitForExpect(() => {
                 expect(mockFetch).toHaveBeenCalledTimes(1)
             }, 10000)
-
-            expect(mockFetch).toHaveBeenCalledWith('https://example.com/after-time-window', expect.anything())
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/window-open', expect.anything())
         })
     })
 
@@ -1221,6 +1323,76 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             }, 5000)
 
             expect(mockPersonRepo.fetchDistinctIdsForPersons).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('data warehouse table trigger workflow', () => {
+        const TABLE_NAME = 'postgres.orders'
+
+        // Row-scoped trigger that always matches (return-true bytecode), so the row payload alone
+        // decides whether the flow fires.
+        const dwhTrigger = (tableName: string) =>
+            ({
+                type: 'trigger' as const,
+                config: {
+                    type: 'data-warehouse-table',
+                    table_name: tableName,
+                    filters: { properties: [], bytecode: ['_h', 29] },
+                },
+            }) as any
+
+        beforeEach(async () => {
+            await createWorkflow({
+                actions: {
+                    trigger: dwhTrigger(TABLE_NAME),
+                    function_1: fetchAction('https://example.com/warehouse-row'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'function_1', type: 'continue' },
+                    { from: 'function_1', to: 'exit', type: 'continue' },
+                ],
+            })
+        })
+
+        it('runs the workflow end-to-end when a row syncs into the matching table', async () => {
+            await triggerDwhWorkflow(createDwhGlobals(TABLE_NAME, { order_id: 42 }))
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+
+            expect(mockFetch).toHaveBeenCalledWith(
+                'https://example.com/warehouse-row',
+                expect.objectContaining({ method: 'POST' })
+            )
+        })
+
+        it('does not run the workflow when the synced row belongs to a different table', async () => {
+            await triggerDwhWorkflow(createDwhGlobals('postgres.other_table', { order_id: 1 }))
+
+            // Give the worker a chance to (not) pick anything up before asserting it stayed idle.
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                expect(jobs).toHaveLength(0)
+            }, 3000)
+
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
+
+        it('does not look up a person for warehouse rows (no synthetic distinct_id resolution)', async () => {
+            // Regression guard: warehouse rows carry a made-up event.distinct_id that evals truthy.
+            // The worker must skip the person lookup for data-warehouse-table triggers so we don't
+            // pay a person round-trip (or accidentally resolve a bogus person) per synced row.
+            const personSpy = jest.spyOn((hogflowWorker as any).personsManager, 'getCyclotronPerson')
+
+            await triggerDwhWorkflow(createDwhGlobals(TABLE_NAME, { order_id: 7 }))
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+
+            expect(personSpy).not.toHaveBeenCalled()
         })
     })
 
@@ -1556,6 +1728,98 @@ describe('Workflows E2E (email queue)', () => {
         }, 10000)
     })
 
+    it('does not emit duplicate Resuming / Executing / pause logs for the email-queue routing reschedule', async () => {
+        // Email steps reschedule themselves once to switch onto the dedicated email queue
+        // (see HogFunctionHandler.execute in actions/hog_function.ts). That second dequeue
+        // continues the *same* action and would otherwise re-emit "Resuming workflow execution
+        // at Email", "Executing action Email", and a "Workflow will pause until <basically
+        // now>" line — leaking the internal queue routing into customer-visible logs.
+        //
+        // The fix tags the action state with `routingOnlyReschedule: true` on the rescheduling
+        // dequeue and consumes it on the next dequeue to suppress those three lines. This test
+        // is the regression guard: trigger → email → exit should produce exactly one trigger
+        // log, one "Executing action [Action:email_1]" line, one "Email sent" line, and no
+        // routing-flavored pause / resume noise.
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withStatus('active')
+            .withExitCondition('exit_only_at_end')
+            .withWorkflow({
+                actions: {
+                    trigger: {
+                        type: 'trigger',
+                        config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                    },
+                    email_1: {
+                        type: 'function_email',
+                        config: {
+                            template_id: 'template-workflows-e2e-email',
+                            inputs: {
+                                email: {
+                                    value: {
+                                        to: { email: 'recipient@example.com', name: 'Recipient' },
+                                        from: { integrationId: 1, email: 'sender@posthog.com' },
+                                        subject: 'Routing-reschedule log test',
+                                        text: 'Test text',
+                                        html: '<p>Test html</p>',
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    exit: { type: 'exit', config: {} },
+                },
+                edges: [
+                    { from: 'trigger', to: 'email_1', type: 'continue' },
+                    { from: 'email_1', to: 'exit', type: 'continue' },
+                ],
+            })
+            .build()
+        await insertHogFlow(hub.postgres, hogFlow)
+
+        const { backgroundTask } = await eventsConsumer.processBatch([createGlobals()])
+        await backgroundTask
+
+        // Wait for the workflow to terminate so all logs from both dequeues have been produced.
+        await waitForExpect(async () => {
+            const jobs = await queryCyclotronJobs()
+            const terminal = jobs.filter(
+                (j: any) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
+            )
+            expect(terminal.length).toBeGreaterThanOrEqual(1)
+        }, 15000)
+
+        // Collect every log entry produced by this hogflow run from the Kafka topic.
+        const logMessages = mockProducerObserver
+            .getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
+            .map((m: any) => m.value.message as string)
+
+        // Sanity check: the test wired up correctly (email actually sent).
+        expect(logMessages.some((msg) => msg.includes('Email sent to recipient@example.com'))).toBe(true)
+
+        // The email action's "Executing action" debug log must fire EXACTLY ONCE despite the
+        // two dequeues it takes to switch queues. Anchor on the action id ('email_1') so we
+        // don't accidentally also match the trigger or exit action's lines.
+        const executingEmailLogs = logMessages.filter((msg) => msg === 'Executing action [Action:email_1]')
+        expect(executingEmailLogs).toHaveLength(1)
+
+        // The "Resuming workflow execution at" log fires at most once per dequeue — and the
+        // routing-continuation dequeue should be silent. So we should never see a Resuming
+        // line anchored on the email action (the first dequeue Starts at the trigger, not the
+        // email step).
+        const resumingEmailLogs = logMessages.filter(
+            (msg) => msg.includes('Resuming workflow execution at') && msg.includes('[Action:email_1]')
+        )
+        expect(resumingEmailLogs).toHaveLength(0)
+
+        // No "Workflow will pause until" lines either — the only pause in this workflow is the
+        // sub-millisecond routing reschedule, which the suppression should hide. Real pauses
+        // (delays, wait_until_condition, SES throttle retries) still log normally; they're
+        // covered by other tests in this file and aren't exercised here.
+        const pauseLogs = logMessages.filter((msg) => msg.startsWith('Workflow will pause until'))
+        expect(pauseLogs).toHaveLength(0)
+    })
+
     it('re-routes between hogflow and email queues across email → fetch → email', async () => {
         // Exercises the full ping-pong:
         //   hogflow worker → email queue (email_1) → email worker sends → routes back to hogflow
@@ -1669,6 +1933,239 @@ describe('Workflows E2E (email queue)', () => {
             )
             expect(terminal.length).toBeGreaterThanOrEqual(1)
         }, 10000)
+    })
+
+    it('suppresses routing logs in both directions across an email → fetch → email ping-pong', async () => {
+        // Companion regression guard to the single-email test above, extended to the full
+        // ping-pong (`hogflow → email → hogflow → email → exit`). Both routing directions
+        // — `routeEmailToQueue` (hogflow → email) and `routeToQueue` (email → hogflow,
+        // taken when a fetch action follows an email send) — go through the same
+        // `finished: false` + nullish `queueScheduledAt` branch in HogFunctionHandler, so
+        // both set `routingOnlyReschedule` and both routing dequeues should be silent in
+        // the logs. This test asserts that on a four-action workflow with two emails and
+        // a fetch between them, we still see exactly one Executing line per action and
+        // zero Resuming-at-email/fetch lines.
+        await insertHogFunctionTemplate(hub.postgres, {
+            id: 'template-workflows-e2e-fetch',
+            name: 'Workflows E2E Fetch',
+            code: `
+            let res := fetch(inputs.url, {'method': inputs.method});
+            print('Fetch result:', res.status);
+            `,
+            inputs_schema: [
+                { key: 'url', type: 'string', required: true },
+                { key: 'method', type: 'string', required: false },
+            ],
+        })
+
+        mockFetch.mockResolvedValue({
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+            json: () => Promise.resolve({ success: true }),
+            text: () => Promise.resolve(JSON.stringify({ success: true })),
+            dump: () => Promise.resolve(),
+        })
+
+        const emailAction = (label: string) => ({
+            type: 'function_email' as const,
+            config: {
+                template_id: 'template-workflows-e2e-email',
+                inputs: {
+                    email: {
+                        value: {
+                            to: { email: 'recipient@example.com', name: 'Recipient' },
+                            from: { integrationId: 1, email: 'sender@posthog.com' },
+                            subject: label,
+                            text: label,
+                            html: `<p>${label}</p>`,
+                        },
+                    },
+                },
+            },
+        })
+
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withStatus('active')
+            .withExitCondition('exit_only_at_end')
+            .withWorkflow({
+                actions: {
+                    trigger: {
+                        type: 'trigger',
+                        config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                    },
+                    email_1: emailAction('Ping-pong email 1'),
+                    fetch_1: {
+                        type: 'function',
+                        config: {
+                            template_id: 'template-workflows-e2e-fetch',
+                            inputs: {
+                                url: { value: 'https://example.com/ping-pong-fetch' },
+                                method: { value: 'POST' },
+                            },
+                        },
+                    },
+                    email_2: emailAction('Ping-pong email 2'),
+                    exit: { type: 'exit', config: {} },
+                },
+                edges: [
+                    { from: 'trigger', to: 'email_1', type: 'continue' },
+                    { from: 'email_1', to: 'fetch_1', type: 'continue' },
+                    { from: 'fetch_1', to: 'email_2', type: 'continue' },
+                    { from: 'email_2', to: 'exit', type: 'continue' },
+                ],
+            })
+            .build()
+        await insertHogFlow(hub.postgres, hogFlow)
+
+        const { backgroundTask } = await eventsConsumer.processBatch([createGlobals()])
+        await backgroundTask
+
+        // Wait for both emails sent + the workflow terminated, so all four routing
+        // reschedules have happened and all their logs are in Kafka.
+        await waitForExpect(() => {
+            const sumCounts = (filter: (m: any) => boolean) =>
+                mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter(filter)
+                    .reduce((sum: number, m: any) => sum + m.value.count, 0)
+
+            expect(sumCounts((m) => m.value.metric_name === 'email_sent')).toBe(2)
+        }, 15000)
+
+        await waitForExpect(async () => {
+            const jobs = await queryCyclotronJobs()
+            const terminal = jobs.filter(
+                (j: any) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
+            )
+            expect(terminal.length).toBeGreaterThanOrEqual(1)
+        }, 10000)
+
+        const logMessages = mockProducerObserver
+            .getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
+            .map((m: any) => m.value.message as string)
+
+        // Sanity: both emails actually sent (not a vacuous pass where suppression broke the
+        // flow). The "Email sent" log lines are prefixed with `[Action:email_X]` via
+        // `actionIdForLogging`, so we substring-match instead of equality-match.
+        expect(logMessages.filter((msg) => msg.includes('Email sent to recipient@example.com'))).toHaveLength(2)
+
+        // Each routed action runs across two dequeues but only the "real" execution should log.
+        // - email_1 routes hogflow → email, sends on the email queue
+        // - fetch_1 routes email → hogflow (because the next step is a non-email function),
+        //   runs on the hogflow queue
+        // - email_2 routes hogflow → email, sends on the email queue
+        // - exit runs inline at the tail of email_2's dequeue.
+        // Trigger is NOT in this list: `ensureCurrentAction` advances `currentAction` past
+        // the trigger to its successor immediately, so the trigger action itself never
+        // reaches the "Executing action" log site.
+        for (const actionId of ['email_1', 'fetch_1', 'email_2', 'exit']) {
+            const executingLogs = logMessages.filter((msg) => msg === `Executing action [Action:${actionId}]`)
+            expect(executingLogs).toHaveLength(1)
+        }
+
+        // No `Resuming workflow execution at [Action:X]` lines for any of the routed actions.
+        // The first dequeue Starts at the trigger; subsequent transitions are all routing
+        // reschedules or in-loop next-action advances, none of which re-enter execute()
+        // with a non-suppressed flag for these actions.
+        for (const actionId of ['email_1', 'fetch_1', 'email_2']) {
+            const resumingLogs = logMessages.filter(
+                (msg) => msg.includes('Resuming workflow execution at') && msg.includes(`[Action:${actionId}]`)
+            )
+            expect(resumingLogs).toHaveLength(0)
+        }
+
+        // No `Workflow will pause until X` lines anywhere — the three routing reschedules
+        // (email_1, fetch_1, email_2) are all sub-millisecond and have to be silenced.
+        // The workflow has no delays or wait_until_condition steps so any pause log here
+        // would be the routing leak we're guarding against.
+        const pauseLogs = logMessages.filter((msg) => msg.startsWith('Workflow will pause until'))
+        expect(pauseLogs).toHaveLength(0)
+    })
+
+    it('keeps logging real pauses (delay before email) while still suppressing the routing reschedule', async () => {
+        // Counter-example test: the suppression must NOT silence real pauses. A workflow
+        // with `trigger → delay → email → exit` produces two reschedules:
+        //   1. The delay action returns an explicit `queueScheduledAt` 1s in the future
+        //      (real pause — must keep logging "Workflow will pause until X" and the
+        //      corresponding "Resuming workflow execution at [Action:delay_1]" on wake).
+        //   2. The email action returns no `queueScheduledAt` (routing-only — must be
+        //      silent in both directions).
+        // If the fix over-reaches and suppresses real delay pauses, this test fails.
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withStatus('active')
+            .withExitCondition('exit_only_at_end')
+            .withWorkflow({
+                actions: {
+                    trigger: {
+                        type: 'trigger',
+                        config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                    },
+                    delay_1: { type: 'delay', config: { delay_duration: '1s' } },
+                    email_1: {
+                        type: 'function_email',
+                        config: {
+                            template_id: 'template-workflows-e2e-email',
+                            inputs: {
+                                email: {
+                                    value: {
+                                        to: { email: 'recipient@example.com', name: 'Recipient' },
+                                        from: { integrationId: 1, email: 'sender@posthog.com' },
+                                        subject: 'After-delay email',
+                                        text: 'After-delay email',
+                                        html: '<p>After-delay email</p>',
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    exit: { type: 'exit', config: {} },
+                },
+                edges: [
+                    { from: 'trigger', to: 'delay_1', type: 'continue' },
+                    { from: 'delay_1', to: 'email_1', type: 'continue' },
+                    { from: 'email_1', to: 'exit', type: 'continue' },
+                ],
+            })
+            .build()
+        await insertHogFlow(hub.postgres, hogFlow)
+
+        const { backgroundTask } = await eventsConsumer.processBatch([createGlobals()])
+        await backgroundTask
+
+        await waitForExpect(() => {
+            const sumCounts = (filter: (m: any) => boolean) =>
+                mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter(filter)
+                    .reduce((sum: number, m: any) => sum + m.value.count, 0)
+            expect(sumCounts((m) => m.value.metric_name === 'email_sent')).toBe(1)
+        }, 15000)
+
+        await waitForExpect(async () => {
+            const jobs = await queryCyclotronJobs()
+            const terminal = jobs.filter(
+                (j: any) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
+            )
+            expect(terminal.length).toBeGreaterThanOrEqual(1)
+        }, 10000)
+
+        const logMessages = mockProducerObserver
+            .getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)
+            .map((m: any) => m.value.message as string)
+
+        expect(logMessages.filter((msg) => msg.includes('Email sent to recipient@example.com'))).toHaveLength(1)
+
+        // The delay is a genuine pause and must still be logged; the email's routing hop onto
+        // the email queue must NOT add a duplicate. Assert exactly one pause and one resume line
+        // overall, independent of which action each references — so the guard tests the
+        // suppression's intent and stays valid regardless of whether the delay advances
+        // currentAction before parking.
+        const pauseLogs = logMessages.filter((msg) => msg.startsWith('Workflow will pause until'))
+        expect(pauseLogs).toHaveLength(1)
+        const resumeLogs = logMessages.filter((msg) => msg.includes('Resuming workflow execution at'))
+        expect(resumeLogs).toHaveLength(1)
     })
 
     it('wakes a wait_until_condition parked on the email queue after an email step', async () => {

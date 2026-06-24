@@ -17,6 +17,12 @@ export const LlmSkillsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const LlmSkillsListQueryParams = /* @__PURE__ */ zod.object({
+    category: zod
+        .string()
+        .optional()
+        .describe(
+            'Filter skills to this exact category. Pass "scout" for Signals scouts, or an empty string to return only uncategorized skills. Omit the parameter entirely to return skills of every category.'
+        ),
     created_by_id: zod.number().optional().describe('Filter skills by the ID of the user who created them.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),

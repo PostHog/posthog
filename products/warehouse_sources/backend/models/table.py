@@ -44,9 +44,7 @@ from products.warehouse_sources.backend.models.util import (
     CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
     clean_type,
-    columns_in_position_order,
     remove_named_tuples,
-    stamp_column_positions,
 )
 
 from .credential import DataWarehouseCredential
@@ -91,7 +89,6 @@ class DataWarehouseTableIntrospectedColumn(TypedDict):
     hogql: str
     clickhouse: str
     valid: NotRequired[bool]
-    position: NotRequired[int]
 
 
 type DataWarehouseTableIntrospectedColumns = dict[str, DataWarehouseTableIntrospectedColumn]
@@ -165,11 +162,6 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
     class Meta:
         db_table = "posthog_datawarehousetable"
-
-    def save(self, *args, **kwargs):
-        if isinstance(self.columns, dict):
-            stamp_column_positions(self.columns)
-        super().save(*args, **kwargs)
 
     @property
     def name_chain(self) -> list[str]:
@@ -476,8 +468,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
         fields: dict[str, FieldOrTable] = {}
         structure = []
-        # jsonb scrambles key order, so restore the stamped column positions
-        for column, type in columns_in_position_order(columns):
+        for column, type in columns.items():
             # Support for 'old' style columns
             if isinstance(type, str):
                 clickhouse_type = type

@@ -2695,6 +2695,15 @@ export interface PatchedFileSystemApi {
     readonly last_viewed_at?: string | null
 }
 
+/**
+ * Payload for publishing a freeform canvas's React source via the agent.
+ */
+export interface PatchedCanvasPublishApi {
+    code?: string
+    prompt?: string
+    name?: string
+}
+
 export interface ContextGenerationApi {
     /**
      * ID of the Task currently generating this folder's CONTEXT.md, or null if none.
@@ -2947,6 +2956,11 @@ export interface ExportedAssetApi {
     readonly expires_after: string | null
     /** @nullable */
     readonly exception: string | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedExportedAssetListApi {
@@ -3648,6 +3662,29 @@ export interface UserGitHubLinkStartResponseApi {
 }
 
 /**
+ * A cookie-auth login session shown on the user's 'Web sessions' screen.
+ */
+export interface UserAuthSessionApi {
+    /** Identifier used to revoke this login session. */
+    readonly id: string
+    /** When this login session last made a request (refreshed periodically). */
+    readonly last_activity: string
+    /** Approximate city and country derived from the IP address, if known. */
+    readonly location: string
+    /** Browser and operating system parsed from the user agent, e.g. 'Chrome 135 on macOS'. */
+    readonly device: string
+    /** How this session signed in (e.g. password, Google, SAML). */
+    readonly login_method: string
+    /** Whether this is the login session making the current request. */
+    readonly is_current: boolean
+}
+
+export interface RevokeOtherSessionsResponseApi {
+    /** Number of other login sessions that were revoked. */
+    revoked_count: number
+}
+
+/**
  * * `later` - Later
  * * `other` - Other
  */
@@ -4047,4 +4084,9 @@ export type UsersIntegrationsGithubReposRetrieveParams = {
      * Optional case-insensitive repository name search query.
      */
     search?: string
+}
+
+export type UsersLoginSessionsListParams = {
+    email?: string
+    is_staff?: boolean
 }

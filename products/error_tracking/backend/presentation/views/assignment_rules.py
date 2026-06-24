@@ -5,7 +5,7 @@ import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse, extend_schema_field
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 
 from posthog.schema import PropertyGroupFilterValue
@@ -136,12 +136,15 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
         return Response(self.get_serializer(rule).data)
 
     def _apply_rule_update(self, request: ValidatedRequest, pk: str) -> Response:
-        rule = error_tracking_api.update_assignment_rule(
-            self.team.id,
-            pk,
-            filters=request.validated_data.get("filters"),
-            assignee=request.validated_data.get("assignee"),
-        )
+        try:
+            rule = error_tracking_api.update_assignment_rule(
+                self.team.id,
+                pk,
+                filters=request.validated_data.get("filters"),
+                assignee=request.validated_data.get("assignee"),
+            )
+        except error_tracking_api.InvalidBytecodeError as err:
+            raise ValidationError(str(err)) from err
         if rule is None:
             raise NotFound()
         posthoganalytics.capture(
@@ -178,11 +181,14 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
         responses={201: OpenApiResponse(response=ErrorTrackingAssignmentRuleSerializer)},
     )
     def create(self, request: ValidatedRequest, *args, **kwargs) -> Response:
-        rule = error_tracking_api.create_assignment_rule(
-            self.team.id,
-            filters=request.validated_data["filters"],
-            assignee=request.validated_data["assignee"],
-        )
+        try:
+            rule = error_tracking_api.create_assignment_rule(
+                self.team.id,
+                filters=request.validated_data["filters"],
+                assignee=request.validated_data["assignee"],
+            )
+        except error_tracking_api.InvalidBytecodeError as err:
+            raise ValidationError(str(err)) from err
         posthoganalytics.capture(
             "error_tracking_assignment_rule_created",
             groups=groups(self.team.organization, self.team),

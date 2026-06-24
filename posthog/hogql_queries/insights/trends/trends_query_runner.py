@@ -20,6 +20,7 @@ from posthog.schema import (
     CachedTrendsQueryResponse,
     ChartDisplayType,
     Compare,
+    CompareFilter,
     CompareItem,
     DashboardFilter,
     DataWarehouseEventsModifier,
@@ -32,6 +33,7 @@ from posthog.schema import (
     InCohortVia,
     InsightActorsQueryOptionsResponse,
     IntervalType,
+    MetricSummary,
     MultipleBreakdownOptions,
     MultipleBreakdownType,
     QueryTiming,
@@ -123,6 +125,20 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
         # Use the new function to handle WAU/MAU conversions
         query = convert_active_user_math_based_on_interval(query)
+
+        # The Metric change pill compares to the previous period, but the display has no compare toggle —
+        # force it when the pill needs it (shown, not "latest", and a previous period exists).
+        if (
+            query.trendsFilter
+            and query.trendsFilter.display == ChartDisplayType.METRIC
+            and query.trendsFilter.metricShowChange is not False
+            and query.trendsFilter.metricSummary != MetricSummary.LATEST
+            and not (query.dateRange and query.dateRange.date_from == "all")
+        ):
+            if query.compareFilter is None:
+                query.compareFilter = CompareFilter(compare=True)
+            else:
+                query.compareFilter.compare = True
 
         super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, user=user)
 

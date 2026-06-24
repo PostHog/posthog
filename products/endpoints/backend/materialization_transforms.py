@@ -23,7 +23,15 @@ from posthog.models.team import Team
 ENDPOINT_BREAKDOWN_LIMIT = 10_000
 
 
-class VariableInHavingClauseError(ValueError):
+class MaterializationNotSupportedError(ValueError):
+    """Raised when a query uses a construct materialization can't transform.
+
+    This is a user-input limitation (a 400), not a server fault — callers should surface
+    it as a validation error rather than letting it bubble up as an unhandled exception.
+    """
+
+
+class VariableInHavingClauseError(MaterializationNotSupportedError):
     """Raised when a variable is used in a HAVING clause, which is not supported for materialization."""
 
 
@@ -124,6 +132,7 @@ class VariableUsageInWhere:
     operator: ast.CompareOperationOp
     column_ast: Optional[ast.Expr] = None
     value_wrapper_fns: Optional[list[str]] = None
+    in_or: bool = False  # True when this usage sits inside an OR within the WHERE clause
 
 
 RANGE_OPS = frozenset(
@@ -275,6 +284,19 @@ def analyze_variables_for_materialization(
 
         if not all_usages:
             return False, "Variable not used in WHERE clause", []
+
+        # A variable nested in an OR can't be lifted into a single materialized key column:
+        # removing its predicate (as the transform does) would change the result set.
+        if any(usage.in_or for _, usage in all_usages):
+            return False, "Variables in OR conditions are not supported for materialization", []
+
+        # A variable compared against more than one column has no single bucket key to
+        # materialize on (the transform would silently keep only the first usage).
+        distinct_columns = {
+            tuple(usage.column_chain) if usage.column_chain else usage.column_expression for _, usage in all_usages
+        }
+        if len(distinct_columns) > 1:
+            return False, "Variable compared against multiple columns is not supported for materialization", []
 
         # Determine CTE context for this variable
         cte_names = {cte_name for cte_name, _ in all_usages}
@@ -868,6 +890,7 @@ class VariableInWhereFinder(TraversingVisitor):
         self.target = target_placeholder
         self.all_results: list[tuple[Optional[str], VariableUsageInWhere]] = []
         self.in_where = False
+        self._or_depth = 0
         self._current_cte_name: Optional[str] = None
 
     @property
@@ -891,9 +914,20 @@ class VariableInWhereFinder(TraversingVisitor):
                 self._current_cte_name = prev_cte
 
         if node.where:
-            self.in_where = True
+            prev_in_where, prev_or_depth = self.in_where, self._or_depth
+            self.in_where, self._or_depth = True, 0
             self.visit(node.where)
-            self.in_where = False
+            self.in_where, self._or_depth = prev_in_where, prev_or_depth
+
+    def visit_or(self, node: ast.Or):
+        # Only OR nesting within a WHERE clause matters for materialization.
+        track = self.in_where
+        if track:
+            self._or_depth += 1
+        for expr in node.exprs:
+            self.visit(expr)
+        if track:
+            self._or_depth -= 1
 
     def visit_compare_operation(self, node: ast.CompareOperation):
         if not self.in_where:
@@ -923,6 +957,7 @@ class VariableInWhereFinder(TraversingVisitor):
                         column_expression=".".join(column_chain),
                         operator=node.op,
                         value_wrapper_fns=wrapper_fns,
+                        in_or=self._or_depth > 0,
                     ),
                 )
             )
@@ -937,6 +972,7 @@ class VariableInWhereFinder(TraversingVisitor):
                         operator=node.op,
                         column_ast=field_side if not column_chain else None,
                         value_wrapper_fns=wrapper_fns,
+                        in_or=self._or_depth > 0,
                     ),
                 )
             )
@@ -1400,7 +1436,7 @@ class MaterializationTransformer(CloningVisitor):
             return ast.And(exprs=filtered_exprs)
 
         if isinstance(where_node, ast.Or):
-            raise ValueError("Variables in OR conditions not supported")
+            raise MaterializationNotSupportedError("Variables in OR conditions not supported")
 
         return where_node
 

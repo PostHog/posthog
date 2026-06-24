@@ -1,5 +1,11 @@
 # posthog-cli
 
+## 0.7.30 — 2026-06-22
+
+### Patch changes
+
+- [d51a877525](https://github.com/PostHog/posthog/commit/d51a8775252d4fd4e35f389e4960a5f23726e429) Handle Git worktrees and packed refs when detecting repository info — Thanks @hpouillot!
+
 ## 0.7.29 — 2026-06-19
 
 ### Patch changes

@@ -168,11 +168,14 @@ def load_integrations(
     the routing resolver against them. Thin wrapper around
     ``resolve_from_candidates`` that owns the candidate query.
     """
+    from products.slack_app.backend.services.slack_auth import check_integrations_auth_and_filter
+
     candidates = list(
         Integration.objects.filter(kind__in=kinds, integration_id=slack_team_id)
         .select_related("team", "team__organization", "created_by")
         .order_by("id")
     )
+    candidates = check_integrations_auth_and_filter(candidates, slack_user_id=slack_user_id or None)
     return resolve_from_candidates(
         candidates,
         slack_team_id=slack_team_id,

@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import ssl
 import math
+import time
 import collections
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager
@@ -24,7 +25,9 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
     build_pyarrow_decimal_type,
 )
-from posthog.temporal.data_imports.sources.common.sql import Column, Table
+from posthog.temporal.data_imports.sources.common.sql import Column, Table, compute_projected_columns
+from posthog.temporal.data_imports.sources.common.sql.identifiers import BacktickIdentifierQuoter
+from posthog.temporal.data_imports.sources.common.sql.predicates import ValidatedRowFilter, render_named_conditions
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
@@ -48,6 +51,11 @@ DATA_QUERY_TIMEOUT_SECONDS = 60 * 60  # 1 hour
 # concat and yield a single pa.Table to the pipeline.
 YIELD_TARGET_BYTES = 200 * 1024 * 1024  # 200 MiB, matches pipeline partition target
 YIELD_TARGET_ROWS = 100_000
+
+# Quoter for user-supplied row-filter column names — the allowlist-validated
+# safety rail the shared predicate renderer expects. Trusted internal
+# identifiers (table/incremental columns) keep using `_quote_identifier`.
+_ROW_FILTER_IDENTIFIER_QUOTER = BacktickIdentifierQuoter()
 
 
 class ClickHouseConnectionError(Exception):
@@ -73,6 +81,27 @@ def _qualified_table(database: str, table_name: str) -> str:
     return f"{_quote_identifier(database)}.{_quote_identifier(table_name)}"
 
 
+# Number of times we re-open the client before giving up on a transient drop during connect.
+_MAX_CONNECT_ATTEMPTS = 3
+
+# Substrings of a connect-time failure that denote the connection being dropped before/during the
+# TLS read (ClickHouse Cloud cold-resume hanging up the first request, a proxy/LB idle cull, a
+# network blip) rather than a deterministic config error. A fresh attempt recovers. The TLS config
+# failures we never retry (`certificate verify failed`, `SSL: WRONG_VERSION_NUMBER`) don't contain
+# any of these, so the allowlist can't catch them.
+_TRANSIENT_CONNECT_DROP_SUBSTRINGS = (
+    # OpenSSL 3.x and 1.x wordings for the peer closing the socket without a clean TLS close_notify.
+    "UNEXPECTED_EOF_WHILE_READING",
+    "EOF occurred in violation of protocol",
+    "Connection reset by peer",
+    "Connection aborted",
+)
+
+
+def _is_transient_connect_drop(error_message: str) -> bool:
+    return any(substring in error_message for substring in _TRANSIENT_CONNECT_DROP_SUBSTRINGS)
+
+
 def _get_client(
     *,
     host: str,
@@ -92,28 +121,41 @@ def _get_client(
     reader that we use to read very large tables without buffering them in
     memory.
     """
-    try:
-        return get_client(
-            host=host,
-            port=port,
-            database=database,
-            username=user,
-            # clickhouse-connect expects str; passwordless auth is empty string.
-            password=password or "",
-            secure=secure,
-            verify=verify,
-            connect_timeout=CONNECT_TIMEOUT_SECONDS,
-            send_receive_timeout=query_timeout,
-            query_limit=0,  # we manage limits ourselves
-            settings=settings or {},
-            compress=True,
-        )
-    except (ClickHouseError, OSError, ssl.SSLError) as e:
-        # OSError covers socket.gaierror, ConnectionRefusedError, TimeoutError,
-        # and httpx-raised network errors that subclass OSError. ssl.SSLError
-        # covers TLS handshake failures that happen before ClickHouse sees
-        # the request.
-        raise ClickHouseConnectionError(str(e)) from e
+    attempt = 0
+    while True:
+        try:
+            return get_client(
+                host=host,
+                port=port,
+                database=database,
+                username=user,
+                # clickhouse-connect expects str; passwordless auth is empty string.
+                password=password or "",
+                secure=secure,
+                verify=verify,
+                connect_timeout=CONNECT_TIMEOUT_SECONDS,
+                send_receive_timeout=query_timeout,
+                query_limit=0,  # we manage limits ourselves
+                settings=settings or {},
+                compress=True,
+            )
+        except (ClickHouseError, OSError, ssl.SSLError) as e:
+            # OSError covers socket.gaierror, ConnectionRefusedError, TimeoutError,
+            # and httpx-raised network errors that subclass OSError. ssl.SSLError
+            # covers TLS handshake failures that happen before ClickHouse sees
+            # the request.
+            attempt += 1
+            message = str(e)
+            if attempt < _MAX_CONNECT_ATTEMPTS and _is_transient_connect_drop(message):
+                structlog.get_logger().warning(
+                    "Transient ClickHouse connection drop during connect; retrying",
+                    attempt=attempt,
+                    max_attempts=_MAX_CONNECT_ATTEMPTS,
+                    exc_info=e,
+                )
+                time.sleep(attempt)
+                continue
+            raise ClickHouseConnectionError(message) from e
 
 
 def _strip_type_modifiers(type_name: str) -> tuple[str, bool]:
@@ -933,6 +975,29 @@ def _build_select_list(columns: list[ClickHouseColumn]) -> str:
     return ", ".join(parts)
 
 
+def _project_columns(
+    columns: list[ClickHouseColumn],
+    enabled_columns: Optional[list[str]],
+    primary_keys: Optional[list[str]],
+    incremental_field: Optional[str],
+) -> list[ClickHouseColumn]:
+    """Restrict the SELECT to the user-enabled columns.
+
+    `enabled_columns is None` syncs every column. Otherwise we project to the
+    enabled set plus the primary keys and incremental cursor (always synced),
+    reusing the shared `compute_projected_columns` ordering and mapping the
+    names back to typed `ClickHouseColumn`s so toString casting is preserved.
+    Falls back to all columns if nothing resolves, so a sync never selects zero
+    columns.
+    """
+    projected_names = compute_projected_columns(enabled_columns, primary_keys, incremental_field)
+    if projected_names is None:
+        return columns
+    by_name = {column.name: column for column in columns}
+    projected = [by_name[name] for name in projected_names if name in by_name]
+    return projected or columns
+
+
 def _build_query(
     *,
     database: str,
@@ -940,25 +1005,34 @@ def _build_query(
     columns: list[ClickHouseColumn],
     should_use_incremental_field: bool,
     incremental_field: Optional[str],
-) -> str:
-    """Build the data extraction query.
+    row_filters: Optional[list[ValidatedRowFilter]] = None,
+) -> tuple[str, dict[str, Any]]:
+    """Build the data extraction query and its bound parameters.
 
-    Returns the SQL string. We never interpolate the incremental cursor
-    value directly — only identifiers (which are validated) end up in the
-    SQL string. Column types ClickHouse can't emit as Arrow (UUID, IPv4,
-    enums, arrays, ...) are wrapped in toString() to avoid error 50.
+    Returns the SQL string plus the row-filter params dict. We never
+    interpolate values — only identifiers (which are validated) end up in the
+    SQL string; the incremental cursor and every row-filter value bind as
+    parameters. Row filters are ANDed onto the WHERE clause. Column types
+    ClickHouse can't emit as Arrow (UUID, IPv4, enums, arrays, ...) are
+    wrapped in toString() to avoid error 50.
     """
     qualified = _qualified_table(database, table_name)
     select_list = _build_select_list(columns)
 
+    filter_conditions, filter_params = render_named_conditions(row_filters or [], _ROW_FILTER_IDENTIFIER_QUOTER)
+
     if not should_use_incremental_field:
-        return f"SELECT {select_list} FROM {qualified}"
+        if filter_conditions:
+            return f"SELECT {select_list} FROM {qualified} WHERE {' AND '.join(filter_conditions)}", filter_params
+        return f"SELECT {select_list} FROM {qualified}", filter_params
 
     if incremental_field is None:
         raise ValueError("incremental_field can't be None when should_use_incremental_field is True")
 
     quoted_field = _quote_identifier(incremental_field)
-    return f"SELECT {select_list} FROM {qualified} WHERE {quoted_field} > %(last_value)s ORDER BY {quoted_field} ASC"
+    conditions = [f"{quoted_field} > %(last_value)s", *filter_conditions]
+    query = f"SELECT {select_list} FROM {qualified} WHERE {' AND '.join(conditions)} ORDER BY {quoted_field} ASC"
+    return query, filter_params
 
 
 def _query_settings(chunk_size: int) -> dict[str, Any]:
@@ -1008,6 +1082,8 @@ def clickhouse_source(
     chunk_size_override: Optional[int] = None,
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
+    row_filters: Optional[list[ValidatedRowFilter]] = None,
+    enabled_columns: Optional[list[str]] = None,
 ) -> SourceResponse:
     """Build a SourceResponse that pulls a single ClickHouse table.
 
@@ -1040,6 +1116,9 @@ def clickhouse_source(
             primary_keys = _get_primary_keys(client, database, table_name)
             if primary_keys:
                 logger.debug(f"Found primary keys (sorting key): {primary_keys}")
+
+            # Project to the user-selected columns (always keeping PK + cursor).
+            projected_columns = _project_columns(list(table.columns), enabled_columns, primary_keys, incremental_field)
 
             # Warn when the incremental cursor isn't the sorting-key prefix.
             # ClickHouse can only skip the sort if the ORDER BY column leads
@@ -1112,15 +1191,16 @@ def clickhouse_source(
             )
 
             try:
-                query = _build_query(
+                query, filter_params = _build_query(
                     database=database,
                     table_name=table_name,
-                    columns=list(table.columns),
+                    columns=projected_columns,
                     should_use_incremental_field=should_use_incremental_field,
                     incremental_field=incremental_field,
+                    row_filters=row_filters,
                 )
 
-                parameters: dict[str, Any] = {}
+                parameters: dict[str, Any] = dict(filter_params)
                 if should_use_incremental_field:
                     last_value = db_incremental_field_last_value
                     if last_value is None and incremental_field_type is not None:

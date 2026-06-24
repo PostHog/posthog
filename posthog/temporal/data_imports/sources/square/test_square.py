@@ -11,6 +11,7 @@ from requests import Response
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.square.settings import SQUARE_ENDPOINTS
 from posthog.temporal.data_imports.sources.square.square import (
+    MAX_CURSOR_RESTARTS,
     SQUARE_HOSTS,
     SquareInvalidCursorError,
     SquareResumeConfig,
@@ -285,7 +286,10 @@ class TestGetRowsPagination:
         saved = [call.args[0] for call in manager.save_state.call_args_list]
         assert saved == [SquareResumeConfig(cursor="")]
 
-    def test_invalid_cursor_only_restarts_once(self) -> None:
+    def test_invalid_cursor_restarts_again_when_re_scan_also_expires(self) -> None:
+        # A cursor can expire more than once on a slow full-refresh stream: the first
+        # restart re-scans, makes progress, then a later cursor expires too. As long as
+        # the restart budget isn't spent, the stream restarts again rather than crashing.
         manager = MagicMock(spec=ResumableSourceManager)
         manager.can_resume.return_value = True
         manager.load_state.return_value = SquareResumeConfig(cursor="stale-cursor")
@@ -295,7 +299,28 @@ class TestGetRowsPagination:
             invalid,
             _make_response({"customers": [{"id": "c1"}], "cursor": "cur-1"}),
             invalid,
+            _make_response({"customers": [{"id": "c2"}]}),
         ]
+        sent_params = self._drive("customers", manager, responses)
+
+        # stale cursor rejected -> restart -> page (cur-1) -> cur-1 rejected -> restart -> final page.
+        assert sent_params[0] == {"cursor": "stale-cursor"}
+        assert "cursor" not in sent_params[1]
+        assert sent_params[2] == {"cursor": "cur-1"}
+        assert "cursor" not in sent_params[3]
+
+    def test_invalid_cursor_gives_up_after_restart_budget_exhausted(self) -> None:
+        manager = MagicMock(spec=ResumableSourceManager)
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = SquareResumeConfig(cursor="stale-cursor")
+
+        invalid = _make_response({"errors": [{"field": "cursor", "code": "INVALID_CURSOR"}]}, status_code=400)
+        # Each restart re-scans one page then expires again; once the budget is spent
+        # the next rejection is surfaced.
+        responses = [invalid]
+        for _ in range(MAX_CURSOR_RESTARTS):
+            responses.append(_make_response({"customers": [{"id": "c"}], "cursor": "cur"}))
+            responses.append(invalid)
         with pytest.raises(SquareInvalidCursorError):
             self._drive("customers", manager, responses)
 

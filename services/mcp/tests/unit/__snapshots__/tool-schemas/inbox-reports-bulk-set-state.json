@@ -1,0 +1,43 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "dismissal_note": {
+            "description": "Optional free-form note explaining the dismissal. Capped at 4000 characters.",
+            "maxLength": 4000,
+            "type": "string"
+        },
+        "dismissal_reason": {
+            "description": "Optional canonical reason code for the dismissal. Must be one of: already_fixed, report_unclear, analysis_wrong, wontfix_intentional, wontfix_irrelevant, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. 'already_fixed' is a snooze, not a dismissal: pair it with state='potential' (restore) so the report reappears if the issue recurs. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n* `already_fixed` - Already fixed\n* `report_unclear` - Report is unclear to me\n* `analysis_wrong` - Agent's analysis is wrong\n* `wontfix_intentional` - Won't fix - intentional behavior\n* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n* `other` - Something else…",
+            "enum": [
+                "already_fixed",
+                "report_unclear",
+                "analysis_wrong",
+                "wontfix_intentional",
+                "wontfix_irrelevant",
+                "other"
+            ],
+            "type": "string"
+        },
+        "ids": {
+            "description": "Report ids to transition to `state` in one call (1–100). Duplicates are de-duplicated; each id is processed independently so one disallowed transition does not block the rest. `dismissal_reason`, `dismissal_note` and `snooze_for` apply to every id.",
+            "items": {
+                "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
+        },
+        "snooze_for": {
+            "description": "Optional, only honored when state is 'potential'. Number of additional signals the report must accumulate before it is re-promoted into the pipeline — effectively snoozing it until then. Omit to let the report re-enter the pipeline on the next matching signal.",
+            "maximum": 100000,
+            "minimum": 1,
+            "type": "number"
+        },
+        "state": {
+            "description": "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, or 'potential' to snooze/reopen it for later review.\n\n* `suppressed` - suppressed\n* `potential` - potential",
+            "enum": ["suppressed", "potential"],
+            "type": "string"
+        }
+    },
+    "required": ["state", "ids"],
+    "type": "object"
+}

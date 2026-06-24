@@ -38,8 +38,11 @@ TEAMS_OAUTH_SCOPES = (
     "User.ReadBasic.All "
     # ChannelMessage.Read.All (delegated) lets the shared-channel poller read
     # channel messages via Graph's messages/delta as the connecting admin.
-    # Must stay in sync with support_teams.GRAPH_REFRESH_SCOPES.
-    "ChannelMessage.Read.All offline_access openid profile"
+    # ChannelMessage.Send (delegated) lets us post confirmation cards and agent
+    # replies back into shared channels via Graph — the bot connector can't write
+    # to shared channels (the bot isn't a member). Must stay in sync with
+    # support_teams.GRAPH_REFRESH_SCOPES.
+    "ChannelMessage.Read.All ChannelMessage.Send offline_access openid profile"
 )
 AZURE_AD_AUTHORIZE_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
 AZURE_AD_TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token"

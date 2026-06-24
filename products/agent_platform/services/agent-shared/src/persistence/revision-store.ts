@@ -66,7 +66,6 @@ export interface NewApplication {
     slug: string
     name: string
     description: string
-    encrypted_env?: string | null
 }
 
 export interface NewRevision {
@@ -75,4 +74,10 @@ export interface NewRevision {
     created_by_id: number | null
     bundle_uri: string
     spec: AgentSpec
+    /**
+     * Optional encrypted env block. Copied forward from a parent revision when
+     * forking a new draft so authors don't re-enter secrets per iteration.
+     * Omit (or null) for a revision with no secrets.
+     */
+    encrypted_env?: string | null
 }
