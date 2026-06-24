@@ -99,7 +99,7 @@ class Command(BaseCommand):
 
     def _read_account_groups(self, team: Team, limit: int | None) -> list[tuple[str, dict[str, Any]]]:
         query = (
-            "SELECT group_key, group_properties FROM posthog_group "  # nosemgrep: no-direct-persons-db-orm
+            "SELECT group_key, group_properties FROM posthog_group "
             "WHERE team_id = %(team_id)s AND group_type_index = %(gti)s ORDER BY group_key"
         )
         with persons_db_connection(writer=False) as conn, conn.cursor() as cursor:

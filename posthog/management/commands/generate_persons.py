@@ -852,8 +852,7 @@ class Command(BaseCommand):
         # Attach demo events to a random sample of the team's distinct_ids.
         with persons_db_connection(writer=False) as conn, conn.cursor() as cursor:
             cursor.execute(
-                "SELECT distinct_id FROM posthog_persondistinctid "  # nosemgrep: no-direct-persons-db-orm
-                "WHERE team_id = %s ORDER BY random() LIMIT %s",
+                "SELECT distinct_id FROM posthog_persondistinctid WHERE team_id = %s ORDER BY random() LIMIT %s",
                 (team.id, min(person_count, 50)),
             )
             distinct_ids = [row[0] for row in cursor.fetchall()]

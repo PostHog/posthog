@@ -5,7 +5,6 @@ from datetime import timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 from django.utils.text import slugify
@@ -16,7 +15,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX
 from posthog.models import Team, User
 from posthog.models.event.sql import BULK_INSERT_EVENT_SQL
-from posthog.persons_db import persons_db_connection
+from posthog.persons_seed import PersonData, fetch_recent_persons_with_distinct_id
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_tours.backend.models import ProductTour
@@ -89,16 +88,6 @@ TOUR_TEMPLATES: list[dict[str, Any]] = [
 ]
 
 
-class PersonData:
-    """Holds person data for event generation."""
-
-    def __init__(self, distinct_id: str, person_uuid: str, properties: dict, created_at: Any):
-        self.distinct_id = distinct_id
-        self.person_uuid = person_uuid
-        self.properties = properties
-        self.created_at = created_at
-
-
 class Command(BaseCommand):
     help = "Generate random product tours for development purposes"
 
@@ -142,29 +131,6 @@ class Command(BaseCommand):
 
         tour.internal_targeting_flag = flag
         tour.save(update_fields=["internal_targeting_flag"])
-
-    def get_real_persons(self, team: Team, limit: int = 50) -> list[PersonData]:
-        """Fetch the most recent persons (that have a distinct_id) from the persons database."""
-        query = (
-            "SELECT p.uuid, p.properties, p.created_at, pdi.distinct_id "  # nosemgrep: no-direct-persons-db-orm
-            f"FROM (SELECT id, uuid, properties, created_at FROM {settings.PERSON_TABLE_NAME} "
-            "WHERE team_id = %(team_id)s ORDER BY created_at DESC LIMIT %(limit)s) p "
-            "JOIN LATERAL (SELECT distinct_id FROM posthog_persondistinctid "
-            "WHERE team_id = %(team_id)s AND person_id = p.id LIMIT 1) pdi ON true"
-        )
-        with persons_db_connection(writer=False) as conn, conn.cursor() as cursor:
-            cursor.execute(query, {"team_id": team.id, "limit": limit})
-            rows = cursor.fetchall()
-
-        return [
-            PersonData(
-                distinct_id=row[3],
-                person_uuid=str(row[0]),
-                properties=row[1] or {},
-                created_at=row[2],
-            )
-            for row in rows
-        ]
 
     def add_arguments(self, parser):
         parser.add_argument("count", type=int, help="Number of product tours to generate")
@@ -486,7 +452,7 @@ class Command(BaseCommand):
         # Fetch real persons if events are requested
         persons_data: list[PersonData] = []
         if num_events > 0:
-            persons_data = self.get_real_persons(team, limit=100)
+            persons_data = fetch_recent_persons_with_distinct_id(team.id, limit=100)
             if persons_data:
                 self.stdout.write(
                     self.style.SUCCESS(f"Found {len(persons_data)} persons in the database to use for events")

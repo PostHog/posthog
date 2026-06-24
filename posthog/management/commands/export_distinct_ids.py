@@ -82,8 +82,7 @@ class Command(BaseCommand):
             else ""
         )
         query = (
-            f"SELECT pdi.distinct_id FROM posthog_persondistinctid pdi {person_join} "  # nosemgrep: no-direct-persons-db-orm
-            f"WHERE {' AND '.join(conditions)}"
+            f"SELECT pdi.distinct_id FROM posthog_persondistinctid pdi {person_join} WHERE {' AND '.join(conditions)}"
         )
         with persons_db_connection(writer=False) as conn, conn.cursor() as cursor:
             cursor.execute(query, [team.id])
@@ -139,7 +138,7 @@ class Command(BaseCommand):
         # Also show some stats
         with persons_db_connection(writer=False) as conn, conn.cursor() as cursor:
             cursor.execute(
-                f"SELECT count(*), "  # nosemgrep: no-direct-persons-db-orm
+                f"SELECT count(*), "
                 "count(*) FILTER (WHERE is_identified), "
                 "count(*) FILTER (WHERE properties @> '{\"is_demo\": true}'::jsonb) "
                 f"FROM {settings.PERSON_TABLE_NAME} WHERE team_id = %s",
