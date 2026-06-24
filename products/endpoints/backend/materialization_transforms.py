@@ -408,7 +408,35 @@ def analyze_variables_for_materialization(
                 plans[d_cte_name] = plan
             var.downstream_plans = plans
 
+    # Final backstop: dry-run the transform to surface constructs only the transformer can
+    # detect (e.g. a variable code_name colliding with a SELECT alias for a different
+    # expression). Catching it here means can_materialize() rejects the query up front
+    # instead of letting enable_materialization fail with a generic server error.
+    transform_rejection = _transform_rejection_reason(ast_node, result_vars)
+    if transform_rejection is not None:
+        return False, transform_rejection, []
+
     return True, "OK", result_vars
+
+
+def _transform_rejection_reason(
+    ast_node: ast.SelectQuery | ast.SelectSetQuery,
+    variable_infos: list[MaterializableVariable],
+) -> str | None:
+    """Dry-run the materialization transform to surface unsupported constructs early.
+
+    Runs on clones, without printing, so it's cheap and side-effect free. Returns the
+    rejection reason for a known limitation (``MaterializationNotSupportedError``), or
+    ``None`` when the transform is clean. Unexpected failures are captured but not treated
+    as a rejection — pre-flight stays conservative and the enable path logs the real fault.
+    """
+    try:
+        MaterializationTransformer(copy.deepcopy(variable_infos)).visit(clone_expr(ast_node))
+    except MaterializationNotSupportedError as e:
+        return str(e)
+    except Exception as e:
+        capture_exception(e)
+    return None
 
 
 def _has_joins(node: ast.SelectQuery) -> bool:
@@ -1308,8 +1336,12 @@ class MaterializationTransformer(CloningVisitor):
                 if existing_expr == self._variable_expr(var).to_hogql():
                     # SELECT already exposes this column under the variable's name
                     continue
-                raise ValueError(
-                    f"Variable '{var.code_name}' conflicts with an existing SELECT alias for a different expression"
+                # A user-query limitation, not a server fault: the materialized table can't hold
+                # two different columns named code_name. Raised as MaterializationNotSupportedError
+                # so callers surface a 400. Pre-flight analysis normally rejects this first.
+                raise MaterializationNotSupportedError(
+                    f"Variable '{var.code_name}' conflicts with an existing SELECT alias for a different expression. "
+                    f"Rename the variable or the conflicting column alias."
                 )
             vars_to_add.append(var)
 
