@@ -233,9 +233,11 @@ def extract_hogql_detector_series(
         for i, row in enumerate(ordered)
     ]
 
-    # Too few points to score → report uncomputed (None), mirroring the trends detector's
-    # "rows exist but are too short" path (empty series with empty_query_result False).
-    min_samples = _compute_min_samples_for_detector(detector_config) + 1
+    # Too few points to score → report uncomputed (None). SQL rows are the series verbatim — unlike
+    # trends, there's no incomplete-interval drop to offset — so the detector's own minimum is the
+    # exact cutoff. (Trends adds +1 to compensate for the dropped interval; SQL must not, or a query
+    # returning exactly the detector's minimum would be wrongly rejected as "not enough data".)
+    min_samples = _compute_min_samples_for_detector(detector_config)
     if len(values) < min_samples:
         return ExtractionResult(series=[], is_breakdown=False, subject=_HOGQL_SUBJECT, framed=False)
 
