@@ -23,8 +23,10 @@ from llm_gateway.bedrock import (
     ensure_bedrock_configured,
     map_to_bedrock_model,
 )
+from llm_gateway.cache_ttl import upgrade_cache_ttl
 from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
 from llm_gateway.config import get_settings
+from llm_gateway.cost_controls import cost_controls_enabled
 from llm_gateway.dependencies import AnthropicCircuitBreakerDep, RateLimitedUser
 from llm_gateway.metrics.prometheus import (
     ANTHROPIC_CIRCUIT_BREAKER_BYPASSED,
@@ -41,6 +43,7 @@ from llm_gateway.request_context import (
     apply_posthog_context_from_headers,
     extract_posthog_provider_from_headers,
     extract_posthog_use_bedrock_fallback_from_headers,
+    get_posthog_flags,
 )
 
 logger = structlog.get_logger(__name__)
@@ -315,6 +318,10 @@ async def _handle_anthropic_messages(
 ) -> dict[str, Any] | StreamingResponse:
     data = body.model_dump(exclude_none=True, exclude=GATEWAY_ONLY_FIELDS)
     provider = _get_provider_from_headers(request)
+    # Alpha cost control: extend cache TTL on the stable prefix so idle gaps don't
+    # force a full cache rewrite. Bedrock strips cache_control, so skip it there.
+    if cost_controls_enabled(get_posthog_flags()) and provider != "bedrock":
+        upgrade_cache_ttl(data, product=product)
     use_bedrock_fallback = _get_use_bedrock_fallback_from_headers(request)
 
     if provider == "bedrock":
