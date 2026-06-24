@@ -28,7 +28,7 @@
             "configSchemaExport": "logsWidgetConfigSchema",
             "configTypeExport": "LogsWidgetConfig",
             "formSchemaExport": "logsWidgetFormSchema",
-            "formFields": ["limit", "dateRange"]
+            "formFields": ["limit", "dateRange", "wrapLines", "timezone"]
         },
         "session_replay_list": {
             "configSchemaExport": "sessionReplayWidgetConfigSchema",

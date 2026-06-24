@@ -6,16 +6,25 @@ import { LemonField } from 'lib/lemon-ui/LemonField/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 
 import { getDashboardWidgetGroupLabel } from '../../widget_types/catalog'
 import { WIDGET_DATE_RANGE_SELECT_OPTIONS, type WidgetDateFromValue } from '../../widget_types/widgetConfigShared'
 import { EditWidgetModalTileDetailsSection } from '../EditWidgetModalTileDetailsSection'
 import type { DashboardWidgetEditModalProps } from '../registry'
 import { editLogsWidgetModalLogic } from './editLogsWidgetModalLogic'
+import type { LogsTimezone } from './logsWidgetConfigValidation'
+
+const TIMEZONE_OPTIONS: { value: LogsTimezone; label: string }[] = [
+    { value: 'UTC', label: 'UTC' },
+    { value: 'local', label: 'Local time' },
+]
 
 function EditLogsWidgetModalContents(): JSX.Element {
     const {
         limit,
+        wrapLines,
+        timezone,
         dateFrom,
         tileName,
         tileDescription,
@@ -25,7 +34,7 @@ function EditLogsWidgetModalContents(): JSX.Element {
         onClose,
         defaultTitle,
     } = useValues(editLogsWidgetModalLogic)
-    const { setLimit, setDateFrom, setTileName, setTileDescription, clearFieldError, submit } =
+    const { setLimit, setWrapLines, setTimezone, setDateFrom, setTileName, setTileDescription, clearFieldError, submit } =
         useActions(editLogsWidgetModalLogic)
 
     return (
@@ -84,13 +93,13 @@ function EditLogsWidgetModalContents(): JSX.Element {
                         </LemonField.Pure>
                         <LemonField.Pure
                             label="Number of log lines"
-                            help="Show up to 25 log lines on the tile."
+                            help="Show up to 100 log lines on the tile."
                             error={activeFieldErrors.limit}
                         >
                             <LemonInput
                                 type="number"
                                 min={1}
-                                max={25}
+                                max={100}
                                 fullWidth
                                 value={limit}
                                 onChange={(value) => {
@@ -99,7 +108,27 @@ function EditLogsWidgetModalContents(): JSX.Element {
                                 }}
                             />
                         </LemonField.Pure>
+                        <LemonField.Pure label="Timestamps" help="Display log times in UTC or your local timezone.">
+                            <LemonSelect
+                                value={timezone}
+                                disabled={saving}
+                                options={TIMEZONE_OPTIONS}
+                                onChange={(value) => {
+                                    if (value) {
+                                        setTimezone(value)
+                                    }
+                                }}
+                                fullWidth
+                            />
+                        </LemonField.Pure>
                     </div>
+                    <LemonSwitch
+                        checked={wrapLines}
+                        onChange={setWrapLines}
+                        disabled={saving}
+                        label="Wrap long log lines"
+                        bordered
+                    />
                 </section>
             </div>
         </LemonModal>

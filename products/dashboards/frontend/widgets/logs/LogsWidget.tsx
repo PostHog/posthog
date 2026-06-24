@@ -1,4 +1,8 @@
+import { combineUrl } from 'kea-router'
+
 import { DetectiveHog } from 'lib/components/hedgehogs'
+
+import { urls } from 'scenes/urls'
 
 import {
     WIDGET_LIST_COUNT_LOGS,
@@ -9,6 +13,7 @@ import {
 } from '../../components/WidgetCard'
 import type { DashboardWidgetComponentProps } from '../registry'
 import { LogsWidgetRow, LogsWidgetRowSkeleton, type LogsWidgetLogLine } from './LogsWidgetRow'
+import { parseLogsWidgetConfig } from './logsWidgetConfigValidation'
 
 export type LogsWidgetResult = {
     results?: LogsWidgetLogLine[]
@@ -18,9 +23,55 @@ export type LogsWidgetResult = {
     totalCountCapped?: boolean
 }
 
-export function LogsWidget({ result, loading }: DashboardWidgetComponentProps): JSX.Element {
+/** 'local' renders in the viewer's own timezone; 'UTC' (default) renders the same for everyone. */
+function resolveDisplayTimezone(timezone: string | null | undefined): string {
+    if (timezone === 'local') {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone
+    }
+    return 'UTC'
+}
+
+type LogsDeepLinkParams = {
+    dateFrom: string | null | undefined
+    orderBy: string | null | undefined
+    limit: number | null | undefined
+    severityLevels: string[]
+    serviceNames: string[]
+    hasSavedView: boolean
+}
+
+/** Deep-link that opens this log on the logs page (new tab), reproducing the tile's filtered view.
+ *
+ * Forwarding the tile's filters + orderBy + a matching `initialLogsLimit` makes the logs page's first
+ * page equal the tile's visible rows, so the linked log is loaded and `linkToLogId` can open it. A
+ * saved-view tile can't replay the view's filters client-side, so it links by date window + id only. */
+function buildLogHref(line: LogsWidgetLogLine, params: LogsDeepLinkParams): string {
+    return combineUrl(urls.logs(), {
+        activeTab: 'viewer',
+        linkToLogId: line.uuid,
+        dateRange: { date_from: params.dateFrom ?? null, date_to: null },
+        ...(params.orderBy ? { orderBy: params.orderBy } : {}),
+        ...(params.limit ? { initialLogsLimit: params.limit } : {}),
+        ...(!params.hasSavedView && params.severityLevels.length ? { severityLevels: params.severityLevels } : {}),
+        ...(!params.hasSavedView && params.serviceNames.length ? { serviceNames: params.serviceNames } : {}),
+    }).url
+}
+
+export function LogsWidget({ result, loading, config }: DashboardWidgetComponentProps): JSX.Element {
     const payload = result as LogsWidgetResult | null | undefined
     const logLines = payload?.results ?? []
+
+    const parsedConfig = parseLogsWidgetConfig(config)
+    const wrapLines = parsedConfig.wrapLines ?? false
+    const displayTimezone = resolveDisplayTimezone(parsedConfig.timezone)
+    const deepLinkParams: LogsDeepLinkParams = {
+        dateFrom: parsedConfig.dateRange?.date_from,
+        orderBy: parsedConfig.orderBy,
+        limit: parsedConfig.limit,
+        severityLevels: parsedConfig.severityLevels ?? [],
+        serviceNames: parsedConfig.serviceNames ?? [],
+        hasSavedView: !!parsedConfig.savedViewId,
+    }
 
     if (loading) {
         return (
@@ -58,7 +109,13 @@ export function LogsWidget({ result, loading }: DashboardWidgetComponentProps): 
             <WidgetCardContent>
                 <div className="flex flex-col divide-y divide-border">
                     {logLines.map((line) => (
-                        <LogsWidgetRow key={line.uuid} line={line} />
+                        <LogsWidgetRow
+                            key={line.uuid}
+                            line={line}
+                            wrapLines={wrapLines}
+                            displayTimezone={displayTimezone}
+                            href={buildLogHref(line, deepLinkParams)}
+                        />
                     ))}
                 </div>
             </WidgetCardContent>

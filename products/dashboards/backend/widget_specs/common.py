@@ -8,6 +8,7 @@ from posthog.schema import PropertyOperator
 
 from products.dashboards.backend.constants import (
     ACTIVITY_EVENTS_MAX_LIMIT,
+    LOGS_LIST_MAX_LIMIT,
     MAX_WIDGET_RESULT_LIMIT,
     WIDGET_DATE_FROM_VALUES_ORDERED,
 )
@@ -96,3 +97,4 @@ class WidgetListConfigBase(WidgetDateRangeConfigBase):
 
 WidgetLimit = Annotated[int, Field(ge=1, le=MAX_WIDGET_RESULT_LIMIT)]
 ActivityWidgetLimit = Annotated[int, Field(ge=1, le=ACTIVITY_EVENTS_MAX_LIMIT)]
+LogsWidgetLimit = Annotated[int, Field(ge=1, le=LOGS_LIST_MAX_LIMIT)]

@@ -8,10 +8,12 @@ import { z as zod } from 'zod'
 
 import { WidgetDateRange } from './widgetDateRange.zod'
 
-export const logsListWidgetConfigLimitDefault = 10
-export const logsListWidgetConfigLimitMax = 25
+export const logsListWidgetConfigLimitDefault = 50
+export const logsListWidgetConfigLimitMax = 100
 
 export const logsListWidgetConfigOrderByDefault = `latest`
+export const logsListWidgetConfigWrapLinesDefault = false
+export const logsListWidgetConfigTimezoneDefault = `UTC`
 
 export const LogsListWidgetConfig = /* @__PURE__ */ zod.object({
     dateRange: zod.union([WidgetDateRange, zod.null()]).optional(),
@@ -33,6 +35,20 @@ export const LogsListWidgetConfig = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .optional()
         .describe('Only show logs from these services. Empty shows all services.'),
+    wrapLines: zod
+        .boolean()
+        .default(logsListWidgetConfigWrapLinesDefault)
+        .describe('Wrap long log lines instead of truncating them to a single row.'),
+    timezone: zod
+        .enum(['UTC', 'local'])
+        .default(logsListWidgetConfigTimezoneDefault)
+        .describe("Render log timestamps in UTC or in each viewer's local timezone."),
+    savedViewId: zod
+        .union([zod.string(), zod.null()])
+        .optional()
+        .describe(
+            'short_id of a saved logs view to use as the source. When set, the saved view owns the date range, severity, service, and property filters; only orderBy and limit still apply.'
+        ),
 })
 
 export type LogsListWidgetConfig = zod.input<typeof LogsListWidgetConfig>

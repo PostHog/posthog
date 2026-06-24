@@ -22,7 +22,16 @@
         ],
         "experiments_list": ["createdBy", "limit", "orderBy", "orderDirection", "status"],
         "experiment_results": ["experimentId"],
-        "logs_list": ["dateRange", "limit", "orderBy", "serviceNames", "severityLevels"]
+        "logs_list": [
+            "dateRange",
+            "limit",
+            "orderBy",
+            "savedViewId",
+            "serviceNames",
+            "severityLevels",
+            "timezone",
+            "wrapLines"
+        ]
     },
     "configPropertyTrees": {
         "activity_events_list": {
@@ -302,6 +311,15 @@
                 "$array": {
                     "$type": "string"
                 }
+            },
+            "wrapLines": {
+                "$type": "boolean"
+            },
+            "timezone": {
+                "$enum": ["UTC", "local"]
+            },
+            "savedViewId": {
+                "$type": "string"
             }
         }
     }

@@ -4,9 +4,14 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from products.dashboards.backend.constants import ACTIVITY_EVENTS_DEFAULT_LIMIT, DEFAULT_WIDGET_LIST_LIMIT
+from products.dashboards.backend.constants import (
+    ACTIVITY_EVENTS_DEFAULT_LIMIT,
+    DEFAULT_WIDGET_LIST_LIMIT,
+    LOGS_LIST_DEFAULT_LIMIT,
+)
 from products.dashboards.backend.widget_specs.common import (
     ActivityWidgetLimit,
+    LogsWidgetLimit,
     WidgetDateRangeConfigBase,
     WidgetLimit,
     WidgetListConfigBase,
@@ -31,6 +36,8 @@ ExperimentsWidgetOrderBy = Literal["created_at", "name", "start_date"]
 # Matches the logs scene: `earliest` sorts ascending by timestamp, `latest` (default) descending.
 LogsOrderBy = Literal["latest", "earliest"]
 LogSeverityLevel = Literal["trace", "debug", "info", "warn", "error", "fatal"]
+# How log timestamps render on the tile: in UTC, or in each viewer's local timezone.
+LogsTimezone = Literal["UTC", "local"]
 
 
 class WidgetAssigneeFilter(BaseModel):
@@ -101,7 +108,9 @@ class ExperimentResultsWidgetConfig(BaseModel):
 
 
 class LogsListWidgetConfig(WidgetDateRangeConfigBase):
-    limit: WidgetLimit = Field(default=DEFAULT_WIDGET_LIST_LIMIT, description="Maximum number of log lines to return.")
+    limit: LogsWidgetLimit = Field(
+        default=LOGS_LIST_DEFAULT_LIMIT, description="Maximum number of log lines to return."
+    )
     orderBy: LogsOrderBy = Field(default="latest", description="Sort by newest (latest) or oldest (earliest) first.")
     severityLevels: list[LogSeverityLevel] = Field(
         default_factory=list,
@@ -111,3 +120,27 @@ class LogsListWidgetConfig(WidgetDateRangeConfigBase):
         default_factory=list,
         description="Only show logs from these services. Empty shows all services.",
     )
+    wrapLines: bool = Field(
+        default=False,
+        description="Wrap long log lines instead of truncating them to a single row.",
+    )
+    timezone: LogsTimezone = Field(
+        default="UTC",
+        description="Render log timestamps in UTC or in each viewer's local timezone.",
+    )
+    savedViewId: str | None = Field(
+        default=None,
+        description=(
+            "short_id of a saved logs view to use as the source. When set, the saved view owns the date range, "
+            "severity, service, and property filters; only orderBy and limit still apply."
+        ),
+    )
+
+    @field_validator("savedViewId", mode="before")
+    @classmethod
+    def validate_saved_view_id(cls, value: object) -> str | None:
+        if value is None or value == "":
+            return None
+        if not isinstance(value, str):
+            raise ValueError("savedViewId must be a string.")
+        return value

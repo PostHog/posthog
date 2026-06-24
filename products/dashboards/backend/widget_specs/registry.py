@@ -183,7 +183,7 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             # No cheap team-flag setup check for logs (availability would need a ClickHouse
             # has-logs query, which we keep off the widget-add path) — leave ungated like activity.
             availability_requirements=(),
-            form_fields=("limit", "dateRange"),
+            form_fields=("limit", "dateRange", "wrapLines", "timezone"),
             filter_fields=("severityLevels", "serviceNames"),
         ),
     }

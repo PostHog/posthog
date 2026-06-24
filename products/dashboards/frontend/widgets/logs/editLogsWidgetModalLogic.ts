@@ -16,6 +16,7 @@ import {
     LOGS_DEFAULT_DATE_FROM,
     parseLogsWidgetConfig,
     validateLogsWidgetConfigInput,
+    type LogsTimezone,
     type LogsWidgetFieldErrors,
 } from './logsWidgetConfigValidation'
 
@@ -36,6 +37,8 @@ export const editLogsWidgetModalLogic = kea<editLogsWidgetModalLogicType>([
     actions({
         ...widgetEditModalListFieldActions,
         ...widgetEditModalTileActions,
+        setWrapLines: (wrapLines: boolean) => ({ wrapLines }),
+        setTimezone: (timezone: LogsTimezone) => ({ timezone }),
         setFieldErrors: (fieldErrors: LogsWidgetFieldErrors) => ({ fieldErrors }),
         clearFieldError: (field: keyof LogsWidgetFieldErrors) => ({ field }),
         submit: true,
@@ -45,9 +48,21 @@ export const editLogsWidgetModalLogic = kea<editLogsWidgetModalLogicType>([
 
     reducers({
         limit: [
-            10,
+            50,
             {
                 setLimit: (_: number, { limit }: { limit: number }) => limit,
+            },
+        ],
+        wrapLines: [
+            false,
+            {
+                setWrapLines: (_: boolean, { wrapLines }: { wrapLines: boolean }) => wrapLines,
+            },
+        ],
+        timezone: [
+            'UTC' as LogsTimezone,
+            {
+                setTimezone: (_: LogsTimezone, { timezone }: { timezone: LogsTimezone }) => timezone,
             },
         ],
         dateFrom: [
@@ -97,10 +112,12 @@ export const editLogsWidgetModalLogic = kea<editLogsWidgetModalLogicType>([
         widgetConfig: [(_, p) => [p.config], (config): LogsWidgetConfig => parseLogsWidgetConfig(config)],
         ...widgetEditModalPropSelectors,
         validation: [
-            (s) => [s.limit, s.dateFrom, s.widgetConfig],
-            (limit, dateFrom, widgetConfig) =>
+            (s) => [s.limit, s.wrapLines, s.timezone, s.dateFrom, s.widgetConfig],
+            (limit, wrapLines, timezone, dateFrom, widgetConfig) =>
                 validateLogsWidgetConfigInput({
                     limit,
+                    wrapLines,
+                    timezone,
                     dateFrom,
                     baseConfig: widgetConfig,
                 }),
@@ -133,6 +150,8 @@ export const editLogsWidgetModalLogic = kea<editLogsWidgetModalLogicType>([
 
         return {
             limit: baseConfig.limit,
+            wrapLines: baseConfig.wrapLines ?? false,
+            timezone: (baseConfig.timezone ?? 'UTC') as LogsTimezone,
             dateFrom: baseConfig.dateRange?.date_from ?? LOGS_DEFAULT_DATE_FROM,
             ...getWidgetEditModalTileDefaults(props),
             fieldErrors: {},
