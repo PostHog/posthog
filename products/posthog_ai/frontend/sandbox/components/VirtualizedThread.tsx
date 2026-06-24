@@ -148,15 +148,20 @@ function Root<T>({
         }
     }, [stickToBottom, scrollToBottom])
 
-    // Scroll on append / last-item change while pinned.
+    // Scroll on append / last-item change while pinned — and as dynamic measurements settle. Pinned by
+    // default, so this also scrolls to the bottom on open. The first scroll fires before rows are measured
+    // (they start at `defaultRowHeight`) and lands short; depending on the measured average row height
+    // re-fires it as ResizeObserver grows the rows, so it settles at the true bottom. The same signal keeps
+    // a streaming last row pinned as it grows.
     const lastKey = items.length > 0 ? getItemKey(items[items.length - 1], items.length - 1) : null
+    const measuredAverageHeight = dynamicRowHeight.getAverageRowHeight()
     useEffect(() => {
         if (!virtualized || !stickToBottom || !pinnedRef.current) {
             return
         }
         const raf = requestAnimationFrame(scrollToBottom)
         return () => cancelAnimationFrame(raf)
-    }, [virtualized, stickToBottom, scrollToBottom, rowCount, lastKey])
+    }, [virtualized, stickToBottom, scrollToBottom, rowCount, lastKey, measuredAverageHeight])
 
     // Mobile Safari: the soft keyboard shrinks the visual (not layout) viewport, so a pinned bottom can
     // slip behind it. Re-assert on visualViewport changes.
@@ -221,10 +226,16 @@ function Root<T>({
         <RootContext.Provider value={rootValue}>
             <div className={cn('flex flex-col h-full min-h-0 w-full', className)}>
                 <AutoSizer
-                    renderProp={({ height, width }: SizeProps) =>
-                        height && width ? (
+                    renderProp={({ height, width }: SizeProps) => {
+                        if (!height || !width) {
+                            return null
+                        }
+                        // react-window sets only `overflowY: auto`, which makes the unset `overflow-x` compute
+                        // to `auto` too — pin it to `hidden` so the thread never scrolls sideways (wide blocks
+                        // like tool output scroll within their own containers).
+                        return (
                             <List<InternalRowProps>
-                                style={{ height, width }}
+                                style={{ height, width, overflowX: 'hidden' }}
                                 className="overscroll-contain"
                                 overscanCount={overscanCount}
                                 rowCount={rowCount}
@@ -235,8 +246,8 @@ function Root<T>({
                                 onRowsRendered={handleRowsRendered}
                                 onScroll={handleScroll}
                             />
-                        ) : null
-                    }
+                        )
+                    }}
                 />
             </div>
         </RootContext.Provider>
