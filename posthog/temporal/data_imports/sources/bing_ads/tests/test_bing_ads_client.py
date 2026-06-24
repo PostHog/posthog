@@ -94,6 +94,60 @@ class TestBingAdsClient:
         mock_client_instance.GetUser.assert_called_once_with(UserId=None)
 
     @mock.patch("posthog.temporal.data_imports.sources.bing_ads.client.ServiceClient")
+    def test_list_accounts_across_customers_flags_primary(self, mock_service_client):
+        instance = mock_service_client.return_value
+        instance.GetUser.return_value = mock.MagicMock(User=mock.MagicMock(CustomerId=111))
+        instance.GetCustomersInfo.return_value = mock.MagicMock(
+            CustomerInfo=[
+                mock.MagicMock(Id=111, Name="Primary Co"),
+                mock.MagicMock(Id=222, Name="Other Co"),
+            ]
+        )
+
+        def accounts_for(CustomerId, OnlyParentAccounts):
+            if CustomerId == 111:
+                account = mock.MagicMock(Id=1, Number="A1", Name="Acc 1", AccountLifeCycleStatus="Active")
+            else:
+                account = mock.MagicMock(Id=2, Number="B2", Name="Acc 2", AccountLifeCycleStatus="Pause")
+            return mock.MagicMock(AccountInfo=[account])
+
+        instance.GetAccountsInfo.side_effect = accounts_for
+
+        client = BingAdsClient(self.access_token, self.refresh_token, self.developer_token)
+        result = client.list_accounts()
+
+        assert result == [
+            {
+                "id": 1,
+                "number": "A1",
+                "name": "Acc 1",
+                "status": "Active",
+                "customer_id": 111,
+                "customer_name": "Primary Co",
+                "is_primary": True,
+            },
+            {
+                "id": 2,
+                "number": "B2",
+                "name": "Acc 2",
+                "status": "Pause",
+                "customer_id": 222,
+                "customer_name": "Other Co",
+                "is_primary": False,
+            },
+        ]
+
+    @mock.patch("posthog.temporal.data_imports.sources.bing_ads.client.ServiceClient")
+    def test_list_accounts_wraps_soap_fault(self, mock_service_client):
+        instance = mock_service_client.return_value
+        instance.GetUser.return_value = mock.MagicMock(User=mock.MagicMock(CustomerId=111))
+        instance.GetCustomersInfo.side_effect = _make_webfault("Server raised fault: 'Invalid client data.'", None)
+
+        client = BingAdsClient(self.access_token, self.refresh_token, self.developer_token)
+        with pytest.raises(ValueError, match="Failed to list Bing Ads accounts"):
+            client.list_accounts()
+
+    @mock.patch("posthog.temporal.data_imports.sources.bing_ads.client.ServiceClient")
     def test_get_customer_id_preserves_underlying_exception_details(self, mock_service_client):
         """Underlying exception's class name and message must be embedded in the raised ValueError so
         the retry framework can selectively match auth-related substrings as non-retryable while

@@ -125,6 +125,13 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
             fields=cast(
                 list[FieldType],
                 [
+                    # OAuth first: the account dropdown below is populated from this integration.
+                    SourceFieldOauthConfig(
+                        name="bing_ads_integration_id",
+                        label="Bing Ads account",
+                        required=True,
+                        kind="bing-ads",
+                    ),
                     SourceFieldInputConfig(
                         name="account_id",
                         label="Account ID",
@@ -132,12 +139,6 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
                         required=True,
                         placeholder="",
                         secret=False,
-                    ),
-                    SourceFieldOauthConfig(
-                        name="bing_ads_integration_id",
-                        label="Bing Ads account",
-                        required=True,
-                        kind="bing-ads",
                     ),
                 ],
             ),

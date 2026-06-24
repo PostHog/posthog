@@ -126,6 +126,47 @@ class BingAdsClient:
 
         return self._customer_id
 
+    def list_accounts(self) -> list[dict[str, Any]]:
+        """List every Bing Ads account the connected user can access, across all their customers.
+
+        A user can belong to more than one customer (e.g. an agency managing several advertisers),
+        and ``GetAccountsInfo`` is scoped to a single customer — so enumerate the customers first
+        (``GetCustomersInfo``) and collect each one's accounts. The account whose customer matches
+        the user's own customer (from ``GetUser``) is flagged ``is_primary``.
+        """
+        primary_customer_id = self.get_customer_id()
+        try:
+            service_client = ServiceClient(
+                service="CustomerManagementService",
+                version=13,
+                authorization_data=self.authorization_data,
+                environment=ENVIRONMENT,
+            )
+
+            customers = service_client.GetCustomersInfo(CustomerNameFilter="", TopN=100)
+
+            accounts: list[dict[str, Any]] = []
+            for customer in getattr(customers, "CustomerInfo", None) or []:
+                # GetAccountsInfo reads the customer from authorization_data, so scope it per customer.
+                self.authorization_data.customer_id = customer.Id
+                result = service_client.GetAccountsInfo(CustomerId=customer.Id, OnlyParentAccounts=False)
+                for account in getattr(result, "AccountInfo", None) or []:
+                    accounts.append(
+                        {
+                            "id": account.Id,
+                            "number": getattr(account, "Number", None),
+                            "name": getattr(account, "Name", None),
+                            "status": str(getattr(account, "AccountLifeCycleStatus", None)),
+                            "customer_id": customer.Id,
+                            "customer_name": getattr(customer, "Name", None),
+                            "is_primary": customer.Id == primary_customer_id,
+                        }
+                    )
+        except Exception as e:
+            raise _wrap_with_fault_detail(e, "Failed to list Bing Ads accounts") from e
+
+        return accounts
+
     def get_campaigns(self, account_id: int, customer_id: int) -> Generator[list[dict[str, Any]]]:
         self.authorization_data.account_id = account_id
         self.authorization_data.customer_id = customer_id

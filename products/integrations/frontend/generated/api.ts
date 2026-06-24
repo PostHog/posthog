@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    BingAdsAccountsResponseApi,
     GitHubBranchesResponseApi,
     GitHubReposRefreshResponseApi,
     GitHubReposResponseApi,
@@ -281,6 +282,24 @@ export const integrationsAnthropicManagedAgentsRetrieve = async (
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getIntegrationsAnthropicManagedAgentsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getIntegrationsBingAdsAccountsRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/bing_ads_accounts/`
+}
+
+/**
+ * List the Bing Ads accounts the connected Microsoft account can access, across all customers.
+ */
+export const integrationsBingAdsAccountsRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<BingAdsAccountsResponseApi> => {
+    return apiMutator<BingAdsAccountsResponseApi>(getIntegrationsBingAdsAccountsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

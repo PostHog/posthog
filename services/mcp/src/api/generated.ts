@@ -11430,6 +11430,37 @@ export namespace Schemas {
       BigQuery: 'BigQuery',
     } as const;
 
+    export interface BingAdsAccount {
+      /** Numeric Bing Ads account ID. This is the value stored in the source config and used for all API calls. */
+      id: number;
+      /**
+         * Alphanumeric account number shown in the Microsoft Advertising UI (e.g. 'F11034B5'). Display only — not the value used for API calls.
+         * @nullable
+         */
+      number: string | null;
+      /**
+         * Human-readable account name.
+         * @nullable
+         */
+      name: string | null;
+      /** Account lifecycle status reported by Microsoft (e.g. 'Active', 'Pause'). */
+      status: string;
+      /** Numeric ID of the customer (Microsoft Advertising manager) that owns this account. */
+      customer_id: number;
+      /**
+         * Name of the owning customer.
+         * @nullable
+         */
+      customer_name: string | null;
+      /** True when this account belongs to the connected user's own (primary) customer, rather than another customer they merely have access to. */
+      is_primary: boolean;
+    }
+
+    export interface BingAdsAccountsResponse {
+      /** All Bing Ads accounts the connected Microsoft account can access, across every customer. */
+      accounts: BingAdsAccount[];
+    }
+
     export interface BlastRadius {
       /** Number of users matching the filters */
       affected: number;

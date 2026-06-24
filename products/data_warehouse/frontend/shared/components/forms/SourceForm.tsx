@@ -32,6 +32,7 @@ import {
     sourceWizardLogic,
 } from '../../../scenes/NewSourceScene/sourceWizardLogic'
 import { CDC_SOURCE_TYPES } from '../../cdc'
+import { BingAdsAccountSelector } from './BingAdsAccountSelector'
 import { CustomSourceManifestBuilder } from './CustomSourceManifestBuilder'
 import { GitHubRepositorySelector } from './GitHubRepositorySelector'
 import { GoogleSearchConsoleSiteSelector } from './GoogleSearchConsoleSiteSelector'
@@ -311,6 +312,12 @@ export const sourceFieldToElement = (
         // text input for a dropdown populated from the Search Console API. Avoids the
         // `sc-domain:` vs trailing-slash typos that bounce off `validate_credentials`.
         return <GoogleSearchConsoleSiteSelector key={field.name} />
+    }
+
+    if (field.name === 'account_id' && sourceConfig.name === 'BingAds') {
+        // Same pattern as Search Console above: swap the text input for an account dropdown so the
+        // user picks the numeric Account ID, not the alphanumeric Account Number (a common mistake).
+        return <BingAdsAccountSelector key={field.name} />
     }
 
     return (

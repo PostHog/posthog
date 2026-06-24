@@ -326,6 +326,32 @@ class GoogleSearchConsoleSitesResponseSerializer(serializers.Serializer):
     sites = GoogleSearchConsoleSiteSerializer(many=True)
 
 
+class BingAdsAccountSerializer(serializers.Serializer):
+    id = serializers.IntegerField(
+        help_text="Numeric Bing Ads account ID. This is the value stored in the source config and used for all API calls."
+    )
+    number = serializers.CharField(
+        allow_null=True,
+        help_text="Alphanumeric account number shown in the Microsoft Advertising UI (e.g. 'F11034B5'). Display only — not the value used for API calls.",
+    )
+    name = serializers.CharField(allow_null=True, help_text="Human-readable account name.")
+    status = serializers.CharField(help_text="Account lifecycle status reported by Microsoft (e.g. 'Active', 'Pause').")
+    customer_id = serializers.IntegerField(
+        help_text="Numeric ID of the customer (Microsoft Advertising manager) that owns this account."
+    )
+    customer_name = serializers.CharField(allow_null=True, help_text="Name of the owning customer.")
+    is_primary = serializers.BooleanField(
+        help_text="True when this account belongs to the connected user's own (primary) customer, rather than another customer they merely have access to."
+    )
+
+
+class BingAdsAccountsResponseSerializer(serializers.Serializer):
+    accounts = BingAdsAccountSerializer(
+        many=True,
+        help_text="All Bing Ads accounts the connected Microsoft account can access, across every customer.",
+    )
+
+
 class IntegrationAccessRequestSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
         choices=Integration.IntegrationKind.choices,
@@ -708,6 +734,9 @@ class IntegrationViewSet(
         # Enumerates every Search Console property on the connected Google account — gate behind
         # manage access so read-only members can't discover unrelated domains (info disclosure).
         "google_search_console_sites",
+        # Enumerates every Bing Ads account across the connected user's customers — same info
+        # disclosure concern, so gate it behind manage access too.
+        "bing_ads_accounts",
     ]
     permission_classes = [TeamMemberStrictManagementPermission]
     queryset = defer_repository_cache_fields(Integration.objects.all())
@@ -1029,6 +1058,37 @@ class IntegrationViewSet(
             raise
         response_data = {"sites": sites}
         cache.set(cache_key, response_data, GSC_AUTOCOMPLETE_CACHE_TTL_SECONDS)
+        return Response(response_data)
+
+    @extend_schema(responses={200: BingAdsAccountsResponseSerializer})
+    @action(methods=["GET"], detail=True, url_path="bing_ads_accounts")
+    def bing_ads_accounts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """List the Bing Ads accounts the connected Microsoft account can access, across all customers."""
+        from posthog.settings import integrations  # noqa: PLC0415 — keep settings lookup local to the action
+        from posthog.temporal.data_imports.sources.bing_ads.client import (  # noqa: PLC0415 — keeps the Bing Ads SDK off the api/ import path
+            BingAdsClient,
+        )
+
+        instance = self.get_object()
+        if instance.kind != "bing-ads":
+            raise ValidationError("bing_ads_accounts endpoint is only supported for Bing Ads integrations")
+        _ensure_oauth_token_valid(instance)
+
+        if not integrations.BING_ADS_DEVELOPER_TOKEN:
+            raise ValidationError("Bing Ads developer token is not configured")
+
+        cache_key = f"bing_ads/{instance.id}/accounts"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return Response(cached)
+
+        client = BingAdsClient(
+            access_token=instance.access_token,
+            refresh_token=instance.refresh_token,
+            developer_token=integrations.BING_ADS_DEVELOPER_TOKEN,
+        )
+        response_data = {"accounts": client.list_accounts()}
+        cache.set(cache_key, response_data, 60)
         return Response(response_data)
 
     @action(methods=["GET"], detail=True, url_path="linkedin_ads_conversion_rules")
