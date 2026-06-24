@@ -39,6 +39,7 @@ import { AvailableFeature, DashboardType, InsightShortId, SubscriptionResourceTy
 import { InsightSelector } from '../InsightSelector'
 import { subscriptionCountLogic } from '../subscriptionCountLogic'
 import { subscriptionLogic } from '../subscriptionLogic'
+import { subscriptionNotificationLogic } from '../subscriptionNotificationLogic'
 import { subscriptionsLogic } from '../subscriptionsLogic'
 import {
     bysetposOptions,
@@ -54,6 +55,7 @@ import {
     WEEKDAYS,
     AI_PROMPT_MAX_LENGTH,
 } from '../utils'
+import { InlineSubscriptionNotifications } from './InlineSubscriptionNotifications'
 
 // Shown wherever AI subscriptions are gated off (org hasn't approved AI data
 // processing). Mirrors the backend gate in `_ai_create_gate_reason`, which 403s
@@ -270,6 +272,12 @@ function EditSubscriptionForm({
     const { slackIntegrations, integrations } = useValues(integrationsLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
+    const connectedAutomationsEnabled = useFeatureFlag('SUBSCRIPTIONS_CONNECTED_AUTOMATIONS')
+    const { pendingNotifications } = useValues(
+        subscriptionNotificationLogic({ subscriptionId: id === 'new' ? undefined : id })
+    )
+    // Pending automations make the form "savable" even when no subscription field changed.
+    const hasPendingNotifications = connectedAutomationsEnabled && pendingNotifications.length > 0
 
     const emailDisabled = !preflight?.email_service_available
     const isAiPrompt = subscription?.resource_type === SubscriptionResourceTypes.AiPrompt
@@ -759,6 +767,16 @@ function EditSubscriptionForm({
                                 </div>
                             </div>
                         )}
+
+                        {connectedAutomationsEnabled && (
+                            <div>
+                                <LemonLabel className="mb-2">Connected automations</LemonLabel>
+                                <p className="text-xs text-muted-alt mb-2">
+                                    Trigger other tools (Slack, Discord, a webhook) when this report is delivered.
+                                </p>
+                                <InlineSubscriptionNotifications subscriptionId={id === 'new' ? undefined : id} />
+                            </div>
+                        )}
                     </>
                 )}
             </LemonModal.Content>
@@ -783,7 +801,11 @@ function EditSubscriptionForm({
                     type="primary"
                     htmlType="submit"
                     loading={isSubscriptionSubmitting}
-                    disabled={!subscriptionChanged || subscriptionLoading || aiGate.submitBlocked}
+                    disabled={
+                        (!subscriptionChanged && !hasPendingNotifications) ||
+                        subscriptionLoading ||
+                        aiGate.submitBlocked
+                    }
                 >
                     {id === 'new' ? 'Create subscription' : 'Save'}
                 </LemonButton>

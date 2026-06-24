@@ -14,6 +14,7 @@ import { getInsightId } from 'scenes/insights/utils'
 import { ExportedAssetType, ExporterFormat, SubscriptionResourceTypes, SubscriptionType } from '~/types'
 
 import type { subscriptionLogicType } from './subscriptionLogicType'
+import { subscriptionNotificationLogic } from './subscriptionNotificationLogic'
 import { subscriptionsLogic } from './subscriptionsLogic'
 import { AI_PROMPT_MAX_LENGTH, SubscriptionBaseProps, urlForSubscription } from './utils'
 
@@ -199,6 +200,18 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 mountedSubscriptionsLogic?.actions.loadAiSubscriptions()
                 actions.loadSubscriptionSuccess(updatedSub)
                 actions.loadSummaryQuota()
+
+                // Deferred create: the subscription must have an id before we can pin destinations to it.
+                // The subscription is already persisted, so a failure here is a client-side bug, not a save
+                // failure — isolate it so the user still sees the success toast (mirrors the alerts flow).
+                try {
+                    await subscriptionNotificationLogic({
+                        subscriptionId: props.id === 'new' ? undefined : props.id,
+                    }).asyncActions.createPendingHogFunctions(updatedSub.id, updatedSub.title ?? undefined)
+                } catch (e) {
+                    posthog.captureException(e)
+                }
+
                 lemonToast.success(`Subscription saved.`)
 
                 return updatedSub
