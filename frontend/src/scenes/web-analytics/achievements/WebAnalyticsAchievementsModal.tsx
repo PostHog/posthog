@@ -376,65 +376,64 @@ function WebAnalyticsAchievementsModalInner(): JSX.Element {
         progressByTrack,
         expandedTracks,
         uncelebratedPending,
+        confettiNonce,
         achievementsLoading,
     } = useValues(webAnalyticsAchievementsLogic)
-    const { closeModal, acknowledgeCelebration, toggleTrackExpanded } = useActions(webAnalyticsAchievementsLogic)
+    const { closeModal, toggleTrackExpanded } = useActions(webAnalyticsAchievementsLogic)
     const { trigger, HogfettiComponent } = useHogfetti({ count: 80, duration: 2500 })
 
     useEffect(() => {
-        if (!modalOpen || uncelebratedPending.length === 0) {
-            return
-        }
-        uncelebratedPending.forEach((entry) => {
+        if (confettiNonce > 0) {
             trigger()
-            acknowledgeCelebration(entry.track_key, entry.stage)
-        })
-    }, [modalOpen, uncelebratedPending, trigger, acknowledgeCelebration])
+        }
+    }, [confettiNonce, trigger])
 
     const pendingTrackKeys = new Set(uncelebratedPending.map((entry) => entry.track_key))
     const unlockedStages = definitions.reduce((sum, track) => sum + (progressByTrack[track.key]?.current_stage ?? 0), 0)
     const totalStages = definitions.reduce((sum, track) => sum + track.stages.length, 0)
 
     return (
-        <LemonModal isOpen={modalOpen} onClose={closeModal} title="Web analytics achievements" width={820}>
+        <>
             <HogfettiComponent />
-            {definitions.length === 0 ? (
-                <div className="text-muted text-sm py-6 text-center">
-                    {achievementsLoading ? 'Loading achievements…' : 'No achievements available yet.'}
-                </div>
-            ) : (
-                <div className="flex flex-col gap-4">
-                    {sortedUserTracks.length > 0 && (
-                        <AchievementSection
-                            title="Your achievements"
-                            icon={<IconPerson />}
-                            tracks={sortedUserTracks}
-                            progressByTrack={progressByTrack}
-                            expandedTracks={expandedTracks}
-                            pendingTrackKeys={pendingTrackKeys}
-                            onToggleExpanded={toggleTrackExpanded}
-                            headerRight={
-                                <span className="text-xs text-muted">
-                                    <span className="font-semibold">{unlockedStages}</span> of {totalStages} stages
-                                    unlocked
-                                </span>
-                            }
-                        />
-                    )}
-                    {sortedTeamTracks.length > 0 && (
-                        <AchievementSection
-                            title="Team achievements"
-                            icon={<IconPeople />}
-                            tracks={sortedTeamTracks}
-                            progressByTrack={progressByTrack}
-                            expandedTracks={expandedTracks}
-                            pendingTrackKeys={pendingTrackKeys}
-                            onToggleExpanded={toggleTrackExpanded}
-                        />
-                    )}
-                </div>
-            )}
-        </LemonModal>
+            <LemonModal isOpen={modalOpen} onClose={closeModal} title="Web analytics achievements" width={820}>
+                {definitions.length === 0 ? (
+                    <div className="text-muted text-sm py-6 text-center">
+                        {achievementsLoading ? 'Loading achievements…' : 'No achievements available yet.'}
+                    </div>
+                ) : (
+                    <div className="flex flex-col gap-4">
+                        {sortedUserTracks.length > 0 && (
+                            <AchievementSection
+                                title="Your achievements"
+                                icon={<IconPerson />}
+                                tracks={sortedUserTracks}
+                                progressByTrack={progressByTrack}
+                                expandedTracks={expandedTracks}
+                                pendingTrackKeys={pendingTrackKeys}
+                                onToggleExpanded={toggleTrackExpanded}
+                                headerRight={
+                                    <span className="text-xs text-muted">
+                                        <span className="font-semibold">{unlockedStages}</span> of {totalStages} stages
+                                        unlocked
+                                    </span>
+                                }
+                            />
+                        )}
+                        {sortedTeamTracks.length > 0 && (
+                            <AchievementSection
+                                title="Team achievements"
+                                icon={<IconPeople />}
+                                tracks={sortedTeamTracks}
+                                progressByTrack={progressByTrack}
+                                expandedTracks={expandedTracks}
+                                pendingTrackKeys={pendingTrackKeys}
+                                onToggleExpanded={toggleTrackExpanded}
+                            />
+                        )}
+                    </div>
+                )}
+            </LemonModal>
+        </>
     )
 }
 
