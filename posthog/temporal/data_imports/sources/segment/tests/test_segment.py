@@ -101,7 +101,8 @@ class TestRedactRows:
 
     def test_non_dict_rows_pass_through(self) -> None:
         # Defensive: a malformed row that isn't a dict should not raise.
-        assert _redact_rows(["not-a-dict"], frozenset({"settings"})) == ["not-a-dict"]  # type: ignore[list-item]
+        malformed: list[Any] = ["not-a-dict"]
+        assert _redact_rows(malformed, frozenset({"settings"})) == malformed
 
 
 class TestNextCursor:
