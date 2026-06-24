@@ -6,7 +6,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
@@ -459,6 +459,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             userModifiedFilters,
         }),
         maybeLoadSessionRecordings: (direction?: 'newer' | 'older') => ({ direction }),
+        setSessionRecordingsAccessDenied: (accessDenied: boolean) => ({ accessDenied }),
         loadNext: true,
         loadPrev: true,
         setSelectedRecordingsIds: (recordingsIds: string[]) => ({ recordingsIds }),
@@ -569,7 +570,26 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     await breakpoint(400) // Debounce for lots of quick filter changes
 
                     const startTime = performance.now()
-                    const response = await api.recordings.list(params)
+                    let response: Awaited<ReturnType<typeof api.recordings.list>>
+                    try {
+                        response = await api.recordings.list(params)
+                    } catch (error) {
+                        // A 403 here is expected backend behaviour when the user lacks RBAC access to
+                        // session recordings — surface an access-denied empty state rather than letting
+                        // the raw API error escape the loader and get captured as a global exception.
+                        if (error instanceof ApiError && error.status === 403) {
+                            breakpoint()
+                            actions.setSessionRecordingsAccessDenied(true)
+                            return {
+                                has_next: false,
+                                next_cursor: undefined,
+                                results: direction ? values.sessionRecordings : [],
+                                order: params.order,
+                                order_direction: params.order_direction,
+                            }
+                        }
+                        throw error
+                    }
                     const loadTimeMs = performance.now() - startTime
 
                     actions.reportRecordingsListFetched(loadTimeMs, values.filters, defaultRecordingDurationFilter)
@@ -751,6 +771,15 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 setAdvancedFilters: () => false,
                 loadNext: () => false,
                 loadPrev: () => false,
+            },
+        ],
+        sessionRecordingsAccessDenied: [
+            false,
+            {
+                // Reset on a fresh load attempt (also fires on filter changes); the loader re-sets
+                // this to true via setSessionRecordingsAccessDenied if the API responds with 403.
+                loadSessionRecordings: () => false,
+                setSessionRecordingsAccessDenied: (_, { accessDenied }) => accessDenied,
             },
         ],
         selectedRecordingsIds: [
