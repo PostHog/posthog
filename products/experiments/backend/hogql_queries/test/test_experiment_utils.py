@@ -12,6 +12,7 @@ from posthog.schema import (
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
     ExperimentStatsBase,
+    ExperimentStatsBaseValidated,
     ExperimentStatsValidationFailure,
     FunnelConversionWindowTimeUnit,
     StartHandling,
@@ -24,8 +25,10 @@ from products.experiments.backend.hogql_queries.utils import (
     get_experiment_query_debug,
     get_variant_result,
     get_variant_results,
+    metric_variant_to_statistic,
     validate_variant_result,
 )
+from products.experiments.stats.shared.statistics import ProportionStatistic, SampleMeanStatistic
 
 
 def _columns_for(
@@ -1136,3 +1139,39 @@ class TestGetExperimentQueryDebug:
             assert "SECRETKEY123" not in clickhouse_sql
             assert "SECRETTOKEN456" not in clickhouse_sql
             assert clickhouse_sql.count("[HIDDEN]") == 2
+
+
+class TestMetricVariantToStatistic:
+    def _validated(self, *, n: int = 10, sum: float = 4, sum_squares: float = 4) -> ExperimentStatsBaseValidated:
+        return ExperimentStatsBaseValidated(key="test", number_of_samples=n, sum=sum, sum_squares=sum_squares)
+
+    def test_mean_without_threshold_maps_to_sample_mean(self) -> None:
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.SUM, math_property="amount"),
+        )
+        stat = metric_variant_to_statistic(metric, self._validated(sum=60, sum_squares=400))
+        assert isinstance(stat, SampleMeanStatistic)
+        assert stat.sum == 60
+        assert stat.sum_squares == 400
+
+    def test_mean_with_threshold_maps_to_proportion(self) -> None:
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.SUM, math_property="amount"),
+            threshold=100,
+        )
+        stat = metric_variant_to_statistic(metric, self._validated(n=10, sum=4))
+        assert isinstance(stat, ProportionStatistic)
+        # sum is the count of users who crossed the threshold
+        assert stat.n == 10
+        assert stat.sum == 4
+
+    def test_threshold_proportion_coerces_sum_to_int(self) -> None:
+        """ClickHouse may return total_sum as a float; ProportionStatistic.sum must be an int count."""
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.SUM, math_property="amount"),
+            threshold=100,
+        )
+        stat = metric_variant_to_statistic(metric, self._validated(n=10, sum=4.0))
+        assert isinstance(stat, ProportionStatistic)
+        assert isinstance(stat.sum, int)
+        assert stat.sum == 4

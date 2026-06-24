@@ -176,8 +176,8 @@ for example, a discovery pass followed by per-item research, then assessment and
 ### Example
 
 ```python
-from products.tasks.backend.services.custom_prompt_multi_turn_runner import MultiTurnSession
-from products.tasks.backend.services.custom_prompt_runner import CustomPromptSandboxContext
+from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner import MultiTurnSession
+from products.tasks.backend.logic.services.custom_prompt_internals import CustomPromptSandboxContext
 
 # 1. Start: discovery turn
 session, candidates = await MultiTurnSession.start(
@@ -209,7 +209,7 @@ await session.end()
 
 ### Reference implementation
 
-See `products/tasks/backend/services/mts_example/` for a complete working example.
+See `products/tasks/backend/logic/services/mts_example/` for a complete working example.
 It runs a multi-turn agent that discovers "cursed" identifiers in a repo,
 researches each one, and produces output in the shape Signals consumes:
 
@@ -223,7 +223,7 @@ Run it locally (DEBUG only):
 DEBUG=1 python manage.py demo_mts_example --team-id <id> --user-id <id>
 ```
 
-See the [example README](https://github.com/PostHog/posthog/blob/master/products/tasks/backend/services/mts_example/README.md) for details on adapting it to your own use case.
+See the [example README](https://github.com/PostHog/posthog/blob/master/products/tasks/backend/logic/services/mts_example/README.md) for details on adapting it to your own use case.
 
 ## Code execution
 
@@ -244,10 +244,11 @@ If an agent attempts to run `git commit` or `git push`, it will see:
 
 ```text
 git commit is disabled in PostHog Code: commits must be signed.
-Stage changes with 'git add', then call the git_signed_commit tool.
+To commit: stage changes with 'git add', then call the git_signed_commit tool.
+To force-push after a rebase/conflict fix: call the git_signed_rewrite tool.
 ```
 
-Agents should stage changes with `git add`, then use the `git_signed_commit` tool to create signed commits.
+Agents should stage changes with `git add`, then use the `git_signed_commit` tool to create signed commits. For force-pushing after a rebase or conflict resolution, use the `git_signed_rewrite` tool instead.
 
 **Debugging escape hatch**: Set `POSTHOG_ALLOW_UNSIGNED_GIT=1` in the sandbox environment to bypass this restriction. This is intended for debugging only and should not be used in production.
 

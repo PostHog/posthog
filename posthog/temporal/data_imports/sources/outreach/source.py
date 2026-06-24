@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class OutreachSource(SimpleSource[OutreachSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.OUTREACH,
+            category=DataWarehouseSourceCategory.SALES,
             label="Outreach",
             iconPath="/static/services/outreach.png",
             fields=cast(list[FieldType], []),

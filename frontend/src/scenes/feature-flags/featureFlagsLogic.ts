@@ -6,7 +6,8 @@ import { PaginationManual } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { objectsEqual, parseTagsFilter, toParams } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
+import { parseNumericArrayFilter, parseTagsFilter, toParams } from 'lib/utils/url'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
 import { projectLogic } from 'scenes/projectLogic'
@@ -95,8 +96,13 @@ export function flagMatchesFilters(flag: FeatureFlagType, filters: FeatureFlagsF
         flagMatchesSearch(flag, filters.search) &&
         flagMatchesStatus(flag, filters.active) &&
         flagMatchesType(flag, filters.type) &&
-        (!filters.created_by_id || flag.created_by?.id === filters.created_by_id) &&
+        // Archived flags are hidden unless explicitly filtered for, mirroring the API default
+        (filters.archived === 'true' ? !!flag.archived : !flag.archived) &&
+        (!filters.created_by_id?.length ||
+            (flag.created_by != null && filters.created_by_id.includes(flag.created_by.id))) &&
         (!filters.tags?.length || filters.tags.some((tag) => flag.tags?.includes(tag))) &&
+        // excluded_tags wins over tags on conflict (AND semantics)
+        (!filters.excluded_tags?.length || !filters.excluded_tags.some((tag) => flag.tags?.includes(tag))) &&
         (!filters.evaluation_runtime || flag.evaluation_runtime === filters.evaluation_runtime)
     )
 }
@@ -124,17 +130,21 @@ export interface FeatureFlagsResult extends CountedPaginatedResponse<FeatureFlag
 
 export interface FeatureFlagsFilters {
     active?: string
-    created_by_id?: number
+    /** 'true' shows only archived flags; when unset, archived flags are excluded */
+    archived?: string
+    created_by_id?: number[]
     type?: string
     search?: string
     order?: string
     page?: number
     evaluation_runtime?: string
     tags?: string[]
+    excluded_tags?: string[]
 }
 
 const DEFAULT_FILTERS: FeatureFlagsFilters = {
     active: undefined,
+    archived: undefined,
     created_by_id: undefined,
     type: undefined,
     search: undefined,
@@ -142,6 +152,7 @@ const DEFAULT_FILTERS: FeatureFlagsFilters = {
     page: 1,
     evaluation_runtime: undefined,
     tags: undefined,
+    excluded_tags: undefined,
 }
 
 export interface FlagLogicProps {
@@ -380,7 +391,7 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                   },
               ]
             | void => {
-            const searchParams: Record<string, string | number | string[]> = {
+            const searchParams: Record<string, string | number | string[] | number[]> = {
                 ...values.filters,
             }
 
@@ -417,16 +428,19 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
                 actions.setActiveTab(tabInURL)
             }
 
-            const { page, created_by_id, active, type, search, order, evaluation_runtime, tags } = searchParams
+            const { page, created_by_id, active, archived, type, search, order, evaluation_runtime, tags } =
+                searchParams
             const pageFiltersFromUrl: Partial<FeatureFlagsFilters> = {
-                created_by_id,
+                created_by_id: parseNumericArrayFilter(created_by_id),
                 type,
                 order,
                 evaluation_runtime,
                 tags: parseTagsFilter(tags),
+                excluded_tags: parseTagsFilter(searchParams['excluded_tags']),
             }
 
             pageFiltersFromUrl.active = active !== undefined ? String(active) : undefined
+            pageFiltersFromUrl.archived = archived !== undefined ? String(archived) : undefined
             pageFiltersFromUrl.page = page !== undefined ? parseInt(page) : undefined
             pageFiltersFromUrl.search = search !== undefined ? String(search) : undefined
 

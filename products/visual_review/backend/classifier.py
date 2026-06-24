@@ -21,6 +21,7 @@ class SnapshotClassifier:
         run: Run,
         baseline: dict[str, str],
         tolerated_lookup: dict[tuple[str, str, str], ToleratedHash],
+        is_partial: bool = False,
     ):
         self.run = run
         self.repo_id = run.repo_id
@@ -29,6 +30,9 @@ class SnapshotClassifier:
         self.tolerated_lookup = tolerated_lookup
         self.snapshots_qs = run.snapshots.using(WRITER_DB)
         self.artifact_cache: dict[str, Artifact] = {}
+        # Caller-supplied so the client-controlled flag can be fenced
+        # server-side rather than read from run.is_partial. See complete_run.
+        self.is_partial = is_partial
 
     def classify(self) -> None:
         self.stamp_baseline_hashes()
@@ -143,6 +147,11 @@ class SnapshotClassifier:
     def create_removed_snapshots(self) -> None:
         """Detect baseline identifiers missing from the run and create REMOVED rows."""
         if not self.baseline:
+            return
+        if self.is_partial:
+            # Partial runs only render a subset of the suite. The omitted
+            # baseline identifiers haven't been deleted, they just weren't
+            # exercised — leave them untouched.
             return
         produced = set(self.snapshots_qs.values_list("identifier", flat=True))
         removed = [

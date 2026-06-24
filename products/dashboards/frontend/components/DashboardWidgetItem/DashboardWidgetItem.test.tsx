@@ -18,15 +18,26 @@ import {
 } from '~/types'
 
 import { getDashboardWidgetCatalogEntry, tryGetDashboardWidgetCatalogEntry } from '../../widget_types/catalog'
+import { userHasDashboardWidgetProductAccess } from '../../widgetProductAccess'
 import { DashboardWidgetItem } from './DashboardWidgetItem'
 
 jest.mock('lib/utils/accessControlUtils', () => ({
     userHasAccess: () => true,
 }))
 
+jest.mock('../../widgetProductAccess', () => ({
+    userHasDashboardWidgetProductAccess: jest.fn(() => true),
+    userCanMutateErrorTrackingIssuesOnDashboard: jest.fn(() => true),
+}))
+
+jest.mock('../../widget_types/widgetAvailability', () => ({
+    useWidgetAvailability: () => ({ isAvailable: true }),
+}))
+
 jest.mock('../../widgets/registry', () => ({
     getDashboardWidgetDefinition: () => ({
         Component: () => <div>Widget body</div>,
+        TileFilters: () => <div data-attr="widget-tile-filters">filters</div>,
         EditModal: ({
             isOpen,
             name,
@@ -105,6 +116,7 @@ const tileWithoutDescription = {
 
 describe('DashboardWidgetItem', () => {
     beforeEach(() => {
+        jest.mocked(userHasDashboardWidgetProductAccess).mockReturnValue(true)
         initKeaTests(true, {
             ...MOCK_DEFAULT_TEAM,
             test_account_filters: [
@@ -133,6 +145,25 @@ describe('DashboardWidgetItem', () => {
             dashboards: undefined,
             dashboard_tiles: [],
         }).unmount()
+    })
+
+    it('does not render tile filters without product access', () => {
+        jest.mocked(userHasDashboardWidgetProductAccess).mockReturnValue(false)
+
+        const { container } = render(
+            <DashboardWidgetItem
+                tile={tile}
+                placement={DashboardPlacement.Dashboard}
+                dashboardId={99}
+                result={null}
+                loading={false}
+                onRefresh={jest.fn()}
+                onUpdateWidgetTile={jest.fn()}
+                showEditingControls
+            />
+        )
+
+        expect(container.querySelector('[data-attr="widget-tile-filters"]')).toBeNull()
     })
 
     it('renders insight-style more menu with view, dashboard section, and refresh data', async () => {
@@ -168,7 +199,7 @@ describe('DashboardWidgetItem', () => {
         expect(screen.getByText('Dashboard')).toBeInTheDocument()
         expect(screen.getByRole('button', { name: 'Hide description' })).toBeInTheDocument()
         expect(screen.getByRole('button', { name: 'Remove from dashboard' })).toBeInTheDocument()
-        const refreshTrigger = screen.getByRole('button', { name: /Refresh data/i })
+        const refreshTrigger = document.querySelector('[data-attr="dashboard-tile-refresh-data"]') as HTMLElement
         expect(refreshTrigger).toBeInTheDocument()
         expect(screen.getByText(/Last computed/i)).toBeInTheDocument()
 

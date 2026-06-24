@@ -107,7 +107,7 @@ ENV AGENTSH_SERVER=http://127.0.0.1:18080
 ###
 
 # Set up /scripts as a Node.js project and install @posthog/agent
-# COMMIT_HASH changes every build, busting the cache so we always get @latest
+# COMMIT_HASH changes every build, busting the cache so each build pulls @latest
 ARG COMMIT_HASH
 RUN mkdir -p /scripts && \
     cd /scripts && \

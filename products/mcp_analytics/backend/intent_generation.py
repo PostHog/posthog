@@ -5,7 +5,10 @@ and condense them into a short natural-language summary via an LLM. Pure
 generation only — caching and persistence live in ``logic.generate_session_intent``.
 """
 
+from datetime import timedelta
+
 from django.conf import settings
+from django.utils import timezone
 
 import openai
 import posthoganalytics
@@ -18,11 +21,16 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team.team import Team
 
+from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
 from products.mcp_analytics.backend.facade.contracts import IntentGenerationUnavailable
 
-MCP_TOOL_CALL_EVENT = "mcp_tool_call"
 INTENT_MODEL = "gpt-4.1-mini"
 MAX_INTENTS = 500
+# Session-detail queries look up one $session_id; without a timestamp bound
+# the events sort key (team_id, toDate(timestamp), event, ...) can't prune and
+# the scan covers the team's full history. Sessions reachable in the UI are at
+# most MCP_SESSIONS_LOOKBACK (24h) old, so 7 days is a generous safety margin.
+SESSION_EVENTS_LOOKBACK = timedelta(days=7)
 # Persisted (and returned) when a session has no recorded intents, so callers
 # get a definitive answer and we don't re-query ClickHouse on the next request.
 NO_INTENT_MESSAGE = "No agent intent was recorded for this session."
@@ -43,7 +51,8 @@ _SESSION_INTENTS_SQL = """
 SELECT toString(properties.$mcp_intent) AS intent
 FROM events
 WHERE event = {event}
-    AND properties.$mcp_session_id = {session_id}
+    AND timestamp >= {date_from}
+    AND $session_id = {session_id}
     AND coalesce(properties.$mcp_intent, '') != ''
 ORDER BY timestamp ASC
 LIMIT {limit}
@@ -56,6 +65,7 @@ def fetch_session_intents(team: Team, session_id: str) -> list[str]:
         _SESSION_INTENTS_SQL,
         placeholders={
             "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
+            "date_from": ast.Constant(value=timezone.now() - SESSION_EVENTS_LOOKBACK),
             "session_id": ast.Constant(value=session_id),
             "limit": ast.Constant(value=MAX_INTENTS),
         },

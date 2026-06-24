@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Open a URL in the browser once its server is listening — from OUTSIDE the dev
+# sandbox.
+#
+# Storybook (and other web procs) auto-open via `open`, but the macOS Seatbelt
+# sandbox blocks that: the open → LaunchServices path reads $HOME, which the
+# profile denies. Rather than widen the profile (which would hand untrusted
+# dependency code a general app/URL launcher), the devenv generator peels this
+# helper out to run unsandboxed (see _SANDBOX_UNSANDBOXED_PREFIXES). It backgrounds
+# a poller and returns immediately, so the sandboxed server starts right after,
+# then the poller fires a single fixed `open <url>` once the port answers.
+#
+# Usage: bin/dev-open-when-ready <url>     # e.g. http://localhost:6006
+#
+# No-op (exit 0) in CI / under PostHog Code, or when no opener is available.
+
+set -euo pipefail
+
+url="${1:?bin/dev-open-when-ready: expected a URL as the first argument}"
+
+# Don't pop a browser in automated/headless contexts.
+if [[ -n "${CI:-}" || -n "${POSTHOG_CODE:-}" ]]; then
+    exit 0
+fi
+
+# Pick a platform opener; bail quietly if none (e.g. headless Linux).
+if [[ "$(uname -s)" == "Darwin" ]] && command -v open >/dev/null 2>&1; then
+    opener="open"
+elif command -v xdg-open >/dev/null 2>&1; then
+    opener="xdg-open"
+else
+    exit 0
+fi
+
+# Derive host:port from the URL (strip scheme + path; default by scheme).
+case "$url" in
+    https://*) _defport=443 ;;
+    *) _defport=80 ;;
+esac
+_hostport="${url#*://}"
+_hostport="${_hostport%%/*}"
+host="${_hostport%%:*}"
+port="${_hostport##*:}"
+[[ "$port" == "$host" ]] && port="$_defport" # no explicit port in the URL
+
+# Background poller: wait (bounded) for the port to accept a connection, then open
+# once. Detached so the caller returns immediately (the sandboxed server starts
+# right after); the deadline keeps it from lingering if the server never comes up.
+(
+    deadline=$(($(date +%s) + 180))
+    until (exec 3<>"/dev/tcp/$host/$port") 2>/dev/null; do
+        if (($(date +%s) >= deadline)); then exit 0; fi
+        sleep 0.5
+    done
+    "$opener" "$url" >/dev/null 2>&1 || true
+) &
+disown 2>/dev/null || true
+
+exit 0

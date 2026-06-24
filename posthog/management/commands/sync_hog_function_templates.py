@@ -26,6 +26,7 @@ TEST_INCLUDE_PYTHON_TEMPLATE_IDS = [
     "template-warehouse-source-stripe",
     "template-warehouse-source-customer-io",
     "template-warehouse-source-slack",
+    "template-warehouse-source-github",
     "template-warehouse-source-default",
 ]
 TEST_INCLUDE_NODEJS_TEMPLATE_IDS = [

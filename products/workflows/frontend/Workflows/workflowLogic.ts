@@ -103,6 +103,10 @@ export const NEW_WORKFLOW: HogFlow = {
     updated_at: '',
 }
 
+// Step types that depend on person data and so cannot run for person-less (row-scoped)
+// data-warehouse-table triggers. Module-scoped to avoid reallocating on every selector recompute.
+export const PERSON_DEPENDENT_ACTION_TYPES = new Set(['wait_until_condition', 'random_cohort_branch'])
+
 function getTemplatingError(value: string, templating?: 'liquid' | 'hog'): string | undefined {
     if (templating === 'liquid' && typeof value === 'string') {
         try {
@@ -441,13 +445,31 @@ export const workflowLogic = kea<workflowLogicType>([
                 hogFunctionTemplatesByIdLoading,
                 scheduleStartsAt
             ): Record<string, HogFlowActionValidationResult | null> => {
+                // Warehouse-triggered workflows are person-less ("row-scoped"). Person-dependent
+                // step types make no sense without a person, so we block them at save time.
+                const triggerAction = workflow.actions.find((a) => a.type === 'trigger')
+                const isRowScopedTrigger =
+                    triggerAction?.type === 'trigger' && triggerAction.config?.type === 'data-warehouse-table'
+
                 return workflow.actions.reduce(
                     (acc, action) => {
                         const result: HogFlowActionValidationResult = {
                             valid: true,
                             schema: null,
                             errors: {},
+                            warnings: {},
                         }
+
+                        if (isRowScopedTrigger && PERSON_DEPENDENT_ACTION_TYPES.has(action.type)) {
+                            result.valid = false
+                            result.errors = {
+                                _action:
+                                    'This step relies on person data, which is not available for data warehouse table triggers',
+                            }
+                            acc[action.id] = result
+                            return acc
+                        }
+
                         const schemaValidation = HogFlowActionSchema.safeParse(action)
 
                         if (!schemaValidation.success) {
@@ -513,6 +535,7 @@ export const workflowLogic = kea<workflowLogicType>([
                                 // stricter `from` check) is not clobbered by the generic validator.
                                 result.valid = result.valid && configValidation.valid
                                 result.errors = { ...configValidation.errors, ...result.errors }
+                                result.warnings = { ...result.warnings, ...configValidation.warnings }
                             }
                         }
 
@@ -573,6 +596,14 @@ export const workflowLogic = kea<workflowLogicType>([
             (workflow): TriggerAction | null => {
                 return (workflow.actions.find((action) => action.type === 'trigger') as TriggerAction) ?? null
             },
+        ],
+
+        // Warehouse-triggered workflows are person-less ("row-scoped"): no person data is available,
+        // so person-dependent steps and person-aware exit conditions are blocked (see the serializer
+        // for the authoritative enforcement).
+        isRowScopedTrigger: [
+            (s) => [s.triggerAction],
+            (triggerAction: TriggerAction | null): boolean => triggerAction?.config?.type === 'data-warehouse-table',
         ],
 
         workflowSanitized: [

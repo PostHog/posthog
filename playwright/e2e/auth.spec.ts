@@ -1,9 +1,17 @@
 import { LoginPage } from '../page-models/loginPage'
-import { LOGIN_PASSWORD, LOGIN_USERNAME, expect, test } from '../utils/playwright-test-base'
+import { LOGIN_PASSWORD, LOGIN_USERNAME } from '../utils/playwright-test-core'
+import { PlaywrightWorkspaceSetupResult, expect, test } from '../utils/workspace-test-base'
 
 test.describe('Auth', () => {
     let loginPage: LoginPage
-    test.beforeEach(async ({ page }) => {
+    let workspace: PlaywrightWorkspaceSetupResult | null = null
+
+    test.beforeAll(async ({ playwrightSetup }) => {
+        workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
+    })
+
+    test.beforeEach(async ({ page, playwrightSetup }) => {
+        await playwrightSetup.loginAndNavigateToTeam(page, workspace!)
         await page.locator('[data-attr=new-account-menu-button]').click()
         loginPage = new LoginPage(page)
     })
@@ -80,7 +88,7 @@ test.describe('Auth', () => {
 
     test('Redirect to appropriate place after login', async ({ page, context }) => {
         await context.clearCookies()
-        await page.goto('/activity/explore')
+        await page.goto('/activity/explore', { waitUntil: 'commit' })
         await expect(page).toHaveURL(/\/login/)
 
         await loginPage.enterUsername(LOGIN_USERNAME)
@@ -95,7 +103,7 @@ test.describe('Auth', () => {
 
     test('Redirect to appropriate place after login with complex URL', async ({ page, context }) => {
         await context.clearCookies()
-        await page.goto('/insights?search=testString')
+        await page.goto('/insights?search=testString', { waitUntil: 'commit' })
         await expect(page).toHaveURL(/\/login/)
 
         await loginPage.enterUsername(LOGIN_USERNAME)
@@ -117,6 +125,7 @@ test.describe('Auth', () => {
     test('Logout in another tab results in logout in the current tab too', async ({ page, context }) => {
         const secondPage = await context.newPage()
         await secondPage.goto('/')
+        await secondPage.locator('[data-attr=new-account-menu-button]').waitFor({ state: 'visible', timeout: 30000 })
         await secondPage.locator('[data-attr=new-account-menu-button]').click()
         await secondPage.locator('[data-attr=new-account-menu-logout-button]').click()
         await secondPage.waitForURL(/\/login/)

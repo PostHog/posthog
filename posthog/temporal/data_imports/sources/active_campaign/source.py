@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -26,6 +27,8 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ActiveCampaignSource(ResumableSource[ActiveCampaignSourceConfig, ActiveCampaignResumeConfig]):
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.ACTIVECAMPAIGN
@@ -39,6 +42,7 @@ class ActiveCampaignSource(ResumableSource[ActiveCampaignSourceConfig, ActiveCam
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.ACTIVE_CAMPAIGN,
+            category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="ActiveCampaign",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your ActiveCampaign API URL and key to sync your CRM and marketing data into the PostHog Data warehouse.

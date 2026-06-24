@@ -1,3 +1,5 @@
+import pytest
+
 from posthog.temporal.data_imports.sources.generated_configs import (
     BigQuerySourceConfig,
     ChargebeeSourceConfig,
@@ -315,13 +317,55 @@ def test_snowflake_config():
     assert config.auth_type.passphrase == ""
 
 
-def test_stripe_config():
-    config = StripeSourceConfig.from_dict(
-        {"auth_method": {"selection": "api_key", "stripe_secret_key": "api_key"}, "stripe_account_id": "acct_id"}
+@pytest.mark.parametrize(
+    "schema_override,expected_schema",
+    [
+        # A blank schema flips the source into multi-schema discovery; the config stores the raw
+        # value (absent/""/whitespace) verbatim — drivers normalize it via `normalize_namespace`.
+        ({}, None),
+        ({"schema": ""}, ""),
+        ({"schema": "   "}, "   "),
+    ],
+)
+def test_snowflake_config_without_schema(schema_override, expected_schema):
+    config = SnowflakeSourceConfig.from_dict(
+        {
+            "account_id": "account_id",
+            "database": "database",
+            "warehouse": "warehouse",
+            "auth_type": {"selection": "password", "user": "user", "password": "password"},
+            **schema_override,
+        }
     )
+
+    assert config.schema == expected_schema
+
+
+@pytest.mark.parametrize(
+    "config_dict,expected_auth_method_attrs",
+    [
+        # Nested form: the `auth_method` select submitted as a mapping.
+        (
+            {"auth_method": {"selection": "api_key", "stripe_secret_key": "api_key"}, "stripe_account_id": "acct_id"},
+            {"selection": "api_key", "stripe_secret_key": "api_key"},
+        ),
+        # Flat form: the option value as a scalar with the option's fields as siblings. This
+        # passes `validate_dict`, so `from_dict` must not raise an unhandled TypeError on the scalar.
+        (
+            {"auth_method": "oauth", "stripe_integration_id": 176624, "stripe_account_id": "acct_id"},
+            {"stripe_integration_id": 176624},
+        ),
+    ],
+)
+def test_stripe_config(config_dict, expected_auth_method_attrs):
+    is_valid, errors = StripeSourceConfig.validate_dict(config_dict)
+    assert is_valid is True
+    assert errors == []
+
+    config = StripeSourceConfig.from_dict(config_dict)
     assert config.stripe_account_id == "acct_id"
-    assert config.auth_method.selection == "api_key"
-    assert config.auth_method.stripe_secret_key == "api_key"
+    for attr, expected in expected_auth_method_attrs.items():
+        assert getattr(config.auth_method, attr) == expected
 
 
 def test_shopify_config():

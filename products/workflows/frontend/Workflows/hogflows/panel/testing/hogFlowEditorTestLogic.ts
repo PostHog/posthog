@@ -7,10 +7,11 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { uuid } from 'lib/utils'
+import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
+import { uuid } from 'lib/utils/dom'
+import { performWideEventsQueryInTwoPhases } from 'scenes/hog-functions/sampleEventsQuery'
 
 import { groupsModel } from '~/models/groupsModel'
-import { performQuery } from '~/queries/query'
 import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { escapePropertyAsHogQLIdentifier, hogql } from '~/queries/utils'
 import {
@@ -179,6 +180,8 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
             ['selectedNodeId'],
             groupsModel,
             ['groupTypes'],
+            groupsAccessLogic,
+            ['groupsEnabled'],
         ],
         actions: [hogFlowEditorLogic, ['setSelectedNodeId', 'setAnimatingEdgePair']],
     })),
@@ -315,7 +318,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                         const query: EventsQuery = {
                             kind: NodeKind.EventsQuery,
                             fixedProperties: [values.matchingFilters],
-                            select: ['*', 'person', ...groupSelectColumns(values.groupTypes)],
+                            select: ['*', 'person', ...groupSelectColumns(values.groupTypesForTest)],
                             after: timeRange,
                             limit: 10,
                             orderBy: ['timestamp DESC'],
@@ -325,7 +328,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                             },
                         }
 
-                        const response = await performQuery(query)
+                        const response = await performWideEventsQueryInTwoPhases(query)
 
                         if (!response?.results?.[0]) {
                             // No matching events found
@@ -368,7 +371,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
 
                         const event = response.results[resultIndex][0]
                         const person = response.results[resultIndex][1]
-                        const groups = parseGroupsFromResult(response.results[resultIndex], values.groupTypes)
+                        const groups = parseGroupsFromResult(response.results[resultIndex], values.groupTypesForTest)
 
                         return createGlobalsFromResponse(
                             event,
@@ -405,7 +408,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                                     ],
                                 },
                             ],
-                            select: ['*', 'person', ...groupSelectColumns(values.groupTypes)],
+                            select: ['*', 'person', ...groupSelectColumns(values.groupTypesForTest)],
                             after: timeRange,
                             limit: 1,
                             orderBy: ['timestamp DESC'],
@@ -414,7 +417,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                             },
                         }
 
-                        const response = await performQuery(query)
+                        const response = await performWideEventsQueryInTwoPhases(query)
 
                         if (!response?.results?.[0]) {
                             // No matching events found, use standard example event
@@ -439,7 +442,7 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
 
                         const event = response.results[0][0]
                         const person = response.results[0][1]
-                        const groups = parseGroupsFromResult(response.results[0], values.groupTypes)
+                        const groups = parseGroupsFromResult(response.results[0], values.groupTypesForTest)
 
                         actions.setSampleGlobalsError(null)
                         actions.setCanTryExtendedSearch(false)
@@ -465,6 +468,13 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                 // Only load samples if the trigger is event
                 return !!(triggerAction && triggerAction.config.type === 'event')
             },
+        ],
+        // Mirror real execution: the worker's getGroupsForEvent gates on group_analytics, so without
+        // the addon the test run must also resolve no groups (otherwise a group condition could match
+        // here but never in production).
+        groupTypesForTest: [
+            (s) => [s.groupsEnabled, s.groupTypes],
+            (groupsEnabled, groupTypes): Map<GroupTypeIndex, GroupType> => (groupsEnabled ? groupTypes : new Map()),
         ],
         // TODO(workflows): DRY up matchingFilters with implementation in hogFunctionConfigurationLogic
         matchingFilters: [

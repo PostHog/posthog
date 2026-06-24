@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -10,6 +11,7 @@ from posthog.schema import (
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -42,9 +44,16 @@ def _probe_path(schema_name: Optional[str]) -> str:
 
 @SourceRegistry.register
 class ProductboardSource(ResumableSource[ProductboardSourceConfig, ProductboardResumeConfig]):
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.PRODUCTBOARD
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.productboard.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
@@ -120,6 +129,7 @@ class ProductboardSource(ResumableSource[ProductboardSourceConfig, ProductboardR
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.PRODUCTBOARD,
+            category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Productboard",
             caption="""Enter your Productboard public API access token to sync your Productboard data into the PostHog Data warehouse.
 
@@ -128,7 +138,6 @@ You can create an access token in your Productboard [workspace settings](https:/
 Grant read access for the resources you want to sync — for example `entities:read`, `notes:read`, `members:read`, and `teams:read`.""",
             iconPath="/static/services/productboard.png",
             docsUrl="https://posthog.com/docs/cdp/sources/productboard",
-            unreleasedSource=True,
             releaseStatus=ReleaseStatus.ALPHA,
             fields=cast(
                 list[FieldType],

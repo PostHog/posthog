@@ -3,12 +3,8 @@ from unittest.mock import MagicMock, patch
 
 from asgiref.sync import async_to_sync
 
-from products.tasks.backend.services.sandbox import ExecutionResult
-from products.tasks.backend.temporal.exceptions import (
-    SandboxExecutionError,
-    SandboxNotFoundError,
-    SandboxNotRunningError,
-)
+from products.tasks.backend.exceptions import SandboxExecutionError, SandboxNotFoundError, SandboxNotRunningError
+from products.tasks.backend.logic.services.sandbox import ExecutionResult
 from products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials import (
     RefreshSandboxCredentialsInput,
     refresh_sandbox_credentials,
@@ -49,6 +45,7 @@ class TestRefreshSandboxCredentialsActivity:
 
         assert output.refreshed_kinds == ["github"]
         assert output.next_refresh_seconds == 20 * 60
+        assert output.sandbox_gone is False
 
         # git remote rewrite + env-file read both ran against the sandbox.
         assert any("git remote set-url origin" in str(c.args[0]) for c in sandbox.execute.call_args_list)
@@ -80,6 +77,7 @@ class TestRefreshSandboxCredentialsActivity:
         assert output.refreshed_kinds == []
         # All credentials failed -> no per-token interval, so fall back to the default cadence.
         assert output.next_refresh_seconds == DEFAULT_REFRESH_INTERVAL_SECONDS
+        assert output.sandbox_gone is False
 
     def test_skips_refresh_when_sandbox_not_running(self, activity_environment, task_context, test_task, sandbox):
         sandbox.is_running.return_value = False
@@ -103,6 +101,7 @@ class TestRefreshSandboxCredentialsActivity:
 
         assert output.refreshed_kinds == []
         assert output.next_refresh_seconds == DEFAULT_REFRESH_INTERVAL_SECONDS
+        assert output.sandbox_gone is True
         get_token.assert_not_called()
         sandbox.execute.assert_not_called()
         increment.assert_called_once_with("github", "skipped")
@@ -138,6 +137,7 @@ class TestRefreshSandboxCredentialsActivity:
 
         assert output.refreshed_kinds == []
         assert output.next_refresh_seconds == DEFAULT_REFRESH_INTERVAL_SECONDS
+        assert output.sandbox_gone is True
         get_token.assert_not_called()
         increment.assert_called_once_with("github", "skipped")
         track_event.assert_not_called()
@@ -168,6 +168,7 @@ class TestRefreshSandboxCredentialsActivity:
             )
 
         assert output.refreshed_kinds == []
+        assert output.sandbox_gone is True
         increment.assert_called_once_with("github", "skipped")
 
     def test_genuine_execution_error_counts_as_failed(self, activity_environment, task_context, test_task, sandbox):

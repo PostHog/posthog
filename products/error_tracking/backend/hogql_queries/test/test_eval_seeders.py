@@ -5,13 +5,11 @@ from dataclasses import dataclass
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
-from parameterized import parameterized
-
 from posthog.schema import DateRange, ErrorTrackingQuery
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models.cohort.cohort import get_or_create_internal_test_users_cohort
 
+from products.cohorts.backend.models.cohort import get_or_create_internal_test_users_cohort
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner import ErrorTrackingQueryRunner
 
 from ee.hogai.eval.sandboxed.error_tracking.seeders import _EVAL_DISTINCT_IDS, seed_error_tracking_issues
@@ -34,14 +32,8 @@ class TestErrorTrackingEvalSeeders(ClickhouseTestMixin, APIBaseTest):
                 materialize("events", property_name)
         super().setUpClass()
 
-    @parameterized.expand(
-        [
-            ("v1", False),
-            ("v3", True),
-        ]
-    )
     @freeze_time("2026-05-22T12:00:00Z")
-    def test_error_tracking_seeded_events_survive_person_filters(self, _query_version: str, use_query_v3: bool) -> None:
+    def test_error_tracking_seeded_events_survive_person_filters(self) -> None:
         test_users_cohort = get_or_create_internal_test_users_cohort(
             self.team, initiating_user_email="eval-master-seed@posthog.test"
         )
@@ -85,7 +77,6 @@ class TestErrorTrackingEvalSeeders(ClickhouseTestMixin, APIBaseTest):
                     filterTestAccounts=True,
                     orderBy="occurrences",
                     volumeResolution=1,
-                    useQueryV3=use_query_v3 or None,
                     withAggregations=True,
                     withFirstEvent=False,
                     withLastEvent=False,

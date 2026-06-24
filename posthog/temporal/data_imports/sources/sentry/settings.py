@@ -12,6 +12,18 @@ ALLOWED_SENTRY_API_BASE_URLS = (
     "https://de.sentry.io",
 )
 
+# Scopes a Sentry auth token needs to sync every dataset. Single source of truth for
+# the setup caption and the "missing scopes" credential errors, so the list we tell
+# users to grant can't drift from the list we check against.
+REQUIRED_SENTRY_SCOPES = (
+    "alerts:read",
+    "event:read",
+    "member:read",
+    "org:read",
+    "project:read",
+    "team:read",
+)
+
 LAST_SEEN_INCREMENTAL: IncrementalField = {
     "label": "lastSeen",
     "type": IncrementalFieldType.DateTime,

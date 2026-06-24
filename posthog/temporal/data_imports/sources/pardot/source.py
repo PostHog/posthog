@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,8 @@ class PardotSource(SimpleSource[PardotSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.PARDOT,
+            category=DataWarehouseSourceCategory.MARKETING___EMAIL,
+            keywords=["salesforce pardot", "marketing cloud account engagement"],
             label="Pardot",
             iconPath="/static/services/pardot.png",
             fields=cast(list[FieldType], []),

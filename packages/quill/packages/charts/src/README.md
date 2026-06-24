@@ -13,6 +13,17 @@ const THEME: ChartTheme = { colors: ['#1f77b4'], backgroundColor: '#ffffff' }
 ;<LineChart series={SERIES} labels={LABELS} theme={THEME} />
 ```
 
+## Setup
+
+**Tokens (optional but recommended)** — load `@posthog/quill-tokens/color-system.css`
+so `useChartTheme()` resolves the real quill palette and chrome. Without it you get
+a sensible built-in fallback palette (see below), not the brand colors.
+
+The built-in tooltip styles itself inline, so it renders correctly with no extra
+setup. The rest of the library's chrome uses Tailwind utility classes — if you want
+those generated for a non-PostHog host, add this package to your Tailwind
+`@source`/content globs.
+
 ## Theme
 
 Charts are **headless about color** — every chart takes a `ChartTheme` (`colors`
@@ -65,6 +76,26 @@ Pass a render prop to `tooltip`. It receives `TooltipContext` — `seriesData`, 
   tooltip={(ctx) => <MyTooltip label={ctx.label} rows={ctx.seriesData} />}
 />
 ```
+
+## Drag-to-zoom
+
+Pass `onDateRangeZoom` to let the user drag a horizontal range across the plot.
+The chart emits `{ startLabel, endLabel, startIndex, endIndex }` from the
+labels array — it does not manage zoom state itself, so the parent decides
+what to do with the range (typically updating a date filter).
+
+```tsx
+<TimeSeriesLineChart
+  series={SERIES}
+  labels={LABELS}
+  theme={THEME}
+  onDateRangeZoom={({ startLabel, endLabel }) => updateDateRange(startLabel, endLabel)}
+/>
+```
+
+The cursor switches to `crosshair` while enabled, except over an
+actionable point (`onPointClick` is set) where it stays `pointer`. A
+plain click without movement still pins the tooltip or fires `onPointClick`.
 
 ## Custom overlays
 

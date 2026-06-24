@@ -1,4 +1,5 @@
 import './conversations'
+import './customer_analytics'
 import './fetch-handler'
 import './send-email'
 import './warehouse-webhooks'

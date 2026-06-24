@@ -1,10 +1,10 @@
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, path, props, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
 import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { AnyResponseType, DataTableNode, NodeKind, TracesQuery } from '~/queries/schema/schema-general'
 import { Breadcrumb, InsightLogicProps, PropertyFilterType } from '~/types'
 
@@ -36,17 +36,14 @@ export function getDataNodeLogicProps({
     return dataNodeLogicProps
 }
 
-export interface AIObservabilitySessionLogicProps {
-    tabId?: string
-}
+export type AIObservabilitySessionLogicProps = Record<string, never>
 
 export const aiObservabilitySessionLogic = kea<aiObservabilitySessionLogicType>([
     path(['scenes', 'ai-observability', 'aiObservabilitySessionLogic']),
     props({} as AIObservabilitySessionLogicProps),
-    key((props) => props.tabId ?? 'default'),
 
-    connect((props: AIObservabilitySessionLogicProps) => ({
-        values: [aiObservabilitySharedLogic({ tabId: props.tabId }), ['dateFilter']],
+    connect(() => ({
+        values: [aiObservabilitySharedLogic, ['dateFilter']],
     })),
 
     actions({

@@ -2,7 +2,7 @@ import { fireEvent, waitFor } from '@testing-library/react'
 
 import type { BarChartConfig, ChartTheme, PointClickData, Series } from '../../core/types'
 import { ReferenceLine } from '../../overlays/ReferenceLine'
-import { getHogChartTooltip, renderHogChart } from '../../testing'
+import { getHogChart, getHogChartTooltip, renderHogChart } from '../../testing'
 import { dimensions } from '../../testing/jsdom'
 import { BarChart } from './BarChart'
 
@@ -104,7 +104,13 @@ describe('BarChart', () => {
     })
 
     it('tolerates NaN data values without throwing', () => {
-        const broken: Series[] = [{ key: 'a', label: 'A', data: [Number.NaN, Number.NaN, Number.NaN] }]
+        const broken: Series[] = [
+            {
+                key: 'a',
+                label: 'A',
+                data: [Number.NaN, Number.NaN, Number.NaN],
+            },
+        ]
         const { chart } = renderHogChart(<BarChart series={broken} labels={LABELS} theme={THEME} />)
         expect(chart.seriesCount).toBe(1)
     })
@@ -115,7 +121,12 @@ describe('BarChart', () => {
             (barLayout) => {
                 const series: Series[] = [
                     { key: 'a', label: 'A', data: [10, 20, 30] },
-                    { key: 'b', label: 'B', data: [5, 15, 25], visibility: { excluded: true } },
+                    {
+                        key: 'b',
+                        label: 'B',
+                        data: [5, 15, 25],
+                        visibility: { excluded: true },
+                    },
                     { key: 'c', label: 'C', data: [3, 6, 9] },
                 ]
                 const { chart } = renderHogChart(
@@ -316,7 +327,12 @@ describe('BarChart', () => {
             )
             await chart.clickAtIndex(1)
             const clickData: PointClickData = onPointClick.mock.calls[0][0]
-            expect(clickData.crossSeriesData.map((d) => ({ key: d.series.key, value: d.value }))).toEqual([
+            expect(
+                clickData.crossSeriesData.map((d) => ({
+                    key: d.series.key,
+                    value: d.value,
+                }))
+            ).toEqual([
                 { key: 'a', value: 20 },
                 { key: 'b', value: 15 },
             ])
@@ -346,7 +362,10 @@ describe('BarChart', () => {
                     series={SERIES}
                     labels={LABELS}
                     theme={THEME}
-                    config={{ barLayout: 'stacked', axisOrientation: 'horizontal' }}
+                    config={{
+                        barLayout: 'stacked',
+                        axisOrientation: 'horizontal',
+                    }}
                 />
             )
             // plotHeight/2 lands in the middle row (Tue), which stacks to 35 while the value axis
@@ -379,7 +398,10 @@ describe('BarChart', () => {
                 { key: 'mid', label: 'Mid', data: [0, 50, 0] },
                 { key: 'small', label: 'Small', data: [0, 0, 20] },
             ]
-            const HORIZONTAL_STACKED: BarChartConfig = { barLayout: 'stacked', axisOrientation: 'horizontal' }
+            const HORIZONTAL_STACKED: BarChartConfig = {
+                barLayout: 'stacked',
+                axisOrientation: 'horizontal',
+            }
             // Value scale `[0, 100]` (already nice).
             const xForValue = (value: number): number => dimensions.plotLeft + (value / 100) * dimensions.plotWidth
             const yMidBand = dimensions.plotTop + dimensions.plotHeight / 2
@@ -536,7 +558,12 @@ describe('BarChart', () => {
         it('omits a series from tooltip when visibility.tooltip is false', async () => {
             const series: Series[] = [
                 { key: 'a', label: 'A', data: [10, 20, 30] },
-                { key: 'b', label: 'B', data: [5, 15, 25], visibility: { tooltip: false } },
+                {
+                    key: 'b',
+                    label: 'B',
+                    data: [5, 15, 25],
+                    visibility: { tooltip: false },
+                },
             ]
             const { chart } = renderHogChart(<BarChart series={series} labels={LABELS} theme={THEME} />)
             chart.hoverAtIndex(1)
@@ -583,6 +610,29 @@ describe('BarChart', () => {
             } finally {
                 consoleErrorSpy.mockRestore()
             }
+        })
+    })
+
+    describe('interactive legend', () => {
+        it('renders no legend by default', () => {
+            const { container } = renderHogChart(<BarChart series={SERIES} labels={LABELS} theme={THEME} />)
+            expect(container.querySelector('[data-attr="hog-chart-bar-legend"]')).toBeNull()
+        })
+
+        it('toggles a series off and on when its legend row is clicked', () => {
+            const { container, chart } = renderHogChart(
+                <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ legend: { show: true } }} />
+            )
+            expect(chart.seriesCount).toBe(2)
+            const buttons = (): HTMLButtonElement[] =>
+                Array.from(container.querySelectorAll('[data-attr="hog-chart-bar-legend"] button'))
+
+            fireEvent.click(buttons()[1])
+            expect(getHogChart(container).seriesCount).toBe(1)
+            expect(buttons()[1].className).toContain('opacity-40')
+
+            fireEvent.click(buttons()[1])
+            expect(getHogChart(container).seriesCount).toBe(2)
         })
     })
 })

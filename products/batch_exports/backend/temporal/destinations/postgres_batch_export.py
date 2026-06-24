@@ -453,7 +453,7 @@ class PostgreSQLClient:
         delete: bool = True,
         create: bool = True,
         log_statements: bool = False,
-    ) -> collections.abc.AsyncGenerator[str, None]:
+    ) -> collections.abc.AsyncGenerator[str]:
         """Manage a table in PostgreSQL by ensure it exists while in context.
 
         Managing a table implies two operations: creation of a table, which happens upon entering the
@@ -998,6 +998,7 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
                         producer_task=producer_task,
                         transformer=transformer,
                         json_columns=(),
+                        records_total=inputs.records_total,
                     )
                 finally:
                     if merge_settings.requires_merge:

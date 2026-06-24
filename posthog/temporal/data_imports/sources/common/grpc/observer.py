@@ -22,6 +22,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
+import grpc
 import structlog
 
 from posthog.temporal.data_imports.sources.common.grpc.metrics import (
@@ -33,8 +34,6 @@ from posthog.temporal.data_imports.sources.common.grpc.metrics import (
 from posthog.temporal.data_imports.sources.common.grpc.proto_utils import message_byte_size
 from posthog.temporal.data_imports.sources.common.grpc.sampling import maybe_capture
 from posthog.temporal.data_imports.sources.common.job_context import JobContext, current_job_context
-
-import grpc
 
 logger = structlog.get_logger(__name__)
 _fallback_logger = logging.getLogger(__name__)

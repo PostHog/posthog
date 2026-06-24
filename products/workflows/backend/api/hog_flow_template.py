@@ -63,7 +63,10 @@ class HogFlowTemplateActionSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=400)
     description = serializers.CharField(allow_blank=True, default="")
     on_error = serializers.ChoiceField(
-        choices=["continue", "abort", "complete", "branch"], required=False, allow_null=True
+        choices=["continue", "abort"],
+        required=False,
+        allow_null=True,
+        help_text="On failure: continue (skip the action and proceed) or abort (stop the run).",
     )
     created_at = serializers.IntegerField(required=False)
     updated_at = serializers.IntegerField(required=False)

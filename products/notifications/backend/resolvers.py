@@ -12,7 +12,7 @@ logger = structlog.get_logger(__name__)
 
 
 class RecipientsResolver:
-    def resolve(self, target_type: TargetType, target_id: str, team_id: int) -> list[int]:
+    def resolve(self, target_type: TargetType, target_id: str, team_id: int | None) -> list[int]:
         if target_type == TargetType.USER:
             return [int(target_id)]
         elif target_type == TargetType.TEAM:

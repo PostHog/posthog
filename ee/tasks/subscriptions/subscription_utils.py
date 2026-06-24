@@ -58,6 +58,9 @@ def generate_assets(
 
         # Create all the assets we need
         expiry = ExportedAsset.compute_expires_after(ExportedAsset.ExportFormat.PNG)
+        # Attribute the asset to the subscription owner so background renders resolve warehouse
+        # HogQL access control against their access (SharingConfiguration has no owner -> None).
+        asset_created_by = resource.created_by if isinstance(resource, Subscription) else None
         assets = [
             ExportedAsset(
                 team=resource.team,
@@ -65,6 +68,7 @@ def generate_assets(
                 insight=insight,
                 dashboard=resource.dashboard,
                 expires_after=expiry,
+                created_by=asset_created_by,
             )
             for insight in insights[:max_asset_count]
         ]

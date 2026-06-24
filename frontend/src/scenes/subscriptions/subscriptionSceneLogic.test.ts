@@ -1,10 +1,12 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import {
+    RecurrenceIntervalEnumApi,
     ResourceTypeEnumApi,
-    SubscriptionFrequencyEnumApi,
     SubscriptionsDeliveriesListStatus,
     TargetTypeEnumApi,
 } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
@@ -38,7 +40,7 @@ const MOCK_SUBSCRIPTION: SubscriptionApi = {
     dashboard_export_insights: [],
     target_type: TargetTypeEnumApi.Email,
     target_value: 'a@b.com',
-    frequency: SubscriptionFrequencyEnumApi.Weekly,
+    frequency: RecurrenceIntervalEnumApi.Weekly,
     interval: 1,
     start_date: '2022-01-01T00:00:00Z',
     created_at: '2023-04-27T10:04:37.977401Z',
@@ -60,7 +62,7 @@ const MOCK_AI_SUBSCRIPTION: SubscriptionApi = {
     dashboard_export_insights: [],
     target_type: TargetTypeEnumApi.Email,
     target_value: 'a@b.com',
-    frequency: SubscriptionFrequencyEnumApi.Weekly,
+    frequency: RecurrenceIntervalEnumApi.Weekly,
     interval: 1,
     start_date: '2022-01-01T00:00:00Z',
     created_at: '2023-04-27T10:04:37.977401Z',
@@ -75,14 +77,20 @@ describe('subscriptionSceneLogic', () => {
 
     beforeEach(() => {
         deliveriesRequestUrls = []
+        // deliveryFeedback persists to localStorage; clear it so recorded feedback can't leak between tests.
+        localStorage.clear()
     })
 
     it('includes status in deliveries list request when status filter is set', async () => {
         useMocks({
             get: {
                 [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/`]: [200, MOCK_SUBSCRIPTION],
-                [`/api/environments/${MOCK_TEAM_ID}/subscriptions/1/deliveries/`]: (req) => {
-                    deliveriesRequestUrls.push(req.url.toString())
+                [`/api/environments/${MOCK_TEAM_ID}/subscriptions/1/deliveries/`]: ({ request }) => {
+                    deliveriesRequestUrls.push(request.url)
+                    return [200, { results: [], next: null, previous: null }]
+                },
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/deliveries/`]: ({ request }) => {
+                    deliveriesRequestUrls.push(request.url)
                     return [200, { results: [], next: null, previous: null }]
                 },
             },
@@ -113,7 +121,7 @@ describe('subscriptionSceneLogic', () => {
         useMocks({
             get: {
                 [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/`]: [200, MOCK_SUBSCRIPTION],
-                [`/api/environments/${MOCK_TEAM_ID}/subscriptions/1/deliveries/`]: () => {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/deliveries/`]: () => {
                     deliveriesRequestUrls.push('deliveries')
                     return [200, { results: [], next: null, previous: null }]
                 },
@@ -136,7 +144,7 @@ describe('subscriptionSceneLogic', () => {
         useMocks({
             get: {
                 [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/`]: [200, MOCK_SUBSCRIPTION],
-                [`/api/environments/${MOCK_TEAM_ID}/subscriptions/1/deliveries/`]: () => {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/deliveries/`]: () => {
                     deliveriesRequestUrls.push('deliveries')
                     return [200, { results: [], next: null, previous: null }]
                 },
@@ -161,7 +169,7 @@ describe('subscriptionSceneLogic', () => {
         useMocks({
             get: {
                 [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/`]: [200, MOCK_SUBSCRIPTION],
-                [`/api/environments/${MOCK_TEAM_ID}/subscriptions/1/deliveries/`]: () => {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/deliveries/`]: () => {
                     deliveriesRequestUrls.push('deliveries')
                     return [200, { results: [], next: null, previous: null }]
                 },
@@ -193,7 +201,7 @@ describe('subscriptionSceneLogic', () => {
                 // Function form, not the `[200, body]` shorthand: useMocks serializes a bare array as
                 // the whole response body, so only a function-returned tuple delivers the object itself.
                 [`/api/projects/${MOCK_TEAM_ID}/subscriptions/2/`]: () => [200, MOCK_AI_SUBSCRIPTION],
-                [`/api/environments/${MOCK_TEAM_ID}/subscriptions/2/deliveries/`]: () => {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/2/deliveries/`]: () => {
                     deliveriesRequestUrls.push('deliveries')
                     return [200, { results: [], next: null, previous: null }]
                 },
@@ -220,5 +228,159 @@ describe('subscriptionSceneLogic', () => {
         expect(deliveriesRequestUrls).toHaveLength(1)
         logic.unmount()
         featureFlagLogic.unmount()
+    })
+
+    it.each([
+        ['positive' as const, 'email'],
+        ['negative' as const, 'slack'],
+    ])('captures ai_report_feedback (%s, %s) from URL params and strips them', async (feedback, source) => {
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/2/`]: () => [200, MOCK_AI_SUBSCRIPTION],
+            },
+        })
+        initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        const captureSpy = jest.spyOn(posthog, 'capture')
+
+        const logic = subscriptionSceneLogic({ id: '2' })
+        logic.mount()
+        await expectLogic(logic, () => {
+            router.actions.push('/subscriptions/2', {
+                feedback_delivery: 'd-123',
+                feedback,
+                feedback_source: source,
+            })
+        }).toFinishAllListeners()
+
+        expect(captureSpy).toHaveBeenCalledWith('ai_report_feedback', {
+            subscription_id: 2,
+            delivery_id: 'd-123',
+            feedback,
+            source,
+            previous_feedback: null,
+        })
+        // The replace must remove the params so a refresh doesn't double-capture.
+        expect(router.values.searchParams).toEqual({})
+        expect(captureSpy.mock.calls.filter(([event]) => event === 'ai_report_feedback')).toHaveLength(1)
+
+        logic.unmount()
+        featureFlagLogic.unmount()
+        captureSpy.mockRestore()
+    })
+
+    it('does not re-capture from a feedback link for an already-recorded delivery', async () => {
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/2/`]: () => [200, MOCK_AI_SUBSCRIPTION],
+            },
+        })
+        initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        const captureSpy = jest.spyOn(posthog, 'capture')
+
+        const logic = subscriptionSceneLogic({ id: '2' })
+        logic.mount()
+        await expectLogic(logic, () => {
+            logic.actions.submitDeliveryFeedback('d-123', 'positive', 'in_app')
+        }).toFinishAllListeners()
+        captureSpy.mockClear()
+
+        await expectLogic(logic, () => {
+            router.actions.push('/subscriptions/2', {
+                feedback_delivery: 'd-123',
+                feedback: 'negative',
+                feedback_source: 'email',
+            })
+        }).toFinishAllListeners()
+
+        expect(captureSpy.mock.calls.filter(([event]) => event === 'ai_report_feedback')).toHaveLength(0)
+        // Params are still stripped, and the originally recorded feedback wins.
+        expect(router.values.searchParams).toEqual({})
+        expect(logic.values.deliveryFeedback).toEqual({ 'd-123': 'positive' })
+
+        logic.unmount()
+        featureFlagLogic.unmount()
+        captureSpy.mockRestore()
+    })
+
+    it('persists recorded feedback across remounts', async () => {
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/2/`]: () => [200, MOCK_AI_SUBSCRIPTION],
+            },
+        })
+        initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], {})
+
+        let logic = subscriptionSceneLogic({ id: '2' })
+        logic.mount()
+        await expectLogic(logic, () => {
+            logic.actions.submitDeliveryFeedback('d-9', 'positive', 'in_app')
+        }).toFinishAllListeners()
+        logic.unmount()
+
+        logic = subscriptionSceneLogic({ id: '2' })
+        logic.mount()
+        expect(logic.values.deliveryFeedback).toEqual({ 'd-9': 'positive' })
+        // The thanks flash is transient — after a remount the row goes straight to the recorded option.
+        expect(logic.values.recentlyThankedDeliveries).toEqual({})
+
+        logic.unmount()
+        featureFlagLogic.unmount()
+    })
+
+    it('captures in-app thumbs feedback and records it per delivery', async () => {
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/2/`]: () => [200, MOCK_AI_SUBSCRIPTION],
+            },
+        })
+        initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], {})
+        const captureSpy = jest.spyOn(posthog, 'capture')
+
+        const logic = subscriptionSceneLogic({ id: '2' })
+        logic.mount()
+        await expectLogic(logic, () => {
+            logic.actions.submitDeliveryFeedback('d-9', 'negative', 'in_app')
+        }).toFinishAllListeners()
+
+        expect(captureSpy).toHaveBeenCalledWith('ai_report_feedback', {
+            subscription_id: 2,
+            delivery_id: 'd-9',
+            feedback: 'negative',
+            source: 'in_app',
+            previous_feedback: null,
+        })
+        expect(logic.values.deliveryFeedback).toEqual({ 'd-9': 'negative' })
+        // Thanks flashes first, then expiry settles the row into the recorded option.
+        expect(logic.values.recentlyThankedDeliveries).toEqual({ 'd-9': true })
+        await expectLogic(logic, () => {
+            logic.actions.expireDeliveryThanks('d-9')
+        }).toFinishAllListeners()
+        expect(logic.values.recentlyThankedDeliveries).toEqual({})
+        expect(logic.values.deliveryFeedback).toEqual({ 'd-9': 'negative' })
+
+        // Switching the vote captures again with the previous value, and the latest one wins.
+        await expectLogic(logic, () => {
+            logic.actions.submitDeliveryFeedback('d-9', 'positive', 'in_app')
+        }).toFinishAllListeners()
+        expect(captureSpy).toHaveBeenCalledWith('ai_report_feedback', {
+            subscription_id: 2,
+            delivery_id: 'd-9',
+            feedback: 'positive',
+            source: 'in_app',
+            previous_feedback: 'negative',
+        })
+        expect(logic.values.deliveryFeedback).toEqual({ 'd-9': 'positive' })
+
+        logic.unmount()
+        featureFlagLogic.unmount()
+        captureSpy.mockRestore()
     })
 })

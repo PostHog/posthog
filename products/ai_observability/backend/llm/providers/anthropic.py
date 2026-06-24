@@ -59,6 +59,8 @@ class AnthropicConfig:
         "claude-haiku-4-5",
     ]
 
+    DEFAULT_MODEL: str = "claude-haiku-4-5"
+
     SUPPORTED_MODELS_WITH_CACHE_CONTROL: list[str] = [
         "claude-opus-4-8",
         "claude-opus-4-7",
@@ -185,7 +187,7 @@ class AnthropicAdapter:
         api_key: str | None,
         analytics: AnalyticsContext,
         _base_url: str | None = None,
-    ) -> Generator[StreamChunk, None, None]:
+    ) -> Generator[StreamChunk]:
         """Streaming completion."""
         effective_api_key = api_key or self._get_default_api_key()
         model_id = request.model

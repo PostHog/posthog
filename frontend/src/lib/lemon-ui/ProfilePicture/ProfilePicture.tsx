@@ -6,7 +6,8 @@ import md5 from 'md5'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 
 import { HedgehogModeProfile } from 'lib/components/HedgehogMode/HedgehogModeStatic'
-import { fullName, inStorybookTestRunner } from 'lib/utils'
+import { inStorybookTestRunner } from 'lib/utils/dom'
+import { fullName } from 'lib/utils/strings'
 import { userLogic } from 'scenes/userLogic'
 
 import { HedgehogConfig, MinimalHedgehogConfig, UserBasicType } from '~/types'

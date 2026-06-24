@@ -54,7 +54,7 @@ export interface AccountApi {
      */
     name: string
     /**
-     * Identifier for the account in an external system (e.g. CRM ID). Optional.
+     * Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional.
      * @maxLength 400
      * @nullable
      */
@@ -86,13 +86,13 @@ export interface PaginatedAccountListApi {
 
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -217,7 +217,7 @@ export interface PatchedAccountApi {
      */
     name?: string
     /**
-     * Identifier for the account in an external system (e.g. CRM ID). Optional.
+     * Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional.
      * @maxLength 400
      * @nullable
      */
@@ -231,6 +231,113 @@ export interface PatchedAccountApi {
     tags?: string[]
     /** Short IDs of the internal notebooks linked to this account, used to persist investigations, call notes, and other free-form context. Empty list if no notebooks have been created for the account. */
     readonly notebooks?: readonly string[]
+    readonly created_at?: string
+    /** @nullable */
+    readonly created_by?: number | null
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
+/**
+ * * `text` - text
+ * * `number` - number
+ * * `currency` - currency
+ * * `percent` - percent
+ * * `date` - date
+ * * `datetime` - datetime
+ * * `boolean` - boolean
+ */
+export type CustomPropertyDisplayTypeEnumApi =
+    (typeof CustomPropertyDisplayTypeEnumApi)[keyof typeof CustomPropertyDisplayTypeEnumApi]
+
+export const CustomPropertyDisplayTypeEnumApi = {
+    Text: 'text',
+    Number: 'number',
+    Currency: 'currency',
+    Percent: 'percent',
+    Date: 'date',
+    Datetime: 'datetime',
+    Boolean: 'boolean',
+} as const
+
+/**
+ * A team-scoped definition of a custom account property — the attribute side of the model.
+ *
+ * Holds only the property's shape (name, display type, big-number flag). Per-account values are
+ * stored separately, so this serializer never reads or writes account values. The numeric-only
+ * big-number rule and the unique-name conflict are enforced behind the facade.
+ */
+export interface CustomPropertyDefinitionApi {
+    readonly id: string
+    /**
+     * Human-readable name of the custom property. Unique within the team.
+     * @maxLength 400
+     */
+    name: string
+    /**
+     * Optional description of what the property represents.
+     * @nullable
+     */
+    description?: string | null
+    /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', or 'boolean'.
+     *
+     * * `text` - text
+     * * `number` - number
+     * * `currency` - currency
+     * * `percent` - percent
+     * * `date` - date
+     * * `datetime` - datetime
+     * * `boolean` - boolean */
+    display_type: CustomPropertyDisplayTypeEnumApi
+    /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
+    is_big_number?: boolean
+    readonly created_at: string
+    /** @nullable */
+    readonly created_by: number | null
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedCustomPropertyDefinitionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: CustomPropertyDefinitionApi[]
+}
+
+/**
+ * A team-scoped definition of a custom account property — the attribute side of the model.
+ *
+ * Holds only the property's shape (name, display type, big-number flag). Per-account values are
+ * stored separately, so this serializer never reads or writes account values. The numeric-only
+ * big-number rule and the unique-name conflict are enforced behind the facade.
+ */
+export interface PatchedCustomPropertyDefinitionApi {
+    readonly id?: string
+    /**
+     * Human-readable name of the custom property. Unique within the team.
+     * @maxLength 400
+     */
+    name?: string
+    /**
+     * Optional description of what the property represents.
+     * @nullable
+     */
+    description?: string | null
+    /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', or 'boolean'.
+     *
+     * * `text` - text
+     * * `number` - number
+     * * `currency` - currency
+     * * `percent` - percent
+     * * `date` - date
+     * * `datetime` - datetime
+     * * `boolean` - boolean */
+    display_type?: CustomPropertyDisplayTypeEnumApi
+    /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
+    is_big_number?: boolean
     readonly created_at?: string
     /** @nullable */
     readonly created_by?: number | null
@@ -277,11 +384,11 @@ export interface PatchedCustomerJourneyApi {
 
 /**
  * * `person` - Person
- * `group_0` - Group 0
- * `group_1` - Group 1
- * `group_2` - Group 2
- * `group_3` - Group 3
- * `group_4` - Group 4
+ * * `group_0` - Group 0
+ * * `group_1` - Group 1
+ * * `group_2` - Group 2
+ * * `group_3` - Group 3
+ * * `group_4` - Group 4
  */
 export type CustomerProfileConfigScopeEnumApi =
     (typeof CustomerProfileConfigScopeEnumApi)[keyof typeof CustomerProfileConfigScopeEnumApi]
@@ -326,7 +433,7 @@ export interface PatchedCustomerProfileConfigApi {
 
 /**
  * * `numeric` - numeric
- * `currency` - currency
+ * * `currency` - currency
  */
 export type GroupUsageMetricFormatEnumApi =
     (typeof GroupUsageMetricFormatEnumApi)[keyof typeof GroupUsageMetricFormatEnumApi]
@@ -338,7 +445,7 @@ export const GroupUsageMetricFormatEnumApi = {
 
 /**
  * * `number` - number
- * `sparkline` - sparkline
+ * * `sparkline` - sparkline
  */
 export type GroupUsageMetricDisplayEnumApi =
     (typeof GroupUsageMetricDisplayEnumApi)[keyof typeof GroupUsageMetricDisplayEnumApi]
@@ -350,7 +457,7 @@ export const GroupUsageMetricDisplayEnumApi = {
 
 /**
  * * `count` - count
- * `sum` - sum
+ * * `sum` - sum
  */
 export type MathEnumApi = (typeof MathEnumApi)[keyof typeof MathEnumApi]
 
@@ -361,10 +468,10 @@ export const MathEnumApi = {
 
 /**
  * Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.
-
-**Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.
-
-**Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.
+ *
+ * **Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.
+ *
+ * **Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.
  */
 export type GroupUsageMetricApiFilters = { [key: string]: unknown }
 
@@ -376,27 +483,27 @@ export interface GroupUsageMetricApi {
      */
     name: string
     /** How the metric value is formatted in the UI. One of `numeric` or `currency`.
-
-  * `numeric` - numeric
-  * `currency` - currency */
+     *
+     * * `numeric` - numeric
+     * * `currency` - currency */
     format?: GroupUsageMetricFormatEnumApi
     /** Rolling time window in days used to compute the metric. Defaults to 7. */
     interval?: number
     /** Visual representation in the UI. One of `number` or `sparkline`.
-
-  * `number` - number
-  * `sparkline` - sparkline */
+     *
+     * * `number` - number
+     * * `sparkline` - sparkline */
     display?: GroupUsageMetricDisplayEnumApi
     /** Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.
-
-  **Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.
-
-  **Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported. */
+     *
+     * **Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.
+     *
+     * **Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported. */
     filters: GroupUsageMetricApiFilters
     /** Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.
-
-  * `count` - count
-  * `sum` - sum */
+     *
+     * * `count` - count
+     * * `sum` - sum */
     math?: MathEnumApi
     /**
      * Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.
@@ -417,10 +524,10 @@ export interface PaginatedGroupUsageMetricListApi {
 
 /**
  * Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.
-
-**Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.
-
-**Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.
+ *
+ * **Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.
+ *
+ * **Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported.
  */
 export type PatchedGroupUsageMetricApiFilters = { [key: string]: unknown }
 
@@ -432,27 +539,27 @@ export interface PatchedGroupUsageMetricApi {
      */
     name?: string
     /** How the metric value is formatted in the UI. One of `numeric` or `currency`.
-
-  * `numeric` - numeric
-  * `currency` - currency */
+     *
+     * * `numeric` - numeric
+     * * `currency` - currency */
     format?: GroupUsageMetricFormatEnumApi
     /** Rolling time window in days used to compute the metric. Defaults to 7. */
     interval?: number
     /** Visual representation in the UI. One of `number` or `sparkline`.
-
-  * `number` - number
-  * `sparkline` - sparkline */
+     *
+     * * `number` - number
+     * * `sparkline` - sparkline */
     display?: GroupUsageMetricDisplayEnumApi
     /** Filter definition for the metric. Two shapes are accepted, discriminated by an optional `source` key.
-
-  **Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.
-
-  **Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported. */
+     *
+     * **Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — `events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.
+     *
+     * **Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), `timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value matches the entity key). Currently DW metrics only render on group profiles — person profiles are not yet supported. */
     filters?: PatchedGroupUsageMetricApiFilters
     /** Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` on matching events.
-
-  * `count` - count
-  * `sum` - sum */
+     *
+     * * `count` - count
+     * * `sum` - sum */
     math?: MathEnumApi
     /**
      * Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this is an event property name. For data warehouse metrics this is the column name (or HogQL expression) to sum on the DW table.
@@ -502,6 +609,17 @@ export type AccountsListParams = {
 }
 
 export type AccountsNotebooksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type CustomPropertyDefinitionsListParams = {
     /**
      * Number of results to return per page.
      */

@@ -14,6 +14,8 @@ export enum SignalSourceProduct {
     PGANALYZE = 'pganalyze',
     SIGNALS_SCOUT = 'signals_scout',
     LOGS = 'logs',
+    HEALTH_CHECKS = 'health_checks',
+    REPLAY_VISION = 'replay_vision',
 }
 
 export enum SignalSourceType {
@@ -27,8 +29,48 @@ export enum SignalSourceType {
     ISSUE_REOPENED = 'issue_reopened',
     ISSUE_SPIKING = 'issue_spiking',
     ENDPOINT_EXECUTION_FAILED = 'endpoint_execution_failed',
+    ENDPOINT_BREAKDOWN_LIMIT_EXCEEDED = 'endpoint_breakdown_limit_exceeded',
     CROSS_SOURCE_ISSUE = 'cross_source_issue',
     ALERT_STATE_CHANGE = 'alert_state_change',
+    HEALTH_ISSUE = 'health_issue',
+    SCANNER_FINDING = 'scanner_finding',
+}
+
+// ── Shared optional remediation ──────────────────────────────────────────────────
+// A known fix attached to a signal. Optional and separate from `extra`: `extra` is product-specific
+// evidence; `remediation` is the fix guidance. Mirrors the health-checks `Remediation(human, agent)`
+// constant so a check's remediation maps straight onto a signal. When present, the signal is treated
+// as actionable: the research agent follows the `agent` guidance rather than investigating from
+// scratch — it still runs, produces findings, and writes the human-facing report. Every variant may
+// carry it.
+
+export interface SignalRemediation {
+    /** Human-facing fix steps (PostHog UI / alert destinations). Surfaced in the report for the reader. */
+    human: string
+    /** Agent-facing guidance: how to investigate (which MCP tools to call) and, where the fix lives
+     *  in the user's codebase, how to apply it. The research agent treats this as authoritative — it
+     *  still investigates and produces findings, but follows this instead of starting cold. */
+    agent: string
+    /** Suggested report priority; advisory, the research agent may override. */
+    priority?: 'P0' | 'P1' | 'P2' | 'P3' | 'P4'
+}
+
+// ── Shared signal extra & input base ───────────────────────────────────────────────
+// Marker base every per-source `extra` payload extends. Empty today: it gives the input base a
+// single `extra` type to reference and is where any future cross-source extra field would live.
+export interface SignalExtraBase {}
+
+// Top-level fields every variant carries. Concrete variants narrow `source_type`, `source_product`,
+// and `extra` to their specific literal/payload types (those narrowings discriminate the union).
+// `remediation` is source-agnostic: any signal may carry it, even though only some sources emit it today.
+export interface SignalInputBase {
+    source_type: string
+    source_product: string
+    source_id: string
+    description: string
+    weight: number
+    extra: SignalExtraBase
+    remediation?: SignalRemediation
 }
 
 // ── Per-product signal extras & inputs ──────────────────────────────────────────
@@ -43,7 +85,7 @@ export interface SessionProblemEventEntry {
     interaction_text?: string
 }
 
-export interface SessionProblemSignalExtra {
+export interface SessionProblemSignalExtra extends SignalExtraBase {
     session_id: string
     segment_title: string
     start_time: string
@@ -58,12 +100,9 @@ export interface SessionProblemSignalExtra {
     event_history?: SessionProblemEventEntry[]
 }
 
-export interface SessionProblemSignalInput {
+export interface SessionProblemSignalInput extends SignalInputBase {
     source_type: 'session_problem'
     source_product: 'session_replay'
-    source_id: string
-    description: string
-    weight: number
     extra: SessionProblemSignalExtra
 }
 
@@ -84,7 +123,7 @@ export interface SessionSegmentClusterMetrics {
 }
 
 /** @deprecated No longer emitted. */
-export interface SessionSegmentClusterSignalExtra {
+export interface SessionSegmentClusterSignalExtra extends SignalExtraBase {
     label_title: string
     actionable: boolean
     segments: SessionReplaySegment[]
@@ -103,7 +142,7 @@ export interface SessionSegmentClusterSignalInput {
 
 // LLM evaluation
 
-export interface LlmEvalSignalExtra {
+export interface LlmEvalSignalExtra extends SignalExtraBase {
     evaluation_id: string
     target_event_id?: string
     target_event_type?: string
@@ -112,18 +151,15 @@ export interface LlmEvalSignalExtra {
     provider?: string
 }
 
-export interface LlmEvaluationSignalInput {
+export interface LlmEvaluationSignalInput extends SignalInputBase {
     source_type: 'evaluation'
     source_product: 'llm_analytics'
-    source_id: string
-    description: string
-    weight: number
     extra: LlmEvalSignalExtra
 }
 
 // LLM evaluation report (one signal per report run, distilled from many results)
 
-export interface LlmEvalReportSignalExtra {
+export interface LlmEvalReportSignalExtra extends SignalExtraBase {
     evaluation_id: string
     evaluation_name: string
     evaluation_description: string
@@ -133,18 +169,15 @@ export interface LlmEvalReportSignalExtra {
     period_end: string
 }
 
-export interface LlmEvaluationReportSignalInput {
+export interface LlmEvaluationReportSignalInput extends SignalInputBase {
     source_type: 'evaluation_report'
     source_product: 'llm_analytics'
-    source_id: string
-    description: string
-    weight: number
     extra: LlmEvalReportSignalExtra
 }
 
 // Zendesk ticket
 
-export interface ZendeskTicketSignalExtra {
+export interface ZendeskTicketSignalExtra extends SignalExtraBase {
     url: string
     type: string | null
     tags: string[]
@@ -153,18 +186,15 @@ export interface ZendeskTicketSignalExtra {
     status: string
 }
 
-export interface ZendeskTicketSignalInput {
+export interface ZendeskTicketSignalInput extends SignalInputBase {
     source_type: 'ticket'
     source_product: 'zendesk'
-    source_id: string
-    description: string
-    weight: number
     extra: ZendeskTicketSignalExtra
 }
 
 // GitHub issue
 
-export interface GithubIssueSignalExtra {
+export interface GithubIssueSignalExtra extends SignalExtraBase {
     html_url: string
     number: number
     labels: string[]
@@ -174,18 +204,15 @@ export interface GithubIssueSignalExtra {
     state: string
 }
 
-export interface GithubIssueSignalInput {
+export interface GithubIssueSignalInput extends SignalInputBase {
     source_type: 'issue'
     source_product: 'github'
-    source_id: string
-    description: string
-    weight: number
     extra: GithubIssueSignalExtra
 }
 
 // Linear issue
 
-export interface LinearIssueSignalExtra {
+export interface LinearIssueSignalExtra extends SignalExtraBase {
     url: string
     identifier: string
     number: number
@@ -199,18 +226,15 @@ export interface LinearIssueSignalExtra {
     updated_at: string
 }
 
-export interface LinearIssueSignalInput {
+export interface LinearIssueSignalInput extends SignalInputBase {
     source_type: 'issue'
     source_product: 'linear'
-    source_id: string
-    description: string
-    weight: number
     extra: LinearIssueSignalExtra
 }
 
 // Conversations ticket
 
-export interface ConversationsTicketSignalExtra {
+export interface ConversationsTicketSignalExtra extends SignalExtraBase {
     ticket_number: number
     channel_source: string
     channel_detail: string | null
@@ -220,27 +244,21 @@ export interface ConversationsTicketSignalExtra {
     email_subject: string | null
 }
 
-export interface ConversationsTicketSignalInput {
+export interface ConversationsTicketSignalInput extends SignalInputBase {
     source_type: 'ticket'
     source_product: 'conversations'
-    source_id: string
-    description: string
-    weight: number
     extra: ConversationsTicketSignalExtra
 }
 
 // Error tracking
 
-export interface ErrorTrackingSignalExtra {
+export interface ErrorTrackingSignalExtra extends SignalExtraBase {
     fingerprint: string
 }
 
-export interface ErrorTrackingSignalInput {
+export interface ErrorTrackingSignalInput extends SignalInputBase {
     source_type: 'issue_created' | 'issue_reopened' | 'issue_spiking'
     source_product: 'error_tracking'
-    source_id: string
-    description: string
-    weight: number
     extra: ErrorTrackingSignalExtra
 }
 
@@ -253,7 +271,7 @@ export interface PgAnalyzeIssueReference {
     queryText: string | null
 }
 
-export interface PgAnalyzeIssueSignalExtra {
+export interface PgAnalyzeIssueSignalExtra extends SignalExtraBase {
     severity: string | null
     references: PgAnalyzeIssueReference[]
     database_id: string | null
@@ -262,18 +280,15 @@ export interface PgAnalyzeIssueSignalExtra {
     synced_at: string
 }
 
-export interface PgAnalyzeIssueSignalInput {
+export interface PgAnalyzeIssueSignalInput extends SignalInputBase {
     source_type: 'issue'
     source_product: 'pganalyze'
-    source_id: string
-    description: string
-    weight: number
     extra: PgAnalyzeIssueSignalExtra
 }
 
 // Endpoint execution failure
 
-export interface EndpointExecutionFailedSignalExtra {
+export interface EndpointExecutionFailedSignalExtra extends SignalExtraBase {
     endpoint_name: string
     endpoint_version: number | null
     materialized: boolean
@@ -282,13 +297,23 @@ export interface EndpointExecutionFailedSignalExtra {
     error_message: string
 }
 
-export interface EndpointExecutionFailedSignalInput {
+export interface EndpointExecutionFailedSignalInput extends SignalInputBase {
     source_type: 'endpoint_execution_failed'
     source_product: 'endpoints'
-    source_id: string
-    description: string
-    weight: number
     extra: EndpointExecutionFailedSignalExtra
+}
+
+// Endpoint breakdown limit exceeded — the 'Other' bucket appeared in results
+
+export interface EndpointBreakdownLimitExceededSignalExtra extends SignalExtraBase {
+    endpoint_name: string
+    breakdown_limit: number
+}
+
+export interface EndpointBreakdownLimitExceededSignalInput extends SignalInputBase {
+    source_type: 'endpoint_breakdown_limit_exceeded'
+    source_product: 'endpoints'
+    extra: EndpointBreakdownLimitExceededSignalExtra
 }
 
 // Signals scout — cross-source findings emitted by the headless Signals scout harness.
@@ -302,11 +327,14 @@ export interface SignalsScoutEvidenceEntry {
     summary: string
 }
 
-export interface SignalsScoutSignalExtra {
+export interface SignalsScoutSignalExtra extends SignalExtraBase {
     scout_run_id: string
     /** The `tasks.TaskRun` id the scout span ran inside. Join key into the `signals_scouts_runs`
      * LLM-analytics view, which is keyed on `task_run_id` (the `scout_run_id` bridge row is not). */
     task_run_id: string
+    /** The `tasks.Task` id owning `task_run_id`. Pairs with it to deep-link the inbox card to the
+     * run in the Tasks UI. Absent on emissions made before this linkage was captured. */
+    task_id?: string
     finding_id: string
     skill_name: string
     skill_version: number
@@ -317,6 +345,9 @@ export interface SignalsScoutSignalExtra {
     evidence: SignalsScoutEvidenceEntry[]
     /** Free-form short keys the harness can use for cross-run dedupe. */
     dedupe_keys?: string[]
+    /** Lowercase kebab-case slug tags (e.g. `cost-spike`) categorizing the finding. Each scout
+     * maintains and evolves its own vocabulary over time; the harness normalizes and caps these at emit. */
+    tags?: string[]
     /** Optional time window the finding refers to. */
     time_range?: {
         date_from: string
@@ -326,18 +357,15 @@ export interface SignalsScoutSignalExtra {
     mcp_trace_id?: string
 }
 
-export interface SignalsScoutSignalInput {
+export interface SignalsScoutSignalInput extends SignalInputBase {
     source_type: 'cross_source_issue'
     source_product: 'signals_scout'
-    source_id: string
-    description: string
-    weight: number
     extra: SignalsScoutSignalExtra
 }
 
 // Logs alert notification (firing / broken)
 
-export interface LogsAlertStateChangeSignalExtra {
+export interface LogsAlertStateChangeSignalExtra extends SignalExtraBase {
     alert_id: string
     alert_name: string
     action: 'firing' | 'broken'
@@ -350,13 +378,53 @@ export interface LogsAlertStateChangeSignalExtra {
     url: string
 }
 
-export interface LogsAlertStateChangeSignalInput {
+export interface LogsAlertStateChangeSignalInput extends SignalInputBase {
     source_type: 'alert_state_change'
     source_product: 'logs'
-    source_id: string
-    description: string
-    weight: number
     extra: LogsAlertStateChangeSignalExtra
+}
+
+// Replay Vision scanner finding — the optional "side mission" finding a scanner's LLM pass
+// may attach to an observation when the scanner has `emits_signals` enabled.
+
+export interface ReplayVisionScannerFindingSignalExtra extends SignalExtraBase {
+    scanner_id: string
+    scanner_name: string
+    /** Replay Vision scanner type, e.g. 'monitor' / 'classifier' / 'scorer' / 'summarizer'. Kept open so new scanner types don't fail signal validation. */
+    scanner_type: string
+    observation_id: string
+    session_id: string
+    /** The model's self-reported confidence in the finding, in [0, 1]. Independent of `weight`. */
+    confidence: number
+}
+
+export interface ReplayVisionScannerFindingSignalInput extends SignalInputBase {
+    source_type: 'scanner_finding'
+    source_product: 'replay_vision'
+    extra: ReplayVisionScannerFindingSignalExtra
+}
+
+// Health-check issue (instrumentation problem detected by a HealthCheck)
+
+export type HealthCheckSeverity = 'critical' | 'warning' | 'info'
+
+export interface HealthCheckSignalExtra extends SignalExtraBase {
+    kind: string
+    severity: HealthCheckSeverity
+    issue_id: string
+    title: string
+    summary: string
+    /** Relative in-app path to the resource, e.g. '/web'. */
+    link: string
+    /** Absolute URL ({project.url} + link). */
+    url: string
+    payload: Record<string, unknown>
+}
+
+export interface HealthCheckSignalInput extends SignalInputBase {
+    source_type: 'health_issue'
+    source_product: 'health_checks'
+    extra: HealthCheckSignalExtra
 }
 
 // ── Report reviewer types ────────────────────────────────────────────────────────
@@ -397,6 +465,9 @@ export type SignalInput =
     | ConversationsTicketSignalInput
     | ErrorTrackingSignalInput
     | EndpointExecutionFailedSignalInput
+    | EndpointBreakdownLimitExceededSignalInput
     | PgAnalyzeIssueSignalInput
     | SignalsScoutSignalInput
     | LogsAlertStateChangeSignalInput
+    | HealthCheckSignalInput
+    | ReplayVisionScannerFindingSignalInput

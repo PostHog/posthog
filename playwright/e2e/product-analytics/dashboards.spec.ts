@@ -111,7 +111,7 @@ test.describe('Dashboards', () => {
             await expect(page).toHaveURL(/\/dashboard\//)
             const card = dashboard.insightCards.filter({ hasText: insightName })
             await expect(card).toBeVisible()
-            await expect(card.locator('canvas')).toBeVisible()
+            await expect(card.locator('canvas[role="img"]')).toBeVisible()
         })
     })
 
@@ -151,8 +151,6 @@ test.describe('Dashboards', () => {
         await test.step('remove the first tile', async () => {
             await dashboard.openFirstTileMenu()
             await dashboard.selectTileMenuOption('Remove from dashboard')
-
-            await page.getByRole('contentinfo').getByRole('button', { name: 'Remove from dashboard' }).click()
 
             await expect(dashboard.insightCards.first().getByText(newTileName)).not.toBeVisible()
         })

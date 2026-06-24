@@ -4,10 +4,7 @@ use crate::{
         errors::{ClientFacingError, FlagError},
         instance_setting::{constance_key, fetch_instance_setting_raw_value},
     },
-    flags::{
-        flag_analytics::is_billable_flag_key, flag_request::FlagRequestType,
-        flag_service::FlagService,
-    },
+    flags::{flag_analytics::is_billable_flag_key, flag_request::FlagRequestType},
     handler::types::Library,
     metrics::consts::{
         FLAG_DEFINITIONS_AUTH_COUNTER, FLAG_DEFINITIONS_CACHE_HIT_COUNTER,
@@ -30,7 +27,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::PgPool;
 use std::collections::HashSet;
-use std::sync::Arc;
 use tracing::{info, warn};
 
 const ALLOWLIST_TTL_SECS: u64 = 60;
@@ -333,7 +329,7 @@ async fn get_etag_from_redis(state: &AppState, team_key: &KeyType) -> Option<Str
 }
 
 /// Handles non-GET HTTP methods (HEAD, OPTIONS, and unsupported methods)
-fn handle_non_get_method(method: &Method) -> Response {
+pub(crate) fn handle_non_get_method(method: &Method) -> Response {
     match *method {
         Method::HEAD => (
             StatusCode::OK,
@@ -352,22 +348,10 @@ fn handle_non_get_method(method: &Method) -> Response {
     }
 }
 
-fn flag_service(state: &AppState) -> FlagService {
-    FlagService::new(
-        state.redis_client.clone(),
-        state.database_pools.non_persons_reader.clone(),
-        state.team_hypercache_reader.clone(),
-        state.flags_hypercache_reader.clone(),
-        state.flag_definitions_cache.clone(),
-        state.team_negative_cache.clone(),
-        *state.config.skip_pg_team_fallback,
-    )
-}
-
 /// Fetches a team by its API token, delegating to FlagService for consistent
 /// negative caching, metrics, and error handling across all endpoints.
 async fn fetch_team_by_token(state: &AppState, token: &str) -> Result<Team, FlagError> {
-    flag_service(state).verify_token_and_get_team(token).await
+    state.flag_service().verify_token_and_get_team(token).await
 }
 
 /// Resolves a team from the Authorization header when no `?token=` param is provided.
@@ -393,7 +377,7 @@ async fn resolve_team_from_auth(state: &AppState, headers: &HeaderMap) -> Result
 
         // Prefer HyperCache via api_token (new cache entries include it).
         // Fall back to PG for old cache entries that predate the field.
-        let svc = flag_service(state);
+        let svc = state.flag_service();
         return match api_token {
             Some(t) => svc.verify_token_and_get_team(&t).await,
             None => svc.get_team_by_id(team_id).await,
@@ -514,18 +498,8 @@ async fn authenticate_flag_definitions(
             1,
         );
 
-        if !*state.config.skip_writes {
-            // Use shared Redis, not the dedicated flags cache client —
-            // PAK last_used_at tracking is advisory and shouldn't steal
-            // capacity from the critical path.
-            let redis = state.redis_client.clone();
-            let pg_writer: Arc<dyn common_database::Client + Send + Sync> =
-                state.database_pools.non_persons_writer.clone();
-            // Redis SET NX EX is sub-millisecond, so we check inline to avoid
-            // spawning a background task on every request. Only the DB write
-            // (triggered when the key is newly set) runs in a spawned task.
-            drop(super::pak_usage::record_pak_last_used(redis, pg_writer, pak_id).await);
-        }
+        // PAK last_used_at tracking is advisory; shared with remote_config via the State helper.
+        state.record_pak_last_used(pak_id).await;
 
         return Ok(());
     }

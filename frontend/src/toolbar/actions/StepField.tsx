@@ -5,7 +5,6 @@ import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { cssEscape } from 'lib/utils/cssEscape'
 
 import { SelectorCount } from '~/toolbar/actions/SelectorCount'
 import { ActionStepForm } from '~/toolbar/types'
@@ -37,7 +36,7 @@ function hrefSelector(step: ActionStepForm): string | null {
         return null
     }
 
-    return `a[href${matchOperator}"${cssEscape(step.href)}"]`
+    return `a[href${matchOperator}"${CSS.escape(step.href)}"]`
 }
 
 export function StepField({ step, item, label, caption }: StepFieldProps): JSX.Element {

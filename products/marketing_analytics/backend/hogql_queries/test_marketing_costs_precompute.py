@@ -23,12 +23,12 @@ TEST_BUCKET = "test_marketing_costs"
 WIDE_FROM = "2000-01-01"
 WIDE_TO = "2100-01-01"
 
-GOOGLE_CAMPAIGN_COLUMNS = {
+GOOGLE_CAMPAIGN_COLUMNS: dict[str, dict[str, str | bool]] = {
     "campaign_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
     "campaign_name": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
     "campaign_status": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
 }
-GOOGLE_STATS_COLUMNS = {
+GOOGLE_STATS_COLUMNS: dict[str, dict[str, str | bool]] = {
     "campaign_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
     "segments_date": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
     "metrics_clicks": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
@@ -45,7 +45,6 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
 
     def setUp(self):
         super().setUp()
-        self._cleanups: list = []
         base = Path(__file__).parent
         campaign_table, *_rest, cleanup_c = create_data_warehouse_table_from_csv(
             base / "test/google_ads/campaign.csv",
@@ -61,14 +60,10 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
             f"{TEST_BUCKET}.stats",
             self.team,
         )
-        self._cleanups += [cleanup_c, cleanup_s]
+        self.addCleanup(cleanup_c)
+        self.addCleanup(cleanup_s)
         self._campaign_table = campaign_table
         self._stats_table = stats_table
-
-    def tearDown(self):
-        for fn in self._cleanups:
-            fn()
-        super().tearDown()
 
     def _adapter(self) -> GoogleAdsAdapter:
         config = GoogleAdsConfig(
@@ -90,7 +85,7 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
         )
         return GoogleAdsAdapter(config=config, context=context)
 
-    def _execute(self, query: ast.SelectQuery) -> tuple[list, list[str]]:
+    def _execute(self, query: ast.Expr) -> tuple[list, list[str]]:
         result = execute_hogql_query(query.to_hogql(), self.team)
         return (result.results or [], list(result.columns or []))
 
@@ -100,15 +95,17 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
     def test_materialization_total_matches_direct_read(self):
         adapter = self._adapter()
 
-        direct_rows, direct_cols = self._execute(adapter.build_query())
+        direct_query = adapter.build_query()
+        assert direct_query is not None
+        direct_rows, direct_cols = self._execute(direct_query)
 
         mat = adapter.build_materialization_query("google_test")
         assert mat is not None
-        mat = replace_placeholders(
+        mat_query = replace_placeholders(
             mat,
             {"time_window_min": ast.Constant(value=WIDE_FROM), "time_window_max": ast.Constant(value=WIDE_TO)},
         )
-        mat_rows, mat_cols = self._execute(mat)
+        mat_rows, mat_cols = self._execute(mat_query)
 
         assert direct_rows, "direct read returned no rows — seed/CSV problem"
         assert mat_rows, "materialization returned no rows"
@@ -122,11 +119,11 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
         adapter = self._adapter()
         mat = adapter.build_materialization_query("google_test")
         assert mat is not None
-        mat = replace_placeholders(
+        mat_query = replace_placeholders(
             mat,
             {"time_window_min": ast.Constant(value=WIDE_FROM), "time_window_max": ast.Constant(value=WIDE_TO)},
         )
-        rows, cols = self._execute(mat)
+        rows, cols = self._execute(mat_query)
         assert rows
 
         source_ids = {r[self._col(cols, "source_id")] for r in rows}

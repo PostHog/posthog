@@ -37,6 +37,7 @@ export interface BuildMovingAverageSeriesInput<Meta = unknown> {
     sourceSeries: Series<Meta>
     window: number
     label?: string
+    excluded?: boolean
 }
 
 export function movingAverageKey(sourceKey: string): string {
@@ -54,7 +55,7 @@ export function buildMovingAverageSeries<Meta = unknown>(input: BuildMovingAvera
         meta: sourceSeries.meta,
         stroke: { pattern: MA_DASH_PATTERN },
         overlay: true,
-        visibility: { tooltip: false },
+        visibility: { excluded: input.excluded, tooltip: false },
     }
 }
 
@@ -66,6 +67,7 @@ export interface BuildTrendLineSeriesInput<Meta = unknown> {
      *  trend is extrapolated across the full data range. Useful for excluding an
      *  in-progress tail so the partial bucket doesn't drag the slope. */
     fitUpTo?: number
+    excluded?: boolean
 }
 
 /** Linear or exponential regression rendered as a dimmed dotted line. Exponential is
@@ -87,7 +89,7 @@ export function buildTrendLineSeries<Meta = unknown>(input: BuildTrendLineSeries
         meta: sourceSeries.meta,
         stroke: { pattern: TREND_LINE_DASH_PATTERN },
         overlay: true,
-        visibility: { tooltip: false, valueLabel: false },
+        visibility: { excluded: input.excluded, tooltip: false, valueLabel: false },
     }
 }
 

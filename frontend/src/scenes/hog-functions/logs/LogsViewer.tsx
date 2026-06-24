@@ -17,7 +17,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconWithCount } from 'lib/lemon-ui/icons'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 
 import { LogEntryLevel } from '~/types'
 
@@ -191,7 +191,7 @@ export function LogsViewer({
                 <div className="flex items-center gap-2 flex-1 min-w-100">
                     <LemonInput
                         type="search"
-                        placeholder="Search messages or invocation ID…"
+                        placeholder={`Search messages or ${instanceLabel ? instanceLabel : 'invocation'} ID…`}
                         fullWidth
                         onChange={(value) => setFilters({ search: value })}
                         value={filters.search}

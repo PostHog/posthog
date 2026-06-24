@@ -1,13 +1,14 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+
+import { objectsEqual } from 'lib/utils/objects'
 
 import api, { CountedPaginatedResponse } from '~/lib/api'
 import { Sorting } from '~/lib/lemon-ui/LemonTable'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
 import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
-import { objectsEqual } from '~/lib/utils'
 import { sceneLogic } from '~/scenes/sceneLogic'
 import { urls } from '~/scenes/urls'
 import { LLMPrompt } from '~/types'
@@ -34,14 +35,11 @@ function cleanFilters(values: Partial<PromptFilters>): PromptFilters {
     }
 }
 
-export interface LLMPromptsLogicProps {
-    tabId?: string
-}
+export type LLMPromptsLogicProps = Record<string, never>
 
 export const llmPromptsLogic = kea<llmPromptsLogicType>([
     path(['scenes', 'ai-observability', 'llmPromptsLogic']),
     props({} as LLMPromptsLogicProps),
-    key((props) => props.tabId ?? 'default'),
 
     actions({
         setFilters: (filters: Partial<PromptFilters>, merge: boolean = true, debounce: boolean = true) => ({
