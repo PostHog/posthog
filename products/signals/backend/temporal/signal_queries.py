@@ -96,7 +96,6 @@ def _deduped_signals_subquery(*, include_embedding: bool = False, extra_where: s
 
 # Backwards-compatible aliases for callers that import the shared query constants directly.
 _DEDUPED_SIGNALS_SUBQUERY = _deduped_signals_subquery()
-_DEDUPED_SIGNALS_WITH_EMBEDDING_SUBQUERY = _deduped_signals_subquery(include_embedding=True)
 
 
 def _signals_for_report_query(*, include_deleted: bool = False, limit: int | None = None) -> str:
