@@ -230,6 +230,13 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 total: recalc?.total_metrics ?? 0,
             }),
         ],
+        // Total metrics on the experiment itself, independent of whether a recalculation run exists yet.
+        // Sourced from the experiment so the count is truthful on first render, before the first run loads.
+        totalMetricsCount: [
+            () => [(_, props) => props.experiment],
+            (experiment: Experiment): number =>
+                metricsInOrder(experiment, 'primary').length + metricsInOrder(experiment, 'secondary').length,
+        ],
         lastRefresh: [(s) => [s.currentRecalculation], (recalc): string | null => recalc?.query_to ?? null],
         // Predicate the table uses to dim a metric whose stale value is still being refreshed.
         isMetricRecalculating: [
