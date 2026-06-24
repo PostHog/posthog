@@ -9,6 +9,7 @@ from posthog.test.base import (
     _create_event,
     _create_person,
     also_test_with_materialized_columns,
+    flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
 from unittest.mock import patch
@@ -77,6 +78,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
     def _create_sample_data_multiple_dropoffs(self):
         for i in range(35):
             _create_person(distinct_ids=[f"user_{i}"], team=self.team)
+        flush_persons_and_events()
         events = []
         for i in range(5):
             events.append(
