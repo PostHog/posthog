@@ -1824,7 +1824,10 @@ class TestDirectConnectionMetadataHydration(APIBaseTest):
         adapter = MagicMock()
         adapter.fetch_connection_metadata.return_value = {"engine": "postgres"}
 
-        with patch.object(source, "save", side_effect=RuntimeError("db down")):
+        with patch(
+            "products.warehouse_sources.backend.models.external_data_source.ExternalDataSource.objects.filter",
+            side_effect=RuntimeError("db down"),
+        ):
             hydrate_and_persist_connection_metadata(source, adapter, self.team)
 
         mock_capture_exception.assert_called_once()

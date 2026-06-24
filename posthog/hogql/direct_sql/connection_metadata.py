@@ -1,5 +1,8 @@
 from typing import TYPE_CHECKING
 
+from django.db.models import Q
+from django.utils import timezone
+
 from posthog.exceptions_capture import capture_exception
 
 if TYPE_CHECKING:
@@ -28,7 +31,11 @@ def hydrate_and_persist_connection_metadata(
         metadata = adapter.fetch_connection_metadata(source, team)
         if not metadata:
             return
-        source.connection_metadata = metadata
-        source.save(update_fields=["connection_metadata", "updated_at"])
+        # Conditional update: only write if still empty so concurrent first-queries don't race
+        # to persist (the second write is idempotent but wastes a remote-DB connection).
+        # Match both None and {} — the field default is {}, but NULL is possible on older rows.
+        type(source).objects.filter(pk=source.pk).filter(
+            Q(connection_metadata__isnull=True) | Q(connection_metadata={})
+        ).update(connection_metadata=metadata, updated_at=timezone.now())
     except Exception as error:
         capture_exception(error)
