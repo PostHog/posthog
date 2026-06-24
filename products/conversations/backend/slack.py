@@ -37,7 +37,7 @@ from .cache import (
 from .formatting import extract_slack_user_ids, slack_to_content_and_rich_content
 from .models import Ticket
 from .models.constants import Channel, ChannelDetail, Status
-from .services.attachments import is_valid_image, save_file_to_uploaded_media
+from .services.attachments import build_content_with_images, is_valid_image, save_file_to_uploaded_media
 from .support_slack import (
     SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES,
     SUPPORT_SLACK_MAX_IMAGE_BYTES,
@@ -59,28 +59,6 @@ def _get_team_id(team: Team) -> int:
     if not isinstance(team_id, int):
         raise ValueError("Invalid team id")
     return team_id
-
-
-def _build_content_with_images(
-    cleaned_text: str, rich_content: dict[str, Any] | None, images: list[dict[str, Any]]
-) -> tuple[str, dict[str, Any] | None]:
-    content = cleaned_text
-    if not images:
-        return content, rich_content
-
-    image_markdown = "\n".join(f"![{img['name']}]({img['url']})" for img in images)
-    content = f"{cleaned_text}\n\n{image_markdown}" if cleaned_text else image_markdown
-    if not isinstance(rich_content, dict):
-        rich_content = {"type": "doc", "content": []}
-    rich_nodes = rich_content.setdefault("content", [])
-    for img in images:
-        rich_nodes.append(
-            {
-                "type": "image",
-                "attrs": {"src": img["url"], "alt": img.get("name", "image")},
-            }
-        )
-    return content, rich_content
 
 
 class _NoRedirectHandler(HTTPRedirectHandler):
@@ -428,7 +406,7 @@ def create_or_update_slack_ticket(
             )
             return ticket
 
-        content, rich_content = _build_content_with_images(cleaned_text, rich_content, images)
+        content, rich_content = build_content_with_images(cleaned_text, rich_content, images)
 
         Comment.objects.create(
             team=team,
@@ -468,7 +446,7 @@ def create_or_update_slack_ticket(
         )
         return None
 
-    content, rich_content = _build_content_with_images(cleaned_text, rich_content, images)
+    content, rich_content = build_content_with_images(cleaned_text, rich_content, images)
 
     # Serialize concurrent ticket creation for the same Slack thread via Redis lock.
     # Without this, two reaction_added events from different users race through the
@@ -851,7 +829,7 @@ def _backfill_thread_replies(
         else:
             customer_message_count += 1
 
-        content, rich_content = _build_content_with_images(cleaned_text, rich_content, images)
+        content, rich_content = build_content_with_images(cleaned_text, rich_content, images)
 
         comments_to_create.append(
             Comment(
@@ -1019,7 +997,8 @@ def _handle_member_event(event: dict, team: Team, *, joined: bool) -> None:
 
     Fires for any channel the bot is in (Slack only delivers member_joined_channel /
     member_left_channel for channels the bot belongs to). Gated per-direction by the
-    team's settings.
+    team's settings. Members of the team's own organization are skipped — the alert is
+    meant to surface external participants, not internal teammates.
     """
     settings_dict = team.conversations_settings or {}
 
@@ -1051,6 +1030,12 @@ def _handle_member_event(event: dict, team: Team, *, joined: bool) -> None:
 
     # Slack also fires member_joined_channel for the bot's own join — skip it to avoid noise.
     if user == own_bot_user_id:
+        return
+
+    # Members of the team's own organization are internal teammates, not the external
+    # participants these alerts surface — skip them.
+    slack_user = resolve_slack_user(client, user)
+    if resolve_posthog_user_for_slack(slack_user.get("email"), team):
         return
 
     verb = "joined" if joined else "left"

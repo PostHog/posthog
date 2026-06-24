@@ -19,7 +19,10 @@ with temporalio.workflow.unsafe.imports_passed_through():
     )
     from products.experiments.backend.temporal.recalculation_metrics import increment_workflow_finished
 
-MAX_CONCURRENT_METRICS = 10
+# Offline recalc shares the org's ClickHouse query budget (app:query:per-org, default 20,
+# halved/quartered under cluster load) with the org's live queries. Cap at 4 so a single run
+# stays under the budget even when it drops to 5, avoiding ClickHouseAtCapacity throttling.
+MAX_CONCURRENT_METRICS = 4
 
 
 @temporalio.workflow.defn(name="experiment-metrics-recalculation-workflow")
@@ -111,10 +114,16 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                     # No heartbeat: the activity's only long-running step is one blocking ClickHouse query
                     # with no progress hooks, so start_to_close_timeout is the real per-attempt ceiling.
                     start_to_close_timeout=timedelta(minutes=5),
+                    # Throttle errors (ClickHouseAtCapacity / ConcurrencyLimitExceeded) are transient
+                    # backpressure: spread retries with exponential backoff so each attempt lands in a
+                    # different load window. Temporal jitters each interval automatically, so concurrent
+                    # metrics don't re-stampede in lockstep. Permanent failures don't reach here
+                    # (StatisticError/ZeroDivisionError are recorded and returned, never raised).
                     retry_policy=RetryPolicy(
-                        maximum_attempts=2,
+                        maximum_attempts=5,
                         initial_interval=timedelta(seconds=5),
-                        maximum_interval=timedelta(seconds=30),
+                        backoff_coefficient=2.0,
+                        maximum_interval=timedelta(seconds=60),
                     ),
                 )
 

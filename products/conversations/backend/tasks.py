@@ -79,6 +79,7 @@ from products.conversations.backend.teams import (
     post_help_card,
     post_teams_channel_message_via_graph,
 )
+from products.conversations.backend.teams_attachments import extract_teams_graph_images
 from products.conversations.backend.teams_formatting import rich_content_to_teams_html
 
 from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, SUPPORT_SLACK_MAX_IMAGE_BYTES
@@ -997,12 +998,14 @@ def _sync_one_ticket_thread_replies(
             if activity is None:
                 continue
 
+            reply_images = extract_teams_graph_images(reply, team, teams_team_id, channel_id, token)
             try:
                 result = create_or_update_teams_ticket(
                     team=team,
                     activity=activity,
                     tenant_id=tenant_id,
                     is_thread_reply=True,
+                    images=reply_images,
                 )
             except Exception:
                 logger.exception(
@@ -1264,6 +1267,7 @@ def _poll_one_shared_channel(
                 conversation_id = (activity.get("conversation") or {}).get("id")
                 if conversation_id:
                     surfaced_conversation_ids.add(conversation_id)
+                images = extract_teams_graph_images(msg, team, teams_team_id, channel_id, token)
                 try:
                     create_or_update_teams_ticket(
                         team=team,
@@ -1274,6 +1278,7 @@ def _poll_one_shared_channel(
                         # Shared channel: confirm via Graph (bot connector can't post here),
                         # reusing the token we already hold for the delta read.
                         graph_post_context={"teams_team_id": teams_team_id, "token": token},
+                        images=images,
                     )
                 except Exception:
                     logger.exception(

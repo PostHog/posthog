@@ -37,6 +37,7 @@ use crate::properties::property_models::{PropertyFilter, PropertyType};
 use crate::rayon_dispatcher::RayonDispatcher;
 use crate::utils::graph_utils::PrecomputedDependencyGraph;
 use anyhow::Result;
+use chrono_tz::Tz;
 use common_metrics::{histogram, inc, timing_guard};
 use common_types::collections::HashMapExt;
 use common_types::{PersonId, TeamId};
@@ -336,6 +337,10 @@ pub struct FeatureFlagMatcher {
     detailed_analysis: bool,
     /// Whether to only use person properties from request payload, ignoring database properties.
     only_use_override_person_properties: bool,
+    /// Team timezone used to interpret naive datetime filter values (IS_DATE_* and
+    /// relative dates), so flag evaluation matches HogQL/ClickHouse cohort behavior.
+    /// Parsed once per request and reused across every property comparison.
+    timezone: Tz,
 }
 
 /// Lightweight snapshot of a flag's identity fields, saved before moving
@@ -403,7 +408,16 @@ impl FeatureFlagMatcher {
             preloaded_cohorts: None,
             detailed_analysis: false,
             only_use_override_person_properties: false,
+            timezone: Tz::UTC,
         }
+    }
+
+    /// Sets the team timezone used to interpret naive datetime filter values.
+    /// Defaults to UTC; production must thread the team's timezone through so flag
+    /// evaluation agrees with HogQL/ClickHouse cohort membership near day boundaries.
+    pub fn with_timezone(mut self, timezone: Tz) -> Self {
+        self.timezone = timezone;
+        self
     }
 
     pub fn with_parallel_eval_threshold(mut self, threshold: usize) -> Self {
@@ -739,6 +753,7 @@ impl FeatureFlagMatcher {
                     target_properties,
                     &cohorts,
                     &current_matches,
+                    self.timezone,
                 )?;
                 cohort_matches.insert(cohort_id, match_result);
             }
@@ -1027,6 +1042,7 @@ impl FeatureFlagMatcher {
                         true,
                         merged_person_props.as_ref(),
                         Some(&self.flag_evaluation_state.flag_evaluation_results),
+                        self.timezone,
                     )
                 } else {
                     FlagDetails::create(flag, flag_match)
@@ -1572,7 +1588,7 @@ impl FeatureFlagMatcher {
                     cohort_filters.push(filter);
                 } else {
                     let props = property_context.resolve_for_filter(filter);
-                    if !match_property(filter, props, false).unwrap_or(false) {
+                    if !match_property(filter, props, false, self.timezone).unwrap_or(false) {
                         return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
                     }
                 }
