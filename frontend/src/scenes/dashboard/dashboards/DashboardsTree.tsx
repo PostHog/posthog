@@ -84,24 +84,7 @@ export function DashboardsTree(): JSX.Element {
 
     return (
         <div className="grid grid-cols-[260px_1fr] gap-4" data-attr="dashboards-tree">
-            <div className="flex flex-col gap-1 border-r border-border pr-2" aria-label="Folder tree">
-                <div className="flex items-center">
-                    {/* Compact IDE-style expand/collapse-all toggle. New folder lives in each folder's
-                        hover menu (and the root's), mirroring the sidebar — no standalone button. */}
-                    <LemonButton
-                        size="small"
-                        type="tertiary"
-                        icon={allExpanded ? <IconCollapse /> : <IconExpand />}
-                        tooltip={allExpanded ? 'Collapse all folders' : 'Expand all folders'}
-                        onClick={() =>
-                            setExpandedFolders(
-                                allExpanded ? {} : Object.fromEntries(expandablePaths.map((id) => [id, true]))
-                            )
-                        }
-                        disabledReason={expandablePaths.length === 0 ? 'No nested folders' : undefined}
-                        data-attr="dashboards-tree-expand-toggle"
-                    />
-                </div>
+            <div className="flex flex-col border-r border-border pr-2" aria-label="Folder tree">
                 {/* LemonTree drops its own className, so the override lives on this wrapper instead. Every
                     open/expanded accordion trigger is shaded with the tertiary-active fill, which made all
                     expanded folders look selected; null that fill out via the CSS variable (cascades to all
@@ -113,9 +96,32 @@ export function DashboardsTree(): JSX.Element {
                         // Highlight only the folder you're in; navigating moves it (and clears the rest).
                         isItemActive={(item) => item.record?.path === currentFolder}
                         renderItem={(item, children) => {
-                            // Trailing count of dashboards in the folder's subtree (what selecting it shows).
                             if (item.record?.type !== 'folder') {
                                 return children
+                            }
+                            // The root carries the expand/collapse-all toggle as a hover button (frees the
+                            // panel header); every other folder shows a trailing subtree dashboard count.
+                            if (item.id === ROOT_ID && expandablePaths.length > 0) {
+                                return (
+                                    <span className="flex items-center gap-1 w-full min-w-0">
+                                        <span className="truncate">{children}</span>
+                                        <LemonButton
+                                            size="small"
+                                            icon={allExpanded ? <IconCollapse /> : <IconExpand />}
+                                            tooltip={allExpanded ? 'Collapse all folders' : 'Expand all folders'}
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                setExpandedFolders(
+                                                    allExpanded
+                                                        ? {}
+                                                        : Object.fromEntries(expandablePaths.map((id) => [id, true]))
+                                                )
+                                            }}
+                                            className="ml-auto shrink-0 opacity-0 group-hover/lemon-tree-button:opacity-100"
+                                            data-attr="dashboards-tree-expand-toggle"
+                                        />
+                                    </span>
+                                )
                             }
                             const count = folderDashboardCounts[(item.record?.path as string) ?? ''] ?? 0
                             return (

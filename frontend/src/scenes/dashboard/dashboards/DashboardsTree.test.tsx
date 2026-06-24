@@ -18,16 +18,20 @@ jest.mock('./DashboardsTable', () => ({
         </div>
     ),
 }))
-// Stub LemonTree: render each node's name (recursively) as a button that fires onFolderClick.
+// Stub LemonTree: render each node (recursively) via renderItem, clickable to fire onFolderClick.
 jest.mock('lib/lemon-ui/LemonTree/LemonTree', () => {
-    const renderNodes = (items: any[], onFolderClick: any): any =>
+    const renderNodes = (items: any[], onFolderClick: any, renderItem: any): any =>
         items.map((item: any) => (
             <div key={item.id}>
-                <button onClick={() => onFolderClick(item)}>{item.name}</button>
-                {item.children ? renderNodes(item.children, onFolderClick) : null}
+                <div onClick={() => onFolderClick(item)}>{renderItem ? renderItem(item, item.name) : item.name}</div>
+                {item.children ? renderNodes(item.children, onFolderClick, renderItem) : null}
             </div>
         ))
-    return { LemonTree: ({ data, onFolderClick }: any) => <div>{renderNodes(data, onFolderClick)}</div> }
+    return {
+        LemonTree: ({ data, onFolderClick, renderItem }: any) => (
+            <div>{renderNodes(data, onFolderClick, renderItem)}</div>
+        ),
+    }
 })
 
 describe('DashboardsTree', () => {
