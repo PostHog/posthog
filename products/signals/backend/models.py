@@ -745,6 +745,10 @@ class SignalReportArtefact(UUIDModel):
             # Latest-wins lookups: artefacts are append-only, so deriving the current status / log
             # tail is `WHERE report=? AND type=? ORDER BY created_at DESC` — this makes it a seek.
             models.Index(fields=["report", "type", "-created_at"], name="signals_sig_rpt_type_ct_idx"),
+            # Resolving the latest status artefact per report across a whole team in one pass —
+            # `WHERE team=? AND type=? ORDER BY report, created_at DESC` (DISTINCT ON). Backs the
+            # set-based join the inbox list sort uses instead of a per-row correlated subquery.
+            models.Index(fields=["team", "type", "report", "-created_at"], name="signals_sig_team_type_rpt_idx"),
         ]
 
     @classmethod

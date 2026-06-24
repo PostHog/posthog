@@ -79,6 +79,12 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     normalized_github_logins_from_suggested_reviewer_artefacts,
     resolve_org_github_login_to_users,
 )
+from products.signals.backend.report_list_query import (
+    READY_NOT_ACTIONABLE_RANK,
+    STATUS_RANK,
+    STATUS_RANK_DEFAULT,
+    resolve_ordered_report_page,
+)
 from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
     SignalReportArtefactLogCreateSerializer,
@@ -741,17 +747,16 @@ class SignalReportViewSet(
             raise serializers.ValidationError({"task_id": f"Invalid task UUID: {e}"})
         return queryset.filter(SignalReport.reports_for_task_filter(task_uuid))
 
-    def _apply_signal_report_priority_filter(self, queryset):
-        # Filters on the `priority_rank` annotation, which must be applied first.
-        # Reports without a priority artefact (coalesced to "~") are excluded when this filter is set.
+    def _parse_priority_filter_values(self) -> list[str] | None:
+        # `priority` query param -> validated P0–P4 list, or None when absent/empty. An
+        # unrecognized value is a 400. Reports without a priority artefact are excluded
+        # when this filter is set (the list query coalesces missing priorities to "~").
         priority_filter = self.request.query_params.get("priority")
         if not priority_filter:
-            return queryset
-
+            return None
         values = [p.strip().upper() for p in priority_filter.split(",") if p.strip()]
         if not values:
-            return queryset
-
+            return None
         allowed = set(AutonomyPriority.values)
         invalid = [v for v in values if v not in allowed]
         if invalid:
@@ -760,25 +765,26 @@ class SignalReportViewSet(
                     "priority": f"Invalid priority value(s): {', '.join(sorted(set(invalid)))}. Allowed: {', '.join(sorted(allowed))}."
                 }
             )
+        return values
 
+    def _apply_signal_report_priority_filter(self, queryset):
+        # Filters on the `priority_rank` annotation, which must be applied first.
+        values = self._parse_priority_filter_values()
+        if values is None:
+            return queryset
         return queryset.filter(priority_rank__in=values)
 
-    def _apply_signal_report_actionability_filter(self, queryset):
-        # Filters on the `latest_actionability_value` annotation (the actionability
-        # choice from the latest actionability_judgment artefact), which must be
-        # annotated first. Powers the inbox's actionability-keyed tabs: the Reports
-        # tab passes the two actionable values, the staff-only Not-actionable tab
-        # passes `not_actionable`. Reports without an actionability judgment
-        # (annotation is NULL) are excluded when this filter is set. Absent or empty
-        # param leaves the list unchanged; an unrecognized value is a 400.
+    def _parse_actionability_filter_values(self) -> list[str] | None:
+        # `actionability` query param -> validated list, or None when absent/empty. Powers the
+        # inbox's actionability-keyed tabs: the Reports tab passes the two actionable values, the
+        # staff-only Not-actionable tab passes `not_actionable`. Reports without an actionability
+        # judgment are excluded when this filter is set; an unrecognized value is a 400.
         actionability_filter = self.request.query_params.get("actionability")
         if not actionability_filter:
-            return queryset
-
+            return None
         values = [a.strip() for a in actionability_filter.split(",") if a.strip()]
         if not values:
-            return queryset
-
+            return None
         allowed = {choice.value for choice in ActionabilityChoice}
         invalid = [v for v in values if v not in allowed]
         if invalid:
@@ -788,28 +794,24 @@ class SignalReportViewSet(
                     f"Allowed: {', '.join(sorted(allowed))}."
                 }
             )
+        return values
 
+    def _apply_signal_report_actionability_filter(self, queryset):
+        # Filters on the `latest_actionability_value` annotation, which must be annotated first.
+        values = self._parse_actionability_filter_values()
+        if values is None:
+            return queryset
         return queryset.filter(latest_actionability_value__in=values)
 
     def _annotate_signal_report_status_rank(self, queryset):
         # `ordering=status` uses semantic stage rank (annotation), not lexicographic `status` column order.
         # `status=ready` splits into two virtual stages (requires `latest_actionability_value`):
         # 0 = ready + actionable (or no judgment yet), 1 = ready + not_actionable; then other stages.
+        # Rank mapping is shared with the list query's SQL via STATUS_RANK so the two can't drift.
+        whens = [When(self._Q_READY_NOT_ACTIONABLE, then=Value(READY_NOT_ACTIONABLE_RANK))]
+        whens += [When(status=status_value, then=Value(rank)) for status_value, rank in STATUS_RANK.items()]
         return queryset.annotate(
-            pipeline_status_rank=Case(
-                When(self._Q_READY_NOT_ACTIONABLE, then=Value(1)),
-                When(status=SignalReport.Status.READY, then=Value(0)),
-                When(status=SignalReport.Status.PENDING_INPUT, then=Value(2)),
-                When(status=SignalReport.Status.IN_PROGRESS, then=Value(3)),
-                When(status=SignalReport.Status.CANDIDATE, then=Value(4)),
-                When(status=SignalReport.Status.POTENTIAL, then=Value(5)),
-                When(status=SignalReport.Status.FAILED, then=Value(6)),
-                When(status=SignalReport.Status.RESOLVED, then=Value(7)),
-                When(status=SignalReport.Status.SUPPRESSED, then=Value(8)),
-                When(status=SignalReport.Status.DELETED, then=Value(9)),
-                default=Value(50),
-                output_field=IntegerField(),
-            )
+            pipeline_status_rank=Case(*whens, default=Value(STATUS_RANK_DEFAULT), output_field=IntegerField())
         )
 
     def _annotate_signal_report_priority(self, queryset):
@@ -957,6 +959,58 @@ class SignalReportViewSet(
             clauses = [*clauses, "id"]
         return queryset.order_by(*clauses)
 
+    def _list_ordering_fields(self) -> list[tuple[str, bool]]:
+        # (public field name, descending) pairs for the list query, validated against the
+        # allowlist, with `id` appended as a stable tiebreak. Field names — not db columns —
+        # because the list query maps each to its own SQL sort expression.
+        raw = self.request.query_params.get("ordering", self._DEFAULT_SIGNAL_REPORT_ORDERING)
+        raw = str(raw).strip() or self._DEFAULT_SIGNAL_REPORT_ORDERING
+        fields: list[tuple[str, bool]] = []
+        for part in (p.strip() for p in raw.split(",")):
+            if not part:
+                continue
+            descending = part.startswith("-")
+            name = part[1:] if descending else part
+            if name in self._SIGNAL_REPORT_ORDERING_FIELDS:
+                fields.append((name, descending))
+        if not fields:
+            fields = [
+                (c[1:] if c.startswith("-") else c, c.startswith("-"))
+                for c in self._DEFAULT_SIGNAL_REPORT_ORDERING.split(",")
+            ]
+        if not any(name == "id" for name, _ in fields):
+            fields.append(("id", False))
+        return fields
+
+    def _base_filtered_report_ids_queryset(self):
+        # Every list filter that does NOT depend on a latest-wins status artefact. The
+        # actionability / priority filters and the sort are resolved against the joined
+        # latest values in `resolve_ordered_report_page`, so the base stays index-friendly.
+        qs = SignalReport.objects.filter(team=self.team)
+        qs = self._exclude_deleted_signal_reports(qs)
+        qs = self._apply_signal_report_status_filter(qs)
+        qs = self._apply_signal_report_search_filter(qs)
+        qs = self._apply_signal_report_source_product_filter(qs)
+        qs = self._apply_signal_report_implementation_pr_filter(qs)
+        qs = self._apply_signal_report_suggested_reviewer_filter(qs)
+        qs = self._apply_signal_report_task_filter(qs)
+        return qs.values("id")
+
+    def _hydrate_reports(self, ids: list[str]) -> list[SignalReport]:
+        # Load the page's reports with only the display annotations + prefetches, in the
+        # order the resolver returned. is_suggested_reviewer + artefact_count run on <=50
+        # rows here (cheap), not across the whole set.
+        if not ids:
+            return []
+        qs = SignalReport.objects.filter(team=self.team, id__in=ids)
+        qs = self._scope_signal_report_queryset(qs)
+        qs = self._prefetch_signal_report_priority_artefacts(qs)
+        # is_suggested_reviewer's ready/not-actionable guard reads latest_actionability_value.
+        qs = self._annotate_latest_actionability_value(qs)
+        qs = self._annotate_is_suggested_reviewer(qs)
+        by_id = {str(report.id): report for report in qs}
+        return [by_id[report_id] for report_id in ids if report_id in by_id]
+
     @staticmethod
     def _get_github_login(user) -> str | None:
         login = user.get_github_login()
@@ -1076,13 +1130,35 @@ class SignalReportViewSet(
     )
     @tracer.start_as_current_span("signals.reports.list")
     def list(self, request, *args, **kwargs):
-        # The reports list is the primary inbox-load endpoint. Each phase gets its own child span
-        # so a slow load can be attributed to Postgres (queryset annotations), ClickHouse (source
-        # products), the task facade (PR urls), or serialization, rather than one opaque request.
+        # The reports list is the primary inbox-load endpoint. Its sort keys (priority, the
+        # ready/not-actionable split) live in latest-wins status artefacts; resolving them once
+        # via set-based joins instead of a correlated subquery per row keeps the sort off a
+        # full-set artefact scan — the cause of multi-second cold-cache loads on large teams.
+        # Each phase gets its own child span so a slow load can be attributed to a specific stage.
+        paginator = self.paginator
+        if paginator is None:
+            return super().list(request, *args, **kwargs)
+
+        limit = paginator.get_limit(request)
+        offset = paginator.get_offset(request)
+
         with tracer.start_as_current_span("signals.reports.list.queryset"):
-            queryset = self.filter_queryset(self.get_queryset())
-            page = self.paginate_queryset(queryset)
-            reports = list(page if page is not None else queryset)
+            base_ids_sql, base_ids_params = self._base_filtered_report_ids_queryset().query.sql_with_params()
+            github_login = self._get_github_login(request.user)
+            reviewer_containment = json.dumps([{"github_login": github_login}]) if github_login else None
+            ids, total_count = resolve_ordered_report_page(
+                team_id=self.team.id,
+                base_ids_sql=base_ids_sql,
+                base_ids_params=list(base_ids_params),
+                order_fields=self._list_ordering_fields(),
+                github_login=github_login,
+                actionability_filter=self._parse_actionability_filter_values(),
+                priority_filter=self._parse_priority_filter_values(),
+                reviewer_containment_param=reviewer_containment,
+                limit=limit,
+                offset=offset,
+            )
+            reports = self._hydrate_reports(ids)
 
         report_ids = [str(r.id) for r in reports]
         trace.get_current_span().set_attribute("signals.reports.list.count", len(report_ids))
@@ -1103,9 +1179,13 @@ class SignalReportViewSet(
         with tracer.start_as_current_span("signals.reports.list.serialize"):
             data = serializer.data
 
-        if page is not None:
-            return self.get_paginated_response(data)
-        return Response(data)
+        # Drive the LimitOffsetPagination envelope (count / next / previous) from the resolved
+        # page instead of paginate_queryset, which would re-run an unconditional COUNT(*).
+        paginator.count = total_count
+        paginator.limit = limit
+        paginator.offset = offset
+        paginator.request = request
+        return paginator.get_paginated_response(data)
 
     @extend_schema(exclude=True)
     @action(detail=False, methods=["get"], url_path="available_reviewers", required_scopes=["task:read"])
