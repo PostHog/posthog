@@ -10,6 +10,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 
+from ..logic.janitor_client import JanitorClientError
 from ..models import AgentApplication, AgentRevision
 
 
@@ -124,9 +125,10 @@ class TestFreezeResolvesSkillRefs(APIBaseTest):
         client = mock_janitor.return_value
         client.put_skill = MagicMock(return_value={"ok": True})
         client.delete_skill = MagicMock(return_value={"ok": True})
-        # Models a pre-store agent forked + re-frozen: the bundle carries an inline
-        # `skills/legacy/` folder with no `from_template` provenance and no backing
-        # ref. The freeze must refuse rather than silently strip it.
+        # Models a pre-store agent forked + re-frozen: the carried spec lists an
+        # inline skill with no `from_template` provenance and no backing ref. The
+        # freeze must refuse rather than silently strip it. (Detected from the
+        # spec, the stable authoring record — not the volatile bundle.)
         self.revision.skill_refs = []
         self.revision.spec = {
             "model": "x",
@@ -134,7 +136,6 @@ class TestFreezeResolvesSkillRefs(APIBaseTest):
             "skills": [{"id": "legacy", "path": "skills/legacy/SKILL.md"}],
         }
         self.revision.save(update_fields=["skill_refs", "spec"])
-        client.manifest.return_value = {"files": [{"path": "agent.md"}, {"path": "skills/legacy/SKILL.md"}]}
 
         res = self.client.post(self.url)
         self.assertEqual(res.status_code, 400, res.content)
@@ -142,6 +143,70 @@ class TestFreezeResolvesSkillRefs(APIBaseTest):
         # Fail loud BEFORE any destructive janitor call or seal.
         client.delete_skill.assert_not_called()
         client.freeze.assert_not_called()
+        self.revision.refresh_from_db()
+        self.assertEqual(self.revision.state, "draft")
+
+    @patch("products.agent_platform.backend.presentation.views._janitor")
+    def test_freeze_sweeps_leftover_folder_without_misclassifying_as_legacy(self, mock_janitor: MagicMock) -> None:
+        client = mock_janitor.return_value
+        client.put_skill = MagicMock(return_value={"ok": True})
+        client.delete_skill = MagicMock(return_value={"ok": True})
+        # A `skills/leftover/` folder from a prior *failed* freeze is in the bundle
+        # but NOT in the spec (the failed attempt never saved derived_spec). It must
+        # be swept on retry, not misclassified as a legacy inline skill and refused.
+        client.manifest.return_value = {
+            "files": [{"path": "agent.md"}, {"path": "skills/leftover/SKILL.md"}, {"path": "skills/triage/SKILL.md"}]
+        }
+        client.freeze.return_value = {
+            "bundle_sha256": "a" * 64,
+            "derived_spec": {"model": "x", "triggers": [], "skills": [], "tools": []},
+        }
+
+        res = self.client.post(self.url)
+        self.assertEqual(res.status_code, 200, res.content)
+        client.delete_skill.assert_called_once_with(str(self.revision.id), "leftover")
+        self.revision.refresh_from_db()
+        self.assertEqual(self.revision.state, "ready")
+
+    @patch("products.agent_platform.backend.presentation.views._janitor")
+    def test_freeze_short_circuits_on_already_sealed_bundle(self, mock_janitor: MagicMock) -> None:
+        client = mock_janitor.return_value
+        # A prior freeze sealed the bundle but its HTTP response was lost; the row
+        # is still draft. On retry, the janitor refuses edits (409 revision_not_draft)
+        # — freeze must skip materialization and stamp from the idempotent freeze.
+        client.manifest.return_value = {"files": [{"path": "skills/triage/SKILL.md"}]}
+        client.delete_skill = MagicMock(return_value={"ok": True})
+        client.put_skill = MagicMock(
+            side_effect=JanitorClientError(409, "sealed", body={"error": "revision_not_draft", "state": "ready"})
+        )
+        client.freeze.return_value = {
+            "bundle_sha256": "b" * 64,
+            "idempotent": True,
+            "derived_spec": {
+                "model": "x",
+                "triggers": [],
+                "skills": [{"id": "triage", "path": "skills/triage/SKILL.md", "description": "d"}],
+                "tools": [],
+            },
+        }
+
+        res = self.client.post(self.url)
+        self.assertEqual(res.status_code, 200, res.content)
+        client.freeze.assert_called_once_with(str(self.revision.id))
+        self.revision.refresh_from_db()
+        self.assertEqual(self.revision.state, "ready")
+        self.assertEqual(self.revision.bundle_sha256, "b" * 64)
+
+    @patch("products.agent_platform.backend.presentation.views._janitor")
+    def test_freeze_rejects_more_than_max_skill_refs(self, mock_janitor: MagicMock) -> None:
+        # The serializer caps refs at 50, but fork / raw write can smuggle more into
+        # the column — freeze must re-bound the count before fanning out.
+        self.revision.skill_refs = [{"from_template": "triage-helper", "alias": f"a{i}"} for i in range(51)]
+        self.revision.save(update_fields=["skill_refs"])
+
+        res = self.client.post(self.url)
+        self.assertEqual(res.status_code, 400, res.content)
+        mock_janitor.return_value.freeze.assert_not_called()
         self.revision.refresh_from_db()
         self.assertEqual(self.revision.state, "draft")
 

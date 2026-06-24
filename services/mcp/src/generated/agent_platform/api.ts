@@ -1762,6 +1762,8 @@ export const AgentApplicationsRevisionsSkillRefsUpdateParams = /* @__PURE__ */ z
         ),
 })
 
+export const agentApplicationsRevisionsSkillRefsUpdateBodySkillRefsItemFromTemplateMax = 64
+
 export const agentApplicationsRevisionsSkillRefsUpdateBodySkillRefsItemAliasMax = 64
 
 export const agentApplicationsRevisionsSkillRefsUpdateBodySkillRefsItemAliasRegExp = new RegExp(
@@ -1776,6 +1778,7 @@ export const AgentApplicationsRevisionsSkillRefsUpdateBody = /* @__PURE__ */ zod
                     .object({
                         from_template: zod
                             .string()
+                            .max(agentApplicationsRevisionsSkillRefsUpdateBodySkillRefsItemFromTemplateMax)
                             .describe(
                                 'Name of the skill in the llma-skill store to pin into this agent. Resolved at freeze to the chosen `version` and materialized into the bundle.'
                             ),

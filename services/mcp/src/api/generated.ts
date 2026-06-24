@@ -8398,7 +8398,10 @@ export namespace Schemas {
      * this agent's bundle at freeze.
      */
     export interface SkillRef {
-      /** Name of the skill in the llma-skill store to pin into this agent. Resolved at freeze to the chosen `version` and materialized into the bundle. */
+      /**
+         * Name of the skill in the llma-skill store to pin into this agent. Resolved at freeze to the chosen `version` and materialized into the bundle.
+         * @maxLength 64
+         */
       from_template: string;
       /**
          * Folder the resolved skill is materialized under in the bundle (`skills/<alias>/`). Lowercase letters, digits, hyphens or underscores; must be unique within the revision.

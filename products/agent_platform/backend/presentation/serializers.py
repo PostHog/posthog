@@ -251,11 +251,20 @@ class AgentSpecField(serializers.JSONField):
     opaque `{}`."""
 
 
+# Bound the number of skill references on a revision so freeze (one store fetch +
+# one janitor write per ref) can't fan out without limit. Enforced both at
+# `set_skill_refs` and again at freeze (refs can reach the column via fork / raw write).
+MAX_SKILL_REFS = 50
+
+
 class SkillRefSerializer(serializers.Serializer):
     """One reference to a versioned skill in the llma-skill store, pinned into
     this agent's bundle at freeze."""
 
     from_template = serializers.CharField(
+        # Mirrors the store's `LLMSkill.name` max_length so an unresolvable,
+        # oversized name can't be persisted into the JSON column.
+        max_length=64,
         help_text=(
             "Name of the skill in the llma-skill store to pin into this agent. "
             "Resolved at freeze to the chosen `version` and materialized into the bundle."
@@ -284,13 +293,11 @@ class SkillRefSerializer(serializers.Serializer):
 class SetSkillRefsRequestSerializer(serializers.Serializer):
     """Body for PUT /revisions/<id>/skill_refs/ — full-replace the draft's references."""
 
-    # Bound the count so freeze (one store fetch + one janitor write per ref)
-    # can't fan out without limit. Generous vs. realistic agent skill counts.
     skill_refs = SkillRefSerializer(
         many=True,
         # `many=True` builds a ListSerializer, which accepts max_length to bound the
         # list — drf-stubs types the call against the child and misses the kwarg.
-        max_length=50,  # type: ignore[call-arg]
+        max_length=MAX_SKILL_REFS,  # type: ignore[call-arg]
         help_text="The complete set of store-skill references for this draft; replaces any existing references.",
     )
 

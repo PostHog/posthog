@@ -76,14 +76,17 @@ def assert_skill_refs_readable(
     # Cross-resource API-scope check for token callers (personal API key / OAuth).
     if scopes is not None and not ({"*", "llm_skill:read", "llm_skill:write"} & set(scopes)):
         raise PermissionDenied(
-            "Referencing store skills requires the `llm_skill:read` scope in addition to `agents:write`."
+            "Referencing skill store skills requires the `llm_skill:read` scope in addition to `agents:write`."
         )
     # Object-level access control, mirroring LLMSkillViewSet's AccessControlPermission.
     # A missing skill is left to resolve_skill_ref to reject loudly at freeze.
     for name in names:
         skill = get_skill_by_name_from_db(team, name)
         if skill is not None and not user_access_control.check_access_level_for_object(skill, "viewer"):
-            raise PermissionDenied(f"You do not have read access to the store skill '{name}'.")
+            raise PermissionDenied(
+                f"You do not have read access to the skill '{name}' in the skill store. Ask a skill admin to "
+                "share it with you, or remove it from the agent's skill references."
+            )
 
 
 def resolve_skill_ref(team: Team, ref: dict) -> ResolvedSkill:

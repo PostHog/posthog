@@ -78,6 +78,7 @@ from ..logic.skill_resolution import assert_skill_refs_readable, resolve_skill_r
 from ..logic.spec_schema import missing_required_secrets
 from ..models import AgentApplication, AgentIdentityCredential, AgentRevision
 from .serializers import (
+    MAX_SKILL_REFS,
     AgentApplicationSerializer,
     AgentRevisionSerializer,
     CloneFromRequestSerializer,
@@ -183,6 +184,25 @@ class JanitorUpstreamError(APIException):
         else:
             detail_str = e.message
         super().__init__(detail=detail_str)
+
+
+# Skill folder aliases the janitor recognizes (mirrors the `skills/<id>/` id regex
+# in agent-janitor's typed-bundle.ts). Used to keep the freeze sweep set identical
+# to the set the janitor derives as skills.
+_SKILL_ALIAS_RE = re.compile(r"^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$")
+
+
+def _is_sealed_bundle_conflict(e: JanitorClientError) -> bool:
+    """True when a janitor edit was refused because the bundle is already sealed.
+
+    The janitor returns 409 `revision_not_draft` from any authoring edit once the
+    `.frozen` marker exists. During freeze that means a prior attempt sealed the
+    bundle but its HTTP response was lost — the materialization is already done, so
+    we skip ahead to the idempotent freeze rather than failing the retry.
+    """
+    if e.status_code != 409:
+        return False
+    return isinstance(e.body, dict) and e.body.get("error") == "revision_not_draft"
 
 
 # The `log_source` tag the agent runner stamps on every log_entries row.
@@ -2216,13 +2236,19 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # promote path doesn't expect. Mirrors the `update()` non-draft guard.
         if revision.state != "draft":
             raise ValidationError(f"Cannot freeze a {revision.state} revision; only 'draft' can be frozen.")
+        skill_refs = revision.skill_refs or []
+        # Re-bound the ref count here too: the serializer cap only guards
+        # `set_skill_refs`, but refs reach the column via fork / raw write, and each
+        # ref is one store fetch + one janitor round-trip, all sequential.
+        if len(skill_refs) > MAX_SKILL_REFS:
+            raise ValidationError(f"A revision may reference at most {MAX_SKILL_REFS} store skills.")
         # Authorize skill reads before materializing any store content into the
         # bundle — refs can reach the column via fork or raw write, so the
         # `set_skill_refs` check alone isn't enough. (Confused-deputy guard:
         # `agents:write` must not become a backdoor read of private skills.)
         assert_skill_refs_readable(
             self.team,
-            revision.skill_refs or [],
+            skill_refs,
             scopes=get_authenticator_scopes(getattr(request, "successful_authenticator", None)),
             user_access_control=self.user_access_control,
         )
@@ -2238,50 +2264,60 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # or raw write, bypassing the `skill_refs` endpoint's validation.
         # (Custom-tool template pinning stays disabled pending a registry rethink
         # — see the commented-out template routes in routes.py.)
-        resolved_skills = [resolve_skill_ref(self.team, ref) for ref in (revision.skill_refs or [])]
+        resolved_skills = [resolve_skill_ref(self.team, ref) for ref in skill_refs]
         aliases = {r.alias for r in resolved_skills}
         if len(aliases) != len(resolved_skills):
-            raise ValidationError("Each skill reference must resolve to a unique 'alias'.")
-        # Skills are store-only — nothing else writes `skills/` — so the frozen
-        # bundle must hold exactly the current refs. Drop any skill folder left
-        # by a prior freeze attempt whose alias is no longer referenced. (Each
-        # surviving alias is then cleanly re-materialized by put_skill below.)
-        manifest = self._call(janitor_client.manifest, str(revision.id))
-        bundle_aliases = {
-            parts[1]
-            for f in manifest.get("files", [])
-            if len(parts := f["path"].split("/")) > 1 and parts[0] == "skills"
+            raise ValidationError("Each skill reference must have a unique 'alias' within the revision.")
+        provenance_by_alias: dict[str, dict] = {
+            r.alias: {"from_template": r.from_template, "version": r.version, "source_version_id": r.source_version_id}
+            for r in resolved_skills
         }
-        orphan_aliases = bundle_aliases - aliases
-        # An orphan skill folder (in the bundle, not in the current refs) is one of
-        # two things. (a) A store skill a prior freeze of this lineage materialized
-        # and the author has since dropped from `skill_refs` — its carried spec
-        # entry still carries `from_template` provenance, so it's safe to sweep.
-        # (b) An inline skill cloned forward from a revision authored before the
-        # store became canonical — no `from_template`, never backed by a ref.
-        # Sweeping (b) silently strips real content on re-freeze, so we refuse and
-        # make the author recreate it in the store first. This is the migration
-        # guard for pre-store agents that get forked and re-frozen.
-        spec_skills_by_alias = {s.get("id"): s for s in ((revision.spec or {}).get("skills") or [])}
+        # Migration guard for pre-store agents: a revision forked from one authored
+        # before the store became canonical carries inline skill entries (no
+        # `from_template`) in its spec. Detect them from the **spec** — the stable
+        # authoring record — not the bundle: a skill folder left behind by a failed
+        # prior freeze is not in the spec, so it is correctly swept on retry rather
+        # than misclassified as legacy and refused forever. If a legacy inline skill
+        # isn't covered by a current ref, refuse — silently dropping it would lose
+        # real content; the author must recreate it in the store and reference it.
         legacy_orphans = sorted(
-            alias for alias in orphan_aliases if not spec_skills_by_alias.get(alias, {}).get("from_template")
+            sid
+            for s in ((revision.spec or {}).get("skills") or [])
+            if (sid := s.get("id")) and not s.get("from_template") and sid not in aliases
         )
         if legacy_orphans:
             raise ValidationError(
-                f"Revision carries inline skill folder(s) {legacy_orphans} not backed by a store reference "
-                "(authored before the llma-skill store became canonical). Recreate them in the store and set "
+                f"Revision carries inline skill(s) {legacy_orphans} not backed by a store reference "
+                "(authored before the skill store became canonical). Recreate them in the skill store and set "
                 "`skill_refs` before freezing — otherwise the freeze would silently drop them."
             )
-        for stale in orphan_aliases:
-            self._call(janitor_client.delete_skill, str(revision.id), stale)
-        provenance_by_alias: dict[str, dict] = {}
-        for resolved in resolved_skills:
-            self._call(janitor_client.put_skill, str(revision.id), resolved.alias, resolved.put_skill_payload())
-            provenance_by_alias[resolved.alias] = {
-                "from_template": resolved.from_template,
-                "version": resolved.version,
-                "source_version_id": resolved.source_version_id,
+        # Materialize the resolved refs into the bundle, then seal. Skills are
+        # store-only — nothing else writes `skills/` — so the frozen bundle must
+        # hold exactly the current refs: sweep any folder not in `aliases`, then
+        # (re-)write each resolved skill. This whole block is skipped if a prior
+        # freeze already sealed the bundle (its HTTP response was lost): the
+        # janitor refuses edits to a sealed bundle, and its `freeze` is idempotent
+        # — it re-derives the sha + spec from what's already sealed.
+        try:
+            manifest = janitor_client.manifest(str(revision.id))
+            # Only `skills/<alias>/<file>` paths whose alias matches the janitor's
+            # skill-id regex count — keeps Django's sweep set identical to the set
+            # the janitor derives as skills, so a stray `skills/README.md` can't be
+            # misread as an alias.
+            bundle_aliases = {
+                parts[1]
+                for f in manifest.get("files", [])
+                if len(parts := f["path"].split("/")) >= 3 and parts[0] == "skills" and _SKILL_ALIAS_RE.match(parts[1])
             }
+            for stale in bundle_aliases - aliases:
+                janitor_client.delete_skill(str(revision.id), stale)
+            for resolved in resolved_skills:
+                janitor_client.put_skill(str(revision.id), resolved.alias, resolved.put_skill_payload())
+        except JanitorClientError as e:
+            # A 409 from an edit means the bundle is already sealed — fall through
+            # to the idempotent freeze below. Any other error is a real failure.
+            if not _is_sealed_bundle_conflict(e):
+                raise JanitorUpstreamError(e) from e
         result = self._call(janitor_client.freeze, str(revision.id))
         revision.state = "ready"
         revision.bundle_sha256 = result["bundle_sha256"]
