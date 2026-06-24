@@ -183,8 +183,11 @@ state + cloud persistence is its own effort — now **Stage 3** below.
 > persistence layer (`reviewer/persistence.py`), explicit `team_id`/`user_id` threading, and now the
 > `commit`-artefact diff snapshot — captured at review time, gated on the `head_sha` watermark, with both
 > watermarks (`head_sha` + `last_seen_comment_id`) advanced per turn. No object storage. Lint + tach + the
-> ReviewHog backend suite (incl. the new snapshot tests) pass. What remains is the **loop itself**
-> (Temporal + the re-check) and the deferred `task_run` / `note` work-log artefacts — see
+> ReviewHog backend suite (incl. the new snapshot tests) pass, and the snapshot is verified end-to-end against
+> a real public PR (the `commit` artefact stores the 52 KB diff with the watermark advanced). What remains:
+> **step 8** — collapse the on-disk `reviews/<pr>/` tree into ephemeral scratch and make Postgres the single
+> source of truth for inter-stage state (today the DB mirrors only the _outputs_) — plus the **loop itself**
+> (Temporal + the re-check) and the deferred `task_run` / `note` work-log artefacts. See the step list and
 > _Deferred / future_ below.
 
 **Why.** Today every run writes Pydantic-serialized JSON/MD to a gitignored `reviews/<pr_number>/` tree — no
@@ -391,6 +394,48 @@ prompt/JSON scratch stays on sandbox disk.
    TOAST); **no object storage**. The remaining per-turn `task_run` / `note` work-log artefacts are deferred to
    the loop — they need per-call task ids / comment-driven notes the pipeline doesn't surface yet.
 
+8. ⏭️ **(next — not built) Collapse the on-disk tree into ephemeral scratch; make Postgres the single source of
+   truth.** _Why does `reviews/<pr>/` still exist if we persist to the DB now?_ Because today there are **two**
+   stores with different jobs, and the DB doesn't yet hold everything:
+   - The on-disk `reviews/<pr_number>/` tree is the pipeline's **working memory** — every stage reads its inputs
+     from disk and writes its outputs there, and idempotent resume is literally "skip the stage if its output
+     file already exists." Crucially, several intermediate artefacts (`chunks.json`, the per-chunk analyses, the
+     raw/cleaned issue sets, the per-issue validation summaries, all rendered prompts) live **only** on disk.
+   - Postgres holds a durable, team-scoped **mirror of the canonical _outputs_** (findings, verdicts, the
+     point-in-time diff, the report markdown, the watermark) — added in steps 5–7 _on top of_ the file pipeline,
+     not replacing it.
+
+   So "everything is in the DB" isn't true yet — the DB has the outputs; the pipeline still passes inter-stage
+   state through local files. The disk store exists only because the pipeline was built **file-first as a local
+   CLI**; it is not a design requirement. It turns into a liability in the cloud: under Temporal the stages run
+   as separate **activities/workers that don't share a filesystem**, and pod-local disk is ephemeral — so both
+   file-based inter-stage passing and file-existence resume break across workers, and the files duplicate state
+   the DB now owns. The next step **removes the host filesystem from the design** — and, deliberately, does
+   _not_ replace it with an ephemeral scratch dir (a deleted temp dir would only _hurt_ debuggability and buy
+   nothing):
+   - **Inter-stage state → the DB.** Persist the intermediate artefacts a later stage consumes that aren't stored
+     yet (chunks, per-chunk analyses, raw/cleaned issue sets — the final issue set and verdicts are already
+     `issue_finding` / `validation_verdict` rows) as their own artefact rows (or a typed working-state row), and
+     have each stage read its inputs from those rows / from values passed in-process within one activity, not by
+     re-reading files.
+   - **Resume → DB-driven.** Replace "skip if the output file exists" with "skip if this stage's artefact already
+     exists for this turn" — idempotency that holds across workers and across loop turns, not just on one host.
+   - **No host-side store at all.** Each stage-activity runs in memory: read inputs by row-id / value, call the
+     sandbox, persist outputs to Postgres, return a row-id. Nothing on the orchestrator host is load-bearing.
+     **Debuggability is covered by three durable, queryable stores that beat per-host files** (and survive across
+     workers, which local files don't): the **artefact rows** (inter-stage + output state), the **Temporal
+     workflow history** (each activity's recorded input/output), and the **agent logs already persisted to S3**
+     at `task_run.log_url` (the full prompt + conversation per sandbox call — the executor already relies on
+     these instead of copying logs locally). If one activity ever needs a real file path internally (a library
+     that demands one), that's an incidental activity-local temp, not an architectural store. The committed-to
+     local `reviews/<pr>/` tree goes away. _(Optional, if local-dev ergonomics want it: a write-only, never-read,
+     DEBUG-gated dump of prompts/outputs — explicitly outside the contract; the pipeline never reads it back.)_
+
+   This is the natural companion to the Temporal migration (each stage an activity / child workflow exchanging
+   **row ids by reference**) — see _Cloud host, Temporal_ below and _Everything on Temporal_ under Deferred.
+   Steps 5–7 deliberately left the disk tree as scratch while standing up the durable DB outputs first; this
+   step finishes the job by making the DB authoritative for _inter-stage_ state too.
+
 ##### Cloud host, Temporal & GitHub (assumed / later)
 
 - **Cloud host assumed.** The orchestrator (`run.py main()`, a management-command coroutine — `run.py` carries
@@ -472,8 +517,8 @@ flowchart TD
 
 1. **Parse PR URL** — `PRParser.parse_github_pr_url` regex-extracts `owner/repo/pr_number`; raises on a
    malformed URL.
-2. **Create output dir** — `reviews/<pr_number>/` under `_REVIEW_HOG_DIR` (which resolves to
-   `products/review_hog/backend/`, so artifacts land in `backend/reviews/<pr_number>/`).
+2. **Create output dir** — `reviews/<pr_number>/` under `_REVIEW_HOG_DIR` (which resolves to the product root
+   `products/review_hog/`, so artifacts land in `products/review_hog/reviews/<pr_number>/`).
 3. **Fetch PR data** — `PRFetcher.fetch_pr_data` (`tools/github_meta.py`, PyGithub, needs `GITHUB_TOKEN`)
    writes `pr_meta.json` (incl. `head_sha`), `pr_comments.jsonl` (incl. comment `id`), `pr_files.jsonl`,
    `pr_files_scope.jsonl`, and `pr_diff.patch` (the reviewed files' raw unified patch, for the durable diff
@@ -645,7 +690,7 @@ content". Most begin with `{{ CLAUDE_CODE_CONTEXT | safe }}` (the `@path#L…` r
 
 ## Artifacts (`reviews/<pr_number>/` layout)
 
-Root: `products/review_hog/backend/reviews/<pr_number>/` (gitignored via the product-root `.gitignore`
+Root: `products/review_hog/reviews/<pr_number>/` (gitignored via the product-root `.gitignore`
 entry `reviews/`). Per-run files:
 
 - **Fetch:** `pr_meta.json` (incl. `head_sha`), `pr_comments.jsonl` (incl. comment `id`), `pr_files.jsonl`,
