@@ -521,9 +521,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                     return []
                 }
                 const channels: string[] = []
-                if (cs.widget_enabled) {
-                    channels.push('widget')
-                }
+                channels.push('widget')
                 if (cs.slack_enabled) {
                     channels.push('slack')
                 }

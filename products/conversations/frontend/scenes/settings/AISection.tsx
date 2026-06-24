@@ -8,7 +8,7 @@ import { aiTriageTicketTypeLabel } from '../../types'
 import { supportSettingsLogic } from './supportSettingsLogic'
 
 const CHANNEL_LABELS: Record<string, string> = {
-    widget: 'Widget',
+    widget: 'API / Widget',
     slack: 'Slack',
     email: 'Email',
     teams: 'Microsoft Teams',

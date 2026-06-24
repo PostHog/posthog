@@ -444,6 +444,7 @@ class TestPersistReplyActivity:
         )
 
         comment = Comment.objects.get(team_id=team.id, item_id=str(ticket.id))
+        assert comment.item_context is not None
         assert comment.item_context["author_type"] == "AI"
         assert comment.item_context["is_private"] is expected_private
 
