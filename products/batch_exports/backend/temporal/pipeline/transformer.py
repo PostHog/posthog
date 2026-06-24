@@ -723,7 +723,7 @@ class CSVStreamTransformer:
 
 
 class SerializedStreamTransformer:
-    """A transformer to serialize record batches into Parquet."""
+    """A transformer to serialize record batches into Arrow IPC format."""
 
     def __init__(
         self,
@@ -732,6 +732,7 @@ class SerializedStreamTransformer:
     ):
         self.include_inserted_at = include_inserted_at
         self.max_file_size_bytes = max_file_size_bytes
+        self._schema: pa.Schema | None = None
 
     async def iter(
         self, record_batches: collections.abc.AsyncIterable[pa.RecordBatch]
@@ -756,7 +757,7 @@ class SerializedStreamTransformer:
                 # The entire Arrow C++ call is not GIL-free, but enough of it
                 # seems to be for it to be worth to spawn a thread here, based
                 # on tests with 64MiB batches.
-                buf = await asyncio.to_thread(record_batch.serialize)
+                buf = await asyncio.to_thread(record_batch.select(self.schema.names).serialize)
                 chunk = buf.to_pybytes()  # We need bytes downstream
                 del buf  # Free buf on the next gc run
 
@@ -770,6 +771,23 @@ class SerializedStreamTransformer:
                     current_file_size += len(chunk)
 
         yield Chunk(b"", True)
+
+    @property
+    def schema(self) -> pa.Schema:
+        if not self._schema:
+            raise ValueError("Schema not set, is the transformer running?")
+        return self._schema
+
+    @schema.setter
+    def schema(self, schema: pa.Schema) -> None:
+        if self._schema is not None:
+            return
+
+        if not self.include_inserted_at:
+            if (index := schema.get_field_index("_inserted_at")) >= 0:
+                schema = schema.remove(index)
+
+        self._schema = schema
 
 
 class IncompatibleTypesError(TypeError):
