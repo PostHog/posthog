@@ -208,6 +208,7 @@ the row lists both.
 | temporalio        | gRPC (vendor SDK)           | temporalio (`Client`, Rust core via `temporalio.bridge`)        | ⚠️                          |
 | thinkific         | HTTP                        | requests                                                        | ✅                          |
 | tiktok_ads        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| tmdb              | HTTP                        | requests                                                        | ✅                          |
 | todoist           | HTTP                        | requests                                                        | ✅                          |
 | trello            | HTTP                        | requests                                                        | ✅                          |
 | twilio            | HTTP                        | requests                                                        | ✅                          |
@@ -662,7 +663,6 @@ doesn't conflict with concurrent PRs.
 - tile38
 - timely
 - tinyemail
-- tmdb
 - toggl
 - track_pms
 - tremendous
