@@ -1790,7 +1790,7 @@ class MailerLiteSourceConfig(config.Config):
 
 @config.config
 class MailerSendSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -2158,7 +2158,7 @@ class OracleSourceConfig(config.Config):
 
 @config.config
 class OrbSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2949,7 +2949,7 @@ class StatsigSourceConfig(config.Config):
 
 @config.config
 class StatuspageSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3055,7 +3055,8 @@ class TeamtailorSourceConfig(config.Config):
 
 @config.config
 class TeamworkSourceConfig(config.Config):
-    pass
+    site: str
+    api_key: str
 
 
 @config.config
@@ -3307,7 +3308,8 @@ class WorkOSSourceConfig(config.Config):
 
 @config.config
 class WorkableSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_token: str
 
 
 @config.config
