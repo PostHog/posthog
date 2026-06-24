@@ -5,8 +5,8 @@
 **ReviewHog** (`products/review_hog`) is an automated GitHub PR code reviewer. It is a Django app
 (`backend/apps.py`, label `review_hog`, module `products.review_hog.backend`) driven by a single
 management command — there is **no API, viewset, model, or frontend** yet. A run fetches a PR from
-GitHub, splits it into logically reviewable **chunks**, runs a **three-pass LLM review** of each chunk
-inside **sandbox agents**, then combines → scope-cleans → deduplicates → validates the findings, renders
+GitHub, splits it into logically reviewable **chunks**, runs a **three-lens parallel LLM review** of each
+chunk inside **sandbox agents**, then combines → scope-cleans → deduplicates → validates the findings, renders
 a markdown report, and posts inline review comments back to the PR.
 
 Every LLM step runs inside a **sandbox agent** spawned through the shared `products/tasks` infrastructure
@@ -180,7 +180,7 @@ team/user/repository; tests updated & green; `ruff check products/review_hog/` c
 
 The orchestration lives in `backend/reviewer/run.py` (`async def main(pr_url)`), a flat sequential async
 function. Steps that fan out over chunks use `asyncio.gather`; all sandbox calls are globally throttled to
-`MAX_CONCURRENT_SANDBOXES = 5` (`constants.py`) via one module-level semaphore in `executor.py`. Most steps
+`MAX_CONCURRENT_SANDBOXES` (`constants.py`) via one module-level semaphore in `executor.py`. Most steps
 are **idempotent** — they skip work whose output file already exists, so a failed run can be re-run and will
 resume.
 
@@ -268,7 +268,8 @@ deduplication, validation) call it with a prompt, the Pydantic model to validate
 
 `run_sandbox_review(prompt, system_prompt, branch, output_path, model_to_validate, step_name)`:
 
-1. Acquires the global `_sandbox_semaphore` (`asyncio.Semaphore(MAX_CONCURRENT_SANDBOXES)`), so ≤5 sandbox
+1. Acquires the global `_sandbox_semaphore` (`asyncio.Semaphore(MAX_CONCURRENT_SANDBOXES)`), so at most
+   `MAX_CONCURRENT_SANDBOXES` sandbox
    agents run at once **per process** (in-memory; not cross-worker).
 2. Concatenates `full_prompt = f"{system_prompt}\n\n{prompt}"` — there is no separate system role; the agent
    receives one combined prompt.
@@ -413,11 +414,24 @@ entry `reviews/`). Per-run files:
 
 ## Known issues & tech debt
 
-Found during the Stage 1 analysis; **documented, not fixed** (most are Stage 2+ work):
+Found during Stage 1 analysis and the first parallel run (PR #65862); **documented, not fixed**:
 
+- **TODO — transient sandbox timeout silently drops a review.** On the #65862 run, the Performance lens ×
+  chunk-1 returned `API Error: The operation timed out.` and was dropped (11/12 `(lens × chunk)` reviews
+  landed). There is **no retry** for transient sandbox/agent errors, and the failure is swallowed by the
+  "log-and-return on partial failure" behavior below — so one timed-out lens silently removes a whole
+  specialty's view of a chunk. Fix: bounded retry on transient sandbox errors in `run_sandbox_review`, and
+  surface the dropped `(lens × chunk)` loudly (or fail the stage) rather than swallowing it.
+- **TODO — lens fan-out back-loads the last lens.** `review_chunks` builds the gather in lens order (all
+  Logic chunks, then all Contracts, then all Performance); with a FIFO semaphore the 3rd lens queues at the
+  back, so on #65862 the Performance reviews finished last (+183/+444/+514s vs Logic/Contracts up front). It
+  is genuinely parallel, but not balanced per-chunk. Fix: interleave the task list by chunk
+  (`L1c1, L2c1, L3c1, L1c2, …`) so a chunk's three lenses co-schedule. (Raising `MAX_CONCURRENT_SANDBOXES`
+  partly mitigates by leaving fewer tasks queued.)
 - **Neutered validation parallelism** — `issue_validation.create_validation_task` is `async` and `await`s
   `run_validation` while the task list is being _built_, so the "batches of 10" `asyncio.gather` operates on
-  already-resolved booleans. Effective per-issue concurrency is only the global semaphore (5); the batching
+  already-resolved booleans. Effective per-issue concurrency is only the global semaphore
+  (`MAX_CONCURRENT_SANDBOXES`); the batching
   does nothing.
 - **Duplicate report generation** — step 12 (`prepare_validation_markdown`) and step 13 (`publish_review`)
   independently rebuild essentially the same validation report from disk, with **divergent strictness**: the
