@@ -654,14 +654,36 @@ function RunDetail({
                         {record.invocation_id}
                     </CopyToClipboardInline>
                 </DetailField>
-                {record.started_at ? <DetailField label="Started" mono value={record.started_at} /> : null}
-                {record.finished_at ? <DetailField label="Finished" mono value={record.finished_at} /> : null}
-                {record.parent_run_id ? <DetailField label="Parent run" mono value={record.parent_run_id} /> : null}
+                {record.started_at ? (
+                    <DetailField label="Started">
+                        <TZLabel time={record.started_at} />
+                    </DetailField>
+                ) : null}
+                {record.finished_at ? (
+                    <DetailField label="Finished">
+                        <TZLabel time={record.finished_at} />
+                    </DetailField>
+                ) : null}
+                {record.parent_run_id ? (
+                    <DetailField label="Parent run" mono>
+                        <CopyToClipboardInline explicitValue={record.parent_run_id} selectable>
+                            {record.parent_run_id}
+                        </CopyToClipboardInline>
+                    </DetailField>
+                ) : null}
                 {isRerunWrapper ? null : record.distinct_id ? (
-                    <DetailField label="Distinct ID" mono value={record.distinct_id} />
+                    <DetailField label="Distinct ID" mono>
+                        <CopyToClipboardInline explicitValue={record.distinct_id} selectable>
+                            {record.distinct_id}
+                        </CopyToClipboardInline>
+                    </DetailField>
                 ) : null}
                 {isRerunWrapper ? null : record.person_id ? (
-                    <DetailField label="Person ID" mono value={record.person_id} />
+                    <DetailField label="Person ID" mono>
+                        <CopyToClipboardInline explicitValue={record.person_id} selectable>
+                            {record.person_id}
+                        </CopyToClipboardInline>
+                    </DetailField>
                 ) : null}
             </div>
 
