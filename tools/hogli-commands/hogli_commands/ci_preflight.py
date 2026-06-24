@@ -22,12 +22,14 @@ from __future__ import annotations
 
 import os
 import json
+import time
 import shutil
 import socket
+import fnmatch
 import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime
-from pathlib import PurePath
+from pathlib import Path
 from typing import Any, Literal
 
 import click
@@ -35,6 +37,7 @@ from hogli import telemetry
 from hogli.hooks import telemetry_property_hooks
 from hogli.manifest import REPO_ROOT
 
+from hogli_commands.build import TRIGGERS as BUILD_TRIGGERS
 from hogli_commands.test_runner import _get_changed_files
 
 Requirement = Literal["node", "stack"]
@@ -46,7 +49,7 @@ class Check:
 
     key: str
     label: str  # the CI failure class this intercepts
-    triggers: list[str]  # PurePath.match globs against changed paths
+    triggers: list[str]  # fnmatch globs against changed paths (`*` spans `/`, as in build.py)
     verify: list[str] | None  # advisory command; None = guidance only (no runnable local check)
     fix: list[str] | None = None  # remediation for --fix
     requires: Requirement | None = None  # capability the check needs, else it skips
@@ -61,7 +64,7 @@ CHECKS: list[Check] = [
     Check(
         key="lockfile",
         label="broken pnpm-lock.yaml (blocks ALL CI)",
-        triggers=["package.json", "**/package.json", "pnpm-lock.yaml"],
+        triggers=["package.json", "*/package.json", "pnpm-lock.yaml"],
         verify=["pnpm", "install", "--frozen-lockfile"],
         fix=["pnpm", "install", "--no-frozen-lockfile"],
         requires="node",
@@ -69,7 +72,7 @@ CHECKS: list[Check] = [
     Check(
         key="ruff-lint",
         label="Python lint (ruff check)",
-        triggers=["**/*.py"],
+        triggers=["*.py"],
         verify=["ruff", "check"],
         fix=["ruff", "check", "--fix"],
         takes_files=True,
@@ -77,7 +80,7 @@ CHECKS: list[Check] = [
     Check(
         key="ruff-format",
         label="Python format (ruff format)",
-        triggers=["**/*.py"],
+        triggers=["*.py"],
         verify=["ruff", "format", "--check"],
         fix=["ruff", "format"],
         takes_files=True,
@@ -98,7 +101,8 @@ CHECKS: list[Check] = [
     Check(
         key="openapi",
         label="OpenAPI types out of date (frontend/MCP drift)",
-        triggers=["posthog/**/api/**/*.py", "**/serializers*.py", "products/**/backend/**/*.py"],
+        # From build.py so preflight and build:openapi can't drift on which diffs need a regen.
+        triggers=list(BUILD_TRIGGERS["build:openapi"]),
         # Drift detection regenerates then diffs — needs the DB. Guidance-only here.
         verify=None,
         fix=["hogli", "build:openapi"],
@@ -107,7 +111,7 @@ CHECKS: list[Check] = [
     Check(
         key="migrations",
         label="migration conflict / orphaned migration",
-        triggers=["**/migrations/*.py"],
+        triggers=["*/migrations/*.py"],
         verify=["hogli", "migrations:check"],
         requires="stack",
     ),
@@ -115,24 +119,29 @@ CHECKS: list[Check] = [
 
 
 def _changed(against: str | None) -> list[str]:
-    """Files the branch touches. Reuses test_runner's logic for the default base so
-    `ci:preflight` and `test --changed` agree on 'what changed'."""
+    """Files the branch touches, including uncommitted work. The default base reuses
+    test_runner's logic so `ci:preflight` and `test --changed` agree on 'what changed';
+    on master (no branch to diff) there's simply nothing to preflight."""
     if against is None:
-        return _get_changed_files()
-    out = subprocess.run(
+        try:
+            return _get_changed_files()
+        except click.UsageError:
+            return []  # on master / detached HEAD: no branch diff to check
+    diff = subprocess.run(
         ["git", "diff", "--name-only", f"{against}...HEAD"],
         cwd=REPO_ROOT,
         capture_output=True,
         text=True,
-    ).stdout
-    return sorted({line for line in out.splitlines() if line})
-
-
-def _matches(path: str, pattern: str) -> bool:
-    if PurePath(path).match(pattern):
-        return True
-    # PurePath.match anchors '**' oddly; also try the tail pattern for '**/x'.
-    return pattern.startswith("**/") and PurePath(path).match(pattern[3:])
+    )
+    if diff.returncode != 0:
+        raise click.UsageError(f"git diff against {against!r} failed: {diff.stderr.strip()}")
+    files = {line for line in diff.stdout.splitlines() if line}
+    # Fold in uncommitted/untracked work too, matching the default path.
+    status = subprocess.run(
+        ["git", "status", "--porcelain", "--no-renames"], cwd=REPO_ROOT, capture_output=True, text=True
+    )
+    files.update(line[3:] for line in status.stdout.splitlines() if len(line) > 3)
+    return sorted(files)
 
 
 def _has_node_modules() -> bool:
@@ -160,36 +169,37 @@ Status = Literal["pass", "fail", "advisory", "skipped"]
 
 
 def _run_check(chk: Check, do_fix: bool) -> tuple[Status, str]:
-    if not _capability_met(chk.requires):
-        return "skipped", f"needs {chk.requires} (Tier 1)"
     if do_fix and chk.fix is not None:
         cmd = list(chk.fix)
     elif chk.verify is not None:
         cmd = list(chk.verify)
     else:
+        # Guidance-only: advise regardless of capability, so the hint shows on a bare checkout.
         return "advisory", f"run `{' '.join(chk.fix or [])}` and commit drift"
+    if not _capability_met(chk.requires):
+        return "skipped", f"needs {chk.requires}"
     if chk.takes_files:
-        cmd += chk.matched
+        # Drop deleted paths: ruff (and friends) error E902 on a path that no longer exists.
+        present = [f for f in chk.matched if (REPO_ROOT / f).exists()]
+        if not present:
+            return "skipped", "only deleted files"
+        cmd += present
     if shutil.which(cmd[0]) is None:
         return "skipped", f"{cmd[0]} not found"
     result = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True)
     if result.returncode == 0:
         return "pass", "fixed" if do_fix else "ok"
-    detail = (result.stdout or result.stderr).strip().splitlines()
-    return "fail", detail[-1] if detail else f"exit {result.returncode}"
+    lines = (result.stdout or result.stderr).strip().splitlines()
+    return "fail", " · ".join(lines[:3]) if lines else f"exit {result.returncode}"
 
 
-# Branch-freshness defaults. A branch far behind master accumulates semantic
-# conflicts and generated-file drift (migrations, OpenAPI, lockfile), and lags CI
-# workflow changes that assume a rebased base — all of which only surface at PR
-# time. Merging master in early defuses them. Advisory only; never auto-merged (a
-# merge can conflict and is the human/agent's call). Deliberately aggressive:
-# master moves fast (hundreds of commits/day), so even a day-old branch is worth
-# re-syncing before a push. Env-tunable; calibrate from the `behind_commits` /
-# `branch_age_days` telemetry below.
+# Branch-freshness thresholds. Aggressive on purpose: master moves hundreds of
+# commits/day, so a stale branch hits merge conflicts and generated-file drift.
+# Advisory only (never auto-merged). Env-tunable; calibrate from telemetry.
 _MASTER_REF = "origin/master"
 _STALE_COMMITS_DEFAULT = 10
 _STALE_DAYS_DEFAULT = 1
+_FETCH_TTL_SECONDS = 600  # skip re-fetching origin/master if refreshed this recently
 
 
 def _git(*args: str, timeout: float = 5.0) -> str | None:
@@ -199,6 +209,20 @@ def _git(*args: str, timeout: float = 5.0) -> str | None:
     except (OSError, subprocess.SubprocessError):
         return None
     return result.stdout.strip() if result.returncode == 0 else None
+
+
+def _fetch_master() -> None:
+    """Refresh origin/master for an accurate behind-count, skipping the fetch if done
+    recently (the agent loop reruns preflight often). Offline → keep the local ref."""
+    head = _git("rev-parse", "--git-path", "FETCH_HEAD")
+    if head:
+        marker = Path(head) if Path(head).is_absolute() else REPO_ROOT / head
+        try:
+            if time.time() - marker.stat().st_mtime < _FETCH_TTL_SECONDS:
+                return
+        except OSError:
+            pass
+    _git("fetch", "--quiet", "origin", "master", timeout=10.0)
 
 
 def _env_int(var: str, default: int) -> int:
@@ -221,20 +245,15 @@ def _commit_age_days(ref: str) -> int | None:
 
 
 def _staleness() -> tuple[Status, str, dict[str, Any]]:
-    """How far the branch has drifted from master, independent of the diff.
-
-    Best-effort ``git fetch`` so the count reflects real master movement; falls
-    back to the local ref when offline, and skips when there's no merge-base
-    (fresh clone, no remote). On PostHog's squash-merge master, commits behind ≈
-    PRs merged since the branch last synced. Returns (status, detail, telemetry props).
-    """
-    _git("fetch", "--quiet", "origin", "master", timeout=10.0)  # best-effort; offline falls back to local ref
+    """How far the branch has drifted from master, independent of the diff. On
+    squash-merge master, commits behind ≈ PRs merged since the branch last synced.
+    Returns (status, detail, telemetry props)."""
+    _fetch_master()
     merge_base = _git("merge-base", "HEAD", _MASTER_REF)
     if not merge_base:
         return "skipped", f"no merge-base with {_MASTER_REF}", {"stale": None}
 
-    # Commits on master the branch doesn't have = how far behind. Zero means the
-    # branch already contains master's tip (up to date or ahead), so age is moot.
+    # Commits on master we don't have = how far behind; 0 means up to date.
     count = _git("rev-list", "--count", f"{merge_base}..{_MASTER_REF}")
     behind = int(count) if count and count.isdigit() else 0
     if behind == 0:
@@ -261,15 +280,11 @@ _COLOR: dict[Status, str] = {"pass": "green", "fail": "red", "advisory": "yellow
 
 
 def _emit_telemetry(summary: dict[str, Any]) -> None:
-    """Emit a ``ci_preflight_run`` event so we can measure failures intercepted
-    locally vs. what would otherwise reach CI — the signal that says whether this
-    is worth keeping. Folds in the standard dev-context properties (agent,
-    environment, repo sha) so the event is self-contained for analysis.
-
-    Rides on hogli's telemetry opt-out: ``track()`` no-ops when telemetry is
-    inactive, so this already respects ``POSTHOG_TELEMETRY_OPT_OUT`` /
-    ``DO_NOT_TRACK`` / ``hogli telemetry:off`` / CI auto-off. No new consent surface.
-    """
+    """Emit ``ci_preflight_run`` to measure failures intercepted locally vs. what
+    would reach CI. Gated on ``is_active()`` first so an opt-out/CI run doesn't fork
+    the ``gh``/``git`` property hooks for an event ``track()`` would drop anyway."""
+    if not telemetry.is_active():
+        return
     keys = ("changed_files", "triggered", "failures", "mode", "stale", "behind_commits", "branch_age_days")
     props: dict[str, Any] = {k: summary[k] for k in keys if k in summary}
     props["results"] = {r["check"]: r["status"] for r in summary["results"]}
@@ -298,7 +313,7 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
 
     triggered: list[Check] = []
     for chk in CHECKS:
-        chk.matched = [f for f in files if any(_matches(f, t) for t in chk.triggers)]
+        chk.matched = [f for f in files if any(fnmatch.fnmatch(f, t) for t in chk.triggers)]
         if chk.matched:
             triggered.append(chk)
 
