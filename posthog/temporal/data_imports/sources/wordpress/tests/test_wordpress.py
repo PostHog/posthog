@@ -69,6 +69,19 @@ class TestNormalizeHost:
             ("https://example.com/wp-json/wp/v2", "https://example.com"),
             ("https://example.com/wp-json", "https://example.com"),
             ("http://example.com:8080/wp-json/wp/v2/", "http://example.com:8080"),
+            # Subdirectory installs keep their base path.
+            ("https://example.com/blog", "https://example.com/blog"),
+            ("https://example.com/blog/wp-json/wp/v2", "https://example.com/blog"),
+            # Scheme and host are lower-cased.
+            ("HTTPS://Example.COM/", "https://example.com"),
+            # Query, fragment, params, or embedded credentials are rejected outright — they could
+            # redirect the worker's requests elsewhere on the allowed host (SSRF).
+            ("https://example.com/?redirect=internal", ""),
+            ("https://example.com/path?x=1", ""),
+            ("https://example.com/#frag", ""),
+            ("https://example.com/path;params", ""),
+            ("https://user:pass@example.com/", ""),
+            ("https://attacker@example.com/", ""),
         ],
     )
     def test_normalize_host(self, raw, expected):

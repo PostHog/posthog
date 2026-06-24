@@ -51,19 +51,36 @@ class WordpressResumeConfig:
 def normalize_host(site_url: str | None) -> str:
     """Turn whatever the user typed into a bare WordPress site base URL.
 
-    Accepts ``example.com``, ``https://example.com/``, or
-    ``https://example.com/wp-json/wp/v2`` and returns ``https://example.com``.
-    Defaults to https when no scheme is given.
+    Accepts ``example.com``, ``https://example.com/``,
+    ``https://example.com/wp-json/wp/v2``, or a subdirectory install such as
+    ``https://example.com/blog`` and returns the bare base URL. Defaults to
+    https when no scheme is given.
+
+    Returns ``""`` for input carrying a query string, fragment, params, or
+    embedded credentials: those have no place in a site base URL, and since the
+    result is later concatenated with the REST path and sent by the worker,
+    preserving them would let a caller smuggle an arbitrary request target past
+    the host-only SSRF guard.
     """
-    host = (site_url or "").strip()
-    if not host:
+    raw = (site_url or "").strip()
+    if not raw:
         return ""
-    if not re.match(r"^https?://", host, flags=re.IGNORECASE):
-        host = f"https://{host}"
-    host = host.rstrip("/")
+    if not re.match(r"^https?://", raw, flags=re.IGNORECASE):
+        raw = f"https://{raw}"
+
+    parsed = urlparse(raw)
+    # Only scheme/host[:port]/path belong in a site base URL — anything else could redirect the
+    # worker's requests elsewhere on the allowed host (SSRF), so reject rather than silently strip.
+    if parsed.query or parsed.fragment or parsed.params or parsed.username or parsed.password:
+        return ""
+    if not parsed.hostname:
+        return ""
+
+    path = parsed.path.rstrip("/")
     # Tolerate a pasted REST root. The regex strips a non-slash suffix, so no trailing slash remains.
-    host = re.sub(r"/wp-json(/wp/v2)?$", "", host, flags=re.IGNORECASE)
-    return host
+    path = re.sub(r"/wp-json(/wp/v2)?$", "", path, flags=re.IGNORECASE)
+
+    return f"{parsed.scheme.lower()}://{parsed.netloc.lower()}{path}"
 
 
 def _base_url(site_url: str | None) -> str:
