@@ -1,3 +1,4 @@
+import sys
 import logging
 from pathlib import Path
 
@@ -22,6 +23,23 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(level
 # Review output directory relative to the review_hog product
 _REVIEW_HOG_DIR = Path(__file__).parent.parent.parent
 
+_TOTAL_STAGES = 9
+
+
+def _emit(message: str) -> None:
+    """Write a user-facing progress line straight to stdout.
+
+    The reviewer's INFO logs are not surfaced by the Django/structlog console config, so stage
+    progress goes to stdout directly; the flush makes each line appear before its (slow) work runs.
+    """
+    sys.stdout.write(f"{message}\n")
+    sys.stdout.flush()
+
+
+def _stage(number: int, label: str) -> None:
+    """Emit a one-line, numbered banner so the current pipeline stage is obvious in the console."""
+    _emit(f"━━━━━ STAGE {number}/{_TOTAL_STAGES} · {label} ━━━━━")
+
 
 # TODO: Make it a parent workflow and spawn steps as child workflows for better visualization
 async def main(pr_url: str) -> None:
@@ -36,13 +54,15 @@ async def main(pr_url: str) -> None:
     owner = str(pr_info["owner"])
     repo = str(pr_info["repo"])
     pr_number = int(pr_info["pr_number"])
-    logger.info(f"Processing PR #{pr_number} from {owner}/{repo}")
+    repository = f"{owner}/{repo}"
+    _emit(f"═════ ReviewHog · reviewing PR #{pr_number} · {repository} ═════")
 
     # 2. Create output directory (if doesn't exist)
     review_dir = _REVIEW_HOG_DIR / "reviews" / str(pr_number)
     review_dir.mkdir(parents=True, exist_ok=True)
 
     # 3. Fetch PR data from GitHub
+    _stage(1, "Fetch PR data")
     try:
         pr_metadata, pr_comments, pr_files = PRFetcher(
             owner=owner, repo=repo, pr_number=pr_number, review_dir=str(review_dir)
@@ -52,14 +72,13 @@ async def main(pr_url: str) -> None:
         raise
 
     branch = pr_metadata.head_branch
-    repository = f"{owner}/{repo}"
 
     # 4. Generate schemas
     logger.info("Generating schemas...")
     generate_all_schemas()
 
     # 5. Split PR into chunks
-    logger.info("Splitting PR into chunks...")
+    _stage(2, "Split into chunks")
     await split_pr_into_chunks(
         pr_metadata=pr_metadata,
         pr_comments=pr_comments,
@@ -75,7 +94,7 @@ async def main(pr_url: str) -> None:
         chunks_data = ChunksList.model_validate_json(f.read())
 
     # 7. Analyze chunks to better understand their logic/architecture
-    logger.info("Starting chunk analysis process...")
+    _stage(3, "Analyze chunks")
     await analyze_chunks(
         chunks_data=chunks_data,
         pr_metadata=pr_metadata,
@@ -87,7 +106,7 @@ async def main(pr_url: str) -> None:
     )
 
     # 8. Find issues in each chunk in multiple passes
-    logger.info("Starting issues review process...")
+    _stage(4, "Review chunks (3 passes)")
     await review_chunks(
         chunks_data=chunks_data,
         pr_metadata=pr_metadata,
@@ -100,7 +119,7 @@ async def main(pr_url: str) -> None:
     logger.info("Issues review completed successfully!")
 
     # 9. Combine issues found in all passes
-    logger.info("Combining issues found in all passes...")
+    _stage(5, "Combine & scope-clean issues")
     combine_issues(review_dir=review_dir)
 
     # 10. Clean issues based on PR scope
@@ -108,7 +127,7 @@ async def main(pr_url: str) -> None:
     clean_issues(review_dir=review_dir)
 
     # 11. Deduplicate issues found in all passes
-    logger.info("Starting issue deduplication process...")
+    _stage(6, "Deduplicate issues")
     await deduplicate_issues(
         pr_metadata=pr_metadata,
         review_dir=review_dir,
@@ -118,7 +137,7 @@ async def main(pr_url: str) -> None:
     logger.info("Issue deduplication completed successfully!")
 
     # 12. Validate issues found in all passes
-    logger.info("Starting issue validation process...")
+    _stage(7, "Validate issues")
     await validate_issues(
         chunks_data=chunks_data,
         pr_metadata=pr_metadata,
@@ -130,7 +149,7 @@ async def main(pr_url: str) -> None:
     logger.info("Issue validation completed successfully!")
 
     # 13. Prepare validation markdown documents
-    logger.info("Preparing validation markdown documents...")
+    _stage(8, "Build report")
     await prepare_validation_markdown(
         chunks_data=chunks_data,
         review_dir=review_dir,
@@ -139,6 +158,7 @@ async def main(pr_url: str) -> None:
     logger.info("Validation markdown preparation completed successfully!")
 
     # 14. Publish review to GitHub
+    _stage(9, "Publish review")
     if PUBLISH_REVIEW_ENABLED:
         logger.info("Publishing review to GitHub...")
         publish_review(
@@ -149,4 +169,6 @@ async def main(pr_url: str) -> None:
         )
         logger.info("Review published successfully!")
     else:
-        logger.info(f"Publishing disabled (PUBLISH_REVIEW_ENABLED=False); report at {review_dir / 'review_report.md'}")
+        logger.info("Publishing disabled (PUBLISH_REVIEW_ENABLED=False)")
+
+    _emit(f"═════ ReviewHog complete · report: {review_dir / 'review_report.md'} ═════")
