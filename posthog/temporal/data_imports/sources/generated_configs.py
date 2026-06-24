@@ -3306,7 +3306,9 @@ class WooCommerceSourceConfig(config.Config):
 
 @config.config
 class WordpressSourceConfig(config.Config):
-    pass
+    site_url: str
+    username: str | None = None
+    application_password: str | None = None
 
 
 @config.config
