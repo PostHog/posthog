@@ -6,12 +6,16 @@ from posthog.exceptions_capture import capture_exception
 
 
 class ProcessTaskError(ApplicationError):
-    def __init__(self, message: str, context: dict[str, Any], cause: Optional[Exception], **kwargs):
+    def __init__(
+        self, message: str, context: dict[str, Any], cause: Optional[BaseException], capture: bool = True, **kwargs
+    ):
         self.context = context or {}
         if "team" not in self.context:
             self.context["team"] = "array"
 
-        if cause is not None:
+        # `capture=False` skips error-tracking capture for expected, recoverable failures
+        # (e.g. transient infra timeouts that Temporal retries) so they don't create noisy issues.
+        if cause is not None and capture:
             capture_exception(cause, self.context)
 
         super().__init__(message, self.context, **kwargs)
@@ -27,7 +31,7 @@ class ProcessTaskFatalError(ProcessTaskError):
 class ProcessTaskTransientError(ProcessTaskError):
     """Transient errors that may succeed on retry."""
 
-    def __init__(self, message: str, context: dict[str, Any], cause: Exception, **kwargs):
+    def __init__(self, message: str, context: dict[str, Any], cause: BaseException, **kwargs):
         super().__init__(message, context, cause, non_retryable=False, **kwargs)
 
 
@@ -89,6 +93,12 @@ class SnapshotNotReadyError(ProcessTaskTransientError):
 
 class SnapshotCreationError(ProcessTaskTransientError):
     """Failed to create snapshot."""
+
+    pass
+
+
+class SnapshotTimeoutError(ProcessTaskTransientError):
+    """Transient timeout/connection error while creating a snapshot; safe to retry."""
 
     pass
 
