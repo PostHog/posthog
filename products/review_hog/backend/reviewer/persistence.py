@@ -66,36 +66,33 @@ def upsert_review_report(*, team_id: int, repository: str, pr_url: str, pr_metad
 
 def persist_findings(*, team_id: int, report_id: str, review_dir: Path) -> int:
     """Append the canonical post-dedup findings as `issue_finding` artefacts. Returns the count."""
-    drafts: list[ReviewIssueFinding] = []
-    for issue in _load_issues(review_dir):
-        try:
-            drafts.append(_to_finding(issue))
-        except ValidationError as e:
-            logger.warning("Skipping finding %s that failed durable validation: %s", issue.id, e)
-    if not drafts:
+    pairs = _persistable_findings(review_dir)
+    if not pairs:
         return 0
     with transaction.atomic():
-        for finding in drafts:
+        for _issue, finding in pairs:
             ReviewReportArtefact.append_finding(
                 team_id=team_id, report_id=report_id, content=finding, attribution=ArtefactAttribution.system()
             )
-    return len(drafts)
+    return len(pairs)
 
 
 def persist_verdicts(*, team_id: int, report_id: str, review_dir: Path) -> int:
-    """Append each finding's validation verdict as a `validation_verdict` artefact. Returns the count.
+    """Append each persisted finding's validation verdict as a `validation_verdict` artefact.
 
-    Each verdict carries the same `issue_key` as its finding so latest-wins pairs them at read time.
+    A verdict reuses its finding's `issue_key` (so latest-wins pairs them 1:1) and is only written
+    for an issue that produced a finding and has a validation summary on disk — the finding schema
+    is stricter than the verdict schema, so a verdict with no finding would dangle. Returns the count.
     """
     drafts: list[ValidationVerdict] = []
-    for issue in _load_issues(review_dir):
+    for issue, finding in _persistable_findings(review_dir):
         validation = _load_validation(review_dir, issue)
         if validation is None:
             continue
         try:
             drafts.append(
                 ValidationVerdict(
-                    issue_key=_issue_key(issue),
+                    issue_key=finding.issue_key,
                     is_valid=validation.is_valid,
                     category=validation.category,
                     argumentation=validation.argumentation,
@@ -126,14 +123,32 @@ def finalize_review_report(*, team_id: int, report_id: str, review_dir: Path) ->
 
 
 def _issue_key(issue: Issue) -> str:
-    """Stable identity for a finding (heuristic: file + first line + lens).
+    """Identity for a finding, shared by its verdict so they pair 1:1.
 
-    Used for both the finding and its verdict so latest-wins can pair them. Robust cross-turn
-    identity (line numbers shift as a PR evolves) is a loop-phase concern, not step 5.
+    Built from the pipeline's unique issue id (`{pass}-{chunk}-{issue}`) behind a readable
+    file/line/lens prefix — the id makes the key unique within a turn, so two distinct findings on
+    the same line from the same lens don't collapse and shadow each other. Robust cross-turn
+    identity (the id is reassigned each turn and line numbers shift as the PR evolves) needs
+    semantic matching and is a loop-phase concern, not step 5.
     """
     start = issue.lines[0].start if issue.lines else 0
     lens = issue.source_lens or "unknown"
-    return f"{issue.file}:{start}:{lens}"
+    return f"{issue.file}:{start}:{lens}:{issue.id}"
+
+
+def _persistable_findings(review_dir: Path) -> list[tuple[Issue, ReviewIssueFinding]]:
+    """Pair each canonical issue with its durable finding, dropping any that fail durable validation.
+
+    Shared by both persist passes so a verdict is only ever written for an issue that produced a
+    finding (the finding schema is stricter than the verdict schema).
+    """
+    pairs: list[tuple[Issue, ReviewIssueFinding]] = []
+    for issue in _load_issues(review_dir):
+        try:
+            pairs.append((issue, _to_finding(issue)))
+        except ValidationError as e:
+            logger.warning("Skipping finding %s that failed durable validation: %s", issue.id, e)
+    return pairs
 
 
 def _to_finding(issue: Issue) -> ReviewIssueFinding:

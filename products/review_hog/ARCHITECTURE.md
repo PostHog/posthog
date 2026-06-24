@@ -177,11 +177,12 @@ state + cloud persistence is its own effort — now **Stage 3** below.
 
 ### 🔭 Stage 3 — durable persistence & the loop-y review (cloud)
 
-> **Status: DB foundation built (steps 1–4 + model tests); persistence wiring (steps 5–7) not yet started.**
-> The two new tables, the artefact funnel/registry, the Signals leaf move, the tach block, and the `0001`
-> migration are in place and green (lint + tach + makemigrations + 5 model tests pass). What remains is wiring
-> the live `reviews/<pr>/` pipeline onto the rows (step 5), threading a real `team_id`/`user_id` (step 6), and
-> routing large blobs to object storage (step 7) — see the checklist below.
+> **Status: foundation + persist-after-success built (steps 1–5); steps 6–7 not yet started.**
+> The two tables, the artefact funnel/registry, the Signals leaf move, the tach block, the `0001`
+> migration, and now the persistence layer (`reviewer/persistence.py`, wired into `run.py`) are in place
+> and green (lint + tach + 131 ReviewHog backend tests pass). What remains is threading a real
+> `team_id`/`user_id` from a cloud trigger (step 6) and routing large blobs to object storage (step 7) —
+> see the checklist below.
 
 **Why.** Today every run writes Pydantic-serialized JSON/MD to a gitignored `reviews/<pr_number>/` tree — no
 DB, no `team_id`, no run identity (a "run" is just the PR-number directory). That blocks two things: running
@@ -275,9 +276,12 @@ gives the fail-closed `TeamScopedManager` + canonical-team `save()`; the subclas
 
 Content schemas (`products/review_hog/backend/reviewer/artefact_content.py`, pydantic):
 
-- **`ReviewIssueFinding`** — `file`, `start_line` / `end_line`, a stable `issue_key` (e.g. `file+anchor+lens`),
-  `title`, `body`, `suggestion`, `priority`, `source_lens`, `is_directly_related_to_changes`. **Latest-wins per
-  `issue_key`** across turns → still-valid / resolved / newly-appeared.
+- **`ReviewIssueFinding`** — `file`, `lines`, an `issue_key`, `title`, `body`, `suggestion`, `priority`,
+  `source_lens`, `is_directly_related_to_changes`. A verdict reuses its finding's `issue_key` so **latest-wins
+  per `issue_key`** pairs them 1:1. The key is `file:start:lens:{pass}-{chunk}-{issue}` — the trailing
+  pipeline id keeps it **unique within a turn** (two distinct findings on the same line from the same lens must
+  not collapse and shadow each other). Robust **cross-turn** identity (still-valid / resolved / newly-appeared)
+  needs semantic matching, not a positional id that's reassigned each turn — deferred to the loop phase.
 - **`ValidationVerdict`** — `issue_key`, `is_valid`, `category`, `argumentation` (latest-wins per issue).
 - Reuse `Commit` / `CodeReference` / `TaskRunArtefact` / `NoteArtefact` from the Signals leaf for the
   commit / code-pointer / turn / note entries.
@@ -309,9 +313,19 @@ stays on sandbox disk.
 4. ✅ **Migration:** `0001_initial` generated via `makemigrations review_hog` (two additive `CREATE TABLE`s + indexes
    - the `(team, repository, pr_number)` unique constraint); `sqlmigrate` clean, drift check clean, `max_migration.txt`
      pinned. Fail-closed by birth via `TeamScopedRootMixin` (nothing added to `baseline_unmigrated.txt`).
-5. **Persist-after-success:** swap the `reviews/<pr>/` filesystem writes for row writes — upsert `ReviewReport`
-   by `(team, repository, pr_number)`, append `ReviewReportArtefact`s in a narrow `transaction.atomic()` after
-   each sandbox stage/turn succeeds (mirror Signals' `run_agentic_report_activity`). Scratch stays on disk.
+5. ✅ **Persist-after-success:** added `reviewer/persistence.py`, wired into `run.py` (the file-based
+   `reviews/<pr>/` tree stays as sandbox scratch). After fetch it resolves the team via the now-public
+   `executor.resolve_sandbox_context` and `upsert_review_report` (idempotent on `(team, repository, pr_number)`,
+   via `for_team` since the orchestrator is outside request context). After dedup it persists the canonical
+   `issues_found.json` as `issue_finding` artefacts; after validation, the verdicts as `validation_verdict`s;
+   after the report builds, `finalize_review_report` stores the markdown and bumps `run_count` / `last_run_at`.
+   Each append batch runs in a narrow `transaction.atomic()`; the async orchestrator calls the sync helpers via
+   `sync_to_async`. **Attribution is `system()`** — a combined/deduped finding is aggregated across many sandbox
+   tasks, so no single task produced it. A shared `_persistable_findings` gate means a verdict is only written
+   for an issue that produced a finding (the finding schema is stricter), and the verdict reuses that finding's
+   `issue_key`. **Deferred (data not yet plumbed):** the `task_run` / `commit` / `note` work-log artefacts and
+   the `head_sha` / `last_seen_comment_id` watermark — they need per-call task ids, commit SHAs, and comment ids
+   that the current pipeline doesn't surface; they land with the loop-y turn tracking.
 6. **team/user:** thread a real `team_id` / `user_id` (replacing the hardcoded `_CLOUD_TEAM_ID=2` /
    `_CLOUD_USER_ID` in `executor.py`) from the trigger; pass explicitly until the cloud trigger exists.
 7. **Large blobs:** route diffs / large prompts to `object_storage` by key (or re-fetch via `get_diff`).
@@ -443,12 +457,14 @@ deduplication, validation) call it with a prompt, the Pydantic model to validate
    agents run at once **per process** (in-memory; not cross-worker).
 2. Concatenates `full_prompt = f"{system_prompt}\n\n{prompt}"` — there is no separate system role; the agent
    receives one combined prompt.
-3. Resolves a `CustomPromptSandboxContext` via `_resolve_context()`:
+3. Resolves a `CustomPromptSandboxContext` via the public `resolve_sandbox_context()` (the orchestrator
+   in `run.py` also calls it to get the `team_id` it persists under, so a review's rows and its sandboxes
+   share one team):
    - **Local dev** (`settings.DEBUG`): `_resolve_context_for_local_dev("sortafreel/posthog")` picks the first
      `Team` and first org membership's user from the DB and requires a `kind="github"` `Integration`
      (raising with setup guidance if absent). _(Inlined in `executor.py`; the Tasks facade also re-exports
      `resolve_sandbox_context_for_local_dev`, so Stage 2 can switch to it.)_
-   - **Cloud** (`DEBUG=False`): hardcoded `team_id=2, user_id=196695, repository="posthog/posthog"`.
+   - **Cloud** (`DEBUG=False`): hardcoded `team_id=2, user_id=196695`, with the PR's own `repository`.
 4. Spawns the agent via `_run_prompt(...)` → **`MultiTurnSession.start_raw(prompt, context, branch, step_name)`**
    (imported from the Tasks facade `products.tasks.backend.facade.agents`; the implementation lives at
    `products.tasks.backend.logic.services.custom_prompt_multi_turn_runner`), then **always `session.end()`s**

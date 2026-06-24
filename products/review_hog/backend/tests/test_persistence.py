@@ -129,6 +129,109 @@ class TestPersistResults(BaseTest):
         assert finding_row.created_by_id is None
         assert finding_row.task_id is None
 
+    def test_colliding_findings_persist_distinctly_and_pair_to_own_verdict(self) -> None:
+        # Two genuinely distinct issues from the same lens on the same start line survive dedup with
+        # different ids. They must NOT collapse to one issue_key (which would shadow a finding) and
+        # each must pair to its OWN verdict (not the other's ruling).
+        with tempfile.TemporaryDirectory() as d:
+            review_dir = Path(d)
+            a = Issue(
+                id="1-2-1",
+                title="A",
+                file="x.py",
+                lines=[LineRange(start=5)],
+                issue="problem A",
+                suggestion="fix A",
+                priority=IssuePriority.MUST_FIX,
+                source_lens="Logic & Correctness",
+            )
+            b = Issue(
+                id="1-2-2",
+                title="B",
+                file="x.py",
+                lines=[LineRange(start=5)],
+                issue="problem B",
+                suggestion="fix B",
+                priority=IssuePriority.SHOULD_FIX,
+                source_lens="Logic & Correctness",
+            )
+            _write_issues(review_dir, [a, b])
+            _write_validation(review_dir, "1-2-1", IssueValidation(is_valid=True, argumentation="A is real"))
+            _write_validation(review_dir, "1-2-2", IssueValidation(is_valid=False, argumentation="B dismissed"))
+
+            report_id = upsert_review_report(
+                team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata()
+            )
+            assert persist_findings(team_id=self.team.id, report_id=report_id, review_dir=review_dir) == 2
+            assert persist_verdicts(team_id=self.team.id, report_id=report_id, review_dir=review_dir) == 2
+
+        finding_keys = {
+            parse_artefact_content(r.type, r.content).issue_key
+            for r in ReviewReportArtefact.objects.for_team(self.team.id).filter(
+                report_id=report_id, type=ReviewReportArtefact.ArtefactType.ISSUE_FINDING
+            )
+        }
+        assert len(finding_keys) == 2
+        verdicts = {
+            v.issue_key: v
+            for v in (
+                parse_artefact_content(r.type, r.content)
+                for r in ReviewReportArtefact.objects.for_team(self.team.id).filter(
+                    report_id=report_id, type=ReviewReportArtefact.ArtefactType.VALIDATION_VERDICT
+                )
+            )
+        }
+        assert set(verdicts) == finding_keys
+        # A's verdict (valid) and B's verdict (invalid) attach to A's and B's finding respectively.
+        a_key = next(k for k in verdicts if k.endswith(":1-2-1"))
+        b_key = next(k for k in verdicts if k.endswith(":1-2-2"))
+        assert verdicts[a_key].is_valid is True
+        assert verdicts[b_key].is_valid is False
+
+    def test_verdict_not_written_for_issue_whose_finding_was_skipped(self) -> None:
+        # An issue that fails durable finding validation must not leave behind an orphan verdict, even
+        # when it has a validation summary on disk (the finding schema is stricter than the verdict's).
+        with tempfile.TemporaryDirectory() as d:
+            review_dir = Path(d)
+            good = Issue(
+                id="1-1-1",
+                title="ok",
+                file="a.py",
+                lines=[LineRange(start=1)],
+                issue="real description",
+                suggestion="s",
+                priority=IssuePriority.CONSIDER,
+                source_lens="Logic & Correctness",
+            )
+            bad = Issue(
+                id="1-1-2",
+                title="bad",
+                file="b.py",
+                lines=[LineRange(start=1)],
+                issue="   ",
+                suggestion="s",
+                priority=IssuePriority.CONSIDER,
+                source_lens="Logic & Correctness",
+            )
+            _write_issues(review_dir, [good, bad])
+            _write_validation(review_dir, "1-1-1", IssueValidation(is_valid=True, argumentation="ok"))
+            _write_validation(review_dir, "1-1-2", IssueValidation(is_valid=True, argumentation="orphan ruling"))
+
+            report_id = upsert_review_report(
+                team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata()
+            )
+            assert persist_findings(team_id=self.team.id, report_id=report_id, review_dir=review_dir) == 1
+            assert persist_verdicts(team_id=self.team.id, report_id=report_id, review_dir=review_dir) == 1
+
+        verdicts = [
+            parse_artefact_content(r.type, r.content)
+            for r in ReviewReportArtefact.objects.for_team(self.team.id).filter(
+                report_id=report_id, type=ReviewReportArtefact.ArtefactType.VALIDATION_VERDICT
+            )
+        ]
+        assert len(verdicts) == 1
+        assert verdicts[0].issue_key.endswith(":1-1-1")
+
     def test_persist_findings_skips_unpersistable_and_keeps_the_rest(self) -> None:
         # A single malformed LLM finding (empty body) must not abort the whole batch.
         with tempfile.TemporaryDirectory() as d:

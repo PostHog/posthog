@@ -35,13 +35,13 @@ def mock_tool_functions(tmp_path: Path) -> Generator[dict[str, Mock]]:
         patch(f"{_RUN}.prepare_validation_markdown") as mock_prepare_validation,
         patch(f"{_RUN}.publish_review") as mock_publish,
         patch(f"{_RUN}._REVIEW_HOG_DIR", tmp_path),
-        # Persistence is exercised by test_persistence.py; these orchestration tests stub it out so
-        # they stay DB-free and focused on pipeline wiring.
-        patch(f"{_RUN}.resolve_sandbox_context", AsyncMock(return_value=Mock(team_id=1))),
-        patch(f"{_RUN}.upsert_review_report", Mock(return_value="report-1")),
-        patch(f"{_RUN}.persist_findings", Mock(return_value=0)),
-        patch(f"{_RUN}.persist_verdicts", Mock(return_value=0)),
-        patch(f"{_RUN}.finalize_review_report", Mock(return_value=None)),
+        # Persistence behavior is exercised by test_persistence.py; these orchestration tests stub it
+        # out so they stay DB-free, but keep the mocks addressable to pin the run.py wiring.
+        patch(f"{_RUN}.resolve_sandbox_context", AsyncMock(return_value=Mock(team_id=1))) as mock_resolve_ctx,
+        patch(f"{_RUN}.upsert_review_report", Mock(return_value="report-1")) as mock_upsert,
+        patch(f"{_RUN}.persist_findings", Mock(return_value=0)) as mock_persist_findings,
+        patch(f"{_RUN}.persist_verdicts", Mock(return_value=0)) as mock_persist_verdicts,
+        patch(f"{_RUN}.finalize_review_report", Mock(return_value=None)) as mock_finalize,
     ):
         yield {
             "parser_class": mock_parser_class,
@@ -56,6 +56,11 @@ def mock_tool_functions(tmp_path: Path) -> Generator[dict[str, Mock]]:
             "validate": mock_validate,
             "prepare_validation": mock_prepare_validation,
             "publish": mock_publish,
+            "resolve_ctx": mock_resolve_ctx,
+            "upsert": mock_upsert,
+            "persist_findings": mock_persist_findings,
+            "persist_verdicts": mock_persist_verdicts,
+            "finalize": mock_finalize,
         }
 
 
@@ -379,6 +384,40 @@ class TestIntegrationScenarios:
 
         with pytest.raises(FileNotFoundError):
             await main("https://github.com/owner/repo/pull/123")
+
+    @pytest.mark.asyncio
+    async def test_persistence_wiring(
+        self,
+        pr_metadata: PRMetadata,
+        pr_comments: list[PRComment],
+        pr_files: list[PRFile],
+        expected_chunks: ChunksList,
+        tmp_path: Path,
+        mock_tool_functions: dict[str, Mock],
+    ) -> None:
+        """The resolved team_id and the upserted report_id must thread into every persist call."""
+        _setup_parser_and_fetcher(mock_tool_functions, pr_metadata, pr_comments, pr_files)
+
+        for key in ["split", "analyze", "review", "deduplicate", "validate", "prepare_validation"]:
+            mock_tool_functions[key].return_value = None
+
+        review_dir = tmp_path / "reviews" / "123"
+        review_dir.mkdir(parents=True, exist_ok=True)
+        with (review_dir / "chunks.json").open("w") as f:
+            f.write(expected_chunks.model_dump_json())
+
+        await main("https://github.com/owner/repo/pull/123")
+
+        mock_tool_functions["upsert"].assert_called_once()
+        upsert_kwargs = mock_tool_functions["upsert"].call_args.kwargs
+        assert upsert_kwargs["team_id"] == 1
+        assert upsert_kwargs["repository"] == "owner/repo"
+        # report_id from upsert (not repository — both are str) reaches every persist call with team_id.
+        for key in ["persist_findings", "persist_verdicts", "finalize"]:
+            mock_tool_functions[key].assert_called_once()
+            kwargs = mock_tool_functions[key].call_args.kwargs
+            assert kwargs["team_id"] == 1, f"{key} got the wrong team_id"
+            assert kwargs["report_id"] == "report-1", f"{key} got the wrong report_id"
 
     @pytest.mark.asyncio
     async def test_branch_passed_to_tools(
