@@ -116,13 +116,13 @@ export class ToolExecutor {
 
         if (!state.allTools.some((t) => t.name === toolName)) {
             toolCallsTotal.inc({ tool: toolName, status: 'error' })
-            return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
+            return { content: [{ type: 'text', text: this.formatToolNotFound(toolName, state) }], isError: true }
         }
 
         const preBuilt = this.catalog.getToolByName(toolName)
         if (!preBuilt) {
             toolCallsTotal.inc({ tool: toolName, status: 'error' })
-            return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
+            return { content: [{ type: 'text', text: this.formatToolNotFound(toolName, state) }], isError: true }
         }
 
         return this.callTool(
@@ -136,6 +136,23 @@ export class ToolExecutor {
             state,
             intentMeta
         )
+    }
+
+    // Message for a bare tool name that isn't callable directly. On single-exec
+    // connections only the `exec` gateway is advertised — domain tools (workflows,
+    // insights, flags, …) are reached through it, not as top-level tools. A client
+    // that calls e.g. `workflows-create` directly lands here, so route it into exec
+    // rather than dead-ending on "not found": `search` then surfaces the tool (and
+    // any scope-gating) accurately, whether the name is unavailable or just unexposed.
+    private formatToolNotFound(toolName: string, state: ResolvedState): string {
+        if (state.useSingleExec) {
+            return (
+                `Tool "${toolName}" is not a top-level tool on this connection — tools are invoked through the ` +
+                `"exec" gateway. Call "exec" with command \`search ${toolName}\` to find it (this also reports ` +
+                `whether it's unavailable or missing a required scope), then \`call ${toolName} {…}\` to run it.`
+            )
+        }
+        return `Tool ${toolName} not found`
     }
 
     // Pull the agent's stated intent off the injected `context` arg and strip it so

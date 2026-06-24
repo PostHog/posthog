@@ -92,6 +92,17 @@ describe('ToolExecutor', () => {
             expect(result.content[0].text).toContain('not found')
         })
 
+        it('routes a bare tool name to the exec gateway on single-exec connections', async () => {
+            const result = (await executor.handleToolCall(
+                { name: 'workflows-create', arguments: {} },
+                makeState([], { useSingleExec: true })
+            )) as any
+            expect(result.isError).toBe(true)
+            expect(result.content[0].text).toContain('exec')
+            expect(result.content[0].text).toContain('search workflows-create')
+            expect(result.content[0].text).toContain('call workflows-create')
+        })
+
         it('rejects tools not in the per-request filtered set', async () => {
             const entries = catalog.getPreBuiltEntries()
             const tool = entries[0]!
