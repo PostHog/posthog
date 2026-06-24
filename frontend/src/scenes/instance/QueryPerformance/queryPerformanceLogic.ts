@@ -35,6 +35,7 @@ export interface SlowestQuery {
     experiment_query_surface: string
     experiment_precompute_table: string
     experiment_metric_type: string
+    experiment_funnel_order_type: string | null
     experiment_id: number | null
 }
 
