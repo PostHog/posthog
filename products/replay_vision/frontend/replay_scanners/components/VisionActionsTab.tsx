@@ -19,7 +19,29 @@ import { VisionActionForm } from './VisionActionForm'
 
 function humanizeSchedule(action: VisionActionApi): string {
     const rrule = action.trigger_config?.rrule
-    return rrule ? humanizeCadence(parseRruleToCadence(rrule)) : '—'
+    if (!rrule) {
+        return '—'
+    }
+    // parseRruleToCadence only understands DAILY/WEEKLY; for anything else (a legacy monthly/hourly
+    // rrule) it falls back to the default daily cadence, which would mislabel the schedule — show the
+    // raw rrule instead of a fabricated "Daily".
+    const freq = /FREQ=([A-Z]+)/.exec(rrule)?.[1]
+    if (freq !== 'DAILY' && freq !== 'WEEKLY') {
+        return rrule
+    }
+    return humanizeCadence(parseRruleToCadence(rrule))
+}
+
+// Every write control on this tab gates on the same session-recording Editor access — wrap once.
+function EditorGate({ children }: { children: JSX.Element }): JSX.Element {
+    return (
+        <AccessControlAction
+            resourceType={AccessControlResourceType.SessionRecording}
+            minAccessLevel={AccessControlLevel.Editor}
+        >
+            {children}
+        </AccessControlAction>
+    )
 }
 
 function deliverySummary(action: VisionActionApi): string {
@@ -49,10 +71,7 @@ function VisionActionsTable(): JSX.Element {
                 customHog={XRayHog}
                 description="Set up scheduled summaries of this scanner's observations — synthesized by AI and delivered to Slack on the cadence you choose. Great for a daily digest of what the scanner has been finding."
                 actionElementOverride={
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.SessionRecording}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
+                    <EditorGate>
                         <LemonButton
                             type="primary"
                             icon={<IconPlus />}
@@ -61,7 +80,7 @@ function VisionActionsTable(): JSX.Element {
                         >
                             New action
                         </LemonButton>
-                    </AccessControlAction>
+                    </EditorGate>
                 }
             />
         )
@@ -88,10 +107,7 @@ function VisionActionsTable(): JSX.Element {
             key: 'enabled',
             render: (_, action) => (
                 <div className="flex items-center gap-2">
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.SessionRecording}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
+                    <EditorGate>
                         <LemonSwitch
                             checked={!!action.enabled}
                             onChange={() => toggleActionEnabled(action.id)}
@@ -99,7 +115,7 @@ function VisionActionsTable(): JSX.Element {
                             size="small"
                             data-attr="vision-action-toggle-enabled"
                         />
-                    </AccessControlAction>
+                    </EditorGate>
                     <span className={`inline-block min-w-[4.5rem] ${action.enabled ? 'text-success' : 'text-muted'}`}>
                         {action.enabled ? 'Enabled' : 'Disabled'}
                     </span>
@@ -130,10 +146,7 @@ function VisionActionsTable(): JSX.Element {
             width: 0, // shrink to content so the buttons hug the right instead of floating in a wide column
             render: (_, action) => (
                 <div className="flex gap-1">
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.SessionRecording}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
+                    <EditorGate>
                         <LemonButton
                             size="small"
                             type="secondary"
@@ -142,11 +155,8 @@ function VisionActionsTable(): JSX.Element {
                             data-attr="vision-action-edit"
                             onClick={() => openEditForm(action)}
                         />
-                    </AccessControlAction>
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.SessionRecording}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
+                    </EditorGate>
+                    <EditorGate>
                         <LemonButton
                             size="small"
                             type="secondary"
@@ -168,7 +178,7 @@ function VisionActionsTable(): JSX.Element {
                                 })
                             }
                         />
-                    </AccessControlAction>
+                    </EditorGate>
                 </div>
             ),
         },
@@ -177,10 +187,7 @@ function VisionActionsTable(): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
             <div className="flex justify-end">
-                <AccessControlAction
-                    resourceType={AccessControlResourceType.SessionRecording}
-                    minAccessLevel={AccessControlLevel.Editor}
-                >
+                <EditorGate>
                     <LemonButton
                         type="primary"
                         icon={<IconPlus />}
@@ -189,7 +196,7 @@ function VisionActionsTable(): JSX.Element {
                     >
                         New action
                     </LemonButton>
-                </AccessControlAction>
+                </EditorGate>
             </div>
             <LemonTable
                 columns={columns}

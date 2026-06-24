@@ -1,10 +1,13 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { VisionActionApi } from '../generated/api.schemas'
-import { visionActionsLogic } from './visionActionsLogic'
+import { DeliveryTargetTypeEnumApi } from '../generated/api.schemas'
+import { buildActionBody, type VisionActionForm, visionActionsLogic } from './visionActionsLogic'
 
 const action = (id: string, enabled = true): VisionActionApi => ({
     id,
@@ -120,12 +123,13 @@ describe('visionActionsLogic', () => {
         })
     })
 
-    it('keeps the form open and surfaces an error when the submit fails', async () => {
+    it('keeps the form open and surfaces the API error detail when the submit fails', async () => {
         useMocks({
             post: {
                 '/api/projects/:team/vision/actions/': () => [400, { detail: 'nope' }],
             },
         })
+        const errorToast = jest.spyOn(lemonToast, 'error')
         await expectLogic(logic, () => {
             logic.actions.openCreateForm()
             logic.actions.setVisionActionFormValue('name', 'My action')
@@ -133,5 +137,37 @@ describe('visionActionsLogic', () => {
         })
             .toDispatchActions(['submitVisionActionFormFailure'])
             .toMatchValues({ formVisible: true })
+        // The toast must surface the API's `detail` so the user sees why it failed, not a generic message.
+        expect(errorToast).toHaveBeenCalledWith(expect.stringContaining('nope'))
+    })
+
+    it('buildActionBody maps the form to the API body, including a Slack delivery target', () => {
+        const form: VisionActionForm = {
+            name: '  Daily digest  ',
+            cadence: { weekdays: [0, 2], hour: 14, minute: 30 },
+            timezone: 'Europe/Prague',
+            prompt_guide: 'focus on checkout',
+            integration_id: 5,
+            channel: 'C123|#general',
+        }
+        expect(buildActionBody(form, 's1')).toEqual({
+            name: 'Daily digest', // trimmed
+            scanner: 's1',
+            trigger_config: { rrule: 'FREQ=WEEKLY;BYDAY=MO,WE;BYHOUR=14;BYMINUTE=30', timezone: 'Europe/Prague' },
+            synthesis_config: { prompt_guide: 'focus on checkout' },
+            delivery_config: [{ type: DeliveryTargetTypeEnumApi.Slack, integration_id: 5, channel: 'C123' }],
+        })
+    })
+
+    it('buildActionBody emits an empty delivery_config when no integration/channel is set', () => {
+        const form: VisionActionForm = {
+            name: 'No delivery',
+            cadence: { weekdays: [0, 1, 2, 3, 4, 5, 6], hour: 9, minute: 0 },
+            timezone: 'UTC',
+            prompt_guide: '',
+            integration_id: null,
+            channel: '',
+        }
+        expect(buildActionBody(form, 's1').delivery_config).toEqual([])
     })
 })

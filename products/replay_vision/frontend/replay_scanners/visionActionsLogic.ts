@@ -40,6 +40,28 @@ const NEW_ACTION_FORM = (): VisionActionForm => ({
     channel: '',
 })
 
+// Map the UI form shape to the API body shared by create + partial-update. Kept standalone so the
+// rrule + delivery-target mapping (the part most likely to grow beyond a single Slack target) is
+// unit-testable without the form machinery.
+export function buildActionBody(form: VisionActionForm, scannerId: string): Parameters<typeof visionActionsCreate>[1] {
+    return {
+        name: form.name.trim(),
+        scanner: scannerId,
+        trigger_config: { rrule: cadenceToRrule(form.cadence), timezone: form.timezone },
+        synthesis_config: { prompt_guide: form.prompt_guide },
+        delivery_config:
+            form.integration_id && form.channel
+                ? [
+                      {
+                          type: DeliveryTargetTypeEnumApi.Slack,
+                          integration_id: form.integration_id,
+                          channel: slackChannelId(form.channel),
+                      },
+                  ]
+                : [],
+    }
+}
+
 export const visionActionsLogic = kea<visionActionsLogicType>([
     path(['products', 'replay_vision', 'frontend', 'replay_scanners', 'visionActionsLogic']),
     props({} as VisionActionsLogicProps),
@@ -123,22 +145,7 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
                 if (!teamId) {
                     throw new Error('No team selected')
                 }
-                const body: Parameters<typeof visionActionsCreate>[1] = {
-                    name: form.name.trim(),
-                    scanner: props.scannerId,
-                    trigger_config: { rrule: cadenceToRrule(form.cadence), timezone: form.timezone },
-                    synthesis_config: { prompt_guide: form.prompt_guide },
-                    delivery_config:
-                        form.integration_id && form.channel
-                            ? [
-                                  {
-                                      type: DeliveryTargetTypeEnumApi.Slack,
-                                      integration_id: form.integration_id,
-                                      channel: slackChannelId(form.channel),
-                                  },
-                              ]
-                            : [],
-                }
+                const body = buildActionBody(form, props.scannerId)
                 const editing = values.editingAction
                 if (editing) {
                     await visionActionsPartialUpdate(String(teamId), editing.id, body)

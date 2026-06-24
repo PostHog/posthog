@@ -13,7 +13,7 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { timeZoneLabel } from 'lib/utils/timezones'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { humanizeCadence } from '../cadence'
+import { DEFAULT_CADENCE, humanizeCadence } from '../cadence'
 import { visionActionsLogic } from '../visionActionsLogic'
 
 // 0=Mon … 6=Sun, matching CadenceState.weekdays.
@@ -64,10 +64,20 @@ function ScheduleSection(): JSX.Element {
                 <div className="flex items-center justify-between">
                     <label className="text-sm font-semibold">Runs on</label>
                     <div className="flex gap-1">
-                        <LemonButton size="xsmall" type="tertiary" onClick={() => setWeekdays([...ALL_WEEKDAYS])}>
+                        <LemonButton
+                            size="xsmall"
+                            type="tertiary"
+                            onClick={() => setWeekdays([...ALL_WEEKDAYS])}
+                            data-attr="vision-action-cadence-everyday"
+                        >
                             Every day
                         </LemonButton>
-                        <LemonButton size="xsmall" type="tertiary" onClick={() => setWeekdays([...WEEKDAYS_MON_FRI])}>
+                        <LemonButton
+                            size="xsmall"
+                            type="tertiary"
+                            onClick={() => setWeekdays([...WEEKDAYS_MON_FRI])}
+                            data-attr="vision-action-cadence-weekdays"
+                        >
                             Weekdays
                         </LemonButton>
                     </div>
@@ -79,6 +89,7 @@ function ScheduleSection(): JSX.Element {
                             size="small"
                             type={cadence.weekdays.includes(day) ? 'primary' : 'secondary'}
                             onClick={() => toggleWeekday(day)}
+                            data-attr={`vision-action-cadence-day-${day}`}
                         >
                             {label}
                         </LemonButton>
@@ -93,11 +104,11 @@ function ScheduleSection(): JSX.Element {
                     type="time"
                     value={timeValue}
                     onChange={(val) => {
-                        const [h, m] = (val || '09:00').split(':').map((n) => parseInt(n, 10))
+                        const [h, m] = (val || '').split(':').map((n) => parseInt(n, 10))
                         setVisionActionFormValue('cadence', {
                             ...cadence,
-                            hour: Number.isNaN(h) ? 9 : h,
-                            minute: Number.isNaN(m) ? 0 : m,
+                            hour: Number.isNaN(h) ? DEFAULT_CADENCE.hour : h,
+                            minute: Number.isNaN(m) ? DEFAULT_CADENCE.minute : m,
                         })
                     }}
                 />
