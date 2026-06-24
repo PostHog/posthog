@@ -13,14 +13,11 @@ function isValidRetentionPeriod(retentionPeriod: string): retentionPeriod is Ret
     return ValidRetentionPeriods.includes(retentionPeriod as RetentionPeriod)
 }
 
-const DEFAULT_REDIS_TIMEOUT_MS = 5000
-
 export class RetentionService {
     constructor(
         private redisPool: RedisPool,
         private teamService: TeamService,
-        private keyPrefix = '@posthog/replay/',
-        private redisTimeoutMs = DEFAULT_REDIS_TIMEOUT_MS
+        private keyPrefix = '@posthog/replay/'
     ) {}
 
     private generateRedisKey(sessionId: string): string {
@@ -42,31 +39,19 @@ export class RetentionService {
         let retentionPeriod: string | null = null
 
         const startTime = performance.now()
-        let client
+        const client = await this.redisPool.acquire()
         const redisKey = this.generateRedisKey(sessionId)
 
         try {
-            const redisOp = async () => {
-                client = await this.redisPool.acquire()
-
-                const cached = await client.get(redisKey)
-                if (cached !== null) {
-                    return cached
-                }
-
-                const fromDb = await this.getRetentionByTeamId(teamId)
-                await client.set(redisKey, fromDb, 'EX', 24 * 60 * 60)
-                return fromDb
+            const cached = await client.get(redisKey)
+            if (cached !== null) {
+                retentionPeriod = cached
+            } else {
+                retentionPeriod = await this.getRetentionByTeamId(teamId)
+                await client.set(redisKey, retentionPeriod, 'EX', 24 * 60 * 60)
             }
-            const timeout = new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error(`Redis timeout after ${this.redisTimeoutMs}ms`)), this.redisTimeoutMs)
-            )
-
-            retentionPeriod = await Promise.race([redisOp(), timeout])
         } finally {
-            if (client) {
-                await this.redisPool.release(client)
-            }
+            await this.redisPool.release(client)
             SessionBatchMetrics.observeRetentionRedisLatency((performance.now() - startTime) / 1000)
         }
 
