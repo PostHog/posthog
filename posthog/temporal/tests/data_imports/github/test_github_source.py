@@ -1403,6 +1403,23 @@ class TestGithubWebhookSource:
         webhook_capable = {s.name for s in schemas if s.supports_webhooks}
         assert webhook_capable == {"workflow_jobs", "workflow_runs"}
 
+    def test_workflow_jobs_is_webhook_only_but_workflow_runs_keeps_poll(self) -> None:
+        # workflow_jobs does no poll backfill (zero floor), so it must not be offered as a
+        # poll mode that would sync an empty table forever — it's webhook-only. workflow_runs
+        # still has a real poll backfill and stays incremental/append-capable.
+        by_name = {s.name: s for s in self.source.get_schemas(_pat_config(), team_id=1)}
+
+        jobs = by_name["workflow_jobs"]
+        assert jobs.webhook_only is True
+        assert jobs.supports_incremental is False
+        assert jobs.supports_append is False
+        assert jobs.supports_webhooks is True
+
+        runs = by_name["workflow_runs"]
+        assert runs.webhook_only is False
+        assert runs.supports_incremental is True
+        assert runs.supports_webhooks is True
+
     @parameterized.expand(
         [
             ("both", ["workflow_jobs", "workflow_runs"], ["workflow_job", "workflow_run"]),
