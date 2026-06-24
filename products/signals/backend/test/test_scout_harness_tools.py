@@ -446,6 +446,21 @@ class TestSearchScratchpad(BaseTest):
 
         assert [e.key for e in results] == ["old"]
 
+    def test_filters_by_date_from(self) -> None:
+        """`date_from` is an inclusive lower bound on `updated_at` — a separate ORM
+        branch from `date_to`, so it gets its own assertion (a `__gte`/`__gt` or
+        wrong-field typo would otherwise pass undetected)."""
+        for key in ("old", "recent"):
+            SignalScratchpad.objects.create(team=self.team, key=key, content=key)
+        SignalScratchpad.objects.filter(team=self.team, key="old").update(
+            updated_at=timezone.now() - timedelta(days=10)
+        )
+        SignalScratchpad.objects.filter(team=self.team, key="recent").update(updated_at=timezone.now())
+
+        results = search_scratchpad(team_id=self.team.id, date_from=timezone.now() - timedelta(days=1))
+
+        assert [e.key for e in results] == ["recent"]
+
     def test_limit_clamped_to_max(self) -> None:
         # bulk_create over per-row remember() — one round-trip for the cap-sized fixture.
         SignalScratchpad.objects.bulk_create(
