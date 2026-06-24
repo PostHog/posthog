@@ -159,6 +159,7 @@ the row lists both.
 | pinterest_ads     | HTTP                        | requests                                                        | ✅                          |
 | pipedrive         | HTTP                        | requests                                                        | ✅                          |
 | plain             | HTTP                        | requests                                                        | ✅                          |
+| plausible         | HTTP                        | requests                                                        | ✅                          |
 | polar             | HTTP                        | requests                                                        | ✅                          |
 | plaid             | HTTP                        | requests                                                        | ✅                          |
 | postgres          | DB protocol                 | psycopg                                                         | ➖                          |
@@ -195,7 +196,9 @@ the row lists both.
 | taboola           | HTTP                        | requests                                                        | ✅                          |
 | teamwork          | HTTP                        | requests                                                        | ✅                          |
 | temporalio        | gRPC (vendor SDK)           | temporalio (`Client`, Rust core via `temporalio.bridge`)        | ⚠️                          |
+| thinkific         | HTTP                        | requests                                                        | ✅                          |
 | tiktok_ads        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| todoist           | HTTP                        | requests                                                        | ✅                          |
 | trello            | HTTP                        | requests                                                        | ✅                          |
 | twilio            | HTTP                        | requests                                                        | ✅                          |
 | typeform          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -558,7 +561,6 @@ doesn't conflict with concurrent PRs.
 - piwik
 - planetscale
 - planhat
-- plausible
 - pocket
 - polygon
 - poplar
@@ -652,7 +654,6 @@ doesn't conflict with concurrent PRs.
 - teamtailor
 - tempo
 - testrail
-- thinkific
 - thinkific_courses
 - thrive_learning
 - ticketmaster
@@ -662,7 +663,6 @@ doesn't conflict with concurrent PRs.
 - timely
 - tinyemail
 - tmdb
-- todoist
 - toggl
 - track_pms
 - tremendous

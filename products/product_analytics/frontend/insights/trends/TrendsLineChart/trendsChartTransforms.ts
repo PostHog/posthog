@@ -10,6 +10,7 @@ import type {
 } from '@posthog/quill-charts'
 
 import { schemaGoalLinesToConfigs } from '../shared/goalLinesAdapter'
+import { humanizeSeriesLabel } from '../shared/humanizeSeriesLabel'
 import { buildTrendsYAxisConfig } from '../shared/trendsAxisFormat'
 import type { CiRangesFn, GoalLineLike, YFormatterFields } from '../shared/trendsChartDisplayOptions'
 
@@ -64,7 +65,7 @@ export function buildMainTrendsSeries<R extends TrendsResultLike, M = unknown>(
     const meta: M | undefined = opts.buildMeta ? opts.buildMeta(r, index) : undefined
     return {
         key: String(r.id),
-        label: r.label ?? '',
+        label: humanizeSeriesLabel(r.label),
         data: r.data,
         color: opts.getColor(r, index),
         yAxisId,
@@ -141,7 +142,7 @@ export function buildDerivedConfigs<R extends TrendsResultLike>(
                 trendLines.push({
                     seriesKey: movingAverageKey(String(r.id)),
                     kind: 'linear',
-                    label: `${r.label ?? ''} (Moving avg)`,
+                    label: `${humanizeSeriesLabel(r.label)} (Moving avg)`,
                 })
             }
         }

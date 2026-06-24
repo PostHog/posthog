@@ -2385,7 +2385,9 @@ class PlanhatSourceConfig(config.Config):
 
 @config.config
 class PlausibleSourceConfig(config.Config):
-    pass
+    api_key: str
+    site_id: str
+    host: str | None = None
 
 
 @config.config
@@ -3095,7 +3097,8 @@ class ThinkificCoursesSourceConfig(config.Config):
 
 @config.config
 class ThinkificSourceConfig(config.Config):
-    pass
+    api_key: str
+    subdomain: str
 
 
 @config.config
@@ -3141,7 +3144,7 @@ class TinyemailSourceConfig(config.Config):
 
 @config.config
 class TodoistSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
