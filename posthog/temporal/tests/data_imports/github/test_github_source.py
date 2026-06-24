@@ -1,6 +1,7 @@
 import dataclasses
+from collections.abc import Iterator
 from datetime import UTC, date, datetime
-from typing import Any
+from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -578,7 +579,8 @@ class TestGithubWebhookActivationGate:
             db_incremental_field_last_value=None,
             webhook_source_manager=manager,
         )
-        assert list(response.items()) == [{"id": 1}]
+        # items() is typed Iterator | AsyncIterator; the webhook path returns the sync one.
+        assert list(cast(Iterator[Any], response.items())) == [{"id": 1}]
         manager.get_items.assert_called_once()
 
 
