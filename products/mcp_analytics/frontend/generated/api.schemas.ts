@@ -396,6 +396,14 @@ export type McpAnalyticsMissingCapabilitiesListParams = {
 
 export type McpAnalyticsSessionsListParams = {
     /**
+     * Start of the window to aggregate sessions over. PostHog date string — relative (e.g. '-7d', '-24h') or an absolute ISO timestamp. Defaults to '-7d'.
+     */
+    date_from?: string
+    /**
+     * End of the window. PostHog date string or absolute ISO timestamp. Defaults to now.
+     */
+    date_to?: string
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -414,6 +422,10 @@ export type McpAnalyticsSessionsListParams = {
 }
 
 export type McpAnalyticsSessionsToolCallsParams = {
+    /**
+     * Absolute ISO timestamp lower bound for the event scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted.
+     */
+    date_from?: string
     /**
      * Number of results to return per page.
      */

@@ -8,7 +8,6 @@ generation only — caching and persistence live in ``logic.generate_session_int
 from datetime import timedelta
 
 from django.conf import settings
-from django.utils import timezone
 
 import openai
 import posthoganalytics
@@ -26,10 +25,10 @@ from products.mcp_analytics.backend.facade.contracts import IntentGenerationUnav
 
 INTENT_MODEL = "gpt-4.1-mini"
 MAX_INTENTS = 500
-# Session-detail queries look up one $session_id; without a timestamp bound
-# the events sort key (team_id, toDate(timestamp), event, ...) can't prune and
-# the scan covers the team's full history. Sessions reachable in the UI are at
-# most MCP_SESSIONS_LOOKBACK (24h) old, so 7 days is a generous safety margin.
+# Fallback scan bound for the tool-call *detail* query in logic.list_mcp_tool_calls — a single
+# $session_id isn't in the events sort key, so without a timestamp bound the scan covers the team's
+# full history. Detail callers normally pass the session's start; this covers ones that don't.
+# NB: intent generation deliberately does NOT use this — see fetch_session_intents.
 SESSION_EVENTS_LOOKBACK = timedelta(days=7)
 # Persisted (and returned) when a session has no recorded intents, so callers
 # get a definitive answer and we don't re-query ClickHouse on the next request.
@@ -47,11 +46,15 @@ SYSTEM_PROMPT = (
     "Example: 'Investigating why signup funnel conversion dropped last week.'"
 )
 
+# No timestamp bound on purpose: the intent summary describes the agent's goal across the *whole*
+# session, so it must read every recorded $mcp_intent regardless of the date filter the user is
+# viewing (a session can extend outside that window). The unpruned single-$session_id scan is
+# acceptable here because intent generation runs at most once per session and is then persisted to
+# MCPSession (see logic.generate_session_intent), and the LLM call dominates latency either way.
 _SESSION_INTENTS_SQL = """
 SELECT toString(properties.$mcp_intent) AS intent
 FROM events
 WHERE event = {event}
-    AND timestamp >= {date_from}
     AND $session_id = {session_id}
     AND coalesce(properties.$mcp_intent, '') != ''
 ORDER BY timestamp ASC
@@ -60,12 +63,15 @@ LIMIT {limit}
 
 
 def fetch_session_intents(team: Team, session_id: str) -> list[str]:
-    """Return the session's recorded ``$mcp_intent``s in chronological order."""
+    """Return *all* of the session's recorded ``$mcp_intent``s in chronological order.
+
+    Unbounded by date on purpose — the summary is about the whole session, so it must not be
+    clipped to the current filter window (see ``_SESSION_INTENTS_SQL``).
+    """
     query = parse_select(
         _SESSION_INTENTS_SQL,
         placeholders={
             "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
-            "date_from": ast.Constant(value=timezone.now() - SESSION_EVENTS_LOOKBACK),
             "session_id": ast.Constant(value=session_id),
             "limit": ast.Constant(value=MAX_INTENTS),
         },
