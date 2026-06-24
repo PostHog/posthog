@@ -36,14 +36,23 @@ export function QueryPerformance(): JSX.Element {
         precomputationTeams,
         precomputationTeamsLoading,
         search,
-        slowestQueries,
+        visibleSlowestQueries,
         slowestQueriesLoading,
+        showSubQueries,
+        allQueriesHiddenAsSubQueries,
         hoursBack,
         teamIdFilter,
         experimentIdFilter,
     } = useValues(queryPerformanceLogic)
-    const { setSearch, setPrecomputation, setHoursBack, loadSlowestQueries, setTeamIdFilter, setExperimentIdFilter } =
-        useActions(queryPerformanceLogic)
+    const {
+        setSearch,
+        setPrecomputation,
+        setHoursBack,
+        loadSlowestQueries,
+        setTeamIdFilter,
+        setExperimentIdFilter,
+        setShowSubQueries,
+    } = useActions(queryPerformanceLogic)
 
     if (!user?.is_staff) {
         return (
@@ -310,12 +319,23 @@ export function QueryPerformance(): JSX.Element {
                                     >
                                         Refresh
                                     </LemonButton>
+                                    <LemonSwitch
+                                        label="Show sub-queries"
+                                        checked={showSubQueries}
+                                        onChange={setShowSubQueries}
+                                        size="small"
+                                        bordered
+                                    />
                                 </div>
                                 <LemonTable
                                     columns={slowestQueryColumns}
-                                    dataSource={slowestQueries}
+                                    dataSource={visibleSlowestQueries}
                                     loading={slowestQueriesLoading}
-                                    emptyState="No queries found in this time range"
+                                    emptyState={
+                                        allQueriesHiddenAsSubQueries
+                                            ? 'All queries in this range are sub-queries — enable "Show sub-queries" to view them'
+                                            : 'No queries found in this time range'
+                                    }
                                     pagination={{ pageSize: 20 }}
                                     className="overflow-visible! flex-none!"
                                     expandable={{

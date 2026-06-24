@@ -25,7 +25,7 @@ import {
     type TrendsSeriesMeta,
 } from '../../trends/shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../../trends/shared/TrendsTooltip'
-import { useTrendsLegendConfig } from '../../trends/shared/useTrendsLegendConfig'
+import { useInsightsLegendConfig } from '../../trends/shared/useInsightsLegendConfig'
 import { handleStickinessChartClick } from '../StickinessLineChart/handleStickinessChartClick'
 import {
     buildStickinessLabels,
@@ -45,7 +45,7 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
     const theme = useMemo(() => buildTheme(), [])
     const { insightProps } = useValues(insightLogic)
 
-    const legendConfig = useTrendsLegendConfig({ insightProps })
+    const legendConfig = useInsightsLegendConfig({ insightProps })
     const quillLegendEnabled = !!legendConfig
 
     const {
