@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Literal, Optional, Union
+from typing import Literal, Union
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
@@ -287,39 +287,6 @@ def experiment_window(experiment: Experiment, team: Team, as_of: datetime) -> Da
     return DateRange(
         date_from=start_date.isoformat(),
         date_to=end_date.isoformat(),
-        explicitDate=True,
-    )
-
-
-def get_experiment_date_range(
-    experiment: Experiment, team: Team, override_end_date: Optional[datetime] = None
-) -> DateRange:
-    """
-    Returns an DateRange object based on the experiment's start and end dates,
-    adjusted for the team's timezone if applicable.
-
-    Args:
-        experiment: The experiment to get date range for
-        team: The team to get timezone settings from
-        override_end_date: Optional datetime to use as end date instead of experiment.end_date, used for calculating timeseries results
-    """
-    if team.timezone:
-        tz = ZoneInfo(team.timezone)
-        start_date: Optional[datetime] = experiment.start_date.astimezone(tz) if experiment.start_date else None
-        if override_end_date:
-            end_date: Optional[datetime] = override_end_date.astimezone(tz)
-        else:
-            end_date = experiment.end_date.astimezone(tz) if experiment.end_date else None
-    else:
-        start_date = experiment.start_date
-        if override_end_date:
-            end_date = override_end_date
-        else:
-            end_date = experiment.end_date
-
-    return DateRange(
-        date_from=start_date.isoformat() if start_date else None,
-        date_to=end_date.isoformat() if end_date else None,
         explicitDate=True,
     )
 

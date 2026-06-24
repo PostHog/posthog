@@ -192,6 +192,7 @@ def _calculate_experiment_regular_metric_sync(
         query_runner = ExperimentQueryRunner(
             query=experiment_query,
             team=experiment.team,
+            as_of=query_to_utc,
             workload=Workload.OFFLINE,
             # Scheduled recalc has no request user. Attribute the query to the experiment's creator so
             # warehouse HogQL access control is enforced.
@@ -462,6 +463,7 @@ def _calculate_experiment_saved_metric_sync(
         query_runner = ExperimentQueryRunner(
             query=experiment_query,
             team=experiment.team,
+            as_of=query_to_utc,
             workload=Workload.OFFLINE,
             # Scheduled recalc has no request user. Attribute the query to the experiment's creator so
             # warehouse HogQL access control is enforced.
