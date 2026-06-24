@@ -6,6 +6,7 @@ import structlog
 
 from posthog.cloud_utils import is_cloud
 from posthog.models.integration import Integration
+from posthog.temporal.data_imports.sources.common.integration_accounts import IntegrationAccount
 from posthog.utils import get_instance_region
 
 from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
@@ -178,6 +179,11 @@ class OAuthMixin:
             raise ValueError(f"Integration not found: {integration_id}")
 
         return Integration.objects.get(id=integration_id, team_id=team_id)
+
+    def get_oauth_accounts(self, integration_id: int, team_id: int) -> list[IntegrationAccount]:
+        # The account picker lives in the source: each OAuth source maps its provider's accounts onto
+        # the shared IntegrationAccount contract, served by one generic endpoint.
+        raise NotImplementedError(f"{type(self).__name__} does not support listing OAuth accounts")
 
 
 class ValidateDatabaseHostMixin:

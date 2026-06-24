@@ -284,6 +284,7 @@ export const sourceFieldToElement = (
                 fieldLabel={field.label}
                 integrationField={field.integrationField}
                 integrationKind={field.integrationKind}
+                sourceType={sourceConfig.name}
                 placeholder={field.placeholder}
             />
         )

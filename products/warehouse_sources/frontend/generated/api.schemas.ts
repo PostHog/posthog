@@ -3254,6 +3254,37 @@ export interface DatabaseSchemaRequestApi {
 }
 
 /**
+ * A selectable account/resource exposed by an OAuth integration, in the shared shape every ad
+ * platform produces (see ``IntegrationAccount`` in the data-imports common module). One serializer
+ * and one frontend selector work across all platforms.
+ */
+export interface IntegrationAccountApi {
+    /** The identifier stored in the source config and used for API calls (numeric account id as a string, a site url, etc.). */
+    value: string
+    /** Primary human-readable label for the account. */
+    display_name: string
+    /** True when this account belongs to the connected user's own (primary) account context, rather than one they merely have access to. Sorted/marked first. */
+    is_primary: boolean
+    /** Short status chips for the account, e.g. ['Active'] or ['Pause']. */
+    badges: string[]
+    /**
+     * Optional grouping label for hierarchical platforms (e.g. the owning customer/manager name).
+     * @nullable
+     */
+    group: string | null
+    /**
+     * Extra identifier shown in parentheses and searchable, e.g. the alphanumeric account number.
+     * @nullable
+     */
+    secondary_text: string | null
+}
+
+export interface IntegrationAccountsResponseApi {
+    /** All accounts the connected integration can access. */
+    accounts: IntegrationAccountApi[]
+}
+
+/**
  * Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults.
  */
 export type SourceSetupApiPayload = { [key: string]: unknown }
@@ -4710,6 +4741,17 @@ export type ExternalDataSourcesConnectionsListParams = {
      * A search term.
      */
     search?: string
+}
+
+export type ExternalDataSourcesOauthAccountsRetrieveParams = {
+    /**
+     * The OAuth integration id whose accounts should be listed.
+     */
+    integration_id: number
+    /**
+     * The data warehouse source type (e.g. 'BingAds', 'GoogleSearchConsole').
+     */
+    source_type: string
 }
 
 export type ExternalDataSourcesStoredCredentialsListParams = {

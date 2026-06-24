@@ -15,6 +15,7 @@ from posthog.schema import (
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from posthog.temporal.data_imports.sources.common.integration_accounts import IntegrationAccount
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -55,6 +56,31 @@ class GoogleSearchConsoleSource(
             # so stop the sync and ask the user to reconnect rather than burning activity retries.
             "invalid_grant": "Your Google Search Console connection has expired or been revoked. Please reconnect your account.",
         }
+
+    def get_oauth_accounts(self, integration_id: int, team_id: int) -> list[IntegrationAccount]:
+        session = google_search_console_session(integration_id, team_id)
+        try:
+            sites = list_sites(session)
+        except requests.HTTPError as e:
+            status = e.response.status_code if e.response is not None else None
+            if status in (401, 403):
+                # The token refreshed fine but the connected Google account isn't authorized to read
+                # Search Console — a customer-side connection issue. Surface an actionable message the
+                # endpoint turns into a 400 rather than an unhandled 500.
+                raise ValueError(
+                    "Google Search Console rejected the credentials. Please reconnect your account "
+                    "and ensure it has read access to the property."
+                )
+            raise
+        # GSC has no name distinct from the site url, so value and display_name are the same.
+        return [
+            IntegrationAccount(
+                value=site["siteUrl"],
+                display_name=site["siteUrl"],
+                badges=(site["permissionLevel"],) if site.get("permissionLevel") else (),
+            )
+            for site in sites
+        ]
 
     def get_schemas(
         self,

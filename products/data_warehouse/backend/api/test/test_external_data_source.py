@@ -14,6 +14,7 @@ from django.test import override_settings
 from django.utils import timezone
 
 import psycopg
+import requests
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
@@ -30,7 +31,8 @@ from posthog.schema import (
     SourceFieldSwitchGroupConfig,
 )
 
-from posthog.models import Team
+from posthog.models import OrganizationMembership, Team
+from posthog.models.integration import Integration
 from posthog.models.project import Project
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.bigquery.bigquery import BigQuerySourceConfig
@@ -9687,3 +9689,114 @@ class TestExternalDataSourceStoreCredentials(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/stored_credentials/")
         assert response.status_code == status.HTTP_200_OK
         assert [result["credential_id"] for result in response.json()] == [str(newer.pk), str(older.pk)]
+
+
+class TestOAuthAccountsEndpoint(APIBaseTest):
+    _GSC_MODULE = "posthog.temporal.data_imports.sources.google_search_console.source"
+    _BING_LIST_ACCOUNTS = "posthog.temporal.data_imports.sources.bing_ads.client.BingAdsClient.list_accounts"
+
+    def setUp(self):
+        super().setUp()
+        # The endpoint requires manage access (it enumerates the provider's accounts), so default the
+        # user to admin; the forbidden-member test drops back to MEMBER explicitly.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def _url(self, source_type: str, integration_id: int) -> str:
+        return (
+            f"/api/environments/{self.team.pk}/external_data_sources/oauth_accounts/"
+            f"?source_type={source_type}&integration_id={integration_id}"
+        )
+
+    def _bing_integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="bing-ads",
+            config={},
+            sensitive_config={"access_token": "token", "refresh_token": "refresh"},
+            integration_id="bing_test",
+            created_by=self.user,
+        )
+
+    def _gsc_integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="google-search-console",
+            config={},
+            sensitive_config={"access_token": "ya29.test"},
+            integration_id="gsc_test",
+            created_by=self.user,
+        )
+
+    @staticmethod
+    def _http_error(status_code: int) -> requests.HTTPError:
+        response = requests.Response()
+        response.status_code = status_code
+        return requests.HTTPError(f"{status_code} Client Error", response=response)
+
+    def test_regular_member_is_forbidden(self):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        integration = self._gsc_integration()
+
+        response = self.client.get(self._url("GoogleSearchConsole", integration.id))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+
+    def test_missing_params_returns_400(self):
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/oauth_accounts/?source_type=BingAds"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def test_unknown_source_type_returns_400(self):
+        response = self.client.get(self._url("NotARealSource", 1))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def test_non_oauth_source_returns_400(self):
+        response = self.client.get(self._url("Postgres", 1))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+
+    def test_gsc_success_maps_sites_to_accounts(self):
+        integration = self._gsc_integration()
+        with (
+            patch(f"{self._GSC_MODULE}.google_search_console_session"),
+            patch(
+                f"{self._GSC_MODULE}.list_sites",
+                return_value=[{"siteUrl": "https://example.com/", "permissionLevel": "siteOwner"}],
+            ),
+        ):
+            response = self.client.get(self._url("GoogleSearchConsole", integration.id))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["accounts"] == [
+            {
+                "value": "https://example.com/",
+                "display_name": "https://example.com/",
+                "is_primary": False,
+                "badges": ["siteOwner"],
+                "group": None,
+                "secondary_text": None,
+            }
+        ]
+
+    @parameterized.expand([(401,), (403,)])
+    def test_gsc_auth_error_returns_actionable_400(self, status_code: int):
+        integration = self._gsc_integration()
+        with (
+            patch(f"{self._GSC_MODULE}.google_search_console_session"),
+            patch(f"{self._GSC_MODULE}.list_sites", side_effect=self._http_error(status_code)),
+        ):
+            response = self.client.get(self._url("GoogleSearchConsole", integration.id))
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert "reconnect your account" in str(response.json()).lower()
+
+    @override_settings(BING_ADS_DEVELOPER_TOKEN="dev_token")
+    def test_bing_success_returns_accounts(self):
+        integration = self._bing_integration()
+        with patch(self._BING_LIST_ACCOUNTS, return_value=[]):
+            response = self.client.get(self._url("BingAds", integration.id))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json() == {"accounts": []}

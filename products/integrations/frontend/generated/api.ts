@@ -15,7 +15,6 @@ import type {
     GitHubTeamsResponseApi,
     IntegrationAccessRequestApi,
     IntegrationAccessRequestResponseApi,
-    IntegrationAccountsResponseApi,
     IntegrationConfigApi,
     IntegrationsChannelsRetrieveParams,
     IntegrationsGithubBranchesRetrieveParams,
@@ -286,24 +285,6 @@ export const integrationsAnthropicManagedAgentsRetrieve = async (
     })
 }
 
-export const getIntegrationsBingAdsAccountsRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/integrations/${id}/bing_ads_accounts/`
-}
-
-/**
- * List the Bing Ads accounts the connected Microsoft account can access, across all customers.
- */
-export const integrationsBingAdsAccountsRetrieve = async (
-    projectId: string,
-    id: number,
-    options?: RequestInit
-): Promise<IntegrationAccountsResponseApi> => {
-    return apiMutator<IntegrationAccountsResponseApi>(getIntegrationsBingAdsAccountsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getIntegrationsChannelsRetrieveUrl = (
     projectId: string,
     id: number,
@@ -556,27 +537,6 @@ export const integrationsGoogleConversionActionsRetrieve = async (
         ...options,
         method: 'GET',
     })
-}
-
-export const getIntegrationsGoogleSearchConsoleSitesRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/integrations/${id}/google_search_console_sites/`
-}
-
-/**
- * List the Search Console properties the connected Google account has access to.
- */
-export const integrationsGoogleSearchConsoleSitesRetrieve = async (
-    projectId: string,
-    id: number,
-    options?: RequestInit
-): Promise<IntegrationAccountsResponseApi> => {
-    return apiMutator<IntegrationAccountsResponseApi>(
-        getIntegrationsGoogleSearchConsoleSitesRetrieveUrl(projectId, id),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
 }
 
 export const getIntegrationsJiraProjectsRetrieveUrl = (projectId: string, id: number) => {

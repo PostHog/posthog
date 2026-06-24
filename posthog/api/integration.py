@@ -1,7 +1,6 @@
 import os
 import re
 import json
-import dataclasses
 from typing import Any, cast
 from urllib.parse import urlencode
 
@@ -11,7 +10,6 @@ from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 
-import requests
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
@@ -73,7 +71,6 @@ from posthog.permissions import (
     AccessControlPermission,
     APIScopePermission,
     TeamMemberAccessPermission,
-    TeamMemberAdminManagementPermission,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
 )
@@ -87,9 +84,6 @@ from products.workflows.backend.services.integration_usage import get_active_hog
 logger = structlog.get_logger(__name__)
 
 GITHUB_REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9_.\-]+")
-
-# Short TTL for the Search Console sites dropdown — just enough to dedupe repeated UI loads.
-GSC_AUTOCOMPLETE_CACHE_TTL_SECONDS = 60
 
 
 def validate_github_repository_name(repo: str) -> str:
@@ -306,39 +300,6 @@ class SlackChannelsResponseSerializer(serializers.Serializer):
     has_more = serializers.BooleanField(
         required=False,
         help_text="Whether more channels match the current search beyond this page.",
-    )
-
-
-class IntegrationAccountSerializer(serializers.Serializer):
-    """A selectable account/resource exposed by an OAuth integration, in the shared shape every ad
-    platform produces (see ``IntegrationAccount`` in the data-imports common module). One serializer
-    and one frontend selector work across all platforms."""
-
-    value = serializers.CharField(
-        help_text="The identifier stored in the source config and used for API calls (numeric account id as a string, a site url, etc.)."
-    )
-    display_name = serializers.CharField(help_text="Primary human-readable label for the account.")
-    is_primary = serializers.BooleanField(
-        help_text="True when this account belongs to the connected user's own (primary) account context, rather than one they merely have access to. Sorted/marked first."
-    )
-    badges = serializers.ListField(
-        child=serializers.CharField(),
-        help_text="Short status chips for the account, e.g. ['Active'] or ['Pause'].",
-    )
-    group = serializers.CharField(
-        allow_null=True,
-        help_text="Optional grouping label for hierarchical platforms (e.g. the owning customer/manager name).",
-    )
-    secondary_text = serializers.CharField(
-        allow_null=True,
-        help_text="Extra identifier shown in parentheses and searchable, e.g. the alphanumeric account number.",
-    )
-
-
-class IntegrationAccountsResponseSerializer(serializers.Serializer):
-    accounts = IntegrationAccountSerializer(
-        many=True,
-        help_text="All accounts the connected integration can access.",
     )
 
 
@@ -721,16 +682,8 @@ class IntegrationViewSet(
         "github_oauth_authorize",
         # Side-effecting POST (emails admins) — a read-only token must not be able to trigger it.
         "request_access",
-        # Enumerates every Search Console property on the connected Google account — gate behind
-        # manage access so read-only members can't discover unrelated domains (info disclosure).
-        "google_search_console_sites",
-        # Enumerates every Bing Ads account across the connected user's customers — same info
-        # disclosure concern, so gate it behind manage access too.
-        "bing_ads_accounts",
     ]
     permission_classes = [TeamMemberStrictManagementPermission]
-    # These GET actions enumerate the connected provider's accounts/sites, so require admin even for reads.
-    account_enumeration_actions = ["bing_ads_accounts", "google_search_console_sites"]
     queryset = defer_repository_cache_fields(Integration.objects.all())
     serializer_class = IntegrationSerializer
     filter_backends = [DjangoFilterBackend]
@@ -752,14 +705,6 @@ class IntegrationViewSet(
                 APIScopePermission(),
                 AccessControlPermission(),
                 TeamMemberAccessPermission(),
-            ]
-        if self.action in self.account_enumeration_actions:
-            return [
-                IsAuthenticated(),
-                APIScopePermission(),
-                AccessControlPermission(),
-                TeamMemberAccessPermission(),
-                TeamMemberAdminManagementPermission(),
             ]
         raise NotImplementedError()
 
@@ -1017,98 +962,6 @@ class IntegrationViewSet(
 
         response_data = {"accessibleAccounts": google_ads.list_google_ads_accessible_accounts()}
         cache.set(key, response_data, 60)
-        return Response(response_data)
-
-    @extend_schema(responses={200: IntegrationAccountsResponseSerializer})
-    @action(methods=["GET"], detail=True, url_path="google_search_console_sites")
-    def google_search_console_sites(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """List the Search Console properties the connected Google account has access to."""
-        # Lazy import — keeps the Google data-imports SDK dependency off the api/ module
-        # import path, mirroring how other ad-platform endpoints stay self-contained.
-        from posthog.temporal.data_imports.sources.common.integration_accounts import (  # noqa: PLC0415 — keeps the heavy dep off the import path
-            IntegrationAccount,
-        )
-        from posthog.temporal.data_imports.sources.google_search_console.google_search_console import (  # noqa: PLC0415 — keeps the heavy dep off the import path
-            google_search_console_session,
-            list_sites,
-        )
-
-        instance = self.get_object()
-        if instance.kind != "google-search-console":
-            raise ValidationError(
-                "google_search_console_sites endpoint is only supported for Google Search Console integrations"
-            )
-        _ensure_oauth_token_valid(instance)
-
-        cache_key = f"google_search_console/{instance.id}/sites"
-        cached = cache.get(cache_key)
-        if cached is not None:
-            return Response(cached)
-
-        session = google_search_console_session(instance.id, instance.team_id)
-        try:
-            sites = list_sites(session)
-        except requests.HTTPError as e:
-            status_code = e.response.status_code if e.response is not None else None
-            if status_code in (401, 403):
-                # The token refreshed fine but the connected Google account isn't authorized to
-                # read Search Console — a customer-side connection issue, not a PostHog bug. Return
-                # an actionable 400 rather than letting the HTTPError surface as an unhandled 500.
-                raise ValidationError(
-                    "Google Search Console rejected the credentials. Please reconnect your account "
-                    "and ensure it has read access to the property."
-                )
-            raise
-        # Map each site onto the shared IntegrationAccount contract so one endpoint serializer and
-        # one frontend selector cover Search Console too — GSC has no name distinct from the site URL.
-        accounts = IntegrationAccountSerializer(
-            [
-                dataclasses.asdict(
-                    IntegrationAccount(
-                        value=site["siteUrl"],
-                        display_name=site["siteUrl"],
-                        badges=(site["permissionLevel"],) if site.get("permissionLevel") else (),
-                    )
-                )
-                for site in sites
-            ],
-            many=True,
-        ).data
-        response_data = {"accounts": accounts}
-        cache.set(cache_key, response_data, GSC_AUTOCOMPLETE_CACHE_TTL_SECONDS)
-        return Response(response_data)
-
-    @extend_schema(responses={200: IntegrationAccountsResponseSerializer})
-    @action(methods=["GET"], detail=True, url_path="bing_ads_accounts")
-    def bing_ads_accounts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """List the Bing Ads accounts the connected Microsoft account can access, across all customers."""
-        from posthog.temporal.data_imports.sources.bing_ads.client import (  # noqa: PLC0415 — keeps the Bing Ads SDK off the api/ import path
-            BingAdsClient,
-        )
-
-        instance = self.get_object()
-        if instance.kind != "bing-ads":
-            raise ValidationError("bing_ads_accounts endpoint is only supported for Bing Ads integrations")
-        _ensure_oauth_token_valid(instance)
-
-        if not settings.BING_ADS_DEVELOPER_TOKEN:
-            raise ValidationError("Bing Ads developer token is not configured")
-
-        cache_key = f"bing_ads/{instance.id}/accounts"
-        cached = cache.get(cache_key)
-        if cached is not None:
-            return Response(cached)
-
-        client = BingAdsClient(
-            access_token=instance.access_token,
-            refresh_token=instance.refresh_token,
-            developer_token=settings.BING_ADS_DEVELOPER_TOKEN,
-        )
-        accounts = IntegrationAccountSerializer(
-            [dataclasses.asdict(account) for account in client.list_accounts()], many=True
-        ).data
-        response_data = {"accounts": accounts}
-        cache.set(cache_key, response_data, 60)
         return Response(response_data)
 
     @action(methods=["GET"], detail=True, url_path="linkedin_ads_conversion_rules")

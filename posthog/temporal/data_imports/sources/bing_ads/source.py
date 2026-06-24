@@ -1,5 +1,7 @@
 from typing import Optional, cast
 
+from django.conf import settings
+
 from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -16,6 +18,7 @@ from posthog.temporal.data_imports.sources.common.base import (
     FieldType,
     ResumableSource,
 )
+from posthog.temporal.data_imports.sources.common.integration_accounts import IntegrationAccount
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -25,6 +28,7 @@ from posthog.temporal.data_imports.sources.generated_configs import BingAdsSourc
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 from .bing_ads import bing_ads_source, get_incremental_fields, get_schemas
+from .client import BingAdsClient
 from .utils import BingAdsResumeConfig
 
 
@@ -175,6 +179,23 @@ class BingAdsSource(ResumableSource[BingAdsSourceConfig, BingAdsResumeConfig], O
                 return False, "Bing Ads integration not found. Please reconnect your Bing Ads integration."
             capture_exception(e)
             return False, f"Failed to validate Bing Ads credentials: {str(e)}"
+
+    def get_oauth_accounts(self, integration_id: int, team_id: int) -> list[IntegrationAccount]:
+        integration = self.get_oauth_integration(integration_id, team_id)
+
+        if not settings.BING_ADS_DEVELOPER_TOKEN:
+            raise ValueError("Bing Ads developer token not configured")
+        if not integration.access_token:
+            raise ValueError("Bing Ads access token not found. Please reconnect your Bing Ads integration.")
+        if not integration.refresh_token:
+            raise ValueError("Bing Ads refresh token not found. Please reconnect your Bing Ads integration.")
+
+        client = BingAdsClient(
+            access_token=integration.access_token,
+            refresh_token=integration.refresh_token,
+            developer_token=settings.BING_ADS_DEVELOPER_TOKEN,
+        )
+        return client.list_accounts()
 
     def get_schemas(
         self,

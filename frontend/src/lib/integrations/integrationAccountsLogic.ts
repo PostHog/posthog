@@ -2,27 +2,14 @@ import { actions, isBreakpoint, kea, key, listeners, path, props, reducers } fro
 
 import { ApiConfig } from 'lib/api'
 
-import {
-    integrationsBingAdsAccountsRetrieve,
-    integrationsGoogleSearchConsoleSitesRetrieve,
-} from 'products/integrations/frontend/generated/api'
-import type {
-    IntegrationAccountApi,
-    IntegrationAccountsResponseApi,
-} from 'products/integrations/frontend/generated/api.schemas'
+import { externalDataSourcesOauthAccountsRetrieve } from 'products/warehouse_sources/frontend/generated/api'
+import type { IntegrationAccountApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import type { integrationAccountsLogicType } from './integrationAccountsLogicType'
 
-/** Per-platform account fetcher keyed by integration kind. A new platform adds one entry here; the
- *  generic logic + selector work unchanged. */
-const ACCOUNT_FETCHERS: Record<string, (projectId: string, id: number) => Promise<IntegrationAccountsResponseApi>> = {
-    'bing-ads': integrationsBingAdsAccountsRetrieve,
-    'google-search-console': integrationsGoogleSearchConsoleSitesRetrieve,
-}
-
 export const integrationAccountsLogic = kea<integrationAccountsLogicType>([
-    props({} as { id: number; kind: string }),
-    key((props) => `${props.kind}/${props.id}`),
+    props({} as { id: number; sourceType: string }),
+    key((props) => `${props.sourceType}/${props.id}`),
     path((key) => ['lib', 'integrations', 'integrationAccountsLogic', key]),
 
     actions({
@@ -51,13 +38,14 @@ export const integrationAccountsLogic = kea<integrationAccountsLogicType>([
 
     listeners(({ actions, props }) => ({
         loadAccounts: async (_, breakpoint) => {
-            const fetcher = ACCOUNT_FETCHERS[props.kind]
-            if (!fetcher) {
-                actions.loadAccountsFailure()
-                return
-            }
             try {
-                const response = await fetcher(String(ApiConfig.getCurrentProjectId()), props.id)
+                const response = await externalDataSourcesOauthAccountsRetrieve(
+                    String(ApiConfig.getCurrentProjectId()),
+                    {
+                        source_type: props.sourceType,
+                        integration_id: props.id,
+                    }
+                )
                 await breakpoint()
                 actions.loadAccountsSuccess(response.accounts)
             } catch (e: any) {

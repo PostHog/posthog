@@ -53071,6 +53071,17 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type EnvironmentsExternalDataSourcesOauthAccountsRetrieveParams = {
+    /**
+     * The OAuth integration id whose accounts should be listed.
+     */
+    integration_id: number;
+    /**
+     * The data warehouse source type (e.g. 'BingAds', 'GoogleSearchConsole').
+     */
+    source_type: string;
+    };
+
     export type EnvironmentsExternalDataSourcesStoredCredentialsListParams = {
     /**
      * A search term.
@@ -59098,6 +59109,17 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type ExternalDataSourcesOauthAccountsRetrieveParams = {
+    /**
+     * The OAuth integration id whose accounts should be listed.
+     */
+    integration_id: number;
+    /**
+     * The data warehouse source type (e.g. 'BingAds', 'GoogleSearchConsole').
+     */
+    source_type: string;
     };
 
     export type ExternalDataSourcesStoredCredentialsListParams = {

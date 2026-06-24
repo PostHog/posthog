@@ -8,6 +8,7 @@ from typing import Any, cast
 from urllib.parse import quote
 
 from django.conf import settings
+from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import connection, transaction
 from django.db.models import Prefetch, Q
@@ -20,6 +21,7 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from psycopg import OperationalError
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import APIException, ValidationError
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from sshtunnel import BaseSSHTunnelForwarderError
@@ -41,6 +43,12 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
+from posthog.permissions import (
+    AccessControlPermission,
+    APIScopePermission,
+    TeamMemberAccessPermission,
+    TeamMemberAdminManagementPermission,
+)
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.temporal.data_imports.cdc.adapters import CDCSourceAdapter, get_cdc_adapter, source_type_supports_cdc
@@ -48,6 +56,7 @@ from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.temporal.data_imports.sources.clickhouse.source import ClickHouseSource
 from posthog.temporal.data_imports.sources.common.base import AnySource, ExternalWebhookInfo, FieldType, WebhookSource
 from posthog.temporal.data_imports.sources.common.config import Config
+from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema, build_default_schemas
 from posthog.temporal.data_imports.sources.common.sql import (
     RowFilterValidationError,
@@ -1266,6 +1275,39 @@ class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
         read_only_fields = ["id", "created_by", "created_at", "status", "source_type"]
 
 
+class IntegrationAccountSerializer(serializers.Serializer):
+    """A selectable account/resource exposed by an OAuth integration, in the shared shape every ad
+    platform produces (see ``IntegrationAccount`` in the data-imports common module). One serializer
+    and one frontend selector work across all platforms."""
+
+    value = serializers.CharField(
+        help_text="The identifier stored in the source config and used for API calls (numeric account id as a string, a site url, etc.)."
+    )
+    display_name = serializers.CharField(help_text="Primary human-readable label for the account.")
+    is_primary = serializers.BooleanField(
+        help_text="True when this account belongs to the connected user's own (primary) account context, rather than one they merely have access to. Sorted/marked first."
+    )
+    badges = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Short status chips for the account, e.g. ['Active'] or ['Pause'].",
+    )
+    group = serializers.CharField(
+        allow_null=True,
+        help_text="Optional grouping label for hierarchical platforms (e.g. the owning customer/manager name).",
+    )
+    secondary_text = serializers.CharField(
+        allow_null=True,
+        help_text="Extra identifier shown in parentheses and searchable, e.g. the alphanumeric account number.",
+    )
+
+
+class IntegrationAccountsResponseSerializer(serializers.Serializer):
+    accounts = IntegrationAccountSerializer(
+        many=True,
+        help_text="All accounts the connected integration can access.",
+    )
+
+
 @extend_schema(extensions={"x-product": "warehouse_sources"})
 class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
@@ -1305,6 +1347,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         "webhook_info",
         "connections",
         "cdc_status",
+        # Enumerates the connected provider's accounts/sites for the account picker — read action, but
+        # also gated behind manage access in dangerously_get_permissions (info disclosure).
+        "oauth_accounts",
     ]
     queryset = ExternalDataSource.objects.all()
     serializer_class = ExternalDataSourceSerializers
@@ -1314,6 +1359,20 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
     # source type ("Stripe", "Postgres") and the HogQL table prefix.
     search_fields = ["source_type", "prefix"]
     ordering = "-created_at"
+
+    def dangerously_get_permissions(self):
+        # The account picker enumerates every account/site the connected provider exposes, so require
+        # manage access even though it's a GET — a read-only member shouldn't discover unrelated
+        # accounts (info disclosure). Other actions fall back to the viewset defaults.
+        if self.action == "oauth_accounts":
+            return [
+                IsAuthenticated(),
+                APIScopePermission(),
+                AccessControlPermission(),
+                TeamMemberAccessPermission(),
+                TeamMemberAdminManagementPermission(),
+            ]
+        raise NotImplementedError()
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.action == "create":
@@ -1376,6 +1435,66 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             created_via=serializer.validated_data.get("created_via", ExternalDataSource.CreatedVia.API),
             direct_query_enabled=serializer.validated_data.get("direct_query_enabled", True),
         )
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="source_type",
+                type=str,
+                required=True,
+                description="The data warehouse source type (e.g. 'BingAds', 'GoogleSearchConsole').",
+            ),
+            OpenApiParameter(
+                name="integration_id",
+                type=int,
+                required=True,
+                description="The OAuth integration id whose accounts should be listed.",
+            ),
+        ],
+        responses={200: IntegrationAccountsResponseSerializer},
+    )
+    @action(methods=["GET"], detail=False, url_path="oauth_accounts")
+    def oauth_accounts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """List the accounts/properties a connected OAuth integration exposes, in the shared
+        IntegrationAccount shape. The logic lives in each source (via OAuthMixin.get_oauth_accounts);
+        this endpoint just routes by source type and serializes the result."""
+        source_type = request.query_params.get("source_type")
+        integration_id = request.query_params.get("integration_id")
+        if not source_type or not integration_id:
+            raise ValidationError("source_type and integration_id are required")
+
+        try:
+            integration_id_int = int(integration_id)
+        except ValueError:
+            raise ValidationError("integration_id must be an integer")
+
+        try:
+            source = SourceRegistry.get_source(cast(ExternalDataSourceType, source_type))
+        except ValueError:
+            raise ValidationError(f"Unknown source type: {source_type}")
+
+        if not isinstance(source, OAuthMixin):
+            raise ValidationError(f"Source type {source_type} does not support listing OAuth accounts")
+
+        cache_key = f"oauth_accounts/{self.team_id}/{source_type}/{integration_id_int}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return Response(cached)
+
+        try:
+            accounts = source.get_oauth_accounts(integration_id_int, self.team_id)
+        except ValueError as e:
+            # Sources raise ValueError for actionable, customer-side failures (missing config, the
+            # provider rejecting the credentials). Surface them as a 400 rather than an unhandled 500.
+            raise ValidationError(str(e))
+
+        response_data = {
+            "accounts": IntegrationAccountSerializer(
+                [dataclasses.asdict(account) for account in accounts], many=True
+            ).data
+        }
+        cache.set(cache_key, response_data, 60)
+        return Response(response_data)
 
     def _create_external_data_source(
         self,

@@ -15,8 +15,10 @@ export interface IntegrationAccountSelectorProps {
     fieldLabel: string
     /** Which OAuth id field of the form payload to read, e.g. "bing_ads_integration_id". */
     integrationField: string
-    /** Integration kind used to validate and route the account fetcher, e.g. "bing-ads". */
+    /** Integration kind used to validate the connected integration, e.g. "bing-ads". */
     integrationKind: string
+    /** Data warehouse source type used to route the generic accounts endpoint, e.g. "BingAds". */
+    sourceType: string
     placeholder?: string
 }
 
@@ -85,15 +87,13 @@ function useFormIntegrationId(formLogic: any, formKey: string, integrationField:
 
 function IntegrationAccountFieldWithDropdown({
     integrationId,
-    integrationKind,
+    sourceType,
     fieldName,
     fieldLabel,
     placeholder,
 }: IntegrationAccountSelectorProps & { integrationId: number }): JSX.Element {
-    const { accounts, accountsLoading } = useValues(
-        integrationAccountsLogic({ id: integrationId, kind: integrationKind })
-    )
-    const { loadAccounts } = useActions(integrationAccountsLogic({ id: integrationId, kind: integrationKind }))
+    const { accounts, accountsLoading } = useValues(integrationAccountsLogic({ id: integrationId, sourceType }))
+    const { loadAccounts } = useActions(integrationAccountsLogic({ id: integrationId, sourceType }))
 
     useEffect(() => {
         loadAccounts()
