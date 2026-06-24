@@ -8,6 +8,8 @@ from unittest.mock import patch
 from django.core.cache import cache
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.oauth import OAuthApplication
 from posthog.models.user import User
@@ -80,6 +82,49 @@ class TestAgenticAuthorize(APIBaseTest):
         assert code_data["org_id"] == str(self.team.organization.id)
         assert code_data["team_id"] == self.team.id
         assert code_data["scopes"] == ["query:read", "project:read"]
+
+    def _make_skip_consent_partner(self) -> OAuthApplication:
+        return OAuthApplication.objects.create(
+            client_id="authorize-skip-consent-partner",
+            name="Skip Consent Partner",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://partner.example.com/callback",
+            algorithm="RS256",
+            is_first_party=True,
+            provisioning_auth_method="hmac",
+            provisioning_partner_type="test_partner",
+            provisioning_active=True,
+            provisioning_skip_existing_user_consent=True,
+        )
+
+    @parameterized.expand(
+        [
+            # consent_required=True forces the consent UI for a skip-consent partner whose request
+            # fell through to consent (trust not proven), even for a single-org/single-team user.
+            ("consent_required_flag_set", {"consent_required": True}),
+            # Fail closed: a partner-identified pending state missing the flag (e.g. cached by an
+            # older pod mid-deploy) must not auto-approve either.
+            ("flag_missing_fails_closed", {}),
+        ]
+    )
+    def test_skip_consent_partner_not_auto_approved(self, name, extra):
+        partner = self._make_skip_consent_partner()
+        state = f"state_{name}"
+        self._set_pending_auth(
+            state,
+            self.user.email,
+            partner_id=str(partner.id),
+            partner_name=partner.name,
+            **extra,
+        )
+        res = self.client.get(f"/api/agentic/authorize?state={state}")
+        assert res.status_code == 302
+        assert "/agentic/authorize?" in res["Location"]
+        assert not res["Location"].startswith("https://partner.example.com/callback")
+        assert "code=" not in res["Location"]
+        assert cache.get(f"{PENDING_AUTH_CACHE_PREFIX}{state}") is not None
 
     @override_settings(
         STRIPE_SIGNING_SECRET=HMAC_SECRET,

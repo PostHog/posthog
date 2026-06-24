@@ -106,7 +106,9 @@ INSTALLED_APPS = [
     "django.contrib.admin.apps.SimpleAdminConfig",
     "django.contrib.auth",
     "django.contrib.contenttypes",
-    "django.contrib.sessions",
+    # Replaces django.contrib.sessions: a custom session model on the same django_session table
+    # (see posthog/session). SessionMiddleware still works without the contrib app installed.
+    "posthog.session",
     "django.contrib.messages",
     "django.contrib.postgres",
     "django.contrib.staticfiles",
@@ -167,6 +169,7 @@ MIDDLEWARE = [
     "posthog.middleware.SocialAuthExceptionMiddleware",
     "posthog.middleware.SessionAgeMiddleware",
     "posthog.middleware.KnownLoginDeviceCookieMiddleware",
+    "posthog.session.middleware.UserAuthSessionActivityMiddleware",
     "posthog.middleware.ActivityLoggingMiddleware",
     "posthog.middleware.user_logging_context_middleware",
     "django_otp.middleware.OTPMiddleware",
@@ -293,6 +296,7 @@ SOCIAL_AUTH_GITLAB_API_URL: str = os.getenv("SOCIAL_AUTH_GITLAB_API_URL", "https
 LICENSE_SECRET_KEY = os.getenv("LICENSE_SECRET_KEY", "license-so-secret")
 
 # Cookie age in seconds (default 2 weeks) - these are the standard defaults for Django but having it here to be explicit
+SESSION_ENGINE = "posthog.session.backend"
 SESSION_COOKIE_AGE = get_from_env("SESSION_COOKIE_AGE", 60 * 60 * 24 * 14, type_cast=int)
 
 # For sensitive actions we have an additional permission (default 2 hour)
@@ -510,6 +514,7 @@ SPECTACULAR_SETTINGS = {
         "HeatmapType": "products.web_analytics.backend.models.heatmap_saved.SavedHeatmap.Type",
         # --- Inline value lists (type-hint enums, no x-spec-enum-id) ---
         "PropertyGroupOperator": ["AND", "OR"],
+        "CustomPropertyDisplayTypeEnum": ["text", "number", "currency", "percent", "date", "datetime", "boolean"],
         # Experiment now has two serializers (full ExperimentSerializer + ExperimentBasicSerializer
         # for the list endpoint) that both expose `type`/`status`. Pin both to their pre-existing
         # generated names so the shared enums don't get component-prefixed auto-names on collision.
@@ -927,6 +932,13 @@ ID_JAG_ACCESS_TOKEN_TTL_SECONDS: int = get_from_env("ID_JAG_ACCESS_TOKEN_TTL_SEC
 ID_JAG_CLOCK_SKEW_SECONDS: int = get_from_env("ID_JAG_CLOCK_SKEW_SECONDS", 30, type_cast=int)
 ID_JAG_JWKS_CACHE_TTL_SECONDS: int = get_from_env("ID_JAG_JWKS_CACHE_TTL_SECONDS", 60 * 60, type_cast=int)
 
+# Extra accepted ID-JAG `aud` values (the advertised authorization-server issuer) beyond SITE_URL —
+# e.g. the OAuth proxy "https://oauth.posthog.com" on Cloud. SITE_URL is always accepted.
+ID_JAG_ALLOWED_AUDIENCES: list[str] = get_list(get_from_env("ID_JAG_ALLOWED_AUDIENCES", ""))
+# Extra accepted ID-JAG `resource` values (the advertised resource-server identifier) beyond SITE_URL —
+# e.g. "https://mcp.posthog.com,https://mcp.us.posthog.com" on Cloud. SITE_URL is always accepted.
+ID_JAG_ALLOWED_RESOURCES: list[str] = get_list(get_from_env("ID_JAG_ALLOWED_RESOURCES", ""))
+
 TOOLBAR_OAUTH_STATE_TTL_SECONDS = 60 * 5
 TOOLBAR_OAUTH_EXCHANGE_TIMEOUT_SECONDS = 10
 TOOLBAR_OAUTH_APPLICATION_NAME = "PostHog Toolbar"
@@ -988,5 +1000,18 @@ WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS: list[int] = [
     int(team_id)
     for team_id in get_list(
         get_from_env("WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS)
+    )
+]
+
+# Teams whose PATHS precompute reads also dual-write into the colocated
+# `web_stats_paths_preaggregated_pathkey` table so its read layout can be
+# A/B-compared (PR #64948). Deliberately narrow — only the named teams pay the
+# extra mirror write — and defaults to the Cloud dogfooding team (project 2)
+# only, same as the precompute lists above. Temporary; removed once the
+# comparison concludes.
+WEB_STATS_PATHS_PREAGG_MIRROR_PATHKEY_TEAM_IDS: list[int] = [
+    int(team_id)
+    for team_id in get_list(
+        get_from_env("WEB_STATS_PATHS_PREAGG_MIRROR_PATHKEY_TEAM_IDS", _LAZY_PRECOMPUTE_DEFAULT_TEAM_IDS)
     )
 ]

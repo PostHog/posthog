@@ -10,10 +10,29 @@
 import * as zod from 'zod'
 
 /**
+ * Enable warehouse backfill for this environment with a dedicated set of tables.
+ *
+ * Requires a table name and records the environment's membership in the
+ * organization's managed warehouse. Restricted to organization admins.
+ */
+export const DataWarehouseEnableBackfillCreateBody = /* @__PURE__ */ zod.object({
+    table_name: zod
+        .string()
+        .describe(
+            "Name for this environment's warehouse tables (events_<name>, persons_<name>, …). Lowercase letters, numbers, and underscores only; used verbatim as the suffix and must be unique across the organization's environments."
+        ),
+})
+
+/**
  * Start provisioning a managed warehouse for this organization (shared by all its teams).
  */
 export const DataWarehouseProvisionCreateBody = /* @__PURE__ */ zod.object({
     database_name: zod.string().describe('Name for the new database'),
+    table_name: zod
+        .string()
+        .describe(
+            "Name for the provisioning project's warehouse tables (events_<name>, persons_<name>, …). Lowercase letters, numbers, and underscores only; used verbatim as the suffix. Required so the first project gets its own per-environment tables."
+        ),
 })
 
 export const insightVariablesCreateBodyNameMax = 400

@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime, timedelta
 from functools import cached_property
 from typing import Optional
@@ -62,7 +63,7 @@ from products.experiments.backend.hogql_queries.utils import (
     split_baseline_and_test_variants,
 )
 from products.experiments.backend.metric_utils import get_default_metric_title
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, get_excluded_variants
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 logger = structlog.get_logger(__name__)
@@ -152,7 +153,7 @@ class ExperimentQueryRunner(QueryRunner):
         # the experiment, so they don't belong in the metric scorecard.
         # self.experiment.holdout is still readable for code paths that need it
         # (e.g. the Distribution table on the Variants tab).
-        excluded_variants = set((self.experiment.parameters or {}).get("excluded_variants") or [])
+        excluded_variants = set(get_excluded_variants(self.experiment))
         self.variants = [
             variant["key"] for variant in self.feature_flag.variants if variant["key"] not in excluded_variants
         ]
@@ -426,6 +427,9 @@ class ExperimentQueryRunner(QueryRunner):
         tag_queries(
             product=Product.EXPERIMENTS,
             experiment_query_surface="metric",
+            # Generated before _get_experiment_query() runs the precompute builds, so those build
+            # sub-queries inherit this id via the tag context and can be grouped under this read.
+            experiment_query_group_id=uuid.uuid4(),
             experiment_id=self.experiment.id,
             experiment_name=self.experiment.name,
             experiment_feature_flag_key=self.feature_flag_key,
@@ -434,6 +438,8 @@ class ExperimentQueryRunner(QueryRunner):
             experiment_metric_name=metric_name,
             experiment_metric_type=self.metric.metric_type,
         )
+        if isinstance(self.metric, ExperimentFunnelMetric):
+            tag_queries(experiment_funnel_order_type=self.metric.funnel_order_type or "ordered")
 
         experiment_query_ast = self._get_experiment_query()
 
@@ -772,6 +778,8 @@ class ExperimentQueryRunner(QueryRunner):
         tag_queries(
             product=Product.EXPERIMENTS,
             experiment_query_surface="actors",
+            # No sub-queries here, but tag for a consistent group id per top-level query.
+            experiment_query_group_id=uuid.uuid4(),
             experiment_exposures_path="direct_scan",
             experiment_metric_events_path="not_applicable",
             experiment_id=self.experiment.id,

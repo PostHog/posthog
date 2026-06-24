@@ -557,6 +557,60 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "String",
             "used_for_debug": True,
         },
+        "$sdk_debug_replay_trigger_groups_count": {
+            "label": "Recording trigger groups count",
+            "description": "The number of V2 recording trigger groups configured for this project.",
+            "examples": [2],
+            "type": "Numeric",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_replay_matched_recording_trigger_groups": {
+            "label": "Matched recording trigger groups",
+            "description": "The V2 recording trigger groups evaluated for this session, including each group's name and whether it matched and was sampled.",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_rrweb_start_attempted": {
+            "label": "rrweb start attempted",
+            "description": "Whether the SDK attempted to start the rrweb recorder for this session.",
+            "type": "Boolean",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_rrweb_attached": {
+            "label": "rrweb attached",
+            "description": "Whether the rrweb recorder is currently attached and capturing for this session.",
+            "type": "Boolean",
+            "used_for_debug": True,
+        },
+        "$sdk_debug_error_capturing_properties": {
+            "label": "Error capturing properties",
+            "description": "An error message recorded if the SDK threw while gathering properties for an event.",
+            "type": "String",
+            "used_for_debug": True,
+        },
+        "$replay_override_sampling": {
+            "label": "Replay sampling overridden",
+            "description": "Recording was force-started, ignoring the sampling config (e.g. via startSessionRecording({ sampling: true })).",
+            "type": "Boolean",
+            "used_for_debug": True,
+        },
+        "$replay_override_linked_flag": {
+            "label": "Replay linked flag overridden",
+            "description": "Recording was force-started, ignoring the linked flag config (e.g. via startSessionRecording({ linked_flag: true })).",
+            "type": "Boolean",
+            "used_for_debug": True,
+        },
+        "$replay_override_url_trigger": {
+            "label": "Replay URL trigger overridden",
+            "description": "Recording was force-started, ignoring the URL trigger config (e.g. via startSessionRecording({ trigger: 'url' })).",
+            "type": "Boolean",
+            "used_for_debug": True,
+        },
+        "$replay_override_event_trigger": {
+            "label": "Replay event trigger overridden",
+            "description": "Recording was force-started, ignoring the event trigger config (e.g. via startSessionRecording({ trigger: 'event' })).",
+            "type": "Boolean",
+            "used_for_debug": True,
+        },
         "$sdk_debug_replay_full_snapshots": {
             "label": "Replay full snapshots debug info",
             "description": "Debug information about full snapshots in the replay session.",
@@ -1117,6 +1171,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "$session_recording_url_trigger_activated_session": {
             "label": "Session recording URL trigger activated session",
             "description": "Session recording URL trigger activated session config. Used by posthog-js to track URL activation of session replay.",
+            "system": True,
+            "used_for_debug": True,
+        },
+        "$session_recording_event_trigger_activated_session": {
+            "label": "Session recording event trigger activated session",
+            "description": "Session recording event trigger activated session config. Used by posthog-js to track event activation of session replay.",
             "system": True,
             "used_for_debug": True,
         },

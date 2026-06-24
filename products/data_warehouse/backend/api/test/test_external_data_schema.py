@@ -30,7 +30,10 @@ from products.data_warehouse.backend.api.test.utils import create_external_data_
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
 from products.data_warehouse.backend.external_data_source.webhooks import WebhookHogFunctionCreateResult
 from products.data_warehouse.backend.types import ExternalDataSourceType
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    update_sync_type_config_keys,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
@@ -2556,6 +2559,58 @@ class TestUpdateExternalDataSchema:
         assert schema.sync_type_config.get("reset_pipeline") is None
         mock_trigger.assert_not_called()
 
+    def test_update_cdc_schema_reenable_triggers_reset_pipeline(self, team, user, client: HttpClient, temporal):
+        client.force_login(user)
+        source = ExternalDataSource.objects.create(
+            team=team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs={
+                "schema": "public",
+                "cdc_enabled": True,
+                "cdc_management_mode": "posthog",
+                "cdc_slot_name": "test_slot",
+                "cdc_publication_name": "test_pub",
+            },
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="public.events",
+            team=team,
+            source=source,
+            should_sync=False,
+            initial_sync_complete=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            sync_type_config={"cdc_mode": "streaming", "primary_key_columns": ["id"]},
+        )
+
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.is_cdc_enabled_for_team",
+                return_value=True,
+            ),
+            mock.patch("posthog.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.add_table"),
+            mock.patch(
+                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch("products.data_warehouse.backend.api.external_data_schema.sync_external_data_job_workflow"),
+            mock.patch("products.data_warehouse.backend.api.external_data_schema.sync_cdc_extraction_schedule"),
+        ):
+            response = client.patch(
+                f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+                data={"should_sync": True},
+                content_type="application/json",
+            )
+
+        assert response.status_code == 200, response.content
+
+        schema.refresh_from_db()
+        assert schema.should_sync is True
+        # Re-enable must wipe the warehouse table, not merge current rows over stale pre-disable ones.
+        assert schema.sync_type_config.get("reset_pipeline") is True
+        assert schema.sync_type_config["cdc_mode"] == "snapshot"
+        assert schema.initial_sync_complete is False
+
 
 class TestCancelExternalDataSchema(APIBaseTest):
     @mock.patch("products.data_warehouse.backend.api.external_data_schema.cancel_external_data_workflow")
@@ -2718,6 +2773,97 @@ class TestExternalDataSchemaSerializerValidation(APIBaseTest):
         assert self.schema.sync_type == ExternalDataSchema.SyncType.INCREMENTAL
 
 
+class TestSyncTypeConfigLostUpdateProtection(APIBaseTest):
+    """The serializer's full-instance save must not revert a sync_type_config key that a concurrent
+    CDC extract activity committed after the request loaded the row."""
+
+    def setUp(self):
+        super().setUp()
+        self.source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.POSTGRES,
+            # self_managed so the CDC publication hook in update() returns early without touching the source.
+            job_inputs={
+                "host": "h",
+                "port": 5432,
+                "database": "d",
+                "user": "u",
+                "password": "p",
+                "schema": "public",
+                "cdc_enabled": True,
+                "cdc_management_mode": "self_managed",
+                "cdc_slot_name": "s",
+                "cdc_publication_name": "p",
+            },
+        )
+        self.schema = ExternalDataSchema.objects.create(
+            name="public.orders",
+            team=self.team,
+            source=self.source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            sync_type_config={
+                "cdc_mode": "streaming",
+                "cdc_table_mode": "consolidated",
+                "cdc_last_log_position": "0/100",
+                "primary_key_columns": ["id"],
+            },
+        )
+
+    def test_patch_does_not_clobber_concurrent_activity_position(self):
+        from products.data_warehouse.backend.api.external_data_schema import ExternalDataSchemaSerializer
+
+        # The serializer's in-memory copy is loaded here, holding position 0/100.
+        instance = ExternalDataSchema.objects.get(id=self.schema.id)
+
+        # A CDC extract activity commits a newer position while the request is mid-flight.
+        update_sync_type_config_keys(self.schema.id, self.team.pk, updates={"cdc_last_log_position": "0/900"})
+
+        # A user PATCH edits an unrelated (non-sync_type_config) field off the stale copy and saves.
+        serializer = ExternalDataSchemaSerializer(
+            instance,
+            data={"enabled_columns": ["id"]},
+            partial=True,
+            context={"team_id": self.team.pk, "post_commit_actions": []},
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+
+        self.schema.refresh_from_db()
+        # The user's edit applied AND the concurrent position survived (not reverted to 0/100).
+        assert self.schema.enabled_columns == ["id"]
+        assert self.schema.sync_type_config["cdc_last_log_position"] == "0/900"
+
+    def test_patch_changing_sync_type_config_key_keeps_concurrent_write(self):
+        from products.data_warehouse.backend.api.external_data_schema import ExternalDataSchemaSerializer
+
+        instance = ExternalDataSchema.objects.get(id=self.schema.id)  # in-memory copy, position 0/100
+
+        # A CDC extract activity commits a newer position while the request is mid-flight.
+        update_sync_type_config_keys(self.schema.id, self.team.pk, updates={"cdc_last_log_position": "0/900"})
+
+        # The user changes a sync_type_config key (cdc_table_mode). The re-snapshot it would trigger is
+        # deferred to post-commit (which we don't run), so only the merge itself is under test here.
+        serializer = ExternalDataSchemaSerializer(
+            instance,
+            data={"cdc_table_mode": "both"},
+            partial=True,
+            context={"team_id": self.team.pk, "post_commit_actions": []},
+        )
+        with mock.patch(
+            "products.data_warehouse.backend.api.external_data_schema.is_any_external_data_schema_paused",
+            return_value=False,
+        ):
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+
+        self.schema.refresh_from_db()
+        # The user's key change landed AND the concurrent position (a key the request didn't touch) survived.
+        assert self.schema.cdc_table_mode == "both"
+        assert self.schema.sync_type_config["cdc_last_log_position"] == "0/900"
+
+
 class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
     """`available_columns` is source-type-agnostic — it reads `schema_metadata.columns`.
     Parameterized across every SQL source to lock in that the serializer doesn't regress
@@ -2797,6 +2943,8 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
             (ExternalDataSourceType.BIGQUERY, True),
             (ExternalDataSourceType.SNOWFLAKE, True),
             (ExternalDataSourceType.REDSHIFT, True),
+            # ClickHouse isn't a SQLSource but opts into column selection.
+            (ExternalDataSourceType.CLICKHOUSE, True),
             # Non-SQL sources stay False
             (ExternalDataSourceType.STRIPE, False),
         ]

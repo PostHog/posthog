@@ -82,6 +82,7 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     _get_table_chunk_size,
     _has_duplicate_primary_keys,
     _is_connection_dropped_error,
+    _is_dropped_or_connect_timeout,
     _is_invalid_ssl_negotiation_response,
     _is_options_startup_param_unsupported,
     _is_partitioned_table,
@@ -344,6 +345,27 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"TLS ALPN rejection error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "SSHTunnel auth is not valid",
+            # Temporal-wrapped form carrying the exception class name.
+            "Exception: SSHTunnel auth is not valid",
+        ],
+    )
+    def test_invalid_ssh_tunnel_auth_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        assert "SSHTunnel auth is not valid" in non_retryable
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Invalid SSH tunnel auth error should be non-retryable: {error_msg}"
+
+    def test_invalid_ssh_tunnel_auth_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = "SSHTunnel auth is not valid"
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Invalid SSH tunnel auth error should surface an actionable message"
+        assert "SSH authentication details" in friendly[0]
 
     def test_tls_no_application_protocol_returns_friendly_message(self, source):
         non_retryable = source.get_non_retryable_errors()
@@ -695,14 +717,48 @@ class TestPostgresSourceNonRetryableErrors:
             "could not serialize access due to conflict with recovery",
             # The connection-terminating variant is retried by the setup phase the same way.
             "terminating connection due to conflict with recovery",
-            # The connection-dropped abort is a separate, genuinely transient condition.
-            "Hit 10 successive connection-dropped errors. Aborting.",
+            # The connection-error abort is a separate, genuinely transient condition.
+            "Hit 10 successive connection errors. Aborting.",
         ],
     )
     def test_recovery_conflict_related_transients_stay_retryable(self, source, error_msg):
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"Transient error should remain retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw activity-level message (what `_handle_import_error` sees via str(e)) — no class name.
+            # The standard incremental-read path (postgres.py) and the partitioned-table window path
+            # word the guidance slightly differently but share the "appropriate index" fragment.
+            "10 min timeout statement reached. Please ensure your incremental field (updated_at) has an appropriate index created",
+            "window 2024-01-01..2024-02-01 hit statement_timeout after 5 retries. Please ensure updated_at has an appropriate index.",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "QueryTimeoutException: 10 min timeout statement reached. Please ensure your incremental field (updated_at) has an appropriate index created",
+        ],
+    )
+    def test_statement_timeout_query_timeout_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Statement-timeout error should be non-retryable: {error_msg}"
+
+    def test_statement_timeout_raw_message_matches_index_fragment_not_class_name(self, source):
+        # The raw activity-level message doesn't carry the class name, so the "QueryTimeoutException"
+        # key can't catch it there — confirm the dedicated message fragment is what recognises it.
+        error_msg = str(
+            _statement_timeout_as_non_retryable(
+                psycopg.errors.QueryCanceled("canceling statement due to statement timeout"),
+                should_use_incremental_field=True,
+                incremental_field="updated_at",
+            )
+        )
+        non_retryable = source.get_non_retryable_errors()
+        matching_keys = [pattern for pattern in non_retryable if pattern in error_msg]
+        # The class-name key can't catch the raw message (str(e) carries no class name); the
+        # dedicated message fragment is what recognises it at the activity layer.
+        assert "QueryTimeoutException" not in matching_keys
+        assert "has an appropriate index" in matching_keys
 
 
 class TestPostgresSourceSetupRecoveryConflictRetry:
@@ -856,6 +912,13 @@ class TestIsConnectionDroppedError:
             psycopg.OperationalError("connection to server was lost"),
             psycopg.OperationalError("connection to server was closed unexpectedly"),
             psycopg.OperationalError("consuming input failed: EOF detected"),
+            # libpq's bare SSL drop, exactly as it reaches the discovery/setup connect — no
+            # "consuming input failed" prefix. A transient TLS close (pooler/firewall idle cull,
+            # failover) the in-process reconnect must catch, not the permanent no-SSL-support case.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "SSL connection has been closed unexpectedly"
+            ),
             psycopg.OperationalError("terminating connection due to administrator command"),
             # psycopg's message when libpq finds the socket already gone (raised from
             # PGconn.socket inside the commit at the end of get_connection). A transient
@@ -908,6 +971,41 @@ class TestIsConnectionDroppedError:
     def test_unrelated_errors_are_not_detected(self, error):
         assert _is_connection_dropped_error(error) is False
 
+    def test_connect_timeout_is_not_a_mid_stream_drop(self):
+        # A connect-time timeout is not a mid-stream drop, so the discovery/validation path
+        # (which uses `_is_connection_dropped_error`) keeps failing fast on it.
+        assert _is_connection_dropped_error(psycopg.errors.ConnectionTimeout("connection timeout expired")) is False
+
+
+class TestDroppedOrConnectTimeout:
+    @pytest.mark.parametrize(
+        "error",
+        [
+            # Every mid-stream drop the base predicate already recognises stays recognised.
+            psycopg.OperationalError("consuming input failed: SSL connection has been closed unexpectedly"),
+            psycopg.OperationalError("server closed the connection unexpectedly"),
+            psycopg.errors.ProtocolViolation("server conn crashed?"),
+            # The new case: the read-path reconnect that bootstraps offset-chunking recovery times
+            # out establishing the socket. Transient — the source was reachable moments earlier.
+            psycopg.errors.ConnectionTimeout("connection timeout expired"),
+        ],
+    )
+    def test_transient_connect_path_errors_are_retryable(self, error):
+        assert _is_dropped_or_connect_timeout(error) is True
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            psycopg.OperationalError(
+                'connection to server at "10.0.0.1" failed: FATAL: password authentication failed'
+            ),
+            # A statement timeout is not a connect timeout — it must not be absorbed here.
+            psycopg.errors.QueryCanceled("canceling statement due to statement timeout"),
+        ],
+    )
+    def test_permanent_and_non_connect_errors_are_not_retryable(self, error):
+        assert _is_dropped_or_connect_timeout(error) is False
+
 
 class TestRaiseIfSetupConnectionBroken:
     """A connection dropped mid-discovery must surface as a retryable error, not the masked
@@ -958,6 +1056,23 @@ class TestConnectWithDroppedRetry:
 
         assert result is good_conn
         assert connect.call_count == 3
+
+    def test_retries_connect_timeout_then_succeeds(self, logger):
+        # The exact production sequence: a mid-stream SSL drop routes into offset-chunking recovery,
+        # and the reconnect that bootstraps it times out establishing the socket before succeeding.
+        good_conn = mock.MagicMock()
+        connect = mock.MagicMock(
+            side_effect=[
+                psycopg.errors.ConnectionTimeout("connection timeout expired"),
+                good_conn,
+            ]
+        )
+
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+            result = _connect_with_dropped_retry(connect, logger, max_attempts=5)
+
+        assert result is good_conn
+        assert connect.call_count == 2
 
     def test_permanent_error_is_not_retried(self, logger):
         connect = mock.MagicMock(
@@ -1469,6 +1584,74 @@ class TestOffsetChunkingConnectRecoveryConflict:
         assert connect_mock.call_count == 5
 
 
+class TestOffsetChunkingConnectTimeout:
+    """The reconnect that bootstraps offset-chunking recovery can time out establishing the socket
+    (`ConnectionTimeout: connection timeout expired`). That's transient — the source was reachable
+    moments earlier — so it must be retried in-process, not escape `get_rows` and get misclassified
+    as the non-retryable "connection timeout expired" by `get_non_retryable_errors`.
+    """
+
+    def test_connect_timeout_on_offset_chunking_connect_is_retried_in_process(self):
+        @contextmanager
+        def fake_tunnel():
+            yield ("localhost", 5432)
+
+        fake_table = mock.Mock()
+        fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        fake_table.type = "table"
+        fake_table.columns = []
+        fake_table.__contains__ = mock.Mock(return_value=False)
+
+        # Reuse the connect-conflict scaffolding: the named server cursor raises a recovery conflict
+        # to route get_rows into offset-chunking; the unnamed cursor then yields no rows.
+        connection = TestOffsetChunkingConnectRecoveryConflict._Connection()
+        connect_calls = {"n": 0}
+
+        def connect_side_effect(*args, **kwargs):
+            connect_calls["n"] += 1
+            # Calls 1 (setup) and 2 (initial server-cursor read) succeed; the offset-chunking
+            # bootstrap connect times out twice before succeeding.
+            if connect_calls["n"] in (3, 4):
+                raise psycopg.errors.ConnectionTimeout("connection timeout expired")
+            return connection
+
+        module = "posthog.temporal.data_imports.sources.postgres.postgres"
+        with (
+            patch(f"{module}.psycopg.connect", side_effect=connect_side_effect) as connect_mock,
+            patch(
+                f"{module}.psycopg.Cursor",
+                side_effect=lambda _conn: TestOffsetChunkingConnectRecoveryConflict._OffsetCursor(),
+            ),
+            patch(f"{module}._get_table", return_value=fake_table),
+            patch(f"{module}._is_read_replica", return_value=True),
+            patch(f"{module}._get_primary_keys", return_value=["id"]),
+            patch(f"{module}._is_partitioned_table", return_value=False),
+            patch(f"{module}._get_table_chunk_size", return_value=1000),
+            patch(f"{module}._get_rows_to_sync", return_value=10),
+            patch(f"{module}._role_subject_to_rls", return_value=False),
+            patch(f"{module}._get_partition_settings", return_value=None),
+            patch(f"{module}.time.sleep"),
+        ):
+            response = postgres_source(
+                tunnel=lambda: fake_tunnel(),
+                user="u",
+                password="p",
+                database="db",
+                sslmode="prefer",
+                schema="public",
+                table_names=["companies"],
+                should_use_incremental_field=False,
+                logger=structlog.get_logger(),
+                db_incremental_field_last_value=None,
+                team_id=1,
+            )
+            # Before the fix the connect-time timeout escaped offset_chunking and raised here.
+            list(cast(Iterable[Any], response.items()))
+
+        # 1 setup + 1 initial read + 3 offset-chunking connects (2 timeouts + 1 success).
+        assert connect_mock.call_count == 5
+
+
 class TestOffsetChunkingRecoveryConflictTimeout:
     """When a read replica cancels the initial read with a recovery conflict, `get_rows` falls
     back to offset chunking. If a chunk then exhausts the 10-min statement_timeout, a full-table
@@ -1913,6 +2096,17 @@ class TestValidateCredentialsErrorMapping:
                 "PostgreSQL server speaking SSL. Check that the host and port point at your PostgreSQL server "
                 "(not an HTTP, proxy, or edge endpoint) and that the database is running.",
             ),
+            # DNS-resolution failure surfaced as the raw socket wording (no libpq "could not
+            # translate host name" prefix) — e.g. through an SSH tunnel or psycopg's Python-side
+            # resolution. Must map to the actionable host message instead of being captured.
+            (
+                "[Errno -2] Name or service not known",
+                "Could not resolve the database host. Check that the host is spelled correctly and reachable from the public internet.",
+            ),
+            (
+                "[Errno -5] No address associated with hostname",
+                "Could not resolve the database host. Check that the host is spelled correctly and reachable from the public internet.",
+            ),
             # Unmapped errors fall back to the generic message.
             (
                 "some brand new failure",
@@ -2015,14 +2209,22 @@ class TestPostgresSchemaDiscovery:
         for dropped in dropping_connections:
             dropped.close.assert_called_once()
 
-    def test_get_schemas_retries_transient_connection_drop_on_connect(self):
-        # A transient drop on the discovery connect ("server closed the connection unexpectedly")
-        # is the same class of error the import read path already recovers from. Discovery must
-        # retry the connect in-process and recover instead of failing the whole run — and surfacing
-        # as captured error-tracking noise — on the first blip.
+    @pytest.mark.parametrize(
+        "drop_message",
+        [
+            "server closed the connection unexpectedly",
+            # The SSL-flavoured sibling, exactly as it reached discovery in production. Before the
+            # fix it wasn't in `_CONNECTION_DROPPED_ERROR_SUBSTRINGS`, so the retry didn't catch it
+            # and the first blip surfaced as captured error-tracking noise.
+            "SSL connection has been closed unexpectedly",
+        ],
+    )
+    def test_get_schemas_retries_transient_connection_drop_on_connect(self, drop_message):
+        # A transient drop on the discovery connect is the same class of error the import read path
+        # already recovers from. Discovery must retry the connect in-process and recover instead of
+        # failing the whole run — and surfacing as captured error-tracking noise — on the first blip.
         drop = psycopg.OperationalError(
-            'connection failed: connection to server at "66.33.22.246", port 11212 failed: '
-            "server closed the connection unexpectedly"
+            f'connection failed: connection to server at "66.33.22.246", port 11212 failed: {drop_message}'
         )
         connection = self._mock_connection(
             [("public", "users")],
@@ -4067,6 +4269,31 @@ class TestHasDuplicatePrimaryKeys:
             result = _has_duplicate_primary_keys(cast(Any, dj_cursor), "public", "test_dup_table", ["id"], logger)
             assert result is True
 
+    def test_reraises_connection_errors_without_capturing(self):
+        logger = structlog.get_logger()
+        cursor = MagicMock()
+        # postgres_fdw surfaces a saturated foreign server while executing the probe query: the
+        # remote connection couldn't be established, so the probe never ran. This must propagate
+        # (transient, stays retryable), not be swallowed as "no duplicate keys" + captured as noise.
+        cursor.execute.side_effect = psycopg.errors.SqlclientUnableToEstablishSqlconnection(
+            'could not connect to server "posthog_fdw_payment"\n'
+            'DETAIL:  connection to server at "10.0.0.1", port 5432 failed: '
+            'FATAL:  too many connections for role "posthog_fdw_reader"'
+        )
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as mock_capture:
+            with pytest.raises(psycopg.OperationalError):
+                _has_duplicate_primary_keys(cast(Any, cursor), "public", "orders", ["id"], logger)
+        mock_capture.assert_not_called()
+
+    def test_captures_and_returns_false_on_non_connection_error(self):
+        logger = structlog.get_logger()
+        cursor = MagicMock()
+        cursor.execute.side_effect = psycopg.errors.UndefinedColumn('column "id" does not exist')
+        with patch("posthog.temporal.data_imports.sources.postgres.postgres.capture_exception") as mock_capture:
+            result = _has_duplicate_primary_keys(cast(Any, cursor), "public", "orders", ["id"], logger)
+        assert result is False
+        mock_capture.assert_called_once()
+
 
 class TestIsReadReplica:
     @pytest.mark.django_db
@@ -4116,12 +4343,23 @@ class _RecordingConnection:
 
 
 class TestGetTable:
+    def teardown_method(self):
+        # `_get_table` and `_schemas_from_conn` raise a session-level `statement_timeout` on the
+        # connection (production opens and closes its own, so the GUC is discarded with it). Here
+        # they run against the shared `django_connection`, which Postgres does not reset on
+        # transaction rollback — reset it after every test so a raised timeout can't leak onto
+        # later tests reusing the connection.
+        with django_connection.cursor() as dj_cursor:
+            dj_cursor.execute("RESET statement_timeout")
+
     @pytest.mark.django_db
-    def test_schema_discovery_query_runs_under_scoped_statement_timeout(self):
-        """The `information_schema.columns` metadata query is wrapped in its own transaction that
-        first issues a `SET LOCAL statement_timeout`, so a short role/server default can't cancel
-        it mid-discovery — the QueryCanceled on `_pg_numeric_scale` we observed against pooled
-        Postgres. Pin that the timeout is scoped immediately before the query it protects."""
+    def test_schema_discovery_raises_statement_timeout_before_any_probe(self):
+        """`_get_table` raises a generous session-level `statement_timeout` before issuing any
+        discovery query, so a short role/server default can't cancel discovery with QueryCanceled.
+        The protection must precede every probe — the `pg_matviews`/`pg_views` lookups and the
+        transaction `BEGIN` that scopes the metadata query both ran under the inherited short
+        default before, which canceled the statement against pooled Postgres. Pin that the timeout
+        is the first statement issued, ahead of the metadata SELECT it ultimately protects."""
         logger = structlog.get_logger()
 
         with django_connection.cursor() as dj_cursor:
@@ -4134,17 +4372,19 @@ class TestGetTable:
             # Real execution still succeeds and returns the expected columns.
             assert {c.name for c in table.columns} >= {"id", "amount"}
 
-            set_local_idx = next(
+            set_timeout_idx = next(
                 i
                 for i, q in enumerate(spy.executed)
-                if "SET LOCAL" in q and "statement_timeout" in q and str(METADATA_STATEMENT_TIMEOUT_MS) in q
+                if "statement_timeout" in q and str(METADATA_STATEMENT_TIMEOUT_MS) in q
             )
-            # The metadata SELECT (not the best-effort EXPLAIN that precedes it) must run directly
-            # after the SET LOCAL, inside the same transaction.
+            # The protective timeout must come before the first discovery probe (the
+            # `pg_matviews` lookup) and the metadata SELECT — not midway through, where a
+            # short default would already have canceled an earlier statement.
+            first_probe_idx = next(i for i, q in enumerate(spy.executed) if "pg_matviews" in q)
             info_schema_idx = next(
                 i for i, q in enumerate(spy.executed) if "information_schema.columns" in q and "EXPLAIN" not in q
             )
-            assert info_schema_idx == set_local_idx + 1
+            assert set_timeout_idx < first_probe_idx < info_schema_idx
 
     @pytest.mark.django_db
     def test_schemas_from_conn_runs_under_scoped_statement_timeout(self):
@@ -4156,15 +4396,7 @@ class TestGetTable:
             dj_cursor.execute("CREATE TABLE test_schemas_from_conn_timeout (id INTEGER PRIMARY KEY, name TEXT)")
 
         conn = _RecordingConnection(django_connection)
-        try:
-            discovered = _schemas_from_conn(cast(Any, conn), "public", ["test_schemas_from_conn_timeout"])
-        finally:
-            # `_schemas_from_conn` issues a session-level `SET statement_timeout` (production opens and
-            # closes its own connection, so the GUC is discarded with it). Here it runs against the shared
-            # `django_connection`, which Postgres does not reset on transaction rollback — clear it so the
-            # raised timeout can't leak onto subsequent tests reusing the connection.
-            with django_connection.cursor() as dj_cursor:
-                dj_cursor.execute("RESET statement_timeout")
+        discovered = _schemas_from_conn(cast(Any, conn), "public", ["test_schemas_from_conn_timeout"])
 
         assert "test_schemas_from_conn_timeout" in discovered
         assert {col[0] for col in discovered["test_schemas_from_conn_timeout"].columns} >= {"id", "name"}

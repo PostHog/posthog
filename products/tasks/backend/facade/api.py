@@ -107,6 +107,8 @@ __all__ = [
     "create_task_automation",
     "create_task_without_run",
     "create_task_run_connection_token",
+    "create_task_run_stream_read_token",
+    "resolve_stream_base_url",
     "claim_and_fail_stale_run",
     "delete_sandbox_environment",
     "delete_task_automation",
@@ -178,6 +180,7 @@ __all__ = [
     "upsert_internal_sandbox_env",
     "validate_set_output",
     "validate_task_run_artifact_ids",
+    "warm_task_sandbox",
 ]
 
 
@@ -1702,6 +1705,52 @@ def create_task_run_connection_token(
     return _create(task_run=run, user_id=user_id, distinct_id=distinct_id)
 
 
+def create_task_run_stream_read_token(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
+    """Mint a run-scoped token for reading a run's live event stream. ``None`` if the run isn't found."""
+    from products.tasks.backend.logic.services.connection_token import (  # noqa: PLC0415 — keep sandbox deps off the api import path
+        create_stream_read_token as _create,
+    )
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None
+    return _create(task_run=run)
+
+
+def resolve_stream_base_url(*, distinct_id: str, organization_id: str | UUID) -> str | None:
+    """Agent-proxy base URL for the read leg, or ``None`` to read from Django directly.
+
+    Returns the configured agent-proxy URL only when it is set for this environment AND the
+    read-via-proxy flag is enabled for the user, so rollout stays gradual and reversible. The
+    server owns this decision; clients just connect to whatever URL comes back.
+    """
+    from django.conf import settings  # noqa: PLC0415 — keep settings access local to this helper
+
+    from products.tasks.backend.constants import STREAM_VIA_PROXY_FEATURE_FLAG  # noqa: PLC0415
+
+    proxy_url = settings.TASKS_AGENT_PROXY_PUBLIC_URL
+    if not proxy_url:
+        return None
+    # Local dev disables the analytics SDK, so the rollout flag never evaluates; the URL setting
+    # is the opt-in there. Prod (DEBUG off) still gates on the flag below.
+    if settings.DEBUG:
+        return proxy_url
+    try:
+        enabled = bool(
+            posthoganalytics.feature_enabled(
+                STREAM_VIA_PROXY_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": str(organization_id)},
+                group_properties={"organization": {"id": str(organization_id)}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        return None
+    return proxy_url if enabled else None
+
+
 # --- Task run commands (user_message signal + sandbox proxy) ---
 
 
@@ -2527,9 +2576,28 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
     validated_data = dict(validated_data)
     validated_data["team"] = team
     validated_data.setdefault("origin_product", Task.OriginProduct.USER_CREATED)
+    warm_branch_provided = "branch" in validated_data
+    warm_branch = validated_data.pop("branch", None)
 
     if user_id is not None:
         validated_data["created_by"] = User.objects.get(id=user_id)
+
+    if (
+        warm_branch_provided
+        and validated_data["origin_product"] == Task.OriginProduct.USER_CREATED
+        and validated_data.get("repository")
+        and user_id is not None
+    ):
+        warm_run = _find_idling_warm_run(team_id, user_id, repository=validated_data["repository"], branch=warm_branch)
+        if warm_run is not None:
+            warm_task = warm_run.task
+            message = (validated_data.get("description") or "").strip()
+            if message and not (warm_task.title or "").strip():
+                warm_task.title = generate_task_title(message)
+                warm_task.title_manually_set = False
+                warm_task.save(update_fields=["title", "title_manually_set", "updated_at"])
+            _activate_warm_run(warm_run, warm_task, team_id, message=message or None, artifact_ids=[])
+            return _task_detail_to_dto(_task_detail_queryset().get(pk=warm_task.pk))
 
     # Only IMPLEMENTATION is accepted; pop it so it isn't forwarded to the model. The link itself
     # is recorded by record_implementation_task below.
@@ -2591,6 +2659,7 @@ def update_task(
     validated_data.pop("signal_report", None)
     validated_data.pop("signal_report_task_relationship", None)
     validated_data.pop("origin_product", None)
+    validated_data.pop("branch", None)
     if "title" in validated_data and "title_manually_set" not in validated_data:
         validated_data["title_manually_set"] = True
     if "archived" in validated_data and validated_data["archived"] != task.archived:
@@ -2744,6 +2813,152 @@ def finalize_task_staged_artifacts(
     return contracts.StagedArtifactFinalizeResult(artifacts=finalized)
 
 
+def resolve_team_github_integration_id(team_id: int, github_integration_id: int) -> int | None:
+    """Return the integration id only if it is a GitHub integration owned by this team.
+
+    Re-scoping guard for the collection-level warm endpoint, which accepts a bare PK with
+    no serializer team context. Returns ``None`` for any id that doesn't belong to the team —
+    the caller treats that as "skip warming" (the submit later falls through to a cold create+run).
+    """
+    exists = Integration.objects.filter(id=github_integration_id, team_id=team_id, kind="github").exists()
+    return github_integration_id if exists else None
+
+
+def _find_idling_warm_run(
+    team_id: int, user_id: int | None, *, repository: str | None, branch: str | None
+) -> TaskRun | None:
+    """Most-recent idling pre-warmed Run matching this user's cloud composing selection, or ``None``.
+
+    A warm Run is a non-terminal ``USER_CREATED`` Run for the same repo+branch still awaiting its
+    first user message (the ``await_user_message`` state marker). This is the backend's single source
+    of truth for the warm pool: it dedupes warm provisioning (so a repeated ``warm`` call reuses the
+    live Run instead of spawning a second) and lets the normal create+run path transparently reuse a
+    warm Run on submit. Team + user scoped; branch compared as ``None``-normalized exact match.
+
+    Runs on a hot path (warm fires on every typing debounce), so every predicate is pushed into the
+    query — ``await_user_message`` is JSON-queryable (see ``SandboxWarmer.at_capacity``) — and only the
+    single most-recent match is fetched.
+    """
+    if user_id is None or not repository:
+        return None
+    return (
+        TaskRun.objects.filter(  # nosemgrep: idor-lookup-without-team — team_id filter applied via the task FK below
+            task__team_id=team_id,
+            task__created_by_id=user_id,
+            task__origin_product=Task.OriginProduct.USER_CREATED,
+            task__repository__iexact=repository,
+            task__deleted=False,
+            state__await_user_message=True,
+            branch=branch or None,
+        )
+        .exclude(status__in=_TERMINAL_TASK_RUN_STATUSES)
+        .select_related("task")
+        .order_by("-created_at")
+        .first()
+    )
+
+
+def _idling_warm_run_for_task(task: Task) -> TaskRun | None:
+    """The task's latest run iff it is an idling pre-warmed Run (non-terminal, awaiting first message)."""
+    run = task.latest_run
+    if run is None or run.is_terminal:
+        return None
+    if not (run.state or {}).get("await_user_message"):
+        return None
+    return run
+
+
+def _activate_warm_run(run: TaskRun, task: Task, team_id: int, *, message: str | None, artifact_ids: list[str]) -> None:
+    """Activate an idling warm Run: set the draft Task's description (when empty), forward the first
+    message to the already-running agent, and drop the ``await_user_message`` marker so the Run leaves
+    the warm pool. Mirrors ``message_routing._handle_first_message``; no fresh agent start."""
+    from products.tasks.backend.metrics import (  # noqa: PLC0415 — keep prometheus deps off the api import path
+        observe_prewarmed_activated,
+    )
+
+    if message and not (task.description or "").strip():
+        task.description = message
+        task.save(update_fields=["description", "updated_at"])
+    signal_task_run_user_message(run.id, task.id, team_id, content=message, artifact_ids=artifact_ids)
+    TaskRun.update_state_atomic(run.id, remove_keys=["await_user_message"])
+    # Only count activations of Runs that actually carry the prewarmed marker, so the activation
+    # numerator stays consistent with the workflow_start{prewarmed="true"} denominator — otherwise
+    # warm Runs provisioned before this ships (await_user_message set, prewarmed absent) would push
+    # the hit rate above 1 during the deploy transition.
+    if (run.state or {}).get("prewarmed"):
+        observe_prewarmed_activated(run)
+
+
+def warm_task_sandbox(
+    team_id: int,
+    user_id: int,
+    *,
+    repository: str,
+    github_integration_id: int,
+    branch: str | None,
+) -> contracts.WarmTaskDTO | None:
+    """Warm a full idling Run for a Code-app cloud task while the user composes.
+
+    Births a draft Task (``USER_CREATED``), then ``SandboxWarmer.warm()`` provisions an interactive
+    Run that boots + clones + checks out ``branch`` + starts the agent, then idles awaiting the first
+    ``user_message``. The Run is dispatched with ``create_pr=True`` so that, once activated on submit,
+    it completes autonomously and opens a PR like a normal Code-app cloud task.
+
+    Best-effort: returns ``None`` (not an HTTP error) when warming is gated — over quota
+    (``QuotaLimitExceeded``), product not enabled (``PermissionDenied``), or the warm pool is full
+    (``Throttled``). The caller treats ``None`` as "no warm run; fall through to a cold create+run".
+
+    ``github_integration_id`` must already be re-scoped to ``team_id`` by the caller
+    (see :func:`resolve_team_github_integration_id`).
+    """
+    from rest_framework.exceptions import (  # noqa: PLC0415 — keep DRF exception types off the api import path
+        PermissionDenied,
+        Throttled,
+    )
+
+    from posthog.exceptions import QuotaLimitExceeded  # noqa: PLC0415 — keep billing deps off the api import path
+    from posthog.models import Team  # noqa: PLC0415
+
+    from products.tasks.backend.logic.services.warm import (
+        SandboxWarmer,  # noqa: PLC0415 — keep warming deps off the api import path
+    )
+
+    existing = _find_idling_warm_run(team_id, user_id, repository=repository, branch=branch)
+    if existing is not None:
+        return contracts.WarmTaskDTO(task_id=existing.task_id, run_id=existing.id)
+
+    team = Team.objects.get(id=team_id)
+    github_integration = Integration.objects.filter(id=github_integration_id, team_id=team_id, kind="github").first()
+    if github_integration is None:
+        return None
+
+    task = Task.create_without_run(
+        team=team,
+        title="",
+        description="",
+        origin_product=Task.OriginProduct.USER_CREATED,
+        user_id=user_id,
+        repository=repository,
+    )
+    assert task.created_by is not None  # create_without_run always sets created_by from user_id
+
+    try:
+        result = SandboxWarmer(task, user=task.created_by).warm(
+            mode="interactive",
+            extra_state={
+                "branch": branch,
+                "initial_permission_mode": "default",
+                "use_modal_network_allowlist": False,
+            },
+            create_pr=True,
+        )
+    except (Throttled, PermissionDenied, QuotaLimitExceeded):
+        task.soft_delete()
+        return None
+
+    return contracts.WarmTaskDTO(task_id=task.id, run_id=result.run.id)
+
+
 # --- Task run (the ``run`` action) ---
 
 
@@ -2780,6 +2995,21 @@ def run_task(
     branch = validated_data.get("branch")
     resume_from_run_id = validated_data.get("resume_from_run_id")
     pending_user_message = validated_data.get("pending_user_message")
+
+    if not resume_from_run_id:
+        warm_run = _idling_warm_run_for_task(task)
+        # Only activate when the requested branch matches the branch the warm Run was provisioned on —
+        # otherwise the run would work the wrong branch in the warm sandbox. On mismatch, fall through
+        # to the cold path so a fresh run is created for the requested branch.
+        if warm_run is not None and (branch or None) == (warm_run.branch or None):
+            _activate_warm_run(
+                warm_run,
+                task,
+                team_id,
+                message=pending_user_message or (task.description or None),
+                artifact_ids=validated_data.get("pending_user_artifact_ids") or [],
+            )
+            return contracts.TaskRunResult(task=get_task_detail(task.id, team_id, user_id))
     pending_user_artifact_ids = validated_data.get("pending_user_artifact_ids") or []
     sandbox_environment_id = validated_data.get("sandbox_environment_id")
     sandbox_environment_id_supplied_by_user = sandbox_environment_id is not None

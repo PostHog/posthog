@@ -64,7 +64,7 @@ def _workflow_health() -> contracts.WorkflowHealthItem:
         p50_seconds=120.0,
         p95_seconds=600.0,
         last_failure_at=datetime(2026, 1, 20, tzinfo=UTC),
-        daily=[contracts.WorkflowHealthDay(day=date(2026, 1, 20), run_count=10, completed=8, successes=7)],
+        daily=[contracts.WorkflowHealthDay(day=date(2026, 1, 20), run_count=10, completed=8, successes=7, failures=1)],
     )
 
 
@@ -150,6 +150,13 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()[0]["workflow_name"] == "CI"
+
+    def test_workflow_health_passes_branch_through(self) -> None:
+        with mock.patch(f"{_VIEWS}.list_workflow_health", return_value=[]) as list_health:
+            response = self.client.get(self._url("workflow_health"), {"branch": "main"})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert list_health.call_args.kwargs["branch"] == "main"
 
     def test_pr_lifecycle_serializes(self) -> None:
         with mock.patch(f"{_VIEWS}.get_pr_lifecycle", return_value=_pr_lifecycle()) as get:

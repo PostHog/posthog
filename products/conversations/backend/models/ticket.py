@@ -48,6 +48,7 @@ class Ticket(UUIDTModel):
     anonymous_traits = models.JSONField(default=dict, blank=True)
     ai_resolved = models.BooleanField(default=False)
     escalation_reason = models.TextField(null=True, blank=True)
+    ai_triage = models.JSONField(default=dict, blank=True)
 
     # Unread message counters
     unread_customer_count = models.IntegerField(default=0)  # Messages customer hasn't seen (from team/AI)

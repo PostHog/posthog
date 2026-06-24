@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -44,7 +45,7 @@ from products.experiments.backend.hogql_queries.experiment_query_runner import (
     experiment_has_min_runtime_for_precomputation,
 )
 from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, get_excluded_variants
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 logger = structlog.get_logger(__name__)
@@ -75,7 +76,7 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         # Holdout is intentionally not appended: holdout users were never exposed to
         # the experiment, so they don't belong in the exposure chart. self.query.holdout
         # is still consulted by _calculate_srm for the holdout-adjusted rollout math.
-        self.excluded_variants = set((self.experiment.parameters or {}).get("excluded_variants") or [])
+        self.excluded_variants = set(get_excluded_variants(self.experiment))
         multivariate_data = self.query.feature_flag.get("filters", {}).get("multivariate", {})
         self.variants = [
             variant.get("key")
@@ -292,6 +293,9 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             product=Product.EXPERIMENTS,
             experiment_query_surface="exposures_timeseries",
             experiment_metric_events_path="not_applicable",
+            # Set before _get_exposure_query() runs the exposures precompute build, so that build
+            # sub-query inherits this id via the tag context and can be grouped under this read.
+            experiment_query_group_id=uuid.uuid4(),
         )
 
         # Set limit to avoid being cut-off by the default 100 rows limit
