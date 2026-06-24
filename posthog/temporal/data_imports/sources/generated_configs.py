@@ -200,7 +200,9 @@ class AkeneoSourceConfig(config.Config):
 
 @config.config
 class AlgoliaSourceConfig(config.Config):
-    pass
+    application_id: str
+    api_key: str
+    index_name: str
 
 
 @config.config
