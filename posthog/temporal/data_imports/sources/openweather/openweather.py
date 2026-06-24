@@ -18,6 +18,10 @@ OPENWEATHER_BASE_URL = "https://api.openweathermap.org"
 REQUEST_TIMEOUT_SECONDS = 30
 MAX_RETRY_ATTEMPTS = 5
 
+# Each location costs one request per enabled endpoint on every sync, so cap the config to bound
+# worker time and outbound fan-out — a malformed/abusive config can't tie up the pipeline.
+MAX_LOCATIONS = 100
+
 
 class OpenWeatherRetryableError(Exception):
     pass
@@ -65,6 +69,9 @@ def parse_locations(raw: str | None) -> list[Location]:
 
         label = parts[2].strip() if len(parts) > 2 else None
         locations.append(Location(lat=lat, lon=lon, label=label or None))
+
+        if len(locations) > MAX_LOCATIONS:
+            raise ValueError(f"Too many locations: at most {MAX_LOCATIONS} are allowed per source.")
 
     if not locations:
         raise ValueError("At least one location (lat,lon) is required.")

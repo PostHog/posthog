@@ -8,6 +8,7 @@ import requests
 import structlog
 
 from posthog.temporal.data_imports.sources.openweather.openweather import (
+    MAX_LOCATIONS,
     OPENWEATHER_BASE_URL,
     Location,
     OpenWeatherRetryableError,
@@ -70,6 +71,15 @@ class TestParseLocations:
     def test_invalid_raises(self, raw):
         with pytest.raises(ValueError):
             parse_locations(raw)
+
+    def test_rejects_too_many_locations(self):
+        raw = "\n".join(f"{i % 90},0" for i in range(MAX_LOCATIONS + 1))
+        with pytest.raises(ValueError, match="Too many locations"):
+            parse_locations(raw)
+
+    def test_allows_max_locations(self):
+        raw = "\n".join(f"{i % 90},0" for i in range(MAX_LOCATIONS))
+        assert len(parse_locations(raw)) == MAX_LOCATIONS
 
 
 class TestDtToIso:
