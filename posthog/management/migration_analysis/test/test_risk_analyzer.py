@@ -10,6 +10,7 @@ from posthog.management.migration_analysis.models import RiskLevel
 from posthog.management.migration_analysis.policies import ConcurrentIndexIdempotencyPolicy, HotTableAlterPolicy
 from posthog.migration_helpers import (
     AddConstraintNotValid,
+    AddForeignKeyNotValid,
     SafeAddIndexConcurrently,
     SafeRemoveIndexConcurrently,
     ValidateConstraint,
@@ -2390,3 +2391,18 @@ class TestHotTableAlterPolicy:
         )
         risk = self._analyze_product([op])
         assert not any("SHARE ROW EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_add_foreign_key_not_valid_on_hot_child_blocked(self):
+        """The helper run against a hot child still ALTERs posthog_team itself - gate it."""
+        op = AddForeignKeyNotValid(model_name="team", name="team_owner_fk", column="owner_id", to_table="some_table")
+        risk = self._analyze([op])
+        assert any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)
+
+    def test_add_foreign_key_not_valid_pointing_at_hot_parent_not_flagged(self):
+        """The sanctioned use: a non-hot child's FK pointing at a hot parent carries the
+        parent in to_table, not model_name, so it isn't gated as a direct hot-table alter."""
+        op = AddForeignKeyNotValid(
+            model_name="mymodel", name="mymodel_team_fk", column="team_id", to_table="posthog_team"
+        )
+        risk = self._analyze([op])
+        assert not any("ACCESS EXCLUSIVE" in v for v in risk.policy_violations)

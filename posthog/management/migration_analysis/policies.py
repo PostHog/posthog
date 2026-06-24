@@ -448,6 +448,12 @@ class HotTableAlterPolicy(MigrationPolicy):
         # so the helper is gated like a plain AddConstraint. (ValidateConstraint
         # is not listed - VALIDATE takes only SHARE UPDATE EXCLUSIVE.)
         "AddConstraintNotValid",
+        # AddForeignKeyNotValid(model_name=<hot table>) emits ALTER TABLE posthog_*
+        # ADD CONSTRAINT against the hot *child* itself - same lock hazard. Gating on
+        # model_name catches that; the helper's sanctioned use (a FK *pointing at* a
+        # hot parent) carries the parent in to_table, not model_name, so it stays
+        # unflagged here.
+        "AddForeignKeyNotValid",
     }
     # Op types that carry the target model in `name`
     MODEL_LEVEL_OPS = {
