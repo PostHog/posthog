@@ -485,12 +485,20 @@ export class PgSessionQueue implements SessionQueue {
         return r.rows.map(rowToSummary)
     }
 
-    async setSearchSummary(sessionId: string, searchText: string, turnCount: number): Promise<void> {
-        await this.pool.query(`UPDATE agent_session SET search_text = $2, turn_count = $3 WHERE id = $1`, [
-            sessionId,
-            searchText,
-            turnCount,
-        ])
+    async applySearchSummary(
+        sessionId: string,
+        searchText: string,
+        turnCount: number,
+        opts: { dryRun?: boolean } = {}
+    ): Promise<boolean> {
+        // Only touch rows that actually differ, so a repeated backfill converges
+        // (and the reported count means something). dryRun checks without writing.
+        const predicate = `id = $1 AND (search_text IS DISTINCT FROM $2 OR turn_count IS DISTINCT FROM $3)`
+        const sql = opts.dryRun
+            ? `SELECT 1 FROM agent_session WHERE ${predicate}`
+            : `UPDATE agent_session SET search_text = $2, turn_count = $3 WHERE ${predicate}`
+        const r = await this.pool.query(sql, [sessionId, searchText, turnCount])
+        return (r.rowCount ?? 0) > 0
     }
 
     async listIdleCompleted(floorMaxAgeMs: number, limit = 200): Promise<AgentSession[]> {

@@ -441,6 +441,12 @@ describe('janitor HTTP', () => {
             .query({ application_id: uuidFor('app-bf'), search: 'widget' })
         expect((after.body.results as Array<{ id: string; turns: number }>).map((s) => s.id)).toEqual([uuidFor('s-bf')])
         expect(after.body.results[0].turns).toBe(2)
+
+        // Converges: a second run finds nothing changed.
+        const repeat = await request(app)
+            .post('/sessions/backfill_search_text')
+            .send({ application_id: uuidFor('app-bf'), dry_run: false })
+        expect(repeat.body).toMatchObject({ scanned: 1, updated: 0 })
     })
 
     it('POST /sessions/:id/cancel marks cancelled', async () => {

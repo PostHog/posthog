@@ -593,9 +593,14 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
             let updated = 0
             for (const s of sessions) {
                 scanned++
-                updated++
-                if (!body.dry_run) {
-                    await opts.queue.setSearchSummary(s.id, buildSearchText(s.conversation), s.conversation.length)
+                const changed = await opts.queue.applySearchSummary(
+                    s.id,
+                    buildSearchText(s.conversation),
+                    s.conversation.length,
+                    { dryRun: body.dry_run }
+                )
+                if (changed) {
+                    updated++
                 }
             }
             res.json({ scanned, updated, dry_run: body.dry_run })

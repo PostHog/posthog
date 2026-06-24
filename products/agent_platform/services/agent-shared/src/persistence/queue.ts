@@ -215,11 +215,17 @@ export interface SessionQueue extends SessionInputsStore {
      */
     listSummariesByApplication(applicationId: string, opts?: ListSessionsOpts): Promise<SessionSummary[]>
     /**
-     * Backfill the derived `search_text` + `turn_count` for one session. Does
-     * NOT bump `updated_at` — it's a maintenance write, not session activity,
-     * so the idle reaper isn't disturbed.
+     * Backfill the derived `search_text` + `turn_count` for one session, writing
+     * only when they differ (so a repeated backfill converges). Returns whether
+     * a row changed; `dryRun` checks without writing. Does NOT bump `updated_at`
+     * — it's a maintenance write, not session activity, so the reaper isn't disturbed.
      */
-    setSearchSummary(sessionId: string, searchText: string, turnCount: number): Promise<void>
+    applySearchSummary(
+        sessionId: string,
+        searchText: string,
+        turnCount: number,
+        opts?: { dryRun?: boolean }
+    ): Promise<boolean>
     /**
      * Roll up summary stats for an agent — drives the agent-detail
      * overview tiles. `since` filters cost + sessions count to a
