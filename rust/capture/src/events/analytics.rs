@@ -23,7 +23,7 @@ use crate::{
     global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter},
     prometheus::{report_clock_skew, report_dropped_events},
     router, sinks,
-    utils::{uuid_v7, uuid_v7_at_millis},
+    utils::{now_unix_millis, uuid_v7},
     v0_request::{
         DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata, ProcessingContext,
     },
@@ -181,12 +181,11 @@ pub fn process_single_event(
     }
 
     let event = CapturedEvent {
-        // Seed the UUIDv7 from the event timestamp, not ingestion time, so its embedded time tracks events.timestamp.
+        // Seed the UUIDv7 from the event timestamp, not ingestion time, so its embedded time tracks events.timestamp. Pre-1970 timestamps can't fit the unsigned field, so fall back to now.
         uuid: event.uuid.unwrap_or_else(|| {
-            match u64::try_from(parsed_timestamp.timestamp.timestamp_millis()) {
-                Ok(millis) => uuid_v7_at_millis(millis),
-                Err(_) => uuid_v7(),
-            }
+            let millis = u64::try_from(parsed_timestamp.timestamp.timestamp_millis())
+                .unwrap_or_else(|_| now_unix_millis());
+            uuid_v7(millis)
         }),
         distinct_id: event
             .extract_distinct_id()
@@ -456,7 +455,7 @@ mod tests {
         properties.insert("distinct_id".to_string(), json!("test_user"));
 
         RawEvent {
-            uuid: Some(uuid_v7()),
+            uuid: Some(uuid_v7(now_unix_millis())),
             distinct_id: None,
             event: event_name.to_string(),
             properties,
@@ -1980,7 +1979,7 @@ mod tests {
         }
 
         RawEvent {
-            uuid: Some(uuid_v7()),
+            uuid: Some(uuid_v7(now_unix_millis())),
             distinct_id: None,
             event: "$pageview".to_string(),
             properties,
@@ -2010,7 +2009,7 @@ mod tests {
         }
 
         let event = RawEvent {
-            uuid: Some(uuid_v7()),
+            uuid: Some(uuid_v7(now_unix_millis())),
             distinct_id: None,
             event: "$pageview".to_string(),
             properties,

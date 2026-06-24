@@ -58,15 +58,13 @@ const fn encode_unix_timestamp_millis(millis: u64, random_bytes: &[u8; 10]) -> U
     Uuid::from_fields(millis_high, millis_low, random_and_version, &d4)
 }
 
-pub fn uuid_v7() -> Uuid {
+pub fn now_unix_millis() -> u64 {
     let now = time::OffsetDateTime::now_utc();
-    let now_millis: u64 = now.unix_timestamp() as u64 * 1_000 + now.millisecond() as u64;
-
-    uuid_v7_at_millis(now_millis)
+    now.unix_timestamp() as u64 * 1_000 + now.millisecond() as u64
 }
 
-/// Like [`uuid_v7`] but encodes a caller-provided Unix-ms timestamp, so a server-assigned UUID carries the event's own time rather than ingestion time.
-pub fn uuid_v7_at_millis(unix_millis: u64) -> Uuid {
+/// Builds a UUIDv7 whose time component is the given Unix-ms timestamp. Callers that want ingestion time must pass [`now_unix_millis`] explicitly.
+pub fn uuid_v7(unix_millis: u64) -> Uuid {
     let bytes = random_bytes();
     encode_unix_timestamp_millis(unix_millis, &bytes)
 }

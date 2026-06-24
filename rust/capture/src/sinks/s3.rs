@@ -303,7 +303,7 @@ impl Event for S3Sink {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::uuid_v7;
+    use crate::utils::{now_unix_millis, uuid_v7};
     use crate::v0_request::{DataType, ProcessedEventMetadata};
     use common_types::CapturedEvent;
     use tokio_util::sync::CancellationToken;
@@ -338,7 +338,7 @@ mod tests {
     fn create_test_event() -> ProcessedEvent {
         ProcessedEvent {
             event: CapturedEvent {
-                uuid: uuid_v7(),
+                uuid: uuid_v7(now_unix_millis()),
                 distinct_id: "test_id".to_string(),
                 session_id: None,
                 ip: "127.0.0.1".to_string(),

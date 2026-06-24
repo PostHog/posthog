@@ -105,7 +105,7 @@ pub fn stamp_overflow_reason(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::utils::uuid_v7;
+    use crate::utils::{now_unix_millis, uuid_v7};
     use crate::v0_request::{ProcessedEvent, ProcessedEventMetadata};
     use common_types::CapturedEvent;
     use std::num::NonZeroU32;
@@ -117,7 +117,7 @@ mod tests {
         force_overflow: bool,
     ) -> ProcessedEvent {
         let event = CapturedEvent {
-            uuid: uuid_v7(),
+            uuid: uuid_v7(now_unix_millis()),
             distinct_id: distinct_id.to_string(),
             session_id: None,
             ip: "127.0.0.1".to_string(),
