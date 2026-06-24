@@ -55,7 +55,12 @@ def _deduped_signals_subquery(
     NOT restrict which versions feed the argMax, so "latest version wins" is preserved and the caller's
     own outer filter stays authoritative. Use it for re-groupable fields like `report_id`; use
     `extra_where` only for fields that are stable across a document's versions (e.g. `source_id`).
+
+    Raises ValueError if both extra_where and candidate_document_filter are supplied — they are
+    mutually exclusive (the extra_where branch returns early and silently drops candidate_document_filter).
     """
+    if extra_where and candidate_document_filter:
+        raise ValueError("_deduped_signals_subquery: extra_where and candidate_document_filter are mutually exclusive")
     selected_columns = [
         "document_id",
         "argMax(content, inserted_at) as content",
