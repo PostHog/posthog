@@ -35,17 +35,11 @@ from posthog.models.activity_logging.activity_log import Change, Detail, log_act
 from posthog.models.comment import Comment
 from posthog.models.person.person import Person
 from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids
-from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
+from posthog.permissions import APIScopePermission
 from posthog.personhog_client.caller_tag import personhog_caller_tag
-from posthog.rate_limit import (
-    AIBurstRateThrottle,
-    AISustainedRateThrottle,
-    ComposeTicketBurstThrottle,
-    ComposeTicketSustainedThrottle,
-)
+from posthog.rate_limit import ComposeTicketBurstThrottle, ComposeTicketSustainedThrottle
 from posthog.utils import relative_date_parse
 
-from products.conversations.backend.ai.suggest import NoMessagesError, suggest_reply
 from products.conversations.backend.api.serializers import TicketAssignmentSerializer
 from products.conversations.backend.cache import (
     get_cached_unread_count,
@@ -66,11 +60,7 @@ from ee.models.rbac.role import Role
 logger = structlog.get_logger(__name__)
 
 
-class SuggestReplyResponseSerializer(serializers.Serializer):
-    suggestion = serializers.CharField()
-
-
-class SuggestReplyErrorSerializer(serializers.Serializer):
+class TicketErrorSerializer(serializers.Serializer):
     detail = serializers.CharField()
     error_type = serializers.CharField(required=False)
 
@@ -331,11 +321,8 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
     scope_object_write_actions = ["create", "update", "partial_update", "patch", "compose", "reply"]
     queryset = Ticket.objects.all()
     serializer_class = TicketSerializer
-    permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
+    permission_classes = [IsAuthenticated, APIScopePermission]
     pagination_class = TicketPagination
-    posthog_feature_flag = {
-        "product-support-ai-suggestion": ["suggest_reply"],
-    }
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         """Filter tickets by team."""
@@ -970,57 +957,6 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
 
         return Response({"updated": len(changed), "ids": [str(t.id) for t, _ in changed]})
 
-    @extend_schema(
-        request=None,
-        responses={
-            200: OpenApiResponse(response=SuggestReplyResponseSerializer),
-            400: OpenApiResponse(response=SuggestReplyErrorSerializer),
-            403: OpenApiResponse(response=SuggestReplyErrorSerializer),
-            500: OpenApiResponse(response=SuggestReplyErrorSerializer),
-        },
-    )
-    @action(
-        detail=True,
-        methods=["POST"],
-        url_path="suggest_reply",
-        throttle_classes=[AIBurstRateThrottle, AISustainedRateThrottle],
-    )
-    def suggest_reply_action(self, request, *args, **kwargs):
-        if not self.organization.is_ai_data_processing_approved:
-            return Response(
-                {"detail": "AI data processing is not approved for this organization"},
-                status=drf_status.HTTP_403_FORBIDDEN,
-            )
-
-        ticket = self.get_object()
-
-        try:
-            reply_text = suggest_reply(ticket, self.team, request.user)
-            return Response({"suggestion": reply_text})
-        except NoMessagesError:
-            return Response(
-                {"detail": "No messages in this ticket"},
-                status=drf_status.HTTP_400_BAD_REQUEST,
-            )
-        except ValueError:
-            logger.warning("AI suggest_reply validation error", extra={"ticket_id": str(ticket.id)})
-            return Response(
-                {
-                    "detail": "Failed to generate suggestion. Please try again.",
-                    "error_type": "validation_error",
-                },
-                status=drf_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-        except Exception as e:
-            logger.exception(
-                "AI suggest_reply failed", extra={"ticket_id": str(ticket.id), "error_type": type(e).__name__}
-            )
-            capture_exception(e, {"ticket_id": str(ticket.id)})
-            return Response(
-                {"detail": "Failed to generate suggestion. Please try again.", "error_type": "unknown_error"},
-                status=drf_status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
     @action(detail=False, methods=["get"])
     def unread_count(self, request, *args, **kwargs):
         """
@@ -1161,7 +1097,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         request=ComposeTicketSerializer,
         responses={
             201: OpenApiResponse(response=ComposeTicketResponseSerializer),
-            400: OpenApiResponse(response=SuggestReplyErrorSerializer),
+            400: OpenApiResponse(response=TicketErrorSerializer),
         },
     )
     @action(

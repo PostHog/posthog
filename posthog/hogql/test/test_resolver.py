@@ -1123,7 +1123,10 @@ class TestResolver(BaseTest):
 
         # all columns resolve to a type in the end
         assert cast(ast.FieldType, node.select[0].type).resolve_database_field(self.context) == StringDatabaseField(
-            name="event", array=None, nullable=False
+            name="event",
+            array=None,
+            nullable=False,
+            description="Event name, e.g. '$pageview' or 'purchase'. Autocapture/PostHog events are prefixed with '$'.",
         )
         assert cast(ast.FieldType, node.select[1].type).resolve_database_field(self.context) == StringDatabaseField(
             name="person_id", array=None, nullable=False
@@ -1132,7 +1135,10 @@ class TestResolver(BaseTest):
             name="person_properties", nullable=False
         )
         assert cast(ast.FieldType, node.select[3].type).resolve_database_field(self.context) == DateTimeDatabaseField(
-            name="created_at", array=None, nullable=False
+            name="created_at",
+            array=None,
+            nullable=False,
+            description="When the person was first seen by PostHog.",
         )
 
     def test_visit_hogqlx_tag(self):

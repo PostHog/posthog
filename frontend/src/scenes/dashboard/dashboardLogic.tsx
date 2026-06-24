@@ -2305,6 +2305,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return
             }
 
+            // Shared/public/export viewers must not be able to trigger server-side refreshes.
+            if (isSharedView()) {
+                return
+            }
+
             // Cache values before the long-running await — the logic may unmount
             const { currentTeamId, effectiveRefreshFilters, urlFilters, urlVariables } = values
 

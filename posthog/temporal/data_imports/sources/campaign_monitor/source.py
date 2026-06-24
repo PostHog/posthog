@@ -17,6 +17,7 @@ from posthog.temporal.data_imports.sources.campaign_monitor.campaign_monitor imp
 )
 from posthog.temporal.data_imports.sources.campaign_monitor.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -43,6 +44,11 @@ class CampaignMonitorSource(ResumableSource[CampaignMonitorSourceConfig, Campaig
             "401 Client Error: Unauthorized for url": "Your Campaign Monitor API key is invalid or expired. Please generate a new key and reconnect.",
             "403 Client Error: Forbidden for url": "Your Campaign Monitor API key does not have access to this client or resource. Please check the key's permissions and try again.",
         }
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.campaign_monitor.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
 
     def get_schemas(
         self,

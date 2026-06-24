@@ -331,7 +331,7 @@ const canSelectItem = (
 interface InfiniteListRowProps {
     results: (TaxonomicDefinitionTypes | SkeletonItem)[]
     taxonomicGroups: TaxonomicFilterGroup[]
-    group: TaxonomicFilterGroup
+    group: TaxonomicFilterGroup | undefined
     listGroupType: TaxonomicFilterGroupType
     groupType: TaxonomicFilterGroupType | undefined
     value: string | number | null | undefined
@@ -472,6 +472,9 @@ export const InfiniteListRow = ({
 
     if (showNonCapturedEventOption && rowIndex === 0) {
         const selectNonCapturedEvent = (): void => {
+            if (!itemGroup) {
+                return
+            }
             selectItem(
                 itemGroup,
                 trimmedSearchQuery,
@@ -544,7 +547,7 @@ export const InfiniteListRow = ({
     if (item && itemGroup) {
         const isDisabledItem = itemGroup?.getIsDisabled?.(item) ?? false
         const isPinnable = !canSelectItem(listGroupType, dataWarehousePopoverFields) && !isDisabledItem
-        const isCrossGroupItem = !!group.isLocalOnly && itemGroup.type !== listGroupType
+        const isCrossGroupItem = !!group?.isLocalOnly && itemGroup.type !== listGroupType
         const localListLabel = getLocalListLabel(item)
         const localListGroup = hasLocalListContext(item)
             ? taxonomicGroups.find((g) => g.type === listGroupType)
@@ -562,7 +565,7 @@ export const InfiniteListRow = ({
             listGroupType,
             isCrossGroupItem,
             localListGroup,
-            fallbackGroup: group,
+            fallbackGroup: group ?? itemGroup,
         })
 
         return (
@@ -623,7 +626,7 @@ export const InfiniteListRow = ({
                 aria-label="Show more items"
                 onClick={expand}
             >
-                {group.expandLabel?.({ count: totalResultCount, expandedCount }) ??
+                {group?.expandLabel?.({ count: totalResultCount, expandedCount }) ??
                     `See ${expandedCount - totalResultCount} more ${pluralize(
                         expandedCount - totalResultCount,
                         'row',
@@ -857,6 +860,7 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
                 />
             )}
             {isActiveTab &&
+            selectedItemGroup &&
             selectedItemHasPopover(selectedItem, selectedItemGroup, taxonomicGroups) &&
             showPopover &&
             selectedItem ? (
@@ -992,8 +996,8 @@ function resolveItemRendering({
 export function getItemGroup(
     item: TaxonomicDefinitionTypes | undefined,
     groups: TaxonomicFilterGroup[],
-    defaultGroup: TaxonomicFilterGroup
-): TaxonomicFilterGroup {
+    defaultGroup: TaxonomicFilterGroup | undefined
+): TaxonomicFilterGroup | undefined {
     let group = defaultGroup
 
     const sourceType = item ? getSourceGroupType(item) : undefined

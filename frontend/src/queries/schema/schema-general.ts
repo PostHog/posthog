@@ -192,6 +192,9 @@ export enum NodeKind {
     EndpointsUsageTableQuery = 'EndpointsUsageTableQuery',
     EndpointsUsageTrendsQuery = 'EndpointsUsageTrendsQuery',
 
+    // MCP analytics
+    MCPHarnessBreakdownQuery = 'MCPHarnessBreakdownQuery',
+
     // Property values
     PropertyValuesQuery = 'PropertyValuesQuery',
 }
@@ -255,6 +258,7 @@ export type AnyDataNode =
     | EndpointsUsageOverviewQuery
     | EndpointsUsageTableQuery
     | EndpointsUsageTrendsQuery
+    | MCPHarnessBreakdownQuery
 
 /**
  * @discriminator kind
@@ -364,6 +368,9 @@ export type QuerySchema =
     | EndpointsUsageOverviewQuery
     | EndpointsUsageTableQuery
     | EndpointsUsageTrendsQuery
+
+    // MCP analytics
+    | MCPHarnessBreakdownQuery
 
     // Property values
     | PropertyValuesQuery
@@ -1725,6 +1732,9 @@ export type FunnelsFilter = {
      * @default false
      */
     showLegend?: boolean
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
+     * @default bottom */
+    legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     /** @default false */
     showValuesOnSeries?: boolean
     /** Breakdown table sorting. Format: 'column_key' or '-column_key' (descending) */
@@ -1925,6 +1935,9 @@ export interface StickinessCriteria {
 export type StickinessFilter = {
     display?: StickinessFilterLegacy['display']
     showLegend?: StickinessFilterLegacy['show_legend']
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
+     * @default bottom */
+    legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     showValuesOnSeries?: StickinessFilterLegacy['show_values_on_series']
     showMultipleYAxes?: StickinessFilterLegacy['show_multiple_y_axes']
     hiddenLegendIndexes?: integer[]
@@ -1944,6 +1957,7 @@ export type StickinessFilter = {
 export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([
     'display',
     'showLegend',
+    'legendPosition',
     'showValuesOnSeries',
     'hiddenLegendIndexes',
 ])
@@ -1990,6 +2004,9 @@ export type LifecycleFilter = {
     toggledLifecycles?: LifecycleFilterLegacy['toggledLifecycles']
     /** @default false */
     showLegend?: LifecycleFilterLegacy['show_legend']
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.
+     * @default bottom */
+    legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     /** @default true */
     stacked?: boolean
 }
@@ -2495,6 +2512,30 @@ export interface WebOverviewQueryResponse extends AnalyticsQueryResponseBase {
 }
 
 export type CachedWebOverviewQueryResponse = CachedQueryResponse<WebOverviewQueryResponse>
+
+/** One row of the MCP harness (client) breakdown: a resolved customer label and its activity. */
+export interface MCPHarnessBreakdownItem {
+    /** Customer-facing harness label, e.g. "Claude Agent SDK", "OpenAI Codex", "Cursor", "Other". */
+    harness: string
+    total_calls: integer
+    errors: integer
+    error_rate_pct: number
+    sessions: integer
+}
+
+export interface MCPHarnessBreakdownQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPHarnessBreakdownItem[]
+}
+
+/** MCP tool-call activity grouped by the resolved client harness, over $mcp_tool_call events. */
+export interface MCPHarnessBreakdownQuery extends DataNode<MCPHarnessBreakdownQueryResponse> {
+    kind: NodeKind.MCPHarnessBreakdownQuery
+    dateRange?: DateRange
+    properties?: AnyPropertyFilter[]
+    filterTestAccounts?: boolean
+}
+
+export type CachedMCPHarnessBreakdownQueryResponse = CachedQueryResponse<MCPHarnessBreakdownQueryResponse>
 
 export enum WebStatsBreakdown {
     Page = 'Page',
@@ -3295,6 +3336,8 @@ export interface AggregatedSpanRow {
     avg_duration_nano: number
     p50_duration_nano: number
     p95_duration_nano: number
+    p99_duration_nano: number
+    p999_duration_nano: number
     error_count: integer
 }
 
@@ -3330,6 +3373,8 @@ export interface SpanTreeNode {
     avg_duration_nano: number
     p50_duration_nano: number
     p95_duration_nano: number
+    p99_duration_nano: number
+    p999_duration_nano: number
     error_count: integer
     /**
      * Average nanoseconds from the parent span's start to this span's start. Zero for
@@ -3959,6 +4004,8 @@ export interface ExperimentParameters {
     rollout_percentage?: number
     /** Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. */
     excluded_variants?: string[]
+    /** Free-text notes per variant, keyed by variant key. Use to document what each variant does or its reroute URL. */
+    variant_notes?: Record<string, string>
 }
 
 /** Exposure estimate settings for the experiment running-time calculator. */
@@ -6881,6 +6928,13 @@ export const externalDataSources = [
     'Custom',
     'Tile38',
     'Chatwoot',
+    'Sanity',
+    'Metronome',
+    'Jobber',
+    'Knock',
+    'Leexi',
+    'RB2B',
+    'Superwall',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

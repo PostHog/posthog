@@ -59,6 +59,13 @@ export interface ListSessionsOpts {
     states?: AgentSession['state'][]
     /** Filter to a specific revision id within the application. */
     revisionId?: string
+    /**
+     * Filter to sessions started by one agent user. Matches the
+     * `agent_user_id` stamped on the session principal (set today only for
+     * slack-trigger sessions — other kinds don't carry it yet, so they won't
+     * match).
+     */
+    agentUserId?: string
     /** ISO datetime — only return sessions with created_at >= this. */
     createdAfter?: string
     /** ISO datetime — only return sessions with created_at <= this. */
@@ -116,8 +123,34 @@ export interface SessionQueue extends SessionInputsStore {
      * callers (runner claim loop, sweep) that legitimately fetch by id alone.
      */
     getForApplication(sessionId: string, applicationId: string): Promise<AgentSession | null>
-    /** Find an existing session matching (application_id, external_key). */
-    findByExternalKey(applicationId: string, externalKey: string): Promise<AgentSession | null>
+    /**
+     * Find an existing session matching `(application_id, external_key)` within
+     * a preview/live scope. The `scope` discriminator is part of the lookup,
+     * not a filter the caller applies afterward, so a live (or preview)
+     * request can never match across the boundary:
+     *
+     * - `scope.isPreview = false` matches only live rows. Live continuity
+     *   across upstream revision promotions is preserved (the runner sticks
+     *   with whatever `revision_id` was on the row at session creation), so
+     *   `scope.revisionId` does not constrain the match here.
+     * - `scope.isPreview = true` additionally requires `revision_id =
+     *   scope.revisionId`. Two draft revisions of the same agent previewed
+     *   against the same external_key get distinct sessions — their
+     *   conversation histories must not bleed together.
+     *
+     * Without the discriminator, a preview-authenticated request resuming on a
+     * shared external_key would inherit a live session's `is_preview = false`
+     * row; the runner reads suppression off that row, so live secrets and
+     * un-suppressed external writes would fire under preview auth. The split
+     * SQL filter (rather than an after-the-fact JS guard) is what makes that
+     * unreachable: an older live row never wins the lookup over a fresh
+     * preview row keyed under the same external_key.
+     */
+    findByExternalKey(
+        applicationId: string,
+        externalKey: string,
+        scope: { isPreview: boolean; revisionId: string }
+    ): Promise<AgentSession | null>
     /**
      * Find an existing session matching (application_id, idempotency_key).
      * Returns null if no row exists (including when the key was nulled by the
