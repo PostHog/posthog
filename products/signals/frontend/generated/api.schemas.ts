@@ -119,6 +119,26 @@ export interface PaginatedSignalReportListApi {
 }
 
 /**
+ * Editable human-facing fields on a signal report (PATCH).
+ *
+ * Both fields are optional so a caller can change either independently, but at least one
+ * must be supplied. Every other report field — status, weights, judgments — is owned by the
+ * signals pipeline and is deliberately not writable here.
+ */
+export interface PatchedSignalReportContentUpdateApi {
+    /**
+     * New human-facing title for the report. Omit to leave the title unchanged.
+     * @maxLength 300
+     */
+    title?: string
+    /**
+     * New summary (the report's description) explaining what the report is about. Omit to leave the summary unchanged.
+     * @maxLength 10000
+     */
+    summary?: string
+}
+
+/**
  * * `suppressed` - suppressed
  * * `potential` - potential
  */

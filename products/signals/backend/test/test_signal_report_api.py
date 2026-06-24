@@ -1901,3 +1901,86 @@ class TestSignalReportLegacyTaskArtefactList(APIBaseTest):
         # The gate row belongs to `other_report`, so `report`'s log stays empty.
         assert self._task_runs(str(report.id)) == []
         assert len(self._task_runs(str(other_report.id))) == 1
+
+
+class TestSignalReportContentUpdateAPI(APIBaseTest):
+    def _url(self, report_id: str) -> str:
+        return f"/api/projects/{self.team.id}/signals/reports/{report_id}/"
+
+    def _create_report(self, team=None, report_status=SignalReport.Status.READY) -> SignalReport:
+        return SignalReport.objects.create(
+            team=team or self.team,
+            status=report_status,
+            title="Original title",
+            summary="Original summary",
+            signal_count=3,
+            total_weight=1.5,
+        )
+
+    def test_update_title_and_summary(self):
+        report = self._create_report()
+        response = self.client.patch(
+            self._url(str(report.id)),
+            data={"title": "New title", "summary": "New summary"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert body["title"] == "New title"
+        assert body["summary"] == "New summary"
+        report.refresh_from_db()
+        assert report.title == "New title"
+        assert report.summary == "New summary"
+
+    def test_update_title_only_leaves_summary_unchanged(self):
+        report = self._create_report()
+        response = self.client.patch(self._url(str(report.id)), data={"title": "Just the title"}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        report.refresh_from_db()
+        assert report.title == "Just the title"
+        assert report.summary == "Original summary"
+
+    def test_update_summary_trims_whitespace(self):
+        report = self._create_report()
+        response = self.client.patch(self._url(str(report.id)), data={"summary": "  padded  "}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        report.refresh_from_db()
+        assert report.summary == "padded"
+
+    def test_update_with_no_editable_fields_is_rejected(self):
+        report = self._create_report()
+        response = self.client.patch(self._url(str(report.id)), data={}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        report.refresh_from_db()
+        assert report.title == "Original title"
+
+    @parameterized.expand([("blank_title", "title", ""), ("blank_summary", "summary", "")])
+    def test_update_rejects_blank_values(self, _name, field, value):
+        report = self._create_report()
+        response = self.client.patch(self._url(str(report.id)), data={field: value}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_update_rejects_overlong_title(self):
+        report = self._create_report()
+        response = self.client.patch(self._url(str(report.id)), data={"title": "x" * 301}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_update_other_teams_report_returns_404(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        report = self._create_report(team=other_team)
+        response = self.client.patch(self._url(str(report.id)), data={"title": "Nope"}, format="json")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        report.refresh_from_db()
+        assert report.title == "Original title"
+
+    def test_update_deleted_report_returns_404(self):
+        report = self._create_report(report_status=SignalReport.Status.DELETED)
+        response = self.client.patch(self._url(str(report.id)), data={"title": "Nope"}, format="json")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_update_suppressed_report_returns_404(self):
+        # Suppressed reports are hidden from mutating-by-id actions unless an explicit status
+        # filter asks for them, matching the delete/reingest contract.
+        report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
+        response = self.client.patch(self._url(str(report.id)), data={"title": "Nope"}, format="json")
+        assert response.status_code == status.HTTP_404_NOT_FOUND

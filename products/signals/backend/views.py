@@ -401,6 +401,11 @@ SIGNAL_REPORT_MAX_SNOOZE_FOR = 100_000
 # Upper bound on how many reports a single bulk transition may touch. Keeps one call
 # from fanning out into an unbounded write; callers page through larger sets.
 SIGNAL_REPORT_BULK_STATE_MAX_IDS = 100
+# Bounds on the editable human-facing report fields. `title`/`summary` are TextFields on the
+# model (so unbounded in the DB), but the write API caps them to keep an edit from storing an
+# absurdly long title or summary.
+SIGNAL_REPORT_TITLE_MAX_LENGTH = 300
+SIGNAL_REPORT_SUMMARY_MAX_LENGTH = 10_000
 
 # Canonical dismissal reason codes, mirrored from the inbox UI source of truth at
 # frontend/src/scenes/inbox/utils/dismissalReasons.ts (itself a port of desktop's
@@ -514,6 +519,38 @@ class SignalReportBulkStateResponseSerializer(serializers.Serializer):
     skipped_count = serializers.IntegerField(help_text="Number of reports whose transition was not allowed.")
     failed_count = serializers.IntegerField(help_text="Number of reports that failed on invalid request data.")
     not_found_count = serializers.IntegerField(help_text="Number of requested ids not visible to the caller.")
+
+
+class SignalReportContentUpdateSerializer(serializers.Serializer):
+    """Editable human-facing fields on a signal report (PATCH).
+
+    Both fields are optional so a caller can change either independently, but at least one
+    must be supplied. Every other report field — status, weights, judgments — is owned by the
+    signals pipeline and is deliberately not writable here.
+    """
+
+    title = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        trim_whitespace=True,
+        max_length=SIGNAL_REPORT_TITLE_MAX_LENGTH,
+        help_text="New human-facing title for the report. Omit to leave the title unchanged.",
+    )
+    summary = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        trim_whitespace=True,
+        max_length=SIGNAL_REPORT_SUMMARY_MAX_LENGTH,
+        help_text=(
+            "New summary (the report's description) explaining what the report is about. "
+            "Omit to leave the summary unchanged."
+        ),
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if "title" not in attrs and "summary" not in attrs:
+            raise serializers.ValidationError("Provide at least one of 'title' or 'summary' to update.")
+        return attrs
 
 
 @extend_schema_view(
@@ -992,6 +1029,38 @@ class SignalReportViewSet(
         report = self.get_object()
         serializer = self.get_serializer(report, context=self._enriched_report_context(report))
         return Response(serializer.data)
+
+    @validated_request(
+        request_serializer=SignalReportContentUpdateSerializer,
+        responses={
+            200: OpenApiResponse(response=SignalReportSerializer, description="Report updated."),
+            400: OpenApiResponse(description="Neither title nor summary supplied, or a value failed validation."),
+            404: OpenApiResponse(description="Report not found for this project."),
+        },
+        summary="Edit a report's title or summary",
+        description=(
+            "Edit the human-facing title and/or summary (description) of a signal report, addressed "
+            "by id. Both fields are optional — supply only the ones you want to change; at least one "
+            "is required. Every other report field (status, weights, judgments) is managed by the "
+            "signals pipeline and cannot be set here. Returns the full updated report."
+        ),
+        operation_id="signals_reports_partial_update",
+    )
+    def partial_update(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        report = cast(SignalReport, self.get_object())
+        data = request.validated_data
+        update_fields: list[str] = []
+        if "title" in data:
+            report.title = data["title"]
+            update_fields.append("title")
+        if "summary" in data:
+            report.summary = data["summary"]
+            update_fields.append("summary")
+        # `updated_at` is auto_now, but `update_fields` saves only the listed columns, so add it
+        # explicitly to keep the edit timestamped.
+        update_fields.append("updated_at")
+        report.save(update_fields=update_fields)
+        return Response(SignalReportSerializer(report, context=self._enriched_report_context(report)).data)
 
     @extend_schema(
         parameters=[
