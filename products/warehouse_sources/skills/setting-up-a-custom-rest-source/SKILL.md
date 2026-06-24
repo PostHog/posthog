@@ -6,8 +6,9 @@ description: >
   REST API", "sync my internal API", "connect this API from its docs", "build a custom data warehouse source" — and
   gives a docs URL or a natural-language description of the endpoints. Walks through drafting the RESTAPIConfig manifest
   (auth, pagination, record path, incremental cursor, parent/child fan-out), validating it, test-reading live rows to
-  verify the field mappings, and creating the source. For sources that already have a built-in connector (Postgres,
-  Stripe, Hubspot, etc.), use setting-up-a-data-warehouse-source instead.
+  verify the field mappings, and creating the source. If the API already has a native PostHog connector, use
+  setting-up-a-data-warehouse-source instead — this skill checks the connector registry first and only handles APIs
+  with no native connector.
 ---
 
 # Setting up a Custom REST source
