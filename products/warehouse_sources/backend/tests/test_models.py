@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     apply_incremental_lookback,
     process_incremental_value,
+    update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
@@ -189,6 +190,125 @@ class TestExternalDataSchemaActivityLogging(BaseTest):
             model_activity_signal.disconnect(self._signal_handler, sender=ExternalDataSchema)
         schema.refresh_from_db()
         assert schema.incremental_field_last_value == 42
+
+
+class TestUpdateSyncTypeConfigKeys(BaseTest):
+    """The locked-merge helper that keeps the CDC extract activity and concurrent API PATCHes from
+    clobbering each other's sync_type_config keys."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Postgres",
+        )
+
+    def _create(self, sync_type_config: dict) -> ExternalDataSchema:
+        return ExternalDataSchema.objects.create(
+            team_id=self.team.pk, source=self.source, name="users", sync_type_config=sync_type_config
+        )
+
+    def test_updates_merge_and_preserve_unrelated_keys(self) -> None:
+        schema = self._create({"cdc_mode": "streaming", "cdc_last_log_position": "0/100"})
+        result = update_sync_type_config_keys(schema.id, self.team.pk, updates={"cdc_last_log_position": "0/200"})
+        assert result == {"cdc_mode": "streaming", "cdc_last_log_position": "0/200"}
+        schema.refresh_from_db()
+        assert schema.sync_type_config == {"cdc_mode": "streaming", "cdc_last_log_position": "0/200"}
+
+    def test_removes_pop_keys(self) -> None:
+        schema = self._create(
+            {"cdc_mode": "snapshot", "cdc_last_log_position": "0/100", "cdc_deferred_runs": [{"x": 1}]}
+        )
+        result = update_sync_type_config_keys(
+            schema.id,
+            self.team.pk,
+            updates={"cdc_mode": "snapshot"},
+            removes=["cdc_last_log_position", "cdc_deferred_runs"],
+        )
+        assert result == {"cdc_mode": "snapshot"}
+        schema.refresh_from_db()
+        assert schema.sync_type_config == {"cdc_mode": "snapshot"}
+
+    def test_remove_of_absent_key_is_noop(self) -> None:
+        schema = self._create({"cdc_mode": "streaming"})
+        update_sync_type_config_keys(schema.id, self.team.pk, removes=["not_there"])
+        schema.refresh_from_db()
+        assert schema.sync_type_config == {"cdc_mode": "streaming"}
+
+    def test_mutate_appends_inside_critical_section(self) -> None:
+        schema = self._create({"cdc_deferred_runs": [{"run_uuid": "a", "batch_results": []}]})
+
+        def _mutate(config: dict) -> None:
+            for entry in config["cdc_deferred_runs"]:
+                if entry["run_uuid"] == "a":
+                    entry["batch_results"].append({"s3_path": "s3://x"})
+
+        update_sync_type_config_keys(schema.id, self.team.pk, mutate=_mutate)
+        schema.refresh_from_db()
+        assert schema.sync_type_config["cdc_deferred_runs"][0]["batch_results"] == [{"s3_path": "s3://x"}]
+
+    def test_apply_order_is_updates_removes_mutate(self) -> None:
+        schema = self._create({"a": 1})
+
+        def _mutate(config: dict) -> None:
+            config["seen"] = sorted(config.keys())
+
+        result = update_sync_type_config_keys(schema.id, self.team.pk, updates={"b": 2}, removes=["a"], mutate=_mutate)
+        assert "a" not in result
+        assert result["seen"] == ["b"]
+
+    def test_wrong_team_id_does_not_match(self) -> None:
+        schema = self._create({"cdc_mode": "streaming"})
+        with self.assertRaises(ExternalDataSchema.DoesNotExist):
+            update_sync_type_config_keys(schema.id, self.team.pk + 12345, updates={"cdc_mode": "snapshot"})
+
+    def test_skips_activity_log(self) -> None:
+        schema = self._create({"cdc_mode": "streaming"})
+        received: list = []
+
+        def _handler(sender, **kwargs) -> None:
+            received.append(kwargs)
+
+        model_activity_signal.connect(_handler, sender=ExternalDataSchema, weak=False)
+        try:
+            with patch.object(ExternalDataSchema, "_get_before_update") as before_update:
+                update_sync_type_config_keys(schema.id, self.team.pk, updates={"cdc_last_log_position": "0/5"})
+                assert not before_update.called
+            assert received == []
+        finally:
+            model_activity_signal.disconnect(_handler, sender=ExternalDataSchema)
+
+    def test_interleaved_writes_do_not_clobber(self) -> None:
+        # Two activity-style position writes with an API-style cdc_table_mode write in between —
+        # every key survives because each call re-reads the row before merging.
+        schema = self._create({"cdc_mode": "streaming", "cdc_table_mode": "consolidated"})
+        update_sync_type_config_keys(schema.id, self.team.pk, updates={"cdc_last_log_position": "0/100"})
+        update_sync_type_config_keys(schema.id, self.team.pk, updates={"cdc_table_mode": "both"})
+        update_sync_type_config_keys(schema.id, self.team.pk, updates={"cdc_last_log_position": "0/200"})
+        schema.refresh_from_db()
+        assert schema.sync_type_config == {
+            "cdc_mode": "streaming",
+            "cdc_table_mode": "both",
+            "cdc_last_log_position": "0/200",
+        }
+
+    def test_merges_onto_latest_committed_not_stale_in_memory_copy(self) -> None:
+        # A writer holding a copy loaded before a concurrent commit must not revert that commit.
+        schema = self._create({"cdc_mode": "streaming", "cdc_last_log_position": "0/100"})
+        stale = ExternalDataSchema.objects.get(id=schema.id)  # in-memory copy: position 0/100
+        # A concurrent committed write moves the position forward:
+        update_sync_type_config_keys(schema.id, self.team.pk, updates={"cdc_last_log_position": "0/900"})
+        # The holder of the stale copy now persists an unrelated key through the helper:
+        result = update_sync_type_config_keys(schema.id, self.team.pk, updates={"cdc_table_mode": "both"})
+        # The concurrent position survives; the stale 0/100 never reaches the row.
+        assert result["cdc_last_log_position"] == "0/900"
+        assert result["cdc_table_mode"] == "both"
+        assert stale.sync_type_config["cdc_last_log_position"] == "0/100"  # the copy really was stale
+        schema.refresh_from_db()
+        assert schema.sync_type_config["cdc_last_log_position"] == "0/900"
 
 
 @pytest.mark.parametrize(

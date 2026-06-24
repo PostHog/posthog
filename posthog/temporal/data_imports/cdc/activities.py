@@ -15,6 +15,7 @@ import uuid
 import typing
 import datetime as dt
 import dataclasses
+from collections.abc import Callable
 
 from django.db import close_old_connections
 
@@ -44,7 +45,10 @@ from posthog.temporal.data_imports.workflow_activities.create_job_model import _
 from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    update_sync_type_config_keys,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 logger = structlog.get_logger(__name__)
@@ -164,6 +168,37 @@ class CDCExtractActivity:
         )
 
     # ------------------------------------------------------------------
+    # sync_type_config persistence (locked merge, see update_sync_type_config_keys)
+    # ------------------------------------------------------------------
+    def _update_schema_sync_type_config(
+        self,
+        schema: ExternalDataSchema,
+        *,
+        updates: dict[str, typing.Any] | None = None,
+        removes: list[str] | None = None,
+        mutate: Callable[[dict[str, typing.Any]], None] | None = None,
+        extra_model_fields: dict[str, typing.Any] | None = None,
+    ) -> None:
+        """Persist a `sync_type_config` change through the locked-merge helper, then refresh the
+        in-memory copy from the returned dict.
+
+        Every `sync_type_config` write in this activity goes through here so the long-lived
+        in-memory schema can't clobber a concurrent API PATCH (or another writer) — the merge
+        re-reads the row under a lock instead of overwriting it wholesale.
+        """
+        schema.sync_type_config = update_sync_type_config_keys(
+            schema.id,
+            schema.team_id,
+            updates=updates,
+            removes=removes,
+            mutate=mutate,
+            extra_model_fields=extra_model_fields,
+        )
+        if extra_model_fields:
+            for field, value in extra_model_fields.items():
+                setattr(schema, field, value)
+
+    # ------------------------------------------------------------------
     # Deferred run flushing
     # ------------------------------------------------------------------
     def _flush_deferred_runs(self, schema: ExternalDataSchema) -> None:
@@ -237,8 +272,7 @@ class CDCExtractActivity:
             finally:
                 producer.close()
 
-        schema.sync_type_config["cdc_deferred_runs"] = []
-        schema.save(update_fields=["sync_type_config", "updated_at"])
+        self._update_schema_sync_type_config(schema, updates={"cdc_deferred_runs": []})
 
         log.info("deferred_runs_flushed", schema_id=str(schema.id))
 
@@ -350,51 +384,48 @@ class CDCExtractActivity:
         """Persist a batch result into the tracker's deferred entry in sync_type_config.
 
         Creates the entry on first call (keyed by run_uuid), appends to it on
-        subsequent calls.  Saves immediately so progress survives process failures.
+        subsequent calls. Persists immediately so progress survives process failures.
 
-        IMPORTANT: This mutates the in-memory schema.sync_type_config and saves
-        with update_fields=["sync_type_config"]. This is safe because
-        cdc_extract_activity is single-threaded and all sync_type_config writes
-        happen sequentially within this activity. Do not call from async contexts.
+        The entry lookup + append runs inside the locked merge (see
+        update_sync_type_config_keys) so an interleaved API PATCH can't drop the
+        deferred runs this activity is accumulating — read-modify-write on a stale
+        copy is exactly the lost update the merge prevents.
         """
-        deferred = schema.sync_type_config.setdefault("cdc_deferred_runs", [])
 
-        entry: dict | None = None
-        for d in deferred:
-            if d.get("run_uuid") == tracker.run_uuid:
-                entry = d
-                break
+        def _append_batch(config: dict[str, typing.Any]) -> None:
+            deferred = config.setdefault("cdc_deferred_runs", [])
+            entry: dict | None = next((d for d in deferred if d.get("run_uuid") == tracker.run_uuid), None)
 
-        if entry is None:
-            entry = {
-                "job_id": str(tracker.job.id),
-                "run_uuid": tracker.run_uuid,
-                # Replayed by the deferred flush so it targets the same Delta table this batch went to.
-                "resource_name": tracker.write_resource_name,
-                "data_folder": tracker.s3_writer.get_data_folder(),
-                "schema_path": None,  # written on finalization
-                "total_batches": 0,
-                "total_rows": 0,
-                "primary_keys": tracker.key_columns or None,
-                "cdc_write_mode": tracker.cdc_write_mode,
-                "cdc_table_mode": tracker.cdc_table_mode,
-                "batch_results": [],
-            }
-            deferred.append(entry)
+            if entry is None:
+                entry = {
+                    "job_id": str(tracker.job.id),
+                    "run_uuid": tracker.run_uuid,
+                    # Replayed by the deferred flush so it targets the same Delta table this batch went to.
+                    "resource_name": tracker.write_resource_name,
+                    "data_folder": tracker.s3_writer.get_data_folder(),
+                    "schema_path": None,  # written on finalization
+                    "total_batches": 0,
+                    "total_rows": 0,
+                    "primary_keys": tracker.key_columns or None,
+                    "cdc_write_mode": tracker.cdc_write_mode,
+                    "cdc_table_mode": tracker.cdc_table_mode,
+                    "batch_results": [],
+                }
+                deferred.append(entry)
 
-        entry["batch_results"].append(
-            {
-                "s3_path": batch_result.s3_path,
-                "row_count": batch_result.row_count,
-                "byte_size": batch_result.byte_size,
-                "batch_index": batch_result.batch_index,
-                "timestamp_ns": batch_result.timestamp_ns,
-            }
-        )
-        entry["total_batches"] = tracker.batch_index
-        entry["total_rows"] = tracker.total_rows
+            entry["batch_results"].append(
+                {
+                    "s3_path": batch_result.s3_path,
+                    "row_count": batch_result.row_count,
+                    "byte_size": batch_result.byte_size,
+                    "batch_index": batch_result.batch_index,
+                    "timestamp_ns": batch_result.timestamp_ns,
+                }
+            )
+            entry["total_batches"] = tracker.batch_index
+            entry["total_rows"] = tracker.total_rows
 
-        schema.save(update_fields=["sync_type_config", "updated_at"])
+        self._update_schema_sync_type_config(schema, mutate=_append_batch)
 
         self._schema_log(schema).info(
             "cdc_deferred_run_stored",
@@ -404,6 +435,21 @@ class CDCExtractActivity:
             total_batches=tracker.batch_index,
             total_rows=tracker.total_rows,
         )
+
+    def _persist_deferred_finalization(
+        self, schema: ExternalDataSchema, tracker: _WriteTracker, schema_path: str
+    ) -> None:
+        """Stamp the final schema_path + totals onto the tracker's deferred entry under the merge lock."""
+
+        def _finalize(config: dict[str, typing.Any]) -> None:
+            for entry in config.get("cdc_deferred_runs", []):
+                if entry.get("run_uuid") == tracker.run_uuid:
+                    entry["schema_path"] = schema_path
+                    entry["total_batches"] = tracker.batch_index
+                    entry["total_rows"] = tracker.total_rows
+                    break
+
+        self._update_schema_sync_type_config(schema, mutate=_finalize)
 
     # ------------------------------------------------------------------
     # Storage naming
@@ -645,8 +691,9 @@ class CDCExtractActivity:
             # Persist discovered PKs to avoid re-querying
             for schema in self.cdc_schemas:
                 if schema.name in queried_pks:
-                    schema.sync_type_config["primary_key_columns"] = queried_pks[schema.name]
-                    schema.save(update_fields=["sync_type_config", "updated_at"])
+                    self._update_schema_sync_type_config(
+                        schema, updates={"primary_key_columns": queried_pks[schema.name]}
+                    )
 
         self.log.info("pk_columns_loaded", tables=list(self.pk_columns_by_table.keys()))
 
@@ -792,8 +839,7 @@ class CDCExtractActivity:
                 pk_log.warning("pk_columns_changed", table=table_name, old=stored_pks, new=decoder_pks)
                 self.pk_columns_by_table[table_name] = decoder_pks
                 if pk_schema is not None:
-                    pk_schema.sync_type_config["primary_key_columns"] = decoder_pks
-                    pk_schema.save(update_fields=["sync_type_config", "updated_at"])
+                    self._update_schema_sync_type_config(pk_schema, updates={"primary_key_columns": decoder_pks})
 
     def _handle_truncates(self) -> list[str]:
         """Process any truncated tables observed during decoding.
@@ -816,18 +862,17 @@ class CDCExtractActivity:
 
     def _reset_schema_to_snapshot(self, schema: ExternalDataSchema, *, clear_deferred_runs: bool = False) -> None:
         """Put a schema back into snapshot mode so its own schedule re-syncs it from scratch."""
-        schema.sync_type_config["cdc_mode"] = "snapshot"
-        schema.sync_type_config.pop("cdc_last_log_position", None)
-        # A source TRUNCATE (or a lost slot) leaves the warehouse table in place, so without
-        # reset_pipeline the re-snapshot takes the incremental-merge path and upserts the
-        # current rows over the stale ones — pre-truncate rows never deleted. Forcing it makes
-        # the batch import wipe the table first (handle_reset_or_full_refresh, which also clears
-        # the flag). The {name}_cdc companion is reset independently by the snapshot seed.
-        schema.sync_type_config["reset_pipeline"] = True
+        removes = ["cdc_last_log_position"]
         if clear_deferred_runs:
-            schema.sync_type_config.pop("cdc_deferred_runs", None)
-        schema.initial_sync_complete = False
-        schema.save(update_fields=["sync_type_config", "initial_sync_complete", "updated_at"])
+            removes.append("cdc_deferred_runs")
+        # reset_pipeline forces the batch import to wipe the table first (handle_reset_or_full_refresh),
+        # preventing pre-truncate rows from surviving a TRUNCATE or lost-slot re-snapshot.
+        self._update_schema_sync_type_config(
+            schema,
+            updates={"cdc_mode": "snapshot", "reset_pipeline": True},
+            removes=removes,
+            extra_model_fields={"initial_sync_complete": False},
+        )
 
     def _unpause_schema_schedule(self, schema: ExternalDataSchema) -> None:
         schema_log = self._schema_log(schema)
@@ -906,14 +951,8 @@ class CDCExtractActivity:
             elif schema.cdc_mode == "snapshot":
                 # Write schema file and update the deferred entry with final metadata.
                 schema_path = tracker.s3_writer.write_schema()
-                deferred = schema.sync_type_config.get("cdc_deferred_runs", [])
-                for entry in deferred:
-                    if entry.get("run_uuid") == tracker.run_uuid:
-                        entry["schema_path"] = schema_path
-                        entry["total_batches"] = tracker.batch_index
-                        entry["total_rows"] = tracker.total_rows
-                        break
-                schema.save(update_fields=["sync_type_config", "updated_at"])
+                if schema_path is not None:
+                    self._persist_deferred_finalization(schema, tracker, schema_path)
 
                 tracker.job.rows_synced = tracker.total_rows
                 tracker.job.status = ExternalDataJob.Status.COMPLETED
@@ -938,8 +977,7 @@ class CDCExtractActivity:
         for schema in self.cdc_schemas:
             if schema.sync_type_config.get("cdc_mode") == "snapshot":
                 continue
-            schema.sync_type_config["cdc_last_log_position"] = self.last_end_lsn
-            schema.save(update_fields=["sync_type_config", "updated_at"])
+            self._update_schema_sync_type_config(schema, updates={"cdc_last_log_position": self.last_end_lsn})
 
     # ------------------------------------------------------------------
     # Failure / success finalization
