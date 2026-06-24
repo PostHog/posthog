@@ -245,17 +245,17 @@ export function AddTilePickerModal(): JSX.Element | null {
             isOpen={addTilePickerModalVisible}
             onClose={hideAddTilePickerModal}
             title="Add to dashboard"
-            description="Pick what you'd like to add. Each preview shows roughly how it looks on the dashboard."
+            description="Pick what you'd like to add."
             width={720}
         >
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
                 {options.map((option) => (
                     <button
                         key={option.type}
                         type="button"
                         data-attr={option['data-attr']}
                         onClick={() => onSelect(option.type, proceedFor[option.type])}
-                        className="flex flex-col gap-2 rounded-lg border border-primary bg-surface-primary p-3 text-left transition-colors hover:border-accent hover:bg-surface-secondary"
+                        className="flex cursor-pointer flex-col gap-2 rounded-lg border border-primary bg-surface-primary p-3 text-left transition-colors hover:border-accent hover:bg-surface-secondary"
                     >
                         <div className="h-32 w-full overflow-hidden rounded-md bg-surface-secondary p-2">
                             {option.preview}
