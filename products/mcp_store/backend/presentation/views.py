@@ -824,9 +824,18 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         if user_client_id:
             client_id = user_client_id
             dcr_is_user_provided = True
-            token_endpoint_auth_method = select_token_endpoint_auth_method(
-                metadata, has_client_secret=bool(user_client_secret)
-            )
+            try:
+                token_endpoint_auth_method = select_token_endpoint_auth_method(
+                    metadata, has_client_secret=bool(user_client_secret)
+                )
+            except ValueError as e:
+                logger.warning("OAuth token endpoint auth method unsupported", server_url=mcp_url, error=str(e))
+                if created:
+                    installation.delete()
+                return Response(
+                    {"detail": "OAuth token endpoint auth method is not supported."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         else:
             try:
                 client_id, dcr_client_secret, token_endpoint_auth_method = self._register_dcr_client_or_raise(

@@ -69,22 +69,18 @@ def select_token_endpoint_auth_method(metadata: dict, *, has_client_secret: bool
     per-installation DCR credentials for token exchange and refresh.
     """
     supported_methods = _as_string_list(metadata.get("token_endpoint_auth_methods_supported"))
-    if has_client_secret:
-        if not supported_methods or "client_secret_post" in supported_methods:
-            return "client_secret_post"
-        if "client_secret_basic" in supported_methods:
-            return "client_secret_basic"
-        return "client_secret_post"
-
+    preferred_methods = (
+        ("client_secret_post", "client_secret_basic", "none")
+        if has_client_secret
+        else SUPPORTED_TOKEN_ENDPOINT_AUTH_METHODS
+    )
     if not supported_methods:
-        return "none"
-    if "none" in supported_methods:
-        return "none"
-    if "client_secret_post" in supported_methods:
-        return "client_secret_post"
-    if "client_secret_basic" in supported_methods:
-        return "client_secret_basic"
-    return "none"
+        return "client_secret_post" if has_client_secret else "none"
+    for method in preferred_methods:
+        if method in supported_methods:
+            return method
+
+    raise ValueError(f"Unsupported token_endpoint_auth_methods_supported: {', '.join(supported_methods)}")
 
 
 def oauth_resource(metadata: dict) -> str:

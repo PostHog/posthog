@@ -877,6 +877,37 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
     @ALLOW_URL
     @patch("products.mcp_store.backend.presentation.views.register_dcr_client")
     @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
+    def test_install_custom_with_user_supplied_creds_rejects_unsupported_auth_method(
+        self, mock_discover, mock_dcr, _allow
+    ):
+        mock_discover.return_value = {
+            "issuer": "https://auth.legit.com",
+            "authorization_endpoint": "https://auth.legit.com/authorize",
+            "token_endpoint": "https://auth.legit.com/token",
+            "registration_endpoint": "https://auth.legit.com/register",
+            "token_endpoint_auth_methods_supported": ["private_key_jwt"],
+        }
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+            data={
+                "name": "Legit",
+                "url": "https://mcp.legit.com/mcp",
+                "auth_type": "oauth",
+                "client_id": "user-supplied-client-id",
+                "client_secret": "user-supplied-secret",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "OAuth token endpoint auth method is not supported."
+        assert not MCPServerInstallation.objects.filter(url="https://mcp.legit.com/mcp", user=self.user).exists()
+        mock_dcr.assert_not_called()
+
+    @ALLOW_URL
+    @patch("products.mcp_store.backend.presentation.views.register_dcr_client")
+    @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
     def test_install_custom_discards_secret_when_client_id_missing(self, mock_discover, mock_dcr, _allow):
         """A stray client_secret without a client_id falls back to DCR and the secret is dropped.
 

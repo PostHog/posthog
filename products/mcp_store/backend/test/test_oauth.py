@@ -3,7 +3,7 @@ from urllib.parse import urlparse
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 import requests
 from parameterized import parameterized
@@ -24,6 +24,7 @@ from products.mcp_store.backend.oauth import (
     requested_oauth_grant_types,
     requested_oauth_scopes,
     resolve_installation_oauth_context,
+    select_token_endpoint_auth_method,
 )
 
 
@@ -854,7 +855,42 @@ class TestValidateEndpointsBoundToIssuer(TestCase):
             _validate_endpoints_bound_to_issuer(metadata)
 
 
-class TestRegisterDCRClient(TestCase):
+class TestRegisterDCRClient(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("public_client", False),
+            ("confidential_client", True),
+        ]
+    )
+    def test_rejects_explicit_unsupported_auth_methods(self, _name, has_client_secret):
+        with self.assertRaisesMessage(ValueError, "private_key_jwt"):
+            select_token_endpoint_auth_method(
+                {"token_endpoint_auth_methods_supported": ["private_key_jwt"]},
+                has_client_secret=has_client_secret,
+            )
+
+    def test_uses_public_auth_when_it_is_the_only_supported_method_with_secret(self):
+        assert (
+            select_token_endpoint_auth_method(
+                {"token_endpoint_auth_methods_supported": ["none"]},
+                has_client_secret=True,
+            )
+            == "none"
+        )
+
+    @patch("products.mcp_store.backend.oauth.requests.post")
+    def test_rejects_dcr_when_provider_only_lists_unsupported_auth_methods(self, mock_post):
+        with self.assertRaisesMessage(ValueError, "private_key_jwt"):
+            register_dcr_client(
+                {
+                    "registration_endpoint": "https://auth.example.com/register",
+                    "token_endpoint_auth_methods_supported": ["private_key_jwt"],
+                },
+                "https://app.posthog.com/callback",
+            )
+
+        mock_post.assert_not_called()
+
     @parameterized.expand(
         [
             (
