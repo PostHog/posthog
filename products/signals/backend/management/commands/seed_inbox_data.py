@@ -43,8 +43,6 @@ from products.tasks.backend.facade import api as tasks_facade
 
 _FIXTURES_DIR = Path(__file__).resolve().parents[2] / "report_generation" / "fixtures"
 _DEFAULT_REPOSITORY = "posthog/posthog"
-# tasks.Task.OriginProduct.SIGNAL_REPORT — passed as a string so this stays off the isolated tasks ORM.
-_ORIGIN_PRODUCT_SIGNAL_REPORT = "signal_report"
 
 # Terminal states cycled across the seeded reports so the inbox shows more than one status. Kept to
 # states reachable from in_progress without extra side effects; READY dominates since it's the
@@ -268,7 +266,7 @@ class Command(BaseCommand):
                 team=team,
                 title=report.title or "Investigate inbox report",
                 description=report.summary or "Synthetic implementation task seeded for the inbox.",
-                origin_product=_ORIGIN_PRODUCT_SIGNAL_REPORT,
+                origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
                 user_id=user_id,
                 repository=repository,
                 create_pr=False,
