@@ -96,6 +96,11 @@ def is_recording_property(p: AnyPropertyFilter) -> bool:
     return p_type == "recording"
 
 
+def is_flag_property(p: AnyPropertyFilter) -> bool:
+    p_type = getattr(p, "type", None)
+    return p_type == "flag"
+
+
 def expand_test_account_filters(team: Team) -> list[AnyPropertyFilter]:
     prop_filters: list[AnyPropertyFilter] = []
     for prop in team.test_account_filters:
@@ -152,6 +157,7 @@ def _strip_person_and_event_and_cohort_properties(
         and not is_cohort_property(p)
         and not is_session_property(p)
         and not is_recording_property(p)
+        and not is_flag_property(p)
     ]
 
     return properties_to_keep

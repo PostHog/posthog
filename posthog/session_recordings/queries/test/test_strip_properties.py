@@ -3,6 +3,7 @@ from parameterized import parameterized
 from posthog.schema import (
     CohortPropertyFilter,
     EventPropertyFilter,
+    FlagPropertyFilter,
     GroupPropertyFilter,
     HogQLPropertyFilter,
     PersonPropertyFilter,
@@ -14,6 +15,7 @@ from posthog.schema import (
 from posthog.session_recordings.queries.utils import (
     UnexpectedQueryProperties,
     _strip_person_and_event_and_cohort_properties,
+    is_flag_property,
     is_recording_property,
     is_session_property,
 )
@@ -45,6 +47,10 @@ class TestStripProperties:
                 "hogql session.properties reference is stripped",
                 HogQLPropertyFilter(key="session.properties.$channel_type = 'Direct'"),
             ),
+            (
+                "flag dependency filter is stripped (cleanly skipped, not unexpected)",
+                FlagPropertyFilter(key="123", value=True),
+            ),
         ]
     )
     def test_strip_keeps_nothing_for_replay_scoped_filter(self, _name: str, replay_filter: AnyPropertyFilter) -> None:
@@ -64,10 +70,11 @@ class TestStripProperties:
         cohort = CohortPropertyFilter(key="id", value=1)
         session = SessionPropertyFilter(key="$channel_type", operator=PropertyOperator.EXACT, value="Direct")
         recording = RecordingPropertyFilter(key="console_error_count", operator=PropertyOperator.GT, value=0)
+        flag = FlagPropertyFilter(key="123", value=True)
         unexpected = HogQLPropertyFilter(key="unrelated = 1")
 
         result = _strip_person_and_event_and_cohort_properties(
-            [person, event, group, cohort, session, recording, unexpected]
+            [person, event, group, cohort, session, recording, flag, unexpected]
         )
         assert result == [unexpected]
 
@@ -78,6 +85,12 @@ class TestStripProperties:
         assert is_session_property(HogQLPropertyFilter(key="session.properties.$channel_type = 'Direct'"))
         assert not is_session_property(
             PersonPropertyFilter(key="email", operator=PropertyOperator.EXACT, value="a@b.com")
+        )
+
+    def test_is_flag_property_matches_type(self) -> None:
+        assert is_flag_property(FlagPropertyFilter(key="123", value=True))
+        assert not is_flag_property(
+            EventPropertyFilter(key="$browser", operator=PropertyOperator.EXACT, value="Chrome")
         )
 
     def test_is_recording_property_matches_type(self) -> None:
