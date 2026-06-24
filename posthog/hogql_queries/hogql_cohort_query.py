@@ -1248,7 +1248,18 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
             return self._build_single_condition_query(deduplicated[0])
 
         threshold = len(deduplicated) if operator == PropertyOperatorType.AND else 1
+        having = parse_expr("countIf(latest_matches = 1) >= {threshold}", {"threshold": ast.Constant(value=threshold)})
+        return self._single_scan_membership_query(deduplicated, having)
 
+    def _single_scan_membership_query(self, hashes: list[str], having: ast.Expr) -> ast.SelectQuery:
+        """Assemble the single-scan SELECT over precalculated_person_properties for a given HAVING expr.
+
+        Shared scaffold for both the flat-count path (_build_count_match_query) and the boolean-tree
+        path (_build_boolean_tree_query): one inner GROUP BY (person_id, condition) with argMax, one
+        outer GROUP BY person_id with HAVING. Keeping the scan template in one place ensures future
+        changes to the table access pattern (sort key, column renames, extra filters) are applied
+        consistently.
+        """
         query_str = """
             SELECT
                 person_id as id
@@ -1265,7 +1276,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                 GROUP BY person_id, condition
             )
             GROUP BY person_id
-            HAVING countIf(latest_matches = 1) >= {threshold}
+            HAVING {having}
         """
 
         return cast(
@@ -1274,8 +1285,8 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
                 query_str,
                 {
                     "team_id": ast.Constant(value=self.team.pk),
-                    "condition_hashes": ast.Tuple(exprs=[ast.Constant(value=h) for h in deduplicated]),
-                    "threshold": ast.Constant(value=threshold),
+                    "condition_hashes": ast.Tuple(exprs=[ast.Constant(value=h) for h in hashes]),
+                    "having": having,
                 },
             ),
         )
@@ -1436,36 +1447,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
             return None
 
         deduplicated = self._deduplicate_hashes(all_hashes)
-        query_str = """
-            SELECT
-                person_id as id
-            FROM
-            (
-                SELECT
-                    person_id,
-                    condition,
-                    argMax(matches, (_timestamp, _offset)) as latest_matches
-                FROM precalculated_person_properties
-                WHERE
-                    team_id = {team_id}
-                    AND condition IN {condition_hashes}
-                GROUP BY person_id, condition
-            )
-            GROUP BY person_id
-            HAVING {having}
-        """
-
-        return cast(
-            ast.SelectQuery,
-            parse_select(
-                query_str,
-                {
-                    "team_id": ast.Constant(value=self.team.pk),
-                    "condition_hashes": ast.Tuple(exprs=[ast.Constant(value=h) for h in deduplicated]),
-                    "having": having,
-                },
-            ),
-        )
+        return self._single_scan_membership_query(deduplicated, having)
 
     def _get_conditions(self) -> ast.SelectQuery | ast.SelectSetQuery:
         """Override to emit a single-scan query when all conditions are person properties.
@@ -1495,80 +1477,6 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
             tree_query = self._build_boolean_tree_query(self.property_groups)
             if tree_query is not None:
                 return tree_query
-        return super()._get_conditions()
-
-    def _collect_person_property_hashes(
-        self, prop_group: PropertyGroup
-    ) -> Optional[tuple[list[str], PropertyOperatorType]]:
-        """Collect all condition hashes from a flat AND/OR of person properties.
-
-        Returns (hashes, operator) if every leaf is a non-negated person property with a
-        conditionHash, None otherwise (mixed/behavioral/negated conditions fall through to
-        the multi-subquery path).
-
-        Only inspects one level of nesting: a top-level AND/OR whose children are either
-        plain Properties or single-property PropertyGroups wrapping a plain Property.
-        """
-        operator = prop_group.type
-        hashes: list[str] = []
-        for value in prop_group.values:
-            if isinstance(value, Property):
-                prop = value
-            elif len(value.values) == 1 and isinstance(value.values[0], Property):
-                prop = value.values[0]
-            else:
-                # Nested group with multiple or non-Property children → not a flat person-property group.
-                return None
-
-            # Must be a non-negated person property with a conditionHash
-            condition_hash = getattr(prop, "conditionHash", None)
-            if prop.type != "person" or prop.negation or not condition_hash:
-                return None
-
-            # Merged properties carry multiple hashes
-            merged = getattr(prop, "_merged_condition_hashes", None)
-            if merged:
-                # A merged child encodes its own AND/OR across its hashes. Flattening them into
-                # the parent's single threshold only preserves semantics when the child's boolean
-                # type matches the top-level operator (e.g. an OR-merged child under a top-level
-                # AND would wrongly require ALL its hashes). Otherwise defer to the multi-subquery
-                # path, which expresses the nested boolean correctly.
-                if len(merged) > 1:
-                    child_is_or = getattr(prop, "_is_or_group", False)
-                    parent_is_or = operator == PropertyOperatorType.OR
-                    if child_is_or != parent_is_or:
-                        return None
-                hashes.extend(merged)
-            else:
-                hashes.append(condition_hash)
-
-        if not hashes:
-            return None
-        return hashes, operator
-
-    def _get_conditions(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        """Override to emit a single-scan query when all conditions are person properties.
-
-        For cohorts whose top-level group is a flat AND/OR of non-negated person properties
-        (all backed by precalculated_person_properties), the parent would produce N separate
-        subqueries joined by INTERSECT/UNION DISTINCT. Each subquery reads the full table and
-        the set operations materialise large intermediate results — a common source of OOMs
-        for large cohorts with many person-property conditions.
-
-        When the cohort qualifies, we instead do one scan and count matching conditions per
-        person. The peak group count is unchanged, but collapsing N full-table scans into one
-        with a tiny per-group argMax(Bool) state (rather than N materialized person-UUID sets)
-        is what avoids the OOM.
-
-        Cohorts with mixed conditions (behavioral, dynamic-cohort, negation, deeply nested
-        groups, or nested boolean groups whose operator differs from the top level) fall through
-        to the parent's multi-subquery path unchanged.
-        """
-        if self.property_groups is not None:
-            result = self._collect_person_property_hashes(self.property_groups)
-            if result is not None:
-                hashes, operator = result
-                return self._build_count_match_query(hashes, operator)
         return super()._get_conditions()
 
     def get_static_cohort_condition(self, prop: Property) -> ast.SelectQuery:

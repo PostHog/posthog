@@ -2329,6 +2329,70 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         # Tree path must NOT fire — a negated leaf forces the parent set-operation path.
         self.assertNotIn("maxif(latest_matches", query_str)
 
+    def test_nested_or_under_and_membership(self) -> None:
+        """Execution test for `(X OR Y) AND (A OR B)` — the shape flagged in the parameterized
+        test as the threshold-flip risk.
+
+        The tree renders it as `maxIf(...X,Y...) = 1 AND maxIf(...A,B...) = 1`, NOT a flat
+        `countIf >= 4` threshold that would wrongly require all four. A person matching only X
+        and A (one from each OR branch) must be IN; one matching X and Y but not A or B must be OUT.
+        """
+        sync_execute(_PRECALCULATED_PERSON_PROPERTIES_TEST_DDL)
+        sync_execute("TRUNCATE TABLE precalculated_person_properties")
+        try:
+            x_and_a, x_and_y, a_and_b, neither = uuid4(), uuid4(), uuid4(), uuid4()
+            self._seed_precalculated_person_properties(
+                [
+                    (x_and_a, "or_X", True),
+                    (x_and_a, "or_A", True),  # one from each OR branch → should match
+                    (x_and_y, "or_X", True),
+                    (x_and_y, "or_Y", True),  # both from first branch, none from second → no match
+                    (a_and_b, "or_A", True),
+                    (a_and_b, "or_B", True),  # both from second branch, none from first → no match
+                    (neither, "or_X", False),  # matches nothing
+                ]
+            )
+
+            def leaf(key: str, condition_hash: str) -> dict:
+                return {
+                    "key": key,
+                    "type": "person",
+                    "value": "x",
+                    "negation": False,
+                    "operator": "exact",
+                    "conditionHash": condition_hash,
+                }
+
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="or-under-and",
+                filters={
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {"type": "OR", "values": [leaf("k1", "or_X"), leaf("k2", "or_Y")]},
+                                    {"type": "OR", "values": [leaf("k3", "or_A"), leaf("k4", "or_B")]},
+                                ],
+                            }
+                        ],
+                    }
+                },
+            )
+            query_str = HogQLRealtimeCohortQuery(cohort=cohort).query_str("clickhouse")
+            self.assertNotIn("INTERSECT DISTINCT", query_str)
+            self.assertNotIn("UNION DISTINCT", query_str)
+
+            members = self._realtime_cohort_members(cohort)
+            self.assertIn(str(x_and_a), members)  # one from each OR branch
+            self.assertNotIn(str(x_and_y), members)  # both from first branch only
+            self.assertNotIn(str(a_and_b), members)  # both from second branch only
+            self.assertNotIn(str(neither), members)  # no match
+        finally:
+            sync_execute("DROP TABLE IF EXISTS precalculated_person_properties")
+
     @parameterized.expand(
         [
             # A merged child's internal boolean type must match the top-level operator to flatten.
