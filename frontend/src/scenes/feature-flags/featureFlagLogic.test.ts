@@ -956,6 +956,26 @@ describe('featureFlagLogic', () => {
             })
         })
     })
+
+    describe('default release conditions fallback', () => {
+        it('loads new flag successfully when default_release_conditions endpoint returns 500', async () => {
+            useMocks({
+                get: {
+                    [`/api/environments/${MOCK_DEFAULT_PROJECT.id}/default_release_conditions/`]: () => [500, {}],
+                },
+            })
+
+            const newLogic = featureFlagLogic({ id: 'new' })
+            newLogic.mount()
+
+            await expectLogic(newLogic).toDispatchActions(['loadFeatureFlagSuccess'])
+
+            // Flag still loads with the default (empty) groups — the 500 must not block creation
+            expect(newLogic.values.featureFlag.filters.groups).toEqual(NEW_FLAG.filters.groups)
+
+            newLogic.unmount()
+        })
+    })
 })
 
 const createFilters = (overrides: Partial<FeatureFlagFilters> = {}): FeatureFlagFilters => ({

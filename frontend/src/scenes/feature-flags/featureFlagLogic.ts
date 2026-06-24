@@ -84,7 +84,11 @@ import { TEMPLATE_NAMES } from 'products/feature_flags/frontend/featureFlagTempl
 import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
 import { defaultEvaluationContextsLogic } from './defaultEvaluationContextsLogic'
-import { DefaultReleaseConditionsResponse, defaultReleaseConditionsLogic } from './defaultReleaseConditionsLogic'
+import {
+    DefaultReleaseConditionsResponse,
+    defaultReleaseConditionsLogic,
+    fetchDefaultReleaseConditions,
+} from './defaultReleaseConditionsLogic'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
@@ -1296,9 +1300,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             const teamId = values.currentTeam?.id
                             if (teamId) {
                                 try {
-                                    conditionsConfig = await api.get<DefaultReleaseConditionsResponse>(
-                                        `/api/environments/${teamId}/default_release_conditions/`
-                                    )
+                                    conditionsConfig = await fetchDefaultReleaseConditions(teamId)
                                 } catch (e) {
                                     // Don't block new flag creation if the fetch fails
                                     console.warn('Failed to fetch default release conditions:', e)
@@ -1998,14 +2000,24 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 maybeApplyUrlIntent(values, actions)
             }
         },
-        applyTemplate: ({ templateId }) => {
+        applyTemplate: async ({ templateId }) => {
             const template = values.templates.find((t) => t.id === templateId)
             if (!template || !values.featureFlag) {
                 return
             }
             const templateValues = template.getValues(values.featureFlag)
 
-            const defaultConfig = values.defaultReleaseConditions
+            let defaultConfig: DefaultReleaseConditionsResponse | null = values.defaultReleaseConditions
+            if (!defaultConfig) {
+                const teamId = values.currentTeam?.id
+                if (teamId) {
+                    try {
+                        defaultConfig = await fetchDefaultReleaseConditions(teamId)
+                    } catch (e) {
+                        console.warn('Failed to fetch default release conditions:', e)
+                    }
+                }
+            }
             const defaultGroups =
                 defaultConfig?.enabled && defaultConfig.default_groups?.length > 0 ? defaultConfig.default_groups : []
             const templateGroups = templateValues.filters?.groups ?? []

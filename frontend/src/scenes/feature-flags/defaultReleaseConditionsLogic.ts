@@ -14,6 +14,10 @@ export interface DefaultReleaseConditionsResponse {
     default_groups: FeatureFlagGroupType[]
 }
 
+export async function fetchDefaultReleaseConditions(teamId: number): Promise<DefaultReleaseConditionsResponse> {
+    return await api.get(`/api/environments/${teamId}/default_release_conditions/`)
+}
+
 export const defaultReleaseConditionsLogic = kea<defaultReleaseConditionsLogicType>([
     path(['scenes', 'feature-flags', 'defaultReleaseConditionsLogic']),
 
@@ -55,9 +59,7 @@ export const defaultReleaseConditionsLogic = kea<defaultReleaseConditionsLogicTy
                     if (!teamId) {
                         return null
                     }
-                    return (await api.get(
-                        `/api/environments/${teamId}/default_release_conditions/`
-                    )) as DefaultReleaseConditionsResponse
+                    return await fetchDefaultReleaseConditions(teamId)
                 },
 
                 saveDefaultReleaseConditions: async () => {
