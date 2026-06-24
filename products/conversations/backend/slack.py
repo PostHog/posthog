@@ -61,9 +61,6 @@ def _get_team_id(team: Team) -> int:
     return team_id
 
 
-_build_content_with_images = build_content_with_images
-
-
 class _NoRedirectHandler(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
@@ -409,7 +406,7 @@ def create_or_update_slack_ticket(
             )
             return ticket
 
-        content, rich_content = _build_content_with_images(cleaned_text, rich_content, images)
+        content, rich_content = build_content_with_images(cleaned_text, rich_content, images)
 
         Comment.objects.create(
             team=team,
@@ -449,7 +446,7 @@ def create_or_update_slack_ticket(
         )
         return None
 
-    content, rich_content = _build_content_with_images(cleaned_text, rich_content, images)
+    content, rich_content = build_content_with_images(cleaned_text, rich_content, images)
 
     # Serialize concurrent ticket creation for the same Slack thread via Redis lock.
     # Without this, two reaction_added events from different users race through the
@@ -832,7 +829,7 @@ def _backfill_thread_replies(
         else:
             customer_message_count += 1
 
-        content, rich_content = _build_content_with_images(cleaned_text, rich_content, images)
+        content, rich_content = build_content_with_images(cleaned_text, rich_content, images)
 
         comments_to_create.append(
             Comment(
