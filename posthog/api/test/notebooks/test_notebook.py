@@ -440,6 +440,29 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
         notebook = Notebook.objects.get(team=self.team, short_id="abcd")
         assert notebook.title == "From Artifact"
 
+    def test_create_notebook_with_existing_short_id_is_idempotent(self):
+        first = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks",
+            {"title": "From Artifact", "short_id": "abcd"},
+            format="json",
+        )
+        assert first.status_code == status.HTTP_201_CREATED, first.json()
+
+        # Re-saving the same client-supplied short_id (e.g. a double-submitted AI artifact)
+        # must not raise an IntegrityError 500 — it returns the existing notebook instead.
+        second = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks",
+            {"title": "Saved Again", "short_id": "abcd"},
+            format="json",
+        )
+        assert second.status_code == status.HTTP_201_CREATED, second.json()
+        assert second.json()["id"] == first.json()["id"]
+        assert second.json()["short_id"] == "abcd"
+
+        # The collision is resolved by returning the original, not duplicating or overwriting it.
+        assert Notebook.objects.filter(team=self.team, short_id="abcd").count() == 1
+        assert Notebook.objects.get(team=self.team, short_id="abcd").title == "From Artifact"
+
     def test_create_notebook_without_short_id_auto_generates(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/notebooks",

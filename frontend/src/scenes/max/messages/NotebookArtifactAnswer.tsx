@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCollapse, IconExpand, IconNotebook } from '@posthog/icons'
@@ -56,6 +56,7 @@ export function NotebookArtifactAnswer({
     artifactId,
 }: NotebookArtifactAnswerProps): JSX.Element | null {
     const { createNotebook } = useActions(notebooksModel)
+    const { notebooksLoading } = useValues(notebooksModel)
     const [isExpanded, setIsExpanded] = useState(false)
     const [needsExpansion, setNeedsExpansion] = useState(false)
     const [localIsSaved, setLocalIsSaved] = useState(content.is_saved ?? false)
@@ -95,14 +96,17 @@ export function NotebookArtifactAnswer({
         // Convert blocks to tiptap JSONContent[] format
         const tiptapContent = blocksToTiptapContent(content.blocks)
 
+        // Only flip to the saved state once the notebook is actually created/opened, so a
+        // failed save doesn't optimistically show success. notebooksLoading guards the button
+        // against double-submission (which collides on the reused artifactId short_id) while
+        // the create request is in flight.
         createNotebook(
             NotebookTarget.Scene,
             content.title || 'AI Generated Notebook',
             tiptapContent,
-            undefined,
+            () => setLocalIsSaved(true),
             artifactId
         )
-        setLocalIsSaved(true)
     }
 
     const handleExpandClick = (): void => {
@@ -154,7 +158,14 @@ export function NotebookArtifactAnswer({
                             type="primary"
                             size="small"
                             icon={<IconOpenInNew />}
-                            disabledReason={isStreaming ? 'Wait for notebook to finish generating' : null}
+                            loading={notebooksLoading}
+                            disabledReason={
+                                isStreaming
+                                    ? 'Wait for notebook to finish generating'
+                                    : notebooksLoading
+                                      ? 'Saving notebook…'
+                                      : null
+                            }
                         >
                             Create notebook
                         </LemonButton>

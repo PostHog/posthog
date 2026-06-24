@@ -3,7 +3,7 @@ import hashlib
 from datetime import timedelta
 from typing import Any, cast
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Q, QuerySet
 from django.http import JsonResponse, StreamingHttpResponse
 from django.utils.timezone import now
@@ -186,12 +186,22 @@ class NotebookSerializer(NotebookMinimalSerializer):
         content = validated_data.get("content")
         if isinstance(content, dict):
             validated_data["content"] = annotate_python_nodes(content)
-        notebook = Notebook.objects.create(
-            team=team,
-            created_by=created_by,
-            last_modified_by=request.user,
-            **validated_data,
-        )
+        try:
+            notebook = Notebook.objects.create(
+                team=team,
+                created_by=created_by,
+                last_modified_by=request.user,
+                **validated_data,
+            )
+        except IntegrityError:
+            # A client-supplied short_id can collide with an existing notebook for this team
+            # (e.g. an AI notebook artifact saved twice with the same artifactId). Treat the
+            # create as idempotent and return the existing notebook rather than surfacing a 500.
+            if short_id:
+                existing = Notebook.objects.filter(team=team, short_id=short_id).first()
+                if existing is not None:
+                    return existing
+            raise
 
         log_notebook_activity(
             activity="created",
