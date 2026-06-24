@@ -4,6 +4,7 @@ from enum import Enum, IntEnum
 from math import asin, cos, radians, sin, sqrt
 from typing import Optional
 
+from django.conf import settings
 from django.contrib.auth import BACKEND_SESSION_KEY
 from django.http import HttpRequest
 from django.utils import timezone
@@ -16,9 +17,10 @@ from posthog.models import User
 from posthog.session.models import Session
 from posthog.utils import _is_valid_ip_address, get_ip_address
 
-RISK_DISTANCE_FLOOR_KM = 500.0
-RISK_ELAPSED_FLOOR_S = 300.0
-RISK_VELOCITY_MAX_KMH = 1000.0
+# Impossible-travel thresholds, tunable via Django settings with these as the fallback defaults.
+RISK_DISTANCE_FLOOR_KM = getattr(settings, "RISK_DISTANCE_FLOOR_KM", 500.0)
+RISK_ELAPSED_FLOOR_S = getattr(settings, "RISK_ELAPSED_FLOOR_S", 300.0)
+RISK_VELOCITY_MAX_KMH = getattr(settings, "RISK_VELOCITY_MAX_KMH", 1000.0)
 
 
 class RiskSignal(str, Enum):
