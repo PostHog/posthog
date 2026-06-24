@@ -1,9 +1,9 @@
 import { actions, connect, defaults, kea, listeners, path, props, reducers, selectors } from 'kea'
 
-import type { DataTableSavedFilter } from '~/queries/nodes/DataTable/dataTableSavedFiltersLogic'
-
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
+
+import type { DataTableSavedFilter } from '~/queries/nodes/DataTable/dataTableSavedFiltersLogic'
 
 import type { LlmAnalyticsTracesWidgetConfig } from '../../generated/widget-configs.zod'
 import { isWidgetConfigValidationError } from '../../utils'
@@ -184,7 +184,8 @@ export const editLlmAnalyticsTracesWidgetModalLogic = kea<editLlmAnalyticsTraces
 
         return {
             limit: baseConfig.limit,
-            dateFrom: (baseConfig.dateRange?.date_from ?? LLM_ANALYTICS_TRACES_DEFAULT_DATE_FROM) as WidgetDateFromValue,
+            dateFrom: (baseConfig.dateRange?.date_from ??
+                LLM_ANALYTICS_TRACES_DEFAULT_DATE_FROM) as WidgetDateFromValue,
             ...getWidgetEditModalTileDefaults(props),
             filterTestAccounts: resolveWidgetFilterTestAccounts(
                 baseConfig.filterTestAccounts,

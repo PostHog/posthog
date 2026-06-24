@@ -5,6 +5,7 @@ import {
     errorTrackingWidgetConfigSchema,
     experimentResultsWidgetConfigSchema,
     experimentsWidgetConfigSchema,
+    llmAnalyticsTracesWidgetConfigSchema,
     sessionReplayWidgetConfigSchema,
     widgetFilterEntrySchema,
 } from '../generated/widget-configs.zod'
@@ -15,6 +16,7 @@ const WIDGET_CONFIG_SCHEMAS = {
     session_replay_list: sessionReplayWidgetConfigSchema,
     experiments_list: experimentsWidgetConfigSchema,
     experiment_results: experimentResultsWidgetConfigSchema,
+    llm_analytics_traces: llmAnalyticsTracesWidgetConfigSchema,
 } as const
 
 type SchemaNode = { _zod?: { def?: ZodDef } }
