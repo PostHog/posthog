@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.custom.sou
     FanoutChain,
     ManifestValidationError,
     _fanout_chain,
+    _json_type_label,
     _PreviewSession,
     _read_capped_text,
     _validate_resource_graph,
@@ -1560,6 +1561,23 @@ def _apikey_manifest() -> dict:
     manifest = _minimal_manifest()
     manifest["client"]["auth"] = {"type": "api_key", "name": "key", "location": "query"}
     return manifest
+
+
+class TestJsonTypeLabel(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("null", None, "null"),
+            ("boolean", True, "boolean"),
+            ("integer", 7, "integer"),
+            ("number", 1.5, "number"),
+            ("string", "x", "string"),
+            ("array", [1, 2], "array"),
+            ("object", {"k": 1}, "object"),
+            ("unknown_falls_back_to_string", (1, 2), "string"),
+        ]
+    )
+    def test_labels_each_json_type(self, _name, value, expected):
+        assert _json_type_label(value) == expected
 
 
 class TestCustomSourcePreviewResource(SimpleTestCase):

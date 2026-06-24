@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 import structlog
 from jsonpath_ng.exceptions import JSONPathError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
-from requests import PreparedRequest, Response, Session
+from requests import PreparedRequest, Response
 from requests.auth import AuthBase
 from urllib3.util.retry import Retry
 
@@ -33,6 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
     make_tracked_adapter,
     make_tracked_session,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import _NoRedirectSession
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -919,19 +920,17 @@ class PreviewResult(NamedTuple):
     error: str | None
 
 
-class _PreviewSession(Session):
-    """No-redirect, timeout-bounded session for the inline preview read.
+class _PreviewSession(_NoRedirectSession):
+    """Timeout-bounded variant of the no-redirect session for the inline preview read.
 
-    ``RESTClient.send()`` passes no per-request timeout and never sets
-    ``allow_redirects``, so both bounds are pinned at the session level: the
-    credential stays on the validated host (cf. ``_NoRedirectSession``) and a
-    stalled upstream can't hang the request thread. The engine's own tenacity
-    retry still re-issues 429/5xx, but each attempt is timeout-bounded and
-    single-page, so the total stays bounded.
+    ``RESTClient.send()`` passes no per-request timeout, so it's pinned at the
+    session level — a stalled upstream can't hang the request thread. The
+    no-redirect credential pin is inherited from ``_NoRedirectSession``. The
+    engine's own tenacity retry still re-issues 429/5xx, but each attempt is
+    timeout-bounded and single-page, so the total stays bounded.
     """
 
     def send(self, request: PreparedRequest, **kwargs: Any) -> Response:
-        kwargs["allow_redirects"] = False
         kwargs.setdefault("timeout", (PROBE_CONNECT_TIMEOUT, PROBE_READ_TIMEOUT))
         return super().send(request, **kwargs)
 

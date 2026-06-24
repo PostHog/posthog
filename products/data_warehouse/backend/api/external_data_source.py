@@ -2545,7 +2545,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # preview_resource runs its own SSRF host check and bounded live read, so no
             # separate validate_credentials probe — the read is the credential check.
             result = source.preview_resource(
-                cast(Any, source_config),
+                cast(CustomSourceConfig, source_config),
                 self.team_id,
                 serializer.validated_data["resource_name"],
                 serializer.validated_data["limit"],
