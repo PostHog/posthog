@@ -248,14 +248,17 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
         submitReauthenticationFailure: () => {
             if (Array.isArray(values.timeSensitiveAuthenticationRequired)) {
                 // Reject with a real Error — callsites awaiting checkReauthentication() read `.message`
-                // off the rejection value, which throws if we reject with `undefined`.
-                values.timeSensitiveAuthenticationRequired[1](new Error('Re-authentication failed'))
+                // off the rejection value, which throws if we reject with `undefined`. The stored reject
+                // is a Promise reject that accepts a reason; the action's tuple type under-specifies it.
+                const reject = values.timeSensitiveAuthenticationRequired[1] as (reason?: unknown) => void
+                reject(new Error('Re-authentication failed'))
             }
         },
         setDismissedReauthentication: ({ value }) => {
             if (value) {
                 if (Array.isArray(values.timeSensitiveAuthenticationRequired)) {
-                    values.timeSensitiveAuthenticationRequired[1](new Error('Re-authentication dismissed'))
+                    const reject = values.timeSensitiveAuthenticationRequired[1] as (reason?: unknown) => void
+                    reject(new Error('Re-authentication dismissed'))
                 }
                 posthog.capture('reauthentication_modal_dismissed')
             }
