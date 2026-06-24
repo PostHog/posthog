@@ -26,10 +26,12 @@ import {
 import {
     BaseMathType,
     ChartDisplayType,
+    DataWarehousePropertyFilter,
     HogQLMathType,
     InsightLogicProps,
     IntervalType,
     PropertyFilterType,
+    PropertyOperator,
 } from '~/types'
 
 import { marketingAnalyticsLogic } from './marketingAnalyticsLogic'
@@ -162,10 +164,20 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 // table exposes a virtual `timestamp` (cost_date as DateTime) so a DataWarehouseNode can target it.
                 const costsPrecomputeEnabled = !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_COSTS_PRECOMPUTATION]
                 const selectedSourceIds = integrationFilter.integrationSourceIds || []
-                const sourceClause =
+                // Typed property filter, not raw HogQL interpolation: source IDs come from the
+                // integration_sources URL param, so embedding them in a HogQL string would allow
+                // injection. PropertyOperator.Exact over a list compiles to a parameterized `IN (...)`.
+                const sourceFilters: DataWarehousePropertyFilter[] =
                     selectedSourceIds.length > 0
-                        ? ` AND source_id IN (${selectedSourceIds.map((id) => `'${id}'`).join(', ')})`
-                        : ''
+                        ? [
+                              {
+                                  type: PropertyFilterType.DataWarehouse,
+                                  key: 'source_id',
+                                  operator: PropertyOperator.Exact,
+                                  value: selectedSourceIds,
+                              },
+                          ]
+                        : []
                 const costSeriesNode: DataWarehouseNode = {
                     kind: NodeKind.DataWarehouseNode,
                     id: 'marketing_costs_preaggregated',
@@ -180,8 +192,9 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                     properties: [
                         {
                             type: PropertyFilterType.HogQL,
-                            key: `grain = 'campaign' AND expires_at > today()${sourceClause}`,
+                            key: `grain = 'campaign' AND expires_at > today()`,
                         },
+                        ...sourceFilters,
                     ],
                 }
                 const chartQuery: QueryTile['query'] = {
