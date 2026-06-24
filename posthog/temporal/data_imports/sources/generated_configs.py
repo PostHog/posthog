@@ -747,7 +747,7 @@ class CoinGeckoSourceConfig(config.Config):
 
 @config.config
 class CoinMarketCapSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

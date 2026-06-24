@@ -74,6 +74,7 @@ the row lists both.
 | checkout_com      | HTTP                        | requests                                                        | ✅                          |
 | coda              | HTTP                        | requests                                                        | ✅                          |
 | coingecko         | HTTP                        | requests                                                        | ✅                          |
+| coinmarketcap     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | commercetools     | HTTP                        | requests                                                        | ✅                          |
 | confluence        | HTTP                        | requests                                                        | ✅                          |
 | chartmogul        | HTTP                        | requests                                                        | ✅                          |
@@ -343,7 +344,6 @@ doesn't conflict with concurrent PRs.
 - cockroachdb
 - codefresh
 - coin_api
-- coinmarketcap
 - concord
 - configcat
 - constant_contact
