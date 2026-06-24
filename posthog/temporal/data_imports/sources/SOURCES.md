@@ -116,6 +116,7 @@ the row lists both.
 | intercom          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | iterable          | HTTP                        | requests                                                        | ✅                          |
 | jira              | HTTP                        | requests                                                        | ✅                          |
+| jotform           | HTTP                        | requests                                                        | ✅                          |
 | klaviyo           | HTTP                        | requests                                                        | ✅                          |
 | launchdarkly      | HTTP                        | requests                                                        | ✅                          |
 | kustomer          | HTTP                        | requests                                                        | ✅                          |
@@ -443,7 +444,6 @@ doesn't conflict with concurrent PRs.
 - jamf_pro
 - jobber
 - jobnimbus
-- jotform
 - judgeme_reviews
 - justcall
 - justsift
