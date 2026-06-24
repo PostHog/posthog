@@ -12,25 +12,35 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
-import { AlertSimulationResult } from 'lib/components/Alerts/types'
+import { HogQLAlertPreview } from 'lib/components/Alerts/hogqlAlertPreview'
+import { AlertSimulationResult, isAnyRowHogQLConfig, isTrendsAlertConfig } from 'lib/components/Alerts/types'
 import { DetectorSelector, getDefaultWindow } from 'lib/components/Alerts/views/DetectorSelector'
 import { SimulationSummary } from 'lib/components/Alerts/views/SimulationSummary'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { alphabet } from 'lib/utils'
 
 import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
 
 import { getDefaultSimulationRange } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 
+import { HogQLDefinitionFields, TrendsDefinitionFields } from './AlertDefinitionFields'
 import { getSimulationRangeOptions } from './editAlertModalUtils'
 
 export interface AlertDefinitionSectionProps {
     alertForm: AlertFormType
     alertMode: 'detector' | 'threshold'
+    thresholdBoundsFormError?: string
     isBreakdownValid: boolean
     isNonTimeSeriesDisplay: boolean
     alertSeries: Array<{ custom_name?: string | null; name?: string | null; event?: string | null }> | null
     formulaNodes: Array<{ formula: string; custom_name?: string | null }> | undefined
+    /** What a SQL alert would evaluate right now; null until the insight result loads. */
+    hogqlPreview: HogQLAlertPreview | null
+    /** Result column names of the SQL insight, for the column pickers. */
+    hogqlColumns: string[] | null
+    /** Options for the evaluated-column picker (numeric columns, with fallbacks). */
+    hogqlValueColumnOptions: { label: string; value: string }[]
+    /** Options for the label-column picker (every column except the evaluated one). */
+    hogqlLabelColumnOptions: { label: string; value: string }[]
     anomalyDetectionEnabled: boolean
     investigationAgentEnabled: boolean
     simulationResult: AlertSimulationResult | null
@@ -43,13 +53,23 @@ export interface AlertDefinitionSectionProps {
     onClearSimulationOverlay: () => void
 }
 
+/** Whether the form's SQL alert config is in any-row mode (every row checked, not just the last). */
+function isHogQLAnyRow(alertForm: AlertFormType): boolean {
+    return isAnyRowHogQLConfig(alertForm.config)
+}
+
 export function AlertDefinitionSection({
     alertForm,
     alertMode,
+    thresholdBoundsFormError,
     isBreakdownValid,
     isNonTimeSeriesDisplay,
     alertSeries,
     formulaNodes,
+    hogqlPreview,
+    hogqlColumns,
+    hogqlValueColumnOptions,
+    hogqlLabelColumnOptions,
     anomalyDetectionEnabled,
     investigationAgentEnabled,
     simulationResult,
@@ -61,6 +81,10 @@ export function AlertDefinitionSection({
     onClearSimulation,
     onClearSimulationOverlay,
 }: AlertDefinitionSectionProps): JSX.Element {
+    const relativeConditionDisabledReason =
+        (isNonTimeSeriesDisplay && 'This condition is only supported for time series trends') ||
+        (isHogQLAnyRow(alertForm) &&
+            "Rows in any-row mode aren't a time series — switch to 'the latest value' for relative conditions")
     return (
         <>
             {isBreakdownValid && (
@@ -70,36 +94,23 @@ export function AlertDefinitionSection({
                         : 'For trends with breakdown, the alert will fire if any of the breakdown values breaches the threshold.'}
                 </LemonBanner>
             )}
-            <div className="flex gap-3 items-center">
-                <div>When</div>
-                <Group name={['config']}>
-                    <LemonField name="series_index" className="flex-auto">
-                        <LemonSelect
-                            fullWidth
-                            data-attr="alertForm-series-index"
-                            options={
-                                (formulaNodes?.length ?? 0) > 0
-                                    ? (formulaNodes ?? []).map(({ formula, custom_name }, index) => ({
-                                          label: `${custom_name ? custom_name : 'Formula'} (${formula})`,
-                                          value: index,
-                                      }))
-                                    : (alertSeries?.map(({ custom_name, name, event }, index) => ({
-                                          label: isBreakdownValid
-                                              ? 'any breakdown value'
-                                              : `${alphabet[index]} - ${custom_name ?? name ?? event}`,
-                                          value: isBreakdownValid ? 0 : index,
-                                      })) ?? [])
-                            }
-                            disabledReason={
-                                isBreakdownValid &&
-                                (alertMode === 'detector'
-                                    ? 'For trends with breakdown, the detector will independently monitor each breakdown value (up to 25) and fire if any is anomalous.'
-                                    : 'For trends with breakdown, the alert will fire if any of the breakdown values breaches the threshold.')
-                            }
-                        />
-                    </LemonField>
-                </Group>
-            </div>
+            {isTrendsAlertConfig(alertForm.config) ? (
+                <TrendsDefinitionFields
+                    alertSeries={alertSeries}
+                    formulaNodes={formulaNodes}
+                    isBreakdownValid={isBreakdownValid}
+                    alertMode={alertMode}
+                />
+            ) : (
+                <HogQLDefinitionFields
+                    alertForm={alertForm}
+                    hogqlPreview={hogqlPreview}
+                    hogqlColumns={hogqlColumns}
+                    hogqlValueColumnOptions={hogqlValueColumnOptions}
+                    hogqlLabelColumnOptions={hogqlLabelColumnOptions}
+                    onSetAlertFormValue={onSetAlertFormValue}
+                />
+            )}
 
             {anomalyDetectionEnabled && (
                 <LemonSegmentedButton
@@ -134,116 +145,117 @@ export function AlertDefinitionSection({
             )}
 
             {alertMode === 'threshold' ? (
-                <div className="flex flex-wrap gap-x-3 gap-y-2 items-center">
-                    <Group name={['condition']}>
-                        <LemonField name="type">
-                            <LemonSelect
-                                fullWidth
-                                className="w-40"
-                                data-attr="alertForm-condition"
-                                options={[
-                                    {
-                                        label: 'has value',
-                                        value: AlertConditionType.ABSOLUTE_VALUE,
-                                    },
-                                    {
-                                        label: 'increases by',
-                                        value: AlertConditionType.RELATIVE_INCREASE,
-                                        disabledReason:
-                                            isNonTimeSeriesDisplay &&
-                                            'This condition is only supported for time series trends',
-                                    },
-                                    {
-                                        label: 'decreases by',
-                                        value: AlertConditionType.RELATIVE_DECREASE,
-                                        disabledReason:
-                                            isNonTimeSeriesDisplay &&
-                                            'This condition is only supported for time series trends',
-                                    },
-                                ]}
-                            />
-                        </LemonField>
-                    </Group>
-                    <div>less than</div>
-                    <LemonField name="lower">
-                        <LemonInput
-                            type="number"
-                            className="w-30"
-                            data-attr="alertForm-lower-threshold"
-                            value={
-                                alertForm.threshold.configuration.type === InsightThresholdType.PERCENTAGE &&
-                                alertForm.threshold.configuration.bounds?.lower
-                                    ? alertForm.threshold.configuration.bounds?.lower * 100
-                                    : alertForm.threshold.configuration.bounds?.lower
-                            }
-                            onChange={(value) =>
-                                onSetAlertFormValue('threshold', {
-                                    configuration: {
-                                        type: alertForm.threshold.configuration.type,
-                                        bounds: {
-                                            ...alertForm.threshold.configuration.bounds,
-                                            lower:
-                                                value &&
-                                                alertForm.threshold.configuration.type ===
-                                                    InsightThresholdType.PERCENTAGE
-                                                    ? value / 100
-                                                    : value,
-                                        },
-                                    },
-                                })
-                            }
-                        />
-                    </LemonField>
-                    <div>or more than</div>
-                    <LemonField name="upper">
-                        <LemonInput
-                            type="number"
-                            className="w-30"
-                            data-attr="alertForm-upper-threshold"
-                            value={
-                                alertForm.threshold.configuration.type === InsightThresholdType.PERCENTAGE &&
-                                alertForm.threshold.configuration.bounds?.upper
-                                    ? alertForm.threshold.configuration.bounds?.upper * 100
-                                    : alertForm.threshold.configuration.bounds?.upper
-                            }
-                            onChange={(value) =>
-                                onSetAlertFormValue('threshold', {
-                                    configuration: {
-                                        type: alertForm.threshold.configuration.type,
-                                        bounds: {
-                                            ...alertForm.threshold.configuration.bounds,
-                                            upper:
-                                                value &&
-                                                alertForm.threshold.configuration.type ===
-                                                    InsightThresholdType.PERCENTAGE
-                                                    ? value / 100
-                                                    : value,
-                                        },
-                                    },
-                                })
-                            }
-                        />
-                    </LemonField>
-                    {alertForm.condition.type !== AlertConditionType.ABSOLUTE_VALUE && (
-                        <Group name={['threshold', 'configuration']}>
+                <div className="deprecated-space-y-2">
+                    {thresholdBoundsFormError ? (
+                        <LemonBanner type="error">{thresholdBoundsFormError}</LemonBanner>
+                    ) : null}
+                    <div className="flex flex-wrap gap-x-3 gap-y-2 items-center">
+                        <Group name={['condition']}>
                             <LemonField name="type">
-                                <LemonSegmentedButton
+                                <LemonSelect
+                                    fullWidth
+                                    className="w-40"
+                                    data-attr="alertForm-condition"
                                     options={[
                                         {
-                                            value: InsightThresholdType.PERCENTAGE,
-                                            label: '%',
-                                            tooltip: 'Percent',
+                                            label: 'has value',
+                                            value: AlertConditionType.ABSOLUTE_VALUE,
                                         },
                                         {
-                                            value: InsightThresholdType.ABSOLUTE,
-                                            label: '#',
-                                            tooltip: 'Absolute number',
+                                            label: 'increases by',
+                                            value: AlertConditionType.RELATIVE_INCREASE,
+                                            disabledReason: relativeConditionDisabledReason,
+                                        },
+                                        {
+                                            label: 'decreases by',
+                                            value: AlertConditionType.RELATIVE_DECREASE,
+                                            disabledReason: relativeConditionDisabledReason,
                                         },
                                     ]}
                                 />
                             </LemonField>
                         </Group>
-                    )}
+                        <div>less than</div>
+                        <LemonField name="lower">
+                            <LemonInput
+                                type="number"
+                                className="w-30"
+                                data-attr="alertForm-lower-threshold"
+                                value={
+                                    alertForm.threshold.configuration.type === InsightThresholdType.PERCENTAGE &&
+                                    alertForm.threshold.configuration.bounds?.lower
+                                        ? alertForm.threshold.configuration.bounds?.lower * 100
+                                        : alertForm.threshold.configuration.bounds?.lower
+                                }
+                                onChange={(value) =>
+                                    onSetAlertFormValue('threshold', {
+                                        configuration: {
+                                            type: alertForm.threshold.configuration.type,
+                                            bounds: {
+                                                ...alertForm.threshold.configuration.bounds,
+                                                lower:
+                                                    value &&
+                                                    alertForm.threshold.configuration.type ===
+                                                        InsightThresholdType.PERCENTAGE
+                                                        ? value / 100
+                                                        : value,
+                                            },
+                                        },
+                                    })
+                                }
+                            />
+                        </LemonField>
+                        <div>or more than</div>
+                        <LemonField name="upper">
+                            <LemonInput
+                                type="number"
+                                className="w-30"
+                                data-attr="alertForm-upper-threshold"
+                                value={
+                                    alertForm.threshold.configuration.type === InsightThresholdType.PERCENTAGE &&
+                                    alertForm.threshold.configuration.bounds?.upper
+                                        ? alertForm.threshold.configuration.bounds?.upper * 100
+                                        : alertForm.threshold.configuration.bounds?.upper
+                                }
+                                onChange={(value) =>
+                                    onSetAlertFormValue('threshold', {
+                                        configuration: {
+                                            type: alertForm.threshold.configuration.type,
+                                            bounds: {
+                                                ...alertForm.threshold.configuration.bounds,
+                                                upper:
+                                                    value &&
+                                                    alertForm.threshold.configuration.type ===
+                                                        InsightThresholdType.PERCENTAGE
+                                                        ? value / 100
+                                                        : value,
+                                            },
+                                        },
+                                    })
+                                }
+                            />
+                        </LemonField>
+                        {alertForm.condition.type !== AlertConditionType.ABSOLUTE_VALUE && (
+                            <Group name={['threshold', 'configuration']}>
+                                <LemonField name="type">
+                                    <LemonSegmentedButton
+                                        options={[
+                                            {
+                                                value: InsightThresholdType.PERCENTAGE,
+                                                label: '%',
+                                                tooltip: 'Percent',
+                                            },
+                                            {
+                                                value: InsightThresholdType.ABSOLUTE,
+                                                label: '#',
+                                                tooltip: 'Absolute number',
+                                            },
+                                        ]}
+                                    />
+                                </LemonField>
+                            </Group>
+                        )}
+                    </div>
                 </div>
             ) : (
                 <DetectorSelector

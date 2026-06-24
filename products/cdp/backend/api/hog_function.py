@@ -1,10 +1,8 @@
 import json
 from typing import Any, Optional, cast
 
-from django.contrib.postgres.search import TrigramSimilarity, TrigramWordSimilarity
 from django.db import transaction
-from django.db.models import F, Q, QuerySet, Value
-from django.db.models.functions import Coalesce
+from django.db.models import Q, QuerySet
 
 import structlog
 import posthoganalytics
@@ -24,7 +22,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.hog_invocation_rerun import HogInvocationRerunRequestSerializer, HogInvocationRerunResponseSerializer
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.shared import UserBasicSerializer
+from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action, log_activity_from_viewset
 from posthog.cdp.services.icons import CDPIconsService
 from posthog.cdp.site_functions import get_transpiled_function
@@ -37,13 +35,7 @@ from posthog.cdp.validation import (
     generate_template_bytecode,
 )
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.trigram_search import (
-    DESCRIPTION_SCORE_WEIGHT,
-    MAX_SEARCH_LENGTH,
-    MIN_DESCRIPTION_TRIGRAM_SIMILARITY,
-    MIN_NAME_TRIGRAM_SIMILARITY,
-    normalize_search_term,
-)
+from posthog.helpers.trigram_search import DESCRIPTION_FIELD, MAX_SEARCH_LENGTH, NAME_FIELD, apply_trigram_search
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.plugins.plugin_server_api import create_hog_invocation_test, rerun_hog_invocations
@@ -73,7 +65,7 @@ class HogFunctionStatusSerializer(serializers.Serializer):
     tokens: serializers.IntegerField = serializers.IntegerField()
 
 
-class HogFunctionMinimalSerializer(serializers.ModelSerializer):
+class HogFunctionMinimalSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     status = HogFunctionStatusSerializer(read_only=True, required=False, allow_null=True)
     template = HogFunctionTemplateSerializer(read_only=True)
@@ -95,6 +87,7 @@ class HogFunctionMinimalSerializer(serializers.ModelSerializer):
             "template",
             "status",
             "execution_order",
+            "search_match_type",
         ]
         read_only_fields = fields
 
@@ -177,6 +170,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "execution_order",
             "_create_in_folder",
             "batch_export_id",
+            "search_match_type",
         ]
         read_only_fields = [
             "id",
@@ -209,6 +203,34 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "icon_url": {"help_text": "URL for the function's icon displayed in the UI."},
             "execution_order": {"help_text": "Execution priority for transformations. Lower values run first."},
         }
+
+    def _validate_template_is_creatable(self, template: HogFunctionTemplate) -> None:
+        # Hidden templates are internal building blocks (e.g. the native email destination) that the
+        # workflow editor renders but that are never offered as standalone destinations. Block creating a
+        # function from one via this API/MCP entirely — they are not a supported destination type.
+        if template.status == "hidden":
+            raise serializers.ValidationError(
+                {
+                    "template_id": f"Template '{template.template_id}' is internal and cannot be used to create a function."
+                }
+            )
+
+    def _validate_hidden_template_not_enabled(self, attrs: dict, is_create: bool) -> None:
+        # Creating from a hidden template is already blocked outright. For an existing function built from
+        # one (the unsupported standalone destinations this PR is about), allow disabling and deleting so it
+        # can be cleaned up, but never let it stay enabled — block any update that would leave it enabled,
+        # including content edits (hog/inputs/filters) that omit `enabled` while it is currently on.
+        if is_create or not isinstance(self.instance, HogFunction) or attrs.get("deleted") is True:
+            return
+        if attrs.get("enabled", self.instance.enabled) is not True:
+            return
+        template = HogFunctionTemplate.get_template(self.instance.template_id) if self.instance.template_id else None
+        if template is not None and template.status == "hidden":
+            raise serializers.ValidationError(
+                {
+                    "enabled": "This function was created from an internal template and can only be disabled or deleted, not kept enabled."
+                }
+            )
 
     # NOTE: All pre-validation should be done here such as loading the template info etc.
     def to_internal_value(self, data):
@@ -256,6 +278,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             if template_id:
                 template = HogFunctionTemplate.objects.get(template_id=data["template_id"])
                 if template:
+                    self._validate_template_is_creatable(template)
                     data["hog"] = data.get("hog") or template.code
                     data["inputs_schema"] = data.get("inputs_schema") or template.inputs_schema
                     data["inputs"] = data.get("inputs") or {}
@@ -287,6 +310,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         is_create = self.context.get("is_create") or (
             self.context.get("view") and self.context["view"].action == "create"
         )
+
+        self._validate_hidden_template_not_enabled(attrs, bool(is_create))
 
         # Check for transformation limit per team when the function will be enabled
         # We allow unlimited creation of disabled transformations as they don't run during ingestion
@@ -467,7 +492,7 @@ class HogFunctionFilterSet(FilterSet):
         fields = ["type", "enabled", "id", "created_by", "created_at", "updated_at"]
 
 
-@extend_schema(tags=["hog_functions", "cdp"])
+@extend_schema(tags=["hog_functions"], extensions={"x-product": "cdp"})
 class HogFunctionViewSet(
     TeamAndOrgViewSetMixin,
     LogEntryMixin,
@@ -483,6 +508,18 @@ class HogFunctionViewSet(
     filterset_class = HogFunctionFilterSet
     log_source = "hog_function"
     app_source = "hog_function"
+
+    def dangerously_get_required_scopes(self, request, view) -> Optional[list[str]]:
+        # Rerun re-executes stored invocations — it replays up to 30 days of
+        # persisted event/person/group data through the current (possibly
+        # reconfigured) function. A `hog_function:write`-only token could use
+        # that to route historical data it can't otherwise read to a destination
+        # it controls, so gate rerun on person:read + group:read on top of write
+        # — the same data-read scopes the invocation-inspection paths require.
+        # (`hog_function:read` would be a no-op since :write already satisfies it.)
+        if self.action == "rerun":
+            return ["hog_function:write", "person:read", "group:read"]
+        return None
 
     def get_serializer_class(self) -> type[BaseSerializer]:
         if self.action == "list":
@@ -506,33 +543,12 @@ class HogFunctionViewSet(
     @staticmethod
     @tracer.start_as_current_span("HogFunctionViewSet._apply_search")
     def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
-        search = normalize_search_term(search)
-        span = trace.get_current_span()
-        span.set_attribute("hog_function.search.length", len(search))
-        if not search:
-            return queryset
-
-        zero = Value(0.0)
-        name_word_score = Coalesce(TrigramWordSimilarity(search, "name"), zero)
-        name_full_score = Coalesce(TrigramSimilarity("name", search), zero)
-        description_word_score = Coalesce(TrigramWordSimilarity(search, "description"), zero)
-
-        return (
-            queryset.annotate(
-                _name_word=name_word_score,
-                _name_full=name_full_score,
-                _description_word=description_word_score,
-            )
-            .filter(
-                Q(_name_word__gt=MIN_NAME_TRIGRAM_SIMILARITY)
-                | Q(_description_word__gt=MIN_DESCRIPTION_TRIGRAM_SIMILARITY)
-            )
-            .annotate(
-                _name_match_score=F("_name_word") + F("_name_full"),
-                _description_match_score=F("_description_word"),
-            )
-            .annotate(_search_score=F("_name_match_score") + F("_description_match_score") * DESCRIPTION_SCORE_WEIGHT)
-            .order_by("-_search_score", "name")
+        return apply_trigram_search(
+            queryset,
+            search,
+            span_prefix="hog_function.search",
+            fields=(NAME_FIELD, DESCRIPTION_FIELD),
+            tiebreakers=("name",),
         )
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
@@ -651,6 +667,15 @@ class HogFunctionViewSet(
         `invocation_globals`, and re-enqueues onto cyclotron. Each rerun
         run reuses the original `invocation_id` with `is_retry=1` set on the
         new lifecycle row so the UI can surface that it was a rerun.
+
+        For source-webhook functions the worker strips `request.headers` from
+        the rehydrated globals before re-enqueuing (see the rerun paginator):
+        those headers carry the inbound sender's credentials, and replaying
+        them through a reconfigured function would let a write-access user
+        exfiltrate stored secrets.
+
+        Because rerun replays historical event/person/group data, it requires
+        `person:read` and `group:read` on top of `hog_function:write`.
         """
         hog_function = self.get_object()
 
@@ -784,7 +809,7 @@ class HogFunctionViewSet(
 
     @action(detail=True, methods=["POST"])
     def enable_backfills(self, request: Request, *args, **kwargs):
-        from posthog.batch_exports.http import BatchExportSerializer
+        from products.batch_exports.backend.api.batch_export import BatchExportSerializer
 
         hog_function = self.get_object()
 

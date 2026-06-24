@@ -21,6 +21,10 @@ from posthog.models.integration import Integration
 from posthog.permissions import AccessControlPermission
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
+from products.ai_observability.backend.models.evaluation_configs import (
+    REPORTABLE_OUTPUT_TYPES,
+    evaluation_supports_reports,
+)
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
 from products.workflows.backend.utils.rrule_utils import validate_rrule
 
@@ -132,6 +136,8 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
         team = self.context["get_team"]()
         if value.team_id != team.id:
             raise serializers.ValidationError("Evaluation does not belong to this team.")
+        if not evaluation_supports_reports(value.output_type):
+            raise serializers.ValidationError("Reports are only supported for boolean evaluations.")
         return value
 
     def validate_rrule(self, value: str) -> str:
@@ -274,7 +280,6 @@ class EvaluationReportRunSerializer(serializers.ModelSerializer):
         }
 
 
-@extend_schema(tags=["llm_analytics"])
 class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     """CRUD for evaluation report configurations + report run history."""
 
@@ -293,7 +298,9 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
         return super().get_serializer_class()
 
     def safely_get_queryset(self, queryset: QuerySet[EvaluationReport]) -> QuerySet[EvaluationReport]:
-        queryset = queryset.filter(team_id=self.team_id).order_by("-created_at")
+        queryset = queryset.filter(team_id=self.team_id, evaluation__output_type__in=REPORTABLE_OUTPUT_TYPES).order_by(
+            "-created_at"
+        )
         if self.action not in ("update", "partial_update"):
             queryset = queryset.filter(deleted=False)
 
@@ -421,6 +428,11 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
     def generate(self, request: Request, **kwargs) -> Response:
         """Trigger immediate report generation."""
         report = self.get_object()
+        if not evaluation_supports_reports(report.evaluation.output_type):
+            return Response(
+                {"error": "Reports are only supported for boolean evaluations."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         try:
             from posthog.temporal.ai_observability.eval_reports.constants import GENERATE_EVAL_REPORT_WORKFLOW_NAME

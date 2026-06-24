@@ -98,6 +98,7 @@ export const VisualReviewRunsCreateBody = /* @__PURE__ */ zod.object({
     removed_identifiers: zod.array(zod.string()).optional(),
     purpose: zod.string().optional(),
     metadata: zod.record(zod.string(), zod.unknown()).optional(),
+    is_partial: zod.boolean().optional(),
 })
 
 /**
@@ -117,14 +118,11 @@ export const VisualReviewRunsAddSnapshotsCreateBody = /* @__PURE__ */ zod.object
 })
 
 /**
- * Approve visual changes for snapshots in this run.
-
-With approve_all=true, approves all changed+new snapshots and returns
-signed baseline YAML. With specific snapshots, approves only those.
+ * Mark snapshots reviewed (DB only).
+ *
+ * Records the per-snapshot "Accept change" decision. Does not commit the baseline
+ * or change the GitHub gate — call finalize to ship the run.
  */
-export const visualReviewRunsApproveCreateBodyApproveAllDefault = false
-export const visualReviewRunsApproveCreateBodyCommitToGithubDefault = true
-
 export const VisualReviewRunsApproveCreateBody = /* @__PURE__ */ zod.object({
     snapshots: zod
         .array(
@@ -137,21 +135,41 @@ export const VisualReviewRunsApproveCreateBody = /* @__PURE__ */ zod.object({
                     .describe('The content hash of the new baseline image to record for this identifier.'),
             })
         )
-        .optional()
         .describe(
-            'Specific snapshots to approve, each with `identifier` and `new_hash`. Ignored when `approve_all` is true.'
+            'Snapshots to mark reviewed, each with `identifier` and `new_hash`. This only records the review in the database (the per-snapshot \"Accept change\" action) — it does not change the baseline or the GitHub gate. Commit the baseline and green the gate with the finalize endpoint.'
         ),
+})
+
+/**
+ * Finalize a fully-reviewed run: commit the approved baseline and green the gate.
+ *
+ * Commits exactly the snapshots approved in the DB (tolerated ones keep their baseline)
+ * and only succeeds once every changed/new snapshot is resolved. With approve_all=true,
+ * any still-pending changed/new snapshot is approved first. With commit_to_github=false
+ * the server returns the signed baseline YAML instead of committing it.
+ */
+export const visualReviewRunsFinalizeCreateBodyApproveAllDefault = false
+export const visualReviewRunsFinalizeCreateBodyCommitToGithubDefault = true
+export const visualReviewRunsFinalizeCreateBodyAddImagesToCommentOnPrDefault = false
+
+export const VisualReviewRunsFinalizeCreateBody = /* @__PURE__ */ zod.object({
     approve_all: zod
         .boolean()
-        .default(visualReviewRunsApproveCreateBodyApproveAllDefault)
+        .default(visualReviewRunsFinalizeCreateBodyApproveAllDefault)
         .describe(
-            'Approve every changed and new snapshot in the run. Mutually exclusive with `snapshots` — pass one or the other.'
+            "Approve every still-pending changed and new snapshot before finalizing (tolerated snapshots are left untouched). Leave false to finalize a run you've already reviewed — finalizing fails if any changed\/new snapshot is still unreviewed."
         ),
     commit_to_github: zod
         .boolean()
-        .default(visualReviewRunsApproveCreateBodyCommitToGithubDefault)
+        .default(visualReviewRunsFinalizeCreateBodyCommitToGithubDefault)
         .describe(
-            'Whether to commit the updated baseline YAML to the PR branch on GitHub. Set to false to record the approval without pushing a commit.'
+            'Whether the server commits the approved baseline to the PR branch and greens the gate (the normal path — leave true). Set false only for tooling that commits the baseline itself: the server skips the commit and returns the signed YAML in `baseline_content` instead. With false, the gate is NOT greened and `metadata.baseline_commit_sha` is absent.'
+        ),
+    add_images_to_comment_on_pr: zod
+        .boolean()
+        .default(visualReviewRunsFinalizeCreateBodyAddImagesToCommentOnPrDefault)
+        .describe(
+            'Whether to embed the before\/after snapshot images in the post-approval PR comment. The comment itself is always posted (when the run was initiated from a GitHub review prompt and the repo has PR comments enabled); this flag only controls the images. Defaults false — the comment stays a text summary unless the reviewer opts in to attach the snapshots.'
         ),
 })
 

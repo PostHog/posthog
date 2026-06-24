@@ -24,7 +24,8 @@ from temporalio import activity
 
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.temporal.common.activity_context import current_workflow_id, current_workflow_run_id
-from posthog.temporal.data_imports.cdc.adapters import get_cdc_adapter
+from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
+from posthog.temporal.data_imports.cdc.adapters import cdc_supported_source_types, get_cdc_adapter
 from posthog.temporal.data_imports.cdc.batcher import (
     ChangeEventBatcher,
     build_scd2_table,
@@ -42,6 +43,18 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 logger = structlog.get_logger(__name__)
+
+# Shown as latest_error on schemas reset by slot-invalidation recovery.
+SLOT_INVALIDATION_RECOVERY_MESSAGE = (
+    "The source database invalidated this source's replication slot (its WAL retention limit was "
+    "exceeded), so changes since the last successful sync could not be read. PostHog recreated the "
+    "slot and scheduled a full re-sync of this table; change data capture resumes automatically "
+    "once the re-sync completes."
+)
+
+# The sweeper's auto-drop must fire below the engine's own retention cap, otherwise the
+# engine invalidates the slot first and we lose the chance to act cleanly.
+RETENTION_CAP_SAFETY_FACTOR = 0.8
 
 
 @dataclasses.dataclass
@@ -116,6 +129,12 @@ class CDCExtractActivity:
         self.batcher: ChangeEventBatcher | None = None
         self.last_end_lsn: str | None = None
         self.last_confirmed_lsn: str | None = None
+        # Transaction-boundary tracking for safe mid-run slot advances. All events of
+        # one transaction share the same commit end LSN (position_serialized), so an LSN
+        # change marks a fully-yielded transaction. We only ever micro-advance the slot
+        # past transactions that are completely yielded — see _read_wal_loop.
+        self.current_txn_lsn: str | None = None
+        self.last_complete_txn_end_lsn: str | None = None
         self.event_count: int = 0
         self.all_table_names: set[str] = set()
 
@@ -496,6 +515,14 @@ class CDCExtractActivity:
             self._update_log_positions()
 
         except Exception as exc:
+            if self.adapter is not None and self.adapter.is_slot_invalidation_error(exc):
+                try:
+                    self._recover_from_slot_invalidation(exc)
+                    return
+                except Exception as recovery_exc:
+                    self.log.exception("cdc_slot_recovery_failed")
+                    self._handle_failure(recovery_exc)
+                    raise
             self._handle_failure(exc)
             raise
         finally:
@@ -608,6 +635,35 @@ class CDCExtractActivity:
             columns=filtered,
         )
 
+    def _qualified_table_name(self, schema: ExternalDataSchema) -> str:
+        """Resolve a CDC schema row to its source-qualified `schema.table` name.
+
+        Prefers stored schema_metadata, then a dotted display name, then the source's
+        default schema — so a row stored bare (`orders`) still resolves to its real
+        source location (`public.orders`).
+        """
+        default_schema = (self.source.job_inputs or {}).get("schema") if self.source else None
+        metadata = schema.sync_type_config.get("schema_metadata") or {}
+        src_schema = metadata.get("source_schema")
+        src_table = metadata.get("source_table_name")
+        if isinstance(src_schema, str) and isinstance(src_table, str):
+            return f"{src_schema}.{src_table}"
+        if "." in schema.name:
+            return schema.name
+        return f"{default_schema or 'public'}.{schema.name}"
+
+    def _build_event_name_map(self) -> dict[str, str]:
+        """Map each schema's source-qualified `schema.table` name to its stored `name`.
+
+        WAL events are always qualified (`public.orders`) but `name` may be stored bare
+        (`orders`), so an exact-equality match silently drops every change for a bare row.
+        """
+        mapping: dict[str, str] = {}
+        for schema in self.cdc_schemas:
+            mapping[self._qualified_table_name(schema)] = schema.name
+            mapping.setdefault(schema.name, schema.name)  # also match a bare-emitted name
+        return mapping
+
     # ------------------------------------------------------------------
     # WAL read loop with periodic micro-batch flushes
     # ------------------------------------------------------------------
@@ -619,20 +675,31 @@ class CDCExtractActivity:
         extractions that hit the activity timeout don't have to replay events
         on the next run.
         """
-        cdc_table_names = {s.name for s in self.cdc_schemas}
+        event_name_to_schema_name = self._build_event_name_map()
         self.batcher = ChangeEventBatcher()
 
         for event in self.reader.read_changes():
             activity.heartbeat()
 
-            # The publication should be scoped to CDC-enabled tables only, so in
-            # practice this filter is a no-op. It's a safety net in case the
-            # publication includes extra tables (e.g. self-managed mode).
-            if event.table_name not in cdc_table_names:
+            # Resolve to the schema's stored `name` so downstream keying lines up. Log
+            # unmatched drops: a silent drop here is how a name mismatch starves a table.
+            canonical_name = event_name_to_schema_name.get(event.table_name)
+            if canonical_name is None:
+                self.log.debug("cdc_event_dropped_unmatched_table", table=event.table_name)
                 continue
+            if canonical_name != event.table_name:
+                event = dataclasses.replace(event, table_name=canonical_name)
 
             event = self._project_event_columns(event)
             self.batcher.add(event)
+
+            # A change in position_serialized proves the previous transaction fully
+            # yielded — all of its events are now buffered or flushed. Record its end LSN
+            # as the high-water mark we may safely release the WAL up to.
+            if event.position_serialized != self.current_txn_lsn:
+                self.last_complete_txn_end_lsn = self.current_txn_lsn
+                self.current_txn_lsn = event.position_serialized
+
             self.last_end_lsn = event.position_serialized
             self.event_count += 1
 
@@ -640,13 +707,24 @@ class CDCExtractActivity:
                 tables = self.batcher.flush()
                 self.all_table_names.update(tables.keys())
                 self._process_flush(tables, is_final=False)
-                # Advance the slot after each successful flush. At this point every
-                # batch in this micro-flush is either in Kafka (streaming) or persisted
-                # in sync_type_config["cdc_deferred_runs"] (snapshot), so it's safe to
-                # release the WAL up to this LSN.
-                if self.last_end_lsn is not None and self.last_end_lsn != self.last_confirmed_lsn:
-                    self.reader.confirm_position(self.last_end_lsn)
-                    self.last_confirmed_lsn = self.last_end_lsn
+                # Advance only to the end of the last FULLY-yielded transaction, never to
+                # last_end_lsn: a micro-flush can fire mid-transaction (the batcher
+                # threshold is checked per event), and every event of the in-flight
+                # transaction shares its commit end LSN. Confirming that LSN while the
+                # transaction's tail is still un-yielded in the generator would release
+                # the WAL past un-flushed events — a crash before the next flush then
+                # loses them permanently. Consequences of this conservative bound:
+                #   (a) a single giant transaction gets no micro-advance until it
+                #       completes (a retry re-decodes it — safe, slow);
+                #   (b) on crash-replay the already-flushed prefix of the in-flight
+                #       transaction is re-delivered — incremental_merge dedups by PK,
+                #       scd2_append may create duplicate history rows. Accepted vs. loss.
+                if (
+                    self.last_complete_txn_end_lsn is not None
+                    and self.last_complete_txn_end_lsn != self.last_confirmed_lsn
+                ):
+                    self.reader.confirm_position(self.last_complete_txn_end_lsn)
+                    self.last_confirmed_lsn = self.last_complete_txn_end_lsn
                 self.log.info(
                     "cdc_micro_batch_flushed",
                     events_so_far=self.event_count,
@@ -685,20 +763,31 @@ class CDCExtractActivity:
             trunc_schema = self.schema_by_name.get(table_name)
             if trunc_schema is None:
                 continue
-            trunc_log = self._schema_log(trunc_schema)
-            trunc_log.warning("truncate_detected", table=table_name, schema_id=str(trunc_schema.id))
-            trunc_schema.sync_type_config["cdc_mode"] = "snapshot"
-            trunc_schema.sync_type_config.pop("cdc_last_log_position", None)
-            trunc_schema.initial_sync_complete = False
-            trunc_schema.save(update_fields=["sync_type_config", "initial_sync_complete", "updated_at"])
-            try:
-                from products.data_warehouse.backend.data_load.service import unpause_external_data_schedule
-
-                unpause_external_data_schedule(str(trunc_schema.id))
-                trunc_log.info("unpaused_schema_schedule_for_resnapshot", schema_id=str(trunc_schema.id))
-            except Exception:
-                trunc_log.warning("failed_to_unpause_schema_schedule", schema_id=str(trunc_schema.id))
+            self._schema_log(trunc_schema).warning(
+                "truncate_detected", table=table_name, schema_id=str(trunc_schema.id)
+            )
+            self._reset_schema_to_snapshot(trunc_schema)
+            self._unpause_schema_schedule(trunc_schema)
         return truncated_tables
+
+    def _reset_schema_to_snapshot(self, schema: ExternalDataSchema, *, clear_deferred_runs: bool = False) -> None:
+        """Put a schema back into snapshot mode so its own schedule re-syncs it from scratch."""
+        schema.sync_type_config["cdc_mode"] = "snapshot"
+        schema.sync_type_config.pop("cdc_last_log_position", None)
+        if clear_deferred_runs:
+            schema.sync_type_config.pop("cdc_deferred_runs", None)
+        schema.initial_sync_complete = False
+        schema.save(update_fields=["sync_type_config", "initial_sync_complete", "updated_at"])
+
+    def _unpause_schema_schedule(self, schema: ExternalDataSchema) -> None:
+        schema_log = self._schema_log(schema)
+        try:
+            from products.data_warehouse.backend.data_load.service import unpause_external_data_schedule
+
+            unpause_external_data_schedule(str(schema.id))
+            schema_log.info("unpaused_schema_schedule_for_resnapshot", schema_id=str(schema.id))
+        except Exception:
+            schema_log.warning("failed_to_unpause_schema_schedule", schema_id=str(schema.id), exc_info=True)
 
     def _handle_no_changes(self, truncated_tables: list[str]) -> None:
         """Early-return path: no DML events were read."""
@@ -805,15 +894,58 @@ class CDCExtractActivity:
     # ------------------------------------------------------------------
     # Failure / success finalization
     # ------------------------------------------------------------------
-    def _handle_failure(self, exc: Exception) -> None:
-        self.log.exception("cdc_extract_failed")
+    def _fail_created_jobs(self, error: str) -> None:
         for job in self.created_jobs:
             if job.status == ExternalDataJob.Status.RUNNING:
                 job.status = ExternalDataJob.Status.FAILED
                 # NOTE: may need to truncate if stack traces grow unwieldy
-                job.latest_error = str(exc)
+                job.latest_error = error
                 job.finished_at = dt.datetime.now(tz=dt.UTC)
                 job.save(update_fields=["status", "latest_error", "finished_at", "updated_at"])
+
+    def _recover_from_slot_invalidation(self, exc: Exception) -> None:
+        """The slot can't be resumed (invalidated or dropped on the source DB): recreate it
+        and reset every CDC schema to snapshot mode so it re-syncs from current table state.
+
+        WAL between the slot's last confirmed position and the new slot's consistent point is
+        gone — the re-snapshot covers current rows, but intermediate changes in that gap
+        (including their _cdc history rows) cannot be recovered.
+        """
+        assert self.source is not None
+        assert self.adapter is not None
+        self.log.warning("cdc_slot_unrecoverable_recreating", error=str(exc))
+
+        self._fail_created_jobs(SLOT_INVALIDATION_RECOVERY_MESSAGE)
+
+        # Reset schemas before touching the slot (schedules stay paused): if recreation
+        # fails below, the next run hits the invalidation again and recovery reruns
+        # idempotently — no schema keeps streaming across the gap unnoticed. Deferred
+        # runs are dropped: they reference WAL from the dead slot, the re-snapshot
+        # supersedes them, and flushing them later would merge stale rows over fresh ones.
+        for schema in self.cdc_schemas:
+            self._reset_schema_to_snapshot(schema, clear_deferred_runs=True)
+            schema.status = ExternalDataSchema.Status.FAILED
+            schema.latest_error = SLOT_INVALIDATION_RECOVERY_MESSAGE
+            schema.save(update_fields=["status", "latest_error", "updated_at"])
+            self._schema_log(schema).warning("cdc_schema_reset_for_slot_recovery", schema_id=str(schema.id))
+
+        resource_fields = self.adapter.recreate_slot(
+            self.source, tables=[self._qualified_table_name(s) for s in self.cdc_schemas]
+        )
+
+        self.source.job_inputs = {**(self.source.job_inputs or {}), **resource_fields}
+        self.source.save(update_fields=["job_inputs", "updated_at"])
+
+        # Unpause only after the new slot exists, so no snapshot can run before change
+        # capture has a consistent point to resume from.
+        for schema in self.cdc_schemas:
+            self._unpause_schema_schedule(schema)
+
+        self.log.info("cdc_slot_recovery_complete", schemas_reset=len(self.cdc_schemas))
+
+    def _handle_failure(self, exc: Exception) -> None:
+        self.log.exception("cdc_extract_failed")
+        self._fail_created_jobs(str(exc))
         for schema in self.cdc_schemas:
             schema.status = ExternalDataSchema.Status.FAILED
             # NOTE: may need to truncate if stack traces grow unwieldy
@@ -824,11 +956,15 @@ class CDCExtractActivity:
 
     def _finalize_success(self) -> None:
         now = dt.datetime.now(tz=dt.UTC)
+        synced_tables = {tracker.table_name for tracker in self.write_trackers.values()}
         for schema in self.cdc_schemas:
             schema.status = ExternalDataSchema.Status.COMPLETED
             schema.latest_error = None
             schema.last_synced_at = now
             schema.save(update_fields=["status", "latest_error", "last_synced_at", "updated_at"])
+            # Breadcrumb for idle tables; _handle_no_changes only covers the whole-source-quiet case.
+            if schema.name not in synced_tables:
+                self._schema_log(schema).info("cdc_extract_no_changes")
 
 
 @activity.defn
@@ -872,100 +1008,112 @@ def cleanup_orphan_slots_activity() -> None:
     """
     close_old_connections()
 
-    from products.data_warehouse.backend.types import ExternalDataSourceType
-
     log = logger.bind()
     log.info("cleanup_orphan_slots_started")
 
-    # Scope the query narrowly: only sources that have CDC enabled, have both a slot
-    # and publication name set (otherwise there's nothing to clean up), and are of a
-    # source type we know how to handle. We include deleted sources because the whole
-    # point of this sweeper is to clean up slots for sources that were deleted.
-    cdc_sources = list(
-        ExternalDataSource.objects.filter(
-            source_type=ExternalDataSourceType.POSTGRES,
-            job_inputs__cdc_enabled=True,
-        )
-        .exclude(job_inputs__cdc_slot_name__isnull=True)
-        .exclude(job_inputs__cdc_slot_name="")
-        .exclude(job_inputs__cdc_publication_name__isnull=True)
-        .exclude(job_inputs__cdc_publication_name="")
-    )
+    # The CDC fields live in `job_inputs`, an EncryptedJSONField: every leaf value is
+    # Fernet-encrypted at rest, so `job_inputs__cdc_enabled=True` (and the slot/publication
+    # filters) can never match. We must scope by the unencrypted `source_type` column and
+    # decode each source's CDC config in Python. Deleted sources are included on purpose —
+    # cleaning up their orphaned slots is the whole point of this sweep.
+    sources = ExternalDataSource.objects.filter(source_type__in=cdc_supported_source_types()).iterator(chunk_size=100)
 
-    for source in cdc_sources:
-        try:
-            adapter = get_cdc_adapter(source)
-        except ValueError:
-            continue
-
-        cdc_config = adapter.parse_cdc_config(source)
-
-        source_log = log.bind(
-            source_id=str(source.id),
-            team_id=source.team_id,
-            slot_name=cdc_config.slot_name,
-            management_mode=cdc_config.management_mode,
-        )
-
-        # 1. Deleted sources — drop the Temporal schedule (always; PostHog-side)
-        #    and PostHog-managed slot/publication (only when we own them).
-        if source.deleted:
+    sources_checked = 0
+    # A single source's management connection (10s connect_timeout × several ops) can stall the
+    # loop, so heartbeat from a background thread rather than once per iteration — otherwise a
+    # stalled source would starve heartbeats and Temporal would kill the whole sweep.
+    with HeartbeaterSync(logger=log):
+        for source in sources:
             try:
-                from products.data_warehouse.backend.data_load.service import delete_cdc_extraction_schedule
+                adapter = get_cdc_adapter(source)
+            except ValueError:
+                continue
 
-                delete_cdc_extraction_schedule(str(source.id))
+            try:
+                cdc_config = adapter.parse_cdc_config(source)
             except Exception:
-                source_log.exception("failed_to_delete_cdc_extraction_schedule")
+                log.exception("failed_to_parse_cdc_config", source_id=str(source.id))
+                continue
 
-            if cdc_config.management_mode == "posthog":
-                source_log.info("cleaning_up_deleted_source_slot")
-                try:
-                    with adapter.management_connection(source, connect_timeout=10) as conn:
-                        adapter.drop_resources(conn, cdc_config.slot_name, cdc_config.publication_name)
-                except Exception:
-                    source_log.exception("failed_to_cleanup_deleted_source_slot")
-            continue
+            # Restore the original filter semantics on decrypted values: skip sources that
+            # don't have CDC enabled with both a slot and publication name to clean up.
+            if not (cdc_config.enabled and cdc_config.slot_name and cdc_config.publication_name):
+                continue
 
-        # 2. Active sources — check WAL lag
-        try:
-            with adapter.management_connection(source, connect_timeout=10) as conn:
-                lag_bytes = adapter.get_lag_bytes(conn, cdc_config.slot_name)
-        except Exception:
-            source_log.exception("failed_to_check_slot_lag")
-            continue
+            sources_checked += 1
 
-        if lag_bytes is None:
-            source_log.warning("slot_not_found_or_no_flush_lsn")
-            continue
-
-        lag_mb = lag_bytes / (1024 * 1024)
-
-        if lag_mb >= cdc_config.lag_critical_threshold_mb:
-            source_log.error(
-                "slot_lag_critical",
-                lag_mb=round(lag_mb, 1),
-                threshold_mb=cdc_config.lag_critical_threshold_mb,
+            source_log = log.bind(
+                source_id=str(source.id),
+                team_id=source.team_id,
+                slot_name=cdc_config.slot_name,
+                management_mode=cdc_config.management_mode,
             )
 
-            if cdc_config.management_mode == "posthog" and cdc_config.auto_drop_slot:
-                source_log.warning("auto_dropping_slot_critical_lag")
+            # 1. Deleted sources — drop the Temporal schedule (always; PostHog-side)
+            #    and PostHog-managed slot/publication (only when we own them).
+            if source.deleted:
                 try:
-                    with adapter.management_connection(source, connect_timeout=10) as conn:
-                        adapter.drop_resources(conn, cdc_config.slot_name, cdc_config.publication_name)
+                    from products.data_warehouse.backend.data_load.service import delete_cdc_extraction_schedule
 
+                    delete_cdc_extraction_schedule(str(source.id))
+                except Exception:
+                    source_log.exception("failed_to_delete_cdc_extraction_schedule")
+
+                if cdc_config.management_mode == "posthog":
+                    source_log.info("cleaning_up_deleted_source_slot")
+                    try:
+                        with adapter.management_connection(source, connect_timeout=10) as conn:
+                            adapter.drop_resources(conn, cdc_config.slot_name, cdc_config.publication_name)
+                    except Exception:
+                        source_log.exception("failed_to_cleanup_deleted_source_slot")
+                continue
+
+            # 2. Active sources — check WAL lag
+            try:
+                with adapter.management_connection(source, connect_timeout=10) as conn:
+                    lag_bytes = adapter.get_lag_bytes(conn, cdc_config.slot_name)
+                    retention_cap_mb = adapter.get_retention_cap_mb(conn)
+            except Exception:
+                source_log.exception("failed_to_check_slot_lag")
+                continue
+
+            if lag_bytes is None:
+                source_log.warning("slot_not_found_or_no_flush_lsn")
+                continue
+
+            lag_mb = lag_bytes / (1024 * 1024)
+
+            critical_threshold_mb = cdc_config.lag_critical_threshold_mb
+            if retention_cap_mb is not None:
+                critical_threshold_mb = min(critical_threshold_mb, int(retention_cap_mb * RETENTION_CAP_SAFETY_FACTOR))
+
+            if lag_mb >= critical_threshold_mb:
+                source_log.error(
+                    "slot_lag_critical",
+                    lag_mb=round(lag_mb, 1),
+                    threshold_mb=critical_threshold_mb,
+                    retention_cap_mb=retention_cap_mb,
+                )
+
+                if cdc_config.management_mode == "posthog" and cdc_config.auto_drop_slot:
+                    source_log.warning("auto_dropping_slot_critical_lag")
+                    try:
+                        with adapter.management_connection(source, connect_timeout=10) as conn:
+                            adapter.drop_resources(conn, cdc_config.slot_name, cdc_config.publication_name)
+
+                        source.status = ExternalDataSource.Status.ERROR
+                        source.save(update_fields=["status", "updated_at"])
+                    except Exception:
+                        source_log.exception("failed_to_auto_drop_slot")
+                elif cdc_config.management_mode == "self_managed":
                     source.status = ExternalDataSource.Status.ERROR
                     source.save(update_fields=["status", "updated_at"])
-                except Exception:
-                    source_log.exception("failed_to_auto_drop_slot")
-            elif cdc_config.management_mode == "self_managed":
-                source.status = ExternalDataSource.Status.ERROR
-                source.save(update_fields=["status", "updated_at"])
 
-        elif lag_mb >= cdc_config.lag_warning_threshold_mb:
-            source_log.warning(
-                "slot_lag_warning",
-                lag_mb=round(lag_mb, 1),
-                threshold_mb=cdc_config.lag_warning_threshold_mb,
-            )
+            elif lag_mb >= cdc_config.lag_warning_threshold_mb:
+                source_log.warning(
+                    "slot_lag_warning",
+                    lag_mb=round(lag_mb, 1),
+                    threshold_mb=cdc_config.lag_warning_threshold_mb,
+                )
 
-    log.info("cleanup_orphan_slots_completed", sources_checked=len(cdc_sources))
+    log.info("cleanup_orphan_slots_completed", sources_checked=sources_checked)

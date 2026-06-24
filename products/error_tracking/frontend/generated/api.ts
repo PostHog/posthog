@@ -26,23 +26,28 @@ import type {
     ErrorTrackingIssueDetailApi,
     ErrorTrackingIssueEventsQueryRequestApi,
     ErrorTrackingIssueEventsResponseApi,
-    ErrorTrackingIssueFullApi,
     ErrorTrackingIssueMergeRequestApi,
     ErrorTrackingIssueMergeResponseApi,
     ErrorTrackingIssueQueryRequestApi,
+    ErrorTrackingIssueReadApi,
     ErrorTrackingIssueSplitRequestApi,
     ErrorTrackingIssueSplitResponseApi,
+    ErrorTrackingIssueWriteApi,
     ErrorTrackingIssuesListParams,
     ErrorTrackingIssuesListQueryRequestApi,
     ErrorTrackingIssuesListResponseApi,
     ErrorTrackingRecommendationApi,
     ErrorTrackingRecommendationsListParams,
     ErrorTrackingReleaseApi,
+    ErrorTrackingReleaseCreateRequestApi,
+    ErrorTrackingReleaseUpdateRequestApi,
     ErrorTrackingReleasesListParams,
     ErrorTrackingSettingsApi,
     ErrorTrackingSpikeDetectionConfigApi,
     ErrorTrackingSpikeEventsListParams,
     ErrorTrackingStackFrameApi,
+    ErrorTrackingStackFrameBatchGetRequestApi,
+    ErrorTrackingStackFrameBatchGetResponseApi,
     ErrorTrackingStackFramesListParams,
     ErrorTrackingSuppressionRuleApi,
     ErrorTrackingSuppressionRuleCreateRequestApi,
@@ -58,7 +63,7 @@ import type {
     PaginatedErrorTrackingAssignmentRuleListApi,
     PaginatedErrorTrackingExternalReferenceResultListApi,
     PaginatedErrorTrackingFingerprintListApi,
-    PaginatedErrorTrackingIssueFullListApi,
+    PaginatedErrorTrackingIssueReadListApi,
     PaginatedErrorTrackingRecommendationListApi,
     PaginatedErrorTrackingReleaseListApi,
     PaginatedErrorTrackingSpikeEventListApi,
@@ -69,8 +74,9 @@ import type {
     PatchedErrorTrackingAssignmentRuleUpdateRequestApi,
     PatchedErrorTrackingGroupingRuleApi,
     PatchedErrorTrackingGroupingRuleUpdateRequestApi,
-    PatchedErrorTrackingIssueFullApi,
-    PatchedErrorTrackingReleaseApi,
+    PatchedErrorTrackingIssueReadApi,
+    PatchedErrorTrackingIssueWriteApi,
+    PatchedErrorTrackingReleaseUpdateRequestApi,
     PatchedErrorTrackingSettingsApi,
     PatchedErrorTrackingSpikeDetectionConfigApi,
     PatchedErrorTrackingSuppressionRuleApi,
@@ -103,7 +109,7 @@ export const getErrorTrackingAssignmentRulesListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -236,7 +242,7 @@ export const getErrorTrackingExternalReferencesListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -322,7 +328,7 @@ export const getErrorTrackingFingerprintsListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -388,7 +394,7 @@ export const getErrorTrackingGitProviderFileLinksResolveGithubRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -421,7 +427,7 @@ export const getErrorTrackingGitProviderFileLinksResolveGitlabRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -565,7 +571,7 @@ export const getErrorTrackingIssuesListUrl = (projectId: string, params?: ErrorT
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -580,27 +586,10 @@ export const errorTrackingIssuesList = async (
     projectId: string,
     params?: ErrorTrackingIssuesListParams,
     options?: RequestInit
-): Promise<PaginatedErrorTrackingIssueFullListApi> => {
-    return apiMutator<PaginatedErrorTrackingIssueFullListApi>(getErrorTrackingIssuesListUrl(projectId, params), {
+): Promise<PaginatedErrorTrackingIssueReadListApi> => {
+    return apiMutator<PaginatedErrorTrackingIssueReadListApi>(getErrorTrackingIssuesListUrl(projectId, params), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getErrorTrackingIssuesCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/error_tracking/issues/`
-}
-
-export const errorTrackingIssuesCreate = async (
-    projectId: string,
-    errorTrackingIssueFullApi: NonReadonly<ErrorTrackingIssueFullApi>,
-    options?: RequestInit
-): Promise<ErrorTrackingIssueFullApi> => {
-    return apiMutator<ErrorTrackingIssueFullApi>(getErrorTrackingIssuesCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingIssueFullApi),
     })
 }
 
@@ -612,8 +601,8 @@ export const errorTrackingIssuesRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<ErrorTrackingIssueFullApi> => {
-    return apiMutator<ErrorTrackingIssueFullApi>(getErrorTrackingIssuesRetrieveUrl(projectId, id), {
+): Promise<ErrorTrackingIssueReadApi> => {
+    return apiMutator<ErrorTrackingIssueReadApi>(getErrorTrackingIssuesRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -626,14 +615,14 @@ export const getErrorTrackingIssuesUpdateUrl = (projectId: string, id: string) =
 export const errorTrackingIssuesUpdate = async (
     projectId: string,
     id: string,
-    errorTrackingIssueFullApi: NonReadonly<ErrorTrackingIssueFullApi>,
+    errorTrackingIssueWriteApi?: ErrorTrackingIssueWriteApi,
     options?: RequestInit
-): Promise<ErrorTrackingIssueFullApi> => {
-    return apiMutator<ErrorTrackingIssueFullApi>(getErrorTrackingIssuesUpdateUrl(projectId, id), {
+): Promise<ErrorTrackingIssueReadApi> => {
+    return apiMutator<ErrorTrackingIssueReadApi>(getErrorTrackingIssuesUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingIssueFullApi),
+        body: JSON.stringify(errorTrackingIssueWriteApi),
     })
 }
 
@@ -644,14 +633,14 @@ export const getErrorTrackingIssuesPartialUpdateUrl = (projectId: string, id: st
 export const errorTrackingIssuesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedErrorTrackingIssueFullApi?: NonReadonly<PatchedErrorTrackingIssueFullApi>,
+    patchedErrorTrackingIssueWriteApi?: PatchedErrorTrackingIssueWriteApi,
     options?: RequestInit
-): Promise<ErrorTrackingIssueFullApi> => {
-    return apiMutator<ErrorTrackingIssueFullApi>(getErrorTrackingIssuesPartialUpdateUrl(projectId, id), {
+): Promise<ErrorTrackingIssueReadApi> => {
+    return apiMutator<ErrorTrackingIssueReadApi>(getErrorTrackingIssuesPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedErrorTrackingIssueFullApi),
+        body: JSON.stringify(patchedErrorTrackingIssueWriteApi),
     })
 }
 
@@ -695,14 +684,14 @@ export const getErrorTrackingIssuesAssignPartialUpdateUrl = (projectId: string, 
 export const errorTrackingIssuesAssignPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedErrorTrackingIssueFullApi?: NonReadonly<PatchedErrorTrackingIssueFullApi>,
+    patchedErrorTrackingIssueReadApi?: NonReadonly<PatchedErrorTrackingIssueReadApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getErrorTrackingIssuesAssignPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedErrorTrackingIssueFullApi),
+        body: JSON.stringify(patchedErrorTrackingIssueReadApi),
     })
 }
 
@@ -713,14 +702,14 @@ export const getErrorTrackingIssuesCohortUpdateUrl = (projectId: string, id: str
 export const errorTrackingIssuesCohortUpdate = async (
     projectId: string,
     id: string,
-    errorTrackingIssueFullApi: NonReadonly<ErrorTrackingIssueFullApi>,
+    errorTrackingIssueReadApi: NonReadonly<ErrorTrackingIssueReadApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getErrorTrackingIssuesCohortUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingIssueFullApi),
+        body: JSON.stringify(errorTrackingIssueReadApi),
     })
 }
 
@@ -780,14 +769,14 @@ export const getErrorTrackingIssuesBulkCreateUrl = (projectId: string) => {
 
 export const errorTrackingIssuesBulkCreate = async (
     projectId: string,
-    errorTrackingIssueFullApi: NonReadonly<ErrorTrackingIssueFullApi>,
+    errorTrackingIssueReadApi: NonReadonly<ErrorTrackingIssueReadApi>,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getErrorTrackingIssuesBulkCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingIssueFullApi),
+        body: JSON.stringify(errorTrackingIssueReadApi),
     })
 }
 
@@ -884,7 +873,7 @@ export const getErrorTrackingRecommendationsListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -959,7 +948,7 @@ export const getErrorTrackingReleasesListUrl = (projectId: string, params?: Erro
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -987,14 +976,14 @@ export const getErrorTrackingReleasesCreateUrl = (projectId: string) => {
 
 export const errorTrackingReleasesCreate = async (
     projectId: string,
-    errorTrackingReleaseApi: NonReadonly<ErrorTrackingReleaseApi>,
+    errorTrackingReleaseCreateRequestApi: ErrorTrackingReleaseCreateRequestApi,
     options?: RequestInit
 ): Promise<ErrorTrackingReleaseApi> => {
     return apiMutator<ErrorTrackingReleaseApi>(getErrorTrackingReleasesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingReleaseApi),
+        body: JSON.stringify(errorTrackingReleaseCreateRequestApi),
     })
 }
 
@@ -1020,14 +1009,14 @@ export const getErrorTrackingReleasesUpdateUrl = (projectId: string, id: string)
 export const errorTrackingReleasesUpdate = async (
     projectId: string,
     id: string,
-    errorTrackingReleaseApi: NonReadonly<ErrorTrackingReleaseApi>,
+    errorTrackingReleaseUpdateRequestApi?: ErrorTrackingReleaseUpdateRequestApi,
     options?: RequestInit
-): Promise<ErrorTrackingReleaseApi> => {
-    return apiMutator<ErrorTrackingReleaseApi>(getErrorTrackingReleasesUpdateUrl(projectId, id), {
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingReleasesUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingReleaseApi),
+        body: JSON.stringify(errorTrackingReleaseUpdateRequestApi),
     })
 }
 
@@ -1038,14 +1027,14 @@ export const getErrorTrackingReleasesPartialUpdateUrl = (projectId: string, id: 
 export const errorTrackingReleasesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedErrorTrackingReleaseApi?: NonReadonly<PatchedErrorTrackingReleaseApi>,
+    patchedErrorTrackingReleaseUpdateRequestApi?: PatchedErrorTrackingReleaseUpdateRequestApi,
     options?: RequestInit
-): Promise<ErrorTrackingReleaseApi> => {
-    return apiMutator<ErrorTrackingReleaseApi>(getErrorTrackingReleasesPartialUpdateUrl(projectId, id), {
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingReleasesPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedErrorTrackingReleaseApi),
+        body: JSON.stringify(patchedErrorTrackingReleaseUpdateRequestApi),
     })
 }
 
@@ -1149,7 +1138,7 @@ export const getErrorTrackingSpikeEventsListUrl = (projectId: string, params?: E
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -1176,7 +1165,7 @@ export const getErrorTrackingStackFramesListUrl = (projectId: string, params?: E
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -1237,15 +1226,18 @@ export const getErrorTrackingStackFramesBatchGetCreateUrl = (projectId: string) 
 
 export const errorTrackingStackFramesBatchGetCreate = async (
     projectId: string,
-    errorTrackingStackFrameApi: NonReadonly<ErrorTrackingStackFrameApi>,
+    errorTrackingStackFrameBatchGetRequestApi: ErrorTrackingStackFrameBatchGetRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getErrorTrackingStackFramesBatchGetCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingStackFrameApi),
-    })
+): Promise<ErrorTrackingStackFrameBatchGetResponseApi> => {
+    return apiMutator<ErrorTrackingStackFrameBatchGetResponseApi>(
+        getErrorTrackingStackFramesBatchGetCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(errorTrackingStackFrameBatchGetRequestApi),
+        }
+    )
 }
 
 export const getErrorTrackingSuppressionRulesListUrl = (
@@ -1256,7 +1248,7 @@ export const getErrorTrackingSuppressionRulesListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -1386,7 +1378,7 @@ export const getErrorTrackingSymbolSetsListUrl = (projectId: string, params?: Er
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 

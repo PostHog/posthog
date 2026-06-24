@@ -14,13 +14,13 @@ from posthog.models.person import Person
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.utils import generate_cache_key
 
 from products.mcp_analytics.backend import intent_generation
+from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
 from products.mcp_analytics.backend.facade import contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
-
-MCP_TOOL_CALL_EVENT = "mcp_tool_call"
 
 # How long a snapshot may sit in COMPUTING before we assume the task died and
 # auto-recover. Generous because a real recompute completes in well under a
@@ -38,7 +38,8 @@ SELECT
     toString(properties.$mcp_duration_ms) AS duration_ms_raw
 FROM events
 WHERE event = {event}
-    AND properties.$mcp_session_id = {session_id}
+    AND timestamp >= {date_from}
+    AND $session_id = {session_id}
 ORDER BY timestamp ASC
 LIMIT 500
 """
@@ -61,25 +62,34 @@ SESSION_SORT_FIELDS: frozenset[str] = frozenset(
 )
 DEFAULT_SESSION_SORT_COLUMN = "session_start"
 
-# PR1 aggregates the last 24h of mcp_tool_call events on the fly, scoped to the
+# PR1 aggregates the last 24h of $mcp_tool_call events on the fly, scoped to the
 # team. Wider windows (7d/30d) land in PR2. See
 # products/mcp_analytics/docs/sessions-overview.md for why this replaced the
 # disabled Temporal backfill.
 MCP_SESSIONS_LOOKBACK = timedelta(hours=24)
+
+assert intent_generation.SESSION_EVENTS_LOOKBACK >= MCP_SESSIONS_LOOKBACK, (
+    "SESSION_EVENTS_LOOKBACK must be >= MCP_SESSIONS_LOOKBACK or detail views will silently truncate for listed sessions"
+)
 
 # Short TTL so concurrent dashboard tabs / auto-refreshes share one ClickHouse
 # aggregation instead of each re-running it — long enough to absorb a burst,
 # short enough that "Reload" still feels live.
 SESSIONS_CACHE_TTL_SECONDS = 30
 
-# One row per $mcp_session_id, aggregated straight from events. The column shape
+# One row per $session_id, aggregated straight from events. The column shape
 # (min/max/count/groupUniqArray/argMax) maps 1:1 onto a future AggregatingMergeTree
 # if per-team volume ever warrants materialising it. __HAVING__ / __ORDER__ are
 # validated structural fragments injected before parsing; {placeholders} are HogQL
 # value placeholders.
+# NB: the session id reads from the `$session_id` field, NOT `properties.$session_id`.
+# `$session_id` is a materialised events column; the `properties.` accessor renders it
+# null-wrapped in SELECT but the raw column in HAVING/ORDER, so the search HAVING would
+# mismatch the GROUP BY key and ClickHouse rejects it. The bare field renders the raw
+# column consistently across SELECT/GROUP/HAVING/ORDER.
 _MCP_SESSIONS_SQL = """
 SELECT
-    properties.$mcp_session_id AS session_id,
+    $session_id AS session_id,
     min(timestamp) AS session_start,
     max(timestamp) AS session_end,
     dateDiff('second', min(timestamp), max(timestamp)) AS duration_seconds,
@@ -90,9 +100,9 @@ SELECT
 FROM events
 WHERE event = {event}
     AND timestamp >= {date_from}
-    -- coalesce: HogQL property access is nullable (missing key -> NULL) and its
-    -- `!=` is null-tolerant, so a bare `!= ''` would keep keyless events.
-    AND coalesce(properties.$mcp_session_id, '') != ''
+    -- $session_id is a materialised String column — '' (not NULL) for sessionless
+    -- events — so a bare `!= ''` drops them without a coalesce.
+    AND $session_id != ''
 GROUP BY session_id
 __HAVING__
 ORDER BY __ORDER__
@@ -140,9 +150,9 @@ def list_mcp_sessions(
     search: str = "",
     order_by: str = "",
 ) -> contracts.MCPSessionsPage:
-    """List a page of MCP sessions for a team, aggregated on the fly from mcp_tool_call events.
+    """List a page of MCP sessions for a team, aggregated on the fly from $mcp_tool_call events.
 
-    One row per $mcp_session_id over the last 24h, grouped in ClickHouse and
+    One row per $session_id over the last 24h of $mcp_tool_call events, grouped in ClickHouse and
     scoped to the team so the events sort key prunes the scan. Over-fetches one row
     to report ``has_next`` (replay-style) without a separate count query. Results
     are cached briefly so concurrent dashboard refreshes share a single aggregation.
@@ -267,7 +277,8 @@ def _resolve_persons(team_id: int, distinct_ids: list[str]) -> dict[str, Person]
     unique_ids = list({distinct_id for distinct_id in distinct_ids if distinct_id})
     if not unique_ids:
         return {}
-    return get_persons_mapped_by_distinct_id(team_id, unique_ids)
+    with personhog_caller_tag("mcp-analytics/persons"):
+        return get_persons_mapped_by_distinct_id(team_id, unique_ids)
 
 
 def _person_display(person: Person | None) -> dict[str, str]:
@@ -306,6 +317,7 @@ def list_mcp_tool_calls(team: Team, session_id: str) -> list[contracts.MCPToolCa
         _MCP_TOOL_CALLS_SQL,
         placeholders={
             "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
+            "date_from": ast.Constant(value=timezone.now() - intent_generation.SESSION_EVENTS_LOOKBACK),
             "session_id": ast.Constant(value=session_id),
         },
     )

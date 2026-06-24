@@ -2,21 +2,20 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
-import { IconInfo, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import { IconInfo, IconRefresh, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { areAlertsSupportedForInsight, insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { ManageAlertsModal } from 'lib/components/Alerts/views/ManageAlertsModal'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
+import { DashboardTileRefreshDataButton } from 'lib/components/Cards/InsightCard/DashboardTileRefreshDataButton'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
@@ -26,9 +25,9 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -69,7 +68,6 @@ interface InsightMetaProps extends Pick<
     | 'removeFromDashboard'
     | 'deleteWithUndo'
     | 'refresh'
-    | 'refreshEnabled'
     | 'loading'
     | 'loadingQueued'
     | 'rename'
@@ -106,7 +104,6 @@ export function InsightMeta({
     removeFromDashboard,
     deleteWithUndo,
     refresh,
-    refreshEnabled,
     loading,
     loadingQueued,
     rename,
@@ -133,9 +130,12 @@ export function InsightMeta({
         variablesOverride: variablesOverride ?? null,
         tileFiltersOverride: tileFiltersOverride ?? null,
     }
-    const { insightFeedback, canToggleDisplayLabelsForInsight, canToggleLegendForInsight } = useValues(
-        insightLogic(insightLogicProps)
-    )
+    const {
+        insightFeedback,
+        canToggleDisplayLabelsForInsight,
+        canToggleLegendForInsight,
+        canToggleAnnotationsForInsight,
+    } = useValues(insightLogic(insightLogicProps))
     const { setInsightFeedback } = useActions(insightLogic(insightLogicProps))
     const { exportContext, insightData, query } = useValues(insightDataLogic(insightLogicProps))
     const [isManageAlertsModalOpen, setIsManageAlertsModalOpen] = useState(false)
@@ -195,10 +195,13 @@ export function InsightMeta({
             : true
 
     const showDashboardAlertsMenuItem = isUsedAsDashboardTile && !!dashboardId && !!insight.id && canViewInsight
-    const canCreateAlertForInsight = areAlertsSupportedForInsight(query)
+    const canCreateAlertForInsight = areAlertsSupportedForInsight(query, {
+        hogqlAlertsEnabled: !!featureFlags[FEATURE_FLAGS.HOGQL_INSIGHT_ALERTS],
+    })
 
     const canToggleDisplayLabels = isUsedAsDashboardTile && canEditInsight && canToggleDisplayLabelsForInsight
     const canToggleLegend = isUsedAsDashboardTile && canEditInsight && canToggleLegendForInsight
+    const canToggleAnnotations = isUsedAsDashboardTile && canEditInsight && canToggleAnnotationsForInsight
 
     const hasTileStyleActions = !!(showCompactTile && toggleShowDescription && insight.description) || !!updateColor
     const canShowCopyToDashboardTile = showCompactTile && !!copyToDashboard && canViewInsight
@@ -276,15 +279,51 @@ export function InsightMeta({
         )
     }
 
-    const refreshDisabledReason =
+    // Suppress this tile's icon only while this tile itself is refreshing (a full-dashboard
+    // refresh marks every tile as loading, so it still hides them all). Other tiles stay
+    // refreshable — the batched refresh already caps concurrency, so there's no need to block.
+    const tileRefreshing = !!(loading || loadingQueued)
+    const nextRefreshFromNow =
         nextAllowedClientRefresh && dayjs(nextAllowedClientRefresh).isAfter(dayjs())
-            ? 'You are viewing the most recent calculated results.'
-            : loading || loadingQueued || !refreshEnabled
-              ? 'Refreshing...'
-              : undefined
+            ? dayjs(nextAllowedClientRefresh).fromNow()
+            : null
+    const refreshDisabledReason = nextRefreshFromNow
+        ? `These results are already up to date. The next refresh is available ${nextRefreshFromNow}.`
+        : undefined
+    // The always-visible "⋯" menu keeps refresh reachable on touch/keyboard. Unlike the hover
+    // icon (which hides while this tile refreshes) the menu item stays but disables.
+    const refreshMenuDisabledReason = tileRefreshing ? 'Refreshing…' : refreshDisabledReason
 
+    // Gate the hover icon on `showEditingControls` so it doesn't appear on public/export
+    // dashboards, matching the "⋯" menu (which is already gated there).
+    const refreshControl =
+        refresh && showEditingControls && !tileRefreshing ? (
+            <LemonButton
+                className="CardMeta__refresh"
+                icon={<IconRefresh />}
+                size="small"
+                onClick={() => refresh()}
+                disabledReason={refreshDisabledReason}
+                tooltip={
+                    refreshDisabledReason
+                        ? undefined
+                        : insight.last_refresh
+                          ? `Refresh data (last computed ${dayjs(insight.last_refresh).fromNow()})`
+                          : 'Refresh data'
+                }
+                data-attr="insight-card-refresh"
+            />
+        ) : null
+
+    // On compact dashboard tiles the date just mirrors the dashboard's own range unless the
+    // tile overrides it, so suppress the redundant label and only keep it for tile-level overrides.
+    const tileHasOwnDateOverride = tileFiltersOverride?.date_from != null || tileFiltersOverride?.date_to != null
     const topHeadingEl = showCompactHeading ? (
-        <TopHeading {...topHeadingProps} showInsightType={!showCompactTile} />
+        <TopHeading
+            {...topHeadingProps}
+            showInsightType={!showCompactTile}
+            showDate={!showCompactTile || tileHasOwnDateOverride}
+        />
     ) : null
     const popoverTopHeadingEl = showCompactTile ? <TopHeading {...topHeadingProps} /> : undefined
 
@@ -439,11 +478,14 @@ export function InsightMeta({
                             dashboardId={dashboardId}
                             canToggleDisplayLabels={canToggleDisplayLabels}
                             canToggleLegend={canToggleLegend}
+                            canToggleAnnotations={canToggleAnnotations}
                         />
 
                         {canShowCopyToDashboardTile && !canEditDashboard && (
                             <>
-                                {!canToggleDisplayLabels && <LemonDivider />}
+                                {!canToggleDisplayLabels && !canToggleLegend && !canToggleAnnotations && (
+                                    <LemonDivider />
+                                )}
                                 <h5 className="mx-2 my-1">Dashboard</h5>
                                 <DashboardWidgetPlacementMenus
                                     placementDestinations={copyToDestinations}
@@ -455,7 +497,9 @@ export function InsightMeta({
                         {/* Dashboard related */}
                         {canEditDashboard && (
                             <>
-                                {!canToggleDisplayLabels && !canToggleLegend && <LemonDivider />}
+                                {!canToggleDisplayLabels && !canToggleLegend && !canToggleAnnotations && (
+                                    <LemonDivider />
+                                )}
                                 {showCompactTile && toggleShowDescription && !!insight.description && (
                                     <LemonButton onClick={toggleShowDescription} fullWidth>
                                         {tile?.show_description === false ? 'Show description' : 'Hide description'}
@@ -499,25 +543,7 @@ export function InsightMeta({
                                             onCopyToDashboard={canShowCopyToDashboardTile ? copyToDashboard : undefined}
                                         />
                                         {removeFromDashboard && (
-                                            <LemonButton
-                                                status="danger"
-                                                onClick={() =>
-                                                    LemonDialog.open({
-                                                        title: 'Remove from dashboard',
-                                                        description:
-                                                            'Are you sure you want to remove this insight from the dashboard?',
-                                                        primaryButton: {
-                                                            children: 'Remove from dashboard',
-                                                            status: 'danger',
-                                                            onClick: removeFromDashboard,
-                                                        },
-                                                        secondaryButton: {
-                                                            children: 'Cancel',
-                                                        },
-                                                    })
-                                                }
-                                                fullWidth
-                                            >
+                                            <LemonButton status="danger" onClick={removeFromDashboard} fullWidth>
                                                 Remove from dashboard
                                             </LemonButton>
                                         )}
@@ -573,34 +599,13 @@ export function InsightMeta({
                                 />
                             </>
                         ) : null}
-                        <>
-                            {refresh && (
-                                <LemonButton
-                                    onClick={() => {
-                                        refresh()
-                                    }}
-                                    disabledReason={refreshDisabledReason}
-                                    fullWidth
-                                >
-                                    {insight.last_refresh ? (
-                                        <div className="block my-1">
-                                            Refresh data
-                                            <p className="text-xs text-muted mt-0.5">
-                                                Last computed{' '}
-                                                <TZLabel
-                                                    time={insight.last_refresh}
-                                                    noStyles
-                                                    className="whitespace-nowrap border-dotted border-b"
-                                                />
-                                            </p>
-                                        </div>
-                                    ) : (
-                                        <>Refresh data</>
-                                    )}
-                                </LemonButton>
-                            )}
-                        </>
-
+                        {refresh && (
+                            <DashboardTileRefreshDataButton
+                                onRefresh={refresh}
+                                disabledReason={refreshMenuDisabledReason}
+                                lastRefresh={insight.last_refresh}
+                            />
+                        )}
                         {/* More */}
                         {moreButtons && (
                             <>
@@ -616,6 +621,7 @@ export function InsightMeta({
                         : 'Duplicate, export, refresh and more…'
                 }
                 extraControls={surveyOpportunityButton ?? feedbackButtons}
+                refreshControl={refreshControl}
             />
             {showDashboardAlertsMenuItem && insight.id ? (
                 <ManageAlertsModal
@@ -657,7 +663,7 @@ export function InsightMetaContent({
 }): JSX.Element {
     const titleContent = (
         <>
-            <span className={clsx(infoPopover && 'truncate text-primary')}>
+            <span className={clsx('text-primary', infoPopover && 'truncate')}>
                 {title || <i>{fallbackTitle || 'Untitled'}</i>}
             </span>
             {(loading || loadingQueued) && (

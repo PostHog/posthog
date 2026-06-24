@@ -12,9 +12,82 @@ Frequency tiers:
 
 import uuid
 import hashlib
+from collections.abc import Collection
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
-from temporalio.client import ScheduleCalendarSpec, ScheduleRange, ScheduleSpec
+from asgiref.sync import async_to_sync
+from temporalio.client import ScheduleCalendarSpec, ScheduleListActionStartWorkflow, ScheduleRange, ScheduleSpec
+
+from posthog.temporal.common.client import async_connect
+
+from products.data_modeling.backend.models import Node
+
+if TYPE_CHECKING:
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+# v2 (DAG-based) schedules run this workflow; their schedule id is the DAG id. The v1 backend
+# (`data-modeling-run`, one schedule per saved query) is frozen and being migrated away from.
+DATA_MODELING_EXECUTE_DAG_WORKFLOW = "data-modeling-execute-dag"
+
+
+@async_to_sync
+async def get_v2_scheduled_dag_ids() -> set[str]:
+    """Return the IDs of DAGs that already have a v2 `data-modeling-execute-dag` Temporal schedule.
+
+    A DAG appearing here has been migrated off the frozen v1 backend. Callers performing v1
+    schedule operations must skip these DAGs' saved queries so they never re-create or revive a
+    v1 schedule for a DAG already running on v2.
+    """
+    temporal = await async_connect()
+    dag_ids: set[str] = set()
+    # The schedule visibility store does not support filtering on WorkflowType (it raises
+    # "cannot filter on WorkflowType"), unlike workflow visibility. So we list all schedules and
+    # filter client-side on the action's workflow type.
+    async for listing in await temporal.list_schedules():
+        action = listing.schedule.action if listing.schedule else None
+        if (
+            isinstance(action, ScheduleListActionStartWorkflow)
+            and action.workflow == DATA_MODELING_EXECUTE_DAG_WORKFLOW
+        ):
+            dag_ids.add(listing.id)
+    return dag_ids
+
+
+def get_v2_saved_query_ids(candidate_ids: Collection[uuid.UUID] | None = None) -> set[uuid.UUID]:
+    """Return saved query IDs whose DAG already runs on a v2 schedule.
+
+    Optionally restrict the lookup to `candidate_ids` to keep the query bounded. These saved
+    queries must be skipped by v1 schedule commands so we never undo migration progress.
+    """
+    v2_dag_ids = get_v2_scheduled_dag_ids()
+    if not v2_dag_ids:
+        return set()
+
+    nodes = Node.objects.filter(dag_id__in=v2_dag_ids, saved_query_id__isnull=False)
+    if candidate_ids is not None:
+        nodes = nodes.filter(saved_query_id__in=candidate_ids)
+    return set(nodes.values_list("saved_query_id", flat=True))
+
+
+def partition_saved_queries_by_v2_schedule(
+    saved_queries: list["DataWarehouseSavedQuery"],
+) -> tuple[list["DataWarehouseSavedQuery"], list["DataWarehouseSavedQuery"]]:
+    """Split saved queries into (v1_eligible, on_v2).
+
+    A saved query is "on v2" when any DAG it belongs to already has a `data-modeling-execute-dag`
+    schedule. v1 schedule commands should skip the on_v2 list so they do not undo migration progress.
+    """
+    if not saved_queries:
+        return [], []
+
+    v2_ids = get_v2_saved_query_ids([sq.id for sq in saved_queries])
+    if not v2_ids:
+        return list(saved_queries), []
+
+    eligible = [sq for sq in saved_queries if sq.id not in v2_ids]
+    on_v2 = [sq for sq in saved_queries if sq.id in v2_ids]
+    return eligible, on_v2
 
 
 def _deterministic_int(entity_id: uuid.UUID, salt: str) -> int:

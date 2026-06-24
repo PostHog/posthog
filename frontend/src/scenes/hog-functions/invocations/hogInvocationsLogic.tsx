@@ -6,7 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiConfig } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { dateStringToDayJs } from 'lib/utils'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
 
 import { escapeHogQLString, hogql } from '~/queries/utils'
 
@@ -223,7 +223,7 @@ export const resolveDateRange = (filters: {
     if (relHours !== null) {
         return { start: end.subtract(relHours, 'hour'), end }
     }
-    const start = dateStringToDayJs(filters.date_from) ?? end.subtract(24, 'hour')
+    const start = dateStringToDayJs(filters.date_from ?? null) ?? end.subtract(24, 'hour')
     return { start, end }
 }
 

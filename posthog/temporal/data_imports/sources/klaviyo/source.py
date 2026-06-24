@@ -1,7 +1,9 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -18,7 +20,7 @@ from posthog.temporal.data_imports.sources.klaviyo.klaviyo import (
     klaviyo_source,
     validate_credentials as validate_klaviyo_credentials,
 )
-from posthog.temporal.data_imports.sources.klaviyo.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from posthog.temporal.data_imports.sources.klaviyo.settings import ENDPOINTS, INCREMENTAL_FIELDS, KLAVIYO_ENDPOINTS
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
@@ -33,8 +35,9 @@ class KlaviyoSource(ResumableSource[KlaviyoSourceConfig, KlaviyoResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.KLAVIYO,
+            category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Klaviyo",
-            releaseStatus="beta",
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Klaviyo API key to automatically pull your Klaviyo data into the PostHog Data warehouse.
 
 You can create a private API key in your [Klaviyo account settings](https://www.klaviyo.com/settings/account/api-keys).
@@ -65,6 +68,16 @@ Make sure to grant the following read permissions:
             ),
         )
 
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            # An invalid, revoked, or insufficiently-scoped Klaviyo API key surfaces as a requests
+            # HTTPError when `fetch_page` calls `raise_for_status()`. Retrying can never satisfy a
+            # credential problem, so stop the sync. Match the stable status text and base host, not
+            # the per-request path/query/timestamp.
+            "401 Client Error: Unauthorized for url: https://a.klaviyo.com": "Your Klaviyo API key is invalid or has been revoked. Create a new private API key in your Klaviyo account settings, then reconnect.",
+            "403 Client Error: Forbidden for url: https://a.klaviyo.com": "Your Klaviyo API key is missing the read permissions needed to sync this data. Grant the required read scopes in your Klaviyo account settings, then reconnect.",
+        }
+
     def get_schemas(
         self,
         config: KlaviyoSourceConfig,
@@ -76,17 +89,29 @@ Make sure to grant the following read permissions:
         # Events are immutable - append-only is the only sync mode
         append_only_endpoints = {"events"}
 
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None
-                and endpoint not in append_only_endpoints,
-                supports_append=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-                description="Only syncs the last 365 days on initial sync" if endpoint == "events" else None,
+        def _description(endpoint: str) -> str | None:
+            if endpoint == "events":
+                return "Only syncs the last 365 days on initial sync"
+            if KLAVIYO_ENDPOINTS[endpoint].fan_out_over_lists:
+                return "Maps which profiles belong to which list as {list_id, profile_id} rows. Full refresh only"
+            return None
+
+        def _build_schema(endpoint: str) -> SourceSchema:
+            endpoint_config = KLAVIYO_ENDPOINTS[endpoint]
+            # Fan-out endpoints have no server-side incremental filter, so they're full refresh only.
+            has_incremental = (
+                INCREMENTAL_FIELDS.get(endpoint, None) is not None and not endpoint_config.fan_out_over_lists
             )
-            for endpoint in list(ENDPOINTS)
-        ]
+            return SourceSchema(
+                name=endpoint,
+                supports_incremental=has_incremental and endpoint not in append_only_endpoints,
+                supports_append=has_incremental,
+                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                should_sync_default=endpoint_config.should_sync_default,
+                description=_description(endpoint),
+            )
+
+        schemas = [_build_schema(endpoint) for endpoint in ENDPOINTS]
         if names is not None:
             names_set = set(names)
             schemas = [s for s in schemas if s.name in names_set]

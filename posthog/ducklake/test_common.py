@@ -4,7 +4,37 @@ from unittest.mock import MagicMock, patch
 import duckdb
 from parameterized import parameterized
 
-from posthog.ducklake.common import initialize_ducklake, is_version_mismatch, reset_ducklake_catalog
+from posthog.ducklake.common import (
+    initialize_ducklake,
+    is_version_mismatch,
+    reset_ducklake_catalog,
+    upsert_duckgres_server_for_org,
+)
+from posthog.ducklake.models import DuckgresServer
+from posthog.models import Organization
+
+
+@pytest.mark.django_db
+class TestUpsertDuckgresServerForOrg:
+    def test_creates_then_updates_a_single_row(self):
+        org = Organization.objects.create(name="Test Org")
+
+        created = upsert_duckgres_server_for_org(
+            org.id, host="wh.dw.us.postwh.com", port=5432, database="ducklake", username="root", password="pw1"
+        )
+        assert DuckgresServer.objects.filter(organization_id=org.id).count() == 1
+        assert created.host == "wh.dw.us.postwh.com"
+        assert created.password == "pw1"
+
+        updated = upsert_duckgres_server_for_org(
+            org.id, host="wh2.dw.us.postwh.com", port=6543, database="ducklake", username="root", password="pw2"
+        )
+        assert DuckgresServer.objects.filter(organization_id=org.id).count() == 1
+        assert updated.pk == created.pk
+        assert updated.host == "wh2.dw.us.postwh.com"
+        assert updated.port == 6543
+        assert updated.password == "pw2"
+
 
 TEST_CONFIG = {
     "DUCKLAKE_RDS_HOST": "localhost",

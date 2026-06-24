@@ -1,16 +1,21 @@
+import asyncio
+import dataclasses
 from typing import Any
 
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import psycopg
 import structlog
 
+from posthog.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import OwnershipLostError
+from posthog.temporal.data_imports.pipelines.pipeline_v3.load.health import HealthState
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer import (
     BatchConsumer,
     ConsumerConfig,
     _group_by_key,
 )
-from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import PendingBatch
+from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import FailedRunRef, PendingBatch
 
 from products.warehouse_sources_queue.backend.models import SourceBatchStatus
 
@@ -42,6 +47,19 @@ def _make_batch(**overrides: Any) -> PendingBatch:
     return PendingBatch(**defaults)
 
 
+def _make_failed_run_ref(**overrides: Any) -> FailedRunRef:
+    defaults: dict[str, Any] = {
+        "run_uuid": "run-1",
+        "job_id": "job-1",
+        "team_id": 1,
+        "schema_id": "schema-1",
+        "workflow_run_id": "wf-1",
+        "reason": "max retries exceeded: the connection is closed",
+    }
+    defaults.update(overrides)
+    return FailedRunRef(**defaults)
+
+
 def _make_consumer(max_attempts: int = 3, **kwargs) -> BatchConsumer:
     config = ConsumerConfig(
         database_url="postgres://unused:unused@localhost/unused",
@@ -50,9 +68,17 @@ def _make_consumer(max_attempts: int = 3, **kwargs) -> BatchConsumer:
     )
     mock_process = AsyncMock()
     consumer = BatchConsumer(config=config, process_batch=mock_process)
-    consumer._conn = AsyncMock()
-    consumer._recovery_conn = AsyncMock()
+    consumer._conn = _make_healthy_conn()
+    consumer._recovery_conn = _make_healthy_conn()
     return consumer
+
+
+def _make_healthy_conn(closed: bool = False, broken: bool = False) -> AsyncMock:
+    # closed/broken must be real booleans, otherwise _ensure_*_conn sees a dead conn and dials the fake database_url.
+    conn = AsyncMock()
+    conn.closed = closed
+    conn.broken = broken
+    return conn
 
 
 class TestProcessSingle:
@@ -143,6 +169,11 @@ class TestProcessGroup:
                 "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
                 new_callable=AsyncMock,
             ) as mock_unlock,
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_advisory_lock",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
         ):
             await consumer._process_group((1, "schema-1"), batches)
 
@@ -165,6 +196,11 @@ class TestProcessGroup:
                 "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
                 new_callable=AsyncMock,
             ) as mock_unlock,
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_advisory_lock",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
             patch.object(consumer, "_fail_run", new_callable=AsyncMock),
         ):
             await consumer._process_group((1, "schema-1"), batches)
@@ -193,6 +229,11 @@ class TestProcessGroup:
             patch(
                 "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
                 new_callable=AsyncMock,
+            ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_advisory_lock",
+                new_callable=AsyncMock,
+                return_value=True,
             ),
         ):
             await consumer._process_group((1, "schema-1"), batches)
@@ -223,6 +264,11 @@ class TestProcessGroup:
                 "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
                 new_callable=AsyncMock,
             ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_advisory_lock",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
         ):
             await consumer._process_group((1, "schema-1"), batches)
 
@@ -245,6 +291,10 @@ class TestRecoverySweep:
                 "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
                 new_callable=AsyncMock,
             ) as mock_status,
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ) as mock_unlock,
         ):
             await consumer._recovery_sweep()
 
@@ -253,8 +303,9 @@ class TestRecoverySweep:
             batch_id=stale_batch.id,
             job_state=SourceBatchStatus.State.WAITING_RETRY,
             attempt=1,
-            error_response={"error": "executing timed out — pod restart or OOM"},
+            error_response={"error": "executing timed out - pod restart or OOM"},
         )
+        mock_unlock.assert_called_once_with(consumer._recovery_conn, batches=[stale_batch])
 
     @pytest.mark.asyncio
     async def test_fails_exhausted_stale_batch(self):
@@ -268,11 +319,338 @@ class TestRecoverySweep:
                 return_value=[stale_batch],
             ),
             patch.object(consumer, "_fail_run", new_callable=AsyncMock) as mock_fail,
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ) as mock_unlock,
         ):
             await consumer._recovery_sweep()
 
         mock_fail.assert_called_once()
         assert "max retries exceeded" in mock_fail.call_args[1]["reason"]
+        mock_unlock.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_recovery_sweep_releases_probe_locks_on_error(self):
+        consumer = _make_consumer(max_attempts=3)
+        stale_batch = _make_batch(latest_attempt=1)
+
+        with (
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_stale_executing",
+                new_callable=AsyncMock,
+                return_value=[stale_batch],
+            ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                new_callable=AsyncMock,
+                side_effect=Exception("db gone"),
+            ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ) as mock_unlock,
+            pytest.raises(Exception, match="db gone"),
+        ):
+            await consumer._recovery_sweep()
+
+        mock_unlock.assert_called_once_with(consumer._recovery_conn, batches=[stale_batch])
+
+
+class TestFailRun:
+    @pytest.mark.asyncio
+    async def test_does_not_raise_when_job_status_update_fails(self):
+        # A dropped app-DB connection while marking the job Failed must not propagate out of _fail_run.
+        consumer = _make_consumer()
+        batch = _make_batch()
+
+        with (
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.fail_run",
+                new_callable=AsyncMock,
+            ) as mock_fail_run,
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer._update_job_status_to_failed",
+                side_effect=Exception("the connection is closed"),
+            ),
+        ):
+            await consumer._fail_run(batch, reason="max retries exceeded: the connection is closed")
+
+        mock_fail_run.assert_called_once()  # queue batches still marked failed
+
+    @pytest.mark.asyncio
+    async def test_attempts_job_status_update_even_when_queue_update_fails(self):
+        consumer = _make_consumer()
+        batch = _make_batch()
+
+        with (
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.fail_run",
+                new_callable=AsyncMock,
+                side_effect=Exception("the connection is closed"),
+            ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer._update_job_status_to_failed",
+            ) as mock_status,
+        ):
+            await consumer._fail_run(batch, reason="boom")
+
+        mock_status.assert_called_once()
+
+
+class TestReconcileFailedRuns:
+    @pytest.mark.asyncio
+    async def test_marks_non_terminal_run_failed(self):
+        consumer = _make_consumer()
+        ref = _make_failed_run_ref()
+
+        with (
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_failed_runs",
+                new_callable=AsyncMock,
+                return_value=[ref],
+            ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer._mark_job_failed_if_not_terminal",
+                return_value=True,
+            ) as mock_mark,
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.release_v3_pipeline_lock",
+            ) as mock_release,
+        ):
+            await consumer._reconcile_failed_runs()
+
+        mock_mark.assert_called_once_with(job_id=ref.job_id, team_id=ref.team_id, error=ref.reason)
+        mock_release.assert_called_once_with(team_id=ref.team_id, schema_id=ref.schema_id, token=ref.workflow_run_id)
+
+    @pytest.mark.asyncio
+    async def test_skips_already_terminal_run(self):
+        consumer = _make_consumer()
+        ref = _make_failed_run_ref()
+
+        with (
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_failed_runs",
+                new_callable=AsyncMock,
+                return_value=[ref],
+            ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer._mark_job_failed_if_not_terminal",
+                return_value=False,
+            ) as mock_mark,
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.release_v3_pipeline_lock",
+            ) as mock_release,
+        ):
+            await consumer._reconcile_failed_runs()
+
+        mock_mark.assert_called_once()  # no-op for an already-terminal job, no error
+        mock_release.assert_not_called()  # don't release the lock for a job we didn't reconcile
+
+    @pytest.mark.asyncio
+    async def test_continues_after_error_on_one_ref(self):
+        consumer = _make_consumer()
+        ref_a = _make_failed_run_ref(run_uuid="run-a", job_id="job-a")
+        ref_b = _make_failed_run_ref(run_uuid="run-b", job_id="job-b")
+
+        with (
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_failed_runs",
+                new_callable=AsyncMock,
+                return_value=[ref_a, ref_b],
+            ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer._mark_job_failed_if_not_terminal",
+                side_effect=[Exception("db down"), True],
+            ) as mock_mark,
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.release_v3_pipeline_lock",
+            ),
+        ):
+            await consumer._reconcile_failed_runs()
+
+        assert mock_mark.call_count == 2  # error on the first ref does not abort the sweep
+
+
+class TestConnectionRecovery:
+    @pytest.mark.parametrize(
+        "closed, broken, expect_reconnect",
+        [
+            (False, False, False),
+            (True, False, True),
+            (False, True, True),
+        ],
+        ids=["healthy", "closed", "broken"],
+    )
+    @pytest.mark.asyncio
+    async def test_ensure_main_conn_reconnects_only_when_dead(self, closed, broken, expect_reconnect):
+        consumer = _make_consumer()
+        original = _make_healthy_conn(closed=closed, broken=broken)
+        consumer._conn = original
+        fresh = _make_healthy_conn()
+
+        with patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=fresh) as mock_connect:
+            conn = await consumer._ensure_main_conn()
+
+        if expect_reconnect:
+            mock_connect.assert_awaited_once()
+            assert conn is fresh
+        else:
+            mock_connect.assert_not_awaited()
+            assert conn is original
+
+    @pytest.mark.asyncio
+    async def test_concurrent_ensure_main_conn_dials_only_once(self):
+        # All concurrent groups hitting a dead conn must share one reconnect, not dial N connections.
+        consumer = _make_consumer()
+        consumer._conn = _make_healthy_conn(closed=True)
+        fresh = _make_healthy_conn()
+
+        async def slow_connect() -> AsyncMock:
+            await asyncio.sleep(0)  # yield so the other coroutines reach the check while we're "dialing"
+            return fresh
+
+        with patch.object(consumer, "_connect", side_effect=slow_connect) as mock_connect:
+            conns = await asyncio.gather(*[consumer._ensure_main_conn() for _ in range(5)])
+
+        assert mock_connect.call_count == 1
+        assert all(conn is fresh for conn in conns)
+
+    @pytest.mark.asyncio
+    async def test_ensure_recovery_conn_reconnects_when_dead(self):
+        consumer = _make_consumer()
+        consumer._recovery_conn = _make_healthy_conn(closed=True)
+        fresh = _make_healthy_conn()
+
+        with patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=fresh) as mock_connect:
+            conn = await consumer._ensure_recovery_conn()
+
+        mock_connect.assert_awaited_once()
+        assert conn is fresh
+
+    @pytest.mark.asyncio
+    async def test_process_group_does_not_raise_when_unlock_fails(self):
+        # An unlock failure must not crash the gather() running every concurrent group.
+        consumer = _make_consumer()
+        consumer._process_batch = AsyncMock()
+
+        with (
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+                side_effect=Exception("the connection is closed"),
+            ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_advisory_lock",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+        ):
+            await consumer._process_group((1, "schema-1"), [_make_batch()])
+
+    @pytest.mark.asyncio
+    async def test_process_group_does_not_raise_when_process_single_raises(self):
+        consumer = _make_consumer()
+
+        with (
+            patch.object(
+                consumer,
+                "_process_single",
+                new_callable=AsyncMock,
+                side_effect=psycopg.OperationalError("the connection is closed"),
+            ) as mock_single,
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ) as mock_unlock,
+        ):
+            await consumer._process_group((1, "schema-1"), [_make_batch(), _make_batch(batch_index=1)])
+
+        mock_single.assert_awaited_once()  # group halts after the failed batch
+        mock_unlock.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_recovery_sweep_uses_reconnected_conn(self):
+        consumer = _make_consumer()
+        consumer._recovery_conn = _make_healthy_conn(closed=True)
+        fresh = _make_healthy_conn()
+
+        with (
+            patch.object(consumer, "_connect", new_callable=AsyncMock, return_value=fresh),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_stale_executing",
+                new_callable=AsyncMock,
+                return_value=[],
+            ) as mock_get_stale,
+        ):
+            await consumer._recovery_sweep()
+
+        mock_get_stale.assert_awaited_once()
+        assert mock_get_stale.call_args[0][0] is fresh
+
+
+class TestInFlightTaskRegistry:
+    @pytest.mark.asyncio
+    async def test_reap_removes_finished_tasks(self):
+        consumer = _make_consumer()
+
+        done_task = asyncio.create_task(asyncio.sleep(0))
+        await done_task
+        consumer._in_flight[(1, "s1")] = done_task
+
+        running_task = asyncio.create_task(asyncio.sleep(100))
+        consumer._in_flight[(2, "s2")] = running_task
+
+        consumer._reap_finished_tasks()
+
+        assert (1, "s1") not in consumer._in_flight
+        assert (2, "s2") in consumer._in_flight
+        running_task.cancel()
+
+    @pytest.mark.asyncio
+    async def test_reap_logs_failed_tasks(self):
+        consumer = _make_consumer()
+
+        async def fail():
+            raise RuntimeError("boom")
+
+        task = asyncio.create_task(fail())
+        try:
+            await task
+        except RuntimeError:
+            pass
+        consumer._in_flight[(1, "s1")] = task
+
+        consumer._reap_finished_tasks()
+
+        assert (1, "s1") not in consumer._in_flight
+
+    @pytest.mark.asyncio
+    async def test_process_group_tracked_increments_and_decrements_gauge(self):
+        consumer = _make_consumer()
+        consumer._process_batch = AsyncMock()
+
+        mock_gauge = MagicMock()
+        consumer._metrics = dataclasses.replace(consumer._metrics, active_groups=mock_gauge)
+
+        with (
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await consumer._process_group_tracked((1, "schema-1"), [_make_batch()])
+
+        mock_gauge.inc.assert_called_once()
+        mock_gauge.dec.assert_called_once()
 
 
 class TestGroupByKey:
@@ -399,3 +777,117 @@ class TestLogContextBinding:
 
         assert "batch_id" not in structlog.contextvars.get_contextvars()
         assert "workflow_run_id" not in structlog.contextvars.get_contextvars()
+
+
+class TestHeartbeatLoop:
+    @pytest.mark.asyncio
+    async def test_reports_until_shutdown(self):
+        consumer = _make_consumer(heartbeat_interval_seconds=0.01)
+        calls = 0
+
+        def reporter():
+            nonlocal calls
+            calls += 1
+
+        consumer._health_reporter = reporter
+
+        task = asyncio.create_task(consumer._heartbeat_loop())
+        await asyncio.sleep(0.05)
+        consumer._shutdown.set()
+        await asyncio.wait_for(task, timeout=1.0)
+
+        assert calls >= 2
+
+    @pytest.mark.asyncio
+    async def test_keeps_liveness_healthy_through_long_batch(self):
+        # A poll cycle (large final-batch compaction) can run far longer than the
+        # health timeout; the dedicated heartbeat must keep liveness green so
+        # kubelet doesn't SIGTERM the pod mid-batch.
+        health = HealthState(timeout_seconds=0.1)
+        consumer = _make_consumer(heartbeat_interval_seconds=0.02)
+        consumer._health_reporter = health.report_healthy
+
+        task = asyncio.create_task(consumer._heartbeat_loop())
+        await asyncio.sleep(0.3)  # simulate a batch ~3x the health timeout
+        assert health.is_healthy() is True
+
+        consumer._shutdown.set()
+        await asyncio.wait_for(task, timeout=1.0)
+
+        # Once the heartbeat stops, liveness correctly goes stale again.
+        await asyncio.sleep(0.2)
+        assert health.is_healthy() is False
+
+
+class TestOwnershipVerification:
+    @pytest.mark.asyncio
+    async def test_ownership_lost_abandons_group(self):
+        consumer = _make_consumer()
+        processed: list[int] = []
+
+        async def track_and_lose_lock(batch):
+            processed.append(batch.batch_index)
+
+        consumer._process_batch = track_and_lose_lock
+
+        batches = [_make_batch(batch_index=i, id=f"00000000-0000-0000-0000-{i + 1:012d}") for i in range(3)]
+
+        with (
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ) as mock_unlock,
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_advisory_lock",
+                new_callable=AsyncMock,
+                side_effect=[True, True, False],
+            ),
+        ):
+            await consumer._process_group((1, "schema-1"), batches)
+
+        # Batch 0 processes (verify returns True before batch 0, True before succeeded write),
+        # batch 1 fails on verify (returns False) and the group is abandoned.
+        assert len(processed) <= 2
+        mock_unlock.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_dead_lock_conn_raises_ownership_lost(self):
+        consumer = _make_consumer()
+        batch = _make_batch(latest_attempt=0)
+
+        dead_conn = _make_healthy_conn(closed=True)
+        consumer._conn = dead_conn
+
+        with (
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                new_callable=AsyncMock,
+            ),
+            pytest.raises(OwnershipLostError),
+        ):
+            await consumer._process_single(batch, lock_conn=dead_conn)
+
+    @pytest.mark.asyncio
+    async def test_process_single_without_lock_conn_skips_verification(self):
+        consumer = _make_consumer()
+        batch = _make_batch(latest_attempt=0)
+        consumer._process_batch = AsyncMock()
+
+        with (
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_advisory_lock",
+                new_callable=AsyncMock,
+            ) as mock_verify,
+        ):
+            result = await consumer._process_single(batch, lock_conn=None)
+
+        assert result is True
+        mock_verify.assert_not_called()

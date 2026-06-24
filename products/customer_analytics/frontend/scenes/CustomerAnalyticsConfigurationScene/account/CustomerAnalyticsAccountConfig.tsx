@@ -5,7 +5,7 @@ import { LemonSelect } from '@posthog/lemon-ui'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
-import { capitalizeFirstLetter, wordPluralize } from 'lib/utils'
+import { capitalizeFirstLetter, wordPluralize } from 'lib/utils/strings'
 import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 import { teamLogic } from 'scenes/teamLogic'
 

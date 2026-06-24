@@ -1,3 +1,4 @@
+import re
 import base64
 from typing import Any, Optional
 
@@ -304,6 +305,23 @@ class ZendeskIncrementalEndpointPaginator(BasePaginator):
         request.params = {}
 
 
+def normalize_subdomain(subdomain: str) -> str:
+    """Reduce whatever the user entered to the bare Zendesk subdomain label.
+
+    Users frequently paste the full host ("nibbles.zendesk.com") or a URL
+    ("https://nibbles.zendesk.com/") into the subdomain field. Without normalizing,
+    the base URL becomes "https://nibbles.zendesk.com.zendesk.com/", whose doubled
+    host the TLS handshake rejects (SSLV3_ALERT_HANDSHAKE_FAILURE) and never recovers.
+    """
+    subdomain = subdomain.strip()
+    if "://" in subdomain:
+        subdomain = subdomain.split("://", 1)[1]
+    # Drop any path/query left over from a pasted URL.
+    subdomain = subdomain.split("/", 1)[0]
+    # Strip a trailing ".zendesk.com" so a full host collapses to the subdomain label.
+    return re.sub(r"\.zendesk\.com$", "", subdomain, flags=re.IGNORECASE)
+
+
 def zendesk_source(
     subdomain: str,
     api_key: str,
@@ -316,7 +334,7 @@ def zendesk_source(
 ):
     config: RESTAPIConfig = {
         "client": {
-            "base_url": f"https://{subdomain}.zendesk.com/",
+            "base_url": f"https://{normalize_subdomain(subdomain)}.zendesk.com/",
             "auth": {
                 "type": "http_basic",
                 "username": f"{email_address}/token",
@@ -340,7 +358,7 @@ def zendesk_source(
 def validate_credentials(subdomain: str, api_key: str, email_address: str) -> bool:
     basic_token = base64.b64encode(f"{email_address}/token:{api_key}".encode("ascii")).decode("ascii")
     res = make_tracked_session().get(
-        f"https://{subdomain}.zendesk.com/api/v2/tickets/count",
+        f"https://{normalize_subdomain(subdomain)}.zendesk.com/api/v2/tickets/count",
         headers={"Authorization": f"Basic {basic_token}"},
     )
 

@@ -128,4 +128,120 @@ describe('experimentActivityDescriber', () => {
             expect(textOf(result)).not.toContain('reordered')
         })
     })
+
+    describe('excluded_variants describer', () => {
+        it.each([
+            {
+                name: 'single variant added to exclusion list',
+                before: { excluded_variants: [] },
+                after: { excluded_variants: ['test-2'] },
+                expected: 'excluded variant test-2 from analysis',
+            },
+            {
+                name: 'single variant removed from exclusion list',
+                before: { excluded_variants: ['test-2'] },
+                after: { excluded_variants: [] },
+                expected: 're-included variant test-2 in analysis',
+            },
+            {
+                name: 'multiple variants added to exclusion list',
+                before: { excluded_variants: [] },
+                after: { excluded_variants: ['test-2', 'test-3'] },
+                expected: 'excluded variants test-2, test-3 from analysis',
+            },
+            {
+                name: 'multiple variants removed from exclusion list',
+                before: { excluded_variants: ['test-2', 'test-3'] },
+                after: { excluded_variants: [] },
+                expected: 're-included variants test-2, test-3 in analysis',
+            },
+            {
+                name: 'simultaneous add and remove',
+                before: { excluded_variants: ['test-2'] },
+                after: { excluded_variants: ['test-3'] },
+                expected: 'excluded variant test-3 from analysis and re-included variant test-2 in analysis',
+            },
+            {
+                name: 'falls back to updated parameters for other parameter changes',
+                before: { excluded_variants: ['test-2'], rollout_percentage: 50 },
+                after: { excluded_variants: ['test-2'], rollout_percentage: 75 },
+                expected: 'updated parameters',
+            },
+            {
+                name: 'handles null before payload (fresh record case)',
+                before: null,
+                after: { excluded_variants: ['test-2'] },
+                expected: 'excluded variant test-2 from analysis',
+            },
+        ])('$name', ({ before, after, expected }) => {
+            const result = experimentActivityDescriber(
+                baseLogItem({
+                    activity: 'updated',
+                    detail: {
+                        name: 'Checkout funnel',
+                        changes: [
+                            {
+                                type: ActivityScope.EXPERIMENT,
+                                action: 'changed',
+                                field: 'parameters',
+                                before,
+                                after,
+                            },
+                        ],
+                        merge: null,
+                        trigger: null,
+                    },
+                })
+            )
+            expect(textOf(result)).toContain(expected)
+        })
+    })
+
+    describe('running_time_calculation rows', () => {
+        it('describes a running_time_calculation change', () => {
+            const result = experimentActivityDescriber(
+                baseLogItem({
+                    activity: 'updated',
+                    detail: {
+                        name: 'Checkout funnel',
+                        changes: [
+                            {
+                                type: ActivityScope.EXPERIMENT,
+                                action: 'changed',
+                                field: 'running_time_calculation',
+                                before: { minimum_detectable_effect: 20 },
+                                after: { minimum_detectable_effect: 30 },
+                            },
+                        ],
+                        merge: null,
+                        trigger: null,
+                    },
+                })
+            )
+            expect(textOf(result)).toContain('updated the running time calculation')
+        })
+
+        it('omits the parameters entry when only calculator keys changed', () => {
+            const result = experimentActivityDescriber(
+                baseLogItem({
+                    activity: 'updated',
+                    detail: {
+                        name: 'Checkout funnel',
+                        changes: [
+                            {
+                                type: ActivityScope.EXPERIMENT,
+                                action: 'changed',
+                                field: 'parameters',
+                                before: { excluded_variants: ['test-2'], minimum_detectable_effect: 20 },
+                                after: { excluded_variants: ['test-2'], minimum_detectable_effect: 30 },
+                            },
+                        ],
+                        merge: null,
+                        trigger: null,
+                    },
+                })
+            )
+            expect(textOf(result)).not.toContain('updated parameters')
+        })
+    })
 })

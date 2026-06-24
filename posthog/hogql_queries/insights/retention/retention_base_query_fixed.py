@@ -9,7 +9,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 
 from posthog.hogql_queries.insights.retention.retention_base_query_builder import RetentionBaseQueryBuilder
-from posthog.hogql_queries.insights.utils.breakdowns import ALL_USERS_COHORT_ID
+from posthog.hogql_queries.insights.utils.breakdowns import ALL_USERS_COHORT_ID, has_breakdown_filter
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -62,6 +62,88 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             selected_breakdown_value=selected_breakdown_value,
         )
 
+    def apply_sampling(self, base_query: ast.SelectQuery) -> None:
+        select_from = base_query.select_from
+        if select_from is not None and isinstance(select_from.table, ast.SelectSetQuery):
+            if self.query.samplingFactor is None or not isinstance(self.query.samplingFactor, float):
+                return
+            for arm, entity in zip(select_from.table.select_queries(), [self.start_event, self.return_event]):
+                if entity.type == EntityType.DATA_WAREHOUSE:
+                    continue
+                arm_from = arm.select_from if isinstance(arm, ast.SelectQuery) else None
+                if arm_from is not None:
+                    arm_from.sample = ast.SampleExpr(
+                        sample_value=ast.RatioExpr(left=ast.Constant(value=self.query.samplingFactor))
+                    )
+            return
+
+        super().apply_sampling(base_query)
+
+    def apply_breakdown(self, base_query: ast.SelectQuery) -> None:
+        select_from = base_query.select_from
+        if select_from is not None and isinstance(select_from.table, ast.SelectSetQuery):
+            # Variant path: breakdown_value is resolved inside each UNION ALL arm and
+            # surfaced by build_base_query_dwh. The parent implementation appends
+            # events.*-referencing exprs to this outer query, where only the
+            # retention_events union is in scope, so it must not run here.
+            return
+
+        super().apply_breakdown(base_query)
+
+    def _breakdown_extract_targets_events_table(self) -> bool:
+        # event / event_metadata breakdowns hardcode events.properties.* and cannot be
+        # resolved against a data-warehouse-table arm. person / group / cohort /
+        # data_warehouse_person_property go via joins or a constant, and hogql is
+        # user-authored (it may legitimately reference the DWH table's own columns), so
+        # those are left to resolve normally.
+        breakdown_filter = self.query.breakdownFilter
+        if breakdown_filter is None:
+            return False
+        breakdown_type = (
+            breakdown_filter.breakdowns[0].type if breakdown_filter.breakdowns else breakdown_filter.breakdown_type
+        )
+        return breakdown_type in ("event", "event_metadata", None)
+
+    def _dwh_breakdown_value_arm_expr(
+        self,
+        entity: RetentionEntity,
+        breakdown_extract: ast.Expr,
+        timestamp_field: ast.Expr,
+        query_kind: Literal["start", "return"],
+    ) -> ast.Expr:
+        # An events-table-rooted extract can't be resolved against a data-warehouse-table
+        # arm; fall back to the empty bucket so the query still prints. The events arm (if
+        # any) supplies the real value, surfaced by the outer max().
+        if entity.type == EntityType.DATA_WAREHOUSE and self._breakdown_extract_targets_events_table():
+            return ast.Constant(value="")
+
+        if self.is_first_ever_occurrence:
+            # First-ever buckets each actor by the breakdown value on their earliest START
+            # event, resolved here via argMinIf(..., start_entity_expr_no_props). The events
+            # return arm can only do that when it shares the events source with the start
+            # entity. When the start entity is a DWH table, start_entity_expr_no_props
+            # collapses to a truthy constant, so on the events return arm argMinIf would
+            # instead read the actor's earliest RETURN event's value. Degrade to the empty
+            # bucket — the start (DWH) arm already emits "", so the outer max() yields "".
+            if (
+                query_kind == "return"
+                and self.start_event.type == EntityType.DATA_WAREHOUSE
+                and self._breakdown_extract_targets_events_table()
+            ):
+                return ast.Constant(value="")
+            # Bucket each actor by the breakdown value on their earliest start event.
+            return parse_expr(
+                "argMinIf({breakdown}, {timestamp}, {entity})",
+                {
+                    "breakdown": breakdown_extract,
+                    "timestamp": timestamp_field,
+                    "entity": self.start_entity_expr_no_props,
+                },
+            )
+
+        # Recurring / first-time-matching: per-row value; the arm groups by it.
+        return breakdown_extract
+
     # Nested fixed-interval query with data warehouse support.
     # Intended as a drop-in replacement for the legacy query while we verify
     # parity in production.
@@ -92,12 +174,35 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                 alias="start_event_timestamps",
                 expr=parse_expr("arrayFlatten(groupArray(start_event_timestamps))"),
             ),
-            ast.Alias(
-                alias="return_event_timestamps",
-                expr=parse_expr("arrayFlatten(groupArray(return_event_timestamps))"),
-            ),
-            self._date_range_alias(),
         ]
+
+        # Property aggregation ignores minimum_occurrences (matching the legacy path), so the threshold filter only
+        # applies to the events-only / data-warehouse return shapes. When it applies, the per-actor dupes the return
+        # subquery emitted are flattened here, counted per interval, and intervals below the threshold are dropped.
+        apply_minimum_occurrences = self.minimum_occurrences > 1 and not self.has_property_aggregation
+
+        if apply_minimum_occurrences:
+            select_fields.append(self._date_range_alias())
+            select_fields.extend(
+                self._get_minimum_occurrences_aliases(
+                    minimum_occurrences=self.minimum_occurrences,
+                    with_dupes_expr=parse_expr("arrayFlatten(groupArray(return_event_timestamps))"),
+                )
+            )
+            select_fields.append(
+                ast.Alias(
+                    alias="return_event_timestamps",
+                    expr=self._minimum_occurrences_return_timestamps_expr(self.minimum_occurrences),
+                )
+            )
+        else:
+            select_fields.append(
+                ast.Alias(
+                    alias="return_event_timestamps",
+                    expr=parse_expr("arrayFlatten(groupArray(return_event_timestamps))"),
+                )
+            )
+            select_fields.append(self._date_range_alias())
 
         if self.has_property_aggregation:
             select_fields.extend(
@@ -150,10 +255,23 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         if retention_value_expr:
             select_fields.append(ast.Alias(alias="retention_value", expr=retention_value_expr))
 
+        group_by_fields: list[ast.Expr] = [ast.Field(chain=["actor_id"])]
+        if has_breakdown_filter(self.query.breakdownFilter):
+            if self.is_first_ever_occurrence:
+                # Each arm resolves the same single per-actor value; max() collapses the
+                # UNION rows deterministically and lets a real value win over the
+                # empty-bucket fallback on a data-warehouse-mixed series.
+                select_fields.append(ast.Alias(alias="breakdown_value", expr=parse_expr("max(breakdown_value)")))
+            else:
+                # Per-value rows from the arms; carry the value as a grouping key so the
+                # per-value cohort partitioning survives the outer aggregation.
+                select_fields.append(ast.Alias(alias="breakdown_value", expr=ast.Field(chain=["breakdown_value"])))
+                group_by_fields.append(ast.Field(chain=["breakdown_value"]))
+
         base_query = ast.SelectQuery(
             select=select_fields,
             select_from=ast.JoinExpr(table=retention_events, alias="retention_events"),
-            group_by=[ast.Field(chain=["actor_id"])],
+            group_by=group_by_fields,
             having=ast.And(
                 exprs=[
                     (
@@ -246,7 +364,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                 start_event_timestamps_expr = timestamps_expr
                 return_event_timestamps_expr = ast.Array(exprs=[])
             else:
-                timestamps_expr = self._get_return_event_timestamps_expr(
+                timestamps_expr = self._get_dwh_return_timestamps_expr(
                     minimum_occurrences=self.minimum_occurrences,
                     start_of_interval_sql=start_of_interval_sql,
                     return_entity_expr=entity_expr,
@@ -254,6 +372,12 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                 )
                 start_event_timestamps_expr = ast.Array(exprs=[])
                 return_event_timestamps_expr = timestamps_expr
+
+        # First-time retention only affects the start side: replace the recurring set of within-window start
+        # intervals with the single cohorting interval derived from the entity-polymorphic first-time anchor.
+        # Mirrors the wrapping that build_base_query_legacy applies (lines below in this class).
+        if query_kind == "start" and (self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence):
+            start_event_timestamps_expr = self._first_time_start_event_timestamps_expr(entity)
 
         table_name = entity.table_name if entity_is_dwh else "events"
         assert table_name
@@ -273,11 +397,45 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                 ]
             )
 
+        group_by_fields: list[ast.Expr] = [ast.Field(chain=["actor_id"])]
+
+        breakdown_extract = self.breakdown_extract_expr_for_query()
+        if breakdown_extract is not None:
+            select_fields.append(
+                ast.Alias(
+                    alias="breakdown_value",
+                    expr=self._dwh_breakdown_value_arm_expr(entity, breakdown_extract, timestamp_field, query_kind),
+                )
+            )
+            # Recurring / first-time-matching mirrors the legacy per-value cohort
+            # semantics: grouping each arm by breakdown_value filters its start and
+            # return aggregations to events carrying that value. First-ever resolves a
+            # single per-actor value (argMinIf), so it stays grouped by actor_id only.
+            if not self.is_first_ever_occurrence:
+                group_by_fields.append(ast.Field(chain=["breakdown_value"]))
+
         return ast.SelectQuery(
             select=select_fields,
             select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
             where=where_expr,
-            group_by=[ast.Field(chain=["actor_id"])],
+            group_by=group_by_fields,
+        )
+
+    def _first_time_start_event_timestamps_expr(self, entity: RetentionEntity) -> ast.Expr:
+        # The variant subquery is already GROUP BY actor_id, so the polymorphic first-time anchor (a minIf)
+        # resolves to one cohorting timestamp per actor. Emit that single bucketed interval when the anchor falls
+        # inside the query window, otherwise nothing. This mirrors the legacy
+        # if(has(_start_event_timestamps, min_timestamp), _start_event_timestamps, []) wrapping: in first-time
+        # mode the only element ever read is start_event_timestamps[1] (the minimum), so a single-element array is
+        # equivalent. A null anchor (first-ever occurrence not matching filters) or an out-of-window anchor both
+        # fail the window check and yield an empty array, excluding the actor.
+        anchor_expr = self.get_first_time_anchor_expr(entity)
+        return parse_expr(
+            "if({within_window}, [{bucketed_anchor}], [])",
+            {
+                "within_window": self.events_timestamp_filter(field=anchor_expr),
+                "bucketed_anchor": self.query_date_range.date_to_start_of_interval_hogql(anchor_expr),
+            },
         )
 
     def _get_dwh_property_aggregation_event_data_expr(
@@ -357,8 +515,20 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
 
         minimum_occurrences_aliases = self._get_minimum_occurrences_aliases(
             minimum_occurrences=self.minimum_occurrences,
-            start_of_interval_sql=start_of_interval_sql,
-            return_entity_expr=self.return_entity_expr,
+            with_dupes_expr=parse_expr(
+                """
+                groupArrayIf(
+                    {start_of_interval_timestamp},
+                    {returning_entity_expr} and
+                    {filter_timestamp}
+                )
+                """,
+                {
+                    "start_of_interval_timestamp": start_of_interval_sql,
+                    "returning_entity_expr": self.return_entity_expr,
+                    "filter_timestamp": self.events_timestamp_filter(),
+                },
+            ),
         )
 
         if self.has_property_aggregation:
@@ -520,33 +690,22 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
 
         return inner_query
 
-    def _get_minimum_occurrences_aliases(
-        self, minimum_occurrences: int, start_of_interval_sql: ast.Expr, return_entity_expr: ast.Expr
-    ) -> list[ast.Alias]:
+    def _get_minimum_occurrences_aliases(self, minimum_occurrences: int, with_dupes_expr: ast.Expr) -> list[ast.Alias]:
         """
         Only include the following expressions when minimum occurrences value is set and greater than one. The query
         with occurrences uses slightly more RAM, what can make some existing queries go over the max memory setting we
         have and having them stop working.
+
+        ``with_dupes_expr`` is the per-actor multiset of return-event interval starts (duplicates retained). The legacy
+        single-query path builds it directly from the events table; the UNION ALL variant flattens the dupes already
+        emitted by its return subquery. The downstream counts-per-interval logic is identical for both.
         """
         if minimum_occurrences == 1:
             return []
 
         return_event_timestamps_with_dupes = ast.Alias(
             alias="return_event_timestamps_with_dupes",
-            expr=parse_expr(
-                """
-                groupArrayIf(
-                    {start_of_interval_timestamp},
-                    {returning_entity_expr} and
-                    {filter_timestamp}
-                )
-                """,
-                {
-                    "start_of_interval_timestamp": start_of_interval_sql,
-                    "returning_entity_expr": return_entity_expr,
-                    "filter_timestamp": self.events_timestamp_filter(),
-                },
-            ),
+            expr=with_dupes_expr,
         )
         return_event_counts_by_interval = ast.Alias(
             alias="return_event_counts_by_interval",
@@ -566,6 +725,55 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             ),
         )
         return [return_event_timestamps_with_dupes, return_event_counts_by_interval]
+
+    def _minimum_occurrences_return_timestamps_expr(self, minimum_occurrences: int) -> ast.Expr:
+        # Keep only the intervals where the actor had at least `minimum_occurrences` return events. Relies on the
+        # date_range and return_event_counts_by_interval aliases (from _get_minimum_occurrences_aliases) being in
+        # scope in the same SELECT.
+        return parse_expr(
+            """
+            arrayFilter(
+                (date, counts) -> counts >= {minimum_occurrences},
+                date_range,
+                return_event_counts_by_interval
+            )
+            """,
+            {"minimum_occurrences": ast.Constant(value=minimum_occurrences)},
+        )
+
+    def _get_dwh_return_timestamps_expr(
+        self,
+        minimum_occurrences: int,
+        start_of_interval_sql: ast.Expr,
+        return_entity_expr: ast.Expr,
+        timestamp_field: ast.Expr | None,
+    ) -> ast.Expr:
+        # The variant's return subquery is already grouped per actor. With a threshold of 1 we emit the deduped set of
+        # return intervals. With a higher threshold we keep duplicates so the outer aggregation can count per-interval
+        # occurrences and drop intervals below the threshold — the per-actor source for the legacy
+        # return_event_timestamps_with_dupes alias.
+        if minimum_occurrences > 1:
+            return parse_expr(
+                """
+                groupArrayIf(
+                    {start_of_interval_sql},
+                    {return_entity_expr} and
+                    {filter_timestamp}
+                )
+                """,
+                {
+                    "start_of_interval_sql": start_of_interval_sql,
+                    "return_entity_expr": return_entity_expr,
+                    "filter_timestamp": self.events_timestamp_filter(field=timestamp_field),
+                },
+            )
+
+        return self._get_return_event_timestamps_expr(
+            minimum_occurrences=1,
+            start_of_interval_sql=start_of_interval_sql,
+            return_entity_expr=return_entity_expr,
+            timestamp_field=timestamp_field,
+        )
 
     def _date_range_alias(self) -> ast.Alias:
         return ast.Alias(
@@ -802,18 +1010,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             )
 
         if minimum_occurrences > 1:
-            # return_event_counts_by_interval is only calculated when minimum_occurrences > 1.
-            # See _get_minimum_occurrences_aliases method.
-            return parse_expr(
-                """
-                arrayFilter(
-                (date, counts) -> counts >= {minimum_occurrences},
-                date_range,
-                return_event_counts_by_interval,
-                )
-                """,
-                {"minimum_occurrences": ast.Constant(value=minimum_occurrences)},
-            )
+            return self._minimum_occurrences_return_timestamps_expr(minimum_occurrences)
 
         return parse_expr(
             """

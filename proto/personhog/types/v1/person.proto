@@ -182,3 +182,83 @@ message DeletePersonsBatchForTeamResponse {
   // Number of persons deleted. 0 means no more persons to delete.
   int64 deleted_count = 1;
 }
+
+// DeletePersonlessDistinctIdsBatchForTeamRequest deletes up to batch_size
+// posthog_personlessdistinctid rows for a team. These rows have no person FK, so
+// they aren't covered by person deletion. Callers should loop until deleted_count is 0.
+message DeletePersonlessDistinctIdsBatchForTeamRequest {
+  int64 team_id = 1;
+  // Max rows to delete per call. Must be > 0 and <= 50000.
+  int64 batch_size = 2;
+}
+
+message DeletePersonlessDistinctIdsBatchForTeamResponse {
+  // Number of rows deleted. 0 means no more rows to delete.
+  int64 deleted_count = 1;
+}
+
+// SplitPersonRequest splits specific distinct_ids off of a person onto new persons.
+// Each distinct_id gets a new person with a deterministic UUID (UUIDv5 from team_id:distinct_id).
+// The operation is atomic per request: all splits succeed or none do.
+// Python resolves which distinct IDs to split before calling this RPC.
+// Limited to 250 distinct_ids per request (server-enforced) to bound row-lock
+// hold time and message size — callers batch larger splits across requests,
+// which is safe because the deterministic UUIDs make each request idempotent.
+message SplitPersonRequest {
+  int64 team_id = 1;
+  int64 person_id = 2;
+  // Distinct IDs to split off. Must all belong to the specified person; duplicates are rejected.
+  repeated string distinct_ids_to_split = 3;
+}
+
+// SplitResult describes a single distinct_id that was split onto a new person.
+message SplitResult {
+  string distinct_id = 1;
+  string new_person_uuid = 2;
+  int64 new_person_version = 3;
+  int64 pdi_version = 4;
+  // Epoch millis. For pre-existing persons (idempotent re-split) this is the
+  // original created_at, not the time of this request — callers publish it
+  // downstream (e.g. to ClickHouse) so it must match the Postgres row.
+  int64 new_person_created_at_ms = 5;
+}
+
+message SplitPersonResponse {
+  // Results are in the same order as distinct_ids_to_split in the request.
+  repeated SplitResult splits = 1;
+}
+
+// SetPersonDistinctIdVersionFloorRequest bumps a person_distinct_id row's version.
+// Used by the undelete repair flow to revive a soft-deleted distinct_id: raising the
+// Postgres version keeps the plugin-server from later emitting a lower version that
+// ClickHouse would ignore. The update is guarded so it never lowers a version: the row
+// is updated only when its stored version is below min_version.
+message SetPersonDistinctIdVersionFloorRequest {
+  int64 team_id = 1;
+  string distinct_id = 2;
+  // Minimum version to set; applied only if the stored version is lower.
+  int64 min_version = 3;
+}
+
+message SetPersonDistinctIdVersionFloorResponse {
+  // The person the distinct_id maps to. Absent when the distinct_id does not exist
+  // (it has not been re-used yet). Present whenever the distinct_id exists, even if the
+  // guard left the version unchanged.
+  optional Person person = 1;
+}
+
+// SetPersonVersionFloorRequest bumps a person's version. Used by the undelete repair
+// flow to revive a soft-deleted person in ClickHouse. The update is guarded so it
+// never lowers a version: the row is updated only when its stored version is below
+// min_version.
+message SetPersonVersionFloorRequest {
+  int64 team_id = 1;
+  int64 person_id = 2;
+  // Minimum version to set; applied only if the stored version is lower.
+  int64 min_version = 3;
+}
+
+message SetPersonVersionFloorResponse {
+  // True if a row was updated (the stored version was below min_version).
+  bool updated = 1;
+}

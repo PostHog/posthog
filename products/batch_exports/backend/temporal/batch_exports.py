@@ -14,7 +14,6 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.models import BatchExport, BatchExportRun
 from posthog.kafka_client.routing import async_producer_scope
 from posthog.kafka_client.topics import KAFKA_APP_METRICS2
 from posthog.models.team.team import Team
@@ -26,6 +25,7 @@ from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportRun
 from products.batch_exports.backend.service import (
     BackfillDetails,
     BatchExportField,
@@ -61,11 +61,11 @@ from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_l
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
-BytesGenerator = collections.abc.Generator[bytes, None, None]
-RecordsGenerator = collections.abc.Generator[pa.RecordBatch, None, None]
+BytesGenerator = collections.abc.Generator[bytes]
+RecordsGenerator = collections.abc.Generator[pa.RecordBatch]
 
-AsyncBytesGenerator = collections.abc.AsyncGenerator[bytes, None]
-AsyncRecordsGenerator = collections.abc.AsyncGenerator[pa.RecordBatch, None]
+AsyncBytesGenerator = collections.abc.AsyncGenerator[bytes]
+AsyncRecordsGenerator = collections.abc.AsyncGenerator[pa.RecordBatch]
 
 
 def _notify_run_failure(batch_export_run_id: str | UUIDT) -> None:

@@ -59,6 +59,8 @@ class AnthropicConfig:
         "claude-haiku-4-5",
     ]
 
+    DEFAULT_MODEL: str = "claude-haiku-4-5"
+
     SUPPORTED_MODELS_WITH_CACHE_CONTROL: list[str] = [
         "claude-opus-4-8",
         "claude-opus-4-7",
@@ -101,14 +103,24 @@ class AnthropicAdapter:
         """Non-streaming completion with optional structured output."""
         effective_api_key = api_key or self._get_default_api_key()
 
+        from products.ai_observability.backend.llm.providers._diagnostics import tagged_http_client
+
         posthog_client = posthoganalytics.default_client
         client: Any
+        http_client = tagged_http_client(timeout=AnthropicConfig.TIMEOUT)
         if analytics.capture and posthog_client:
             client = Anthropic(
-                api_key=effective_api_key, posthog_client=posthog_client, timeout=AnthropicConfig.TIMEOUT
+                api_key=effective_api_key,
+                posthog_client=posthog_client,
+                timeout=AnthropicConfig.TIMEOUT,
+                http_client=http_client,
             )
         else:
-            client = anthropic.Anthropic(api_key=effective_api_key, timeout=AnthropicConfig.TIMEOUT)
+            client = anthropic.Anthropic(
+                api_key=effective_api_key,
+                timeout=AnthropicConfig.TIMEOUT,
+                http_client=http_client,
+            )
 
         messages: Any = request.messages
         system_prompt = request.system or ""
@@ -175,19 +187,29 @@ class AnthropicAdapter:
         api_key: str | None,
         analytics: AnalyticsContext,
         _base_url: str | None = None,
-    ) -> Generator[StreamChunk, None, None]:
+    ) -> Generator[StreamChunk]:
         """Streaming completion."""
         effective_api_key = api_key or self._get_default_api_key()
         model_id = request.model
 
+        from products.ai_observability.backend.llm.providers._diagnostics import tagged_http_client
+
         posthog_client = posthoganalytics.default_client
         client: Any
+        http_client = tagged_http_client(timeout=AnthropicConfig.TIMEOUT)
         if analytics.capture and posthog_client:
             client = Anthropic(
-                api_key=effective_api_key, posthog_client=posthog_client, timeout=AnthropicConfig.TIMEOUT
+                api_key=effective_api_key,
+                posthog_client=posthog_client,
+                timeout=AnthropicConfig.TIMEOUT,
+                http_client=http_client,
             )
         else:
-            client = anthropic.Anthropic(api_key=effective_api_key, timeout=AnthropicConfig.TIMEOUT)
+            client = anthropic.Anthropic(
+                api_key=effective_api_key,
+                timeout=AnthropicConfig.TIMEOUT,
+                http_client=http_client,
+            )
 
         reasoning_on = model_id in AnthropicConfig.SUPPORTED_MODELS_WITH_THINKING and request.thinking
 

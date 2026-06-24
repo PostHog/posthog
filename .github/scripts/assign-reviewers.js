@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 const fs = require('fs')
+const { parse, pathMatchesPattern } = require('./codeowners')
 
 // Tunable knobs for how aggressively we trim the reviewer list. Kept in one
 // place so adjusting noise levels doesn't require re-reading the logic. All
@@ -8,7 +9,7 @@ const fs = require('fs')
 // an owner actually owns in this diff.
 const CONFIG = {
     // Files whose changes are generated or mechanical. They never count toward
-    // ownership matching or footprint — a team gains nothing from reviewing a
+    // ownership matching or footprint. A team gains nothing from reviewing a
     // regenerated client or a lockfile bump.
     excludedPatterns: [
         'frontend/src/generated/**',
@@ -20,6 +21,9 @@ const CONFIG = {
         '**/*.lock',
         '**/*.snap',
         '**/*.ambr',
+        // Regenerated wholesale by `pnpm update-ai-costs` from the OpenRouter API.
+        'nodejs/src/ingestion/ai/costs/providers/canonical-providers.ts',
+        'nodejs/src/ingestion/ai/costs/providers/llm-costs.json',
     ],
     // An owner is formally requested for review only if their footprint clears
     // one of these bars; otherwise they are demoted to the explanation comment
@@ -38,29 +42,9 @@ function parseCodeowners(codeownersPath) {
     if (!fs.existsSync(codeownersPath)) {
         throw new Error(`No CODEOWNERS file found at "${codeownersPath}"`)
     }
-
-    const content = fs.readFileSync(codeownersPath, 'utf8')
-    const rules = []
-
-    for (const line of content.split('\n')) {
-        const trimmed = line.trim()
-
-        if (!trimmed || trimmed.startsWith('#')) {
-            continue
-        }
-
-        const tokens = trimmed.split(/\s+/)
-        if (tokens.length < 2) {
-            continue
-        }
-
-        const pattern = tokens[0]
-        const owners = tokens.slice(1)
-
-        rules.push({ pattern, owners })
-    }
-
-    return rules
+    // Rules with no owner are reset directives that only matter for hard/soft
+    // precedence (see ownership.js); the assigner only cares about owned rules.
+    return parse(fs.readFileSync(codeownersPath, 'utf8')).rules.filter((rule) => rule.owners.length > 0)
 }
 
 // Minimal parser for the `owners:` list in products/<name>/product.yaml.
@@ -73,7 +57,7 @@ function parseOwnersFromProductYaml(content) {
     for (const rawLine of content.split('\n')) {
         const line = rawLine.replace(/\s+#.*$/, '').trimEnd()
 
-        // Skip blank lines and full-line comments — neither should terminate the
+        // Skip blank lines and full-line comments; neither should terminate the
         // owners block. Inline comments are already stripped above; the regex
         // requires preceding whitespace, so we handle column-0 comments here.
         if (!line.trim() || /^\s*#/.test(rawLine)) {
@@ -128,7 +112,7 @@ function loadProductYamlRules(productsDir = 'products') {
 
         const owners = []
         for (const slug of slugs) {
-            // Guard against slugs that already include an `@` prefix — otherwise
+            // Guard against slugs that already include an `@` prefix, otherwise
             // we'd build `@PostHog/@PostHog/team-foo`, which GitHub silently
             // refuses to resolve and reviewer assignment is dropped.
             if (!slug || slug === 'team-CHANGEME' || slug.startsWith('@')) {
@@ -147,23 +131,17 @@ function loadProductYamlRules(productsDir = 'products') {
     return rules
 }
 
-function globToRegex(pattern) {
-    let regex = pattern
-        .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-        .replace(/\*\*/g, '__DOUBLESTAR__')
-        .replace(/\*/g, '[^/]*')
-        .replace(/__DOUBLESTAR__/g, '.*')
-
-    if (pattern.endsWith('/')) {
-        regex = regex.slice(0, -1) + '.*'
-    }
-
-    return new RegExp(`^${regex}$`)
-}
-
+// Glob matching lives in the vendored, GitHub-faithful matcher (./codeowners.js,
+// a JS port of hmarr/codeowners). Thin wrapper so the rest of the assigner reads
+// naturally and the (filePath, pattern) argument order is stable. A malformed
+// pattern (e.g. a `***` typo) degrades to "no match" rather than aborting the
+// whole run, matching how the vendored CodeOwners class treats batch rules.
 function fileMatchesPattern(filePath, pattern) {
-    const regex = globToRegex(pattern)
-    return regex.test(filePath)
+    try {
+        return pathMatchesPattern(pattern, filePath)
+    } catch {
+        return false
+    }
 }
 
 function isExcludedFile(filePath, excludedPatterns = CONFIG.excludedPatterns) {
@@ -207,7 +185,7 @@ async function getChangedFiles() {
         for (const file of data.files || []) {
             allFiles.push({
                 filename: file.filename,
-                // Binary files and pure renames report null counts — treat as 0.
+                // Binary files and pure renames report null counts; treat as 0.
                 additions: file.additions || 0,
                 deletions: file.deletions || 0,
             })
@@ -217,6 +195,25 @@ async function getChangedFiles() {
     }
 
     return allFiles
+}
+
+// On external PRs these teams are labelled instead of requested as reviewers, so
+// the team is surfaced without being pulled into the queue before triage. Names
+// are the part after `@PostHog/`.
+const LABEL_ONLY_TEAMS_FOR_EXTERNAL = new Set(['team-product-analytics'])
+
+// `team-product-analytics` -> `team/product-analytics`; null for non-team owners.
+function teamSlugToLabel(name) {
+    if (!name || !name.startsWith('team-')) {
+        return null
+    }
+    return name.replace(/^team-/, 'team/')
+}
+
+function partitionExternalTeams(teams) {
+    const toLabel = teams.filter((name) => LABEL_ONLY_TEAMS_FOR_EXTERNAL.has(name))
+    const toRequest = teams.filter((name) => !LABEL_ONLY_TEAMS_FOR_EXTERNAL.has(name))
+    return { toLabel, toRequest }
 }
 
 // Resolve a raw CODEOWNERS owner token to a kind we can act on, or null if it's
@@ -233,7 +230,7 @@ function classifyOwner(owner) {
 
 // Build a footprint per owner: which rule patterns matched, which (non-excluded)
 // files they own in this diff, and the total lines changed across those files.
-// Pure function — takes already-fetched files so it's trivially testable.
+// Pure function; takes already-fetched files so it's trivially testable.
 function computeOwnerFootprints(rules, changedFiles, config = CONFIG) {
     const relevantFiles = changedFiles.filter((file) => !isExcludedFile(file.filename, config.excludedPatterns))
     const footprints = new Map()
@@ -343,18 +340,18 @@ function formatPatterns(patterns, max = 3) {
     return shown.join(', ')
 }
 
-// Owners are rendered as inline code so the comment is informational and
-// doesn't fire a round of @-mention notifications. The matched rule is the only
-// locator worth showing — it tells the owner which area pulled them in. Raw
-// file/line counts are intentionally omitted: without the actual file list (too
-// long to include) a bare "10 files" tells the reader nothing actionable.
+// One bullet per skipped owner: the owner (inline code so it doesn't fire an
+// @-mention) followed by the matched rule, the one locator worth showing since
+// it tells the owner which area pulled them in. Raw file/line counts are
+// omitted: without the actual file list (too long to include) a bare "10 files"
+// tells the reader nothing actionable.
 function formatSkippedOwner(footprint) {
-    return `\`${footprint.owner}\` (${formatPatterns(footprint.patterns, 2)})`
+    return `- \`${footprint.owner}\` (${formatPatterns(footprint.patterns, 2)})`
 }
 
 // Produce the explanation comment body, or null if no owner was dropped. We
 // only post when we actually skipped someone GitHub's "Reviewers" sidebar would
-// otherwise have hidden — so the comment carries signal, not noise.
+// otherwise have hidden, so the comment carries signal, not noise.
 function buildReviewerComment(requested, demoted, config = CONFIG) {
     if (demoted.length === 0) {
         return null
@@ -363,17 +360,19 @@ function buildReviewerComment(requested, demoted, config = CONFIG) {
     const allMinor = demoted.every((f) => f.reason === 'minor')
     const reason = allMinor
         ? 'they only have minor changes here'
-        : 'their changes are minor or the reviewer list was getting long'
+        : 'their changes are minor, or the reviewer list was getting long'
 
     return [
         config.commentMarker,
-        '### 👥 Auto-assigned reviewers',
+        '### 👀 Auto-assigned reviewers',
         '',
-        `Skipped a review request for ${demoted.map(formatSkippedOwner).join(', ')} because ${reason}. ` +
-            'These are soft owners ' +
-            '([`CODEOWNERS-soft`](https://github.com/PostHog/posthog/blob/master/.github/CODEOWNERS-soft) / ' +
-            "each product's `product.yaml`), so nothing blocks merge — self-assign if you'd like a look. " +
-            '(Generated files and lockfiles are ignored when deciding ownership.)',
+        `These soft owners were skipped because ${reason}. Nothing blocks merge, so self-assign if you'd like a look:`,
+        '',
+        ...demoted.map(formatSkippedOwner),
+        '',
+        'Soft owners come from ' +
+            '[`CODEOWNERS-soft`](https://github.com/PostHog/posthog/blob/master/.github/CODEOWNERS-soft) ' +
+            "and each product's `product.yaml`. Generated files and lockfiles are ignored when deciding ownership.",
     ].join('\n')
 }
 
@@ -411,7 +410,7 @@ async function assignReviewers(teams, users) {
     const response = await post(payload)
 
     // GitHub returns 422 for the whole batch if *any* requested team isn't a
-    // collaborator on the repo (teams get renamed, deleted, or never set up —
+    // collaborator on the repo (teams get renamed, deleted, or never set up,
     // CODEOWNERS-soft and product.yaml drift). Salvage by retrying users +
     // each team independently so valid entries still land, and log the bad
     // slugs so they're visible in the action log as cleanup nudges.
@@ -456,6 +455,39 @@ async function assignReviewers(teams, users) {
     console.info('✅ Reviewers assigned successfully')
 }
 
+// Best-effort: a label failure must never fail the job.
+async function applyTeamLabels(labels) {
+    const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER } = process.env
+
+    if (labels.length === 0) {
+        console.info('ℹ️  No team labels to apply')
+        return
+    }
+
+    console.info(`Applying team labels: ${labels.join(', ')}`)
+
+    try {
+        const response = await fetch(`https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/labels`, {
+            method: 'POST',
+            headers: {
+                Authorization: `token ${GITHUB_TOKEN}`,
+                Accept: 'application/vnd.github.v3+json',
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ labels }),
+        })
+
+        if (!response.ok) {
+            console.warn(`⚠️  Could not apply team labels: ${response.status} ${response.statusText}`)
+            return
+        }
+
+        console.info('✅ Team labels applied')
+    } catch (error) {
+        console.warn(`⚠️  Skipping team labels: ${error.message}`)
+    }
+}
+
 async function findExistingComment(marker) {
     const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER } = process.env
     let url = `https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments?per_page=100`
@@ -483,7 +515,7 @@ async function findExistingComment(marker) {
     return null
 }
 
-// Best-effort: posts/updates the explanation comment. Never throws — the
+// Best-effort: posts/updates the explanation comment. Never throws, since the
 // reviewer assignment is the critical path and must not fail because the app
 // token lacks `issues: write` or the comments API hiccups.
 async function upsertReviewerComment(body) {
@@ -561,12 +593,22 @@ async function main() {
         const teams = requested.filter((f) => f.type === 'team').map((f) => f.name)
         const users = requested.filter((f) => f.type === 'user').map((f) => f.name)
 
-        console.info(`Teams to request: ${teams.join(', ') || 'none'}`)
+        // Forks come from external contributors (no write access for same-repo branches).
+        const isExternal = process.env.IS_FORK === 'true'
+
+        console.info(`External (fork) PR: ${isExternal}`)
+        console.info(`Teams matched: ${teams.join(', ') || 'none'}`)
         console.info(`Users to request: ${users.join(', ') || 'none'}`)
         console.info(`Demoted to comment: ${demoted.map((f) => f.owner).join(', ') || 'none'}`)
         console.info()
 
-        await assignReviewers(teams, users)
+        if (!isExternal) {
+            await assignReviewers(teams, users)
+        } else {
+            const { toLabel, toRequest } = partitionExternalTeams(teams)
+            await applyTeamLabels(toLabel.map(teamSlugToLabel).filter(Boolean))
+            await assignReviewers(toRequest, users)
+        }
 
         const commentBody = buildReviewerComment(requested, demoted)
         if (commentBody) {
@@ -586,6 +628,8 @@ module.exports = {
     CONFIG,
     isExcludedFile,
     classifyOwner,
+    teamSlugToLabel,
+    partitionExternalTeams,
     computeOwnerFootprints,
     isSubstantive,
     classifyOwners,

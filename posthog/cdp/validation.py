@@ -1,3 +1,4 @@
+import re
 import json
 import logging
 from typing import Any, Optional
@@ -36,6 +37,8 @@ def register_supported_function(name: str) -> None:
 
 register_supported_function("postHogGetTicket")
 register_supported_function("postHogUpdateTicket")
+register_supported_function("postHogGetAccount")
+register_supported_function("postHogUpdateAccount")
 
 
 # Globals that the realtime transformer actually populates at runtime.
@@ -221,6 +224,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "posthog_assignee",
             "posthog_ticket_tags",
             "posthog_business_hours",
+            "non_failure_status_codes",
         ]
     )
     key = serializers.CharField()
@@ -312,6 +316,20 @@ class InputsItemSerializer(serializers.Serializer):
 
             if not value.get("text") and not value.get("html"):
                 raise serializers.ValidationError({"input": f"Either 'text' or 'html' is required."})
+        elif item_type == "non_failure_status_codes":
+            if not isinstance(value, list):
+                raise serializers.ValidationError({"input": "Value must be a list of status codes."})
+            for entry in value:
+                if isinstance(entry, bool) or not isinstance(entry, int | str):
+                    raise serializers.ValidationError(
+                        {"input": "Entries must be integers between 400 and 599 or wildcards '4xx' or '5xx'."}
+                    )
+                if isinstance(entry, int):
+                    if not (400 <= entry <= 599):
+                        raise serializers.ValidationError({"input": "Status code numbers must be between 400 and 599."})
+                else:
+                    if not re.fullmatch(r"[4-5]xx", entry, re.IGNORECASE):
+                        raise serializers.ValidationError({"input": "Wildcards must be '4xx' or '5xx'."})
 
         try:
             if value and schema.get("templating", True):
@@ -328,6 +346,7 @@ class InputsItemSerializer(serializers.Serializer):
                         "json",
                         "email",
                         "native_email",
+                        "posthog_ticket_tags",
                     ] or (item_type == "boolean" and isinstance(value, str))
                     if value_is_transpiled:
                         if item_type in ("email", "native_email") and isinstance(value, dict):

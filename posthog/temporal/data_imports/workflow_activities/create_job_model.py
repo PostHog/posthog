@@ -23,7 +23,7 @@ from products.warehouse_sources.backend.models.external_data_source import Exter
 WAREHOUSE_PIPELINES_V3_FLAG = "warehouse-pipelines-v3"
 
 
-def _is_pipeline_v3_enabled(team_id: int, source_type: str) -> bool:
+def is_pipeline_v3_enabled(team_id: int, source_type: str) -> bool:
     try:
         team = Team.objects.only("uuid", "organization_id").get(id=team_id)
     except Team.DoesNotExist:
@@ -78,6 +78,7 @@ class CreateExternalDataJobModelActivityInputs:
     schema_id: uuid.UUID
     source_id: uuid.UUID
     billable: bool
+    is_v3: bool = False
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -98,6 +99,9 @@ class CreateExternalDataJobModelActivityOutputs:
     # ISO timestamp of when the previous sync completed, used to detect new records
     last_synced_at: str | None = None
     emit_signals_enabled: bool = False
+    # True when semantic enrichment should run (feature flag on AND AI data processing approved), so the
+    # workflow can skip starting the enrichment child entirely instead of spawning a no-op.
+    enrichment_enabled: bool = False
 
 
 @activity.defn
@@ -124,7 +128,7 @@ def create_external_data_job_model_activity(
         source: ExternalDataSource = schema.source
 
         pipeline_version = ExternalDataJob.PipelineVersion.V2
-        if _is_pipeline_v3_enabled(inputs.team_id, source.source_type):
+        if inputs.is_v3:
             pipeline_version = ExternalDataJob.PipelineVersion.V3
 
         job = ExternalDataJob.objects.create(
@@ -144,24 +148,35 @@ def create_external_data_job_model_activity(
             f"Created external data job for external data source {inputs.source_id}",
         )
 
+        # Both downstream gates (signals + semantic enrichment) need the team and its AI-processing consent.
+        team = (
+            Team.objects.filter(id=inputs.team_id)
+            .select_related("organization")
+            .only("uuid", "organization_id", "organization__is_ai_data_processing_approved")
+            .first()
+        )
+        ai_data_processing_approved = team is not None and team.organization.is_ai_data_processing_approved is True
+
         # Check if signals should be emitted: AI consent + SignalSourceConfig enabled for this source
         signal_identity = get_signal_source_identity(source.source_type, schema.name)
         emit_signals_enabled = False
-        if signal_identity is not None:
+        if signal_identity is not None and ai_data_processing_approved:
             signal_source_product, signal_source_type = signal_identity
-            team = (
-                Team.objects.filter(id=inputs.team_id)
-                .select_related("organization")
-                .only("organization__is_ai_data_processing_approved")
-                .first()
-            )
-            if team is not None and team.organization.is_ai_data_processing_approved is True:
-                emit_signals_enabled = SignalSourceConfig.objects.filter(
-                    team_id=inputs.team_id,
-                    source_product=signal_source_product,
-                    source_type=signal_source_type,
-                    enabled=True,
-                ).exists()
+            emit_signals_enabled = SignalSourceConfig.objects.filter(
+                team_id=inputs.team_id,
+                source_product=signal_source_product,
+                source_type=signal_source_type,
+                enabled=True,
+            ).exists()
+
+        # Semantic enrichment runs only when its flag is on AND AI data processing is approved — let the
+        # workflow skip the child entirely rather than spawn one that immediately no-ops.
+        # Lazy import: enrich_table_semantics is a workflow module; keep it off this activity's import path.
+        from posthog.temporal.data_imports.workflow_activities.enrich_table_semantics import (  # noqa: PLC0415
+            enrichment_enabled,
+        )
+
+        enrichment_should_run = bool(ai_data_processing_approved and team is not None and enrichment_enabled(team))
 
         return CreateExternalDataJobModelActivityOutputs(
             job_id=str(job.id),
@@ -170,6 +185,7 @@ def create_external_data_job_model_activity(
             schema_name=schema.name,
             last_synced_at=schema.last_synced_at.isoformat() if schema.last_synced_at else None,
             emit_signals_enabled=emit_signals_enabled,
+            enrichment_enabled=enrichment_should_run,
         )
     except Exception as e:
         logger.exception(

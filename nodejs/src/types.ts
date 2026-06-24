@@ -3,7 +3,15 @@ import { Redis } from 'ioredis'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
+import { GroupTypeManager } from '~/common/groups/group-type-manager'
+import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
+import { PersonRepository } from '~/common/persons/repositories/person-repository'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
+import type { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import type { ErrorTrackingConsumerConfig } from '~/ingestion/pipelines/errortracking/config'
+import type { MetricsIngestionConsumerConfig } from '~/ingestion/pipelines/metrics/config'
+import type { SessionRecordingApiConfig, SessionRecordingConfig } from '~/ingestion/pipelines/sessionreplay/config'
+import type { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from '~/logs/config'
 import { Element, PluginEvent, Properties } from '~/plugin-scaffold'
 
 import type { AIObservabilityConfig } from './ai-observability/config'
@@ -18,18 +26,10 @@ import { IntegrationManagerService } from './cdp/services/managers/integration-m
 import { EncryptedFields } from './cdp/utils/encryption-utils'
 import type { CommonConfig } from './common/config'
 import type { IngestionConsumerConfig } from './ingestion/config'
-import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
-import type { ErrorTrackingConsumerConfig } from './ingestion/error-tracking/config'
-import type { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from './logs-ingestion/config'
-import type { MetricsIngestionConsumerConfig } from './metrics-ingestion/config'
-import type { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
 import { PostgresRouter } from './utils/db/postgres'
 import { GeoIPService } from './utils/geoip'
 import { PubSub } from './utils/pubsub'
 import { TeamManager } from './utils/team-manager'
-import { GroupTypeManager } from './worker/ingestion/group-type-manager'
-import { GroupRepository } from './worker/ingestion/groups/repositories/group-repository.interface'
-import { PersonRepository } from './worker/ingestion/persons/repositories/person-repository'
 
 export type { Element } from '~/plugin-scaffold' // Re-export Element from scaffolding, for backwards compat.
 
@@ -46,10 +46,10 @@ export type {
     PersonBatchWritingDbWriteMode,
     PersonBatchWritingMode,
 } from './ingestion/config'
-export type { ErrorTrackingConsumerConfig } from './ingestion/error-tracking/config'
-export type { LogsIngestionConsumerConfig } from './logs-ingestion/config'
-export type { MetricsIngestionConsumerConfig } from './metrics-ingestion/config'
-export type { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
+export type { ErrorTrackingConsumerConfig } from '~/ingestion/pipelines/errortracking/config'
+export type { LogsIngestionConsumerConfig } from '~/logs/config'
+export type { MetricsIngestionConsumerConfig } from '~/ingestion/pipelines/metrics/config'
+export type { SessionRecordingApiConfig, SessionRecordingConfig } from '~/ingestion/pipelines/sessionreplay/config'
 
 interface HealthCheckResultResponse {
     service: string
@@ -167,6 +167,7 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
     cdpCyclotronWorkerHogFlowLegacyPg?: boolean
+    cdpCyclotronWorkerEmail?: boolean
     cdpPrecalculatedFilters?: boolean
     cdpCohortMembership?: boolean
     cdpApi?: boolean
@@ -175,6 +176,7 @@ export interface PluginServerCapabilities {
     cdpCyclotronV2Janitor?: boolean
     cdpRerunWorker?: boolean
     cdpHogflowScheduler?: boolean
+    cdpHogflowSubscriptionMatcher?: boolean
     recordingApi?: boolean
     ingestionV2Testing?: boolean
 }
@@ -853,6 +855,7 @@ export interface EventPropertyType {
 }
 
 export type GroupTypeToColumnIndex = Record<string, GroupTypeIndex>
+export type GroupTypesByProjectId = Record<ProjectId, GroupTypeToColumnIndex>
 
 export enum PropertyUpdateOperation {
     Set = 'set',

@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -32,6 +33,7 @@ class PlainSource(SimpleSource[PlainSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.PLAIN,
+            category=DataWarehouseSourceCategory.CUSTOMER_SUPPORT,
             label="Plain",
             releaseStatus=ReleaseStatus.ALPHA,
             featureFlag="dwh_plain",

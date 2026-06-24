@@ -19,6 +19,7 @@ import os
 import re
 import logging
 from typing import TYPE_CHECKING, TypedDict
+from uuid import UUID
 
 import duckdb
 import psycopg
@@ -235,6 +236,55 @@ def get_duckgres_server_for_organization(organization_id: str) -> DuckgresServer
         return DuckgresServer.objects.get(organization_id=organization_id)
     except DuckgresServer.DoesNotExist:
         return None
+
+
+def upsert_duckgres_server_for_org(
+    organization_id: str | UUID,
+    *,
+    host: str,
+    port: int,
+    database: str,
+    username: str,
+    password: str,
+    bucket: str | None = None,
+    bucket_region: str | None = None,
+) -> DuckgresServer:
+    """Create or update the org's DuckgresServer connection row.
+
+    Called at managed-warehouse provision time so the org is immediately backfill-ready:
+    the Dagster duckling backfill resolves both its connection and its S3 bucket from this
+    row. Idempotent — re-provisioning updates the existing row. The bucket is persisted here
+    so the backfill reads the authoritative name rather than re-deriving it at read time.
+    """
+    from posthog.ducklake.models import DuckgresServer
+
+    defaults: dict[str, object] = {
+        "host": host,
+        "port": port,
+        "database": database,
+        "username": username,
+        "password": password,
+    }
+    if bucket is not None:
+        defaults["bucket"] = bucket
+    if bucket_region is not None:
+        defaults["bucket_region"] = bucket_region
+
+    server, _ = DuckgresServer.objects.update_or_create(
+        organization_id=organization_id,
+        defaults=defaults,
+    )
+    return server
+
+
+# Managed-warehouse S3 bucket naming. The duckgres control plane is the single owner of
+# the per-org bucket name: it names the bucket, pins it on the Duckling CR's
+# spec.dataStore.bucketName, and returns it from the provision / warehouse-status API.
+# Production code reads it from there (persisted on DuckgresServer.bucket, self-healed from
+# warehouse status) — it is never re-derived, because a local re-derivation drifted from the
+# Crossplane composition (UUID hyphen-compaction + the mw- env suffix) and named buckets
+# that don't exist. The region is fixed for the single managed-warehouse deployment.
+DUCKGRES_BUCKET_REGION = "us-east-1"
 
 
 def get_duckgres_server_for_team(team_id: int) -> DuckgresServer | None:

@@ -16,6 +16,7 @@ from products.posthog_ai.scripts.build_skills import (
     SkillBuilder,
     SkillDiscoverer,
     SkillRenderer,
+    _check_tool_references,
     parse_frontmatter,
     validate_frontmatter,
 )
@@ -626,3 +627,86 @@ def test_init_skill_rejects_missing_product(tmp_path: Path) -> None:
     builder = SkillBuilder(repo_root=tmp_path, products_dir=tmp_path / "products", output_dir=tmp_path / "output")
     with pytest.raises(FileNotFoundError, match="does not exist"):
         builder.init_skill("nonexistent_product", "some-skill")
+
+
+_REF_TOOLS = {
+    "execute-sql",
+    "experiment-ship-variant",
+    "feature-flag-get-all",
+    "external-data-schemas-partial-update",
+    "read-data-schema",
+    "signals-scout-runs-list",
+    "signals-scout-emit-signal",
+}
+_REF_SKILLS = {"finding-experiments", "creating-experiments"}
+
+
+@pytest.mark.parametrize(
+    "text,expected_names",
+    [
+        ("search flags with the feature-flags-get-all tool first", ["feature-flags-get-all"]),
+        ("load the finding-experiment skill first", ["finding-experiment"]),
+        ("use the launch, end, or ship_variant tools instead", ["ship_variant"]),
+        ("`execute_sql`: query the experiments table", ["execute_sql"]),
+        ("use the `execute_sql` tool", ["execute_sql"]),
+        ("Use the `experiment_results_summary` tool", []),
+        ("load the `managing-unicorns` skill first", []),
+        ("query it via `does-not-exist-here`", []),
+        ('fetch the entity via `read_data("experiments", id)`', []),
+        ("use the read-data-schema tool to discover events", []),
+        ("change the sync type with the `partial-update` tool", []),
+        ("browse with the feature-flag tools", []),
+        ("this is a per-file tool for editing", []),
+        ("rank by the highest-error tool first", []),
+        ("Deep-dive skills are useful here", []),
+        ("teams enrolled via the `signals-scout` feature flag", []),
+        ("load the finding-experiments skill first", []),
+        ("resolve the reference via `creating-experiments`", []),
+        ('check `get_feature_flag("key", distinct_id)` in the SDK', []),
+        ('then `emit_signal("anomaly", ...)` from the SDK', []),
+    ],
+    ids=[
+        "renamed-tool-near-miss",
+        "renamed-skill-near-miss",
+        "snake-case-in-plural-phrase",
+        "wrong-casing",
+        "one-finding-when-phrase-and-casing-rules-overlap",
+        "fictional-backticked-tool-no-resemblance",
+        "fictional-backticked-skill-no-resemblance",
+        "fictional-invocation-no-resemblance",
+        "sdk-call-syntax-no-resemblance",
+        "exact-tool-name",
+        "suffix-shorthand",
+        "plural-family-reference",
+        "bare-prose-adjective-per-file",
+        "bare-prose-adjective-highest-error",
+        "capitalized-prose-no-mid-word-match",
+        "entity-noun-after-backticks",
+        "existing-skill",
+        "skill-name-in-invocation-context",
+        "sdk-call-distinct-name",
+        "sdk-call-colliding-with-tool-suffix",
+    ],
+)
+def test_check_tool_references(text: str, expected_names: list[str]) -> None:
+    findings = _check_tool_references(text, "test", _REF_TOOLS, _REF_SKILLS)
+    assert [f.name for f in findings] == expected_names
+
+
+@pytest.mark.parametrize(
+    "text,expected_suggestion",
+    [
+        ("use the launch or ship_variant tools instead", "did you mean experiment-ship-variant"),
+        ("search flags with the feature-flags-get-all tool first", "did you mean feature-flag-get-all"),
+    ],
+)
+def test_check_tool_references_suggests_real_tool(text: str, expected_suggestion: str) -> None:
+    (finding,) = _check_tool_references(text, "test", _REF_TOOLS, _REF_SKILLS)
+    assert expected_suggestion in finding.message
+
+
+def test_check_tool_references_reports_line_and_column() -> None:
+    text = "intro line\nsearch with the feature-flags-get-all tool here\n"
+    (finding,) = _check_tool_references(text, "skill.md", _REF_TOOLS, _REF_SKILLS)
+    assert (finding.line, finding.col) == (2, 17)
+    assert finding.name == "feature-flags-get-all"

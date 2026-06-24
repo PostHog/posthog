@@ -13,6 +13,9 @@ import type {
     GitHubReposRefreshResponseApi,
     GitHubReposResponseApi,
     GitHubTeamsResponseApi,
+    GoogleSearchConsoleSitesResponseApi,
+    IntegrationAccessRequestApi,
+    IntegrationAccessRequestResponseApi,
     IntegrationConfigApi,
     IntegrationsChannelsRetrieveParams,
     IntegrationsGithubBranchesRetrieveParams,
@@ -22,7 +25,6 @@ import type {
     OrganizationIntegrationApi,
     PaginatedIntegrationConfigListApi,
     PaginatedRoleExternalReferenceListApi,
-    PaginatedUserGitHubIntegrationListResponseListApi,
     PatchedIntegrationConfigApi,
     PatchedOrganizationIntegrationApi,
     RoleExternalReferenceApi,
@@ -30,11 +32,6 @@ import type {
     RoleExternalReferencesLookupRetrieveParams,
     RoleLookupResponseApi,
     SlackChannelsResponseApi,
-    UserGitHubLinkStartRequestApi,
-    UserGitHubLinkStartResponseApi,
-    UsersIntegrationsGithubBranchesRetrieveParams,
-    UsersIntegrationsGithubReposRetrieveParams,
-    UsersIntegrationsListParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -60,13 +57,13 @@ export const getIntegrationsEnvironmentMappingPartialUpdateUrl = (organizationId
 
 /**
  * ViewSet for organization-level integrations.
-
-Provides access to integrations that are scoped to the entire organization
-(vs. project-level integrations). Examples include Vercel, AWS Marketplace, etc.
-
-Creation is handled by the integration installation flows
-(e.g., Vercel marketplace installation). Users can disconnect integrations
-via the DELETE endpoint.
+ *
+ * Provides access to integrations that are scoped to the entire organization
+ * (vs. project-level integrations). Examples include Vercel, AWS Marketplace, etc.
+ *
+ * Creation is handled by the integration installation flows
+ * (e.g., Vercel marketplace installation). Users can disconnect integrations
+ * via the DELETE endpoint.
  */
 export const integrationsEnvironmentMappingPartialUpdate = async (
     organizationId: string,
@@ -90,7 +87,7 @@ export const getRoleExternalReferencesListUrl = (organizationId: string, params?
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -152,7 +149,7 @@ export const getRoleExternalReferencesLookupRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -179,7 +176,7 @@ export const getIntegrationsListUrl = (projectId: string, params?: IntegrationsL
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -298,7 +295,7 @@ export const getIntegrationsChannelsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -411,7 +408,7 @@ export const getIntegrationsGithubBranchesRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -443,7 +440,7 @@ export const getIntegrationsGithubReposRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -490,7 +487,7 @@ export const getIntegrationsGithubTeamsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -541,6 +538,27 @@ export const integrationsGoogleConversionActionsRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getIntegrationsGoogleSearchConsoleSitesRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/google_search_console_sites/`
+}
+
+/**
+ * List the Search Console properties the connected Google account has access to.
+ */
+export const integrationsGoogleSearchConsoleSitesRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<GoogleSearchConsoleSitesResponseApi> => {
+    return apiMutator<GoogleSearchConsoleSitesResponseApi>(
+        getIntegrationsGoogleSearchConsoleSitesRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getIntegrationsJiraProjectsRetrieveUrl = (projectId: string, id: number) => {
@@ -635,10 +653,10 @@ export const getIntegrationsDomainConnectApplyUrlCreateUrl = (projectId: string)
 
 /**
  * Unified endpoint for generating Domain Connect apply URLs.
-
-Accepts a context ("email" or "proxy") and the relevant resource ID.
-The backend resolves the domain, template variables, and service ID
-based on context, then builds the signed apply URL.
+ *
+ * Accepts a context ("email" or "proxy") and the relevant resource ID.
+ * The backend resolves the domain, template variables, and service ID
+ * based on context, then builds the signed apply URL.
  */
 export const integrationsDomainConnectApplyUrlCreate = async (
     projectId: string,
@@ -707,191 +725,22 @@ export const integrationsGithubOauthAuthorizeCreate = async (
     })
 }
 
-export const getUsersIntegrationsListUrl = (uuid: string, params?: UsersIntegrationsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/users/${uuid}/integrations/?${stringifiedParams}`
-        : `/api/users/${uuid}/integrations/`
+export const getIntegrationsRequestAccessCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/integrations/request_access/`
 }
 
 /**
- * `/api/users/@me/integrations/` — manage the user's personal GitHub integrations.
- * @summary List personal GitHub integrations
+ * Notify project admins that a member is requesting an integration be connected.
  */
-export const usersIntegrationsList = async (
-    uuid: string,
-    params?: UsersIntegrationsListParams,
+export const integrationsRequestAccessCreate = async (
+    projectId: string,
+    integrationAccessRequestApi: IntegrationAccessRequestApi,
     options?: RequestInit
-): Promise<PaginatedUserGitHubIntegrationListResponseListApi> => {
-    return apiMutator<PaginatedUserGitHubIntegrationListResponseListApi>(getUsersIntegrationsListUrl(uuid, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getUsersIntegrationsGithubDestroyUrl = (uuid: string, installationId: string) => {
-    return `/api/users/${uuid}/integrations/github/${installationId}/`
-}
-
-/**
- * Remove a specific GitHub installation by its installation_id.
- * @summary Disconnect a personal GitHub integration
- */
-export const usersIntegrationsGithubDestroy = async (
-    uuid: string,
-    installationId: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getUsersIntegrationsGithubDestroyUrl(uuid, installationId), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getUsersIntegrationsGithubBranchesRetrieveUrl = (
-    uuid: string,
-    installationId: string,
-    params: UsersIntegrationsGithubBranchesRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/users/${uuid}/integrations/github/${installationId}/branches/?${stringifiedParams}`
-        : `/api/users/${uuid}/integrations/github/${installationId}/branches/`
-}
-
-/**
- * List branches for a repository accessible to a personal GitHub installation.
- * @summary List branches for a personal GitHub installation repository
- */
-export const usersIntegrationsGithubBranchesRetrieve = async (
-    uuid: string,
-    installationId: string,
-    params: UsersIntegrationsGithubBranchesRetrieveParams,
-    options?: RequestInit
-): Promise<GitHubBranchesResponseApi> => {
-    return apiMutator<GitHubBranchesResponseApi>(
-        getUsersIntegrationsGithubBranchesRetrieveUrl(uuid, installationId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-export const getUsersIntegrationsGithubReposRetrieveUrl = (
-    uuid: string,
-    installationId: string,
-    params?: UsersIntegrationsGithubReposRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/users/${uuid}/integrations/github/${installationId}/repos/?${stringifiedParams}`
-        : `/api/users/${uuid}/integrations/github/${installationId}/repos/`
-}
-
-/**
- * List repositories accessible to a specific GitHub installation (paginated, cached).
- * @summary List repositories for a personal GitHub installation
- */
-export const usersIntegrationsGithubReposRetrieve = async (
-    uuid: string,
-    installationId: string,
-    params?: UsersIntegrationsGithubReposRetrieveParams,
-    options?: RequestInit
-): Promise<GitHubReposResponseApi> => {
-    return apiMutator<GitHubReposResponseApi>(
-        getUsersIntegrationsGithubReposRetrieveUrl(uuid, installationId, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-export const getUsersIntegrationsGithubReposRefreshCreateUrl = (uuid: string, installationId: string) => {
-    return `/api/users/${uuid}/integrations/github/${installationId}/repos/refresh/`
-}
-
-/**
- * Refresh repositories accessible to a specific GitHub installation.
- * @summary Refresh repositories for a personal GitHub installation
- */
-export const usersIntegrationsGithubReposRefreshCreate = async (
-    uuid: string,
-    installationId: string,
-    options?: RequestInit
-): Promise<GitHubReposRefreshResponseApi> => {
-    return apiMutator<GitHubReposRefreshResponseApi>(
-        getUsersIntegrationsGithubReposRefreshCreateUrl(uuid, installationId),
-        {
-            ...options,
-            method: 'POST',
-        }
-    )
-}
-
-export const getUsersIntegrationsGithubStartCreateUrl = (uuid: string) => {
-    return `/api/users/${uuid}/integrations/github/start/`
-}
-
-/**
- * Start GitHub linking: either full App install or OAuth-only (user-to-server).
-
-``**_kwargs`` absorbs ``parent_lookup_uuid`` from the nested
-``/api/users/{uuid}/integrations/`` router (same pattern as ``local_evaluation``
-under projects).
-
-Usually returns ``install_url`` pointing at ``/installations/new`` so the
-user can pick any GitHub org (new or already connected).  GitHub's install
-page handles both cases: orgs where the app is installed show "Configure"
-(no admin needed), orgs where it isn't show "Install" (needs admin).
-
-**OAuth fast path:** when the current project already has a team-level
-GitHub installation, and the user has no ``UserIntegration`` for that
-installation yet, we skip the org picker and redirect straight to
-``/login/oauth/authorize`` so the user only authorizes themselves.
-``connect_from`` is preserved for first-party clients so they return to
-the originating client immediately.
-
-In both cases the response key is ``install_url`` for compatibility with callers.
- * @summary Start GitHub personal integration linking
- */
-export const usersIntegrationsGithubStartCreate = async (
-    uuid: string,
-    userGitHubLinkStartRequestApi?: UserGitHubLinkStartRequestApi,
-    options?: RequestInit
-): Promise<UserGitHubLinkStartResponseApi> => {
-    return apiMutator<UserGitHubLinkStartResponseApi>(getUsersIntegrationsGithubStartCreateUrl(uuid), {
+): Promise<IntegrationAccessRequestResponseApi> => {
+    return apiMutator<IntegrationAccessRequestResponseApi>(getIntegrationsRequestAccessCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(userGitHubLinkStartRequestApi),
+        body: JSON.stringify(integrationAccessRequestApi),
     })
 }

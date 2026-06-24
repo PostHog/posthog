@@ -12,8 +12,8 @@ import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { accessLevelSatisfied, getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
 import {
     InsightErrorState,
@@ -42,7 +42,7 @@ import {
 } from '~/types'
 
 import { DashboardResizeHandles } from '../handles'
-import { EditModeEdgeOverlay } from './EditModeEdgeOverlay'
+import { EditModeEdge, EditModeEdgeOverlay } from './EditModeEdgeOverlay'
 import { InsightMeta } from './InsightMeta'
 
 const IS_STORYBOOK = inStorybook() || inStorybookTestRunner()
@@ -76,7 +76,6 @@ export interface InsightCardProps extends Resizeable {
     removeFromDashboard?: () => void
     deleteWithUndo?: () => Promise<void>
     refresh?: () => void
-    refreshEnabled?: boolean
     rename?: () => void
     duplicate?: () => void
     setOverride?: () => void
@@ -106,7 +105,7 @@ export interface InsightCardProps extends Resizeable {
     /** Whether hovering near the card edge should hint that edit mode is available. */
     canEnterEditModeFromEdge?: boolean
     /** Called when the user clicks an edge hint to enter edit mode. */
-    onEnterEditModeFromEdge?: () => void
+    onEnterEditModeFromEdge?: (event: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge) => void
     /** Called when the user mousedowns on the card (drag handle) in view mode to enter edit mode. */
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
 }
@@ -131,7 +130,6 @@ function InsightCardInternal(
         removeFromDashboard,
         deleteWithUndo,
         refresh,
-        refreshEnabled,
         rename,
         duplicate,
         setOverride,
@@ -242,7 +240,7 @@ function InsightCardInternal(
     return (
         <div
             className={clsx(
-                'InsightCard border',
+                'DashboardTileCard InsightCard border',
                 highlighted && 'InsightCard--highlighted',
                 areDetailsShown && 'InsightCard--details-shown',
                 className
@@ -265,7 +263,6 @@ function InsightCardInternal(
                         removeFromDashboard={removeFromDashboard}
                         deleteWithUndo={deleteWithUndo}
                         refresh={refresh}
-                        refreshEnabled={refreshEnabled}
                         loadingQueued={loadingQueued}
                         loading={loading}
                         rename={rename}
@@ -305,12 +302,12 @@ function InsightCardInternal(
                         </div>
                     ) : null}
                 </BindLogic>
-                {showResizeHandles && <DashboardResizeHandles />}
-                {canEnterEditModeFromEdge && !showResizeHandles && onEnterEditModeFromEdge && (
-                    <EditModeEdgeOverlay onEnterEditMode={onEnterEditModeFromEdge} />
-                )}
-                {children /* Extras injected by the parent layout (not ReactGridLayout resize handles) */}
             </ErrorBoundary>
+            {showResizeHandles && <DashboardResizeHandles />}
+            {canEnterEditModeFromEdge && !showResizeHandles && onEnterEditModeFromEdge && (
+                <EditModeEdgeOverlay onEnterEditMode={onEnterEditModeFromEdge} />
+            )}
+            {children /* RGL react-resizable-handle nodes injected by react-grid-layout */}
         </div>
     )
 }

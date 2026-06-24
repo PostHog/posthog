@@ -1,4 +1,4 @@
-import { uuidFromDistinctId } from '../../../src/worker/ingestion/person-uuid'
+import { uuidFromDistinctId } from '~/ingestion/common/person-uuid'
 
 jest.setTimeout(5000) // 5 sec timeout
 

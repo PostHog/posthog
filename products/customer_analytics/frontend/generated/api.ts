@@ -25,6 +25,8 @@ import type {
     PaginatedCustomerProfileConfigListApi,
     PaginatedGroupUsageMetricListApi,
     PatchedAccountApi,
+    PatchedCustomerJourneyApi,
+    PatchedCustomerProfileConfigApi,
     PatchedGroupUsageMetricApi,
 } from './api.schemas'
 
@@ -50,7 +52,7 @@ export const getAccountsListUrl = (projectId: string, params?: AccountsListParam
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -98,7 +100,7 @@ export const getAccountsNotebooksListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -234,7 +236,7 @@ export const getCustomerJourneysListUrl = (projectId: string, params?: CustomerJ
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -273,12 +275,74 @@ export const customerJourneysCreate = async (
     })
 }
 
+export const getCustomerJourneysRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/customer_journeys/${id}/`
+}
+
+export const customerJourneysRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CustomerJourneyApi> => {
+    return apiMutator<CustomerJourneyApi>(getCustomerJourneysRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCustomerJourneysUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/customer_journeys/${id}/`
+}
+
+export const customerJourneysUpdate = async (
+    projectId: string,
+    id: string,
+    customerJourneyApi: NonReadonly<CustomerJourneyApi>,
+    options?: RequestInit
+): Promise<CustomerJourneyApi> => {
+    return apiMutator<CustomerJourneyApi>(getCustomerJourneysUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(customerJourneyApi),
+    })
+}
+
+export const getCustomerJourneysPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/customer_journeys/${id}/`
+}
+
+export const customerJourneysPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedCustomerJourneyApi?: NonReadonly<PatchedCustomerJourneyApi>,
+    options?: RequestInit
+): Promise<CustomerJourneyApi> => {
+    return apiMutator<CustomerJourneyApi>(getCustomerJourneysPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedCustomerJourneyApi),
+    })
+}
+
+export const getCustomerJourneysDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/customer_journeys/${id}/`
+}
+
+export const customerJourneysDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getCustomerJourneysDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getCustomerProfileConfigsListUrl = (projectId: string, params?: CustomerProfileConfigsListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -317,6 +381,72 @@ export const customerProfileConfigsCreate = async (
     })
 }
 
+export const getCustomerProfileConfigsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/customer_profile_configs/${id}/`
+}
+
+export const customerProfileConfigsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CustomerProfileConfigApi> => {
+    return apiMutator<CustomerProfileConfigApi>(getCustomerProfileConfigsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCustomerProfileConfigsUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/customer_profile_configs/${id}/`
+}
+
+export const customerProfileConfigsUpdate = async (
+    projectId: string,
+    id: string,
+    customerProfileConfigApi: NonReadonly<CustomerProfileConfigApi>,
+    options?: RequestInit
+): Promise<CustomerProfileConfigApi> => {
+    return apiMutator<CustomerProfileConfigApi>(getCustomerProfileConfigsUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(customerProfileConfigApi),
+    })
+}
+
+export const getCustomerProfileConfigsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/customer_profile_configs/${id}/`
+}
+
+export const customerProfileConfigsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedCustomerProfileConfigApi?: NonReadonly<PatchedCustomerProfileConfigApi>,
+    options?: RequestInit
+): Promise<CustomerProfileConfigApi> => {
+    return apiMutator<CustomerProfileConfigApi>(getCustomerProfileConfigsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedCustomerProfileConfigApi),
+    })
+}
+
+export const getCustomerProfileConfigsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/customer_profile_configs/${id}/`
+}
+
+export const customerProfileConfigsDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getCustomerProfileConfigsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getGroupsTypesMetricsListUrl = (
     projectId: string,
     groupTypeIndex: number,
@@ -326,7 +456,7 @@ export const getGroupsTypesMetricsListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 

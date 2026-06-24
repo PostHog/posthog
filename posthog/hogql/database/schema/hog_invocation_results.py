@@ -23,14 +23,13 @@ from posthog.hogql.database.models import (
 #
 # `invocation_globals` is intentionally NOT exposed here. The column carries the
 # full rerun payload — for hog functions whose trigger is a source webhook, that
-# includes `request.headers` (authorization, x-api-key, etc.) which the function
-# templates into outbound calls. We can't redact those headers because the rerun
-# path needs them verbatim to rehydrate the invocation, and we don't want a
-# tenant to be able to SELECT them via /api/projects/:id/query. The rerun path
-# reads `invocation_globals` via the internal ClickHouse client (not HogQL), so
-# leaving it off the HogQL schema costs nothing for rerun. If the runs UI ever
-# wants a "view payload" affordance, that should land as a server-side endpoint
-# that gates on the function's write permission, not as a HogQL query.
+# includes `request.headers` (authorization, x-api-key, etc.). We don't want a
+# tenant to be able to SELECT those via /api/projects/:id/query. The rerun path
+# reads `invocation_globals` via the internal ClickHouse client (not HogQL) and
+# strips `request.headers` for webhook sources at rehydration, so leaving the
+# column off the HogQL schema entirely costs nothing for rerun. If the runs UI
+# ever wants a "view payload" affordance, that should land as a server-side
+# endpoint that gates on the function's write permission, not as a HogQL query.
 HOG_INVOCATION_RESULTS_FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
     "function_kind": StringDatabaseField(name="function_kind", nullable=False),

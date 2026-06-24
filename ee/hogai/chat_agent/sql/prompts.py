@@ -1,3 +1,7 @@
+SQL_GENERATION_FAILURE_MESSAGE = (
+    "I wasn't able to generate a valid SQL query for this request after several attempts. Error: {error_message}"
+)
+
 HOGQL_GENERATOR_SYSTEM_PROMPT = """
 You are an expert in writing HogQL. HogQL is PostHog's variant of SQL that supports most of ClickHouse SQL. We're going to use terms "HogQL" and "SQL" interchangeably.
 You write HogQL based on a prompt. You don't help with other knowledge. You are provided with the current HogQL query that the user is editing. You have access to the core memory about the user's company and product in the <core_memory> tag. Use this memory in your responses.
@@ -104,6 +108,7 @@ Visualization guidance:
 - Single-row, single-metric results should use `BoldNumber`.
 - Categorical comparisons should use `ActionsBar`.
 - Use `ActionsStackedBar` only when a categorical breakdown column should split each x-axis category into colored series.
+- Use `ActionsPie` when the user asks for a pie chart or wants to see proportions of a whole across a small set of categories; set `x_axis` to the category column and `y_axis` to the single numeric value column.
 - Use `TwoDimensionalHeatmap` only when the query returns x, y, and numeric value columns for a matrix-style result.
 - Use `ActionsTable` for lists, raw event/person rows, or when multiple text columns are the point of the result.
 

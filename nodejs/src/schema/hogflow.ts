@@ -16,12 +16,14 @@ const _commonActionFields = {
                 key: z.string(),
                 result_path: z.string().optional().nullable(), // The path within the action result to store, e.g. 'response.user.id'
                 spread: z.boolean().optional().nullable(), // When true, spread object result into multiple variables as {key}_{property}
+                label: z.string().optional().nullable(), // Display label for the auto-created workflow variable
             }),
             z.array(
                 z.object({
                     key: z.string(),
                     result_path: z.string().optional().nullable(),
                     spread: z.boolean().optional().nullable(),
+                    label: z.string().optional().nullable(),
                 })
             ),
         ])
@@ -65,9 +67,21 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
             properties: z.array(z.any()),
         }),
     }),
+    z.object({
+        type: z.literal('data-warehouse-table'),
+        // Dot-notated table name, matching the format produced by the Python CDPProducer
+        // (see get_data_warehouse_table_name) so producer gating and trigger config use identical strings.
+        table_name: z.string(),
+        filters: z.object({
+            // Row-property filters only - warehouse-triggered workflows are person-less ("row-scoped")
+            properties: z.array(z.any()).optional(),
+        }),
+        // Optional row column used as the masking / dedup key in place of distinct_id
+        key_property: z.string().optional(),
+    }),
 ])
 
-const HogFlowActionSchema = z.discriminatedUnion('type', [
+export const HogFlowActionSchema = z.discriminatedUnion('type', [
     // Trigger
     z.object({
         ..._commonActionFields,
@@ -118,6 +132,14 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
                 filters: z.any(), // type this stronger
                 name: z.string().optional(), // Custom name for the condition
             }),
+            events: z
+                .array(
+                    z.object({
+                        filters: z.any(),
+                        name: z.string().optional(),
+                    })
+                )
+                .optional(),
             max_wait_duration: z.string(),
         }),
     }),
@@ -222,6 +244,14 @@ export const HogFlowSchema = z.object({
             window_minutes: z.number().nullable(),
             filters: z.any(),
             bytecode: z.array(z.union([z.string(), z.number()])),
+            events: z
+                .array(
+                    z.object({
+                        filters: z.any(),
+                        name: z.string().optional(),
+                    })
+                )
+                .optional(),
         })
         .optional(),
     exit_condition: z.enum([

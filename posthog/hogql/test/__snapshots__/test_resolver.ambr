@@ -303,7 +303,7 @@
                     ]
                     name: "toUUID"
                     return_type: {
-                      data_type: "unknown"
+                      data_type: "uuid"
                       nullable: True
                     }
                   }
@@ -328,7 +328,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -367,6 +366,8 @@
                             top_level_settings: None,
                             workload: None
                           },
+                          resolver: "error_tracking_fingerprint_issue_state",
+                          resolver_params: {},
                           to_field: None
                         }
                         table_type: <recursion ...>
@@ -387,7 +388,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -426,6 +426,8 @@
                             top_level_settings: None,
                             workload: None
                           },
+                          resolver: "error_tracking_fingerprint_issue_state",
+                          resolver_params: {},
                           to_field: None
                         }
                         table_type: <recursion ...>
@@ -446,7 +448,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -485,6 +486,8 @@
                             top_level_settings: None,
                             workload: None
                           },
+                          resolver: "error_tracking_fingerprint_issue_state",
+                          resolver_params: {},
                           to_field: None
                         }
                         table_type: <recursion ...>
@@ -505,7 +508,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -544,6 +546,8 @@
                             top_level_settings: None,
                             workload: None
                           },
+                          resolver: "error_tracking_fingerprint_issue_state",
+                          resolver_params: {},
                           to_field: None
                         }
                         table_type: <recursion ...>
@@ -556,21 +560,21 @@
                   type: {
                     arg_types: [
                       {
-                        data_type: "unknown"
-                        nullable: True
+                        data_type: "bool"
+                        nullable: False
                       },
                       {
                         data_type: "str"
                         nullable: False
                       },
                       {
-                        data_type: "unknown"
+                        data_type: "uuid"
                         nullable: True
                       }
                     ]
                     name: "if"
                     return_type: {
-                      data_type: "unknown"
+                      data_type: "str"
                       nullable: True
                     }
                   }
@@ -588,7 +592,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -627,6 +630,8 @@
                             top_level_settings: None,
                             workload: None
                           },
+                          resolver: "error_tracking_fingerprint_issue_state",
+                          resolver_params: {},
                           to_field: None
                         }
                         table_type: <recursion ...>
@@ -647,7 +652,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -686,6 +690,8 @@
                             top_level_settings: None,
                             workload: None
                           },
+                          resolver: "error_tracking_fingerprint_issue_state",
+                          resolver_params: {},
                           to_field: None
                         }
                         table_type: <recursion ...>
@@ -706,7 +712,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
                           join_table: {
                             fields: {
                               assigned_role_id: {
@@ -745,6 +750,8 @@
                             top_level_settings: None,
                             workload: None
                           },
+                          resolver: "error_tracking_fingerprint_issue_state",
+                          resolver_params: {},
                           to_field: None
                         }
                         table_type: <recursion ...>
@@ -757,8 +764,8 @@
                   type: {
                     arg_types: [
                       {
-                        data_type: "unknown"
-                        nullable: True
+                        data_type: "bool"
+                        nullable: False
                       },
                       {
                         data_type: "str"
@@ -771,8 +778,8 @@
                     ]
                     name: "if"
                     return_type: {
-                      data_type: "unknown"
-                      nullable: True
+                      data_type: "str"
+                      nullable: False
                     }
                   }
                 },
@@ -1530,7 +1537,6 @@
                                     "distinct_id"
                                   ],
                                   hidden: False,
-                                  join_function: <function>,
                                   join_table: {
                                     fields: {
                                       distinct_id: {
@@ -1551,6 +1557,8 @@
                                     top_level_settings: None,
                                     workload: None
                                   },
+                                  resolver: "person_distinct_id_overrides",
+                                  resolver_params: {},
                                   to_field: None
                                 }
                                 table_type: <recursion ...>
@@ -1609,7 +1617,6 @@
                             "distinct_id"
                           ],
                           hidden: False,
-                          join_function: <function>,
                           join_table: {
                             fields: {
                               distinct_id: {
@@ -1630,6 +1637,8 @@
                             top_level_settings: None,
                             workload: None
                           },
+                          resolver: "person_distinct_id_overrides",
+                          resolver_params: {},
                           to_field: None
                         }
                         table_type: <recursion ...>
@@ -1868,7 +1877,6 @@
                                     "fingerprint"
                                   ],
                                   hidden: False,
-                                  join_function: <function>,
                                   join_table: {
                                     fields: {
                                       fingerprint: {
@@ -1886,6 +1894,8 @@
                                     top_level_settings: None,
                                     workload: None
                                   },
+                                  resolver: "error_tracking_issue_fingerprint_overrides",
+                                  resolver_params: {},
                                   to_field: None
                                 }
                                 table_type: <recursion ...>
@@ -1944,7 +1954,6 @@
                             "fingerprint"
                           ],
                           hidden: False,
-                          join_function: <function>,
                           join_table: {
                             fields: {
                               fingerprint: {
@@ -1962,6 +1971,8 @@
                             top_level_settings: None,
                             workload: None
                           },
+                          resolver: "error_tracking_issue_fingerprint_overrides",
+                          resolver_params: {},
                           to_field: None
                         }
                         table_type: <recursion ...>
@@ -2630,7 +2641,6 @@
                                 "distinct_id"
                               ],
                               hidden: False,
-                              join_function: <function>,
                               join_table: {
                                 fields: {
                                   distinct_id: {
@@ -2651,6 +2661,8 @@
                                 top_level_settings: None,
                                 workload: None
                               },
+                              resolver: "person_distinct_id_overrides",
+                              resolver_params: {},
                               to_field: None
                             }
                             table_type: <recursion ...>
@@ -2690,8 +2702,8 @@
                 ]
                 name: "not"
                 return_type: {
-                  data_type: "unknown"
-                  nullable: True
+                  data_type: "bool"
+                  nullable: False
                 }
               }
             },
@@ -2712,7 +2724,6 @@
                         "distinct_id"
                       ],
                       hidden: False,
-                      join_function: <function>,
                       join_table: {
                         fields: {
                           distinct_id: {
@@ -2733,6 +2744,8 @@
                         top_level_settings: None,
                         workload: None
                       },
+                      resolver: "person_distinct_id_overrides",
+                      resolver_params: {},
                       to_field: None
                     }
                     table_type: <recursion ...>
@@ -2782,8 +2795,8 @@
             ]
             name: "if"
             return_type: {
-              data_type: "unknown"
-              nullable: True
+              data_type: "str"
+              nullable: False
             }
           }
         }
@@ -3029,7 +3042,7 @@
             ]
             name: "toUUID"
             return_type: {
-              data_type: "unknown"
+              data_type: "uuid"
               nullable: True
             }
           }
@@ -3066,7 +3079,6 @@
                                 "fingerprint"
                               ],
                               hidden: False,
-                              join_function: <function>,
                               join_table: {
                                 fields: {
                                   fingerprint: {
@@ -3084,6 +3096,8 @@
                                 top_level_settings: None,
                                 workload: None
                               },
+                              resolver: "error_tracking_issue_fingerprint_overrides",
+                              resolver_params: {},
                               to_field: None
                             }
                             table_type: <recursion ...>
@@ -3123,8 +3137,8 @@
                 ]
                 name: "not"
                 return_type: {
-                  data_type: "unknown"
-                  nullable: True
+                  data_type: "bool"
+                  nullable: False
                 }
               }
             },
@@ -3145,7 +3159,6 @@
                         "fingerprint"
                       ],
                       hidden: False,
-                      join_function: <function>,
                       join_table: {
                         fields: {
                           fingerprint: {
@@ -3163,6 +3176,8 @@
                         top_level_settings: None,
                         workload: None
                       },
+                      resolver: "error_tracking_issue_fingerprint_overrides",
+                      resolver_params: {},
                       to_field: None
                     }
                     table_type: <recursion ...>
@@ -3221,7 +3236,7 @@
                   ]
                   name: "toUUID"
                   return_type: {
-                    data_type: "unknown"
+                    data_type: "uuid"
                     nullable: True
                   }
                 }
@@ -3247,7 +3262,7 @@
             ]
             name: "if"
             return_type: {
-              data_type: "unknown"
+              data_type: "str"
               nullable: True
             }
           }
@@ -3278,7 +3293,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -3317,6 +3331,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -3356,7 +3372,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -3395,6 +3410,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -3434,7 +3451,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -3473,6 +3489,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -3512,7 +3530,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -3551,6 +3568,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -3590,7 +3609,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -3629,6 +3647,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -3668,7 +3688,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -3707,6 +3726,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -3746,7 +3767,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -3785,6 +3805,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -3967,6 +3989,9 @@
                       hidden: False
                     },
                     start_time: {
+                      hidden: False
+                    },
+                    surfacing_score: {
                       hidden: False
                     },
                     team_id: {
@@ -4390,6 +4415,26 @@
         }
       },
       {
+        alias: "surfacing_score"
+        expr: {
+          chain: [
+            "e",
+            "surfacing_score"
+          ]
+          from_asterisk: True
+          type: {
+            name: "surfacing_score"
+            table_type: <recursion ...>
+          }
+        }
+        from_asterisk: False
+        hidden: True
+        type: {
+          alias: "surfacing_score"
+          type: <recursion ...>
+        }
+      },
+      {
         alias: "start_time"
         expr: {
           chain: [
@@ -4688,7 +4733,8 @@
         size: <recursion ...>,
         snapshot_library: <recursion ...>,
         snapshot_source: <recursion ...>,
-        start_time: <recursion ...>
+        start_time: <recursion ...>,
+        surfacing_score: <recursion ...>
       }
       ctes: {}
       is_lambda_type: False
@@ -4941,721 +4987,273 @@
           type: {
             name: "uuid"
             table_type: {
-              aliases: {}
-              anonymous_tables: []
               columns: {
                 $group_0: {
-                  alias: "$group_0"
-                  type: {
-                    name: "$group_0"
-                    table_type: {
-                      table: {
-                        fields: {
-                          $group_0: {
-                            hidden: False
-                          },
-                          $group_1: {
-                            hidden: False
-                          },
-                          $group_2: {
-                            hidden: False
-                          },
-                          $group_3: {
-                            hidden: False
-                          },
-                          $group_4: {
-                            hidden: False
-                          },
-                          $session_id: {
-                            hidden: False
-                          },
-                          $session_id_uuid: {
-                            hidden: False
-                          },
-                          $virt_bot_name: {
-                            hidden: False
-                          },
-                          $virt_bot_operator: {
-                            hidden: False
-                          },
-                          $virt_is_bot: {
-                            hidden: False
-                          },
-                          $virt_traffic_category: {
-                            hidden: False
-                          },
-                          $virt_traffic_type: {
-                            hidden: False
-                          },
-                          $window_id: {
-                            hidden: False
-                          },
-                          created_at: {
-                            hidden: False
-                          },
-                          distinct_id: {
-                            hidden: False
-                          },
-                          elements_chain: {
-                            hidden: False
-                          },
-                          elements_chain_elements: {
-                            hidden: False
-                          },
-                          elements_chain_href: {
-                            hidden: False
-                          },
-                          elements_chain_ids: {
-                            hidden: False
-                          },
-                          elements_chain_texts: {
-                            hidden: False
-                          },
-                          event: {
-                            hidden: False
-                          },
-                          event_issue_id: {
-                            hidden: False
-                          },
-                          event_person_id: {
-                            hidden: False
-                          },
-                          exception_issue_override: {
-                            hidden: False
-                          },
-                          fingerprint_issue_state: {
-                            hidden: False
-                          },
-                          goe_0: {
-                            hidden: False
-                          },
-                          goe_1: {
-                            hidden: False
-                          },
-                          goe_2: {
-                            hidden: False
-                          },
-                          goe_3: {
-                            hidden: False
-                          },
-                          goe_4: {
-                            hidden: False
-                          },
-                          group_0: {
-                            hidden: False
-                          },
-                          group_1: {
-                            hidden: False
-                          },
-                          group_2: {
-                            hidden: False
-                          },
-                          group_3: {
-                            hidden: False
-                          },
-                          group_4: {
-                            hidden: False
-                          },
-                          issue_assigned_role_id: {
-                            hidden: False
-                          },
-                          issue_assigned_user_id: {
-                            hidden: False
-                          },
-                          issue_description: {
-                            hidden: False
-                          },
-                          issue_first_seen: {
-                            hidden: False
-                          },
-                          issue_id: {
-                            hidden: False
-                          },
-                          issue_id_v2: {
-                            hidden: False
-                          },
-                          issue_name: {
-                            hidden: False
-                          },
-                          issue_status: {
-                            hidden: False
-                          },
-                          override: {
-                            hidden: False
-                          },
-                          pdi: {
-                            hidden: False
-                          },
-                          person: {
-                            hidden: False
-                          },
-                          person_id: {
-                            hidden: False
-                          },
-                          person_mode: {
-                            hidden: False
-                          },
-                          poe: {
-                            hidden: False
-                          },
-                          properties: {
-                            hidden: False
-                          },
-                          session: {
-                            hidden: False
-                          },
-                          team_id: {
-                            hidden: False
-                          },
-                          timestamp: {
-                            hidden: False
-                          },
-                          uuid: {
-                            hidden: False
-                          }
-                        },
-                        hidden: False,
-                        name: None,
-                        top_level_settings: None,
-                        workload: None
-                      }
-                    }
-                  }
+                  data_type: "str"
+                  nullable: False
                 },
                 $group_1: {
-                  alias: "$group_1"
-                  type: {
-                    name: "$group_1"
-                    table_type: <recursion ...>
-                  }
+                  data_type: "str"
+                  nullable: False
                 },
                 $group_2: {
-                  alias: "$group_2"
-                  type: {
-                    name: "$group_2"
-                    table_type: <recursion ...>
-                  }
+                  data_type: "str"
+                  nullable: False
                 },
                 $group_3: {
-                  alias: "$group_3"
-                  type: {
-                    name: "$group_3"
-                    table_type: <recursion ...>
-                  }
+                  data_type: "str"
+                  nullable: False
                 },
                 $group_4: {
-                  alias: "$group_4"
-                  type: {
-                    name: "$group_4"
-                    table_type: <recursion ...>
-                  }
+                  data_type: "str"
+                  nullable: False
                 },
                 $session_id: {
-                  alias: "$session_id"
-                  type: {
-                    name: "$session_id"
-                    table_type: <recursion ...>
-                  }
+                  data_type: "str"
+                  nullable: False
                 },
                 $window_id: {
-                  alias: "$window_id"
-                  type: {
-                    name: "$window_id"
-                    table_type: <recursion ...>
-                  }
+                  data_type: "str"
+                  nullable: False
                 },
                 created_at: {
-                  alias: "created_at"
-                  type: {
-                    name: "created_at"
-                    table_type: <recursion ...>
-                  }
+                  data_type: "datetime"
+                  nullable: False
                 },
                 distinct_id: {
-                  alias: "distinct_id"
-                  type: {
-                    name: "distinct_id"
-                    table_type: <recursion ...>
-                  }
+                  data_type: "str"
+                  nullable: False
                 },
                 elements_chain: {
-                  alias: "elements_chain"
-                  type: {
-                    name: "elements_chain"
-                    table_type: <recursion ...>
-                  }
+                  data_type: "str"
+                  nullable: False
                 },
                 elements_chain_elements: {
-                  alias: "elements_chain_elements"
-                  type: {
-                    name: "elements_chain_elements"
-                    table_type: <recursion ...>
+                  data_type: "array"
+                  item_type: {
+                    data_type: "str"
+                    nullable: True
                   }
+                  nullable: False
                 },
                 elements_chain_href: {
-                  alias: "elements_chain_href"
-                  type: {
-                    name: "elements_chain_href"
-                    table_type: <recursion ...>
-                  }
+                  data_type: "str"
+                  nullable: False
                 },
                 elements_chain_ids: {
-                  alias: "elements_chain_ids"
-                  type: {
-                    name: "elements_chain_ids"
-                    table_type: <recursion ...>
+                  data_type: "array"
+                  item_type: {
+                    data_type: "str"
+                    nullable: True
                   }
+                  nullable: False
                 },
                 elements_chain_texts: {
-                  alias: "elements_chain_texts"
-                  type: {
-                    name: "elements_chain_texts"
-                    table_type: <recursion ...>
+                  data_type: "array"
+                  item_type: {
+                    data_type: "str"
+                    nullable: True
                   }
+                  nullable: False
                 },
                 event: {
-                  alias: "event"
-                  type: {
-                    name: "event"
-                    table_type: <recursion ...>
-                  }
+                  data_type: "str"
+                  nullable: False
                 },
                 event_issue_id: {
-                  alias: "event_issue_id"
-                  type: {
-                    arg_types: [
-                      {
-                        data_type: "str"
-                        nullable: True
-                      }
-                    ]
-                    name: "toUUID"
-                    return_type: {
-                      data_type: "unknown"
-                      nullable: True
-                    }
-                  }
+                  data_type: "str"
+                  nullable: True
                 },
                 event_person_id: {
-                  alias: "event_person_id"
-                  type: {
-                    name: "event_person_id"
-                    table_type: <recursion ...>
-                  }
+                  data_type: "str"
+                  nullable: False
                 },
                 issue_assigned_role_id: {
-                  alias: "issue_assigned_role_id"
-                  type: {
-                    alias: "assigned_role_id"
-                    type: {
-                      name: "assigned_role_id"
-                      table_type: {
-                        field: "fingerprint_issue_state"
-                        lazy_join: {
-                          from_field: [
-                            "fingerprint"
-                          ],
-                          hidden: False,
-                          join_function: <function>,
-                          join_table: {
-                            fields: {
-                              assigned_role_id: {
-                                hidden: False
-                              },
-                              assigned_user_id: {
-                                hidden: False
-                              },
-                              fingerprint: {
-                                hidden: False
-                              },
-                              first_seen: {
-                                hidden: False
-                              },
-                              fp_hash: {
-                                hidden: False
-                              },
-                              issue_description: {
-                                hidden: False
-                              },
-                              issue_id: {
-                                hidden: False
-                              },
-                              issue_name: {
-                                hidden: False
-                              },
-                              issue_status: {
-                                hidden: False
-                              },
-                              team_id: {
-                                hidden: False
-                              }
-                            },
-                            hidden: False,
-                            name: None,
-                            top_level_settings: None,
-                            workload: None
-                          },
-                          to_field: None
-                        }
-                        table_type: <recursion ...>
-                      }
-                    }
-                  }
+                  data_type: "str"
+                  nullable: True
                 },
                 issue_assigned_user_id: {
-                  alias: "issue_assigned_user_id"
-                  type: {
-                    alias: "assigned_user_id"
-                    type: {
-                      name: "assigned_user_id"
-                      table_type: {
-                        field: "fingerprint_issue_state"
-                        lazy_join: {
-                          from_field: [
-                            "fingerprint"
-                          ],
-                          hidden: False,
-                          join_function: <function>,
-                          join_table: {
-                            fields: {
-                              assigned_role_id: {
-                                hidden: False
-                              },
-                              assigned_user_id: {
-                                hidden: False
-                              },
-                              fingerprint: {
-                                hidden: False
-                              },
-                              first_seen: {
-                                hidden: False
-                              },
-                              fp_hash: {
-                                hidden: False
-                              },
-                              issue_description: {
-                                hidden: False
-                              },
-                              issue_id: {
-                                hidden: False
-                              },
-                              issue_name: {
-                                hidden: False
-                              },
-                              issue_status: {
-                                hidden: False
-                              },
-                              team_id: {
-                                hidden: False
-                              }
-                            },
-                            hidden: False,
-                            name: None,
-                            top_level_settings: None,
-                            workload: None
-                          },
-                          to_field: None
-                        }
-                        table_type: <recursion ...>
-                      }
-                    }
-                  }
+                  data_type: "int"
+                  nullable: True
                 },
                 issue_description: {
-                  alias: "issue_description"
-                  type: {
-                    alias: "issue_description"
-                    type: {
-                      name: "issue_description"
-                      table_type: {
-                        field: "fingerprint_issue_state"
-                        lazy_join: {
-                          from_field: [
-                            "fingerprint"
-                          ],
-                          hidden: False,
-                          join_function: <function>,
-                          join_table: {
-                            fields: {
-                              assigned_role_id: {
-                                hidden: False
-                              },
-                              assigned_user_id: {
-                                hidden: False
-                              },
-                              fingerprint: {
-                                hidden: False
-                              },
-                              first_seen: {
-                                hidden: False
-                              },
-                              fp_hash: {
-                                hidden: False
-                              },
-                              issue_description: {
-                                hidden: False
-                              },
-                              issue_id: {
-                                hidden: False
-                              },
-                              issue_name: {
-                                hidden: False
-                              },
-                              issue_status: {
-                                hidden: False
-                              },
-                              team_id: {
-                                hidden: False
-                              }
-                            },
-                            hidden: False,
-                            name: None,
-                            top_level_settings: None,
-                            workload: None
-                          },
-                          to_field: None
-                        }
-                        table_type: <recursion ...>
-                      }
-                    }
-                  }
+                  data_type: "str"
+                  nullable: True
                 },
                 issue_first_seen: {
-                  alias: "issue_first_seen"
-                  type: {
-                    alias: "first_seen"
-                    type: {
-                      name: "first_seen"
-                      table_type: {
-                        field: "fingerprint_issue_state"
-                        lazy_join: {
-                          from_field: [
-                            "fingerprint"
-                          ],
-                          hidden: False,
-                          join_function: <function>,
-                          join_table: {
-                            fields: {
-                              assigned_role_id: {
-                                hidden: False
-                              },
-                              assigned_user_id: {
-                                hidden: False
-                              },
-                              fingerprint: {
-                                hidden: False
-                              },
-                              first_seen: {
-                                hidden: False
-                              },
-                              fp_hash: {
-                                hidden: False
-                              },
-                              issue_description: {
-                                hidden: False
-                              },
-                              issue_id: {
-                                hidden: False
-                              },
-                              issue_name: {
-                                hidden: False
-                              },
-                              issue_status: {
-                                hidden: False
-                              },
-                              team_id: {
-                                hidden: False
-                              }
-                            },
-                            hidden: False,
-                            name: None,
-                            top_level_settings: None,
-                            workload: None
-                          },
-                          to_field: None
-                        }
-                        table_type: <recursion ...>
-                      }
-                    }
-                  }
+                  data_type: "datetime"
+                  nullable: True
                 },
                 issue_id: {
-                  alias: "issue_id"
-                  type: {
-                    arg_types: [
-                      {
-                        data_type: "unknown"
-                        nullable: True
-                      },
-                      {
-                        data_type: "str"
-                        nullable: False
-                      },
-                      {
-                        data_type: "unknown"
-                        nullable: True
-                      }
-                    ]
-                    name: "if"
-                    return_type: {
-                      data_type: "unknown"
-                      nullable: True
-                    }
-                  }
+                  data_type: "str"
+                  nullable: True
                 },
                 issue_id_v2: {
-                  alias: "issue_id_v2"
-                  type: {
-                    alias: "issue_id"
-                    type: {
-                      name: "issue_id"
-                      table_type: {
-                        field: "fingerprint_issue_state"
-                        lazy_join: {
-                          from_field: [
-                            "fingerprint"
-                          ],
-                          hidden: False,
-                          join_function: <function>,
-                          join_table: {
-                            fields: {
-                              assigned_role_id: {
-                                hidden: False
-                              },
-                              assigned_user_id: {
-                                hidden: False
-                              },
-                              fingerprint: {
-                                hidden: False
-                              },
-                              first_seen: {
-                                hidden: False
-                              },
-                              fp_hash: {
-                                hidden: False
-                              },
-                              issue_description: {
-                                hidden: False
-                              },
-                              issue_id: {
-                                hidden: False
-                              },
-                              issue_name: {
-                                hidden: False
-                              },
-                              issue_status: {
-                                hidden: False
-                              },
-                              team_id: {
-                                hidden: False
-                              }
-                            },
-                            hidden: False,
-                            name: None,
-                            top_level_settings: None,
-                            workload: None
-                          },
-                          to_field: None
-                        }
-                        table_type: <recursion ...>
-                      }
-                    }
-                  }
+                  data_type: "str"
+                  nullable: True
                 },
                 issue_name: {
-                  alias: "issue_name"
-                  type: {
-                    alias: "issue_name"
-                    type: {
-                      name: "issue_name"
-                      table_type: {
-                        field: "fingerprint_issue_state"
-                        lazy_join: {
-                          from_field: [
-                            "fingerprint"
-                          ],
-                          hidden: False,
-                          join_function: <function>,
-                          join_table: {
-                            fields: {
-                              assigned_role_id: {
-                                hidden: False
-                              },
-                              assigned_user_id: {
-                                hidden: False
-                              },
-                              fingerprint: {
-                                hidden: False
-                              },
-                              first_seen: {
-                                hidden: False
-                              },
-                              fp_hash: {
-                                hidden: False
-                              },
-                              issue_description: {
-                                hidden: False
-                              },
-                              issue_id: {
-                                hidden: False
-                              },
-                              issue_name: {
-                                hidden: False
-                              },
-                              issue_status: {
-                                hidden: False
-                              },
-                              team_id: {
-                                hidden: False
-                              }
-                            },
-                            hidden: False,
-                            name: None,
-                            top_level_settings: None,
-                            workload: None
-                          },
-                          to_field: None
-                        }
-                        table_type: <recursion ...>
-                      }
-                    }
-                  }
+                  data_type: "str"
+                  nullable: True
                 },
                 issue_status: {
-                  alias: "issue_status"
-                  type: {
-                    alias: "issue_status"
-                    type: {
-                      name: "issue_status"
-                      table_type: {
-                        field: "fingerprint_issue_state"
-                        lazy_join: {
-                          from_field: [
-                            "fingerprint"
-                          ],
-                          hidden: False,
-                          join_function: <function>,
-                          join_table: {
+                  data_type: "str"
+                  nullable: True
+                },
+                person_id: {
+                  data_type: "str"
+                  nullable: False
+                },
+                person_mode: {
+                  data_type: "str"
+                  nullable: False
+                },
+                properties: {
+                  data_type: "str"
+                  nullable: False
+                },
+                timestamp: {
+                  data_type: "datetime"
+                  nullable: False
+                },
+                uuid: {
+                  data_type: "str"
+                  nullable: False
+                }
+              }
+              types: [
+                {
+                  aliases: {}
+                  anonymous_tables: []
+                  columns: {
+                    $group_0: {
+                      alias: "$group_0"
+                      type: {
+                        name: "$group_0"
+                        table_type: {
+                          table: {
                             fields: {
-                              assigned_role_id: {
+                              $group_0: {
                                 hidden: False
                               },
-                              assigned_user_id: {
+                              $group_1: {
                                 hidden: False
                               },
-                              fingerprint: {
+                              $group_2: {
                                 hidden: False
                               },
-                              first_seen: {
+                              $group_3: {
                                 hidden: False
                               },
-                              fp_hash: {
+                              $group_4: {
+                                hidden: False
+                              },
+                              $session_id: {
+                                hidden: False
+                              },
+                              $session_id_uuid: {
+                                hidden: False
+                              },
+                              $virt_bot_name: {
+                                hidden: False
+                              },
+                              $virt_bot_operator: {
+                                hidden: False
+                              },
+                              $virt_is_bot: {
+                                hidden: False
+                              },
+                              $virt_traffic_category: {
+                                hidden: False
+                              },
+                              $virt_traffic_type: {
+                                hidden: False
+                              },
+                              $window_id: {
+                                hidden: False
+                              },
+                              created_at: {
+                                hidden: False
+                              },
+                              distinct_id: {
+                                hidden: False
+                              },
+                              elements_chain: {
+                                hidden: False
+                              },
+                              elements_chain_elements: {
+                                hidden: False
+                              },
+                              elements_chain_href: {
+                                hidden: False
+                              },
+                              elements_chain_ids: {
+                                hidden: False
+                              },
+                              elements_chain_texts: {
+                                hidden: False
+                              },
+                              event: {
+                                hidden: False
+                              },
+                              event_issue_id: {
+                                hidden: False
+                              },
+                              event_person_id: {
+                                hidden: False
+                              },
+                              exception_issue_override: {
+                                hidden: False
+                              },
+                              fingerprint_issue_state: {
+                                hidden: False
+                              },
+                              goe_0: {
+                                hidden: False
+                              },
+                              goe_1: {
+                                hidden: False
+                              },
+                              goe_2: {
+                                hidden: False
+                              },
+                              goe_3: {
+                                hidden: False
+                              },
+                              goe_4: {
+                                hidden: False
+                              },
+                              group_0: {
+                                hidden: False
+                              },
+                              group_1: {
+                                hidden: False
+                              },
+                              group_2: {
+                                hidden: False
+                              },
+                              group_3: {
+                                hidden: False
+                              },
+                              group_4: {
+                                hidden: False
+                              },
+                              issue_assigned_role_id: {
+                                hidden: False
+                              },
+                              issue_assigned_user_id: {
                                 hidden: False
                               },
                               issue_description: {
                                 hidden: False
                               },
+                              issue_first_seen: {
+                                hidden: False
+                              },
                               issue_id: {
+                                hidden: False
+                              },
+                              issue_id_v2: {
                                 hidden: False
                               },
                               issue_name: {
@@ -5664,7 +5262,37 @@
                               issue_status: {
                                 hidden: False
                               },
+                              override: {
+                                hidden: False
+                              },
+                              pdi: {
+                                hidden: False
+                              },
+                              person: {
+                                hidden: False
+                              },
+                              person_id: {
+                                hidden: False
+                              },
+                              person_mode: {
+                                hidden: False
+                              },
+                              poe: {
+                                hidden: False
+                              },
+                              properties: {
+                                hidden: False
+                              },
+                              session: {
+                                hidden: False
+                              },
                               team_id: {
+                                hidden: False
+                              },
+                              timestamp: {
+                                hidden: False
+                              },
+                              uuid: {
                                 hidden: False
                               }
                             },
@@ -5672,72 +5300,1441 @@
                             name: None,
                             top_level_settings: None,
                             workload: None
-                          },
-                          to_field: None
+                          }
                         }
+                      }
+                    },
+                    $group_1: {
+                      alias: "$group_1"
+                      type: {
+                        name: "$group_1"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    $group_2: {
+                      alias: "$group_2"
+                      type: {
+                        name: "$group_2"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    $group_3: {
+                      alias: "$group_3"
+                      type: {
+                        name: "$group_3"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    $group_4: {
+                      alias: "$group_4"
+                      type: {
+                        name: "$group_4"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    $session_id: {
+                      alias: "$session_id"
+                      type: {
+                        name: "$session_id"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    $window_id: {
+                      alias: "$window_id"
+                      type: {
+                        name: "$window_id"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    created_at: {
+                      alias: "created_at"
+                      type: {
+                        name: "created_at"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    distinct_id: {
+                      alias: "distinct_id"
+                      type: {
+                        name: "distinct_id"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    elements_chain: {
+                      alias: "elements_chain"
+                      type: {
+                        name: "elements_chain"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    elements_chain_elements: {
+                      alias: "elements_chain_elements"
+                      type: {
+                        name: "elements_chain_elements"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    elements_chain_href: {
+                      alias: "elements_chain_href"
+                      type: {
+                        name: "elements_chain_href"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    elements_chain_ids: {
+                      alias: "elements_chain_ids"
+                      type: {
+                        name: "elements_chain_ids"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    elements_chain_texts: {
+                      alias: "elements_chain_texts"
+                      type: {
+                        name: "elements_chain_texts"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    event: {
+                      alias: "event"
+                      type: {
+                        name: "event"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    event_issue_id: {
+                      alias: "event_issue_id"
+                      type: {
+                        arg_types: [
+                          {
+                            data_type: "str"
+                            nullable: True
+                          }
+                        ]
+                        name: "toUUID"
+                        return_type: {
+                          data_type: "uuid"
+                          nullable: True
+                        }
+                      }
+                    },
+                    event_person_id: {
+                      alias: "event_person_id"
+                      type: {
+                        name: "event_person_id"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    issue_assigned_role_id: {
+                      alias: "issue_assigned_role_id"
+                      type: {
+                        alias: "assigned_role_id"
+                        type: {
+                          name: "assigned_role_id"
+                          table_type: {
+                            field: "fingerprint_issue_state"
+                            lazy_join: {
+                              from_field: [
+                                "fingerprint"
+                              ],
+                              hidden: False,
+                              join_table: {
+                                fields: {
+                                  assigned_role_id: {
+                                    hidden: False
+                                  },
+                                  assigned_user_id: {
+                                    hidden: False
+                                  },
+                                  fingerprint: {
+                                    hidden: False
+                                  },
+                                  first_seen: {
+                                    hidden: False
+                                  },
+                                  fp_hash: {
+                                    hidden: False
+                                  },
+                                  issue_description: {
+                                    hidden: False
+                                  },
+                                  issue_id: {
+                                    hidden: False
+                                  },
+                                  issue_name: {
+                                    hidden: False
+                                  },
+                                  issue_status: {
+                                    hidden: False
+                                  },
+                                  team_id: {
+                                    hidden: False
+                                  }
+                                },
+                                hidden: False,
+                                name: None,
+                                top_level_settings: None,
+                                workload: None
+                              },
+                              resolver: "error_tracking_fingerprint_issue_state",
+                              resolver_params: {},
+                              to_field: None
+                            }
+                            table_type: <recursion ...>
+                          }
+                        }
+                      }
+                    },
+                    issue_assigned_user_id: {
+                      alias: "issue_assigned_user_id"
+                      type: {
+                        alias: "assigned_user_id"
+                        type: {
+                          name: "assigned_user_id"
+                          table_type: {
+                            field: "fingerprint_issue_state"
+                            lazy_join: {
+                              from_field: [
+                                "fingerprint"
+                              ],
+                              hidden: False,
+                              join_table: {
+                                fields: {
+                                  assigned_role_id: {
+                                    hidden: False
+                                  },
+                                  assigned_user_id: {
+                                    hidden: False
+                                  },
+                                  fingerprint: {
+                                    hidden: False
+                                  },
+                                  first_seen: {
+                                    hidden: False
+                                  },
+                                  fp_hash: {
+                                    hidden: False
+                                  },
+                                  issue_description: {
+                                    hidden: False
+                                  },
+                                  issue_id: {
+                                    hidden: False
+                                  },
+                                  issue_name: {
+                                    hidden: False
+                                  },
+                                  issue_status: {
+                                    hidden: False
+                                  },
+                                  team_id: {
+                                    hidden: False
+                                  }
+                                },
+                                hidden: False,
+                                name: None,
+                                top_level_settings: None,
+                                workload: None
+                              },
+                              resolver: "error_tracking_fingerprint_issue_state",
+                              resolver_params: {},
+                              to_field: None
+                            }
+                            table_type: <recursion ...>
+                          }
+                        }
+                      }
+                    },
+                    issue_description: {
+                      alias: "issue_description"
+                      type: {
+                        alias: "issue_description"
+                        type: {
+                          name: "issue_description"
+                          table_type: {
+                            field: "fingerprint_issue_state"
+                            lazy_join: {
+                              from_field: [
+                                "fingerprint"
+                              ],
+                              hidden: False,
+                              join_table: {
+                                fields: {
+                                  assigned_role_id: {
+                                    hidden: False
+                                  },
+                                  assigned_user_id: {
+                                    hidden: False
+                                  },
+                                  fingerprint: {
+                                    hidden: False
+                                  },
+                                  first_seen: {
+                                    hidden: False
+                                  },
+                                  fp_hash: {
+                                    hidden: False
+                                  },
+                                  issue_description: {
+                                    hidden: False
+                                  },
+                                  issue_id: {
+                                    hidden: False
+                                  },
+                                  issue_name: {
+                                    hidden: False
+                                  },
+                                  issue_status: {
+                                    hidden: False
+                                  },
+                                  team_id: {
+                                    hidden: False
+                                  }
+                                },
+                                hidden: False,
+                                name: None,
+                                top_level_settings: None,
+                                workload: None
+                              },
+                              resolver: "error_tracking_fingerprint_issue_state",
+                              resolver_params: {},
+                              to_field: None
+                            }
+                            table_type: <recursion ...>
+                          }
+                        }
+                      }
+                    },
+                    issue_first_seen: {
+                      alias: "issue_first_seen"
+                      type: {
+                        alias: "first_seen"
+                        type: {
+                          name: "first_seen"
+                          table_type: {
+                            field: "fingerprint_issue_state"
+                            lazy_join: {
+                              from_field: [
+                                "fingerprint"
+                              ],
+                              hidden: False,
+                              join_table: {
+                                fields: {
+                                  assigned_role_id: {
+                                    hidden: False
+                                  },
+                                  assigned_user_id: {
+                                    hidden: False
+                                  },
+                                  fingerprint: {
+                                    hidden: False
+                                  },
+                                  first_seen: {
+                                    hidden: False
+                                  },
+                                  fp_hash: {
+                                    hidden: False
+                                  },
+                                  issue_description: {
+                                    hidden: False
+                                  },
+                                  issue_id: {
+                                    hidden: False
+                                  },
+                                  issue_name: {
+                                    hidden: False
+                                  },
+                                  issue_status: {
+                                    hidden: False
+                                  },
+                                  team_id: {
+                                    hidden: False
+                                  }
+                                },
+                                hidden: False,
+                                name: None,
+                                top_level_settings: None,
+                                workload: None
+                              },
+                              resolver: "error_tracking_fingerprint_issue_state",
+                              resolver_params: {},
+                              to_field: None
+                            }
+                            table_type: <recursion ...>
+                          }
+                        }
+                      }
+                    },
+                    issue_id: {
+                      alias: "issue_id"
+                      type: {
+                        arg_types: [
+                          {
+                            data_type: "bool"
+                            nullable: False
+                          },
+                          {
+                            data_type: "str"
+                            nullable: False
+                          },
+                          {
+                            data_type: "uuid"
+                            nullable: True
+                          }
+                        ]
+                        name: "if"
+                        return_type: {
+                          data_type: "str"
+                          nullable: True
+                        }
+                      }
+                    },
+                    issue_id_v2: {
+                      alias: "issue_id_v2"
+                      type: {
+                        alias: "issue_id"
+                        type: {
+                          name: "issue_id"
+                          table_type: {
+                            field: "fingerprint_issue_state"
+                            lazy_join: {
+                              from_field: [
+                                "fingerprint"
+                              ],
+                              hidden: False,
+                              join_table: {
+                                fields: {
+                                  assigned_role_id: {
+                                    hidden: False
+                                  },
+                                  assigned_user_id: {
+                                    hidden: False
+                                  },
+                                  fingerprint: {
+                                    hidden: False
+                                  },
+                                  first_seen: {
+                                    hidden: False
+                                  },
+                                  fp_hash: {
+                                    hidden: False
+                                  },
+                                  issue_description: {
+                                    hidden: False
+                                  },
+                                  issue_id: {
+                                    hidden: False
+                                  },
+                                  issue_name: {
+                                    hidden: False
+                                  },
+                                  issue_status: {
+                                    hidden: False
+                                  },
+                                  team_id: {
+                                    hidden: False
+                                  }
+                                },
+                                hidden: False,
+                                name: None,
+                                top_level_settings: None,
+                                workload: None
+                              },
+                              resolver: "error_tracking_fingerprint_issue_state",
+                              resolver_params: {},
+                              to_field: None
+                            }
+                            table_type: <recursion ...>
+                          }
+                        }
+                      }
+                    },
+                    issue_name: {
+                      alias: "issue_name"
+                      type: {
+                        alias: "issue_name"
+                        type: {
+                          name: "issue_name"
+                          table_type: {
+                            field: "fingerprint_issue_state"
+                            lazy_join: {
+                              from_field: [
+                                "fingerprint"
+                              ],
+                              hidden: False,
+                              join_table: {
+                                fields: {
+                                  assigned_role_id: {
+                                    hidden: False
+                                  },
+                                  assigned_user_id: {
+                                    hidden: False
+                                  },
+                                  fingerprint: {
+                                    hidden: False
+                                  },
+                                  first_seen: {
+                                    hidden: False
+                                  },
+                                  fp_hash: {
+                                    hidden: False
+                                  },
+                                  issue_description: {
+                                    hidden: False
+                                  },
+                                  issue_id: {
+                                    hidden: False
+                                  },
+                                  issue_name: {
+                                    hidden: False
+                                  },
+                                  issue_status: {
+                                    hidden: False
+                                  },
+                                  team_id: {
+                                    hidden: False
+                                  }
+                                },
+                                hidden: False,
+                                name: None,
+                                top_level_settings: None,
+                                workload: None
+                              },
+                              resolver: "error_tracking_fingerprint_issue_state",
+                              resolver_params: {},
+                              to_field: None
+                            }
+                            table_type: <recursion ...>
+                          }
+                        }
+                      }
+                    },
+                    issue_status: {
+                      alias: "issue_status"
+                      type: {
+                        alias: "issue_status"
+                        type: {
+                          name: "issue_status"
+                          table_type: {
+                            field: "fingerprint_issue_state"
+                            lazy_join: {
+                              from_field: [
+                                "fingerprint"
+                              ],
+                              hidden: False,
+                              join_table: {
+                                fields: {
+                                  assigned_role_id: {
+                                    hidden: False
+                                  },
+                                  assigned_user_id: {
+                                    hidden: False
+                                  },
+                                  fingerprint: {
+                                    hidden: False
+                                  },
+                                  first_seen: {
+                                    hidden: False
+                                  },
+                                  fp_hash: {
+                                    hidden: False
+                                  },
+                                  issue_description: {
+                                    hidden: False
+                                  },
+                                  issue_id: {
+                                    hidden: False
+                                  },
+                                  issue_name: {
+                                    hidden: False
+                                  },
+                                  issue_status: {
+                                    hidden: False
+                                  },
+                                  team_id: {
+                                    hidden: False
+                                  }
+                                },
+                                hidden: False,
+                                name: None,
+                                top_level_settings: None,
+                                workload: None
+                              },
+                              resolver: "error_tracking_fingerprint_issue_state",
+                              resolver_params: {},
+                              to_field: None
+                            }
+                            table_type: <recursion ...>
+                          }
+                        }
+                      }
+                    },
+                    person_id: {
+                      alias: "person_id"
+                      type: {
+                        arg_types: [
+                          {
+                            data_type: "bool"
+                            nullable: False
+                          },
+                          {
+                            data_type: "str"
+                            nullable: False
+                          },
+                          {
+                            data_type: "str"
+                            nullable: False
+                          }
+                        ]
+                        name: "if"
+                        return_type: {
+                          data_type: "str"
+                          nullable: False
+                        }
+                      }
+                    },
+                    person_mode: {
+                      alias: "person_mode"
+                      type: {
+                        name: "person_mode"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    properties: {
+                      alias: "properties"
+                      type: {
+                        name: "properties"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    timestamp: {
+                      alias: "timestamp"
+                      type: {
+                        name: "timestamp"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    uuid: {
+                      alias: "uuid"
+                      type: {
+                        name: "uuid"
                         table_type: <recursion ...>
                       }
                     }
                   }
+                  ctes: {}
+                  is_lambda_type: False
+                  tables: {
+                    events: <recursion ...>
+                  }
                 },
-                person_id: {
-                  alias: "person_id"
-                  type: {
-                    arg_types: [
-                      {
-                        data_type: "unknown"
-                        nullable: True
-                      },
-                      {
-                        data_type: "str"
-                        nullable: False
-                      },
-                      {
-                        data_type: "str"
-                        nullable: False
+                {
+                  aliases: {}
+                  anonymous_tables: []
+                  columns: {
+                    $group_0: {
+                      alias: "$group_0"
+                      type: {
+                        name: "$group_0"
+                        table_type: {
+                          table: {
+                            fields: {
+                              $group_0: {
+                                hidden: False
+                              },
+                              $group_1: {
+                                hidden: False
+                              },
+                              $group_2: {
+                                hidden: False
+                              },
+                              $group_3: {
+                                hidden: False
+                              },
+                              $group_4: {
+                                hidden: False
+                              },
+                              $session_id: {
+                                hidden: False
+                              },
+                              $session_id_uuid: {
+                                hidden: False
+                              },
+                              $virt_bot_name: {
+                                hidden: False
+                              },
+                              $virt_bot_operator: {
+                                hidden: False
+                              },
+                              $virt_is_bot: {
+                                hidden: False
+                              },
+                              $virt_traffic_category: {
+                                hidden: False
+                              },
+                              $virt_traffic_type: {
+                                hidden: False
+                              },
+                              $window_id: {
+                                hidden: False
+                              },
+                              created_at: {
+                                hidden: False
+                              },
+                              distinct_id: {
+                                hidden: False
+                              },
+                              elements_chain: {
+                                hidden: False
+                              },
+                              elements_chain_elements: {
+                                hidden: False
+                              },
+                              elements_chain_href: {
+                                hidden: False
+                              },
+                              elements_chain_ids: {
+                                hidden: False
+                              },
+                              elements_chain_texts: {
+                                hidden: False
+                              },
+                              event: {
+                                hidden: False
+                              },
+                              event_issue_id: {
+                                hidden: False
+                              },
+                              event_person_id: {
+                                hidden: False
+                              },
+                              exception_issue_override: {
+                                hidden: False
+                              },
+                              fingerprint_issue_state: {
+                                hidden: False
+                              },
+                              goe_0: {
+                                hidden: False
+                              },
+                              goe_1: {
+                                hidden: False
+                              },
+                              goe_2: {
+                                hidden: False
+                              },
+                              goe_3: {
+                                hidden: False
+                              },
+                              goe_4: {
+                                hidden: False
+                              },
+                              group_0: {
+                                hidden: False
+                              },
+                              group_1: {
+                                hidden: False
+                              },
+                              group_2: {
+                                hidden: False
+                              },
+                              group_3: {
+                                hidden: False
+                              },
+                              group_4: {
+                                hidden: False
+                              },
+                              issue_assigned_role_id: {
+                                hidden: False
+                              },
+                              issue_assigned_user_id: {
+                                hidden: False
+                              },
+                              issue_description: {
+                                hidden: False
+                              },
+                              issue_first_seen: {
+                                hidden: False
+                              },
+                              issue_id: {
+                                hidden: False
+                              },
+                              issue_id_v2: {
+                                hidden: False
+                              },
+                              issue_name: {
+                                hidden: False
+                              },
+                              issue_status: {
+                                hidden: False
+                              },
+                              override: {
+                                hidden: False
+                              },
+                              pdi: {
+                                hidden: False
+                              },
+                              person: {
+                                hidden: False
+                              },
+                              person_id: {
+                                hidden: False
+                              },
+                              person_mode: {
+                                hidden: False
+                              },
+                              poe: {
+                                hidden: False
+                              },
+                              properties: {
+                                hidden: False
+                              },
+                              session: {
+                                hidden: False
+                              },
+                              team_id: {
+                                hidden: False
+                              },
+                              timestamp: {
+                                hidden: False
+                              },
+                              uuid: {
+                                hidden: False
+                              }
+                            },
+                            hidden: False,
+                            name: None,
+                            top_level_settings: None,
+                            workload: None
+                          }
+                        }
                       }
-                    ]
-                    name: "if"
-                    return_type: {
-                      data_type: "unknown"
-                      nullable: True
+                    },
+                    $group_1: {
+                      alias: "$group_1"
+                      type: {
+                        name: "$group_1"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    $group_2: {
+                      alias: "$group_2"
+                      type: {
+                        name: "$group_2"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    $group_3: {
+                      alias: "$group_3"
+                      type: {
+                        name: "$group_3"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    $group_4: {
+                      alias: "$group_4"
+                      type: {
+                        name: "$group_4"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    $session_id: {
+                      alias: "$session_id"
+                      type: {
+                        name: "$session_id"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    $window_id: {
+                      alias: "$window_id"
+                      type: {
+                        name: "$window_id"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    created_at: {
+                      alias: "created_at"
+                      type: {
+                        name: "created_at"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    distinct_id: {
+                      alias: "distinct_id"
+                      type: {
+                        name: "distinct_id"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    elements_chain: {
+                      alias: "elements_chain"
+                      type: {
+                        name: "elements_chain"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    elements_chain_elements: {
+                      alias: "elements_chain_elements"
+                      type: {
+                        name: "elements_chain_elements"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    elements_chain_href: {
+                      alias: "elements_chain_href"
+                      type: {
+                        name: "elements_chain_href"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    elements_chain_ids: {
+                      alias: "elements_chain_ids"
+                      type: {
+                        name: "elements_chain_ids"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    elements_chain_texts: {
+                      alias: "elements_chain_texts"
+                      type: {
+                        name: "elements_chain_texts"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    event: {
+                      alias: "event"
+                      type: {
+                        name: "event"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    event_issue_id: {
+                      alias: "event_issue_id"
+                      type: {
+                        arg_types: [
+                          {
+                            data_type: "str"
+                            nullable: True
+                          }
+                        ]
+                        name: "toUUID"
+                        return_type: {
+                          data_type: "uuid"
+                          nullable: True
+                        }
+                      }
+                    },
+                    event_person_id: {
+                      alias: "event_person_id"
+                      type: {
+                        name: "event_person_id"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    issue_assigned_role_id: {
+                      alias: "issue_assigned_role_id"
+                      type: {
+                        alias: "assigned_role_id"
+                        type: {
+                          name: "assigned_role_id"
+                          table_type: {
+                            field: "fingerprint_issue_state"
+                            lazy_join: {
+                              from_field: [
+                                "fingerprint"
+                              ],
+                              hidden: False,
+                              join_table: {
+                                fields: {
+                                  assigned_role_id: {
+                                    hidden: False
+                                  },
+                                  assigned_user_id: {
+                                    hidden: False
+                                  },
+                                  fingerprint: {
+                                    hidden: False
+                                  },
+                                  first_seen: {
+                                    hidden: False
+                                  },
+                                  fp_hash: {
+                                    hidden: False
+                                  },
+                                  issue_description: {
+                                    hidden: False
+                                  },
+                                  issue_id: {
+                                    hidden: False
+                                  },
+                                  issue_name: {
+                                    hidden: False
+                                  },
+                                  issue_status: {
+                                    hidden: False
+                                  },
+                                  team_id: {
+                                    hidden: False
+                                  }
+                                },
+                                hidden: False,
+                                name: None,
+                                top_level_settings: None,
+                                workload: None
+                              },
+                              resolver: "error_tracking_fingerprint_issue_state",
+                              resolver_params: {},
+                              to_field: None
+                            }
+                            table_type: <recursion ...>
+                          }
+                        }
+                      }
+                    },
+                    issue_assigned_user_id: {
+                      alias: "issue_assigned_user_id"
+                      type: {
+                        alias: "assigned_user_id"
+                        type: {
+                          name: "assigned_user_id"
+                          table_type: {
+                            field: "fingerprint_issue_state"
+                            lazy_join: {
+                              from_field: [
+                                "fingerprint"
+                              ],
+                              hidden: False,
+                              join_table: {
+                                fields: {
+                                  assigned_role_id: {
+                                    hidden: False
+                                  },
+                                  assigned_user_id: {
+                                    hidden: False
+                                  },
+                                  fingerprint: {
+                                    hidden: False
+                                  },
+                                  first_seen: {
+                                    hidden: False
+                                  },
+                                  fp_hash: {
+                                    hidden: False
+                                  },
+                                  issue_description: {
+                                    hidden: False
+                                  },
+                                  issue_id: {
+                                    hidden: False
+                                  },
+                                  issue_name: {
+                                    hidden: False
+                                  },
+                                  issue_status: {
+                                    hidden: False
+                                  },
+                                  team_id: {
+                                    hidden: False
+                                  }
+                                },
+                                hidden: False,
+                                name: None,
+                                top_level_settings: None,
+                                workload: None
+                              },
+                              resolver: "error_tracking_fingerprint_issue_state",
+                              resolver_params: {},
+                              to_field: None
+                            }
+                            table_type: <recursion ...>
+                          }
+                        }
+                      }
+                    },
+                    issue_description: {
+                      alias: "issue_description"
+                      type: {
+                        alias: "issue_description"
+                        type: {
+                          name: "issue_description"
+                          table_type: {
+                            field: "fingerprint_issue_state"
+                            lazy_join: {
+                              from_field: [
+                                "fingerprint"
+                              ],
+                              hidden: False,
+                              join_table: {
+                                fields: {
+                                  assigned_role_id: {
+                                    hidden: False
+                                  },
+                                  assigned_user_id: {
+                                    hidden: False
+                                  },
+                                  fingerprint: {
+                                    hidden: False
+                                  },
+                                  first_seen: {
+                                    hidden: False
+                                  },
+                                  fp_hash: {
+                                    hidden: False
+                                  },
+                                  issue_description: {
+                                    hidden: False
+                                  },
+                                  issue_id: {
+                                    hidden: False
+                                  },
+                                  issue_name: {
+                                    hidden: False
+                                  },
+                                  issue_status: {
+                                    hidden: False
+                                  },
+                                  team_id: {
+                                    hidden: False
+                                  }
+                                },
+                                hidden: False,
+                                name: None,
+                                top_level_settings: None,
+                                workload: None
+                              },
+                              resolver: "error_tracking_fingerprint_issue_state",
+                              resolver_params: {},
+                              to_field: None
+                            }
+                            table_type: <recursion ...>
+                          }
+                        }
+                      }
+                    },
+                    issue_first_seen: {
+                      alias: "issue_first_seen"
+                      type: {
+                        alias: "first_seen"
+                        type: {
+                          name: "first_seen"
+                          table_type: {
+                            field: "fingerprint_issue_state"
+                            lazy_join: {
+                              from_field: [
+                                "fingerprint"
+                              ],
+                              hidden: False,
+                              join_table: {
+                                fields: {
+                                  assigned_role_id: {
+                                    hidden: False
+                                  },
+                                  assigned_user_id: {
+                                    hidden: False
+                                  },
+                                  fingerprint: {
+                                    hidden: False
+                                  },
+                                  first_seen: {
+                                    hidden: False
+                                  },
+                                  fp_hash: {
+                                    hidden: False
+                                  },
+                                  issue_description: {
+                                    hidden: False
+                                  },
+                                  issue_id: {
+                                    hidden: False
+                                  },
+                                  issue_name: {
+                                    hidden: False
+                                  },
+                                  issue_status: {
+                                    hidden: False
+                                  },
+                                  team_id: {
+                                    hidden: False
+                                  }
+                                },
+                                hidden: False,
+                                name: None,
+                                top_level_settings: None,
+                                workload: None
+                              },
+                              resolver: "error_tracking_fingerprint_issue_state",
+                              resolver_params: {},
+                              to_field: None
+                            }
+                            table_type: <recursion ...>
+                          }
+                        }
+                      }
+                    },
+                    issue_id: {
+                      alias: "issue_id"
+                      type: {
+                        arg_types: [
+                          {
+                            data_type: "bool"
+                            nullable: False
+                          },
+                          {
+                            data_type: "str"
+                            nullable: False
+                          },
+                          {
+                            data_type: "uuid"
+                            nullable: True
+                          }
+                        ]
+                        name: "if"
+                        return_type: {
+                          data_type: "str"
+                          nullable: True
+                        }
+                      }
+                    },
+                    issue_id_v2: {
+                      alias: "issue_id_v2"
+                      type: {
+                        alias: "issue_id"
+                        type: {
+                          name: "issue_id"
+                          table_type: {
+                            field: "fingerprint_issue_state"
+                            lazy_join: {
+                              from_field: [
+                                "fingerprint"
+                              ],
+                              hidden: False,
+                              join_table: {
+                                fields: {
+                                  assigned_role_id: {
+                                    hidden: False
+                                  },
+                                  assigned_user_id: {
+                                    hidden: False
+                                  },
+                                  fingerprint: {
+                                    hidden: False
+                                  },
+                                  first_seen: {
+                                    hidden: False
+                                  },
+                                  fp_hash: {
+                                    hidden: False
+                                  },
+                                  issue_description: {
+                                    hidden: False
+                                  },
+                                  issue_id: {
+                                    hidden: False
+                                  },
+                                  issue_name: {
+                                    hidden: False
+                                  },
+                                  issue_status: {
+                                    hidden: False
+                                  },
+                                  team_id: {
+                                    hidden: False
+                                  }
+                                },
+                                hidden: False,
+                                name: None,
+                                top_level_settings: None,
+                                workload: None
+                              },
+                              resolver: "error_tracking_fingerprint_issue_state",
+                              resolver_params: {},
+                              to_field: None
+                            }
+                            table_type: <recursion ...>
+                          }
+                        }
+                      }
+                    },
+                    issue_name: {
+                      alias: "issue_name"
+                      type: {
+                        alias: "issue_name"
+                        type: {
+                          name: "issue_name"
+                          table_type: {
+                            field: "fingerprint_issue_state"
+                            lazy_join: {
+                              from_field: [
+                                "fingerprint"
+                              ],
+                              hidden: False,
+                              join_table: {
+                                fields: {
+                                  assigned_role_id: {
+                                    hidden: False
+                                  },
+                                  assigned_user_id: {
+                                    hidden: False
+                                  },
+                                  fingerprint: {
+                                    hidden: False
+                                  },
+                                  first_seen: {
+                                    hidden: False
+                                  },
+                                  fp_hash: {
+                                    hidden: False
+                                  },
+                                  issue_description: {
+                                    hidden: False
+                                  },
+                                  issue_id: {
+                                    hidden: False
+                                  },
+                                  issue_name: {
+                                    hidden: False
+                                  },
+                                  issue_status: {
+                                    hidden: False
+                                  },
+                                  team_id: {
+                                    hidden: False
+                                  }
+                                },
+                                hidden: False,
+                                name: None,
+                                top_level_settings: None,
+                                workload: None
+                              },
+                              resolver: "error_tracking_fingerprint_issue_state",
+                              resolver_params: {},
+                              to_field: None
+                            }
+                            table_type: <recursion ...>
+                          }
+                        }
+                      }
+                    },
+                    issue_status: {
+                      alias: "issue_status"
+                      type: {
+                        alias: "issue_status"
+                        type: {
+                          name: "issue_status"
+                          table_type: {
+                            field: "fingerprint_issue_state"
+                            lazy_join: {
+                              from_field: [
+                                "fingerprint"
+                              ],
+                              hidden: False,
+                              join_table: {
+                                fields: {
+                                  assigned_role_id: {
+                                    hidden: False
+                                  },
+                                  assigned_user_id: {
+                                    hidden: False
+                                  },
+                                  fingerprint: {
+                                    hidden: False
+                                  },
+                                  first_seen: {
+                                    hidden: False
+                                  },
+                                  fp_hash: {
+                                    hidden: False
+                                  },
+                                  issue_description: {
+                                    hidden: False
+                                  },
+                                  issue_id: {
+                                    hidden: False
+                                  },
+                                  issue_name: {
+                                    hidden: False
+                                  },
+                                  issue_status: {
+                                    hidden: False
+                                  },
+                                  team_id: {
+                                    hidden: False
+                                  }
+                                },
+                                hidden: False,
+                                name: None,
+                                top_level_settings: None,
+                                workload: None
+                              },
+                              resolver: "error_tracking_fingerprint_issue_state",
+                              resolver_params: {},
+                              to_field: None
+                            }
+                            table_type: <recursion ...>
+                          }
+                        }
+                      }
+                    },
+                    person_id: {
+                      alias: "person_id"
+                      type: {
+                        arg_types: [
+                          {
+                            data_type: "bool"
+                            nullable: False
+                          },
+                          {
+                            data_type: "str"
+                            nullable: False
+                          },
+                          {
+                            data_type: "str"
+                            nullable: False
+                          }
+                        ]
+                        name: "if"
+                        return_type: {
+                          data_type: "str"
+                          nullable: False
+                        }
+                      }
+                    },
+                    person_mode: {
+                      alias: "person_mode"
+                      type: {
+                        name: "person_mode"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    properties: {
+                      alias: "properties"
+                      type: {
+                        name: "properties"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    timestamp: {
+                      alias: "timestamp"
+                      type: {
+                        name: "timestamp"
+                        table_type: <recursion ...>
+                      }
+                    },
+                    uuid: {
+                      alias: "uuid"
+                      type: {
+                        name: "uuid"
+                        table_type: <recursion ...>
+                      }
                     }
                   }
-                },
-                person_mode: {
-                  alias: "person_mode"
-                  type: {
-                    name: "person_mode"
-                    table_type: <recursion ...>
-                  }
-                },
-                properties: {
-                  alias: "properties"
-                  type: {
-                    name: "properties"
-                    table_type: <recursion ...>
-                  }
-                },
-                timestamp: {
-                  alias: "timestamp"
-                  type: {
-                    name: "timestamp"
-                    table_type: <recursion ...>
-                  }
-                },
-                uuid: {
-                  alias: "uuid"
-                  type: {
-                    name: "uuid"
-                    table_type: <recursion ...>
+                  ctes: {}
+                  is_lambda_type: False
+                  tables: {
+                    events: <recursion ...>
                   }
                 }
-              }
-              ctes: {}
-              is_lambda_type: False
-              tables: {
-                events: <recursion ...>
-              }
+              ]
             }
           }
         }
@@ -6459,7 +7456,6 @@
                                       "distinct_id"
                                     ],
                                     hidden: False,
-                                    join_function: <function>,
                                     join_table: {
                                       fields: {
                                         distinct_id: {
@@ -6480,6 +7476,8 @@
                                       top_level_settings: None,
                                       workload: None
                                     },
+                                    resolver: "person_distinct_id_overrides",
+                                    resolver_params: {},
                                     to_field: None
                                   }
                                   table_type: <recursion ...>
@@ -6538,7 +7536,6 @@
                               "distinct_id"
                             ],
                             hidden: False,
-                            join_function: <function>,
                             join_table: {
                               fields: {
                                 distinct_id: {
@@ -6559,6 +7556,8 @@
                               top_level_settings: None,
                               workload: None
                             },
+                            resolver: "person_distinct_id_overrides",
+                            resolver_params: {},
                             to_field: None
                           }
                           table_type: <recursion ...>
@@ -6797,7 +7796,6 @@
                                       "fingerprint"
                                     ],
                                     hidden: False,
-                                    join_function: <function>,
                                     join_table: {
                                       fields: {
                                         fingerprint: {
@@ -6815,6 +7813,8 @@
                                       top_level_settings: None,
                                       workload: None
                                     },
+                                    resolver: "error_tracking_issue_fingerprint_overrides",
+                                    resolver_params: {},
                                     to_field: None
                                   }
                                   table_type: <recursion ...>
@@ -6873,7 +7873,6 @@
                               "fingerprint"
                             ],
                             hidden: False,
-                            join_function: <function>,
                             join_table: {
                               fields: {
                                 fingerprint: {
@@ -6891,6 +7890,8 @@
                               top_level_settings: None,
                               workload: None
                             },
+                            resolver: "error_tracking_issue_fingerprint_overrides",
+                            resolver_params: {},
                             to_field: None
                           }
                           table_type: <recursion ...>
@@ -7131,188 +8132,11 @@
                       "uuid"
                     ]
                     from_asterisk: True
-                    type: {
-                      name: "uuid"
-                      table_type: {
-                        table: {
-                          fields: {
-                            $group_0: {
-                              hidden: False
-                            },
-                            $group_1: {
-                              hidden: False
-                            },
-                            $group_2: {
-                              hidden: False
-                            },
-                            $group_3: {
-                              hidden: False
-                            },
-                            $group_4: {
-                              hidden: False
-                            },
-                            $session_id: {
-                              hidden: False
-                            },
-                            $session_id_uuid: {
-                              hidden: False
-                            },
-                            $virt_bot_name: {
-                              hidden: False
-                            },
-                            $virt_bot_operator: {
-                              hidden: False
-                            },
-                            $virt_is_bot: {
-                              hidden: False
-                            },
-                            $virt_traffic_category: {
-                              hidden: False
-                            },
-                            $virt_traffic_type: {
-                              hidden: False
-                            },
-                            $window_id: {
-                              hidden: False
-                            },
-                            created_at: {
-                              hidden: False
-                            },
-                            distinct_id: {
-                              hidden: False
-                            },
-                            elements_chain: {
-                              hidden: False
-                            },
-                            elements_chain_elements: {
-                              hidden: False
-                            },
-                            elements_chain_href: {
-                              hidden: False
-                            },
-                            elements_chain_ids: {
-                              hidden: False
-                            },
-                            elements_chain_texts: {
-                              hidden: False
-                            },
-                            event: {
-                              hidden: False
-                            },
-                            event_issue_id: {
-                              hidden: False
-                            },
-                            event_person_id: {
-                              hidden: False
-                            },
-                            exception_issue_override: {
-                              hidden: False
-                            },
-                            fingerprint_issue_state: {
-                              hidden: False
-                            },
-                            goe_0: {
-                              hidden: False
-                            },
-                            goe_1: {
-                              hidden: False
-                            },
-                            goe_2: {
-                              hidden: False
-                            },
-                            goe_3: {
-                              hidden: False
-                            },
-                            goe_4: {
-                              hidden: False
-                            },
-                            group_0: {
-                              hidden: False
-                            },
-                            group_1: {
-                              hidden: False
-                            },
-                            group_2: {
-                              hidden: False
-                            },
-                            group_3: {
-                              hidden: False
-                            },
-                            group_4: {
-                              hidden: False
-                            },
-                            issue_assigned_role_id: {
-                              hidden: False
-                            },
-                            issue_assigned_user_id: {
-                              hidden: False
-                            },
-                            issue_description: {
-                              hidden: False
-                            },
-                            issue_first_seen: {
-                              hidden: False
-                            },
-                            issue_id: {
-                              hidden: False
-                            },
-                            issue_id_v2: {
-                              hidden: False
-                            },
-                            issue_name: {
-                              hidden: False
-                            },
-                            issue_status: {
-                              hidden: False
-                            },
-                            override: {
-                              hidden: False
-                            },
-                            pdi: {
-                              hidden: False
-                            },
-                            person: {
-                              hidden: False
-                            },
-                            person_id: {
-                              hidden: False
-                            },
-                            person_mode: {
-                              hidden: False
-                            },
-                            poe: {
-                              hidden: False
-                            },
-                            properties: {
-                              hidden: False
-                            },
-                            session: {
-                              hidden: False
-                            },
-                            team_id: {
-                              hidden: False
-                            },
-                            timestamp: {
-                              hidden: False
-                            },
-                            uuid: {
-                              hidden: False
-                            }
-                          },
-                          hidden: False,
-                          name: None,
-                          top_level_settings: None,
-                          workload: None
-                        }
-                      }
-                    }
+                    type: <recursion ...>
                   }
                   from_asterisk: False
                   hidden: True
-                  type: {
-                    alias: "uuid"
-                    type: <recursion ...>
-                  }
+                  type: <recursion ...>
                 },
                 {
                   alias: "event"
@@ -7321,17 +8145,11 @@
                       "event"
                     ]
                     from_asterisk: True
-                    type: {
-                      name: "event"
-                      table_type: <recursion ...>
-                    }
+                    type: <recursion ...>
                   }
                   from_asterisk: False
                   hidden: True
-                  type: {
-                    alias: "event"
-                    type: <recursion ...>
-                  }
+                  type: <recursion ...>
                 },
                 {
                   alias: "properties"
@@ -7340,17 +8158,11 @@
                       "properties"
                     ]
                     from_asterisk: True
-                    type: {
-                      name: "properties"
-                      table_type: <recursion ...>
-                    }
+                    type: <recursion ...>
                   }
                   from_asterisk: False
                   hidden: True
-                  type: {
-                    alias: "properties"
-                    type: <recursion ...>
-                  }
+                  type: <recursion ...>
                 },
                 {
                   alias: "timestamp"
@@ -7359,17 +8171,11 @@
                       "timestamp"
                     ]
                     from_asterisk: True
-                    type: {
-                      name: "timestamp"
-                      table_type: <recursion ...>
-                    }
+                    type: <recursion ...>
                   }
                   from_asterisk: False
                   hidden: True
-                  type: {
-                    alias: "timestamp"
-                    type: <recursion ...>
-                  }
+                  type: <recursion ...>
                 },
                 {
                   alias: "distinct_id"
@@ -7378,17 +8184,11 @@
                       "distinct_id"
                     ]
                     from_asterisk: True
-                    type: {
-                      name: "distinct_id"
-                      table_type: <recursion ...>
-                    }
+                    type: <recursion ...>
                   }
                   from_asterisk: False
                   hidden: True
-                  type: {
-                    alias: "distinct_id"
-                    type: <recursion ...>
-                  }
+                  type: <recursion ...>
                 },
                 {
                   alias: "elements_chain"
@@ -7397,17 +8197,11 @@
                       "elements_chain"
                     ]
                     from_asterisk: True
-                    type: {
-                      name: "elements_chain"
-                      table_type: <recursion ...>
-                    }
+                    type: <recursion ...>
                   }
                   from_asterisk: False
                   hidden: True
-                  type: {
-                    alias: "elements_chain"
-                    type: <recursion ...>
-                  }
+                  type: <recursion ...>
                 },
                 {
                   alias: "created_at"
@@ -7416,17 +8210,11 @@
                       "created_at"
                     ]
                     from_asterisk: True
-                    type: {
-                      name: "created_at"
-                      table_type: <recursion ...>
-                    }
+                    type: <recursion ...>
                   }
                   from_asterisk: False
                   hidden: True
-                  type: {
-                    alias: "created_at"
-                    type: <recursion ...>
-                  }
+                  type: <recursion ...>
                 },
                 {
                   alias: "$session_id"
@@ -7435,17 +8223,11 @@
                       "$session_id"
                     ]
                     from_asterisk: True
-                    type: {
-                      name: "$session_id"
-                      table_type: <recursion ...>
-                    }
+                    type: <recursion ...>
                   }
                   from_asterisk: False
                   hidden: True
-                  type: {
-                    alias: "$session_id"
-                    type: <recursion ...>
-                  }
+                  type: <recursion ...>
                 },
                 {
                   alias: "$window_id"
@@ -7454,17 +8236,11 @@
                       "$window_id"
                     ]
                     from_asterisk: True
-                    type: {
-                      name: "$window_id"
-                      table_type: <recursion ...>
-                    }
+                    type: <recursion ...>
                   }
                   from_asterisk: False
                   hidden: True
-                  type: {
-                    alias: "$window_id"
-                    type: <recursion ...>
-                  }
+                  type: <recursion ...>
                 },
                 {
                   alias: "person_mode"
@@ -7473,17 +8249,11 @@
                       "person_mode"
                     ]
                     from_asterisk: True
-                    type: {
-                      name: "person_mode"
-                      table_type: <recursion ...>
-                    }
+                    type: <recursion ...>
                   }
                   from_asterisk: False
                   hidden: True
-                  type: {
-                    alias: "person_mode"
-                    type: <recursion ...>
-                  }
+                  type: <recursion ...>
                 },
                 {
                   alias: "person_id"
@@ -7510,7 +8280,6 @@
                                           "distinct_id"
                                         ],
                                         hidden: False,
-                                        join_function: <function>,
                                         join_table: {
                                           fields: {
                                             distinct_id: {
@@ -7531,6 +8300,8 @@
                                           top_level_settings: None,
                                           workload: None
                                         },
+                                        resolver: "person_distinct_id_overrides",
+                                        resolver_params: {},
                                         to_field: None
                                       }
                                       table_type: <recursion ...>
@@ -7569,10 +8340,7 @@
                             <recursion ...>
                           ]
                           name: "not"
-                          return_type: {
-                            data_type: "unknown"
-                            nullable: True
-                          }
+                          return_type: <recursion ...>
                         }
                       },
                       {
@@ -7592,7 +8360,6 @@
                                   "distinct_id"
                                 ],
                                 hidden: False,
-                                join_function: <function>,
                                 join_table: {
                                   fields: {
                                     distinct_id: {
@@ -7613,6 +8380,8 @@
                                   top_level_settings: None,
                                   workload: None
                                 },
+                                resolver: "person_distinct_id_overrides",
+                                resolver_params: {},
                                 to_field: None
                               }
                               table_type: <recursion ...>
@@ -7648,31 +8417,11 @@
                     ]
                     distinct: False
                     name: "if"
-                    type: {
-                      arg_types: [
-                        <recursion ...>,
-                        {
-                          data_type: "str"
-                          nullable: False
-                        },
-                        {
-                          data_type: "str"
-                          nullable: False
-                        }
-                      ]
-                      name: "if"
-                      return_type: {
-                        data_type: "unknown"
-                        nullable: True
-                      }
-                    }
+                    type: <recursion ...>
                   }
                   from_asterisk: False
                   hidden: True
-                  type: {
-                    alias: "person_id"
-                    type: <recursion ...>
-                  }
+                  type: <recursion ...>
                 },
                 {
                   alias: "$group_0"
@@ -7681,17 +8430,11 @@
                       "$group_0"
                     ]
                     from_asterisk: True
-                    type: {
-                      name: "$group_0"
-                      table_type: <recursion ...>
-                    }
+                    type: <recursion ...>
                   }
                   from_asterisk: False
                   hidden: True
-                  type: {
-                    alias: "$group_0"
-                    type: <recursion ...>
-                  }
+                  type: <recursion ...>
                 },
                 {
                   alias: "$group_1"
@@ -7700,17 +8443,11 @@
                       "$group_1"
                     ]
                     from_asterisk: True
-                    type: {
-                      name: "$group_1"
-                      table_type: <recursion ...>
-                    }
+                    type: <recursion ...>
                   }
                   from_asterisk: False
                   hidden: True
-                  type: {
-                    alias: "$group_1"
-                    type: <recursion ...>
-                  }
+                  type: <recursion ...>
                 },
                 {
                   alias: "$group_2"
@@ -7719,17 +8456,11 @@
                       "$group_2"
                     ]
                     from_asterisk: True
-                    type: {
-                      name: "$group_2"
-                      table_type: <recursion ...>
-                    }
+                    type: <recursion ...>
                   }
                   from_asterisk: False
                   hidden: True
-                  type: {
-                    alias: "$group_2"
-                    type: <recursion ...>
-                  }
+                  type: <recursion ...>
                 },
                 {
                   alias: "$group_3"
@@ -7738,17 +8469,11 @@
                       "$group_3"
                     ]
                     from_asterisk: True
-                    type: {
-                      name: "$group_3"
-                      table_type: <recursion ...>
-                    }
+                    type: <recursion ...>
                   }
                   from_asterisk: False
                   hidden: True
-                  type: {
-                    alias: "$group_3"
-                    type: <recursion ...>
-                  }
+                  type: <recursion ...>
                 },
                 {
                   alias: "$group_4"
@@ -7757,17 +8482,11 @@
                       "$group_4"
                     ]
                     from_asterisk: True
-                    type: {
-                      name: "$group_4"
-                      table_type: <recursion ...>
-                    }
+                    type: <recursion ...>
                   }
                   from_asterisk: False
                   hidden: True
-                  type: {
-                    alias: "$group_4"
-                    type: <recursion ...>
-                  }
+                  type: <recursion ...>
                 },
                 {
                   alias: "elements_chain_href"
@@ -7776,17 +8495,11 @@
                       "elements_chain_href"
                     ]
                     from_asterisk: True
-                    type: {
-                      name: "elements_chain_href"
-                      table_type: <recursion ...>
-                    }
+                    type: <recursion ...>
                   }
                   from_asterisk: False
                   hidden: True
-                  type: {
-                    alias: "elements_chain_href"
-                    type: <recursion ...>
-                  }
+                  type: <recursion ...>
                 },
                 {
                   alias: "elements_chain_texts"
@@ -7795,17 +8508,11 @@
                       "elements_chain_texts"
                     ]
                     from_asterisk: True
-                    type: {
-                      name: "elements_chain_texts"
-                      table_type: <recursion ...>
-                    }
+                    type: <recursion ...>
                   }
                   from_asterisk: False
                   hidden: True
-                  type: {
-                    alias: "elements_chain_texts"
-                    type: <recursion ...>
-                  }
+                  type: <recursion ...>
                 },
                 {
                   alias: "elements_chain_ids"
@@ -7814,17 +8521,11 @@
                       "elements_chain_ids"
                     ]
                     from_asterisk: True
-                    type: {
-                      name: "elements_chain_ids"
-                      table_type: <recursion ...>
-                    }
+                    type: <recursion ...>
                   }
                   from_asterisk: False
                   hidden: True
-                  type: {
-                    alias: "elements_chain_ids"
-                    type: <recursion ...>
-                  }
+                  type: <recursion ...>
                 },
                 {
                   alias: "elements_chain_elements"
@@ -7833,17 +8534,11 @@
                       "elements_chain_elements"
                     ]
                     from_asterisk: True
-                    type: {
-                      name: "elements_chain_elements"
-                      table_type: <recursion ...>
-                    }
+                    type: <recursion ...>
                   }
                   from_asterisk: False
                   hidden: True
-                  type: {
-                    alias: "elements_chain_elements"
-                    type: <recursion ...>
-                  }
+                  type: <recursion ...>
                 },
                 {
                   alias: "event_person_id"
@@ -7852,17 +8547,11 @@
                       "event_person_id"
                     ]
                     from_asterisk: True
-                    type: {
-                      name: "event_person_id"
-                      table_type: <recursion ...>
-                    }
+                    type: <recursion ...>
                   }
                   from_asterisk: False
                   hidden: True
-                  type: {
-                    alias: "event_person_id"
-                    type: <recursion ...>
-                  }
+                  type: <recursion ...>
                 },
                 {
                   alias: "event_issue_id"
@@ -7900,26 +8589,11 @@
                     end: 38
                     name: "toUUID"
                     start: 0
-                    type: {
-                      arg_types: [
-                        {
-                          data_type: "str"
-                          nullable: True
-                        }
-                      ]
-                      name: "toUUID"
-                      return_type: {
-                        data_type: "unknown"
-                        nullable: True
-                      }
-                    }
+                    type: <recursion ...>
                   }
                   from_asterisk: False
                   hidden: True
-                  type: {
-                    alias: "event_issue_id"
-                    type: <recursion ...>
-                  }
+                  type: <recursion ...>
                 },
                 {
                   alias: "issue_id"
@@ -7946,7 +8620,6 @@
                                           "fingerprint"
                                         ],
                                         hidden: False,
-                                        join_function: <function>,
                                         join_table: {
                                           fields: {
                                             fingerprint: {
@@ -7964,6 +8637,8 @@
                                           top_level_settings: None,
                                           workload: None
                                         },
+                                        resolver: "error_tracking_issue_fingerprint_overrides",
+                                        resolver_params: {},
                                         to_field: None
                                       }
                                       table_type: <recursion ...>
@@ -8002,10 +8677,7 @@
                             <recursion ...>
                           ]
                           name: "not"
-                          return_type: {
-                            data_type: "unknown"
-                            nullable: True
-                          }
+                          return_type: <recursion ...>
                         }
                       },
                       {
@@ -8025,7 +8697,6 @@
                                   "fingerprint"
                                 ],
                                 hidden: False,
-                                join_function: <function>,
                                 join_table: {
                                   fields: {
                                     fingerprint: {
@@ -8043,6 +8714,8 @@
                                   top_level_settings: None,
                                   workload: None
                                 },
+                                resolver: "error_tracking_issue_fingerprint_overrides",
+                                resolver_params: {},
                                 to_field: None
                               }
                               table_type: <recursion ...>
@@ -8100,10 +8773,7 @@
                               }
                             ]
                             name: "toUUID"
-                            return_type: {
-                              data_type: "unknown"
-                              nullable: True
-                            }
+                            return_type: <recursion ...>
                           }
                         }
                         from_asterisk: False
@@ -8116,28 +8786,11 @@
                     ]
                     distinct: False
                     name: "if"
-                    type: {
-                      arg_types: [
-                        <recursion ...>,
-                        {
-                          data_type: "str"
-                          nullable: False
-                        },
-                        <recursion ...>
-                      ]
-                      name: "if"
-                      return_type: {
-                        data_type: "unknown"
-                        nullable: True
-                      }
-                    }
+                    type: <recursion ...>
                   }
                   from_asterisk: False
                   hidden: True
-                  type: {
-                    alias: "issue_id"
-                    type: <recursion ...>
-                  }
+                  type: <recursion ...>
                 },
                 {
                   alias: "issue_id_v2"
@@ -8149,73 +8802,15 @@
                         "issue_id"
                       ]
                       from_asterisk: False
-                      type: {
-                        name: "issue_id"
-                        table_type: {
-                          field: "fingerprint_issue_state"
-                          lazy_join: {
-                            from_field: [
-                              "fingerprint"
-                            ],
-                            hidden: False,
-                            join_function: <function>,
-                            join_table: {
-                              fields: {
-                                assigned_role_id: {
-                                  hidden: False
-                                },
-                                assigned_user_id: {
-                                  hidden: False
-                                },
-                                fingerprint: {
-                                  hidden: False
-                                },
-                                first_seen: {
-                                  hidden: False
-                                },
-                                fp_hash: {
-                                  hidden: False
-                                },
-                                issue_description: {
-                                  hidden: False
-                                },
-                                issue_id: {
-                                  hidden: False
-                                },
-                                issue_name: {
-                                  hidden: False
-                                },
-                                issue_status: {
-                                  hidden: False
-                                },
-                                team_id: {
-                                  hidden: False
-                                }
-                              },
-                              hidden: False,
-                              name: None,
-                              top_level_settings: None,
-                              workload: None
-                            },
-                            to_field: None
-                          }
-                          table_type: <recursion ...>
-                        }
-                      }
+                      type: <recursion ...>
                     }
                     from_asterisk: False
                     hidden: True
-                    type: {
-                      alias: "issue_id"
-                      type: <recursion ...>
-                    }
+                    type: <recursion ...>
                   }
                   from_asterisk: False
                   hidden: True
-                  type: {
-                    alias: "issue_id_v2"
-                    type: <recursion ...>
-                  }
+                  type: <recursion ...>
                 },
                 {
                   alias: "issue_name"
@@ -8227,73 +8822,15 @@
                         "issue_name"
                       ]
                       from_asterisk: False
-                      type: {
-                        name: "issue_name"
-                        table_type: {
-                          field: "fingerprint_issue_state"
-                          lazy_join: {
-                            from_field: [
-                              "fingerprint"
-                            ],
-                            hidden: False,
-                            join_function: <function>,
-                            join_table: {
-                              fields: {
-                                assigned_role_id: {
-                                  hidden: False
-                                },
-                                assigned_user_id: {
-                                  hidden: False
-                                },
-                                fingerprint: {
-                                  hidden: False
-                                },
-                                first_seen: {
-                                  hidden: False
-                                },
-                                fp_hash: {
-                                  hidden: False
-                                },
-                                issue_description: {
-                                  hidden: False
-                                },
-                                issue_id: {
-                                  hidden: False
-                                },
-                                issue_name: {
-                                  hidden: False
-                                },
-                                issue_status: {
-                                  hidden: False
-                                },
-                                team_id: {
-                                  hidden: False
-                                }
-                              },
-                              hidden: False,
-                              name: None,
-                              top_level_settings: None,
-                              workload: None
-                            },
-                            to_field: None
-                          }
-                          table_type: <recursion ...>
-                        }
-                      }
+                      type: <recursion ...>
                     }
                     from_asterisk: False
                     hidden: True
-                    type: {
-                      alias: "issue_name"
-                      type: <recursion ...>
-                    }
+                    type: <recursion ...>
                   }
                   from_asterisk: False
                   hidden: True
-                  type: {
-                    alias: "issue_name"
-                    type: <recursion ...>
-                  }
+                  type: <recursion ...>
                 },
                 {
                   alias: "issue_description"
@@ -8305,73 +8842,15 @@
                         "issue_description"
                       ]
                       from_asterisk: False
-                      type: {
-                        name: "issue_description"
-                        table_type: {
-                          field: "fingerprint_issue_state"
-                          lazy_join: {
-                            from_field: [
-                              "fingerprint"
-                            ],
-                            hidden: False,
-                            join_function: <function>,
-                            join_table: {
-                              fields: {
-                                assigned_role_id: {
-                                  hidden: False
-                                },
-                                assigned_user_id: {
-                                  hidden: False
-                                },
-                                fingerprint: {
-                                  hidden: False
-                                },
-                                first_seen: {
-                                  hidden: False
-                                },
-                                fp_hash: {
-                                  hidden: False
-                                },
-                                issue_description: {
-                                  hidden: False
-                                },
-                                issue_id: {
-                                  hidden: False
-                                },
-                                issue_name: {
-                                  hidden: False
-                                },
-                                issue_status: {
-                                  hidden: False
-                                },
-                                team_id: {
-                                  hidden: False
-                                }
-                              },
-                              hidden: False,
-                              name: None,
-                              top_level_settings: None,
-                              workload: None
-                            },
-                            to_field: None
-                          }
-                          table_type: <recursion ...>
-                        }
-                      }
+                      type: <recursion ...>
                     }
                     from_asterisk: False
                     hidden: True
-                    type: {
-                      alias: "issue_description"
-                      type: <recursion ...>
-                    }
+                    type: <recursion ...>
                   }
                   from_asterisk: False
                   hidden: True
-                  type: {
-                    alias: "issue_description"
-                    type: <recursion ...>
-                  }
+                  type: <recursion ...>
                 },
                 {
                   alias: "issue_status"
@@ -8383,73 +8862,15 @@
                         "issue_status"
                       ]
                       from_asterisk: False
-                      type: {
-                        name: "issue_status"
-                        table_type: {
-                          field: "fingerprint_issue_state"
-                          lazy_join: {
-                            from_field: [
-                              "fingerprint"
-                            ],
-                            hidden: False,
-                            join_function: <function>,
-                            join_table: {
-                              fields: {
-                                assigned_role_id: {
-                                  hidden: False
-                                },
-                                assigned_user_id: {
-                                  hidden: False
-                                },
-                                fingerprint: {
-                                  hidden: False
-                                },
-                                first_seen: {
-                                  hidden: False
-                                },
-                                fp_hash: {
-                                  hidden: False
-                                },
-                                issue_description: {
-                                  hidden: False
-                                },
-                                issue_id: {
-                                  hidden: False
-                                },
-                                issue_name: {
-                                  hidden: False
-                                },
-                                issue_status: {
-                                  hidden: False
-                                },
-                                team_id: {
-                                  hidden: False
-                                }
-                              },
-                              hidden: False,
-                              name: None,
-                              top_level_settings: None,
-                              workload: None
-                            },
-                            to_field: None
-                          }
-                          table_type: <recursion ...>
-                        }
-                      }
+                      type: <recursion ...>
                     }
                     from_asterisk: False
                     hidden: True
-                    type: {
-                      alias: "issue_status"
-                      type: <recursion ...>
-                    }
+                    type: <recursion ...>
                   }
                   from_asterisk: False
                   hidden: True
-                  type: {
-                    alias: "issue_status"
-                    type: <recursion ...>
-                  }
+                  type: <recursion ...>
                 },
                 {
                   alias: "issue_assigned_user_id"
@@ -8461,73 +8882,15 @@
                         "assigned_user_id"
                       ]
                       from_asterisk: False
-                      type: {
-                        name: "assigned_user_id"
-                        table_type: {
-                          field: "fingerprint_issue_state"
-                          lazy_join: {
-                            from_field: [
-                              "fingerprint"
-                            ],
-                            hidden: False,
-                            join_function: <function>,
-                            join_table: {
-                              fields: {
-                                assigned_role_id: {
-                                  hidden: False
-                                },
-                                assigned_user_id: {
-                                  hidden: False
-                                },
-                                fingerprint: {
-                                  hidden: False
-                                },
-                                first_seen: {
-                                  hidden: False
-                                },
-                                fp_hash: {
-                                  hidden: False
-                                },
-                                issue_description: {
-                                  hidden: False
-                                },
-                                issue_id: {
-                                  hidden: False
-                                },
-                                issue_name: {
-                                  hidden: False
-                                },
-                                issue_status: {
-                                  hidden: False
-                                },
-                                team_id: {
-                                  hidden: False
-                                }
-                              },
-                              hidden: False,
-                              name: None,
-                              top_level_settings: None,
-                              workload: None
-                            },
-                            to_field: None
-                          }
-                          table_type: <recursion ...>
-                        }
-                      }
+                      type: <recursion ...>
                     }
                     from_asterisk: False
                     hidden: True
-                    type: {
-                      alias: "assigned_user_id"
-                      type: <recursion ...>
-                    }
+                    type: <recursion ...>
                   }
                   from_asterisk: False
                   hidden: True
-                  type: {
-                    alias: "issue_assigned_user_id"
-                    type: <recursion ...>
-                  }
+                  type: <recursion ...>
                 },
                 {
                   alias: "issue_assigned_role_id"
@@ -8539,73 +8902,15 @@
                         "assigned_role_id"
                       ]
                       from_asterisk: False
-                      type: {
-                        name: "assigned_role_id"
-                        table_type: {
-                          field: "fingerprint_issue_state"
-                          lazy_join: {
-                            from_field: [
-                              "fingerprint"
-                            ],
-                            hidden: False,
-                            join_function: <function>,
-                            join_table: {
-                              fields: {
-                                assigned_role_id: {
-                                  hidden: False
-                                },
-                                assigned_user_id: {
-                                  hidden: False
-                                },
-                                fingerprint: {
-                                  hidden: False
-                                },
-                                first_seen: {
-                                  hidden: False
-                                },
-                                fp_hash: {
-                                  hidden: False
-                                },
-                                issue_description: {
-                                  hidden: False
-                                },
-                                issue_id: {
-                                  hidden: False
-                                },
-                                issue_name: {
-                                  hidden: False
-                                },
-                                issue_status: {
-                                  hidden: False
-                                },
-                                team_id: {
-                                  hidden: False
-                                }
-                              },
-                              hidden: False,
-                              name: None,
-                              top_level_settings: None,
-                              workload: None
-                            },
-                            to_field: None
-                          }
-                          table_type: <recursion ...>
-                        }
-                      }
+                      type: <recursion ...>
                     }
                     from_asterisk: False
                     hidden: True
-                    type: {
-                      alias: "assigned_role_id"
-                      type: <recursion ...>
-                    }
+                    type: <recursion ...>
                   }
                   from_asterisk: False
                   hidden: True
-                  type: {
-                    alias: "issue_assigned_role_id"
-                    type: <recursion ...>
-                  }
+                  type: <recursion ...>
                 },
                 {
                   alias: "issue_first_seen"
@@ -8617,73 +8922,15 @@
                         "first_seen"
                       ]
                       from_asterisk: False
-                      type: {
-                        name: "first_seen"
-                        table_type: {
-                          field: "fingerprint_issue_state"
-                          lazy_join: {
-                            from_field: [
-                              "fingerprint"
-                            ],
-                            hidden: False,
-                            join_function: <function>,
-                            join_table: {
-                              fields: {
-                                assigned_role_id: {
-                                  hidden: False
-                                },
-                                assigned_user_id: {
-                                  hidden: False
-                                },
-                                fingerprint: {
-                                  hidden: False
-                                },
-                                first_seen: {
-                                  hidden: False
-                                },
-                                fp_hash: {
-                                  hidden: False
-                                },
-                                issue_description: {
-                                  hidden: False
-                                },
-                                issue_id: {
-                                  hidden: False
-                                },
-                                issue_name: {
-                                  hidden: False
-                                },
-                                issue_status: {
-                                  hidden: False
-                                },
-                                team_id: {
-                                  hidden: False
-                                }
-                              },
-                              hidden: False,
-                              name: None,
-                              top_level_settings: None,
-                              workload: None
-                            },
-                            to_field: None
-                          }
-                          table_type: <recursion ...>
-                        }
-                      }
+                      type: <recursion ...>
                     }
                     from_asterisk: False
                     hidden: True
-                    type: {
-                      alias: "first_seen"
-                      type: <recursion ...>
-                    }
+                    type: <recursion ...>
                   }
                   from_asterisk: False
                   hidden: True
-                  type: {
-                    alias: "issue_first_seen"
-                    type: <recursion ...>
-                  }
+                  type: <recursion ...>
                 }
               ]
               select_from: {
@@ -8696,57 +8943,12 @@
                 }
                 type: <recursion ...>
               }
-              type: {
-                aliases: {}
-                anonymous_tables: []
-                columns: {
-                  $group_0: <recursion ...>,
-                  $group_1: <recursion ...>,
-                  $group_2: <recursion ...>,
-                  $group_3: <recursion ...>,
-                  $group_4: <recursion ...>,
-                  $session_id: <recursion ...>,
-                  $window_id: <recursion ...>,
-                  created_at: <recursion ...>,
-                  distinct_id: <recursion ...>,
-                  elements_chain: <recursion ...>,
-                  elements_chain_elements: <recursion ...>,
-                  elements_chain_href: <recursion ...>,
-                  elements_chain_ids: <recursion ...>,
-                  elements_chain_texts: <recursion ...>,
-                  event: <recursion ...>,
-                  event_issue_id: <recursion ...>,
-                  event_person_id: <recursion ...>,
-                  issue_assigned_role_id: <recursion ...>,
-                  issue_assigned_user_id: <recursion ...>,
-                  issue_description: <recursion ...>,
-                  issue_first_seen: <recursion ...>,
-                  issue_id: <recursion ...>,
-                  issue_id_v2: <recursion ...>,
-                  issue_name: <recursion ...>,
-                  issue_status: <recursion ...>,
-                  person_id: <recursion ...>,
-                  person_mode: <recursion ...>,
-                  properties: <recursion ...>,
-                  timestamp: <recursion ...>,
-                  uuid: <recursion ...>
-                }
-                ctes: {}
-                is_lambda_type: False
-                tables: {
-                  events: <recursion ...>
-                }
-              }
+              type: <recursion ...>
             }
             set_operator: "UNION ALL"
           }
         ]
-        type: {
-          types: [
-            <recursion ...>,
-            <recursion ...>
-          ]
-        }
+        type: <recursion ...>
       }
       type: <recursion ...>
     }
@@ -9414,7 +9616,6 @@
                                 "distinct_id"
                               ],
                               hidden: False,
-                              join_function: <function>,
                               join_table: {
                                 fields: {
                                   distinct_id: {
@@ -9435,6 +9636,8 @@
                                 top_level_settings: None,
                                 workload: None
                               },
+                              resolver: "person_distinct_id_overrides",
+                              resolver_params: {},
                               to_field: None
                             }
                             table_type: <recursion ...>
@@ -9474,8 +9677,8 @@
                 ]
                 name: "not"
                 return_type: {
-                  data_type: "unknown"
-                  nullable: True
+                  data_type: "bool"
+                  nullable: False
                 }
               }
             },
@@ -9496,7 +9699,6 @@
                         "distinct_id"
                       ],
                       hidden: False,
-                      join_function: <function>,
                       join_table: {
                         fields: {
                           distinct_id: {
@@ -9517,6 +9719,8 @@
                         top_level_settings: None,
                         workload: None
                       },
+                      resolver: "person_distinct_id_overrides",
+                      resolver_params: {},
                       to_field: None
                     }
                     table_type: <recursion ...>
@@ -9566,8 +9770,8 @@
             ]
             name: "if"
             return_type: {
-              data_type: "unknown"
-              nullable: True
+              data_type: "str"
+              nullable: False
             }
           }
         }
@@ -9813,7 +10017,7 @@
             ]
             name: "toUUID"
             return_type: {
-              data_type: "unknown"
+              data_type: "uuid"
               nullable: True
             }
           }
@@ -9850,7 +10054,6 @@
                                 "fingerprint"
                               ],
                               hidden: False,
-                              join_function: <function>,
                               join_table: {
                                 fields: {
                                   fingerprint: {
@@ -9868,6 +10071,8 @@
                                 top_level_settings: None,
                                 workload: None
                               },
+                              resolver: "error_tracking_issue_fingerprint_overrides",
+                              resolver_params: {},
                               to_field: None
                             }
                             table_type: <recursion ...>
@@ -9907,8 +10112,8 @@
                 ]
                 name: "not"
                 return_type: {
-                  data_type: "unknown"
-                  nullable: True
+                  data_type: "bool"
+                  nullable: False
                 }
               }
             },
@@ -9929,7 +10134,6 @@
                         "fingerprint"
                       ],
                       hidden: False,
-                      join_function: <function>,
                       join_table: {
                         fields: {
                           fingerprint: {
@@ -9947,6 +10151,8 @@
                         top_level_settings: None,
                         workload: None
                       },
+                      resolver: "error_tracking_issue_fingerprint_overrides",
+                      resolver_params: {},
                       to_field: None
                     }
                     table_type: <recursion ...>
@@ -10005,7 +10211,7 @@
                   ]
                   name: "toUUID"
                   return_type: {
-                    data_type: "unknown"
+                    data_type: "uuid"
                     nullable: True
                   }
                 }
@@ -10031,7 +10237,7 @@
             ]
             name: "if"
             return_type: {
-              data_type: "unknown"
+              data_type: "str"
               nullable: True
             }
           }
@@ -10062,7 +10268,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -10101,6 +10306,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -10140,7 +10347,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -10179,6 +10385,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -10218,7 +10426,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -10257,6 +10464,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -10296,7 +10505,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -10335,6 +10543,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -10374,7 +10584,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -10413,6 +10622,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -10452,7 +10663,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -10491,6 +10701,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -10530,7 +10742,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -10569,6 +10780,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -11037,7 +11250,6 @@
                                 "distinct_id"
                               ],
                               hidden: False,
-                              join_function: <function>,
                               join_table: {
                                 fields: {
                                   distinct_id: {
@@ -11058,6 +11270,8 @@
                                 top_level_settings: None,
                                 workload: None
                               },
+                              resolver: "person_distinct_id_overrides",
+                              resolver_params: {},
                               to_field: None
                             }
                             table_type: <recursion ...>
@@ -11097,8 +11311,8 @@
                 ]
                 name: "not"
                 return_type: {
-                  data_type: "unknown"
-                  nullable: True
+                  data_type: "bool"
+                  nullable: False
                 }
               }
             },
@@ -11119,7 +11333,6 @@
                         "distinct_id"
                       ],
                       hidden: False,
-                      join_function: <function>,
                       join_table: {
                         fields: {
                           distinct_id: {
@@ -11140,6 +11353,8 @@
                         top_level_settings: None,
                         workload: None
                       },
+                      resolver: "person_distinct_id_overrides",
+                      resolver_params: {},
                       to_field: None
                     }
                     table_type: <recursion ...>
@@ -11189,8 +11404,8 @@
             ]
             name: "if"
             return_type: {
-              data_type: "unknown"
-              nullable: True
+              data_type: "str"
+              nullable: False
             }
           }
         }
@@ -11436,7 +11651,7 @@
             ]
             name: "toUUID"
             return_type: {
-              data_type: "unknown"
+              data_type: "uuid"
               nullable: True
             }
           }
@@ -11473,7 +11688,6 @@
                                 "fingerprint"
                               ],
                               hidden: False,
-                              join_function: <function>,
                               join_table: {
                                 fields: {
                                   fingerprint: {
@@ -11491,6 +11705,8 @@
                                 top_level_settings: None,
                                 workload: None
                               },
+                              resolver: "error_tracking_issue_fingerprint_overrides",
+                              resolver_params: {},
                               to_field: None
                             }
                             table_type: <recursion ...>
@@ -11530,8 +11746,8 @@
                 ]
                 name: "not"
                 return_type: {
-                  data_type: "unknown"
-                  nullable: True
+                  data_type: "bool"
+                  nullable: False
                 }
               }
             },
@@ -11552,7 +11768,6 @@
                         "fingerprint"
                       ],
                       hidden: False,
-                      join_function: <function>,
                       join_table: {
                         fields: {
                           fingerprint: {
@@ -11570,6 +11785,8 @@
                         top_level_settings: None,
                         workload: None
                       },
+                      resolver: "error_tracking_issue_fingerprint_overrides",
+                      resolver_params: {},
                       to_field: None
                     }
                     table_type: <recursion ...>
@@ -11628,7 +11845,7 @@
                   ]
                   name: "toUUID"
                   return_type: {
-                    data_type: "unknown"
+                    data_type: "uuid"
                     nullable: True
                   }
                 }
@@ -11654,7 +11871,7 @@
             ]
             name: "if"
             return_type: {
-              data_type: "unknown"
+              data_type: "str"
               nullable: True
             }
           }
@@ -11685,7 +11902,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -11724,6 +11940,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -11763,7 +11981,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -11802,6 +12019,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -11841,7 +12060,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -11880,6 +12098,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -11919,7 +12139,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -11958,6 +12177,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -11997,7 +12218,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -12036,6 +12256,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -12075,7 +12297,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -12114,6 +12335,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -12153,7 +12376,6 @@
                     "fingerprint"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       assigned_role_id: {
@@ -12192,6 +12414,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "error_tracking_fingerprint_issue_state",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -12476,8 +12700,8 @@
           ]
           name: "max"
           return_type: {
-            data_type: "unknown"
-            nullable: True
+            data_type: "datetime"
+            nullable: False
           }
         }
       }
@@ -12995,6 +13219,7 @@
         type: {
           data_type: "unknown"
           nullable: True
+          unanalyzable: False
         }
       },
       {
@@ -13024,6 +13249,7 @@
           item_type: {
             data_type: "unknown"
             nullable: True
+            unanalyzable: False
           }
           nullable: False
         }
@@ -13046,6 +13272,7 @@
       {
         type: {
           data_type: "tuple"
+          field_names: []
           item_types: [
             {
               data_type: "int"
@@ -14499,8 +14726,9 @@
                   "person_id"
                 ],
                 hidden: False,
-                join_function: <function>,
                 join_table: "persons",
+                resolver: "persons",
+                resolver_params: {},
                 to_field: None
               }
               table_type: {
@@ -14510,7 +14738,6 @@
                     "distinct_id"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       distinct_id: {
@@ -14531,6 +14758,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "person_distinct_ids",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -14788,8 +15017,9 @@
                   "person_id"
                 ],
                 hidden: False,
-                join_function: <function>,
                 join_table: "persons",
+                resolver: "persons",
+                resolver_params: {},
                 to_field: None
               }
               table_type: {
@@ -14799,7 +15029,6 @@
                     "distinct_id"
                   ],
                   hidden: False,
-                  join_function: <function>,
                   join_table: {
                     fields: {
                       distinct_id: {
@@ -14820,6 +15049,8 @@
                     top_level_settings: None,
                     workload: None
                   },
+                  resolver: "person_distinct_ids",
+                  resolver_params: {},
                   to_field: None
                 }
                 table_type: <recursion ...>
@@ -15073,7 +15304,6 @@
                   "distinct_id"
                 ],
                 hidden: False,
-                join_function: <function>,
                 join_table: {
                   fields: {
                     distinct_id: {
@@ -15094,6 +15324,8 @@
                   top_level_settings: None,
                   workload: None
                 },
+                resolver: "person_distinct_ids",
+                resolver_params: {},
                 to_field: None
               }
               table_type: <recursion ...>
@@ -15349,7 +15581,6 @@
                   "distinct_id"
                 ],
                 hidden: False,
-                join_function: <function>,
                 join_table: {
                   fields: {
                     distinct_id: {
@@ -15370,6 +15601,8 @@
                   top_level_settings: None,
                   workload: None
                 },
+                resolver: "person_distinct_ids",
+                resolver_params: {},
                 to_field: None
               }
               table_type: <recursion ...>
@@ -15472,8 +15705,9 @@
                   "person_id"
                 ],
                 hidden: False,
-                join_function: <function>,
                 join_table: "persons",
+                resolver: "persons",
+                resolver_params: {},
                 to_field: None
               }
               table_type: <recursion ...>
@@ -15995,6 +16229,16 @@
       }
     ]
     type: {
+      columns: {
+        event: {
+          data_type: "str"
+          nullable: False
+        },
+        timestamp: {
+          data_type: "datetime"
+          nullable: False
+        }
+      }
       types: [
         <recursion ...>,
         <recursion ...>

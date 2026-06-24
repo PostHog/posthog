@@ -57,8 +57,7 @@ class TestBingAdsHelperFunctions:
         assert result[0]["Clicks"] is None
         assert result[1]["CampaignName"] is None
 
-    @patch("posthog.temporal.data_imports.sources.bing_ads.utils.logger")
-    def test_fetch_data_in_yearly_chunks_single_chunk(self, mock_logger):
+    def test_fetch_data_in_yearly_chunks_single_chunk(self):
         """Test fetching data within a single year."""
         mock_client = Mock()
         mock_client.get_data_by_resource.return_value = iter([[{"CampaignId": "123", "Clicks": "100"}]])
@@ -85,8 +84,7 @@ class TestBingAdsHelperFunctions:
             BingAdsResumeConfig(next_start_date="2024-07-01", end_date=end_date.isoformat())
         )
 
-    @patch("posthog.temporal.data_imports.sources.bing_ads.utils.logger")
-    def test_fetch_data_in_yearly_chunks_multiple_chunks(self, mock_logger):
+    def test_fetch_data_in_yearly_chunks_multiple_chunks(self):
         """Test fetching data across multiple years."""
         mock_client = Mock()
         mock_client.get_data_by_resource.side_effect = [
@@ -117,8 +115,7 @@ class TestBingAdsHelperFunctions:
         first_checkpoint = manager.save_state.call_args_list[0].args[0]
         assert first_checkpoint == BingAdsResumeConfig(next_start_date="2024-01-02", end_date=end_date.isoformat())
 
-    @patch("posthog.temporal.data_imports.sources.bing_ads.utils.logger")
-    def test_fetch_data_in_yearly_chunks_same_day(self, mock_logger):
+    def test_fetch_data_in_yearly_chunks_same_day(self):
         mock_client = Mock()
         mock_client.get_data_by_resource.return_value = iter([[{"CampaignId": "123", "Clicks": "100"}]])
 
@@ -145,9 +142,12 @@ class TestBingAdsHelperFunctions:
             end_date=dt.datetime.combine(today, dt.time.max),
         )
 
-    @patch("posthog.temporal.data_imports.sources.bing_ads.utils.logger")
-    def test_fetch_data_in_yearly_chunks_with_errors(self, mock_logger):
-        """Test fetching data with some chunks failing."""
+    def test_fetch_data_in_yearly_chunks_failure_fails_sync(self):
+        """A chunk failure propagates so the sync fails rather than completing with missing data.
+
+        The checkpoint must not advance past the failed chunk, so a resume re-attempts it
+        instead of leaving a permanent gap in the data.
+        """
         mock_client = Mock()
         mock_client.get_data_by_resource.side_effect = [
             iter([[{"year": "2023"}]]),
@@ -159,24 +159,27 @@ class TestBingAdsHelperFunctions:
         end_date = dt.date(2025, 6, 30)
 
         manager = _mock_resumable_manager()
-        result = list(
-            fetch_data_in_yearly_chunks(
+
+        result: list[list[dict]] = []
+        with pytest.raises(Exception, match="API Error"):
+            for page in fetch_data_in_yearly_chunks(
                 client=mock_client,
                 resource=BingAdsResource.CAMPAIGN_PERFORMANCE_REPORT,
                 account_id=12345,
                 start_date=start_date,
                 end_date=end_date,
                 resumable_source_manager=manager,
-            )
+            ):
+                result.append(page)
+
+        # Only the first chunk was yielded before the failure aborted the sync
+        assert result == [[{"year": "2023"}]]
+        # Checkpoint advanced only past the successful first chunk, not the failed one
+        manager.save_state.assert_called_once_with(
+            BingAdsResumeConfig(next_start_date="2024-01-02", end_date=end_date.isoformat())
         )
 
-        assert len(result) == 2
-        mock_logger.error.assert_called_once()
-        # Checkpoint advances even after the failed chunk so resume moves past it
-        assert manager.save_state.call_count == 3
-
-    @patch("posthog.temporal.data_imports.sources.bing_ads.utils.logger")
-    def test_fetch_data_in_yearly_chunks_resumes_from_saved_state(self, mock_logger):
+    def test_fetch_data_in_yearly_chunks_resumes_from_saved_state(self):
         """When resume state exists, the loop starts at the saved chunk boundary and does not re-fetch earlier chunks."""
         mock_client = Mock()
         mock_client.get_data_by_resource.return_value = iter([[{"year": "2025"}]])
@@ -338,6 +341,63 @@ class TestBingAdsSource:
         )
 
         with pytest.raises(ValueError, match="Bing Ads developer token not configured"):
+            items = result.items()
+            assert isinstance(items, Iterable)
+            list(items)
+
+    @parameterized.expand(
+        [
+            ("missing_client_id", "", "test_client_secret"),
+            ("missing_client_secret", "test_client_id", ""),
+            ("both_missing", "", ""),
+        ]
+    )
+    @patch("posthog.temporal.data_imports.sources.bing_ads.bing_ads.integrations")
+    def test_bing_ads_source_missing_oauth_app_credentials(self, _name, client_id, client_secret, mock_integrations):
+        """An empty OAuth app client id/secret raises a deterministic error instead of a doomed token request.
+
+        Without the guard the SDK posts a token request omitting client_id and Microsoft returns the opaque
+        AADSTS900144, which was being mis-surfaced as a customer "reconnect your integration" error.
+        """
+        mock_integrations.BING_ADS_DEVELOPER_TOKEN = "test_dev_token"
+        mock_integrations.BING_ADS_CLIENT_ID = client_id
+        mock_integrations.BING_ADS_CLIENT_SECRET = client_secret
+
+        result = bing_ads_source(
+            account_id=self.account_id,
+            resource_name="campaigns",
+            access_token=self.access_token,
+            refresh_token=self.refresh_token,
+            resumable_source_manager=_mock_resumable_manager(),
+        )
+
+        with pytest.raises(ValueError, match="Bing Ads OAuth application credentials not configured"):
+            items = result.items()
+            assert isinstance(items, Iterable)
+            list(items)
+
+    @parameterized.expand(
+        [
+            ("account_number", "F118FDGN"),
+            ("alphanumeric", "ABC123"),
+            ("empty", ""),
+        ]
+    )
+    @patch("posthog.temporal.data_imports.sources.bing_ads.bing_ads.BingAdsClient")
+    @patch("posthog.temporal.data_imports.sources.bing_ads.bing_ads.integrations")
+    def test_bing_ads_source_non_numeric_account_id(self, _name, account_id, mock_integrations, mock_client_class):
+        """A non-numeric account ID raises a deterministic, non-retryable error instead of a bare int() crash."""
+        mock_integrations.BING_ADS_DEVELOPER_TOKEN = "test_dev_token"
+
+        result = bing_ads_source(
+            account_id=account_id,
+            resource_name="campaigns",
+            access_token=self.access_token,
+            refresh_token=self.refresh_token,
+            resumable_source_manager=_mock_resumable_manager(),
+        )
+
+        with pytest.raises(ValueError, match="Bing Ads Account ID must be numeric"):
             items = result.items()
             assert isinstance(items, Iterable)
             list(items)

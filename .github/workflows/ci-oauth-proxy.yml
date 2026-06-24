@@ -49,24 +49,13 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-            - name: Setup pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Setup Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
               with:
-                  node-version-file: .nvmrc
-                  cache: 'pnpm'
+                  install-command: pnpm --filter=@posthog/auth-proxy... install --frozen-lockfile
 
-            - name: Install dependencies
-              run: pnpm --filter=@posthog/auth-proxy... install --frozen-lockfile
-
-            - name: Type check
+            - name: Type check (tsgo)
               run: cd services/oauth-proxy && pnpm typecheck
-
-            - name: Type check (tsgo, shadow, non-blocking)
-              run: cd services/oauth-proxy && pnpm typecheck:tsgo
-              continue-on-error: true
 
             - name: Run tests
               run: cd services/oauth-proxy && pnpm test

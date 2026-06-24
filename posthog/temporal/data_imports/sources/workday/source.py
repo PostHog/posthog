@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class WorkdaySource(SimpleSource[WorkdaySourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.WORKDAY,
+            category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Workday",
             iconPath="/static/services/workday.png",
             fields=cast(list[FieldType], []),

@@ -1,8 +1,11 @@
-import { DEFAULT_Y_AXIS_ID } from 'lib/hog-charts'
-import type { Series, TimeSeriesLineChartConfig, TooltipConfig, YAxisConfig } from 'lib/hog-charts'
+import { DEFAULT_Y_AXIS_ID } from '@posthog/quill-charts'
+import type { Series, TimeSeriesLineChartConfig, TooltipConfig, YAxisConfig } from '@posthog/quill-charts'
+
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 
 import { ChartDisplayType } from '~/types'
+
+import { COMPARE_PREVIOUS_DIM_OPACITY, dimHexColor } from '../../trends/shared/compareDimming'
 
 // Shape both IndexedTrendResult (kea) and StickinessResultItem (MCP) satisfy.
 export interface StickinessResultLike {
@@ -11,6 +14,7 @@ export interface StickinessResultLike {
     data: number[]
     count: number
     days?: Array<string | number>
+    compare_label?: string | null
     action?: { order?: number } | null
     breakdown_value?: unknown
     filter?: unknown
@@ -46,11 +50,14 @@ export function buildStickinessMainSeries<R extends StickinessResultLike, M = un
     const yAxisId = opts.showMultipleYAxes && index > 0 ? `y${index}` : DEFAULT_Y_AXIS_ID
     const excluded = opts.getHidden ? opts.getHidden(r, index) : false
     const meta: M | undefined = opts.buildMeta ? opts.buildMeta(r, index) : undefined
+    // Dim the compare-against-previous series so it recedes behind the current period, matching trends.
+    const baseColor = opts.getColor(r, index)
+    const color = r.compare_label === 'previous' ? dimHexColor(baseColor, COMPARE_PREVIOUS_DIM_OPACITY) : baseColor
     return {
         key: String(r.id),
         label: r.label ?? '',
         data: toPercentData(r.data, r.count),
-        color: opts.getColor(r, index),
+        color,
         yAxisId,
         meta,
         fill: opts.display === ChartDisplayType.ActionsAreaGraph ? {} : undefined,

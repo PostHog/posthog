@@ -10,9 +10,10 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter, humanList, identifierToHuman, pluralize } from 'lib/utils'
+import { withTimeout } from 'lib/utils/async'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
+import { capitalizeFirstLetter, humanList, identifierToHuman, pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -47,6 +48,13 @@ import type { projectTreeDataLogicType } from './projectTreeDataLogicType'
 
 const MOVE_ALERT_LIMIT = 50
 const DELETE_ALERT_LIMIT = 0
+/**
+ * Upper bound on how long the starred-shortcuts fetch may run before we give up. A stalled
+ * request that never settles would otherwise leave `shortcutDataHasLoaded` false forever,
+ * freezing the global search page on a loading skeleton (the flag only flips via the loader's
+ * Success/Failure reducers).
+ */
+const SHORTCUTS_LOADER_TIMEOUT_MS = 10000
 export const PAGINATION_LIMIT = 100
 const PRODUCTS_SHOWN_WITH_SELECTED_PRODUCTS: Record<string, string[]> = {
     'LLM analytics': ['MCP analytics'],
@@ -465,7 +473,16 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         return []
                     }
 
-                    const response = await api.fileSystemShortcuts.list()
+                    // A stalled fetch that never settles would leave `shortcutDataHasLoaded` false
+                    // forever and freeze the search page on a loading skeleton. The timeout makes
+                    // the loader settle: on timeout it rejects, firing loadShortcutsFailure (which
+                    // flips shortcutDataHasLoaded), and kea-loaders' global onFailure handler in
+                    // initKea captures the exception so the previously-silent hang is surfaced.
+                    const response = await withTimeout(
+                        api.fileSystemShortcuts.list(),
+                        SHORTCUTS_LOADER_TIMEOUT_MS,
+                        'loadShortcuts timed out'
+                    )
                     return response.results
                 },
                 addShortcutItem: async ({ item }) => {
@@ -1135,6 +1152,19 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             } as FileSystemImport
                         })
                         .filter((p): p is FileSystemImport => p !== null)
+
+                    // Auto-pin items the manifest marks `pinnedByDefault` once their flag is on.
+                    for (const product of allProducts) {
+                        if (
+                            product.pinnedByDefault &&
+                            product.flag &&
+                            (featureFlags as Record<string, boolean>)[product.flag] &&
+                            !selectedProductPaths.has(product.path)
+                        ) {
+                            selectedProductPaths.add(product.path)
+                            selectedProducts.push(product)
+                        }
+                    }
 
                     return convertFileSystemEntryToTreeDataItem({
                         root: 'custom-products://',

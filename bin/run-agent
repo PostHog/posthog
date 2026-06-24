@@ -1,0 +1,72 @@
+#!/bin/bash
+# POST to local agent-ingress /run and tail SSE events from /listen/:id.
+# Exercises the full ingress → queue → runner → bus → SSE path against the
+# canned dev revision in services/agent-ingress/dev/revisions.json.
+#
+# Usage:
+#   bin/run-agent                            # default app (slug=demo)
+#   bin/run-agent --app=00000000-0000-...    # explicit applicationId
+#   bin/run-agent --input='{"foo":"bar"}'    # input payload
+#   bin/run-agent --no-listen                # skip SSE tail
+#
+# Requires the agent stack to be running (`hogli start` with the `agents`
+# intent selected, or run agent-ingress + agent-runner directly).
+
+set -euo pipefail
+
+INGRESS_URL="${AGENT_INGRESS_URL:-http://localhost:3030}"
+APPLICATION_ID="00000000-0000-4000-8000-000000000001"
+INPUT='{"hello":"world"}'
+LISTEN=1
+
+for arg in "$@"; do
+    case "$arg" in
+        --app=*)       APPLICATION_ID="${arg#*=}" ;;
+        --input=*)     INPUT="${arg#*=}" ;;
+        --no-listen)   LISTEN=0 ;;
+        --url=*)       INGRESS_URL="${arg#*=}" ;;
+        -h|--help)
+            sed -n '2,13p' "$0"
+            exit 0
+            ;;
+        *)
+            echo "unknown arg: $arg" >&2
+            exit 1
+            ;;
+    esac
+done
+
+# Pretty-print JSON if jq is around, otherwise raw.
+if command -v jq >/dev/null 2>&1; then PRETTY="jq ."; else PRETTY="cat"; fi
+
+echo "POST $INGRESS_URL/run  (applicationId=$APPLICATION_ID)"
+RUN_RESPONSE=$(curl -sS -w '\n%{http_code}' \
+    -X POST "$INGRESS_URL/run" \
+    -H 'content-type: application/json' \
+    -d "$(printf '{"applicationId":"%s","input":%s}' "$APPLICATION_ID" "$INPUT")")
+
+# curl -w writes the status code on the last line, separated from the body.
+HTTP_CODE=$(echo "$RUN_RESPONSE" | tail -n1)
+BODY=$(echo "$RUN_RESPONSE" | sed '$d')
+
+if [ "$HTTP_CODE" != "202" ]; then
+    echo "ERROR: /run returned HTTP $HTTP_CODE" >&2
+    echo "$BODY" | $PRETTY >&2
+    exit 1
+fi
+
+echo "$BODY" | $PRETTY
+
+SESSION_ID=$(echo "$BODY" | grep -o '"sessionId":"[^"]*"' | cut -d'"' -f4)
+if [ -z "$SESSION_ID" ]; then
+    echo "ERROR: could not parse sessionId from response" >&2
+    exit 1
+fi
+
+if [ "$LISTEN" = "0" ]; then
+    exit 0
+fi
+
+echo
+echo "GET $INGRESS_URL/listen/$SESSION_ID  (Ctrl-C to stop)"
+exec curl -sS -N -H 'accept: text/event-stream' "$INGRESS_URL/listen/$SESSION_ID"

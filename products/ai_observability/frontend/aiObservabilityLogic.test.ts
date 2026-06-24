@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -9,7 +11,11 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { sceneLogic } from '../../../frontend/src/scenes/sceneLogic'
 import { aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
+import { DisplayOption, aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
+import { aiObservabilityDashboardLogic } from './tabs/aiObservabilityDashboardLogic'
+import { aiObservabilityGenerationsLogic } from './tabs/aiObservabilityGenerationsLogic'
 import { aiObservabilitySessionsViewLogic } from './tabs/aiObservabilitySessionsViewLogic'
+import { aiObservabilityTracesTabLogic } from './tabs/aiObservabilityTracesTabLogic'
 
 type RedirectParams = Record<string, string>
 
@@ -32,7 +38,6 @@ describe('LLM analytics URL split', () => {
         expect(urls.aiObservabilityTags()).toBe('/ai-evals/taggers')
         expect(urls.aiObservabilityEvaluations()).toBe('/ai-evals/evaluations')
         expect(urls.aiObservabilityPrompts()).toBe('/prompt-management/prompts')
-        expect(urls.aiObservabilitySkills()).toBe('/prompt-management/skills')
     })
 
     it('redirects legacy LLM analytics URLs to their new product areas', () => {
@@ -57,9 +62,6 @@ describe('LLM analytics URL split', () => {
         expect(redirectUrl('/llm-analytics/prompts/:name', { name: 'prompt-1' })).toBe(
             '/prompt-management/prompts/prompt-1'
         )
-        expect(redirectUrl('/llm-analytics/skills/:name', { name: 'skill-1' })).toBe(
-            '/prompt-management/skills/skill-1'
-        )
     })
 
     it('redirects AI observability settings to the project-level BYOK setting', () => {
@@ -76,7 +78,7 @@ describe('aiObservabilitySharedLogic', () => {
         initKeaTests()
         sceneLogic.mount()
         router.actions.push(urls.aiObservabilityTraces())
-        logic = aiObservabilitySharedLogic({ tabId: sceneLogic.values.activeTabId || '' })
+        logic = aiObservabilitySharedLogic({})
         logic.mount()
     })
 
@@ -111,6 +113,34 @@ describe('aiObservabilitySharedLogic', () => {
             },
             shouldFilterTestAccounts: true,
         })
+    })
+
+    it('preserves params owned by other logics when rewriting the URL', () => {
+        // review_* / human_reviews_tab ride along on tab links — applying shared
+        // state must not strip them
+        router.actions.push(urls.aiObservabilityGenerations(), {
+            date_from: '-14d',
+            review_search: 'needs review',
+            human_reviews_tab: 'reviews',
+        })
+
+        expectLogic(logic).toMatchValues({
+            dateFilter: { dateFrom: '-14d', dateTo: null },
+        })
+        expect(router.values.searchParams).toMatchObject({
+            review_search: 'needs review',
+            human_reviews_tab: 'reviews',
+        })
+    })
+
+    it('strips stale trace-view params while keeping foreign params', () => {
+        router.actions.push(urls.aiObservabilityTraces(), {
+            event: 'event-1',
+            timestamp: '2026-01-01',
+            review_search: 'abc',
+        })
+
+        expect(router.values.searchParams).toEqual({ review_search: 'abc' })
     })
 
     it('should reset filters when switching tabs without params', () => {
@@ -394,5 +424,93 @@ describe('aiObservabilitySessionsViewLogic', () => {
                 fullTraces: {},
             })
         })
+    })
+})
+
+describe('AI observability persisted preferences', () => {
+    beforeEach(() => {
+        window.localStorage.clear()
+        initKeaTests()
+    })
+
+    afterEach(() => {
+        window.localStorage.clear()
+    })
+
+    it('persists generation column preferences across remount', () => {
+        const columns = ['uuid', 'timestamp']
+        const firstLogic = aiObservabilityGenerationsLogic()
+        firstLogic.mount()
+        firstLogic.actions.setGenerationsColumns(columns)
+        firstLogic.unmount()
+
+        const secondLogic = aiObservabilityGenerationsLogic()
+        secondLogic.mount()
+
+        expect(secondLogic.values.generationsColumns).toEqual(columns)
+
+        secondLogic.unmount()
+    })
+
+    it('persists traces table preferences across remount', () => {
+        const firstLogic = aiObservabilityTracesTabLogic()
+        firstLogic.mount()
+        firstLogic.actions.setShowInputOutputColumns(false)
+        firstLogic.unmount()
+
+        const secondLogic = aiObservabilityTracesTabLogic()
+        secondLogic.mount()
+
+        expect(secondLogic.values.showInputOutputColumns).toBe(false)
+
+        secondLogic.unmount()
+    })
+
+    it('persists selected dashboard across remount', () => {
+        const firstLogic = aiObservabilityDashboardLogic()
+        firstLogic.mount()
+        firstLogic.actions.loadLLMDashboardsSuccess([{ id: 42, name: 'AI dashboard', description: '' }])
+        firstLogic.unmount()
+
+        const secondLogic = aiObservabilityDashboardLogic()
+        secondLogic.mount()
+
+        expect(secondLogic.values.selectedDashboardId).toBe(42)
+
+        secondLogic.unmount()
+    })
+
+    it('persists trace display preferences across remount', () => {
+        const firstLogic = aiObservabilityTraceLogic()
+        firstLogic.mount()
+        firstLogic.actions.setIsRenderingMarkdown(false)
+        firstLogic.actions.setIsRenderingXml(true)
+        firstLogic.actions.setDisplayOption(DisplayOption.TextView)
+        firstLogic.actions.setTraceReviewPanelExpanded(true)
+        firstLogic.unmount()
+
+        const secondLogic = aiObservabilityTraceLogic()
+        secondLogic.mount()
+
+        expect(secondLogic.values.isRenderingMarkdown).toBe(false)
+        expect(secondLogic.values.isRenderingXml).toBe(true)
+        expect(secondLogic.values.displayOption).toBe(DisplayOption.TextView)
+        expect(secondLogic.values.isTraceReviewPanelExpanded).toBe(true)
+
+        secondLogic.unmount()
+    })
+
+    it('scopes explicit storage keys to the current team', () => {
+        const logic = aiObservabilityTraceLogic()
+        logic.mount()
+        logic.actions.setIsRenderingMarkdown(false)
+
+        const storageKey = `${MOCK_TEAM_ID}__ai_observability.trace.isRenderingMarkdown`
+        expect(window.localStorage[storageKey]).toBe('false')
+        expect(
+            Object.getOwnPropertyNames(window.localStorage).filter((key) => key.endsWith('trace.isRenderingMarkdown'))
+        ).toEqual([storageKey])
+
+        logic.unmount()
     })
 })

@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from django.db import DatabaseError
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -167,6 +167,31 @@ class TestGetGroupsByIdentifiers(SimpleTestCase):
     def setUp(self):
         self.team_id = 10
         self.group_type_index = 0
+
+    @override_settings(PERSONHOG_BATCH_SIZE=2)
+    @patch(_ROUTING_ERRORS_PATCH)
+    @patch(_ROUTING_TOTAL_PATCH)
+    @patch(_CONVERTER_PATCH)
+    @patch(_CLIENT_PATCH)
+    def test_personhog_chunks_requests(self, mock_get_client, mock_convert, mock_routing_counter, mock_errors_counter):
+        # 5 keys with batch size 2 → 3 chunks (2 + 2 + 1)
+        protos = [_make_proto_group(id=i + 1, team_id=self.team_id, group_key=f"k{i}") for i in range(5)]
+        mock_client = MagicMock()
+        mock_client.get_groups.side_effect = [
+            MagicMock(groups=protos[0:2]),
+            MagicMock(groups=protos[2:4]),
+            MagicMock(groups=protos[4:5]),
+        ]
+        mock_get_client.return_value = mock_client
+        models = [MagicMock() for _ in range(5)]
+        mock_convert.side_effect = models
+
+        result = get_groups_by_identifiers(self.team_id, self.group_type_index, [f"k{i}" for i in range(5)])
+
+        assert result == models
+        assert mock_client.get_groups.call_count == 3
+        for call in mock_client.get_groups.call_args_list:
+            assert len(call[0][0].group_identifiers) <= 2
 
     def test_empty_group_keys_returns_empty_list_without_personhog(self):
         with patch(_CLIENT_PATCH) as mock_get_client:
@@ -419,6 +444,27 @@ class TestGetGroupsByIdentifiersEdgeCases(SimpleTestCase):
 class TestGetGroupsByTypeIndices(SimpleTestCase):
     def setUp(self):
         self.team_id = 10
+
+    @override_settings(PERSONHOG_BATCH_SIZE=2)
+    @patch(_ROUTING_ERRORS_PATCH)
+    @patch(_ROUTING_TOTAL_PATCH)
+    @patch(_CONVERTER_PATCH)
+    @patch(_CLIENT_PATCH)
+    def test_personhog_chunks_cross_product(
+        self, mock_get_client, mock_convert, mock_routing_counter, mock_errors_counter
+    ):
+        # {0, 1} x {k1, k2, k3} = 6 identifiers; batch size 2 → 3 chunks
+        mock_client = MagicMock()
+        mock_client.get_groups.side_effect = [MagicMock(groups=[]) for _ in range(3)]
+        mock_get_client.return_value = mock_client
+
+        get_groups_by_type_indices(self.team_id, {0, 1}, {"k1", "k2", "k3"})
+
+        assert mock_client.get_groups.call_count == 3
+        total = sum(len(c[0][0].group_identifiers) for c in mock_client.get_groups.call_args_list)
+        assert total == 6
+        for c in mock_client.get_groups.call_args_list:
+            assert len(c[0][0].group_identifiers) <= 2
 
     def test_empty_group_type_indices_returns_empty_list(self):
         result = get_groups_by_type_indices(self.team_id, set(), {"k1"})

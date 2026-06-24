@@ -78,7 +78,12 @@ export class CdpEventsConsumer<
                 hogTypes: this.hogTypes,
                 filterFn: (fn) => (fn.filters?.source ?? 'events') === 'events',
             }),
-            this.hogFlowPipeline.buildInvocations(invocationGlobals),
+            // Source-compatibility lives in the consumer. The events consumer matches event-triggered
+            // flows only; other trigger types (data-warehouse-table, batch, schedule, webhook, manual)
+            // are dispatched from their respective consumers and never reach the executor from here.
+            this.hogFlowPipeline.buildInvocations(invocationGlobals, {
+                eligibilityFn: (flow) => flow.trigger.type === 'event',
+            }),
         ])
 
         const invocationsToBeQueued = [...hogInvocations, ...hogflowInvocations]
@@ -149,9 +154,17 @@ export class CdpEventsConsumer<
         return events
     }
 
+    protected async startQueueProducers(): Promise<void> {
+        await Promise.all([this.hogQueue.startAsProducer(), this.hogflowQueue.startAsProducer()])
+    }
+
+    protected async stopQueueProducers(): Promise<void> {
+        await Promise.all([this.hogQueue.stopProducer(), this.hogflowQueue.stopProducer()])
+    }
+
     public override async start(): Promise<void> {
         await super.start()
-        await Promise.all([this.hogQueue.startAsProducer(), this.hogflowQueue.startAsProducer()])
+        await this.startQueueProducers()
         // Start consuming messages
         await this.kafkaConsumer.connect(async (messages) => {
             logger.info('🔁', `${this.name} - handling batch`, {
@@ -171,7 +184,7 @@ export class CdpEventsConsumer<
         logger.info('💤', 'Stopping consumer...')
         await this.kafkaConsumer.disconnect()
         logger.info('💤', 'Stopping job queues...')
-        await Promise.all([this.hogQueue.stopProducer(), this.hogflowQueue.stopProducer()])
+        await this.stopQueueProducers()
         // IMPORTANT: super always comes last
         await super.stop()
         logger.info('💤', 'Consumer stopped!')

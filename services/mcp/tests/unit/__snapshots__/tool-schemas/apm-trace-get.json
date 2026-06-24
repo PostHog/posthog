@@ -1,0 +1,49 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "dateRange": {
+            "description": "Date range for the query. Defaults to last 24 hours.",
+            "properties": {
+                "date_from": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Start of the date range. Accepts ISO 8601 timestamps or relative formats: -1h, -6h, -1d, -7d, etc."
+                },
+                "date_to": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "End of the date range. Same format as date_from. Omit or null for \"now\"."
+                }
+            },
+            "type": "object"
+        },
+        "excludeAttributes": {
+            "default": false,
+            "description": "Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false.",
+            "type": "boolean"
+        },
+        "offset": {
+            "description": "Pagination offset into the trace's spans (ordered by start time ascending). Each page returns up to 2000 spans; pass the response's `nextOffset` to load the next page. Defaults to 0.",
+            "minimum": 0,
+            "type": "number"
+        },
+        "trace_id": {
+            "pattern": "^[a-zA-Z0-9]+$",
+            "type": "string"
+        }
+    },
+    "required": ["trace_id"],
+    "type": "object"
+}

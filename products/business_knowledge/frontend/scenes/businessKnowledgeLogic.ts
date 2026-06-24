@@ -14,7 +14,7 @@ import {
     refreshSource,
     updateSource,
 } from '../api'
-import type { CreateUrlSourcePayload, UpdateSourcePayload } from '../api'
+import type { CreateUrlSourcePayload, RefreshIntervalValue, UpdateSourcePayload } from '../api'
 import type { KnowledgeSourceApi } from '../generated/api.schemas'
 import type { businessKnowledgeLogicType } from './businessKnowledgeLogicType'
 
@@ -24,6 +24,7 @@ export type CrawlMode = 'single' | 'sitemap' | 'same_origin' | 'github_repo'
 export interface TextSourceFormValues {
     name: string
     text: string
+    always_include: boolean
 }
 
 export interface UrlSourceFormValues {
@@ -36,11 +37,15 @@ export interface UrlSourceFormValues {
     exclude_globs: string
     max_pages: number
     max_depth: number
+    // Background auto-refresh cadence, sent on both create and edit.
+    refresh_interval: RefreshIntervalValue
+    always_include: boolean
 }
 
 export interface FileSourceFormValues {
     name: string
     file: File | null
+    always_include: boolean
 }
 
 export type CreateTab = 'text' | 'url' | 'file'
@@ -159,11 +164,11 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
     })),
     forms(({ actions, values }) => ({
         textSource: {
-            defaults: { name: '', text: '' } as TextSourceFormValues,
+            defaults: { name: '', text: '', always_include: false } as TextSourceFormValues,
             errors: validateText,
-            submit: async ({ name, text }: TextSourceFormValues) => {
+            submit: async ({ name, text, always_include }: TextSourceFormValues) => {
                 try {
-                    const created = await createTextSource(name, text)
+                    const created = await createTextSource(name, text, always_include)
                     lemonToast.success(`"${created.name}" indexed into ${created.chunk_count} chunks`)
                     actions.closeCreateModal()
                     actions.resetTextSource()
@@ -187,16 +192,23 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
                 exclude_globs: '',
                 max_pages: 50,
                 max_depth: 2,
+                refresh_interval: 'manual',
+                always_include: false,
             } as UrlSourceFormValues,
             errors: validateUrl,
             submit: async (values: UrlSourceFormValues) => {
+                const includeGlobs = splitGlobs(values.include_globs)
                 const payload: CreateUrlSourcePayload = {
                     name: values.name,
                     url: values.url,
                     source_type: 'url',
                     crawl_mode: values.crawl_mode,
+                    refresh_interval: values.refresh_interval,
+                    always_include: values.always_include,
                     ...(values.crawl_mode !== 'single' && {
-                        include_globs: splitGlobs(values.include_globs),
+                        // Only send include_globs when the user explicitly set them;
+                        // otherwise the backend auto-derives scope from the entry URL path.
+                        ...(includeGlobs.length > 0 && { include_globs: includeGlobs }),
                         exclude_globs: splitGlobs(values.exclude_globs),
                         max_pages: values.max_pages,
                         max_depth: values.max_depth,
@@ -204,11 +216,9 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
                 }
                 try {
                     const created = await createUrlSource(payload)
-                    const pageLabel =
-                        created.crawl_mode && created.crawl_mode !== 'single'
-                            ? ` (${created.document_count} pages)`
-                            : ''
-                    lemonToast.success(`"${created.name}" indexed into ${created.chunk_count} chunks${pageLabel}`)
+                    // Ingestion runs in the background; the source starts PROCESSING
+                    // and the list polls until it flips to ready.
+                    lemonToast.success(`"${created.name}" added — fetching and indexing in the background`)
                     actions.closeCreateModal()
                     actions.resetUrlSource()
                     actions.loadSources()
@@ -224,7 +234,7 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
             },
         },
         fileSource: {
-            defaults: { name: '', file: null } as FileSourceFormValues,
+            defaults: { name: '', file: null, always_include: false } as FileSourceFormValues,
             errors: ({ name, file }: FileSourceFormValues) => ({
                 name: !name.trim() ? 'Give the source a short name' : undefined,
                 file: !file
@@ -233,7 +243,7 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
                       ? 'File exceeds the 50 MB cap'
                       : undefined,
             }),
-            submit: async ({ name, file }: FileSourceFormValues) => {
+            submit: async ({ name, file, always_include }: FileSourceFormValues) => {
                 if (!file) {
                     return
                 }
@@ -241,6 +251,7 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
                 formData.append('name', name)
                 formData.append('file', file)
                 formData.append('source_type', 'file')
+                formData.append('always_include', String(always_include))
                 try {
                     const created = await createFileSource(formData)
                     lemonToast.success(`"${created.name}" indexed into ${created.chunk_count} chunks`)
@@ -259,7 +270,7 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
             },
         },
         editSource: {
-            defaults: { name: '', text: '' } as TextSourceFormValues,
+            defaults: { name: '', text: '', always_include: false } as TextSourceFormValues,
             errors: ({ name, text }: TextSourceFormValues) => {
                 const isText = values.editingSource?.source_type === 'text'
                 return {
@@ -273,13 +284,13 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
                         : undefined,
                 }
             },
-            submit: async ({ name, text }: TextSourceFormValues) => {
+            submit: async ({ name, text, always_include }: TextSourceFormValues) => {
                 const current = values.editingSource
                 if (!current) {
                     return
                 }
                 const isText = current.source_type === 'text'
-                const payload: UpdateSourcePayload = { name, ...(isText && { text }) }
+                const payload: UpdateSourcePayload = { name, always_include, ...(isText && { text }) }
                 try {
                     const updated = await updateSource(current.id, payload)
                     const msg = isText
@@ -309,6 +320,8 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
                 exclude_globs: '',
                 max_pages: 50,
                 max_depth: 2,
+                refresh_interval: 'manual',
+                always_include: false,
             } as UrlSourceFormValues,
             errors: validateUrl,
             submit: async (vals: UrlSourceFormValues) => {
@@ -316,12 +329,15 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
                 if (!current) {
                     return
                 }
+                const editIncludeGlobs = splitGlobs(vals.include_globs)
                 const payload: UpdateSourcePayload = {
                     name: vals.name,
                     url: vals.url,
                     crawl_mode: vals.crawl_mode,
+                    refresh_interval: vals.refresh_interval,
+                    always_include: vals.always_include,
                     ...(vals.crawl_mode !== 'single' && {
-                        include_globs: splitGlobs(vals.include_globs),
+                        ...(editIncludeGlobs.length > 0 && { include_globs: editIncludeGlobs }),
                         exclude_globs: splitGlobs(vals.exclude_globs),
                         max_pages: vals.max_pages,
                         max_depth: vals.max_depth,
@@ -345,7 +361,23 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
             },
         },
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
+        loadSourcesSuccess: ({ sources }) => {
+            // URL ingestion runs in the background — poll while anything is still
+            // processing so the row flips to ready (or error) without a manual reload.
+            // After that, embeddings are generated by an hourly background job, so
+            // keep polling at a much slower cadence until everything is fully indexed.
+            const isProcessing = sources.some((s) => s.status === 'processing')
+            const isEmbedding = sources.some((s) => s.status === 'ready' && s.embedding_status === 'pending')
+            if (isProcessing || isEmbedding) {
+                cache.disposables.add(() => {
+                    const id = setTimeout(() => actions.loadSources(), isProcessing ? 3000 : 60000)
+                    return () => clearTimeout(id)
+                }, 'pollProcessing')
+            } else {
+                cache.disposables.dispose('pollProcessing')
+            }
+        },
         deleteSource: async ({ id }) => {
             try {
                 await deleteSource(id)
@@ -388,9 +420,15 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
                     exclude_globs: (cfg.exclude_globs || []).join('\n'),
                     max_pages: cfg.max_pages ?? 50,
                     max_depth: cfg.max_depth ?? 2,
+                    refresh_interval: (source.refresh_interval || 'manual') as RefreshIntervalValue,
+                    always_include: source.always_include ?? false,
                 })
             } else {
-                actions.setEditSourceValues({ name: source.name, text: '' })
+                actions.setEditSourceValues({
+                    name: source.name,
+                    text: '',
+                    always_include: source.always_include ?? false,
+                })
                 if (source.source_type === 'text') {
                     actions.loadEditingSourceText({ id: source.id })
                 }

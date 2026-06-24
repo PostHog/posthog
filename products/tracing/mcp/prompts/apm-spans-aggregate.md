@@ -15,7 +15,7 @@ Use to answer:
 - "How many errors did the checkout service emit in the last day?"
 - "Did `POST /orders` get slower this week vs last week?" (with `compareFilter`)
 
-For per-call-tree breakdowns (parent → child relationships), use `apm-spans-tree` instead.
+For per-call-tree breakdowns (parent → child relationships), use `apm-spans-tree` instead. For time-bucketed trends ("when did it change?"), use `apm-spans-sparkline` instead — `compareFilter` only contrasts two static windows.
 
 All parameters must be nested inside a `query` object.
 
@@ -34,7 +34,7 @@ Use `query.filterGroup` to narrow results to spans matching specific attributes.
 
 Filter `type` values:
 
-- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code)
+- `span` — built-in span fields (trace_id, span_id, duration, name, kind, status_code, is_root_span)
 - `span_attribute` — span-level attributes (e.g. "http.method", "http.status_code")
 - `span_resource_attribute` — resource-level attributes (e.g. k8s labels, deployment info)
 

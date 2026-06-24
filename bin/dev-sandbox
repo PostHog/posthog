@@ -1,0 +1,185 @@
+#!/usr/bin/env bash
+# Run a dev-stack command inside a macOS Seatbelt sandbox (see bin/dev-sandbox.sb).
+#
+# Usage: bin/dev-sandbox '<shell command>'
+#
+# The whole original shell command (operators and all) is passed as a single
+# argument and run via `bash -c`. On by default; opt out by setting
+# POSTHOG_DEV_SANDBOX=0 in .env.local. The generator (hogli dev:generate) wraps
+# Python/Node service commands with this script unless opted out.
+#
+# The base profile denies all reads under $HOME. Because the repo lives under
+# $HOME, the OS / node module resolver / getcwd must still lstat+readdir the
+# directory chain between $HOME and the repo to reach it. We compute that chain
+# at runtime (it depends where each dev cloned the repo) and append read-allows
+# for those specific dir nodes to a rendered copy of the profile — their non-repo
+# contents (~/.ssh, ~/.aws, ...) stay denied.
+#
+# Failure policy:
+#   - non-macOS / sandbox-exec missing / profile missing / render fails -> passthrough
+#   - sandbox-exec cannot initialize the profile -> fail OPEN, loud warning
+#     (a working sandbox that merely *denies* a path is left to surface normally)
+
+set -euo pipefail
+
+cmd="${1:?bin/dev-sandbox: expected a command string as the first argument}"
+project="$(cd "$(dirname "$0")/.." && pwd -P)" # canonical repo root (Seatbelt matches physical paths)
+base_profile="$project/bin/dev-sandbox.sb"
+
+run_unsandboxed() { exec /bin/bash -c "$cmd"; }
+
+if [[ "$(uname -s)" != "Darwin" ]] || ! command -v sandbox-exec >/dev/null 2>&1 || [[ ! -f "$base_profile" ]]; then
+    run_unsandboxed
+fi
+
+# When run from a git worktree, the main repo's .git lives outside $project; allow
+# reads there too so git-aware tooling keeps working. Defaults to $project.
+mainrepo="$project"
+gitfile="$project/.git"
+if [[ -f "$gitfile" ]]; then
+    gitdir="$(sed -n 's/^gitdir: //p' "$gitfile")"
+    [[ -n "$gitdir" && "$gitdir" != /* ]] && gitdir="$project/$gitdir"
+    case "$gitdir" in
+        */.git/worktrees/*) mainrepo="$(cd "${gitdir%/.git/worktrees/*}" 2>/dev/null && pwd -P || echo "$project")" ;;
+    esac
+fi
+
+# Effective-profile path, keyed on every input that affects its contents: the
+# base profile + this wrapper (via the mtime checks below) and the ancestor chain
+# + SSH socket (via this hash). Any change yields a new path or fails a freshness
+# check, so a cache hit is never stale. Keying lets the ~13 services phrocs starts
+# concurrently reuse one render instead of each re-rendering identical bytes.
+# TMPDIR is canonicalized so the profile's self-write-deny (rendered below) matches
+# the physical path Seatbelt enforces against (/var/folders -> /private/var/...).
+tmpdir="$(cd "${TMPDIR:-/tmp}" 2>/dev/null && pwd -P || echo "${TMPDIR:-/tmp}")"
+cache_key="$(printf '%s\0' "$project" "$mainrepo" "$HOME" "${SSH_AUTH_SOCK:-}" | /usr/bin/shasum -a256 | cut -c1-16)"
+rendered="$tmpdir/posthog-dev-sandbox-$cache_key.sb"
+stamp="$rendered.ok" # touched once the rendered profile passes the init preflight
+
+# Render = base profile + ancestor read-allows ($HOME down to each repo root, so
+# the OS/node/getcwd can lstat+readdir into the repo) + the SSH-agent socket deny.
+# Parameter expansion (no dirname forks) since this is on the per-service path.
+# Written to a unique temp and atomically renamed in (concurrent launches share
+# the path; a half-written profile would make sandbox-exec fail open).
+render_profile() {
+    local -a ancestors=()
+    local r p _a tmp sock_dir
+    local _dq='"' _bs=$'\\'
+    for r in "$project" "$mainrepo"; do
+        p="${r%/*}"
+        while [[ "$p" != "$HOME" && "$p" != "/" && -n "$p" ]]; do
+            ancestors+=("$p")
+            p="${p%/*}"
+        done
+    done
+    ancestors+=("$HOME")
+    # Paths are emitted as SBPL string literals; a " or \ would corrupt the
+    # profile (quoted expansions match literally, dodging glob/escape ambiguity).
+    for _a in "${ancestors[@]}" "$rendered" "$stamp"; do
+        case "$_a" in
+        *"$_dq"* | *"$_bs"*)
+            echo "⚠️  dev sandbox: path contains a quote/backslash, running WITHOUT sandbox: $_a" >&2
+            return 1
+            ;;
+        esac
+    done
+    tmp="$(mktemp "$tmpdir/posthog-dev-sandbox.XXXXXX")" || return 1
+    if {
+        cat "$base_profile"
+        printf '(allow file-read*'
+        printf ' (literal "%s")' "${ancestors[@]}"
+        printf ')\n'
+        # Deny the SSH agent socket (path varies per agent: Secretive, 1Password,
+        # launchd, gpg). Canonicalize its dir — Seatbelt matches the kernel's
+        # physical path (e.g. /tmp -> /private/tmp); fall back to the raw path.
+        if [[ "${SSH_AUTH_SOCK:-}" == /* ]]; then
+            sock_dir="$(cd "${SSH_AUTH_SOCK%/*}" 2>/dev/null && pwd -P || true)"
+            if [[ -n "$sock_dir" ]]; then
+                printf '(deny network-outbound (literal "%s/%s"))\n' "$sock_dir" "${SSH_AUTH_SOCK##*/}"
+            else
+                printf '(deny network-outbound (literal "%s"))\n' "$SSH_AUTH_SOCK"
+            fi
+        fi
+        # Deny the sandboxed process from rewriting its own cached profile + stamp.
+        # They sit in TMPDIR (outside $HOME, hence writable by default); poisoning
+        # them would bypass the sandbox on the next cache hit, which re-runs neither
+        # render nor preflight. The legit render here runs outside the sandbox, so
+        # it is unaffected. Literals are canonical (TMPDIR resolved above).
+        printf '(deny file-write* (literal "%s") (literal "%s"))\n' "$rendered" "$stamp"
+    } >"$tmp" 2>/dev/null && mv -f "$tmp" "$rendered"; then
+        rm -f "$stamp" # new contents: force a fresh init preflight
+        return 0
+    fi
+    rm -f "$tmp"
+    return 1
+}
+
+# Render on a cache miss: no rendered file, or the base profile / this wrapper is
+# newer than the cache. The wrapper check means a render-logic change (e.g. on git
+# pull) self-invalidates every stale profile — no version token to bump.
+if [[ ! -f "$rendered" || "$base_profile" -nt "$rendered" || "$project/bin/dev-sandbox" -nt "$rendered" ]]; then
+    render_profile || run_unsandboxed
+fi
+
+sandbox=(sandbox-exec -f "$rendered" -D HOME="$HOME" -D PROJECT="$project" -D MAINREPO="$mainrepo")
+
+# Init preflight, once per rendered profile (the stamp records that it passed).
+# Fail OPEN if it can't initialize (e.g. the profile won't compile on this OS).
+if [[ "$rendered" -nt "$stamp" ]]; then
+    if "${sandbox[@]}" /usr/bin/true >/dev/null 2>&1; then
+        touch "$stamp" 2>/dev/null || true
+    else
+        echo "⚠️  dev sandbox failed to initialize — running WITHOUT sandbox. Set POSTHOG_DEV_SANDBOX=0 to silence." >&2
+        run_unsandboxed
+    fi
+fi
+
+# Drop $HOME PATH entries the sandbox denies, so bare-command spawns keep working.
+# node/libuv resolve a bare command name with execvP, which walks $PATH and aborts
+# the ENTIRE search on the first EPERM — and Seatbelt returns EPERM (not ENOENT) for
+# a dir that exists but is read-denied. So a single unreadable $HOME dir on PATH
+# (fnm/nvm/asdf/pyenv shims under ~/.local, ~/.nvm, …) breaks every bare-name spawn
+# before it can reach a usable binary — e.g. pnpm's lifecycle scripts during install
+# fail with `spawn EPERM`. Keep only the repo's own bins (node_modules/.bin) and
+# non-$HOME dirs (system, the flox/nix store) — the full toolchain the dev stack
+# actually uses. $HOME interpreters were already unusable inside the sandbox by
+# design (contents unreadable → exec fails); this just makes the search skip them
+# instead of dying on them.
+sandboxed_path=""
+_oldifs="$IFS"
+set -f # PATH entries are literal paths; never glob-expand them
+IFS=':'
+for _pdir in $PATH; do
+    case "$_pdir" in
+        "$project"/* | "$mainrepo"/*) ;;   # repo bins (node_modules/.bin) — keep
+        "$HOME"/* | "") continue ;;        # read-denied $HOME shim dir / empty — drop
+    esac
+    sandboxed_path+="${sandboxed_path:+:}$_pdir"
+done
+IFS="$_oldifs"
+set +f
+
+# Strip ambient personal tokens the dev stack doesn't need from the child env.
+# The application's own config env (DB URLs, OBJECT_STORAGE_* keys, 1Password-
+# injected API keys) is left intact — only credentials that happen to live in the
+# shell are removed. AWS_* is stripped because the dev stack reaches local object
+# storage via OBJECT_STORAGE_*, not the AWS chain; DOCKER_HOST is stripped so the
+# docker CLI can't be pointed at an endpoint the socket deny doesn't cover.
+exec env \
+    -u GITHUB_TOKEN \
+    -u GH_TOKEN \
+    -u NPM_TOKEN \
+    -u NPM_AUTH_TOKEN \
+    -u OP_SERVICE_ACCOUNT_TOKEN \
+    -u SSH_AUTH_SOCK \
+    -u DOCKER_HOST \
+    -u AWS_ACCESS_KEY_ID \
+    -u AWS_SECRET_ACCESS_KEY \
+    -u AWS_SESSION_TOKEN \
+    -u VAULT_TOKEN \
+    -u GITLAB_TOKEN \
+    -u CARGO_REGISTRY_TOKEN \
+    -u HUGGING_FACE_HUB_TOKEN \
+    -u HF_TOKEN \
+    PATH="$sandboxed_path" \
+    "${sandbox[@]}" /bin/bash -c "$cmd"

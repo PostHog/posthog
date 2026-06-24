@@ -49,6 +49,14 @@ pub const DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER: &str =
     "flags_db_person_and_group_properties_reads_total";
 pub const FLAG_REQUESTS_COUNTER: &str = "flags_requests_total";
 pub const FLAG_REQUESTS_LATENCY: &str = "flags_requests_duration_ms";
+
+// Internal batch flag evaluation endpoint (static cohort generation). Dedicated
+// `flags_batch_eval_*` names keep batch traffic separable from live `/flags` metrics.
+// Not to be confused with the pre-existing `flags_batch_evaluation_*` family below
+// (per-request sequential/parallel strategy metrics emitted from flag_matching.rs).
+pub const FLAG_BATCH_EVAL_REQUESTS_COUNTER: &str = "flags_batch_eval_requests_total";
+pub const FLAG_BATCH_EVAL_PERSONS_COUNTER: &str = "flags_batch_eval_persons_total";
+pub const FLAG_BATCH_EVAL_TIME: &str = "flags_batch_eval_duration_ms";
 pub const FLAG_QUEUE_TIME_MS: &str = "flags_queue_time_ms";
 pub const FLAG_REQUEST_FAULTS_COUNTER: &str = "flags_request_faults_total";
 
@@ -140,18 +148,6 @@ pub const DB_CONNECTION_POOL_ACTIVE_COUNTER: &str = "flags_db_connection_pool_ac
 pub const DB_CONNECTION_POOL_IDLE_COUNTER: &str = "flags_db_connection_pool_idle_total";
 pub const DB_CONNECTION_POOL_MAX_COUNTER: &str = "flags_db_connection_pool_max_total";
 pub const DB_CONNECTION_POOL_SIZE_GAUGE: &str = "flags_db_connection_pool_size";
-
-// Synchronous-path billing increment timing.
-// Labeled by `outcome` ("ok" | "timeout" | "error") to isolate the happy
-// path from Redis timeouts.
-pub const FLAG_BILLING_INCREMENT_TIME: &str = "flags_billing_increment_time_ms";
-
-// Counter for Redis errors observed during the synchronous billing
-// increment. Labeled by `error_type` ("timeout" | "transport" | "not_found"
-// | "parse" | "config") — same classification the billing flusher uses, so
-// breakdowns line up across both paths. The raw error message is never used
-// as a label (cardinality risk).
-pub const FLAG_REQUEST_REDIS_ERROR: &str = "flag_request_redis_error";
 
 // Billing aggregator metrics
 // See `src/billing/aggregator.rs`. The accounting identity
@@ -306,6 +302,17 @@ pub const FLAG_DEFINITIONS_RATE_LIMITED_COUNTER: &str = "flags_flag_definitions_
 pub const FLAG_DEFINITIONS_RATE_LIMIT_BYPASSED_COUNTER: &str =
     "flags_flag_definitions_rate_limit_bypassed_total";
 pub const FLAG_DEFINITIONS_REQUESTS_COUNTER: &str = "flags_flag_definitions_requests_total";
+
+// Remote config rate limiting
+pub const REMOTE_CONFIG_RATE_LIMITED_COUNTER: &str = "flags_remote_config_rate_limited_total";
+pub const REMOTE_CONFIG_RATE_LIMIT_BYPASSED_COUNTER: &str =
+    "flags_remote_config_rate_limit_bypassed_total";
+pub const REMOTE_CONFIG_REQUESTS_COUNTER: &str = "flags_remote_config_requests_total";
+
+// Remote config auth method
+// Labels: method (project_secret_api_key, secret_api_key, personal_api_key). The secret-vs-personal
+// split decides redact-vs-decrypt, so the mix is worth watching during the phase 2/3 cutover.
+pub const REMOTE_CONFIG_AUTH_COUNTER: &str = "flags_remote_config_auth_total";
 
 // Flag definitions cache metrics
 // Labels: source (redis, s3, fallback)

@@ -1,4 +1,5 @@
 import asyncio
+from typing import Any
 
 import pytest
 from freezegun import freeze_time
@@ -9,11 +10,12 @@ from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_slack_response import AsyncSlackResponse
 
-from posthog.models.exported_asset import ExportedAsset
+from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 from posthog.models.integration import Integration
-from posthog.models.subscription import Subscription
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.models.subscription import Subscription
 from products.product_analytics.backend.models.insight import Insight
 
 from ee.tasks.subscriptions.slack_subscriptions import (
@@ -104,6 +106,15 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
                         "text": {"type": "plain_text", "text": "Manage Subscription"},
                         "url": f"http://localhost:8010/insights/123456/subscriptions/{self.subscription.id}?utm_source=posthog&utm_campaign=subscription_report&utm_medium=slack",
                     },
+                ],
+            },
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": "💬 <https://posthog.com/docs/slack-app?utm_source=posthog&utm_campaign=subscription_report&utm_medium=slack|Set up the @PostHog bot> to ask follow-up questions about your reports here.",
+                    }
                 ],
             },
         ]
@@ -208,6 +219,15 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
                     },
                 ],
             },
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": "💬 <https://posthog.com/docs/slack-app?utm_source=posthog&utm_campaign=subscription_report&utm_medium=slack|Set up the @PostHog bot> to ask follow-up questions about your reports here.",
+                    }
+                ],
+            },
         ]
 
         # Second call - other asset
@@ -292,6 +312,40 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
         mock_async_client = AsyncMock()
         mock_slack_integration.async_client = MagicMock(return_value=mock_async_client)
         return mock_async_client
+
+    def test_async_delivery_builds_message_off_event_loop(self, MockSlackIntegration: MagicMock) -> None:
+        # Regression: `_prepare_slack_message` reads lazily-loaded ORM relations
+        # (e.g. integration.team.organization), so it must be built in a worker thread,
+        # never directly on the event loop where Django raises SynchronousOnlyOperation.
+        mock_async_client = self._setup_async_mock(MockSlackIntegration)
+        mock_async_client.chat_postMessage.return_value = {"ts": "1.234"}
+
+        real_prepare = _prepare_slack_message
+        ran_on_event_loop: list[bool] = []
+
+        def _spy(*args: Any, **kwargs: Any) -> Any:
+            try:
+                asyncio.get_running_loop()
+                ran_on_event_loop.append(True)
+            except RuntimeError:
+                ran_on_event_loop.append(False)
+            return real_prepare(*args, **kwargs)
+
+        # The build runs in a worker thread whose connection can't see this test's
+        # transaction, so every relation it reads must already be cached: assets via
+        # select_related, subscription/integration via the cached setUp instances.
+        assets = list(ExportedAsset.objects.filter(id=self.asset.id).select_related("insight"))
+
+        with patch("ee.tasks.subscriptions.slack_subscriptions._prepare_slack_message", side_effect=_spy):
+            result = asyncio.run(
+                send_slack_message_with_integration_async(
+                    self.integration, self.subscription, assets, self.TOTAL_ASSET_COUNT
+                )
+            )
+
+        assert ran_on_event_loop == [False]
+        assert result.is_complete_success
+        mock_async_client.chat_postMessage.assert_awaited()
 
     def test_async_delivery_all_message_success(self, MockSlackIntegration: MagicMock) -> None:
         mock_async_client = self._setup_async_mock(MockSlackIntegration)
@@ -656,3 +710,57 @@ class TestSlackSummaryNotice(APIBaseTest):
     def test_no_notice_when_under_budget_and_no_summary(self) -> None:
         texts = self._block_texts(change_summary=None, summary_skipped_over_budget=False)
         assert all("AI summary skipped" not in text for text in texts)
+
+
+class TestSlackExploreHint(APIBaseTest):
+    def setUp(self) -> None:
+        self.insight = Insight.objects.create(team=self.team, short_id="123456", name="My Test subscription")
+        self.asset = ExportedAsset.objects.create(
+            team=self.team,
+            insight_id=self.insight.id,
+            export_format="image/png",
+            content_location="s3://bucket/test.png",
+        )
+        self.subscription = create_subscription(
+            team=self.team,
+            insight=self.insight,
+            created_by=self.user,
+            target_type="slack",
+            target_value="C12345|#test-channel",
+        )
+
+    def _hint_texts(self, integration: Integration | None) -> list[str]:
+        message = _prepare_slack_message(
+            self.subscription,
+            [self.asset],
+            total_asset_count=1,
+            integration=integration,
+        )
+        return [el["text"] for block in message.blocks if block.get("type") == "context" for el in block["elements"]]
+
+    def _make_integration(self, scopes: frozenset[str]) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T12345",
+            config={"scope": ",".join(sorted(scopes))},
+            sensitive_config={"access_token": "xoxb-test"},
+        )
+
+    def test_no_hint_without_integration(self) -> None:
+        assert self._hint_texts(None) == []
+
+    def test_bot_ready_hint_nudges_mention(self) -> None:
+        texts = self._hint_texts(self._make_integration(REQUIRED_SLACK_SCOPES))
+        assert any("@PostHog" in t and "docs/slack-app" not in t for t in texts)
+
+    def test_bot_not_ready_hint_links_docs(self) -> None:
+        texts = self._hint_texts(self._make_integration(frozenset({"chat:write"})))
+        assert any("docs/slack-app" in t for t in texts)
+        assert not any("Reply in this thread" in t for t in texts)
+
+    def test_no_hint_when_ai_not_approved(self) -> None:
+        org = self.team.organization
+        org.is_ai_data_processing_approved = False
+        org.save()
+        assert self._hint_texts(self._make_integration(REQUIRED_SLACK_SCOPES)) == []

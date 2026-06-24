@@ -46,8 +46,7 @@ export function AccountsColumnConfigurator(): JSX.Element {
 
 function AccountsColumnConfiguratorModal({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }): JSX.Element {
     const { selectColumns, accountsColumnGroups, databaseLoading } = useValues(accountsColumnConfigLogic)
-    const { saveColumns, moveColumn, resetColumns, setSelectColumns, unselectColumn } =
-        useActions(accountsColumnConfigLogic)
+    const { moveColumn, resetColumns, setSelectColumns, unselectColumn } = useActions(accountsColumnConfigLogic)
 
     const onEditColumn = (column: string, index: number): void => {
         const next = window.prompt('Edit column', column)
@@ -69,18 +68,8 @@ function AccountsColumnConfiguratorModal({ isOpen, onClose }: { isOpen: boolean;
                             Reset to defaults
                         </LemonButton>
                     </div>
-                    <LemonButton type="secondary" onClick={onClose}>
-                        Close
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        onClick={() => {
-                            saveColumns()
-                            onClose()
-                        }}
-                        data-attr="accounts-columns-save"
-                    >
-                        Save
+                    <LemonButton type="primary" onClick={onClose} data-attr="accounts-columns-done">
+                        Done
                     </LemonButton>
                 </>
             }

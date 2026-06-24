@@ -1,7 +1,7 @@
 import equal from 'fast-deep-equal'
 
 import { ApiError } from 'lib/api'
-import { getEventNamesForAction } from 'lib/utils'
+import { getEventNamesForAction } from 'lib/utils/events'
 
 import { examples } from '~/queries/examples'
 import {
@@ -164,7 +164,7 @@ export const getDefaultQuery = (
 
 /** Get a dashboard where eventual `filters` based tiles are converted to `query` based ones. */
 export const getQueryBasedDashboard = (
-    dashboard: DashboardType<InsightModel> | null
+    dashboard: DashboardType<InsightModel> | DashboardType<QueryBasedInsightModel> | null
 ): DashboardType<QueryBasedInsightModel> | null => {
     if (dashboard == null) {
         return null

@@ -1,0 +1,106 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "dag_id": {
+            "anyOf": [
+                {
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional DAG to place this view into"
+        },
+        "deleted": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "edited_history_id": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Activity log ID from the last known edit. Used for conflict detection."
+        },
+        "folder_id": {
+            "anyOf": [
+                {
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Optional folder ID used to organize this view in the SQL editor sidebar."
+        },
+        "id": {
+            "description": "A UUID string identifying this data warehouse saved query.",
+            "type": "string"
+        },
+        "is_test": {
+            "description": "Whether this view is for testing only and will auto-expire.",
+            "type": "boolean"
+        },
+        "name": {
+            "description": "Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.",
+            "maxLength": 128,
+            "type": "string"
+        },
+        "query": {
+            "description": "HogQL query definition as a JSON object with a \"query\" key containing the SQL string and a \"kind\" key (always \"HogQLQuery\"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {\"kind\": \"HogQLQuery\", \"query\": \"SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100\"}",
+            "properties": {
+                "kind": {
+                    "default": "HogQLQuery",
+                    "enum": ["HogQLQuery"],
+                    "type": "string"
+                },
+                "query": {
+                    "type": "string"
+                }
+            },
+            "required": ["query"],
+            "type": "object"
+        },
+        "soft_update": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "If true, skip column inference and validation. For saving drafts."
+        },
+        "sync_frequency": {
+            "anyOf": [
+                {
+                    "description": "* `never` - never\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day",
+                    "enum": ["never", "15min", "30min", "1hour", "6hour", "12hour", "24hour", "7day", "30day"],
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available.\n\n* `never` - never\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day"
+        }
+    },
+    "required": ["id", "name", "query"],
+    "type": "object"
+}

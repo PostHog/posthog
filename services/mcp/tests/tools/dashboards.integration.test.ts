@@ -457,4 +457,72 @@ describe('Dashboards', { concurrent: false }, () => {
             )
         })
     })
+
+    describe('dashboard widget tools', () => {
+        const catalogTool = getToolByName('dashboard-widget-catalog-list')
+        const batchAddWidgetTool = getToolByName('dashboard-widgets-batch-add')
+        const runWidgetsTool = getToolByName('dashboard-widgets-run')
+        const createTool = getToolByName('dashboard-create')
+        const getOneTool = getToolByName('dashboard-get')
+
+        it('dashboard-widget-catalog-list returns widget catalog entries', async () => {
+            const result = await catalogTool.handler(context, {})
+            const catalog = parseToolResponse(result)
+
+            expect(Array.isArray(catalog.results)).toBe(true)
+            const errorTracking = catalog.results.find(
+                (entry: { widget_type: string }) => entry.widget_type === 'error_tracking_list'
+            )
+            expect(errorTracking).toBeTruthy()
+            expect(errorTracking.config_schema?.properties?.limit?.default).toBe(10)
+
+            const sessionReplay = catalog.results.find(
+                (entry: { widget_type: string }) => entry.widget_type === 'session_replay_list'
+            )
+            expect(sessionReplay).toBeTruthy()
+            expect(sessionReplay.config_schema?.properties?.orderBy?.default).toBe('start_time')
+        })
+
+        it('dashboard-widgets-batch-add and dashboard-widgets-run workflow', async () => {
+            const dashboardResult = await createTool.handler(context, {
+                name: generateUniqueKey('Widget MCP Dashboard'),
+                pinned: false,
+            })
+            const dashboard = parseToolResponse(dashboardResult)
+            createdResources.dashboards.push(dashboard.id)
+
+            const addResult = await batchAddWidgetTool.handler(context, {
+                id: dashboard.id,
+                widgets: [
+                    {
+                        widget_type: 'error_tracking_list',
+                        config: { limit: 5 },
+                    },
+                ],
+            })
+
+            const batchResponse = parseToolResponse(addResult)
+            expect(Array.isArray(batchResponse.tiles)).toBe(true)
+            const tile = batchResponse.tiles[0]
+            expect(tile.id).toBeTruthy()
+            expect(tile.widget?.widget_type).toBe('error_tracking_list')
+            expect(batchResponse._posthogUrl).toContain(`/dashboard/${dashboard.id}`)
+
+            const dashboardWithTile = parseToolResponse(await getOneTool.handler(context, { id: dashboard.id }))
+            const widgetTile = dashboardWithTile.tiles?.find((t: { widget?: unknown }) => !!t.widget)
+            expect(widgetTile?.id).toBe(tile.id)
+
+            const runResult = await runWidgetsTool.handler(context, {
+                id: dashboard.id,
+                tile_ids: String(tile.id),
+            })
+            const runResponse = parseToolResponse(runResult)
+
+            expect(runResponse._posthogUrl).toContain(`/dashboard/${dashboard.id}`)
+            expect(Array.isArray(runResponse.results)).toBe(true)
+            expect(runResponse.results.length).toBe(1)
+            expect(runResponse.results[0].tile_id).toBe(tile.id)
+            expect(runResponse.results[0].widget_type).toBe('error_tracking_list')
+        })
+    })
 })

@@ -197,6 +197,22 @@ describe('filterToMetricSource', () => {
 
         expect(result?.math).toBe(ExperimentMetricMathType.TotalCount)
     })
+
+    // Regression: an empty/null `id` must fall back to `name` so the event isn't dropped.
+    it.each([
+        ['empty string id (numerator path)', ''],
+        ['null id (denominator path)', null],
+    ])('recovers event from name when id is %s', (_label, id) => {
+        const events = [{ id, name: 'purchase', math: ExperimentMetricMathType.Sum, math_property: 'value' }]
+
+        const result = filterToMetricSource(undefined, events, undefined)
+
+        expect(result).toMatchObject({
+            kind: NodeKind.EventsNode,
+            event: 'purchase',
+            name: 'purchase',
+        })
+    })
 })
 
 describe('filterToMetricConfig', () => {

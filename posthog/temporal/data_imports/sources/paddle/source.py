@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -37,6 +38,7 @@ class PaddleSource(ResumableSource[PaddleSourceConfig, PaddleResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.PADDLE,
+            category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
             label="Paddle",
             iconPath="/static/services/paddle.png",
             fields=cast(

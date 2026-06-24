@@ -17,7 +17,7 @@ from products.replay_vision.backend.temporal.scanners import (
     SummarizerScanner,
     scanner_from_db,
 )
-from products.replay_vision.backend.temporal.scanners.summarizer import SummarizerWithFacetsLlmResponse
+from products.replay_vision.backend.temporal.scanners.base import SignalFinding
 from products.replay_vision.backend.temporal.types import EventTable
 
 
@@ -157,33 +157,59 @@ class TestMonitorScanner:
 
     def test_finalize_stamps_scanner_type_onto_llm_response(self) -> None:
         scanner = scanner_from_db(_build_replay_scanner())
-        llm_response = MonitorLlmResponse(verdict=True, reasoning="user clicked Export at 0:42", confidence=0.9)
+        llm_response = MonitorLlmResponse(verdict="yes", reasoning="user clicked Export at 0:42", confidence=0.9)
         finalized = scanner.finalize(llm_response)
         assert isinstance(finalized, MonitorOutput)
         assert finalized.scanner_type == ScannerType.MONITOR
-        assert finalized.verdict is True
+        assert finalized.verdict == "yes"
         assert finalized.reasoning == "user clicked Export at 0:42"
         assert finalized.confidence == 0.9
 
     def test_validate_semantics_passes_for_well_formed_output(self) -> None:
         scanner = scanner_from_db(_build_replay_scanner())
-        out = MonitorOutput(verdict=False, reasoning="no checkout button visible", confidence=0.8)
+        out = MonitorOutput(verdict="no", reasoning="no checkout button visible", confidence=0.8)
         assert scanner.validate_semantics(out) is None
 
     def test_output_round_trip_includes_confidence(self) -> None:
         out = MonitorOutput.model_validate_json(
-            '{"verdict": true, "reasoning": "user clicked Export at 0:42", "confidence": 0.85}'
+            '{"verdict": "yes", "reasoning": "user clicked Export at 0:42", "confidence": 0.85}'
         )
-        assert out.verdict is True
+        assert out.verdict == "yes"
         assert out.confidence == 0.85
 
     def test_output_rejects_confidence_out_of_range(self) -> None:
         with pytest.raises(ValidationError):
-            MonitorOutput(verdict=True, reasoning="x", confidence=1.5)
+            MonitorOutput(verdict="yes", reasoning="x", confidence=1.5)
 
     def test_output_rejects_invalid_shape(self) -> None:
         with pytest.raises(ValidationError):
             MonitorOutput.model_validate_json('{"verdict": "yes", "confidence": 1}')
+
+    def test_output_rejects_unknown_verdict_value(self) -> None:
+        with pytest.raises(ValidationError):
+            MonitorOutput.model_validate({"verdict": "maybe", "reasoning": "x", "confidence": 0.5})
+
+    def test_validate_semantics_rejects_inconclusive_when_disallowed(self) -> None:
+        scanner = scanner_from_db(_build_replay_scanner())
+        assert isinstance(scanner, MonitorScanner)
+        assert scanner.allow_inconclusive is False
+        out = MonitorOutput(verdict="inconclusive", reasoning="not sure", confidence=0.4)
+        assert scanner.validate_semantics(out) is not None
+
+    def test_validate_semantics_accepts_inconclusive_when_allowed(self) -> None:
+        scanner = scanner_from_db(_build_replay_scanner(scanner_config={"prompt": "p", "allow_inconclusive": True}))
+        assert isinstance(scanner, MonitorScanner)
+        assert scanner.allow_inconclusive is True
+        out = MonitorOutput(verdict="inconclusive", reasoning="ambiguous", confidence=0.4)
+        assert scanner.validate_semantics(out) is None
+
+    def test_prompt_context_propagates_allow_inconclusive(self) -> None:
+        on_scanner = scanner_from_db(_build_replay_scanner(scanner_config={"prompt": "p", "allow_inconclusive": True}))
+        off_scanner = scanner_from_db(_build_replay_scanner())
+        assert isinstance(on_scanner, MonitorScanner)
+        assert isinstance(off_scanner, MonitorScanner)
+        assert on_scanner.prompt_context()["allow_inconclusive"] is True
+        assert off_scanner.prompt_context()["allow_inconclusive"] is False
 
 
 class TestClassifierScanner:
@@ -337,6 +363,22 @@ class TestClassifierScanner:
         events = EventTable(columns=[], rows=[])
         assert "tags_freeform" in on.build_prompt(team_name="Acme", events=events)
         assert "tags_freeform" not in off.build_prompt(team_name="Acme", events=events)
+
+    def test_freeform_prompt_block_discourages_paraphrasing_fixed_vocab(self) -> None:
+        scanner = scanner_from_db(
+            _build_replay_scanner(
+                scanner_type=ScannerType.CLASSIFIER,
+                scanner_config={"prompt": "x", "tags": ["create new scanner"], "allow_freeform_tags": True},
+            )
+        )
+        rendered = scanner.build_prompt(team_name="Acme", events=EventTable(columns=[], rows=[]))
+        # Fixed vocabulary is authoritative and the model is told not to paraphrase a fixed tag into freeform.
+        assert "authoritative" in rendered
+        assert "synonym" in rendered
+        assert "'create new scanner'" in rendered
+        # Examples and the skip instruction survive the rewrite.
+        assert "password_reset" in rendered
+        assert "Skip the field entirely" in rendered
 
     def test_finalize_strips_overlap_with_fixed_vocab_case_insensitive(self) -> None:
         scanner = scanner_from_db(
@@ -493,21 +535,12 @@ class TestSummarizerScanner:
 
 
 class TestSummarizerScannerFacets:
-    def test_emits_embeddings_defaults_to_false(self) -> None:
+    def test_llm_response_schema_is_summarizer_response(self) -> None:
         scanner = scanner_from_db(
             _build_replay_scanner(scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p"})
         )
         assert isinstance(scanner, SummarizerScanner)
-        assert scanner.emits_embeddings is False
-
-    def test_emits_embeddings_propagates_into_prompt_context(self) -> None:
-        scanner = scanner_from_db(
-            _build_replay_scanner(
-                scanner_type=ScannerType.SUMMARIZER,
-                scanner_config={"prompt": "p", "emits_embeddings": True},
-            )
-        )
-        assert scanner.prompt_context()["emits_embeddings"] is True
+        assert scanner.llm_response_schema is SummarizerLlmResponse
 
     def test_output_round_trip_carries_facets(self) -> None:
         out = SummarizerOutput(
@@ -529,27 +562,11 @@ class TestSummarizerScannerFacets:
         assert out.friction_points == []
         assert out.keywords == []
 
-    def test_llm_response_schema_branches_on_flag(self) -> None:
-        without_facets = scanner_from_db(
-            _build_replay_scanner(scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p"})
-        )
-        with_facets = scanner_from_db(
-            _build_replay_scanner(
-                scanner_type=ScannerType.SUMMARIZER,
-                scanner_config={"prompt": "p", "emits_embeddings": True},
-            )
-        )
-        assert without_facets.llm_response_schema is SummarizerLlmResponse
-        assert with_facets.llm_response_schema is SummarizerWithFacetsLlmResponse
-
     def test_finalize_lowercases_keywords_and_friction_points(self) -> None:
         scanner = scanner_from_db(
-            _build_replay_scanner(
-                scanner_type=ScannerType.SUMMARIZER,
-                scanner_config={"prompt": "p", "emits_embeddings": True},
-            )
+            _build_replay_scanner(scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p"})
         )
-        response = SummarizerWithFacetsLlmResponse(
+        response = SummarizerLlmResponse(
             title="Auth",
             summary="Tried to log in",
             intent="Authenticate",
@@ -578,10 +595,10 @@ class TestSummarizerOutputHasAnyFacet:
 
 class TestToEventProperties:
     def test_flattens_with_scanner_output_prefix(self) -> None:
-        out = MonitorOutput(verdict=True, reasoning="found it", confidence=0.9)
+        out = MonitorOutput(verdict="yes", reasoning="found it", confidence=0.9)
         props = out.to_event_properties()
         assert props == {
-            "scanner_output_verdict": True,
+            "scanner_output_verdict": "yes",
             "scanner_output_reasoning": "found it",
             "scanner_output_reasoning_segments": [],
             "scanner_output_confidence": 0.9,
@@ -589,7 +606,49 @@ class TestToEventProperties:
 
     def test_excludes_scanner_type_discriminator(self) -> None:
         # `scanner_type` lives at the top-level event property; flattening it would duplicate.
-        out = MonitorOutput(verdict=False, reasoning="nope", confidence=0.5)
+        out = MonitorOutput(verdict="no", reasoning="nope", confidence=0.5)
         props = out.to_event_properties()
         assert "scanner_output_scanner_type" not in props
         assert "scanner_type" not in props
+
+
+class TestSignalSideMission:
+    def test_llm_response_model_excludes_signal_by_default(self) -> None:
+        scanner = scanner_from_db(_build_replay_scanner())
+        assert "signal" not in scanner.llm_response_model().model_json_schema()["properties"]
+
+    def test_llm_response_model_includes_signal_when_emitting(self) -> None:
+        scanner = scanner_from_db(_build_replay_scanner(emits_signals=True))
+        assert "signal" in scanner.llm_response_model().model_json_schema()["properties"]
+
+    @pytest.mark.parametrize(
+        "scanner_type, config, payload",
+        [
+            (ScannerType.MONITOR, {"prompt": "p"}, {"verdict": "yes", "reasoning": "r"}),
+            (ScannerType.CLASSIFIER, {"prompt": "p", "tags": ["a"]}, {"tags": ["a"], "reasoning": "r"}),
+            (ScannerType.SCORER, {"prompt": "p", "scale": {"min": 0, "max": 10}}, {"score": 5, "reasoning": "r"}),
+            (
+                ScannerType.SUMMARIZER,
+                {"prompt": "p"},
+                {"title": "t", "summary": "s", "intent": "i", "outcome": "o", "friction_points": [], "keywords": []},
+            ),
+        ],
+    )
+    def test_signal_parses_for_every_scanner_type(self, scanner_type: ScannerType, config: dict, payload: dict) -> None:
+        scanner = scanner_from_db(
+            _build_replay_scanner(scanner_type=scanner_type, scanner_config=config, emits_signals=True)
+        )
+        parsed = scanner.llm_response_model().model_validate(
+            {**payload, "confidence": 0.9, "signal": {"description": "Broken CTA on /cart", "confidence": 0.8}}
+        )
+        signal = getattr(parsed, "signal", None)
+        assert isinstance(signal, SignalFinding)
+        assert signal.description == "Broken CTA on /cart"
+        # `finalize` must still produce the persisted output; the finding travels separately on ScannerCallOutput.
+        assert scanner.finalize(parsed) is not None
+
+    @pytest.mark.parametrize("emits_signals, expected", [(True, True), (False, False)])
+    def test_prompt_includes_side_mission_only_when_emitting(self, emits_signals: bool, expected: bool) -> None:
+        scanner = scanner_from_db(_build_replay_scanner(emits_signals=emits_signals))
+        rendered = scanner.build_prompt(team_name="Acme", events=EventTable(columns=["event"], rows=[]))
+        assert ("signal_side_mission" in rendered) == expected

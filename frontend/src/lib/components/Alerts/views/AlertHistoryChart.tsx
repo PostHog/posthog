@@ -3,7 +3,8 @@ import { useMemo } from 'react'
 
 import { Chart } from 'lib/Chart'
 import { useChart } from 'lib/hooks/useChart'
-import { humanFriendlyNumber, pluralize } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { pluralize } from 'lib/utils/strings'
 
 import { InsightThresholdType } from '~/queries/schema/schema-general'
 

@@ -1,7 +1,9 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -38,6 +40,7 @@ class TypeformSource(SimpleSource[TypeformSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.TYPEFORM,
+            category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Typeform",
             iconPath="/static/services/typeform.png",
             caption="""Enter a Typeform personal access token to sync forms and responses.
@@ -82,7 +85,7 @@ You can generate a personal access token in your [Typeform account settings](htt
                     ),
                 ],
             ),
-            releaseStatus="beta",
+            releaseStatus=ReleaseStatus.GA,
         )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:

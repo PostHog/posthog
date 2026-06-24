@@ -1,11 +1,20 @@
 import uuid
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from typing import Literal
 
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.temporal.data_imports.cdc.activities import CDCExtractActivity, CDCExtractInput, cdc_extract_activity
+import psycopg.errors
+
+from posthog.temporal.data_imports.cdc.activities import (
+    SLOT_INVALIDATION_RECOVERY_MESSAGE,
+    CDCExtractActivity,
+    CDCExtractInput,
+    cdc_extract_activity,
+    cleanup_orphan_slots_activity,
+)
 from posthog.temporal.data_imports.cdc.types import ChangeEvent
 
 
@@ -30,6 +39,7 @@ def _make_source(source_id=None, job_inputs=None):
     source.team_id = 1
     source.source_type = "Postgres"
     source.deleted = False
+    source.created_at = datetime(2025, 1, 1, tzinfo=UTC)  # before the SSL cutoff unless overridden
     source.job_inputs = (
         job_inputs
         if job_inputs is not None
@@ -99,6 +109,7 @@ def _setup_mocks(
     mock_reader.get_decoder_key_columns.return_value = []
     mock_adapter = MagicMock()
     mock_adapter.create_reader.return_value = mock_reader
+    mock_adapter.is_slot_invalidation_error.return_value = False
     mock_get_adapter.return_value = mock_adapter
 
     mock_s3 = MagicMock()
@@ -167,14 +178,47 @@ class TestGetCDCAdapter:
         from posthog.temporal.data_imports.sources.postgres.cdc.stream_reader import PgCDCStreamReader
 
         adapter = PostgresCDCAdapter()
-        source = _make_source(job_inputs={})
+        # Minimal connection inputs, omitting the cdc/slot fields to exercise their defaults.
+        source = _make_source(
+            job_inputs={"host": "localhost", "port": 5432, "database": "db", "user": "u", "password": "p"}
+        )
         reader = adapter.create_reader(source)
         assert isinstance(reader, PgCDCStreamReader)
 
-        assert reader._params.host == ""
         assert reader._params.port == 5432
-        assert reader._params.sslmode == "prefer"
         assert reader._params.slot_name == ""
+        assert reader._params.publication_name == ""
+
+    def test_create_reader_requires_ssl_for_recent_source_without_tunnel(self):
+        from posthog.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
+        from posthog.temporal.data_imports.sources.postgres.cdc.stream_reader import PgCDCStreamReader
+
+        adapter = PostgresCDCAdapter()
+        source = _make_source()
+        source.created_at = datetime(2026, 3, 1, tzinfo=UTC)  # after the SSL cutoff
+        reader = adapter.create_reader(source)
+        assert isinstance(reader, PgCDCStreamReader)
+        assert reader._params.require_ssl is True
+
+    def test_create_reader_honors_ssh_tunnel_tls_opt_out(self):
+        # Two-arg source_requires_ssl: a recent source reached over an SSH tunnel that opted
+        # out of TLS must NOT be force-upgraded on the data path (single-arg would return True).
+        from posthog.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
+        from posthog.temporal.data_imports.sources.postgres.cdc.stream_reader import PgCDCStreamReader
+
+        adapter = PostgresCDCAdapter()
+        source = _make_source()
+        source.created_at = datetime(2026, 3, 1, tzinfo=UTC)  # after the SSL cutoff
+
+        opted_out_config = MagicMock()
+        opted_out_config.ssh_tunnel = MagicMock(enabled=True, require_tls=MagicMock(enabled=False))
+        with patch(
+            "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.parse_config",
+            return_value=opted_out_config,
+        ):
+            reader = adapter.create_reader(source)
+        assert isinstance(reader, PgCDCStreamReader)
+        assert reader._params.require_ssl is False
 
 
 def _make_extract_activity(source, log=None) -> CDCExtractActivity:
@@ -267,6 +311,35 @@ class TestFlushDeferredRuns:
         assert schema.sync_type_config["cdc_deferred_runs"] == []
 
 
+class TestBuildEventNameMap:
+    @pytest.mark.parametrize(
+        "schema_name,schema_metadata,source_schema_config,wal_event_name,expected_canonical",
+        [
+            # Path 1: schema_metadata resolves the source-qualified name.
+            ("orders", {"source_schema": "public", "source_table_name": "orders"}, None, "public.orders", "orders"),
+            # Path 2: no metadata, but `name` is already schema-qualified.
+            ("public.orders", None, None, "public.orders", "public.orders"),
+            # Path 3: no metadata, bare name — falls back to the source's default schema.
+            ("orders", None, "analytics", "analytics.orders", "orders"),
+            # Path 3: no metadata, bare name, no default schema — falls back to "public".
+            ("orders", None, None, "public.orders", "orders"),
+        ],
+    )
+    def test_resolves_wal_event_name_to_canonical_schema_name(
+        self, schema_name, schema_metadata, source_schema_config, wal_event_name, expected_canonical
+    ):
+        source = _make_source(job_inputs={"schema": source_schema_config} if source_schema_config else {})
+        schema = _make_schema(schema_name, cdc_mode="streaming", source=source)
+        schema.sync_type_config = {"cdc_mode": "streaming", "cdc_table_mode": "consolidated"}
+        if schema_metadata is not None:
+            schema.sync_type_config["schema_metadata"] = schema_metadata
+
+        activity_obj = _make_extract_activity(source)
+        activity_obj.cdc_schemas = [schema]
+
+        assert activity_obj._build_event_name_map().get(wal_event_name) == expected_canonical
+
+
 class TestCDCExtractActivity:
     """Integration tests for cdc_extract_activity with mocked external deps."""
 
@@ -319,6 +392,63 @@ class TestCDCExtractActivity:
         mock_producer.flush.assert_called_once()
         mock_reader.confirm_position.assert_called_once_with("0/200")
         mock_reader.close.assert_called_once()
+
+    @patch("posthog.temporal.data_imports.cdc.activities.activity")
+    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_bare_named_schema_matches_schema_qualified_wal_events(
+        self,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        MockS3Writer,
+        MockProducer,
+        mock_activity,
+    ):
+        """A schema whose `name` is stored bare (no `public.` prefix) must still match the
+        schema-qualified table name the WAL stream emits. Otherwise every change is silently
+        dropped and the table goes stale despite a healthy slot."""
+        source = _make_source()
+        # `name` is bare, but schema_metadata resolves the real source location.
+        schema = _make_schema("product_productintegrationevent", cdc_mode="streaming", source=source)
+        schema.sync_type_config["schema_metadata"] = {
+            "source_schema": "public",
+            "source_table_name": "product_productintegrationevent",
+        }
+        schema.sync_type_config["primary_key_columns"] = ["id"]
+        # WAL events arrive schema-qualified, as Postgres logical decoding always emits them.
+        events = [
+            _make_event(op="I", table="public.product_productintegrationevent", position="0/100"),
+        ]
+
+        mock_reader, mock_s3, mock_producer, mock_job = _setup_mocks(
+            mock_activity,
+            MockProducer,
+            MockS3Writer,
+            mock_get_adapter,
+            mock_get_schemas,
+            MockSourceModel,
+            MockJob,
+            mock_close_conns,
+            source,
+            [schema],
+            events,
+        )
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+        cdc_extract_activity(inputs)
+
+        # The change was captured, not dropped by the table-name filter.
+        mock_s3.write_batch.assert_called()
+        mock_producer.send_batch_notification.assert_called()
+        mock_reader.confirm_position.assert_called_once_with("0/100")
 
     @patch("posthog.temporal.data_imports.cdc.activities.activity")
     @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
@@ -557,6 +687,7 @@ class TestCDCExtractActivity:
         mock_reader.truncated_tables = []
         mock_adapter = MagicMock()
         mock_adapter.create_reader.return_value = mock_reader
+        mock_adapter.is_slot_invalidation_error.return_value = False
         mock_get_adapter.return_value = mock_adapter
 
         inputs = CDCExtractInput(team_id=1, source_id=source.id)
@@ -807,6 +938,59 @@ class TestCDCExtractActivity:
 
         # Slot should advance to the last event's position
         mock_reader.confirm_position.assert_called_once_with("0/300")
+
+    @patch("posthog.temporal.data_imports.cdc.activities.activity")
+    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_unchanged_sibling_table_logs_no_changes_breadcrumb(
+        self,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        MockS3Writer,
+        MockProducer,
+        mock_activity,
+    ):
+        source = _make_source()
+        users_schema = _make_schema("users", cdc_mode="streaming", source=source)
+        orders_schema = _make_schema("orders", cdc_mode="streaming", source=source)
+        # Only `users` changes this run; `orders` is idle.
+        events = [_make_event(op="I", table="users", position="0/100", columns={"id": 1, "name": "Alice"})]
+
+        _setup_mocks(
+            mock_activity,
+            MockProducer,
+            MockS3Writer,
+            mock_get_adapter,
+            mock_get_schemas,
+            MockSourceModel,
+            MockJob,
+            mock_close_conns,
+            source,
+            [users_schema, orders_schema],
+            events,
+        )
+
+        schema_loggers: dict[str, MagicMock] = {}
+
+        def fake_schema_log(schema):
+            return schema_loggers.setdefault(schema.name, MagicMock())
+
+        with patch.object(CDCExtractActivity, "_schema_log", side_effect=fake_schema_log):
+            cdc_extract_activity(CDCExtractInput(team_id=1, source_id=source.id))
+
+        def logged_events(name: str) -> list[str]:
+            return [call.args[0] for call in schema_loggers[name].info.call_args_list]
+
+        assert "cdc_extract_no_changes" in logged_events("orders")
+        assert "cdc_extract_no_changes" not in logged_events("users")
 
     @patch("posthog.temporal.data_imports.cdc.activities.unpause_external_data_schedule", create=True)
     @patch("posthog.temporal.data_imports.cdc.activities.activity")
@@ -1103,3 +1287,306 @@ class TestCDCExtractActivity:
 
         # Job should be marked COMPLETED by the activity (no Kafka consumer will do it)
         assert any("status" in call.kwargs.get("update_fields", []) for call in mock_job.save.call_args_list)
+
+
+class TestSlotAdvanceTransactionSafety:
+    """The slot must only advance past FULLY-yielded transactions.
+
+    A micro-flush can fire mid-transaction (the batcher threshold is per-event).
+    Since every event of a transaction shares its commit end LSN, advancing to that
+    LSN while the transaction's tail is still un-yielded would lose the tail on crash.
+    """
+
+    @pytest.mark.parametrize(
+        "event_positions,max_events,crashes,expected_advances",
+        [
+            # Mid-transaction flush: txn-1 (0/100) ×2 then txn-2 (0/200) ×3, flush after
+            # 4 events lands mid txn-2. The micro-flush advances only to txn-1's end LSN;
+            # the final flush advances to txn-2's.
+            (["0/100", "0/100", "0/200", "0/200", "0/200"], 4, False, ["0/100", "0/200"]),
+            # Single transaction (one commit LSN): a threshold of 2 forces a mid-transaction
+            # micro-flush, but the transaction never completes during the loop, so no
+            # micro-advance may happen — only the final flush advances, once.
+            (["0/100", "0/100", "0/100"], 2, False, ["0/100"]),
+            # Crash mid txn-2 (after the micro-flush at 4 events, before txn-2 finishes):
+            # the slot stays at txn-1's end and must never reach txn-2's LSN.
+            (["0/100", "0/100", "0/200", "0/200"], 4, True, ["0/100"]),
+        ],
+    )
+    @patch("posthog.temporal.data_imports.cdc.activities.ChangeEventBatcher")
+    @patch("posthog.temporal.data_imports.cdc.activities.activity")
+    @patch("posthog.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("posthog.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_slot_advances_only_past_completed_transactions(
+        self,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        MockS3Writer,
+        MockProducer,
+        mock_activity,
+        MockBatcher,
+        event_positions,
+        max_events,
+        crashes,
+        expected_advances,
+    ):
+        from posthog.temporal.data_imports.cdc.batcher import ChangeEventBatcher as RealBatcher
+
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        events = [
+            _make_event(op="I", table="users", position=pos, columns={"id": i}) for i, pos in enumerate(event_positions)
+        ]
+
+        mock_reader, mock_s3, mock_producer, mock_job = _setup_mocks(
+            mock_activity,
+            MockProducer,
+            MockS3Writer,
+            mock_get_adapter,
+            mock_get_schemas,
+            MockSourceModel,
+            MockJob,
+            mock_close_conns,
+            source,
+            [schema],
+            events,
+        )
+
+        if crashes:
+            # The source dies after yielding the listed events but before txn-2 finishes.
+            def _dying_changes():
+                yield from events
+                raise RuntimeError("pod killed mid-transaction")
+
+            mock_reader.read_changes.return_value = _dying_changes()
+
+        MockBatcher.return_value = RealBatcher(max_events=max_events)
+
+        run_ctx = pytest.raises(RuntimeError, match="pod killed mid-transaction") if crashes else nullcontext()
+        with run_ctx:
+            cdc_extract_activity(CDCExtractInput(team_id=1, source_id=source.id))
+
+        advanced_positions = [c.args[0] for c in mock_reader.confirm_position.call_args_list]
+        assert advanced_positions == expected_advances
+
+
+class TestSlotInvalidationRecovery:
+    """When the replication slot is invalidated/dropped on the source DB, the activity
+    must recreate it and reset all CDC schemas to snapshot mode instead of failing forever."""
+
+    def _setup(self, mock_get_schemas, mock_get_adapter, MockSourceModel, mock_activity):
+        source = _make_source()
+        MockSourceModel.objects.get.return_value = source
+
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        schema.sync_type_config["cdc_last_log_position"] = "0/OLD"
+        schema.sync_type_config["cdc_deferred_runs"] = [{"run_uuid": "stale"}]
+        mock_get_schemas.return_value = [schema]
+
+        invalidation_error = psycopg.errors.ObjectNotInPrerequisiteState(
+            'can no longer get changes from replication slot "posthog_slot"\n'
+            "DETAIL:  This slot has been invalidated because it exceeded the maximum reserved size."
+        )
+        mock_reader = MagicMock()
+        mock_reader.read_changes.side_effect = invalidation_error
+        mock_reader.truncated_tables = []
+
+        mock_adapter = MagicMock()
+        mock_adapter.create_reader.return_value = mock_reader
+        mock_adapter.is_slot_invalidation_error.return_value = True
+        mock_get_adapter.return_value = mock_adapter
+
+        mock_activity.heartbeat = MagicMock()
+        mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1")
+
+        return source, schema, mock_reader, mock_adapter
+
+    @patch("posthog.temporal.data_imports.cdc.activities.activity")
+    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_invalidated_slot_is_recreated_and_schemas_reset_to_snapshot(
+        self,
+        mock_close_conns,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        mock_activity,
+    ):
+        source, schema, mock_reader, mock_adapter = self._setup(
+            mock_get_schemas, mock_get_adapter, MockSourceModel, mock_activity
+        )
+
+        def _recreate_slot(source_arg, tables):
+            # Schemas must already be reset when the slot is recreated — if recreation
+            # fails, no schema may keep streaming across the gap on the next run.
+            assert schema.sync_type_config["cdc_mode"] == "snapshot"
+            return {"cdc_consistent_point": "0/AA"}
+
+        mock_adapter.recreate_slot.side_effect = _recreate_slot
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+        # Recovery handles the error — the activity must not raise (no pointless Temporal retries).
+        cdc_extract_activity(inputs)
+
+        mock_adapter.recreate_slot.assert_called_once_with(source, tables=["public.users"])
+        assert source.job_inputs["cdc_consistent_point"] == "0/AA"
+        source.save.assert_called()
+
+        assert schema.sync_type_config["cdc_mode"] == "snapshot"
+        assert "cdc_last_log_position" not in schema.sync_type_config
+        assert "cdc_deferred_runs" not in schema.sync_type_config
+        assert schema.initial_sync_complete is False
+        assert schema.status == "Failed"
+        assert schema.latest_error == SLOT_INVALIDATION_RECOVERY_MESSAGE
+
+        mock_reader.close.assert_called_once()
+
+    @patch("posthog.temporal.data_imports.cdc.activities.activity")
+    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_recreate_passes_source_qualified_table_names(
+        self,
+        mock_close_conns,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        mock_activity,
+    ):
+        # Recovery must resolve each schema's real source location from its metadata,
+        # not assume every table lives in the source's default schema. Otherwise a table
+        # in a non-default schema gets jammed under `public` and the publication rebuild
+        # fails with `relation "public.tll.students" does not exist`.
+        source, schema, mock_reader, mock_adapter = self._setup(
+            mock_get_schemas, mock_get_adapter, MockSourceModel, mock_activity
+        )
+        schema.name = "students"
+        schema.sync_type_config["schema_metadata"] = {"source_schema": "tll", "source_table_name": "students"}
+        mock_adapter.recreate_slot.return_value = {"cdc_consistent_point": "0/AA"}
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+        cdc_extract_activity(inputs)
+
+        mock_adapter.recreate_slot.assert_called_once_with(source, tables=["tll.students"])
+        assert source.job_inputs["cdc_consistent_point"] == "0/AA"
+        source.save.assert_called()
+
+    @patch("posthog.temporal.data_imports.cdc.activities.activity")
+    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_recovery_failure_marks_schemas_failed_and_raises(
+        self,
+        mock_close_conns,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        mock_activity,
+    ):
+        source, schema, mock_reader, mock_adapter = self._setup(
+            mock_get_schemas, mock_get_adapter, MockSourceModel, mock_activity
+        )
+        mock_adapter.recreate_slot.side_effect = RuntimeError("cannot recreate slot")
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+        with pytest.raises(RuntimeError, match="cannot recreate slot"):
+            cdc_extract_activity(inputs)
+
+        assert schema.status == "Failed"
+        assert "cannot recreate slot" in schema.latest_error
+        mock_reader.close.assert_called_once()
+
+    @patch("posthog.temporal.data_imports.cdc.activities.activity")
+    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_non_invalidation_errors_do_not_trigger_recovery(
+        self,
+        mock_close_conns,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        mock_activity,
+    ):
+        source, schema, mock_reader, mock_adapter = self._setup(
+            mock_get_schemas, mock_get_adapter, MockSourceModel, mock_activity
+        )
+        mock_reader.read_changes.side_effect = RuntimeError("connection lost")
+        mock_adapter.is_slot_invalidation_error.return_value = False
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+        with pytest.raises(RuntimeError, match="connection lost"):
+            cdc_extract_activity(inputs)
+
+        mock_adapter.recreate_slot.assert_not_called()
+        assert schema.sync_type_config["cdc_mode"] == "streaming"
+
+
+class TestCleanupOrphanSlotsRetentionCap:
+    """The sweeper's auto-drop must fire below the engine's own retention cap
+    (max_slot_wal_keep_size), otherwise the engine invalidates the slot first."""
+
+    def _setup(self, mock_get_adapter, MockSourceModel, lag_mb, cap_mb):
+        source = _make_source()
+        MockSourceModel.objects.filter.return_value.iterator.return_value = [source]
+
+        cdc_config = MagicMock()
+        cdc_config.enabled = True
+        cdc_config.slot_name = "posthog_slot"
+        cdc_config.publication_name = "posthog_pub"
+        cdc_config.management_mode = "posthog"
+        cdc_config.auto_drop_slot = True
+        cdc_config.lag_warning_threshold_mb = 1024
+        cdc_config.lag_critical_threshold_mb = 10240
+
+        mock_adapter = MagicMock()
+        mock_adapter.parse_cdc_config.return_value = cdc_config
+        mock_adapter.get_lag_bytes.return_value = lag_mb * 1024 * 1024
+        mock_adapter.get_retention_cap_mb.return_value = cap_mb
+        mock_get_adapter.return_value = mock_adapter
+        return source, mock_adapter
+
+    @patch("posthog.temporal.data_imports.cdc.activities.HeartbeaterSync")
+    @patch("posthog.temporal.data_imports.cdc.activities.activity")
+    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_retention_cap_lowers_critical_threshold(
+        self, mock_close_conns, MockSourceModel, mock_get_adapter, mock_activity, mock_heartbeater
+    ):
+        # Configured critical is 10240 MB, but the engine caps retention at 1000 MB:
+        # at 900 MB of lag (>= 80% of the cap) the sweeper must already act.
+        source, mock_adapter = self._setup(mock_get_adapter, MockSourceModel, lag_mb=900, cap_mb=1000)
+
+        cleanup_orphan_slots_activity()
+
+        mock_adapter.drop_resources.assert_called_once()
+        assert source.status is MockSourceModel.Status.ERROR
+        source.save.assert_called()
+
+    @patch("posthog.temporal.data_imports.cdc.activities.HeartbeaterSync")
+    @patch("posthog.temporal.data_imports.cdc.activities.activity")
+    @patch("posthog.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch("posthog.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("posthog.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_unlimited_retention_keeps_configured_threshold(
+        self, mock_close_conns, MockSourceModel, mock_get_adapter, mock_activity, mock_heartbeater
+    ):
+        source, mock_adapter = self._setup(mock_get_adapter, MockSourceModel, lag_mb=900, cap_mb=None)
+
+        cleanup_orphan_slots_activity()
+
+        mock_adapter.drop_resources.assert_not_called()

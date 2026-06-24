@@ -14,22 +14,29 @@ import type {
     BlastRadiusApi,
     BlastRadiusRequestApi,
     HogFlowApi,
+    HogFlowBatchJobApi,
+    HogFlowInvocationApi,
+    HogFlowScheduleApi,
     HogFlowTemplateApi,
     HogFlowTemplatesListParams,
     HogFlowTemplatesLogsRetrieveParams,
+    HogFlowsInvocationResultsRetrieveParams,
     HogFlowsListParams,
     HogFlowsLogsRetrieveParams,
+    HogFlowsMetricsGlobalRetrieveParams,
     HogFlowsMetricsRetrieveParams,
     HogFlowsMetricsTotalsRetrieveParams,
-    HogFlowsSchedulesCreateParams,
-    HogFlowsSchedulesListParams,
     HogInvocationRerunRequestApi,
     HogInvocationRerunResponseApi,
+    HogInvocationResultApi,
+    HogInvocationResultDetailApi,
     PaginatedHogFlowMinimalListApi,
-    PaginatedHogFlowScheduleListApi,
     PaginatedHogFlowTemplateListApi,
     PatchedHogFlowApi,
+    PatchedHogFlowGraphUpdateApi,
+    PatchedHogFlowScheduleApi,
     PatchedHogFlowTemplateApi,
+    WorkflowStatsRowApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -55,7 +62,7 @@ export const getInternalHogFlowsProcessDueSchedulesCreateUrl = () => {
 
 /**
  * Internal endpoint called by the scheduler service to process due schedules.
-Handles both executing due schedules and initializing next_run_at for new ones.
+ * Handles both executing due schedules and initializing next_run_at for new ones.
  */
 export const internalHogFlowsProcessDueSchedulesCreate = async (options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getInternalHogFlowsProcessDueSchedulesCreateUrl(), {
@@ -69,7 +76,7 @@ export const getHogFlowTemplatesListUrl = (projectId: string, params?: HogFlowTe
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -117,7 +124,7 @@ export const getHogFlowTemplatesRetrieveUrl = (projectId: string, id: string) =>
 
 /**
  * Check file-based global templates first, then DB team templates.
-The queryset excludes all global templates from DB, so this only returns team templates from DB.
+ * The queryset excludes all global templates from DB, so this only returns team templates from DB.
  */
 export const hogFlowTemplatesRetrieve = async (
     projectId: string,
@@ -186,7 +193,7 @@ export const getHogFlowTemplatesLogsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -214,7 +221,7 @@ export const getHogFlowsListUrl = (projectId: string, params?: HogFlowsListParam
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -311,16 +318,16 @@ export const hogFlowsDestroy = async (projectId: string, id: string, options?: R
     })
 }
 
-export const getHogFlowsBatchJobsRetrieveUrl = (projectId: string, id: string) => {
+export const getHogFlowsBatchJobsListUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/hog_flows/${id}/batch_jobs/`
 }
 
-export const hogFlowsBatchJobsRetrieve = async (
+export const hogFlowsBatchJobsList = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<HogFlowApi> => {
-    return apiMutator<HogFlowApi>(getHogFlowsBatchJobsRetrieveUrl(projectId, id), {
+): Promise<HogFlowBatchJobApi[]> => {
+    return apiMutator<HogFlowBatchJobApi[]>(getHogFlowsBatchJobsListUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -333,15 +340,84 @@ export const getHogFlowsBatchJobsCreateUrl = (projectId: string, id: string) => 
 export const hogFlowsBatchJobsCreate = async (
     projectId: string,
     id: string,
-    hogFlowApi: NonReadonly<HogFlowApi>,
+    hogFlowBatchJobApi: NonReadonly<HogFlowBatchJobApi>,
     options?: RequestInit
-): Promise<HogFlowApi> => {
-    return apiMutator<HogFlowApi>(getHogFlowsBatchJobsCreateUrl(projectId, id), {
+): Promise<HogFlowBatchJobApi> => {
+    return apiMutator<HogFlowBatchJobApi>(getHogFlowsBatchJobsCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(hogFlowApi),
+        body: JSON.stringify(hogFlowBatchJobApi),
     })
+}
+
+export const getHogFlowsGraphPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/graph/`
+}
+
+export const hogFlowsGraphPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedHogFlowGraphUpdateApi?: PatchedHogFlowGraphUpdateApi,
+    options?: RequestInit
+): Promise<HogFlowApi> => {
+    return apiMutator<HogFlowApi>(getHogFlowsGraphPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedHogFlowGraphUpdateApi),
+    })
+}
+
+export const getHogFlowsInvocationResultsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: HogFlowsInvocationResultsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/${id}/invocation_results/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/${id}/invocation_results/`
+}
+
+export const hogFlowsInvocationResultsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: HogFlowsInvocationResultsRetrieveParams,
+    options?: RequestInit
+): Promise<HogInvocationResultApi[]> => {
+    return apiMutator<HogInvocationResultApi[]>(getHogFlowsInvocationResultsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowsInvocationResultRetrieveUrl = (projectId: string, id: string, invocationId: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/invocation_results/${invocationId}/`
+}
+
+export const hogFlowsInvocationResultRetrieve = async (
+    projectId: string,
+    id: string,
+    invocationId: string,
+    options?: RequestInit
+): Promise<HogInvocationResultDetailApi> => {
+    return apiMutator<HogInvocationResultDetailApi>(
+        getHogFlowsInvocationResultRetrieveUrl(projectId, id, invocationId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getHogFlowsInvocationsCreateUrl = (projectId: string, id: string) => {
@@ -351,14 +427,14 @@ export const getHogFlowsInvocationsCreateUrl = (projectId: string, id: string) =
 export const hogFlowsInvocationsCreate = async (
     projectId: string,
     id: string,
-    hogFlowApi: NonReadonly<HogFlowApi>,
+    hogFlowInvocationApi?: NonReadonly<HogFlowInvocationApi>,
     options?: RequestInit
-): Promise<HogFlowApi> => {
-    return apiMutator<HogFlowApi>(getHogFlowsInvocationsCreateUrl(projectId, id), {
+): Promise<void> => {
+    return apiMutator<void>(getHogFlowsInvocationsCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(hogFlowApi),
+        body: JSON.stringify(hogFlowInvocationApi),
     })
 }
 
@@ -367,7 +443,7 @@ export const getHogFlowsLogsRetrieveUrl = (projectId: string, id: string, params
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -399,7 +475,7 @@ export const getHogFlowsMetricsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -431,7 +507,7 @@ export const getHogFlowsMetricsTotalsRetrieveUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -460,11 +536,14 @@ export const getHogFlowsRerunCreateUrl = (projectId: string, id: string) => {
 
 /**
  * Rerun past invocations of this hog flow from their stored payloads.
-
-Same shape and semantics as the hog function rerun endpoint —
-proxies through to the CDP worker, which reads matching rows from
-ClickHouse, rehydrates from `invocation_globals`, and re-enqueues
-onto cyclotron with `is_retry=1`.
+ *
+ * Same shape and semantics as the hog function rerun endpoint —
+ * proxies through to the CDP worker, which reads matching rows from
+ * ClickHouse, rehydrates from `invocation_globals`, and re-enqueues
+ * onto cyclotron with `is_retry=1`.
+ *
+ * Because rerun replays historical event/person/group data, it requires
+ * `person:read` and `group:read` on top of `hog_flow:write`.
  */
 export const hogFlowsRerunCreate = async (
     projectId: string,
@@ -480,66 +559,36 @@ export const hogFlowsRerunCreate = async (
     })
 }
 
-export const getHogFlowsSchedulesListUrl = (projectId: string, id: string, params?: HogFlowsSchedulesListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/hog_flows/${id}/schedules/?${stringifiedParams}`
-        : `/api/projects/${projectId}/hog_flows/${id}/schedules/`
+export const getHogFlowsSchedulesListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/schedules/`
 }
 
 export const hogFlowsSchedulesList = async (
     projectId: string,
     id: string,
-    params?: HogFlowsSchedulesListParams,
     options?: RequestInit
-): Promise<PaginatedHogFlowScheduleListApi> => {
-    return apiMutator<PaginatedHogFlowScheduleListApi>(getHogFlowsSchedulesListUrl(projectId, id, params), {
+): Promise<HogFlowScheduleApi[]> => {
+    return apiMutator<HogFlowScheduleApi[]>(getHogFlowsSchedulesListUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getHogFlowsSchedulesCreateUrl = (
-    projectId: string,
-    id: string,
-    params?: HogFlowsSchedulesCreateParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/hog_flows/${id}/schedules/?${stringifiedParams}`
-        : `/api/projects/${projectId}/hog_flows/${id}/schedules/`
+export const getHogFlowsSchedulesCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/schedules/`
 }
 
 export const hogFlowsSchedulesCreate = async (
     projectId: string,
     id: string,
-    hogFlowApi: NonReadonly<HogFlowApi>,
-    params?: HogFlowsSchedulesCreateParams,
+    hogFlowScheduleApi: NonReadonly<HogFlowScheduleApi>,
     options?: RequestInit
-): Promise<PaginatedHogFlowScheduleListApi> => {
-    return apiMutator<PaginatedHogFlowScheduleListApi>(getHogFlowsSchedulesCreateUrl(projectId, id, params), {
+): Promise<HogFlowScheduleApi> => {
+    return apiMutator<HogFlowScheduleApi>(getHogFlowsSchedulesCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(hogFlowApi),
+        body: JSON.stringify(hogFlowScheduleApi),
     })
 }
 
@@ -551,14 +600,14 @@ export const hogFlowsSchedulesPartialUpdate = async (
     projectId: string,
     id: string,
     scheduleId: string,
-    patchedHogFlowApi?: NonReadonly<PatchedHogFlowApi>,
+    patchedHogFlowScheduleApi?: NonReadonly<PatchedHogFlowScheduleApi>,
     options?: RequestInit
-): Promise<HogFlowApi> => {
-    return apiMutator<HogFlowApi>(getHogFlowsSchedulesPartialUpdateUrl(projectId, id, scheduleId), {
+): Promise<HogFlowScheduleApi> => {
+    return apiMutator<HogFlowScheduleApi>(getHogFlowsSchedulesPartialUpdateUrl(projectId, id, scheduleId), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedHogFlowApi),
+        body: JSON.stringify(patchedHogFlowScheduleApi),
     })
 }
 
@@ -595,6 +644,36 @@ export const hogFlowsBulkDeleteCreate = async (
     })
 }
 
+export const getHogFlowsMetricsGlobalRetrieveUrl = (
+    projectId: string,
+    params?: HogFlowsMetricsGlobalRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/metrics/global/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/metrics/global/`
+}
+
+export const hogFlowsMetricsGlobalRetrieve = async (
+    projectId: string,
+    params?: HogFlowsMetricsGlobalRetrieveParams,
+    options?: RequestInit
+): Promise<WorkflowStatsRowApi[]> => {
+    return apiMutator<WorkflowStatsRowApi[]>(getHogFlowsMetricsGlobalRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getHogFlowsUserBlastRadiusCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/hog_flows/user_blast_radius/`
 }
@@ -618,7 +697,7 @@ export const getInternalHogFlowsUserBlastRadiusCreateUrl = (teamId: string) => {
 
 /**
  * Internal endpoint for Node.js services to query user blast radius.
-Requires Bearer token authentication via INTERNAL_API_SECRET.
+ * Requires Bearer token authentication via INTERNAL_API_SECRET.
  */
 export const internalHogFlowsUserBlastRadiusCreate = async (teamId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getInternalHogFlowsUserBlastRadiusCreateUrl(teamId), {
@@ -633,7 +712,7 @@ export const getInternalHogFlowsUserBlastRadiusPersonsCreateUrl = (teamId: strin
 
 /**
  * Internal endpoint for Node.js services to query user blast radius persons with pagination.
-Requires Bearer token authentication via INTERNAL_API_SECRET.
+ * Requires Bearer token authentication via INTERNAL_API_SECRET.
  */
 export const internalHogFlowsUserBlastRadiusPersonsCreate = async (
     teamId: string,

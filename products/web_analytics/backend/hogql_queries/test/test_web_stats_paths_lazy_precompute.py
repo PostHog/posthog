@@ -19,6 +19,7 @@ from posthog.schema import (
     SessionsV2JoinMode,
     WebAnalyticsOrderByDirection,
     WebAnalyticsOrderByFields,
+    WebAnalyticsPreComputeStrategy,
     WebAnalyticsSampling,
     WebStatsBreakdown,
     WebStatsTableQuery,
@@ -155,8 +156,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.pk, status=PreaggregationJob.Status.READY
         ).count()
         assert ready_jobs > 0, "expected at least one READY precompute job"
-        assert lazy_response.usedLazyPrecompute is True
-        assert lazy_response.usedPreAggregatedTables is True
+        assert lazy_response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
 
         lazy_by_path = self._collect_metrics(lazy_response.results)
 
@@ -490,7 +490,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
     )
     @unittest.skip(
         "CI-only flake since #59075 (passes locally on the CI ClickHouse image) — "
-        "lazy path returns None on `usedLazyPrecompute` despite jobs being created "
+        "lazy path returns None on `preComputeStrategy` despite jobs being created "
         "(`test_unfiltered_round_trip_creates_precompute_job` passes). Same root "
         "cause as `test_lazy_result_matches_raw_result`: suspected read-after-write "
         "visibility on the Distributed lazy read. `@unittest.skip` placed AFTER "
@@ -507,7 +507,7 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         self._seed_two_sessions()
         with self._enable_lazy():
             response = self._run(self._build_query(order_by=[field, direction]))
-        assert response.usedLazyPrecompute is True
+        assert response.preComputeStrategy == WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE
 
     @unittest.skip(
         "CI-only flake since #59075 (passes locally on the CI ClickHouse image) — "
@@ -556,3 +556,53 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
                 "prev_bounce_rate": row[3][1],
             }
         return out
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_unrestricted_team_creates_job_for_multi_non_host_filter(self):
+        # Filters the restricted gate would reject (multiple, non-`$host`,
+        # non-`exact`) precompute fine for an unrestricted team — no org flag
+        # needed, since membership in the unrestricted list implies enrollment.
+        self._seed_two_sessions()
+        props = [
+            EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT),
+            EventPropertyFilter(key="$os", value="Mac OS X", operator=PropertyOperator.IS_NOT),
+        ]
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
+            self._run(self._build_query(properties=props))
+        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() > 0
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_unrestricted_team_distinct_filters_get_distinct_cache_entries(self):
+        self._seed_two_sessions()
+        chrome = [EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT)]
+        firefox = [EventPropertyFilter(key="$browser", value="Firefox", operator=PropertyOperator.EXACT)]
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
+            self._run(self._build_query(properties=chrome))
+            chrome_hashes = {str(j.query_hash) for j in PreaggregationJob.objects.filter(team_id=self.team.pk)}
+            PreaggregationJob.objects.filter(team_id=self.team.pk).delete()
+
+            self._run(self._build_query(properties=firefox))
+            firefox_hashes = {str(j.query_hash) for j in PreaggregationJob.objects.filter(team_id=self.team.pk)}
+
+        assert chrome_hashes and firefox_hashes, "both filtered runs should create jobs"
+        assert chrome_hashes.isdisjoint(firefox_hashes), (
+            f"distinct filter values must produce distinct cache keys, got overlap: {chrome_hashes & firefox_hashes}"
+        )
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_unrestricted_team_untouched_toggle_creates_job(self):
+        # Unrestricted teams default to opt-out: an untouched toggle (None) still
+        # precomputes.
+        self._seed_two_sessions()
+        query = self._build_query()
+        query.useWebAnalyticsPrecompute = None
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
+            self._run(query)
+        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() > 0
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_unrestricted_team_explicit_opt_out_falls_through(self):
+        self._seed_two_sessions()
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
+            self._run(self._build_query(opt_in_precompute=False))
+        assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0

@@ -6,13 +6,16 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.schema import HogQLFilters, ProductKey
+from posthog.schema import HogQLFilters
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.models import Team
-from posthog.tasks.email_utils import compute_week_over_week_change
+from posthog.schema_enums import ProductKey
 
 logger = structlog.get_logger(__name__)
+
+# Keep in sync with SOURCE_MAPS_DOCS_URL in sourceMapsFixWizardLogic.ts
+SOURCE_MAPS_DOCS_URL = "https://posthog.com/docs/error-tracking/upload-source-maps"
 
 
 def get_org_ids_with_exceptions() -> list[str]:
@@ -102,6 +105,7 @@ def auto_select_project_for_user(user: Any, org_id: int, team_exception_counts: 
 def get_exception_counts(team_ids: list[int] | None = None) -> list:
     """Teams with at least one exception in the last 7 days, used for digest routing."""
     from posthog.clickhouse.client import sync_execute
+    from posthog.clickhouse.workload import Workload
 
     tag_queries(product=ProductKey.ERROR_TRACKING, name="weekly_digest:exception_counts")
 
@@ -121,13 +125,18 @@ def get_exception_counts(team_ids: list[int] | None = None) -> list:
     {team_filter}
     """
 
-    results = sync_execute(query, query_params)
+    # Cross-team scan for a weekly batch job — keep it off the online cluster.
+    results = sync_execute(query, query_params, workload=Workload.OFFLINE)
     return results if isinstance(results, list) else []
 
 
 def get_crash_free_sessions(team: Team) -> dict:
     """Calculate crash free sessions rate for the last 7 days with previous week comparison."""
     from posthog.hogql.query import execute_hogql_query
+
+    # posthog.tasks.__init__ eagerly imports every task module (celery autoimport);
+    # import the helper at call time so this module doesn't pull the task graph.
+    from posthog.tasks.email_utils import compute_week_over_week_change  # noqa: PLC0415
 
     tag_queries(product=ProductKey.ERROR_TRACKING, team_id=team.pk, name="weekly_digest:crash_free_sessions")
 
@@ -360,6 +369,47 @@ def _daily_counts_to_sparkline(daily_counts: list[int]) -> list[dict]:
         return []
     max_val = max(daily_counts)
     return [{"height_percent": int((v / max_val) * 100) if max_val > 0 else 0} for v in daily_counts]
+
+
+def _source_maps_wizard_command() -> str:
+    """Source maps upload wizard command, mirroring sourceMapsFixWizardLogic on the frontend.
+
+    Appends ``--region eu`` on EU Cloud so the wizard uploads to the right region.
+    """
+    region_flag = " --region eu" if (settings.CLOUD_DEPLOYMENT or "").upper() == "EU" else ""
+    return f"npx -y @posthog/wizard@latest upload-source-maps{region_flag}"
+
+
+def get_source_maps_recommendation_for_team(team: Team) -> dict | None:
+    """Return wizard prompt data when the team has an active 'missing source maps' recommendation.
+
+    Mirrors the in-app banner: only surface it once the recommendation has been computed, while
+    there's still a problem (not completed), and the user hasn't dismissed it. Returns ``None``
+    otherwise so the digest can omit the section entirely.
+    """
+    from products.error_tracking.backend.logic.recommendations import RECOMMENDATIONS_BY_TYPE
+    from products.error_tracking.backend.models import ErrorTrackingRecommendation
+
+    rec = RECOMMENDATIONS_BY_TYPE.get("source_maps")
+    if rec is None:
+        return None
+
+    recommendation = ErrorTrackingRecommendation.objects.filter(
+        team=team, type="source_maps", dismissed_at__isnull=True
+    ).first()
+    if recommendation is None or recommendation.computed_at is None:
+        return None
+
+    meta = recommendation.meta or {}
+    if rec.is_completed(meta):
+        return None
+
+    return {
+        "unresolved_percent": round((meta.get("unresolved_pct") or 0.0) * 100),
+        "lookback_hours": meta.get("lookback_hours"),
+        "wizard_command": _source_maps_wizard_command(),
+        "docs_url": f"{SOURCE_MAPS_DOCS_URL}?utm_source=error_tracking_weekly_digest",
+    }
 
 
 def build_ingestion_failures_url(team_id: int) -> str:

@@ -3,7 +3,7 @@ import clsx from 'clsx'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
-import { lowercaseFirstLetter } from 'lib/utils'
+import { lowercaseFirstLetter } from 'lib/utils/strings'
 
 import { CostBreakdownTooltip } from '../components/CostBreakdownTooltip'
 import { MetadataTag } from '../components/MetadataTag'
@@ -78,7 +78,7 @@ export function MetadataHeader({
                     tooltipContent="Prompt tokens written to the provider's cache for reuse on subsequent calls."
                 >{`${cacheWriteTokens} cache write tokens`}</MetadataTag>
             )}
-            {model && (
+            {typeof model === 'string' && model && (
                 <MetadataTag label="Model" textToCopy={lowercaseFirstLetter(model)}>
                     {model}
                 </MetadataTag>
