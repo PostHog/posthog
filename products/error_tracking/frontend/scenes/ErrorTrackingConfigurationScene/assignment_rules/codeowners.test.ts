@@ -2,15 +2,13 @@ import type { OrganizationMemberType, RoleType } from '~/types'
 
 import {
     bestAssigneeMatch,
-    bestRoleMatch,
+    entriesByOwner,
     findCodeownersErrors,
-    groupByOwner,
     longestCommonSubstringLength,
     ownerMatchFragments,
     patternToSourceMatch,
     parseCodeowners,
     patternToSourceValue,
-    splitOwner,
 } from './codeowners'
 
 function makeRole(name: string): RoleType {
@@ -45,19 +43,15 @@ describe('codeowners helpers', () => {
         })
     })
 
-    describe('groupByOwner', () => {
-        it('accumulates every path per owner in first-seen order, de-duping patterns', () => {
-            const entries = parseCodeowners(
-                [
-                    'a/** @team-x',
-                    'b/** @team-y @team-x',
-                    'a/** @team-x', // duplicate pattern for team-x
-                ].join('\n')
-            )
+    describe('entriesByOwner', () => {
+        it('preserves owner entries in source order', () => {
+            const entries = parseCodeowners(['a/** @team-x', 'b/** @team-y @team-x', 'a/** @team-x'].join('\n'))
 
-            expect(groupByOwner(entries)).toEqual([
-                { owner: '@team-x', patterns: ['a/**', 'b/**'] },
-                { owner: '@team-y', patterns: ['b/**'] },
+            expect(entriesByOwner(entries)).toEqual([
+                { owner: '@team-x', patterns: ['a/**'], index: 0 },
+                { owner: '@team-y', patterns: ['b/**'], index: 1 },
+                { owner: '@team-x', patterns: ['b/**'], index: 2 },
+                { owner: '@team-x', patterns: ['a/**'], index: 3 },
             ])
         })
     })
@@ -98,28 +92,8 @@ describe('codeowners helpers', () => {
         })
     })
 
-    describe('bestRoleMatch', () => {
-        const roles = [makeRole('Frontend'), makeRole('Backend Team'), makeRole('Error Tracking')]
-
-        it('matches an exact team name (ignoring @org prefix and case)', () => {
-            expect(bestRoleMatch('@posthog/frontend', roles)?.role.name).toBe('Frontend')
-        })
-
-        it('matches a close team name with hyphens normalized', () => {
-            expect(bestRoleMatch('@posthog/error-tracking', roles)?.role.name).toBe('Error Tracking')
-        })
-
-        it('returns null when nothing clears the threshold', () => {
-            expect(bestRoleMatch('@posthog/data-warehouse', roles)).toBeNull()
-        })
-
-        it('returns null when there are no roles', () => {
-            expect(bestRoleMatch('@posthog/frontend', [])).toBeNull()
-        })
-    })
-
     describe('bestAssigneeMatch', () => {
-        const roles = [makeRole('Error Tracking')]
+        const roles = [makeRole('Frontend'), makeRole('Backend Team'), makeRole('Error Tracking')]
         const members = [
             makeMember('Alice Example', 'alice@example.com'),
             makeMember('Max Backend', 'max@example.com', 2),
@@ -137,6 +111,10 @@ describe('codeowners helpers', () => {
                 type: 'user',
                 user: { email: 'alice@example.com' },
             })
+        })
+
+        it('does not fuzzy match short owner tokens', () => {
+            expect(bestAssigneeMatch('@dev', [makeRole('Developer experience')], [])).toBeNull()
         })
     })
 
@@ -167,21 +145,10 @@ describe('codeowners helpers', () => {
         it('returns no errors for valid input', () => {
             expect(findCodeownersErrors('a/** @team\nb/** @user dev@posthog.com')).toEqual([])
         })
-    })
 
-    describe('splitOwner', () => {
-        it.each([
-            ['@posthog/frontend', { org: 'posthog', slug: 'frontend' }],
-            ['posthog/error-tracking', { org: 'posthog', slug: 'error-tracking' }],
-        ])('splits %s into org and slug', (owner, expected) => {
-            expect(splitOwner(owner)).toEqual(expected)
+        it('skips section headers', () => {
+            expect(findCodeownersErrors('[Backend]\na/** @team')).toEqual([])
+            expect(parseCodeowners('[Backend]\na/** @team')).toEqual([{ pattern: 'a/**', owners: ['@team'] }])
         })
-
-        it.each([['@alice'], ['dev@posthog.com'], ['@posthog/'], ['']])(
-            'returns null for non-team owner %s',
-            (owner) => {
-                expect(splitOwner(owner)).toBeNull()
-            }
-        )
     })
 })

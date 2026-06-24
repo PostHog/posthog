@@ -26,7 +26,7 @@ export function CodeOwnersModal(): JSX.Element {
         rawText,
         savableRows,
         hasParsedOwners,
-        saving,
+        savingLoading,
         dateRange,
         unmatchedCount,
         mappingUnresolvedCount,
@@ -54,27 +54,25 @@ export function CodeOwnersModal(): JSX.Element {
                             </p>
                         </div>
                         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
-                            <div className="relative">
-                                <CodeEditor
-                                    className="border rounded"
-                                    language="codeowners"
-                                    value={rawText}
-                                    onChange={(value) => setRawText(value ?? '')}
-                                    height={420}
-                                    options={{
-                                        placeholder: CODE_OWNERS_PLACEHOLDER,
-                                        minimap: { enabled: false },
-                                        scrollBeyondLastLine: false,
-                                        wordWrap: 'on',
-                                        lineNumbers: 'on',
-                                        folding: false,
-                                        lineDecorationsWidth: 8,
-                                        lineNumbersMinChars: 2,
-                                        fontSize: 12,
-                                        renderLineHighlight: 'none',
-                                    }}
-                                />
-                            </div>
+                            <CodeEditor
+                                className="border rounded"
+                                language="codeowners"
+                                value={rawText}
+                                onChange={(value) => setRawText(value ?? '')}
+                                height={420}
+                                options={{
+                                    placeholder: CODE_OWNERS_PLACEHOLDER,
+                                    minimap: { enabled: false },
+                                    scrollBeyondLastLine: false,
+                                    wordWrap: 'on',
+                                    lineNumbers: 'on',
+                                    folding: false,
+                                    lineDecorationsWidth: 8,
+                                    lineNumbersMinChars: 2,
+                                    fontSize: 12,
+                                    renderLineHighlight: 'none',
+                                }}
+                            />
                         </div>
                         <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-primary p-4">
                             <div className="flex flex-col gap-0.5 text-xs text-warning text-left max-h-16 overflow-auto">
@@ -201,7 +199,7 @@ export function CodeOwnersModal(): JSX.Element {
                                 <Button
                                     variant="primary"
                                     onClick={saveAll}
-                                    loading={saving}
+                                    loading={savingLoading}
                                     disabled={savableRows.length === 0}
                                     title={savableRows.length === 0 ? 'No rules with an assignee to save' : undefined}
                                 >

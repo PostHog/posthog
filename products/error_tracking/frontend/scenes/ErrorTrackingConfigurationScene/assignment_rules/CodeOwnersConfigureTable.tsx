@@ -16,7 +16,8 @@ import { ActivityTab } from '~/types'
 import { AssigneeIconDisplay, AssigneeLabelDisplay } from '../../../components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from '../../../components/Assignee/AssigneeSelect'
 import { Assignee, assigneeSelectLogic } from '../../../components/Assignee/assigneeSelectLogic'
-import { buildOwnerFilters, CodeOwnerRow, codeOwnersModalLogic } from './codeOwnersModalLogic'
+import { buildOwnerFilters, CodeOwnerOwnerMapping } from './codeownersImport'
+import { codeOwnersModalLogic } from './codeOwnersModalLogic'
 
 function assigneeLabel(assignee: Assignee): string {
     if (!assignee) {
@@ -71,7 +72,7 @@ export function CodeOwnersConfigureTable(): JSX.Element {
                     </TableRow>
                 </TableHeader>
                 <TableBody>
-                    {mappingRows.map((row: CodeOwnerRow) => {
+                    {mappingRows.map((row: CodeOwnerOwnerMapping) => {
                         return (
                             <TableRow key={row.owner}>
                                 <TableCell className="px-0">
@@ -154,7 +155,7 @@ export function CodeOwnersImpactTable(): JSX.Element {
                 issueCount: 0,
                 patterns: [],
             }
-            const count = matchResults[row.owner]
+            const count = matchResults[row.entryId]
             existing.exceptionCount += count?.exceptionCount ?? 0
             existing.issueCount += count?.issueCount ?? 0
             existing.patterns.push(...row.patterns)
