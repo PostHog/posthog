@@ -21,7 +21,7 @@ from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.data_provider import MaterializedColumnInfo
+from posthog.hogql.data_provider import MaterializedColumnInfo, RestrictedProperty
 from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -118,7 +118,7 @@ class TestPropertyTypes(BaseTest):
     def _plan_where_comparison(
         self,
         select: str,
-        restricted_properties: set[tuple[str, int]] | None = None,
+        restricted_properties: set[RestrictedProperty] | None = None,
     ) -> PropertyComparisonPlan:
         context, resolved = self._resolve_select(select, restricted_properties=restricted_properties)
         comparison = cast(ast.CompareOperation, resolved.where)
@@ -129,7 +129,7 @@ class TestPropertyTypes(BaseTest):
     def _resolve_select(
         self,
         select: str,
-        restricted_properties: set[tuple[str, int]] | None = None,
+        restricted_properties: set[RestrictedProperty] | None = None,
     ) -> tuple[HogQLContext, ast.SelectQuery]:
         """Resolve types and build the property-swapper registry without preparing further.
 
@@ -149,7 +149,7 @@ class TestPropertyTypes(BaseTest):
     def _prepare_select(
         self,
         select: str,
-        restricted_properties: set[tuple[str, int]] | None = None,
+        restricted_properties: set[RestrictedProperty] | None = None,
     ) -> tuple[HogQLContext, ast.SelectQuery]:
         expr = parse_select(select)
         context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)

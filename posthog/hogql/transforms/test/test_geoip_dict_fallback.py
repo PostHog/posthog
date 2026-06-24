@@ -16,6 +16,7 @@ from parameterized import parameterized
 from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.data_provider import RestrictedProperty
 from posthog.hogql.errors import QueryError
 from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.parser import parse_select
@@ -44,7 +45,7 @@ class TestGeoipDictFallback(ClickhouseTestMixin, BaseTest):
         select: str,
         teams: str = "*",
         modifiers: HogQLQueryModifiers | None = None,
-        restricted_properties: set[tuple[str, int]] | None = None,
+        restricted_properties: set[RestrictedProperty] | None = None,
         dict_exists: bool = True,
     ) -> tuple[str, HogQLContext]:
         context = HogQLContext(

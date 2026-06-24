@@ -22,11 +22,17 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.data_provider import (
     ActionRef,
+    ActionRefKey,
     CohortRef,
+    CohortRefKey,
     InsightVariableInfo,
     MaterializedColumnInfo,
+    MaterializedColumnKey,
+    PersonWarehousePropertyKey,
     PropertyTypes,
+    QueryExpansion,
     StaticDataProvider,
+    TextEmbeddingKey,
 )
 from posthog.hogql.database.database import Database
 from posthog.hogql.filters import replace_filters_core
@@ -116,7 +122,7 @@ class TestEngineIsolationGate(SimpleTestCase):
     def test_materialized_column_resolved_via_provider(self) -> None:
         provider = _provider(
             materialized_columns={
-                ("events", "properties", "$browser"): MaterializedColumnInfo(
+                MaterializedColumnKey("events", "properties", "$browser"): MaterializedColumnInfo(
                     name="mat_$browser", type="String", is_nullable=False
                 )
             }
@@ -152,7 +158,11 @@ class TestEngineIsolationGate(SimpleTestCase):
         )
 
     def test_warehouse_person_property_bool_coercion_via_provider(self) -> None:
-        provider = _provider(person_warehouse_property_types={("dw_table", "is_active"): "BooleanDatabaseField"})
+        provider = _provider(
+            person_warehouse_property_types={
+                PersonWarehousePropertyKey("dw_table", "is_active"): "BooleanDatabaseField"
+            }
+        )
         expr = property_to_expr_core(
             Property(type="data_warehouse_person_property", key="dw_table.is_active", value="true"),
             provider,
@@ -203,7 +213,9 @@ class TestEngineIsolationGate(SimpleTestCase):
 
     @parameterized.expand([("subquery",), ("leftjoin",), ("leftjoin_conjoined",)])
     def test_in_cohort_compiles_across_modes(self, mode: str) -> None:
-        provider = _provider(cohort_refs={("id", 99): [CohortRef(id=99, is_static=False, version=5, name="my cohort")]})
+        provider = _provider(
+            cohort_refs={CohortRefKey("id", 99): [CohortRef(id=99, is_static=False, version=5, name="my cohort")]}
+        )
         context = self._print_context(provider)
         context.modifiers.inCohortVia = InCohortVia(mode)
         printed, _ = prepare_and_print_ast(
@@ -218,7 +230,7 @@ class TestEngineIsolationGate(SimpleTestCase):
             right=ast.Constant(value="$pageview"),
         )
         provider = _provider(
-            action_refs={("team", 5): [ActionRef(id=5, name="five")]},
+            action_refs={ActionRefKey("team", 5): [ActionRef(id=5, name="five")]},
             action_exprs={5: pageview},
         )
         self.assertEqual(entity_to_expr_core(RetentionEntity(id=5, type="actions"), provider), pageview)
@@ -227,7 +239,7 @@ class TestEngineIsolationGate(SimpleTestCase):
         from posthog.schema import HogQLQuery
 
         expansion = parse_select("SELECT event FROM events")
-        provider = _provider(query_expansions=[(HogQLQuery(query="SELECT event FROM events"), expansion)])
+        provider = _provider(query_expansions=[QueryExpansion(HogQLQuery(query="SELECT event FROM events"), expansion)])
         printed, _ = prepare_and_print_ast(
             parse_select("SELECT * FROM <HogQLQuery query='SELECT event FROM events' />"),
             self._print_context(provider),
@@ -236,7 +248,7 @@ class TestEngineIsolationGate(SimpleTestCase):
         self.assertIn("SELECT event FROM events", printed)
 
     def test_embed_text_resolved_via_provider(self) -> None:
-        provider = _provider(text_embeddings={("hello", None): [0.25, 0.75]})
+        provider = _provider(text_embeddings={TextEmbeddingKey("hello", None): [0.25, 0.75]})
         context = self._print_context(provider)
         prepare_and_print_ast(parse_select("SELECT embedText('hello') FROM events"), context, dialect="clickhouse")
         self.assertIn([0.25, 0.75], list(context.values.values()))

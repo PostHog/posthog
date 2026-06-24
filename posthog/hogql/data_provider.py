@@ -12,6 +12,55 @@ PropertyKind = Literal["event", "person", "group"]
 ActionScope = Literal["team", "project"]
 CohortRefKind = Literal["id", "name"]
 
+# Composite lookup keys for StaticDataProvider's in-memory tables. Frozen dataclasses (not tuples)
+# so a key can only be built explicitly and read by name — a raw tuple can't silently stand in.
+
+
+@dataclass(frozen=True)
+class PersonWarehousePropertyKey:
+    field_name: str | int  # the field the warehouse table is joined to persons as
+    property_key: str
+
+
+@dataclass(frozen=True)
+class MaterializedColumnKey:
+    table: str  # ClickHouse table name, e.g. "events"
+    column: str  # ClickHouse column holding the JSON, e.g. "properties"
+    property_name: str
+
+
+@dataclass(frozen=True)
+class ActionRefKey:
+    scope: ActionScope
+    ref: int | str  # action id, or name when scope is "project"
+
+
+@dataclass(frozen=True)
+class CohortRefKey:
+    kind: CohortRefKind  # "id" or "name"
+    ref: int | str
+
+
+@dataclass(frozen=True)
+class TextEmbeddingKey:
+    text: str
+    model: Optional[str]
+
+
+# A property the requesting user may not read: ``(property name, PropertyDefinition.Type value)``.
+# A bare tuple (not a NamedTuple): it's built in many call sites as plain pairs and consumed by
+# unpacking (``for name, property_type in ...``), so an alias documents the shape without forcing
+# every construction site to switch to a constructor.
+RestrictedProperty = tuple[str, int]
+
+
+@dataclass(frozen=True)
+class QueryExpansion:
+    """A canned ``expand_query`` result for StaticDataProvider: a query node and what it expands to."""
+
+    node: Any  # a posthog.schema query node (e.g. a HogQLX tag); matched by value equality
+    query: "ast.SelectQuery | ast.SelectSetQuery"
+
 
 @dataclass(frozen=True)
 class CohortRef:
@@ -198,8 +247,8 @@ class DataProvider(Protocol):
         """Embedding vector for ``text`` — the ``embedText()`` HogQL function."""
         ...
 
-    def restricted_properties(self) -> set[tuple[str, int]]:
-        """(property name, PropertyDefinition type) pairs the requesting user may not read."""
+    def restricted_properties(self) -> set[RestrictedProperty]:
+        """The properties the requesting user is not allowed to read."""
         ...
 
 
@@ -213,27 +262,25 @@ class StaticDataProvider:
     """
 
     team_context: HogQLTeamContext
-    person_warehouse_property_types: dict[tuple[str | int, str], Optional[str]] = field(default_factory=dict)
+    person_warehouse_property_types: dict[PersonWarehousePropertyKey, Optional[str]] = field(default_factory=dict)
     persons_inner_join: bool = False
     # Full property-type catalog; lookups return the subset a query asks for. A property
     # absent from the catalog is simply untyped — a legitimate state, not an error.
     property_type_catalog: PropertyTypes = field(default_factory=PropertyTypes)
-    # Keyed by (table, column, property name); a property absent here is simply not
-    # materialized — also a legitimate state.
-    materialized_columns: dict[tuple[str, str, str], MaterializedColumnInfo] = field(default_factory=dict)
-    action_refs: dict[tuple[ActionScope, int | str], list[ActionRef]] = field(default_factory=dict)
+    # A property absent here is simply not materialized — also a legitimate state.
+    materialized_columns: dict[MaterializedColumnKey, MaterializedColumnInfo] = field(default_factory=dict)
+    action_refs: dict[ActionRefKey, list[ActionRef]] = field(default_factory=dict)
     action_exprs: dict[int, "ast.Expr"] = field(default_factory=dict)
     insight_variables_by_id: dict[str, InsightVariableInfo] = field(default_factory=dict)
-    # (query node, expansion) pairs — query nodes compare by value, so a plain list works.
-    query_expansions: list[tuple[Any, "ast.SelectQuery | ast.SelectSetQuery"]] = field(default_factory=list)
+    query_expansions: list[QueryExpansion] = field(default_factory=list)
     cohort_ids: dict[int | str, int] = field(default_factory=dict)
-    cohort_refs: dict[tuple[CohortRefKind, int | str], list[CohortRef]] = field(default_factory=dict)
+    cohort_refs: dict[CohortRefKey, list[CohortRef]] = field(default_factory=dict)
     inline_cohort_queries: dict[int, "ast.SelectQuery | ast.SelectSetQuery"] = field(default_factory=dict)
-    text_embeddings: dict[tuple[str, Optional[str]], list[float]] = field(default_factory=dict)
-    restricted_properties_set: set[tuple[str, int]] = field(default_factory=set)
+    text_embeddings: dict[TextEmbeddingKey, list[float]] = field(default_factory=dict)
+    restricted_properties_set: set[RestrictedProperty] = field(default_factory=set)
 
     def person_warehouse_property_type(self, field_name: str | int, property_key: str) -> Optional[str]:
-        return self.person_warehouse_property_types[(field_name, property_key)]
+        return self.person_warehouse_property_types[PersonWarehousePropertyKey(field_name, property_key)]
 
     def persons_join_uses_inner_join(self) -> bool:
         return self.persons_inner_join
@@ -263,10 +310,10 @@ class StaticDataProvider:
         )
 
     def materialized_column(self, table: str, column: str, property_name: str) -> Optional[MaterializedColumnInfo]:
-        return self.materialized_columns.get((table, column, property_name))
+        return self.materialized_columns.get(MaterializedColumnKey(table, column, property_name))
 
     def actions(self, ref: int | str, scope: ActionScope) -> list[ActionRef]:
-        return self.action_refs.get((scope, ref), [])
+        return self.action_refs.get(ActionRefKey(scope, ref), [])
 
     def action_expr(self, action_id: int, events_alias: Optional[str] = None) -> Optional["ast.Expr"]:
         return self.action_exprs.get(action_id)
@@ -279,22 +326,22 @@ class StaticDataProvider:
         ]
 
     def expand_query(self, query_node: Any) -> "ast.SelectQuery | ast.SelectSetQuery":
-        for candidate, expansion in self.query_expansions:
-            if candidate == query_node:
-                return expansion
+        for entry in self.query_expansions:
+            if entry.node == query_node:
+                return entry.query
         raise KeyError(f"No expansion provided for query node {type(query_node).__name__}")
 
     def cohort_id(self, ref: int | str) -> int:
         return self.cohort_ids[ref]
 
     def cohorts(self, ref: int | str, by: CohortRefKind) -> list[CohortRef]:
-        return self.cohort_refs.get((by, ref), [])
+        return self.cohort_refs.get(CohortRefKey(by, ref), [])
 
     def inline_cohort(self, cohort_id: int, auto_gated: bool) -> Optional["ast.SelectQuery | ast.SelectSetQuery"]:
         return self.inline_cohort_queries.get(cohort_id)
 
     def embed_text(self, text: str, model: Optional[str] = None) -> list[float]:
-        return self.text_embeddings[(text, model)]
+        return self.text_embeddings[TextEmbeddingKey(text, model)]
 
-    def restricted_properties(self) -> set[tuple[str, int]]:
+    def restricted_properties(self) -> set[RestrictedProperty]:
         return self.restricted_properties_set

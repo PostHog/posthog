@@ -43,4 +43,4 @@ def restricted_property_keys_for_table_type(table_type: ast.Type, context: HogQL
     else:
         return set()
 
-    return {name for name, ptype in context.restricted_properties if ptype == prop_def_type}
+    return {name for name, prop_type in context.restricted_properties if prop_type == prop_def_type}

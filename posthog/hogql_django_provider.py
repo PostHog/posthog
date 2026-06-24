@@ -19,6 +19,7 @@ from posthog.hogql.data_provider import (
     PropertyKind,
     PropertyTypeInfo,
     PropertyTypes,
+    RestrictedProperty,
 )
 from posthog.hogql.team_context import HogQLTeamContext
 
@@ -350,7 +351,7 @@ class DjangoDataProvider:
 
         return generate_embedding(self.team, text, model).embedding
 
-    def restricted_properties(self) -> set[tuple[str, int]]:
+    def restricted_properties(self) -> set[RestrictedProperty]:
         team_id = self._team_id if self._team_id is not None else self.team.id
         return get_restricted_properties_for_team(team_id=team_id, user=self._user)
 
