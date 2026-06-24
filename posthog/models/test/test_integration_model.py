@@ -1994,7 +1994,8 @@ class TestAwsS3IntegrationModel(BaseTest):
             "aws_access_key_id": "AKIAEXAMPLE",
             "aws_secret_access_key": "secret",
         }
-        assert integration.display_name == "prod-aws"
+        # display_name surfaces auth type and AWS account so users can tell integrations apart.
+        assert integration.display_name == "prod-aws (access key, AWS account 123456789012)"
         assert AwsS3Integration(integration).aws_account_id == "123456789012"
 
     def test_integration_from_config_requires_name(self):
@@ -2073,6 +2074,8 @@ class TestS3CompatibleIntegrationModel(BaseTest):
         assert integration.sensitive_config == {"aws_access_key_id": "key", "aws_secret_access_key": "secret"}
         wrapped = S3CompatibleIntegration(integration)
         assert wrapped.endpoint_url == "https://account.r2.cloudflarestorage.com"
+        # display_name surfaces auth type and endpoint so users can tell integrations apart.
+        assert integration.display_name == "my-r2 (access key, https://account.r2.cloudflarestorage.com)"
 
     def test_integration_from_config_requires_endpoint_url(self):
         with pytest.raises(S3CredentialIntegrationError, match="endpoint URL is required"):

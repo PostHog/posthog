@@ -265,8 +265,19 @@ class Integration(models.Model):
             return dot_get(self.config, "account.name", self.integration_id)
         if self.kind == "databricks":
             return self.integration_id or "unknown ID"
-        if self.kind in (Integration.IntegrationKind.AWS_S3, Integration.IntegrationKind.S3_COMPATIBLE):
-            return self.integration_id or "unknown ID"
+        if self.kind == Integration.IntegrationKind.AWS_S3:
+            name = self.integration_id or "unknown ID"
+            # config["auth_type"] leaves room for a future OIDC / IAM-role mode; only keys exist today.
+            auth_label = self.config.get("auth_type", "access key")
+            account_id = self.config.get("aws_account_id")
+            detail = f"{auth_label}, AWS account {account_id}" if account_id else auth_label
+            return f"{name} ({detail})"
+        if self.kind == Integration.IntegrationKind.S3_COMPATIBLE:
+            name = self.integration_id or "unknown ID"
+            auth_label = self.config.get("auth_type", "access key")
+            endpoint_url = self.config.get("endpoint_url")
+            detail = f"{auth_label}, {endpoint_url}" if endpoint_url else auth_label
+            return f"{name} ({detail})"
         if self.kind == "gitlab":
             return self.integration_id or "unknown ID"
         if self.kind == "email":
