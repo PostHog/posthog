@@ -347,6 +347,11 @@ export interface GoogleSearchConsoleSitesResponseApi {
     sites: GoogleSearchConsoleSiteApi[]
 }
 
+export interface GitHubPrepareCallbackRequestApi {
+    /** Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Code). */
+    next?: string
+}
+
 export interface IntegrationAccessRequestApi {
     /** The kind of integration the member is requesting be connected (e.g. 'slack', 'github').
      *
