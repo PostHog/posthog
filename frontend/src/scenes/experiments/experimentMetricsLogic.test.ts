@@ -82,7 +82,7 @@ const coldRunInProgressPartial = {
     completed_metrics: 1,
     results: [{ metric_uuid: PRIMARY_METRIC_UUID, status: 'completed', result: primaryResult, error_message: null }],
 }
-// Same intermediate payload but for a manual run — must NOT apply mid-flight.
+// Same intermediate payload but for a manual run; it now applies mid-flight, same as cold runs.
 const manualInProgressPartial = { ...coldRunInProgressPartial, trigger: 'manual' }
 // Create responses that seed the stored trigger for the polled run.
 const coldRunPending = { ...pendingRecalculation, trigger: 'cold_run', total_metrics: 2 }
@@ -640,7 +640,7 @@ describe('experimentMetricsLogic', () => {
             expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
         })
 
-        it('on a non-cold_run, does not apply results until the run is terminal', async () => {
+        it('on a non-cold_run, applies partial results mid-flight so refreshed values stream in', async () => {
             useMocks({
                 get: {
                     '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [404, {}],
@@ -661,9 +661,9 @@ describe('experimentMetricsLogic', () => {
                 await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
             }
 
-            // In progress with the same partial payload, but a manual run leaves cells untouched mid-flight.
+            // Still in progress, but the finished metric from the partial payload is already on screen.
             expect(logic.values.currentRecalculation).toEqual(expect.objectContaining({ status: 'in_progress' }))
-            expect(logic.values.primaryMetricsResults).toEqual([])
+            expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
         })
     })
 
