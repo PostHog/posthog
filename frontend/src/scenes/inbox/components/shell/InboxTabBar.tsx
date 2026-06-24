@@ -10,6 +10,7 @@ import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from '../../logics/report
 import {
     INBOX_FLAT_LIST_TAB_KEYS,
     INBOX_STAFF_ONLY_TAB_KEYS,
+    INBOX_TAB_BAR_HIDDEN_KEYS,
     INBOX_TAB_KEYS,
     INBOX_TAB_LABEL,
     InboxFlatListTabKey,
@@ -22,6 +23,10 @@ function isFlatListTabKey(tab: InboxTabKey): tab is InboxFlatListTabKey {
 
 function isStaffOnlyTabKey(tab: InboxTabKey): boolean {
     return (INBOX_STAFF_ONLY_TAB_KEYS as string[]).includes(tab)
+}
+
+function isTabBarHiddenKey(tab: InboxTabKey): boolean {
+    return (INBOX_TAB_BAR_HIDDEN_KEYS as string[]).includes(tab)
 }
 
 /**
@@ -47,10 +52,11 @@ const WELCOME_TAB_KEY = 'welcome'
 type InboxTabBarKey = InboxTabKey | typeof WELCOME_TAB_KEY
 
 /**
- * Tab bar: Pull requests / Reports (everyone) + Not actionable / Runs (staff-only, with a
- * "Staff" tag). Each report tab shows its own server-computed count. The Configuration tab
- * is only shown when `showConfigTab` is set – i.e. when the scene is too narrow for the
- * setup rail; on wide viewports the rail replaces it.
+ * Tab bar: Pull requests / Reports (everyone) + Not actionable (staff-only, with a "Staff" tag).
+ * Each report tab shows its own server-computed count. The Runs tab is deprecated from the bar
+ * (its run logs now expand inline in the report detail); its route stays for deep links. The
+ * Configuration tab is only shown when `showConfigTab` is set – i.e. when the scene is too narrow
+ * for the setup rail; on wide viewports the rail replaces it.
  *
  * In `onboarding` mode (self-driving not set up, empty inbox) a locked "Welcome" tab is shown and
  * selected, while the real tabs stay visible but disabled – the user can see what's coming, but the
@@ -63,10 +69,10 @@ export function InboxTabBar({
     showConfigTab?: boolean
     onboarding?: boolean
 }): JSX.Element {
-    const { activeTab, isStaff, runsCount, runsResponse, runsResponseLoading } = useValues(inboxSceneLogic)
+    const { activeTab, isStaff } = useValues(inboxSceneLogic)
 
     const visibleTabKeys = INBOX_TAB_KEYS.filter(
-        (key) => (key !== 'config' || showConfigTab) && (!isStaffOnlyTabKey(key) || isStaff)
+        (key) => !isTabBarHiddenKey(key) && (key !== 'config' || showConfigTab) && (!isStaffOnlyTabKey(key) || isStaff)
     )
 
     const realTabs = visibleTabKeys.map((key) => ({
@@ -75,12 +81,6 @@ export function InboxTabBar({
             <span className="flex items-center gap-1.5">
                 <span>{INBOX_TAB_LABEL[key]}</span>
                 {isFlatListTabKey(key) && <FlatTabCount tabKey={key} />}
-                {key === 'runs' &&
-                    (runsResponse === null && runsResponseLoading ? (
-                        <LemonSkeleton className="h-3 w-3 rounded" />
-                    ) : (
-                        <span className="text-xs text-muted tabular-nums">{runsCount}</span>
-                    ))}
                 {isStaffOnlyTabKey(key) && (
                     <LemonTag type="completion" size="small">
                         Staff
