@@ -170,8 +170,12 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
     const wasOriginallyGA = originalEarlyAccessFeatureStage === EarlyAccessFeatureStage.GeneralAvailability
     const canShowSaveButtons = !wasOriginallyGA && (isNewEarlyAccessFeature || isEditingFeature)
 
-    // Editing, releasing, and deleting a feature all require editor+ access. New features have no
-    // object-level access level yet, so the check falls back to the resource-level grant.
+    // Creating, editing, releasing, and deleting a feature require editor+ access to the early
+    // access feature. A saved feature carries its object-level user_access_level; a new (unsaved)
+    // feature has no object yet, so getAccessControlDisabledReason falls back to the resource-level
+    // grant from app context. Note this only gates on early_access_feature access — actions that
+    // also write the linked feature flag (create, stage promotion, delete) are additionally gated
+    // on feature_flag access by the backend, which isn't mirrored here, so they can still 403.
     const userAccessLevel = 'id' in earlyAccessFeature ? earlyAccessFeature.user_access_level : undefined
     const accessControlDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.EarlyAccessFeature,
