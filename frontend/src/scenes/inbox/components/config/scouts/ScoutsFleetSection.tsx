@@ -203,18 +203,17 @@ function ScoutsFleetList(): JSX.Element {
                 <ScoutChatCta label="Make a scout" prompt={SCOUT_AUTHOR_PROMPT} icon={<IconPlus />} />
             </div>
 
-            {/* Bounded to roughly 10 rows; larger troops scroll within the section. */}
-            <div className="max-h-[710px] overflow-y-auto">
-                <div className="flex flex-col gap-2">
-                    {visibleConfigs.map((config: SignalScoutConfig) => (
-                        <ScoutRowCard
-                            key={config.id}
-                            config={config}
-                            rollup={rollups.get(config.skill_name)}
-                            onUpdate={updateScoutConfig}
-                        />
-                    ))}
-                </div>
+            {/* The enclosing modal owns the scroll, so the list stays flat here — a nested
+                overflow container would create a scroll-area-within-a-scroll-area. */}
+            <div className="flex flex-col gap-2">
+                {visibleConfigs.map((config: SignalScoutConfig) => (
+                    <ScoutRowCard
+                        key={config.id}
+                        config={config}
+                        rollup={rollups.get(config.skill_name)}
+                        onUpdate={updateScoutConfig}
+                    />
+                ))}
             </div>
 
             <div className="flex flex-col gap-1">

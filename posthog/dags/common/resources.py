@@ -88,6 +88,34 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
         )
 
 
+class OpsClickhouseClusterResource(dagster.ConfigurableResource):
+    max_execution_time: int
+    max_memory_usage: int
+
+    host: str = settings.CLICKHOUSE_HOST
+    cluster: str | None = None
+
+    def create_resource(self, context: dagster.InitResourceContext) -> ClickhouseCluster:
+        return get_cluster(
+            context.log,
+            host=self.host,
+            cluster=self.cluster,
+            satellite_clusters=[settings.CLICKHOUSE_OPS_CLUSTER],
+            client_settings={
+                "max_execution_time": str(self.max_execution_time),
+                "max_memory_usage": str(self.max_memory_usage),
+                # Socket read timeout must outlast the query's own time cap.
+                "receive_timeout": str(self.max_execution_time + 300),
+                "mutations_sync": "0",
+            },
+            retry_policy=RetryPolicy(
+                max_attempts=2,
+                delay=ExponentialBackoff(20),
+                exceptions=_is_retryable_clickhouse_exception,
+            ),
+        )
+
+
 class BackupsClickhouseClusterResource(dagster.ConfigurableResource):
     """
     ClickHouse cluster resource that connects as the dedicated 'backups' user.

@@ -13,19 +13,19 @@ import { InsightLogicProps } from '~/types'
 
 import { TrendsLegendItemContextMenu } from './TrendsLegendItemContextMenu'
 
-interface UseTrendsLegendConfigOptions {
+interface UseInsightsLegendConfigOptions {
     insightProps: InsightLogicProps
     inSharedMode?: boolean
 }
 
-/** Builds the quill in-chart legend config shared by the trends-family charts (line/area/cumulative,
- *  and bar next). Wires toggle persistence + the isolate/show-all context menu through trendsDataLogic
- *  so every trends chart renders one consistent legend. Returns `undefined` when the quill-legend flag
- *  is off, so callers fall back to the legacy side legend and skip pre-stripping hidden series. */
-export function useTrendsLegendConfig({
+/** Builds the quill in-chart legend config for trends-family charts. Returns `undefined` when the
+ *  quill-legend flag is off. Wires toggle persistence and the isolate/show-all context menu through
+ *  trendsDataLogic. Lifecycle and funnel charts build their legend config inline (they don't read
+ *  from trendsDataLogic or need the flag gate). */
+export function useInsightsLegendConfig({
     insightProps,
     inSharedMode = false,
-}: UseTrendsLegendConfigOptions): ChartLegendConfig | undefined {
+}: UseInsightsLegendConfigOptions): ChartLegendConfig | undefined {
     const { featureFlags } = useValues(featureFlagLogic)
     const quillLegendEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]
     const { canEditInsight } = useValues(insightLogic)
@@ -45,6 +45,7 @@ export function useTrendsLegendConfig({
         if (!quillLegendEnabled) {
             return undefined
         }
+
         const hiddenKeys = (indexedResults ?? []).filter((r) => getTrendsHidden(r)).map((r) => String(r.id))
         const showContextMenu = legendInteractive && legendSeriesIsolationMenuEligible
         return {
