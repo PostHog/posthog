@@ -145,6 +145,27 @@ class TaskSummaryDTO:
 
 
 @dataclass(frozen=True)
+class SlackHomeTaskDTO:
+    """A task card for the Slack Home tab.
+
+    Carries the parent task's display fields merged with its latest run's status.
+    Authorization is the *caller's* responsibility — ``get_tasks_for_slack_home``
+    fetches strictly by id within a team and does NOT apply created-by visibility,
+    because slack_app has already authorized the viewer (they were @-mentioned in
+    the task's thread, in a team they can access).
+    """
+
+    task_id: UUID
+    title: str
+    repository: str | None
+    status: str | None
+    stage: str | None
+    pr_url: str | None
+    error_message: str | None
+    completed_at: datetime | None = None
+
+
+@dataclass(frozen=True)
 class TaskValidationError:
     """A structured validation-error payload the presentation layer renders as a 400/404.
 

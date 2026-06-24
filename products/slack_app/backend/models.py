@@ -1,3 +1,4 @@
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models import Q
 
@@ -28,6 +29,14 @@ class SlackThreadTaskMapping(UUIDModel):
     )
     mentioning_slack_user_id = models.CharField(max_length=64)
     latest_actor_slack_user_id = models.CharField(max_length=64, null=True, blank=True)
+    # Every distinct Slack user who has @-mentioned the bot in this thread (the initial
+    # mentioner plus each follow-up actor). Drives the per-user Home tab: a user sees a
+    # task if they started it or replied into its thread ("multiplayer" involvement).
+    participant_slack_user_ids = ArrayField(
+        models.CharField(max_length=64),
+        default=list,
+        blank=True,
+    )
     # Slack `ts` of the most recent message we've already shown to the agent (either
     # in the original `<slack_thread_context>` block at task creation, or in a follow-up
     # `<slack_thread_context_update>` diff). On each follow-up, anything in the thread
@@ -44,6 +53,13 @@ class SlackThreadTaskMapping(UUIDModel):
                 name="uniq_slack_thread_task_mapping",
             )
         ]
+
+    def add_participant(self, slack_user_id: str) -> None:
+        """Record a Slack user as having @-mentioned the bot in this thread (idempotent)."""
+        if not slack_user_id or slack_user_id in self.participant_slack_user_ids:
+            return
+        self.participant_slack_user_ids = [*self.participant_slack_user_ids, slack_user_id]
+        self.save(update_fields=["participant_slack_user_ids", "updated_at"])
 
 
 class SlackUserProfileCache(UUIDModel):

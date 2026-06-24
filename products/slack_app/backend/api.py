@@ -52,6 +52,7 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
 
 from products.slack_app.backend import inbox_channel, onboarding
+from products.slack_app.backend.home_tab import publish_home_tab
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
 from products.slack_app.backend.services import inbox_interactivity
 from products.slack_app.backend.services.integration_resolver import (
@@ -78,6 +79,7 @@ HANDLED_EVENT_TYPES = [
     "member_joined_channel",
     "assistant_thread_started",
     "assistant_thread_context_changed",
+    "app_home_opened",
 ]
 
 # The notifications Slack app (`slack`) install carries every scope the coding-agent flow
@@ -1555,6 +1557,74 @@ def _route_assistant_event(
     )
 
 
+def _route_app_home_opened(
+    request: HttpRequest,
+    event: dict,
+    slack_team_id: str,
+    event_id: str | None,
+    *,
+    proxied: bool,
+    incoming_host: str,
+    other_domain: str | None,
+    can_defer: bool,
+) -> str:
+    """Publish the per-user Home tab when a user opens the app's Home surface.
+
+    Reuses the mention path's workspace load, region routing, and user resolution
+    so the tab only ever shows tasks for teams the resolved PostHog user can access.
+    """
+    # Slack fires `app_home_opened` for both the Home and Messages tabs; only the
+    # Home tab carries a view we publish.
+    if event.get("tab") != "home":
+        return ROUTE_HANDLED_LOCALLY
+    slack_user_id = str(event.get("user") or "")
+    if not slack_user_id:
+        return ROUTE_HANDLED_LOCALLY
+
+    result = load_integrations(
+        slack_team_id=slack_team_id,
+        kinds=[SLACK_INTEGRATION_KIND],
+        slack_user_id=slack_user_id,
+        user=None,
+    )
+    region_route = _resolve_region_or_terminal_route(
+        request,
+        slack_team_id,
+        candidates_present=bool(result.candidates),
+        kinds=[SLACK_INTEGRATION_KIND],
+        proxied=proxied,
+        other_domain=other_domain,
+        incoming_host=incoming_host,
+        can_defer=can_defer,
+    )
+    if region_route is not None:
+        return region_route
+    if not result.candidates:
+        return ROUTE_HANDLED_LOCALLY
+
+    probe = result.integration if result.integration in result.candidates else result.candidates[0]
+    # Kill-switch: stay dark when the coding-agent surface is disabled for this workspace.
+    if not _assistant_enabled(probe.team):
+        return ROUTE_HANDLED_LOCALLY
+
+    resolution = resolve_user_for_workspace(
+        workspace_result=result,
+        slack_team_id=slack_team_id,
+        slack_user_id=slack_user_id,
+        event_id=event_id,
+    )
+    if resolution.user is None:
+        return ROUTE_HANDLED_LOCALLY
+
+    publish_home_tab(
+        SlackIntegration(probe),
+        slack_user_id=slack_user_id,
+        slack_workspace_id=slack_team_id,
+        accessible_integrations=resolution.candidates,
+    )
+    return ROUTE_HANDLED_LOCALLY
+
+
 def route_posthog_code_event_to_relevant_region(
     request: HttpRequest,
     event: dict,
@@ -1594,6 +1664,18 @@ def route_posthog_code_event_to_relevant_region(
         event_type == "message" and event.get("channel_type") == "im"
     ):
         return _route_assistant_event(
+            request,
+            event,
+            slack_team_id,
+            event_id,
+            proxied=proxied,
+            incoming_host=incoming_host,
+            other_domain=other_domain,
+            can_defer=can_defer_to_other_region,
+        )
+
+    if event_type == "app_home_opened":
+        return _route_app_home_opened(
             request,
             event,
             slack_team_id,

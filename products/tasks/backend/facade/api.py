@@ -498,6 +498,38 @@ def get_latest_run_by_task(task_ids: Iterable[str | UUID]) -> dict[str, contract
     return {str(run.task_id): _task_run_to_dto(run) for run in runs}
 
 
+def get_tasks_for_slack_home(team_id: int, task_ids: Iterable[str | UUID]) -> list[contracts.SlackHomeTaskDTO]:
+    """Display cards for the Slack Home tab, by id, within ``team_id``.
+
+    Intentionally does NOT apply ``task_visibility_q`` (created-by ownership): the
+    Slack Home tab shows tasks the viewer is *involved in* (they @-mentioned the bot
+    in the thread), which can include tasks someone else created ("multiplayer").
+    slack_app authorizes by participant-membership + accessible-team scoping before
+    calling this, so re-applying owner visibility here would wrongly hide shared work.
+    """
+    ids = [str(t) for t in task_ids]
+    if not ids:
+        return []
+    latest = get_latest_run_by_task(ids)
+    tasks = Task.objects.filter(team_id=team_id, deleted=False, id__in=ids)
+    cards: list[contracts.SlackHomeTaskDTO] = []
+    for task in tasks:
+        run = latest.get(str(task.id))
+        cards.append(
+            contracts.SlackHomeTaskDTO(
+                task_id=task.id,
+                title=task.title,
+                repository=task.repository,
+                status=run.status if run else None,
+                stage=run.stage if run else None,
+                pr_url=run.pr_url if run else None,
+                error_message=run.error_message if run else None,
+                completed_at=run.completed_at if run else None,
+            )
+        )
+    return cards
+
+
 def get_stale_queued_task_run_ids(older_than: timedelta, limit: int) -> list[UUID]:
     """Ids of runs stuck in QUEUED with ``updated_at`` older than the cutoff.
 

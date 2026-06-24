@@ -96,6 +96,10 @@ features:
   bot_user:
     display_name: posthog-slack-dev
     always_online: true
+  app_home:
+    home_tab_enabled: true # required for the Home tab dashboard (app_home_opened)
+    messages_tab_enabled: false
+    messages_tab_read_only_enabled: true
 oauth_config:
   redirect_urls:
     - https://<you>-posthog.ngrok.dev/integrations/slack/callback
@@ -115,6 +119,7 @@ settings:
     request_url: https://<you>-posthog.ngrok.dev/slack/event-callback
     bot_events:
       - app_mention
+      - app_home_opened # powers the Home tab; needs no extra OAuth scope
   interactivity:
     is_enabled: true
     request_url: https://<you>-posthog.ngrok.dev/slack/interactivity-callback
@@ -225,6 +230,13 @@ when the repo-discovery agent has to choose among repos (a no-repo prompt skips 
 
 Follow-ups — reply in-thread with another `@mention` — are forwarded to the running sandbox and
 should react 👀 → 🦔 (or ❌ if the sandbox is gone). Expected from the code; not verified in our run.
+
+**Home tab.** After at least one `@mention` task exists, click the app in the sidebar and open its
+**Home** tab. Slack sends an `app_home_opened` event; the backend resolves your Slack email to the
+local user and publishes a view listing tasks you started or replied to, grouped into _In progress_
+and _Recently finished_. Re-open the tab (or restart the agent) to see status changes — the tab is
+republished on open. If it's blank, check the ngrok inspector for the `app_home_opened` delivery and
+the `django` logs for `slack_app_home_tab_publish_failed`.
 
 ## Debugging
 

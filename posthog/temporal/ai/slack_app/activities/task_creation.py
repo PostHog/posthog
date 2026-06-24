@@ -471,7 +471,7 @@ def create_posthog_code_task_for_repo_activity(
             thread_ts,
             *(m.get("ts") or "" for m in thread_messages),
         )
-        SlackThreadTaskMapping.objects.update_or_create(
+        mapping, _ = SlackThreadTaskMapping.objects.update_or_create(
             integration=integration,
             channel=channel,
             thread_ts=thread_ts,
@@ -484,6 +484,7 @@ def create_posthog_code_task_for_repo_activity(
                 "last_forwarded_ts": initial_watermark,
             },
         )
+        mapping.add_participant(slack_user_id)
         # Track the workflow to link Temporal jobs to Slack threads
         state_updates: dict[str, str] = {"slack_mention_workflow_id": derive_mention_workflow_id(inputs)}
         if repo_research_task_id and repo_research_run_id:
@@ -598,6 +599,9 @@ def forward_posthog_code_followup_activity(
     if slack_user_id != mapping.latest_actor_slack_user_id:
         mapping.latest_actor_slack_user_id = slack_user_id
         mapping.save(update_fields=["latest_actor_slack_user_id", "updated_at"])
+    # Multiplayer: anyone who @-mentions the bot in this thread is an involved
+    # participant and should see the task on their Home tab.
+    mapping.add_participant(slack_user_id)
 
     if task_run.is_terminal:
         return _resume_task_with_new_run(
