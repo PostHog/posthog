@@ -16,7 +16,6 @@ from django.utils import timezone
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models import Filter
 from posthog.models.event.util import bulk_create_events
-from posthog.models.person.util import bulk_create_persons
 from posthog.queries.funnels.funnel_persons import ClickhouseFunnelActors
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.test_journeys import journeys_for
@@ -32,7 +31,7 @@ PERSON_ID_COLUMN = 2
 class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
     def _create_sample_data_multiple_dropoffs(self):
         for i in range(35):
-            bulk_create_persons([{"distinct_ids": [f"user_{i}"], "team_id": self.team.pk}])
+            _create_person(distinct_ids=[f"user_{i}"], team=self.team)
         events = []
         for i in range(5):
             events.append(

@@ -99,6 +99,73 @@ class MirroringFakePersonHogClient(FakePersonHogClient):
             },
         )
         response.group.id = group_obj.pk
+        stored = self._groups.get((request.team_id, request.group_type_index, request.group_key))
+        if stored is not None:
+            stored.id = group_obj.pk
+        return response
+
+    def update_group(
+        self,
+        request: group_pb2.UpdateGroupRequest,
+    ) -> group_pb2.UpdateGroupResponse:
+        from posthog.models.group.group import Group as _Group  # noqa: PLC0415
+
+        response = super().update_group(request)
+        updates: dict[str, object] = {}
+        for field in request.update_mask:
+            if field == "group_properties":
+                updates["group_properties"] = json.loads(request.group_properties) if request.group_properties else {}
+            elif field == "properties_last_updated_at":
+                updates["properties_last_updated_at"] = (
+                    json.loads(request.properties_last_updated_at) if request.properties_last_updated_at else {}
+                )
+            elif field == "properties_last_operation":
+                updates["properties_last_operation"] = (
+                    json.loads(request.properties_last_operation) if request.properties_last_operation else {}
+                )
+        if updates:
+            _Group.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+                team_id=request.team_id,
+                group_type_index=request.group_type_index,
+                group_key=request.group_key,
+            ).update(**updates)
+        return response
+
+    def update_group_type_mapping(
+        self,
+        request: group_pb2.UpdateGroupTypeMappingRequest,
+    ) -> group_pb2.UpdateGroupTypeMappingResponse:
+        from posthog.models import GroupTypeMapping as _GTM  # noqa: PLC0415
+
+        response = super().update_group_type_mapping(request)
+        updates: dict[str, object] = {}
+        for field in request.update_mask:
+            if field == "name_singular":
+                updates["name_singular"] = request.name_singular or None
+            elif field == "name_plural":
+                updates["name_plural"] = request.name_plural or None
+            elif field == "detail_dashboard_id":
+                updates["detail_dashboard_id"] = request.detail_dashboard_id or None
+            elif field == "default_columns":
+                updates["default_columns"] = json.loads(request.default_columns) if request.default_columns else None
+        if updates:
+            _GTM.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+                project_id=request.project_id,
+                group_type_index=request.group_type_index,
+            ).update(**updates)
+        return response
+
+    def delete_group_type_mapping(
+        self,
+        request: group_pb2.DeleteGroupTypeMappingRequest,
+    ) -> group_pb2.DeleteGroupTypeMappingResponse:
+        from posthog.models import GroupTypeMapping as _GTM  # noqa: PLC0415
+
+        response = super().delete_group_type_mapping(request)
+        _GTM.objects.filter(  # nosemgrep: no-direct-persons-db-orm
+            project_id=request.project_id,
+            group_type_index=request.group_type_index,
+        ).delete()
         return response
 
     def delete_persons(

@@ -15,7 +15,8 @@ from posthog.models.group_type_mapping import (
 from posthog.models.project import Project
 from posthog.models.tag import Tag
 from posthog.models.team.team import Team
-from posthog.test.persons import create_group_type_mapping
+from posthog.test.personhog_fake import get_active_fake
+from posthog.test.persons import _seed_group_type_mapping_into_fake, create_group_type_mapping
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import safe_cache_delete
 
@@ -343,6 +344,9 @@ class TestUpdateFlagCachesGroupMappingGuards(BaseTest):
     def test_writes_when_genuinely_empty(self, mock_emptied_counter):
         # A team that truly has no group types must still rebuild normally
         GroupTypeMapping.objects.filter(team_id=self.team.id).delete()
+        fake = get_active_fake()
+        fake._group_type_mappings_by_project.pop(self.team.project_id, None)
+        fake._group_type_mappings_by_team.pop(self.team.id, None)
         self._clear_stale()
         clear_flag_definition_caches(self.team)
 
@@ -1256,10 +1260,10 @@ class TestLocalEvaluationBatch(BaseTest):
             filters={"groups": [{"rollout_percentage": 100}]},
         )
 
-        with self.assertNumQueries(3):
-            # Expected queries: survey flag IDs, flags (with evaluation
-            # tags via ArrayAgg), and group type mappings. No cohort
-            # query should be issued.
+        with self.assertNumQueries(2):
+            # Expected queries: survey flag IDs and flags (with evaluation
+            # tags via ArrayAgg). Group type mappings are read from
+            # personhog, not SQL. No cohort query should be issued.
             results = _get_flags_response_for_local_evaluation_batch([team], True)
 
         assert results[team.id]["cohorts"] == {}
@@ -1634,6 +1638,7 @@ class TestVerifyFlagDefinitions(BaseTest):
         mapping = GroupTypeMapping.objects.get(team=self.team, group_type_index=0)
         mapping.group_type = "organization"
         mapping.save()
+        _seed_group_type_mapping_into_fake(mapping)
 
         result = verify_team_flag_definitions(self.team, include_cohorts=True, verbose=True)
 
