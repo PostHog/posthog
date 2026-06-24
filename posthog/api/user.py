@@ -810,6 +810,9 @@ class UserAuthSessionSerializer(serializers.ModelSerializer):
     """A cookie-auth login session shown on the user's 'Web sessions' screen."""
 
     id = serializers.SerializerMethodField(help_text="Identifier used to revoke this login session.")
+    created_at = serializers.SerializerMethodField(
+        help_text="When this login session was first created — the original sign-in time."
+    )
     last_activity = serializers.DateTimeField(
         read_only=True, help_text="When this login session last made a request (refreshed periodically)."
     )
@@ -830,12 +833,20 @@ class UserAuthSessionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Session
-        fields = ["id", "last_activity", "location", "device", "login_method", "is_current"]
+        fields = ["id", "created_at", "last_activity", "location", "device", "login_method", "is_current"]
 
     @extend_schema_field({"type": "string", "format": "uuid"})
     def get_id(self, obj: Session) -> str:
         # Expose a stable, opaque id derived from the session key — never the key itself.
         return str(session_public_id(obj.session_key))
+
+    @extend_schema_field({"type": "string", "format": "date-time", "nullable": True})
+    def get_created_at(self, obj: Session) -> str | None:
+        # The creation time lives in the encoded session payload, not a column.
+        created = obj.get_decoded().get(settings.SESSION_COOKIE_CREATED_AT_KEY)
+        if not created:
+            return None
+        return datetime.fromtimestamp(float(created), tz=UTC).isoformat()
 
     @extend_schema_field({"type": "boolean"})
     def get_is_current(self, obj: Session) -> bool:
