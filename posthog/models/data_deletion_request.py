@@ -232,8 +232,9 @@ class DataDeletionRequest(UUIDModel):
     )
     delete_all_events = models.BooleanField(
         default=False,
-        help_text="Opt in to deleting every event for the team in the given time range. "
-        "Only honored for event_removal requests. Requires events to be empty.",
+        help_text="Opt in to matching every event for the team in the given time range. "
+        "For event_removal this deletes every event; for property_removal it removes the "
+        "property from every event. Not valid for person_removal. Requires events to be empty.",
     )
     hogql_predicate = models.TextField(
         blank=True,
@@ -396,26 +397,28 @@ class DataDeletionRequest(UUIDModel):
         else:
             raise ValidationError({"request_type": f"Unknown request_type: {self.request_type}"})
 
-        if self.delete_all_events and self.request_type != RequestType.EVENT_REMOVAL:
-            raise ValidationError(
-                {"delete_all_events": "delete_all_events is only valid for event_removal requests."},
-            )
+        # delete_all_events is valid for event_removal and property_removal; person_removal rejects it
+        # in _clean_person_removal and returns above before reaching here.
         if self.hogql_predicate:
             compile_hogql_predicate(self)
 
     def _clean_event_removal(self) -> None:
         self._require_time_range()
-        if self.delete_all_events and self.events:
-            raise ValidationError({"events": "Events must be empty when delete_all_events is set."})
-        if not self.delete_all_events and not self.events:
-            raise ValidationError(
-                {"events": "Provide at least one event, or set delete_all_events to delete every event."}
-            )
+        self._validate_event_scope(verb="delete")
         self._reject_person_fields()
 
     def _clean_property_removal(self) -> None:
         self._require_time_range()
+        self._validate_event_scope(verb="match")
         self._reject_person_fields()
+
+    def _validate_event_scope(self, *, verb: str) -> None:
+        if self.delete_all_events and self.events:
+            raise ValidationError({"events": "Events must be empty when delete_all_events is set."})
+        if not self.delete_all_events and not self.events:
+            raise ValidationError(
+                {"events": f"Provide at least one event, or set delete_all_events to {verb} every event."}
+            )
 
     def _require_time_range(self) -> None:
         if self.start_time is None or self.end_time is None:

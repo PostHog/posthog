@@ -53,3 +53,6 @@ ee/api/scim/auth.py @PostHog/team-security
 # v1 data-modeling workflow is frozen during the v1 → v2 migration.
 # this will be removed from CODEOWNERS by June 1
 posthog/temporal/data_modeling/run_workflow.py @PostHog/team-data-modeling
+
+# Dev sandbox provides important protection in local dev
+bin/dev-sandbox* @PostHog/team-security

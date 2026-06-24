@@ -15,7 +15,6 @@ from urllib3.response import HTTPResponse
 from posthog.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth, BearerTokenAuth, HttpBasicAuth
 from posthog.temporal.data_imports.sources.custom.source import (
     MAX_MANIFEST_RESOURCES,
-    PROBE_ERROR_SNIPPET_BYTES,
     PROBE_MAX_RESOURCES,
     CustomSource,
     FanoutChain,
@@ -408,6 +407,7 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         # The probe opens responses with stream=True and reads only a bounded slice
         # of a 401/403 body for the error snippet — never buffering the full body.
         response = MagicMock(status_code=403)
+        response.headers = {}
         response.raw.read.return_value = b"forbidden: token expired"
         mock_session.return_value.request.return_value = response
 
@@ -421,22 +421,45 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         assert mock_session.return_value.request.call_args.kwargs["stream"] is True
         response.close.assert_called_once()
 
-    def test_read_capped_text_is_decompression_bomb_proof(self):
-        # A gzip body that inflates ~1000x must not be materialized — reading the raw
-        # (undecoded) stream caps the snippet regardless of Content-Encoding.
+    def test_read_capped_text_omits_compressed_body(self):
+        # A gzip-encoded body would decode to binary garbage, so it must be omitted from
+        # the snippet rather than echoed into a user-facing error — and never materialized.
         payload = b"\x00" * (20 * 1024 * 1024)
         compressed = gzip.compress(payload)
         assert len(payload) / len(compressed) > 100  # it really is a decompression bomb
 
         response = MagicMock()
+        response.headers = {"Content-Encoding": "gzip"}
         response.raw = HTTPResponse(
             body=io.BytesIO(compressed),
             headers={"content-encoding": "gzip", "content-length": str(len(compressed))},
             status=403,
             preload_content=False,
         )
-        snippet = _read_capped_text(response)
-        assert len(snippet) <= PROBE_ERROR_SNIPPET_BYTES
+        assert _read_capped_text(response) == ""
+
+    @parameterized.expand(
+        [
+            # A body that isn't valid UTF-8 (binary, or still-encoded) is dropped rather than
+            # surfaced as replacement-character garbage.
+            ("non_utf8", b"\x1f\x8b\x08\x00garbage\xff\xfe", ""),
+            # A plain-text body is returned, stripped of surrounding whitespace.
+            ("plain_text", b"  forbidden: token expired  ", "forbidden: token expired"),
+        ]
+    )
+    def test_read_capped_text_non_compressed(self, _name, raw_bytes, expected):
+        response = MagicMock()
+        response.headers = {}
+        response.raw.read.return_value = raw_bytes
+        assert _read_capped_text(response) == expected
+
+    def test_read_capped_text_returns_identity_encoded_body(self):
+        # `Content-Encoding: identity` means no transformation, so the plain-text body
+        # is still readable and must be surfaced rather than dropped.
+        response = MagicMock()
+        response.headers = {"Content-Encoding": "identity"}
+        response.raw.read.return_value = b"forbidden: token expired"
+        assert _read_capped_text(response) == "forbidden: token expired"
 
     @patch("posthog.temporal.data_imports.sources.custom.source.make_tracked_session")
     def test_probe_attaches_query_location_api_key(self, mock_session):
@@ -841,6 +864,20 @@ class TestCustomSourceSourceForPipeline(SimpleTestCase):
 
         threaded_incremental = mock_resources.call_args.args[0]["resources"][0]["endpoint"]["incremental"]
         assert threaded_incremental == {"cursor_path": "updated_at", "start_param": "since"}
+
+
+class TestCustomSourceNonRetryableErrors(SimpleTestCase):
+    def test_missing_resource_message_is_classified_non_retryable(self):
+        # The message `source_for_pipeline` raises when a schema points to a resource
+        # the manifest no longer defines must be recognized by the source's classifier,
+        # so `_handle_import_error` stops the job instead of capturing + retrying it.
+        # Pin the specific substring on both ends — the raised message and the dict key —
+        # so the guard breaks if either the wording or the key drifts.
+        with self.assertRaises(ValueError) as ctx:
+            _fanout_chain(_minimal_manifest(), "nonexistent")
+
+        assert "not found in config" in str(ctx.exception)
+        assert "not found in config" in CustomSource().get_non_retryable_errors()
 
 
 def _fanout_manifest() -> dict:

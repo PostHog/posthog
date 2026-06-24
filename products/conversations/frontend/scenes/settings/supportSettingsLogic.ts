@@ -78,7 +78,10 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         addTeamsChannelPair: (teamId: string, channelId: string) => ({ teamId, channelId }),
         removeTeamsChannelPair: (channelId: string) => ({ channelId }),
         setTeamsChannelPairLoading: (channelId: string | null) => ({ channelId }),
-        cacheTeamsChannelsForTeam: (teamId: string, channels: { id: string; name: string }[]) => ({ teamId, channels }),
+        cacheTeamsChannelsForTeam: (
+            teamId: string,
+            channels: { id: string; name: string; membership_type?: string | null }[]
+        ) => ({ teamId, channels }),
         // Email channel settings (multi-config)
         loadEmailConfigs: true,
         loadEmailConfigsDone: (configs: EmailConfigStatus[]) => ({ configs }),
@@ -105,6 +108,8 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         // AI suggestions
         setAiSuggestionsEnabled: (enabled: boolean) => ({ enabled }),
         setAiSuggestionsLoading: (loading: boolean) => ({ loading }),
+        setAiDiagnosticsEnabled: (enabled: boolean) => ({ enabled }),
+        setAiDiagnosticsLoading: (loading: boolean) => ({ loading }),
     }),
     reducers({
         conversationsEnabledLoading: [
@@ -251,7 +256,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             },
         ],
         teamsChannelsCache: [
-            {} as Record<string, { id: string; name: string }[]>,
+            {} as Record<string, { id: string; name: string; membership_type?: string | null }[]>,
             {
                 cacheTeamsChannelsForTeam: (state, { teamId, channels }) => ({ ...state, [teamId]: channels }),
                 disconnectTeams: () => ({}),
@@ -269,6 +274,14 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             false,
             {
                 setAiSuggestionsLoading: (_, { loading }) => loading,
+                updateCurrentTeamSuccess: () => false,
+                updateCurrentTeamFailure: () => false,
+            },
+        ],
+        aiDiagnosticsLoading: [
+            false,
+            {
+                setAiDiagnosticsLoading: (_, { loading }) => loading,
                 updateCurrentTeamSuccess: () => false,
                 updateCurrentTeamFailure: () => false,
             },
@@ -357,7 +370,7 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             },
         ],
         teamsChannels: [
-            [] as { id: string; name: string }[],
+            [] as { id: string; name: string; membership_type?: string | null }[],
             {
                 loadTeamsChannelsForTeam: async ({ teamId }: { teamId: string }) => {
                     try {
@@ -453,7 +466,13 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             (s) => [s.currentTeam],
             (
                 currentTeam
-            ): { team_id: string; team_name?: string | null; channel_id: string; channel_name?: string | null }[] => {
+            ): {
+                team_id: string
+                team_name?: string | null
+                channel_id: string
+                channel_name?: string | null
+                membership_type?: string | null
+            }[] => {
                 const cs = currentTeam?.conversations_settings
                 if (Array.isArray(cs?.teams_channels) && cs.teams_channels.length > 0) {
                     return cs.teams_channels
@@ -483,6 +502,10 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         aiSuggestionsEnabled: [
             (s) => [s.currentTeam],
             (currentTeam): boolean => !!currentTeam?.conversations_settings?.ai_suggestions_enabled,
+        ],
+        aiDiagnosticsEnabled: [
+            (s) => [s.currentTeam],
+            (currentTeam): boolean => !!currentTeam?.conversations_settings?.ai_diagnostics_enabled,
         ],
     }),
     listeners(({ values, actions }) => ({
@@ -862,6 +885,15 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 conversations_settings: {
                     ...values.currentTeam?.conversations_settings,
                     ai_suggestions_enabled: enabled,
+                },
+            })
+        },
+        setAiDiagnosticsEnabled: ({ enabled }) => {
+            actions.setAiDiagnosticsLoading(true)
+            actions.updateCurrentTeam({
+                conversations_settings: {
+                    ...values.currentTeam?.conversations_settings,
+                    ai_diagnostics_enabled: enabled,
                 },
             })
         },

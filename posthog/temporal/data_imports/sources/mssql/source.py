@@ -15,9 +15,14 @@ from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.sources.common.base import FieldType
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
 from posthog.temporal.data_imports.sources.generated_configs import MSSQLSourceConfig
-from posthog.temporal.data_imports.sources.mssql.mssql import MSSQLImplementation
+from posthog.temporal.data_imports.sources.mssql.mssql import (
+    _SSH_HANDSHAKE_EOF_ERROR,
+    MSSQLImplementation,
+    retry_on_transient_connection_error,
+)
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
@@ -85,6 +90,13 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # times across runs before giving up, so a genuinely transient gateway reboot is
             # absorbed. Postgres already treats this identical error as non-retryable.
             "Could not establish session to SSH gateway": "Could not connect to your SSH tunnel. Check that the SSH host, port, and credentials are correct, the bastion host is running and reachable, and that PostHog's IP addresses are allowed through its firewall.",
+            # paramiko raises a bare, message-less EOFError when the SSH gateway accepts the TCP
+            # connection but drops it mid-handshake (a non-SSH service on the port, the bastion
+            # refusing PostHog's IPs, a proxy resetting the stream). sshtunnel doesn't wrap it, so
+            # without translation it surfaces as an empty-message crash that matches no rule and
+            # retries forever. `connect` re-raises it as `_SSH_HANDSHAKE_EOF_ERROR` — same
+            # gateway-configuration class as "Could not establish session to SSH gateway" above.
+            _SSH_HANDSHAKE_EOF_ERROR: "Could not connect to your SSH tunnel — the gateway accepted the connection but closed it during the SSH handshake. Check that the SSH host and port point to an SSH server (not the database port), that the bastion is running and reachable, and that PostHog's IP addresses are allowed through its firewall, then re-enable the sync.",
             # Raised from the shared `_decimal_array_from_values` fallback in
             # `pipelines/pipeline/utils.py` when a numeric/decimal/money value exceeds Delta
             # Lake's decimal budget (precision > 76 or scale > 32). Fixed source-data shape —
@@ -97,6 +109,26 @@ class MSSQLSource(SQLSource[MSSQLSourceConfig], SSHTunnelMixin, ValidateDatabase
             # fully re-synced to adopt the new type.
             "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
         }
+
+    def get_schemas(
+        self,
+        config: MSSQLSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+    ) -> list[SourceSchema]:
+        # Schema discovery opens a fresh connection on its own periodic cadence. A transient TDS
+        # connection death mid-fetch (DB-Lib 20047, "DBPROCESS is dead or not enabled") recovers on
+        # a fresh connection, so retry the whole connect-and-discover cycle in-process rather than
+        # failing the discovery activity — and surfacing captured error-tracking noise — on the
+        # first blip.
+        def discover() -> list[SourceSchema]:
+            return super(MSSQLSource, self).get_schemas(
+                config, team_id, with_counts=with_counts, names=names, force_refresh=force_refresh
+            )
+
+        return retry_on_transient_connection_error(discover)
 
     @property
     def get_source_config(self) -> SourceConfig:

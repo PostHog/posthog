@@ -103,12 +103,38 @@ impl storage::PersonLookup for FailingStorage {
         Err(self.error.clone())
     }
 
+    async fn delete_personless_distinct_ids_batch_for_team(
+        &self,
+        _team_id: i64,
+        _batch_size: i64,
+    ) -> storage::StorageResult<i64> {
+        Err(self.error.clone())
+    }
+
     async fn split_person(
         &self,
         _team_id: i64,
         _person_id: i64,
         _distinct_ids_to_split: &[String],
     ) -> storage::StorageResult<Vec<storage::SplitResult>> {
+        Err(self.error.clone())
+    }
+
+    async fn set_person_distinct_id_version_floor(
+        &self,
+        _team_id: i64,
+        _distinct_id: &str,
+        _version: i64,
+    ) -> storage::StorageResult<Option<storage::Person>> {
+        Err(self.error.clone())
+    }
+
+    async fn set_person_version_floor(
+        &self,
+        _team_id: i64,
+        _person_id: i64,
+        _min_version: i64,
+    ) -> storage::StorageResult<bool> {
         Err(self.error.clone())
     }
 }
@@ -458,6 +484,14 @@ impl storage::PersonLookup for SuccessStorage {
         Ok(0)
     }
 
+    async fn delete_personless_distinct_ids_batch_for_team(
+        &self,
+        _team_id: i64,
+        _batch_size: i64,
+    ) -> storage::StorageResult<i64> {
+        Ok(0)
+    }
+
     async fn split_person(
         &self,
         _team_id: i64,
@@ -465,6 +499,24 @@ impl storage::PersonLookup for SuccessStorage {
         _distinct_ids_to_split: &[String],
     ) -> storage::StorageResult<Vec<storage::SplitResult>> {
         Ok(vec![])
+    }
+
+    async fn set_person_distinct_id_version_floor(
+        &self,
+        _team_id: i64,
+        _distinct_id: &str,
+        _version: i64,
+    ) -> storage::StorageResult<Option<storage::Person>> {
+        Ok(None)
+    }
+
+    async fn set_person_version_floor(
+        &self,
+        _team_id: i64,
+        _person_id: i64,
+        _min_version: i64,
+    ) -> storage::StorageResult<bool> {
+        Ok(false)
     }
 }
 
@@ -872,6 +924,14 @@ impl storage::PersonLookup for PopulatedStorage {
         Ok(0)
     }
 
+    async fn delete_personless_distinct_ids_batch_for_team(
+        &self,
+        _team_id: i64,
+        _batch_size: i64,
+    ) -> storage::StorageResult<i64> {
+        Ok(0)
+    }
+
     async fn split_person(
         &self,
         _team_id: i64,
@@ -879,6 +939,24 @@ impl storage::PersonLookup for PopulatedStorage {
         _distinct_ids_to_split: &[String],
     ) -> storage::StorageResult<Vec<storage::SplitResult>> {
         Ok(vec![])
+    }
+
+    async fn set_person_distinct_id_version_floor(
+        &self,
+        _team_id: i64,
+        _distinct_id: &str,
+        _version: i64,
+    ) -> storage::StorageResult<Option<storage::Person>> {
+        Ok(None)
+    }
+
+    async fn set_person_version_floor(
+        &self,
+        _team_id: i64,
+        _person_id: i64,
+        _min_version: i64,
+    ) -> storage::StorageResult<bool> {
+        Ok(false)
     }
 }
 
@@ -1262,6 +1340,14 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
         Ok(0)
     }
 
+    async fn delete_personless_distinct_ids_batch_for_team(
+        &self,
+        _team_id: i64,
+        _batch_size: i64,
+    ) -> storage::StorageResult<i64> {
+        Ok(0)
+    }
+
     async fn split_person(
         &self,
         _team_id: i64,
@@ -1269,6 +1355,24 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
         _distinct_ids_to_split: &[String],
     ) -> storage::StorageResult<Vec<storage::SplitResult>> {
         Ok(vec![])
+    }
+
+    async fn set_person_distinct_id_version_floor(
+        &self,
+        _team_id: i64,
+        _distinct_id: &str,
+        _version: i64,
+    ) -> storage::StorageResult<Option<storage::Person>> {
+        Ok(None)
+    }
+
+    async fn set_person_version_floor(
+        &self,
+        _team_id: i64,
+        _person_id: i64,
+        _min_version: i64,
+    ) -> storage::StorageResult<bool> {
+        Ok(false)
     }
 }
 

@@ -18,6 +18,7 @@ from posthog.temporal.data_imports.sources.common.base import (
     FieldType,
     ResumableSource,
 )
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -39,10 +40,19 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.LINKEDINADS
 
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.linkedin_ads.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "REVOKED_ACCESS_TOKEN": None,
             "The token used in the request has expired": "Failed to refresh token for LinkedIn Ads integration. Please re-authorize the integration.",
+            # Raised by `linkedin_ads_client` when an expired access token can't be refreshed (revoked
+            # or expired refresh token). The only fix is the user re-authorizing, so stop retrying. The
+            # message is already user-facing, so map it to itself (None).
+            "Failed to refresh token for LinkedIn Ads integration. Please re-authorize the integration.": None,
             # LinkedIn rejects a non-numeric Account ID with a 400 whose message names the offending
             # key value (volatile) followed by this stable type-coercion phrase. The account id is a
             # fixed config value, so retrying can't help — fail fast and tell the user to fix it.

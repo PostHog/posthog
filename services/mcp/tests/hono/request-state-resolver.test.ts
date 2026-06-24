@@ -57,7 +57,7 @@ vi.mock('@/hono/request-context', () => {
                         getAiConsentGiven: vi.fn(async () => undefined),
                     },
                 })),
-                getAnalyticsContextSafe: vi.fn(async () => undefined),
+                safelyGetAnalyticsContext: vi.fn(async () => undefined),
                 getDistinctId: vi.fn(async () => 'distinct-id'),
                 setMcpContexts: vi.fn(),
             }

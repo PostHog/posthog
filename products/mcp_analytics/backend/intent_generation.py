@@ -26,7 +26,7 @@ from products.mcp_analytics.backend.facade.contracts import IntentGenerationUnav
 
 INTENT_MODEL = "gpt-4.1-mini"
 MAX_INTENTS = 500
-# Session-detail queries look up one $mcp_session_id; without a timestamp bound
+# Session-detail queries look up one $session_id; without a timestamp bound
 # the events sort key (team_id, toDate(timestamp), event, ...) can't prune and
 # the scan covers the team's full history. Sessions reachable in the UI are at
 # most MCP_SESSIONS_LOOKBACK (24h) old, so 7 days is a generous safety margin.
@@ -52,7 +52,7 @@ SELECT toString(properties.$mcp_intent) AS intent
 FROM events
 WHERE event = {event}
     AND timestamp >= {date_from}
-    AND properties.$mcp_session_id = {session_id}
+    AND $session_id = {session_id}
     AND coalesce(properties.$mcp_intent, '') != ''
 ORDER BY timestamp ASC
 LIMIT {limit}

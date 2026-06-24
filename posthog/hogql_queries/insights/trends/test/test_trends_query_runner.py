@@ -46,6 +46,7 @@ from posthog.schema import (
     InCohortVia,
     IntervalType,
     MathGroupTypeIndex,
+    MetricSummary,
     MultipleBreakdownType,
     PersonPropertyFilter,
     PropertyMathType,
@@ -686,6 +687,42 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # response shape
         self.assertEqual("Formula (A+2*B)", response.results[0]["label"])
         self.assertEqual(True, response.results[0]["compare"])
+
+    def test_metric_display_forces_compare(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-15",
+            "2020-01-19",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            TrendsFilter(display=ChartDisplayType.METRIC),
+        )
+
+        self.assertEqual(2, len(response.results))
+        self.assertEqual("current", response.results[0]["compare_label"])
+        self.assertEqual("previous", response.results[1]["compare_label"])
+
+    @parameterized.expand(
+        [
+            ("all_time", "all", TrendsFilter(display=ChartDisplayType.METRIC)),
+            ("pill_hidden", "2020-01-15", TrendsFilter(display=ChartDisplayType.METRIC, metricShowChange=False)),
+            (
+                "latest_summary",
+                "2020-01-15",
+                TrendsFilter(display=ChartDisplayType.METRIC, metricSummary=MetricSummary.LATEST),
+            ),
+        ]
+    )
+    def test_metric_display_does_not_force_compare(self, _name, date_from, trends_filter):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            date_from, None, IntervalType.DAY, [EventsNode(event="$pageview")], trends_filter
+        )
+
+        self.assertEqual(1, len(response.results))
+        self.assertNotIn("compare_label", response.results[0])
 
     def test_formula_with_compare_to_week(self):
         self._create_test_events()

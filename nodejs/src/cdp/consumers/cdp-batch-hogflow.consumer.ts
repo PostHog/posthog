@@ -25,6 +25,9 @@ export interface BatchHogFlowRequest {
     parentRunId: string
     filters: Pick<HogFunctionFilters, 'properties' | 'filter_test_accounts'>
     group_type_index?: number
+    // Per-team audience cap resolved on the Django side (HOGFLOW_BATCH_TRIGGER_LIMIT). When absent,
+    // we fall back to the global CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE config default.
+    maxAudienceSize?: number
 }
 
 export interface BatchHogFlowRequestMessage {
@@ -129,6 +132,7 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase<PluginsServ
         const allInvocations: CyclotronJobInvocation[] = []
         let cursor: string | null = null
         let totalPersonsProcessed = 0
+        const maxAudienceSize = batchHogFlowRequest.maxAudienceSize ?? this.config.CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE
 
         try {
             // Fetch persons in batches using cursor-based pagination
@@ -148,10 +152,10 @@ export class CdpBatchHogFlowRequestsConsumer extends CdpConsumerBase<PluginsServ
                 const batchPersonsCount = blastRadiusPersons.users_affected.length
                 totalPersonsProcessed += batchPersonsCount
 
-                if (totalPersonsProcessed > this.config.CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE) {
+                if (totalPersonsProcessed > maxAudienceSize) {
                     logger.warn(
                         '⚠️',
-                        `Batch HogFlow run ${batchHogFlowRequest.parentRunId} has exceeded the maximum audience size of ${this.config.CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE}. Stopping further processing.`,
+                        `Batch HogFlow run ${batchHogFlowRequest.parentRunId} has exceeded the maximum audience size of ${maxAudienceSize}. Stopping further processing.`,
                         { totalPersonsProcessed, batchHogFlowRequest }
                     )
                     break

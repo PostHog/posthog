@@ -271,3 +271,48 @@ describe('webAnalyticsLogic focus mode', () => {
         })
     })
 })
+
+describe('webAnalyticsLogic precompute payload', () => {
+    let logic: ReturnType<typeof webAnalyticsLogic.build>
+
+    const setToggleFlag = (enabled: boolean): void => {
+        featureFlagLogic.actions.setFeatureFlags(
+            enabled ? [FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_TOGGLE] : [],
+            enabled ? { [FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_TOGGLE]: true } : {}
+        )
+    }
+
+    beforeEach(() => {
+        localStorage.clear()
+        initKeaTests()
+        jest.spyOn(api.propertyDefinitions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api, 'update').mockResolvedValue({} as any)
+        featureFlagLogic.mount()
+        logic = webAnalyticsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+        jest.restoreAllMocks()
+    })
+
+    // `null`/`false` ignore the flag; only an explicit `true` is gated on it. With the flag off
+    // an opt-in falls back to `undefined` (team default) rather than flipping to `false`, which
+    // would wrongly opt an unrestricted team out.
+    it.each([
+        [null, true, undefined],
+        [null, false, undefined],
+        [true, true, true],
+        [true, false, undefined],
+        [false, true, false],
+        [false, false, false],
+    ])('toggle=%s flagOn=%s → payload %s', async (toggle, flagOn, expected) => {
+        setToggleFlag(flagOn as boolean)
+        logic.actions.setUseWebAnalyticsPrecompute(toggle as boolean | null)
+        await expectLogic(logic).toMatchValues({
+            controls: expect.objectContaining({ useWebAnalyticsPrecompute: expected }),
+        })
+    })
+})

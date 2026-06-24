@@ -363,8 +363,12 @@ async def setup_partitioning(
     resource: SourceResponse,
     logger: FilteringBoundLogger,
 ) -> pa.Table:
-    partition_count = schema.partition_count or resource.partition_count
-    partition_size = schema.partition_size or resource.partition_size
+    # An operator-pinned override (set via the admin repartition action) wins over both the
+    # persisted auto-detected value and the source's freshly-computed value. Without this,
+    # the reset bundled with repartition wipes `partition_count`/`partition_size`, and a SQL
+    # source silently re-derives its own count — discarding the operator's choice.
+    partition_count = schema.partition_count_override or schema.partition_count or resource.partition_count
+    partition_size = schema.partition_size_override or schema.partition_size or resource.partition_size
     partition_keys = schema.partitioning_keys or resource.partition_keys or resource.primary_keys
     partition_format = schema.partition_format or resource.partition_format
     partition_mode = schema.partition_mode or resource.partition_mode
@@ -669,8 +673,14 @@ def _to_list_array(column_data: pa.Array | pa.ChunkedArray | np.ndarray[Any, np.
         try:
             return column_data.combine_chunks().tolist()
         except pa.ArrowInvalid as e:
-            if "consider casting input from `string` to `large_string`" in "".join(e.args):
+            joined_args = "".join(e.args)
+            if "consider casting input from `string` to `large_string`" in joined_args:
                 return column_data.cast(pa.large_string()).combine_chunks().tolist()
+            # Same int32 offset overflow as above, for `binary`-typed columns (e.g. a Postgres
+            # `bytea` whose chunk exceeds 2GB). large_binary uses 64-bit offsets so combining
+            # the chunks no longer overflows.
+            if "consider casting input from `binary` to `large_binary`" in joined_args:
+                return column_data.cast(pa.large_binary()).combine_chunks().tolist()
 
             raise
 

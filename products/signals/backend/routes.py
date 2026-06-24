@@ -4,6 +4,7 @@ import products.signals.backend.views as signals
 from products.signals.backend.scout_harness.views import (
     SignalProjectProfileViewSet,
     SignalScoutConfigViewSet,
+    SignalScoutMetadataViewSet,
     SignalScoutRunViewSet,
     SignalScratchpadViewSet,
 )
@@ -14,9 +15,6 @@ def register_routes(routers: RouterRegistry) -> None:
     routers.register_legacy_dual_route(r"signals", SignalViewSet, "project_signals", ["team_id"])
     signal_reports_router = routers.projects.register(
         r"signals/reports", signals.SignalReportViewSet, "environment_signal_reports", ["team_id"]
-    )
-    signal_reports_router.register(
-        r"tasks", signals.SignalReportTaskViewSet, "environment_signal_report_tasks", ["team_id", "report_id"]
     )
     signal_reports_router.register(
         r"artefacts",
@@ -49,5 +47,11 @@ def register_routes(routers: RouterRegistry) -> None:
         r"signals/scout/project_profile",
         SignalProjectProfileViewSet,
         "environment_signals_scout_project_profile",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"signals/scout/metadata",
+        SignalScoutMetadataViewSet,
+        "environment_signals_scout_metadata",
         ["team_id"],
     )

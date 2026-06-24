@@ -7,7 +7,7 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Link } from 'lib/lemon-ui/Link'
 import {
     EXPERIMENTS_PER_PAGE,
-    type ExperimentApi,
+    type ExperimentBasicApi,
     eventExperimentsLogic,
 } from 'scenes/data-management/events/eventExperimentsLogic'
 import { StatusTag } from 'scenes/experiments/ExperimentView/StatusTag'
@@ -21,7 +21,7 @@ export function EventDefinitionExperiments({ definition }: { definition: EventDe
     const { page, experiments, experimentsLoading } = useValues(eventExperimentsLogic({ event }))
     const { setPage } = useActions(eventExperimentsLogic({ event }))
 
-    const columns: LemonTableColumns<ExperimentApi> = [
+    const columns: LemonTableColumns<ExperimentBasicApi> = [
         {
             title: 'Name',
             key: 'name',

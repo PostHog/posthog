@@ -36,6 +36,8 @@ import type {
     FlagValueResponseApi,
     FlagValueValuesRetrieveParams,
     MyFlagsResponseApi,
+    OrgFeatureFlagsKeysParams,
+    OrganizationFeatureFlagKeysResponseApi,
     OrganizationsProjectsEvaluationContextSuggestionsDestroyParams,
     PaginatedFeatureFlagListApi,
     PaginatedScheduledChangeListApi,
@@ -93,6 +95,39 @@ export const featureFlagsCopyFlagsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(copyFlagsRequestApi),
+    })
+}
+
+export const getOrgFeatureFlagsKeysUrl = (organizationId: string, params?: OrgFeatureFlagsKeysParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/feature_flags/keys/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/feature_flags/keys/`
+}
+
+/**
+ * Paginated, de-duplicated list of feature flag keys across the org's compared projects.
+ *
+ * Unlike the project-scoped flag list, this enumerates the union of flag keys across every
+ * compared project, so flags that exist only in another project still appear as rows.
+ */
+export const orgFeatureFlagsKeys = async (
+    organizationId: string,
+    params?: OrgFeatureFlagsKeysParams,
+    options?: RequestInit
+): Promise<OrganizationFeatureFlagKeysResponseApi> => {
+    return apiMutator<OrganizationFeatureFlagKeysResponseApi>(getOrgFeatureFlagsKeysUrl(organizationId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

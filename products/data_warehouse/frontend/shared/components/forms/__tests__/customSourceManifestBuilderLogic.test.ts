@@ -79,7 +79,7 @@ describe('customSourceManifestBuilderLogic', () => {
         it('parses the saved manifest into form state on mount', () => {
             expect(logic.values.hasContent).toBe(true)
             expect(logic.values.manifestState.base_url).toBe('https://saved.example.com')
-            expect(logic.values.manifestState.streams[0].name).toBe('users')
+            expect(logic.values.manifestState.tables[0].name).toBe('users')
         })
 
         it('mirrors the saved manifest into the outer form on mount', () => {
@@ -125,37 +125,37 @@ describe('customSourceManifestBuilderLogic', () => {
         })
     })
 
-    describe('stream and header mutations', () => {
+    describe('table and header mutations', () => {
         beforeEach(() => {
             logic = customSourceManifestBuilderLogic({ setValue })
             logic.mount()
         })
 
-        it('adds and removes streams', () => {
-            expect(logic.values.manifestState.streams).toHaveLength(1)
-            logic.actions.addStream()
-            expect(logic.values.manifestState.streams).toHaveLength(2)
-            logic.actions.removeStream(0)
-            expect(logic.values.manifestState.streams).toHaveLength(1)
+        it('adds and removes tables', () => {
+            expect(logic.values.manifestState.tables).toHaveLength(1)
+            logic.actions.addTable()
+            expect(logic.values.manifestState.tables).toHaveLength(2)
+            logic.actions.removeTable(0)
+            expect(logic.values.manifestState.tables).toHaveLength(1)
         })
 
-        it('cascades a parent rename to dependent streams through the reducer', () => {
+        it('cascades a parent rename to dependent tables through the reducer', () => {
             // The cascade behavior itself is unit-tested on the pure helpers;
             // this pins that the reducer is actually wired to them.
-            logic.actions.updateStream(0, { name: 'forms' })
-            logic.actions.addStream()
-            logic.actions.updateStream(1, { name: 'responses', parent_stream: 'forms' })
+            logic.actions.updateTable(0, { name: 'forms' })
+            logic.actions.addTable()
+            logic.actions.updateTable(1, { name: 'responses', parent_table: 'forms' })
 
-            logic.actions.updateStream(0, { name: 'surveys' })
-            expect(logic.values.manifestState.streams[1].parent_stream).toBe('surveys')
+            logic.actions.updateTable(0, { name: 'surveys' })
+            expect(logic.values.manifestState.tables[1].parent_table).toBe('surveys')
 
-            logic.actions.removeStream(0)
-            expect(logic.values.manifestState.streams[0].parent_stream).toBe('')
+            logic.actions.removeTable(0)
+            expect(logic.values.manifestState.tables[0].parent_table).toBe('')
         })
 
-        it('updates a stream paginator by index', () => {
+        it('updates a table paginator by index', () => {
             logic.actions.updatePaginator(0, { type: 'cursor', cursor_path: 'meta.next', cursor_param: 'after' })
-            expect(logic.values.manifestState.streams[0].paginator).toEqual({
+            expect(logic.values.manifestState.tables[0].paginator).toEqual({
                 type: 'cursor',
                 cursor_path: 'meta.next',
                 cursor_param: 'after',

@@ -12,7 +12,7 @@ description: >
 # Exploring MCP tool quality
 
 Any MCP server instrumented with PostHog's MCP analytics SDK emits a
-`mcp_tool_call` event on the shared `events` table every time an agent invokes a
+`$mcp_tool_call` event on the shared `events` table every time an agent invokes a
 tool. There is **no dedicated ClickHouse table** — every field lives as a
 `$mcp_*` property on `events`, and every tool-quality metric (error rate, latency
 percentiles, reach) is an aggregation over this one event. This is the data
@@ -56,7 +56,7 @@ SELECT
     countIf(toBool(properties.$mcp_is_error)) AS errors,
     round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct
 FROM events
-WHERE event = 'mcp_tool_call'
+WHERE event = '$mcp_tool_call'
     AND coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) != ''
     AND timestamp >= now() - INTERVAL 30 DAY
 GROUP BY tool
@@ -80,13 +80,13 @@ under "Tool-quality matrix".
 
 Pull the most common error messages for a tool, then correlate to richer
 exception detail (`$exception` events carry `$exception_message`, joined by
-`$mcp_session_id` / `$session_id` and timestamp):
+`$session_id` and timestamp):
 
 ```sql
 posthog:execute-sql
 SELECT toString(properties.$mcp_error_message) AS error, count() AS n
 FROM events
-WHERE event = 'mcp_tool_call'
+WHERE event = '$mcp_tool_call'
     AND toBool(properties.$mcp_is_error)
     AND coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name)) = '<tool>'
     AND timestamp >= now() - INTERVAL 30 DAY

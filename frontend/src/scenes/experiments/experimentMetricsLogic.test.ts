@@ -42,6 +42,7 @@ const baseRecalculation = {
     completed_at: null,
     query_to: null,
     is_existing: false,
+    result_source: 'recalculation',
     results: [],
 }
 
@@ -71,6 +72,22 @@ const pendingRecalculation = { ...baseRecalculation, id: 'recalc-2', status: 'pe
 const inProgressRecalculation = { ...baseRecalculation, id: 'recalc-2', status: 'in_progress' }
 const completedRecalculation2 = { ...completedRecalculation, id: 'recalc-2' }
 
+// A cold-start run still in progress with the primary metric already computed and the secondary pending.
+const coldRunInProgressPartial = {
+    ...baseRecalculation,
+    id: 'recalc-2',
+    status: 'in_progress',
+    trigger: 'cold_run',
+    total_metrics: 2,
+    completed_metrics: 1,
+    results: [{ metric_uuid: PRIMARY_METRIC_UUID, status: 'completed', result: primaryResult, error_message: null }],
+}
+// Same intermediate payload but for a manual run — must NOT apply mid-flight.
+const manualInProgressPartial = { ...coldRunInProgressPartial, trigger: 'manual' }
+// Create responses that seed the stored trigger for the polled run.
+const coldRunPending = { ...pendingRecalculation, trigger: 'cold_run', total_metrics: 2 }
+const manualPending = { ...pendingRecalculation, trigger: 'manual', total_metrics: 2 }
+
 // Run finished but the primary metric failed and the secondary succeeded — a partial failure.
 const partialFailureRecalculation = {
     ...baseRecalculation,
@@ -85,6 +102,19 @@ const partialFailureRecalculation = {
         { metric_uuid: PRIMARY_METRIC_UUID, status: 'failed', result: null, error_message: 'boom' },
         { metric_uuid: SECONDARY_METRIC_UUID, status: 'completed', result: secondaryResult, error_message: null },
     ],
+}
+
+// Timeseries cold-start placeholder: completed-status, primary filled from timeseries, secondary is a gap.
+const timeseriesFallbackRecalculation = {
+    ...baseRecalculation,
+    id: 'timeseries-fallback',
+    status: 'completed',
+    trigger: 'cold_run',
+    completed_metrics: 1,
+    completed_at: '2026-06-10T00:05:00Z',
+    query_to: '2026-06-10T00:05:00Z',
+    result_source: 'timeseries_fallback',
+    results: [{ metric_uuid: PRIMARY_METRIC_UUID, status: 'completed', result: primaryResult, error_message: null }],
 }
 
 describe('experimentMetricsLogic', () => {
@@ -229,25 +259,29 @@ describe('experimentMetricsLogic', () => {
             expect(logic.values.recalculationLoading).toBe(false)
         })
 
-        it('triggers a new recalculation when latest returns 404', async () => {
+        it('triggers a cold_run recalculation when latest returns 404', async () => {
+            let capturedBody: any
             useMocks({
                 get: {
                     '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [404, {}],
                 },
                 post: {
-                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [201, pendingRecalculation],
+                    // Return a terminal run so triggerRecalculation finishes without arming a poll timer.
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': async ({ request }) => {
+                        capturedBody = await request.json()
+                        return [201, completedRecalculation2]
+                    },
                 },
             })
             mountLogic()
 
-            // afterMount → loadLatestRecalculation → 404 → triggerRecalculation → create → store pending
-            await expectLogic(logic).toDispatchActions(['triggerRecalculation', 'setCurrentRecalculation'])
-            expect(logic.values.currentRecalculation).toEqual(
-                expect.objectContaining({ id: 'recalc-2', status: 'pending' })
-            )
+            // afterMount → loadLatestRecalculation → 404 → triggerRecalculation → create.
+            await expectLogic(logic).toDispatchActions(['triggerRecalculation']).toFinishAllListeners()
+            expect(capturedBody).toEqual({ trigger: 'cold_run' })
         })
 
-        it('auto-triggers a fresh recalculation when the latest completed run is stale (>24h)', async () => {
+        it('auto-triggers a stale_refresh recalculation when the latest completed run is stale (>24h)', async () => {
+            let capturedBody: any
             useMocks({
                 get: {
                     '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
@@ -256,17 +290,26 @@ describe('experimentMetricsLogic', () => {
                     ],
                 },
                 post: {
-                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [201, pendingRecalculation],
+                    // Return a terminal run so triggerRecalculation finishes without arming a poll timer.
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': async ({ request }) => {
+                        capturedBody = await request.json()
+                        return [201, completedRecalculation2]
+                    },
                 },
             })
             mountLogic()
 
             // Stale results still load, but a fresh run is kicked off in the background.
-            await expectLogic(logic).toDispatchActions(['setCurrentRecalculation', 'triggerRecalculation'])
+            await expectLogic(logic)
+                .toDispatchActions(['setCurrentRecalculation', 'triggerRecalculation'])
+                .toFinishAllListeners()
             expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
+            expect(capturedBody).toEqual({ trigger: 'stale_refresh' })
         })
 
         it('does not auto-trigger when the latest completed run is fresh', async () => {
+            // freshCompletedRecalculation has result_source 'recalculation' (a real run), so neither the
+            // staleness path nor the timeseries-fallback path fires.
             useMocks({
                 get: {
                     '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
@@ -280,6 +323,68 @@ describe('experimentMetricsLogic', () => {
             await expectLogic(logic)
                 .toDispatchActions(['setCurrentRecalculation'])
                 .toNotHaveDispatchedActions(['triggerRecalculation'])
+        })
+
+        it('renders the timeseries fallback and triggers a cold_run to fill gaps and refresh', async () => {
+            let capturedBody: any
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                        200,
+                        timeseriesFallbackRecalculation,
+                    ],
+                },
+                post: {
+                    // Return a terminal run so triggerRecalculation finishes without arming a poll timer.
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': async ({ request }) => {
+                        capturedBody = await request.json()
+                        return [201, completedRecalculation2]
+                    },
+                },
+            })
+            mountLogic()
+
+            await expectLogic(logic)
+                .toDispatchActions(['setCurrentRecalculation', 'triggerRecalculation'])
+                .toFinishAllListeners()
+            // The placeholder timeseries result is shown immediately for the metric it covered.
+            expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
+            // A real cold_run is fired to fill the gap (secondary) and refresh.
+            expect(capturedBody).toEqual({ trigger: 'cold_run' })
+        })
+
+        it('keeps the timeseries placeholder visible while the triggered cold_run is still pending', async () => {
+            // Regression: the cold_run's first poll tick carries an empty results list. applyResults must
+            // merge (not overwrite), so the already-shown placeholder is not blanked back to a loading cell.
+            const coldRunInProgressEmpty = { ...coldRunPending, status: 'in_progress', results: [] }
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                        200,
+                        timeseriesFallbackRecalculation,
+                    ],
+                    // The polled cold_run is still in progress with no results yet.
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/:recalc_id/': () => [
+                        200,
+                        coldRunInProgressEmpty,
+                    ],
+                },
+                post: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [201, coldRunPending],
+                },
+            })
+            jest.useFakeTimers()
+            mountLogic()
+
+            await jest.advanceTimersByTimeAsync(0)
+            // Drive a couple of poll ticks while the cold_run remains pending with empty results.
+            for (let i = 0; i < 2; i++) {
+                await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+            }
+
+            // The primary placeholder from the timeseries fallback survives the empty-results poll ticks.
+            expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
+            jest.useRealTimers()
         })
 
         it('starts polling after triggering a non-terminal recalculation', async () => {
@@ -507,6 +612,58 @@ describe('experimentMetricsLogic', () => {
             expect(lemonToast.error).toHaveBeenCalledWith(
                 'Failed to load recalculation results. Please reload to try again.'
             )
+        })
+
+        it('on a cold_run, applies partial results mid-flight before the run is terminal', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [404, {}],
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/:recalc_id/': () => [
+                        200,
+                        coldRunInProgressPartial,
+                    ],
+                },
+                post: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [201, coldRunPending],
+                },
+            })
+            jest.useFakeTimers()
+            mountLogic()
+
+            await jest.advanceTimersByTimeAsync(0)
+            for (let i = 0; i < 2; i++) {
+                await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+            }
+
+            // Still in progress, but the finished primary metric is already on screen.
+            expect(logic.values.currentRecalculation).toEqual(expect.objectContaining({ status: 'in_progress' }))
+            expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
+        })
+
+        it('on a non-cold_run, does not apply results until the run is terminal', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [404, {}],
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/:recalc_id/': () => [
+                        200,
+                        manualInProgressPartial,
+                    ],
+                },
+                post: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [201, manualPending],
+                },
+            })
+            jest.useFakeTimers()
+            mountLogic()
+
+            await jest.advanceTimersByTimeAsync(0)
+            for (let i = 0; i < 2; i++) {
+                await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+            }
+
+            // In progress with the same partial payload, but a manual run leaves cells untouched mid-flight.
+            expect(logic.values.currentRecalculation).toEqual(expect.objectContaining({ status: 'in_progress' }))
+            expect(logic.values.primaryMetricsResults).toEqual([])
         })
     })
 
