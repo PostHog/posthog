@@ -139,11 +139,13 @@ def _run_row(
     full_name: str = "PostHog/posthog",
     run_attempt: int = 1,
     pr_number: int | None = None,
+    head_branch: str = "main",
 ) -> dict[str, Any]:
     return {
         "id": run_id,
         "name": name,
         "head_sha": head_sha,
+        "head_branch": head_branch,
         "status": status,
         "conclusion": conclusion,
         "created_at": run_started_at,
@@ -281,7 +283,7 @@ class TestEngineeringAnalyticsViews(ClickhouseTestMixin, BaseTest):
         # skip without it.
         repo_json = '{"full_name": "PostHog/posthog"}'
         raw = (
-            "(SELECT 1 AS id, 'CI' AS name, 'sha1' AS head_sha, 'completed' AS status, "
+            "(SELECT 1 AS id, 'CI' AS name, 'sha1' AS head_sha, 'main' AS head_branch, 'completed' AS status, "
             "'success' AS conclusion, 1 AS run_attempt, nullIf('', '') AS pull_requests, "
             f"'{repo_json}' AS repository, "
             "'2026-01-20 10:00:00' AS run_started_at, '2026-01-20 10:30:00' AS updated_at, "

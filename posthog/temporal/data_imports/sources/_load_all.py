@@ -307,6 +307,7 @@ from .lago.source import LagoSource
 from .lattice.source import LatticeSource
 from .launchdarkly.source import LaunchDarklySource
 from .leadfeeder.source import LeadfeederSource
+from .leexi.source import LeexiSource
 from .lemlist.source import LemlistSource
 from .less_annoying_crm.source import LessAnnoyingCRMSource
 from .lever.source import LeverSource
@@ -458,6 +459,7 @@ from .quickbooks.source import QuickBooksSource
 from .railz.source import RailzSource
 from .ramp.source import RampSource
 from .razorpay.source import RazorpaySource
+from .rb2b.source import RB2BSource
 from .rd_station_marketing.source import RDStationMarketingSource
 from .recharge.source import RechargeSource
 from .recreation.source import RecreationSource
@@ -550,6 +552,7 @@ from .streamelements.source import StreamElementsSource
 from .streamlabs.source import StreamlabsSource
 from .stripe.source import StripeSource
 from .supabase.source import SupabaseSource
+from .superwall.source import SuperwallSource
 from .surveymonkey.source import SurveyMonkeySource
 from .surveysparrow.source import SurveySparrowSource
 from .survicate.source import SurvicateSource

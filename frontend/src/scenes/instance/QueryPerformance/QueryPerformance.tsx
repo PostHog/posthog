@@ -9,6 +9,7 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
@@ -185,10 +186,14 @@ export function QueryPerformance(): JSX.Element {
         {
             title: 'Metric',
             render: function Metric(_, item) {
+                const metricTypeLabel =
+                    item.experiment_metric_type === 'funnel' && item.experiment_funnel_order_type
+                        ? `funnel:${item.experiment_funnel_order_type}`
+                        : item.experiment_metric_type
                 return (
                     <div className="flex items-center gap-1">
                         <span>{item.experiment_metric_name}</span>
-                        {item.experiment_metric_type && <LemonTag type="muted">{item.experiment_metric_type}</LemonTag>}
+                        {item.experiment_metric_type && <LemonTag type="muted">{metricTypeLabel}</LemonTag>}
                     </div>
                 )
             },
@@ -237,10 +242,12 @@ export function QueryPerformance(): JSX.Element {
                 const firstLine = item.exception.split('\n')[0]
                 const preview = firstLine.length > 60 ? firstLine.slice(0, 60) + '…' : firstLine
                 return (
-                    <div className="flex items-center gap-1 min-w-0">
-                        <LemonTag type="danger">Error</LemonTag>
-                        <span className="font-mono text-xs text-danger truncate">{preview}</span>
-                    </div>
+                    <Tooltip title={<span className="font-mono text-xs whitespace-pre-wrap">{item.exception}</span>}>
+                        <div className="flex items-center gap-1 min-w-0">
+                            <LemonTag type="danger">Error</LemonTag>
+                            <span className="font-mono text-xs text-danger truncate">{preview}</span>
+                        </div>
+                    </Tooltip>
                 )
             },
         },

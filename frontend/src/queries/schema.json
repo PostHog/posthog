@@ -21473,7 +21473,10 @@
                 "Sanity",
                 "Metronome",
                 "Jobber",
-                "Knock"
+                "Knock",
+                "Leexi",
+                "RB2B",
+                "Superwall"
             ],
             "type": "string"
         },

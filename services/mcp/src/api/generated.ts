@@ -570,6 +570,11 @@ export namespace Schemas {
       stages: AchievementStage[];
     }
 
+    /**
+     * Map of unlocked stage number (as a string, '1'-'5') to the ISO timestamp it was unlocked.
+     */
+    export type AchievementProgressUnlockedAt = {[key: string]: string};
+
     export interface AchievementProgress {
       /** Track this progress row belongs to. */
       track_key: string;
@@ -582,6 +587,8 @@ export namespace Schemas {
          * @nullable
          */
       last_computed_at: string | null;
+      /** Map of unlocked stage number (as a string, '1'-'5') to the ISO timestamp it was unlocked. */
+      unlocked_at: AchievementProgressUnlockedAt;
     }
 
     export interface PendingCelebration {
@@ -7547,6 +7554,8 @@ export namespace Schemas {
       team_id: number;
       /** Revision the gated call was proposed against. */
       revision_id: string;
+      /** Mirrors the owning session's `is_preview`. True when the request originated from a draft revision running in preview mode — render a preview badge in the approvals queue so reviewers can tell author-iteration approvals apart from production traffic. */
+      is_preview: boolean;
       /** Turn number within the session that emitted the call. */
       turn: number;
       /** pi-ai ToolCall.id from the original assistant message; matched into the synthetic tool_result. */
@@ -7724,6 +7733,8 @@ export namespace Schemas {
          */
       preview: string | null;
       retry_count: number;
+      /** True when the session ran against a draft revision in preview mode. Output adapters (Slack writes, failure notifier) no-op; `$ai_*` analytics events are tagged with `$agent_is_preview: true`. Surface a preview badge on the row so authors can distinguish iteration from live traffic. */
+      is_preview: boolean;
       created_at: string;
       updated_at: string;
     }
@@ -7837,6 +7848,8 @@ export namespace Schemas {
       pending_inputs: AgentConversationMessage[];
       /** Times the janitor has re-queued this session after a stuck-running detection. */
       retry_count: number;
+      /** True when the session ran against a draft revision in preview mode. Output adapters (Slack writes, failure notifier) no-op; `$ai_*` analytics events are tagged with `$agent_is_preview: true`. Surface a preview badge on session detail so authors can distinguish iteration from live traffic. */
+      is_preview: boolean;
       created_at: string;
       updated_at: string;
       /** True when `?last_n=` was supplied AND the full conversation exceeded it. */
@@ -7910,6 +7923,8 @@ export namespace Schemas {
          * @nullable
          */
       preview: string | null;
+      /** True when the session ran against a draft revision in preview mode. Output adapters (Slack writes, failure notifier) no-op; `$ai_*` analytics events are tagged with `$agent_is_preview: true`. Render a preview badge on the row so author iteration is distinguishable from live traffic. */
+      is_preview: boolean;
       created_at: string;
       updated_at: string;
     }
@@ -15756,6 +15771,9 @@ export namespace Schemas {
      * * `Metronome` - Metronome
      * * `Jobber` - Jobber
      * * `Knock` - Knock
+     * * `Leexi` - Leexi
+     * * `RB2B` - RB2B
+     * * `Superwall` - Superwall
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -16398,6 +16416,9 @@ export namespace Schemas {
       Metronome: 'Metronome',
       Jobber: 'Jobber',
       Knock: 'Knock',
+      Leexi: 'Leexi',
+      Rb2b: 'RB2B',
+      Superwall: 'Superwall',
     } as const;
 
     /**
@@ -17046,7 +17067,10 @@ export namespace Schemas {
        * * `Sanity` - Sanity
        * * `Metronome` - Metronome
        * * `Jobber` - Jobber
-       * * `Knock` - Knock */
+       * * `Knock` - Knock
+       * * `Leexi` - Leexi
+       * * `RB2B` - RB2B
+       * * `Superwall` - Superwall */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -22175,7 +22199,10 @@ export namespace Schemas {
        * * `Sanity` - Sanity
        * * `Metronome` - Metronome
        * * `Jobber` - Jobber
-       * * `Knock` - Knock */
+       * * `Knock` - Knock
+       * * `Leexi` - Leexi
+       * * `RB2B` - RB2B
+       * * `Superwall` - Superwall */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -29260,6 +29287,38 @@ export namespace Schemas {
          * @items.maxLength 256
          */
       id_jag_allowed_clients?: string[];
+    }
+
+    export interface OrganizationFeatureFlagRow {
+      /** ID of the representative feature flag for this key */
+      id: number;
+      /** Team ID the representative feature flag belongs to */
+      team_id: number;
+      /** Feature flag key, unique within the compared projects */
+      key: string;
+      /** Human-readable name of the representative feature flag */
+      name: string;
+      /** Whether the representative feature flag is enabled */
+      active: boolean;
+      /** Release condition filters of the representative feature flag */
+      filters: unknown;
+    }
+
+    export interface OrganizationFeatureFlagKeysResponse {
+      /** Total number of distinct flag keys across the compared projects */
+      count: number;
+      /**
+         * URL for the next page of results, or null if none
+         * @nullable
+         */
+      next: string | null;
+      /**
+         * URL for the previous page of results, or null if none
+         * @nullable
+         */
+      previous: string | null;
+      /** One representative flag per distinct key across the compared projects */
+      results: OrganizationFeatureFlagRow[];
     }
 
     /**
@@ -45377,6 +45436,11 @@ export namespace Schemas {
       stale: number;
     }
 
+    export interface RevokeOtherSessionsResponse {
+      /** Number of other login sessions that were revoked. */
+      revoked_count: number;
+    }
+
     export interface RoleLookupResponse {
       /** Matching reference, or null if none exists. */
       reference: RoleExternalReference | null;
@@ -47464,7 +47528,10 @@ export namespace Schemas {
        * * `Sanity` - Sanity
        * * `Metronome` - Metronome
        * * `Jobber` - Jobber
-       * * `Knock` - Knock */
+       * * `Knock` - Knock
+       * * `Leexi` - Leexi
+       * * `RB2B` - RB2B
+       * * `Superwall` - Superwall */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -48139,7 +48206,10 @@ export namespace Schemas {
        * * `Sanity` - Sanity
        * * `Metronome` - Metronome
        * * `Jobber` - Jobber
-       * * `Knock` - Knock */
+       * * `Knock` - Knock
+       * * `Leexi` - Leexi
+       * * `RB2B` - RB2B
+       * * `Superwall` - Superwall */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -50104,6 +50174,24 @@ export namespace Schemas {
     }
 
     /**
+     * A cookie-auth login session shown on the user's 'Web sessions' screen.
+     */
+    export interface UserAuthSession {
+      /** Identifier used to revoke this login session. */
+      readonly id: string;
+      /** When this login session last made a request (refreshed periodically). */
+      readonly last_activity: string;
+      /** Approximate city and country derived from the IP address, if known. */
+      readonly location: string;
+      /** Browser and operating system parsed from the user agent, e.g. 'Chrome 135 on macOS'. */
+      readonly device: string;
+      /** How this session signed in (e.g. password, Google, SAML). */
+      readonly login_method: string;
+      /** Whether this is the login session making the current request. */
+      readonly is_current: boolean;
+    }
+
+    /**
      * The release condition to evaluate
      */
     export type UserBlastRadiusRequestCondition = { [key: string]: unknown };
@@ -50494,6 +50582,8 @@ export namespace Schemas {
       completed: number;
       /** Completed runs with conclusion 'success' that day. */
       successes: number;
+      /** Completed runs that failed that day (conclusion 'failure' or 'timed_out'); excludes skipped, cancelled, and action_required runs. */
+      failures: number;
     }
 
     export interface WorkflowHealthItem {
@@ -50521,7 +50611,7 @@ export namespace Schemas {
          */
       p95_seconds: number | null;
       /**
-         * When the most recent run with conclusion 'failure' started, or null.
+         * When the most recent failing run (conclusion 'failure' or 'timed_out') started, or null.
          * @nullable
          */
       last_failure_at: string | null;
@@ -56330,6 +56420,25 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type OrgFeatureFlagsKeysParams = {
+    /**
+     * Page size (max 100)
+     */
+    limit?: number;
+    /**
+     * Pagination offset
+     */
+    offset?: number;
+    /**
+     * Filter by key or name
+     */
+    search?: string;
+    /**
+     * Teams to compare, in priority order. Defaults to all accessible teams in the org.
+     */
+    team_ids?: number[];
+    };
+
     export type OrgOrganizationsIntegrationsListParams = {
     /**
      * Number of results to return per page.
@@ -57129,6 +57238,13 @@ export namespace Schemas {
     } as const;
 
     export type AgentApplicationsPreviewTokenParams = {
+    /**
+     * Target draft revision. Must belong to this application and not be live.
+     */
+    revision_id: string;
+    };
+
+    export type AgentApplicationsPreviewTokenMintParams = {
     /**
      * Target draft revision. Must belong to this application and not be live.
      */
@@ -58402,6 +58518,10 @@ export namespace Schemas {
     };
 
     export type EngineeringAnalyticsWorkflowHealthParams = {
+    /**
+     * Optional exact git branch (head_branch) to scope workflow health to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string;
     /**
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */
@@ -63555,6 +63675,11 @@ export namespace Schemas {
      * Optional case-insensitive repository name search query.
      */
     search?: string;
+    };
+
+    export type UsersLoginSessionsListParams = {
+    email?: string;
+    is_staff?: boolean;
     };
 
 
