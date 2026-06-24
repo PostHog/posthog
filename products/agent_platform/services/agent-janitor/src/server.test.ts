@@ -515,6 +515,7 @@ describe('janitor HTTP', () => {
             cleared_idempotency_keys: 0,
             reaped_sandboxes: 0,
             sandbox_reap_failures: 0,
+            swept_link_states: 0,
         })
     })
 

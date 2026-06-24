@@ -100,10 +100,14 @@ def mint_authorize_url(application: AgentApplication, provider_id: str) -> str:
         if not client_id:
             raise AgentConnectError("This PostHog identity provider has no client_id yet — promote the agent first.")
     elif kind == "oauth2":
-        authorize_url = entry.get("authorize_url")
+        oauth_authorize_url = entry.get("authorize_url")
         client_id = entry.get("client_id")
-        if not authorize_url or not client_id:
+        if not oauth_authorize_url or not client_id:
             raise AgentConnectError("OAuth2 identity provider is missing authorize_url or client_id.")
+        # Narrowed to non-None above; assign through a temp so it unifies with the
+        # `str` the posthog branch assigns (an Any|None straight to `authorize_url`
+        # trips mypy's cross-branch type inference).
+        authorize_url = oauth_authorize_url
     else:
         raise AgentConnectError(f"Unsupported identity provider kind '{kind}'.")
 

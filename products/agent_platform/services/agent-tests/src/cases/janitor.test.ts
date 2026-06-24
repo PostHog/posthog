@@ -72,6 +72,7 @@ describe('janitor: real e2e', () => {
             cleared_idempotency_keys: 0,
             reaped_sandboxes: 0,
             sandbox_reap_failures: 0,
+            swept_link_states: 0,
         })
     })
 
@@ -117,6 +118,7 @@ describe('janitor: real e2e', () => {
             cleared_idempotency_keys: 0,
             reaped_sandboxes: 0,
             sandbox_reap_failures: 0,
+            swept_link_states: 0,
         })
         expect((await c.queue.get(sid))!.retry_count).toBe(1)
 
@@ -130,6 +132,7 @@ describe('janitor: real e2e', () => {
             cleared_idempotency_keys: 0,
             reaped_sandboxes: 0,
             sandbox_reap_failures: 0,
+            swept_link_states: 0,
         })
         expect((await c.queue.get(sid))!.retry_count).toBe(2)
 
@@ -143,6 +146,7 @@ describe('janitor: real e2e', () => {
             cleared_idempotency_keys: 0,
             reaped_sandboxes: 0,
             sandbox_reap_failures: 0,
+            swept_link_states: 0,
         })
         expect((await c.queue.get(sid))!.state).toBe('failed')
     })
