@@ -28,11 +28,11 @@ SPARKLINE_PREVIEW_MAX_EXECUTION_SECONDS = 30
 class SparklineQueryRunner(LogsQueryRunner):
     @cached_property
     def settings(self) -> HogQLGlobalSettings:
-        return HogQLGlobalSettings(
-            max_bytes_to_read=None,
-            read_overflow_mode=None,
-            max_execution_time=SPARKLINE_PREVIEW_MAX_EXECUTION_SECONDS,
-        )
+        # Inherit LogsQueryRunner's distributed-logs settings — including the
+        # allow_experimental_object_type / allow_experimental_join_condition / transform_null_in
+        # bug-workaround flags it sets to False — and only tighten the execution timeout. Building
+        # a fresh HogQLGlobalSettings here would silently re-enable those buggy defaults.
+        return super().settings.model_copy(update={"max_execution_time": SPARKLINE_PREVIEW_MAX_EXECUTION_SECONDS})
 
     def _calculate(self) -> LogsQueryResponse:
         response = execute_hogql_query(
