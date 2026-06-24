@@ -425,6 +425,8 @@ class PersistReplyInput:
     reply: str
     citations: list[str]
     confidence: float
+    ticket_type: str = "how_to"
+    allow_bot_reply: bool = False
 
 
 @dataclass
@@ -1040,14 +1042,39 @@ CITED CHUNKS:
 @activity.defn
 @close_db_connections
 async def support_persist_reply_activity(input: PersistReplyInput) -> None:
-    """Persist the validated reply as a private AI comment on the ticket."""
+    """Persist the validated reply as an AI comment on the ticket (private note or bot reply per settings)."""
     async with Heartbeater():
         await database_sync_to_async(_persist_reply_sync, thread_sensitive=False)(
-            input.team_id, input.ticket_id, input.reply, input.citations, input.confidence
+            input.team_id,
+            input.ticket_id,
+            input.reply,
+            input.citations,
+            input.confidence,
+            input.ticket_type,
+            input.allow_bot_reply,
         )
 
 
-def _persist_reply_sync(team_id: int, ticket_id: str, reply: str, citations: list[str], confidence: float) -> None:
+def _persist_reply_sync(
+    team_id: int,
+    ticket_id: str,
+    reply: str,
+    citations: list[str],
+    confidence: float,
+    ticket_type: str = "how_to",
+    allow_bot_reply: bool = False,
+) -> None:
+    is_private = True
+    if allow_bot_reply:
+        ticket = Ticket.objects.select_related("team").filter(team_id=team_id, id=ticket_id).first()
+        if ticket:
+            settings_dict = ticket.team.conversations_settings or {}
+            modes = settings_dict.get("ai_reply_modes") or {}
+            channel_modes = modes.get(ticket.effective_channel) or {}
+            mode = channel_modes.get(ticket_type, "private_note")
+            if mode == "bot_reply":
+                is_private = False
+
     Comment.objects.create(
         team_id=team_id,
         scope="conversations_ticket",
@@ -1055,7 +1082,7 @@ def _persist_reply_sync(team_id: int, ticket_id: str, reply: str, citations: lis
         content=reply,
         item_context={
             "author_type": "AI",
-            "is_private": True,
+            "is_private": is_private,
             "citations": citations,
             "confidence": confidence,
         },
@@ -1304,6 +1331,8 @@ class SupportReplyWorkflow:
                             reply=draft_output.reply,
                             citations=draft_output.citations,
                             confidence=validate_output.confidence,
+                            ticket_type=ticket_type,
+                            allow_bot_reply=True,
                         ),
                         start_to_close_timeout=timedelta(minutes=1),
                         retry_policy=RetryPolicy(maximum_attempts=3),
@@ -1361,6 +1390,8 @@ class SupportReplyWorkflow:
                         reply=best_reply,
                         citations=best_citations,
                         confidence=best_confidence,
+                        ticket_type=ticket_type,
+                        allow_bot_reply=False,
                     ),
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),

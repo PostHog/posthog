@@ -100,6 +100,10 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
         if not settings_dict.get("ai_suggestions_enabled", False):
             continue
 
+        allowed_channels = settings_dict.get("ai_resolution_channels")
+        if allowed_channels is not None and ticket.effective_channel not in allowed_channels:
+            continue
+
         if not team.organization.is_ai_data_processing_approved:
             continue
 

@@ -145,3 +145,10 @@ class Ticket(UUIDTModel):
 
     def __str__(self):
         return f"Ticket {self.id} - {self.widget_session_id[:8]}..."
+
+    @property
+    def effective_channel(self) -> str:
+        """channel_source, but splits widget_api out as 'api'."""
+        if self.channel_source == Channel.WIDGET and self.channel_detail == ChannelDetail.WIDGET_API:
+            return "api"
+        return self.channel_source
