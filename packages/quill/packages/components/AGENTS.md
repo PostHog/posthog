@@ -8,7 +8,7 @@ Quick-reference for AI agents using `@posthog/quill-components` — composed com
 - `DateTimePicker` — calendar range picker with quick-range presets (`quickRanges`, `CUSTOM_RANGE`)
 - `DatePicker` — single-date picker (one calendar, optional time, no quick ranges)
 - `useCalendar` — headless calendar grid hook (`Day`, `Month` enums)
-- `Metric` — composable stat tile (`Card` + `Badge` pill + `Sparkline`); marries primitives with `@posthog/quill-charts`
+- `Metric` — composable stat tile (`Card` + `Badge` pill + `Sparkline`); marries primitives with `@posthog/quill-charts`. Import from the `@posthog/quill-components/metric` subpath (not the main barrel)
 
 ## DataTable
 
@@ -95,7 +95,7 @@ Headless month-grid state for building custom calendar UIs: returns `calendar` (
 
 ## Metric
 
-A composable stat tile: a headline number, a `Badge` change pill, and an optional `Sparkline`. `Metric` is **content, not a surface** — wrap it in `<Card flush>` for the border. It's the one component here that depends on `@posthog/quill-charts` (for `Sparkline` + the headless metric math) — charts is an **optional peer** of `@posthog/quill`, so it's only installed when you use `Metric`. The `MetricCard` in `@posthog/quill-charts` is the older, self-contained (prop-driven, primitives-free) tile; use `Metric` when you want to compose the layout or lean on quill's `Card`/`Badge`.
+A composable stat tile: a headline number, a `Badge` change pill, and an optional `Sparkline`. `Metric` is **content, not a surface** — wrap it in `<Card flush>` for the border. It's the one component here that depends on `@posthog/quill-charts` (for `Sparkline` + the headless metric math), which pulls d3 — so it lives behind its own `@posthog/quill-components/metric` entry point, **not** the main barrel (and not the `@posthog/quill` umbrella). That keeps charts/d3 out of the always-eager app-shell graph: only code that imports the metric subpath pays for it. The `MetricCard` in `@posthog/quill-charts` is the older, self-contained (prop-driven, primitives-free) tile; use `Metric` when you want to compose the layout or lean on quill's `Card`/`Badge`.
 
 ```tsx
 import {
@@ -106,7 +106,7 @@ import {
   MetricValue,
   MetricSubtitle,
   MetricSparkline,
-} from '@posthog/quill-components'
+} from '@posthog/quill-components/metric'
 import { Card } from '@posthog/quill-primitives'
 import { useChartTheme } from '@posthog/quill-charts'
 

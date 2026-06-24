@@ -249,7 +249,7 @@ Stack cards with merged borders:
 </Card>
 ```
 
-For a stat tile (headline number + change pill + sparkline), don't hand-build one in a `Card` — wrap `Metric` from `@posthog/quill-components` in `<Card flush>`. See its section in `../components/AGENTS.md`.
+For a stat tile (headline number + change pill + sparkline), don't hand-build one in a `Card` — wrap `Metric` (from `@posthog/quill-components/metric`) in `<Card flush>`. See its section in `../components/AGENTS.md`.
 
 ### Field (forms)
 
