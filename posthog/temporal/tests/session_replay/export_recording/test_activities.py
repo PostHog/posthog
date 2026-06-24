@@ -1,6 +1,7 @@
 import json
 import base64
 from datetime import timedelta
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
@@ -522,6 +523,91 @@ async def test_store_export_data_success(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_store_export_data_seeks_block_offset_instead_of_writing_zero_bytes():
+    export_id = uuid4()
+    export_context = ExportContext(
+        export_id=export_id,
+        exported_recording_id=TEST_RECORDING_ID,
+        session_id="test-session",
+        team_id=123,
+        redis_config=TEST_REDIS_CONFIG,
+    )
+
+    # a large offset is what filled the worker disk: the old code wrote it out as real zero bytes
+    block_offset = 4 * 1024 * 1024
+    block_content = b"block content"
+    block_manifest = [
+        {"filename": "file.json", "offset": block_offset, "redis_key": f"export-recording:{export_id}:block:file.json"}
+    ]
+    block_data_encoded = base64.b64encode(block_content).decode("utf-8")
+
+    mock_redis = AsyncMock()
+    mock_redis.get = AsyncMock(
+        side_effect=lambda key: {
+            _redis_key(export_id, "block-manifest"): json.dumps(block_manifest),
+            f"export-recording:{export_id}:block:file.json": block_data_encoded,
+        }.get(key)
+    )
+
+    # spy on the staging file handle so we can assert the offset is reached with seek() rather than
+    # materialised as real zero bytes via write() - sparse-allocation reporting (st_blocks) is
+    # filesystem dependent and unreliable in CI, so we assert at the syscall level instead
+    real_open = Path.open
+    bytes_written: dict[str, int] = {}
+    seek_targets: dict[str, list[int]] = {}
+
+    class _SpyFile:
+        def __init__(self, handle, name):
+            self._handle = handle
+            self._name = name
+
+        def write(self, data):
+            bytes_written[self._name] = bytes_written.get(self._name, 0) + len(data)
+            return self._handle.write(data)
+
+        def seek(self, offset, *args):
+            seek_targets.setdefault(self._name, []).append(offset)
+            return self._handle.seek(offset, *args)
+
+        def __enter__(self):
+            self._handle.__enter__()
+            return self
+
+        def __exit__(self, *args):
+            return self._handle.__exit__(*args)
+
+    def spy_open(self, *args, **kwargs):
+        return _SpyFile(real_open(self, *args, **kwargs), self.name)
+
+    mock_record = MagicMock()
+    mock_record.save = MagicMock()
+    mock_storage = AsyncMock()
+
+    with (
+        patch("posthog.temporal.session_replay.export_recording.activities.get_async_client") as mock_get_async_client,
+        patch("posthog.temporal.session_replay.export_recording.activities.Path.open", new=spy_open),
+        patch("posthog.temporal.session_replay.export_recording.activities.shutil.make_archive"),
+        patch(
+            "posthog.temporal.session_replay.export_recording.activities.recording_s3_client.async_recording_s3_client"
+        ) as mock_export_storage_client,
+        patch(
+            "posthog.temporal.session_replay.export_recording.activities.ExportedRecording.objects"
+        ) as mock_record_qs,
+        patch("posthog.temporal.session_replay.export_recording.activities.database_sync_to_async") as mock_db_sync,
+    ):
+        mock_get_async_client.return_value = mock_redis
+        mock_export_storage_client.return_value.__aenter__.return_value = mock_storage
+        mock_record_qs.aget = AsyncMock(return_value=mock_record)
+        mock_db_sync.side_effect = lambda fn: AsyncMock(return_value=fn())
+
+        await store_export_data(export_context)
+
+    # the offset is reached with a seek, leaving a hole - never written as block_offset zero bytes
+    assert seek_targets["file.json"] == [block_offset]
+    assert bytes_written["file.json"] == len(block_content) + 1024
+
+
+@pytest.mark.asyncio
 async def test_store_export_data_s3_upload_failure():
     export_id = uuid4()
     export_context = ExportContext(
@@ -542,6 +628,7 @@ async def test_store_export_data_s3_upload_failure():
         patch("posthog.temporal.session_replay.export_recording.activities.get_async_client") as mock_get_async_client,
         patch("posthog.temporal.session_replay.export_recording.activities.Path") as mock_path_cls,
         patch("posthog.temporal.session_replay.export_recording.activities.shutil.make_archive"),
+        patch("posthog.temporal.session_replay.export_recording.activities.shutil.rmtree") as mock_rmtree,
         patch(
             "posthog.temporal.session_replay.export_recording.activities.recording_s3_client.async_recording_s3_client"
         ) as mock_export_storage_client,
@@ -565,6 +652,11 @@ async def test_store_export_data_s3_upload_failure():
 
         with pytest.raises(Exception, match="Upload failed"):
             await store_export_data(export_context)
+
+        # a failed export must still clean up its /tmp staging dir and zip, otherwise partial
+        # data accumulates across retries and exhausts the worker disk
+        mock_rmtree.assert_called_once_with(mock_export_dir, ignore_errors=True)
+        mock_zip_path.unlink.assert_called_once_with(missing_ok=True)
 
 
 @pytest.mark.asyncio

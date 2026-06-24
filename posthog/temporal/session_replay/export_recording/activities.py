@@ -229,77 +229,84 @@ async def store_export_data(input: ExportContext) -> None:
     logger.info(f"Storing export data for session {input.session_id}")
 
     export_dir = Path("/tmp") / str(input.export_id)
+    zip_path = Path("/tmp") / f"{input.export_id}.zip"
     export_dir.mkdir(parents=True, exist_ok=True)
 
-    r = get_async_client(_redis_url(input.redis_config))
-    replay_events_data = await r.get(_redis_key(input.export_id, "replay-events"))
-    events_data = await r.get(_redis_key(input.export_id, "events"))
-    s3_prefix = await r.get(_redis_key(input.export_id, "s3-prefix"))
-    block_manifest_raw = await r.get(_redis_key(input.export_id, "block-manifest"))
+    try:
+        r = get_async_client(_redis_url(input.redis_config))
+        replay_events_data = await r.get(_redis_key(input.export_id, "replay-events"))
+        events_data = await r.get(_redis_key(input.export_id, "events"))
+        s3_prefix = await r.get(_redis_key(input.export_id, "s3-prefix"))
+        block_manifest_raw = await r.get(_redis_key(input.export_id, "block-manifest"))
 
-    clickhouse_dir = export_dir / "clickhouse"
-    clickhouse_dir.mkdir(parents=True, exist_ok=True)
+        clickhouse_dir = export_dir / "clickhouse"
+        clickhouse_dir.mkdir(parents=True, exist_ok=True)
 
-    if replay_events_data:
-        replay_events_path = clickhouse_dir / "session-replay-events.json"
-        with replay_events_path.open("wb") as f:
-            f.write(replay_events_data if isinstance(replay_events_data, bytes) else replay_events_data.encode())
-        logger.info(f"Wrote replay events to {replay_events_path}")
+        if replay_events_data:
+            replay_events_path = clickhouse_dir / "session-replay-events.json"
+            with replay_events_path.open("wb") as f:
+                f.write(replay_events_data if isinstance(replay_events_data, bytes) else replay_events_data.encode())
+            logger.info(f"Wrote replay events to {replay_events_path}")
 
-    if events_data:
-        events_path = clickhouse_dir / "events.json"
-        with events_path.open("wb") as f:
-            f.write(events_data if isinstance(events_data, bytes) else events_data.encode())
-        logger.info(f"Wrote events to {events_path}")
+        if events_data:
+            events_path = clickhouse_dir / "events.json"
+            with events_path.open("wb") as f:
+                f.write(events_data if isinstance(events_data, bytes) else events_data.encode())
+            logger.info(f"Wrote events to {events_path}")
 
-    if s3_prefix:
-        s3_prefix_path = export_dir / "s3_prefix.txt"
-        with s3_prefix_path.open("w") as f:
-            f.write(s3_prefix if isinstance(s3_prefix, str) else s3_prefix.decode())
-        logger.info(f"Wrote S3 prefix to {s3_prefix_path}")
+        if s3_prefix:
+            s3_prefix_path = export_dir / "s3_prefix.txt"
+            with s3_prefix_path.open("w") as f:
+                f.write(s3_prefix if isinstance(s3_prefix, str) else s3_prefix.decode())
+            logger.info(f"Wrote S3 prefix to {s3_prefix_path}")
 
-    if block_manifest_raw:
-        data_dir = export_dir / "data"
-        data_dir.mkdir(parents=True, exist_ok=True)
+        if block_manifest_raw:
+            data_dir = export_dir / "data"
+            data_dir.mkdir(parents=True, exist_ok=True)
 
-        block_manifest = json.loads(block_manifest_raw)
-        for block_info in block_manifest:
-            block_data_encoded = await r.get(block_info["redis_key"])
-            if not block_data_encoded:
-                logger.warning(f"Missing block data for {block_info['filename']}, skipping...")
-                continue
+            block_manifest = json.loads(block_manifest_raw)
+            for block_info in block_manifest:
+                block_data_encoded = await r.get(block_info["redis_key"])
+                if not block_data_encoded:
+                    logger.warning(f"Missing block data for {block_info['filename']}, skipping...")
+                    continue
 
-            block_data = base64.b64decode(block_data_encoded)
-            block_offset = block_info["offset"]
+                block_data = base64.b64decode(block_data_encoded)
+                block_offset = block_info["offset"]
 
-            output_path = data_dir / block_info["filename"]
-            with output_path.open("wb") as f:
-                f.write(b"\x00" * block_offset)
-                f.write(block_data)
-                f.write(b"\x00" * 1024)
+                # Seek to the block's byte offset so the filesystem leaves a sparse hole instead of
+                # allocating physical zero bytes - writing `b"\x00" * block_offset` materialised the
+                # whole offset (tens to hundreds of MB per block) onto the worker disk, exhausting it
+                # (ENOSPC) across concurrent exports. The hole compresses to nothing in the zip.
+                output_path = data_dir / block_info["filename"]
+                with output_path.open("wb") as f:
+                    f.seek(block_offset)
+                    f.write(block_data)
+                    f.write(b"\x00" * 1024)
 
-            logger.info(f"Wrote block data to {output_path}")
+                logger.info(f"Wrote block data to {output_path}")
 
-    zip_path = Path("/tmp") / f"{input.export_id}.zip"
-    shutil.make_archive(str(zip_path.with_suffix("")), "zip", export_dir)
+        shutil.make_archive(str(zip_path.with_suffix("")), "zip", export_dir)
 
-    logger.info(f"Created zip archive at {zip_path}")
+        logger.info(f"Created zip archive at {zip_path}")
 
-    s3_key = f"session_recording_exports/{input.team_id}/{input.session_id}/{input.export_id}.zip"
+        s3_key = f"session_recording_exports/{input.team_id}/{input.session_id}/{input.export_id}.zip"
 
-    async with recording_s3_client.async_recording_s3_client() as storage:
-        await storage.upload_file(s3_key, str(zip_path))
-    logger.info(f"Uploaded zip archive to S3 at {s3_key}")
+        async with recording_s3_client.async_recording_s3_client() as storage:
+            await storage.upload_file(s3_key, str(zip_path))
+        logger.info(f"Uploaded zip archive to S3 at {s3_key}")
 
-    zip_path.unlink()
-    shutil.rmtree(export_dir)
+        export_record = await ExportedRecording.objects.aget(id=input.exported_recording_id)
+        export_record.export_location = s3_key
+        export_record.status = ExportedRecording.Status.COMPLETE
+        await database_sync_to_async(export_record.save)(update_fields=["export_location", "status"])
 
-    export_record = await ExportedRecording.objects.aget(id=input.exported_recording_id)
-    export_record.export_location = s3_key
-    export_record.status = ExportedRecording.Status.COMPLETE
-    await database_sync_to_async(export_record.save)(update_fields=["export_location", "status"])
-
-    logger.info(f"Updated ExportedRecording {input.exported_recording_id} with export_location {s3_key}")
+        logger.info(f"Updated ExportedRecording {input.exported_recording_id} with export_location {s3_key}")
+    finally:
+        # always remove staging data, including on the failure path - a failed or retried export
+        # must not leave partial /tmp data behind to accumulate and fill the worker disk
+        shutil.rmtree(export_dir, ignore_errors=True)
+        zip_path.unlink(missing_ok=True)
 
 
 @activity.defn
