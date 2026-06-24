@@ -1717,11 +1717,16 @@ export const getAgentApplicationsPreviewProxyUrl = (
 }
 
 /**
- * Authoring-side proxy for invoking a *draft* (or any non-live) revision.
+ * Authoring-side proxy for a preview/MOCKED invoke of any revision.
  *
- * Closes the anonymous-draft-invoke gap: the public ingress URL refuses
- * non-live invokes that don't carry the `x-agent-preview-secret` header;
- * this proxy attaches it after authenticating the Django caller.
+ * Two uses, both authenticated as the Django caller and given a minted
+ * preview JWT this proxy attaches:
+ *   - a *draft* (non-live) revision — closes the anonymous-draft-invoke
+ *     gap: the public ingress URL refuses non-live invokes without a
+ *     valid preview token; this proxy supplies one.
+ *   - the *live* revision — drives a mocked run of the live agent (side
+ *     effects suppressed, `$ai_*` tagged) so an author can safely
+ *     reproduce / investigate live behavior without firing real writes.
  *
  * URL: `/api/projects/<team>/agent_applications/<app>/preview-proxy/<rest>`
  * Auth: standard PAT / session — `agents:write` scope (POST run/send/cancel
@@ -1809,11 +1814,12 @@ export const getAgentApplicationsPreviewTokenMintUrl = (
 }
 
 /**
- * Mint a short-lived JWT for talking to a non-live revision
- * directly via the public ingress URL. The caller attaches it as
- * the `x-agent-preview-token` header (or `?preview_token=` query
- * param for `EventSource`). See `_mint_preview_jwt` for the
- * payload + claim binding.
+ * Mint a short-lived JWT for a preview/MOCKED invoke directly via
+ * the public ingress URL — either a non-live (draft/ready) revision, or
+ * the live revision to mock a run of the live agent. The caller attaches
+ * it as the `x-agent-preview-token` header (or `?preview_token=` query
+ * param for `EventSource`). See `_mint_preview_jwt` for the payload +
+ * claim binding.
  *
  * The response also includes `endpoints`, `auth`, and
  * `preview_proxy` blocks so the caller can wire a preview

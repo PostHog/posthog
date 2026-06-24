@@ -1842,7 +1842,7 @@ export type AgentApplicationsApprovalsListParams = {
 export type AgentApplicationsPreviewProxyGetParams = {
     format?: AgentApplicationsPreviewProxyGetFormat
     /**
-     * Target draft revision. Must belong to this application and not be live.
+     * Target revision. Must belong to this application. May be a draft/ready revision, or the live revision to drive a mocked run of the live agent (side effects suppressed).
      */
     revision_id: string
 }
@@ -1858,7 +1858,7 @@ export const AgentApplicationsPreviewProxyGetFormat = {
 export type AgentApplicationsPreviewProxyParams = {
     format?: AgentApplicationsPreviewProxyFormat
     /**
-     * Target draft revision. Must belong to this application and not be live.
+     * Target revision. Must belong to this application. May be a draft/ready revision, or the live revision to drive a mocked run of the live agent (side effects suppressed).
      */
     revision_id: string
 }
@@ -1873,14 +1873,14 @@ export const AgentApplicationsPreviewProxyFormat = {
 
 export type AgentApplicationsPreviewTokenParams = {
     /**
-     * Target draft revision. Must belong to this application and not be live.
+     * Target revision. Must belong to this application. May be a draft/ready revision, or the live revision to mint a token for a mocked run of the live agent (side effects suppressed).
      */
     revision_id: string
 }
 
 export type AgentApplicationsPreviewTokenMintParams = {
     /**
-     * Target draft revision. Must belong to this application and not be live.
+     * Target revision. Must belong to this application. May be a draft/ready revision, or the live revision to mint a token for a mocked run of the live agent (side effects suppressed).
      */
     revision_id: string
 }

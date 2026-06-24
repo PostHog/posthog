@@ -2158,11 +2158,16 @@ export const AgentApplicationsDestroyParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Authoring-side proxy for invoking a *draft* (or any non-live) revision.
+ * Authoring-side proxy for a preview/MOCKED invoke of any revision.
  *
- * Closes the anonymous-draft-invoke gap: the public ingress URL refuses
- * non-live invokes that don't carry the `x-agent-preview-secret` header;
- * this proxy attaches it after authenticating the Django caller.
+ * Two uses, both authenticated as the Django caller and given a minted
+ * preview JWT this proxy attaches:
+ *   - a *draft* (non-live) revision — closes the anonymous-draft-invoke
+ *     gap: the public ingress URL refuses non-live invokes without a
+ *     valid preview token; this proxy supplies one.
+ *   - the *live* revision — drives a mocked run of the live agent (side
+ *     effects suppressed, `$ai_*` tagged) so an author can safely
+ *     reproduce / investigate live behavior without firing real writes.
  *
  * URL: `/api/projects/<team>/agent_applications/<app>/preview-proxy/<rest>`
  * Auth: standard PAT / session — `agents:write` scope (POST run/send/cancel
@@ -2180,7 +2185,11 @@ export const AgentApplicationsPreviewProxyParams = /* @__PURE__ */ zod.object({
 
 export const AgentApplicationsPreviewProxyQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['json', 'sse']).optional(),
-    revision_id: zod.string().describe('Target draft revision. Must belong to this application and not be live.'),
+    revision_id: zod
+        .string()
+        .describe(
+            'Target revision. Must belong to this application. May be a draft/ready revision, or the live revision to drive a mocked run of the live agent (side effects suppressed).'
+        ),
 })
 
 export const AgentApplicationsPreviewProxyBody = /* @__PURE__ */ zod
