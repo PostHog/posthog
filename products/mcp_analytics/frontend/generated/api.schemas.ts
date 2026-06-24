@@ -421,6 +421,13 @@ export type McpAnalyticsSessionsListParams = {
     search?: string
 }
 
+export type McpAnalyticsSessionsGenerateIntentParams = {
+    /**
+     * Absolute ISO timestamp lower bound for the intent scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted.
+     */
+    date_from?: string
+}
+
 export type McpAnalyticsSessionsToolCallsParams = {
     /**
      * Absolute ISO timestamp lower bound for the event scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted.

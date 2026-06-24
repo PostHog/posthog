@@ -266,6 +266,18 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "the stored summary."
         ),
         request=None,
+        parameters=[
+            OpenApiParameter(
+                name="date_from",
+                type=OpenApiTypes.DATETIME,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Absolute ISO timestamp lower bound for the intent scan — pass the session's "
+                    "start so older sessions resolve. Defaults to a 7-day lookback when omitted."
+                ),
+            ),
+        ],
         responses={200: MCPSessionIntentSerializer},
     )
     @action(detail=True, methods=["post"], url_path="generate_intent")
@@ -273,8 +285,9 @@ class MCPSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         session_id = str(pk or "")
         if not session_id:
             return Response({"detail": "session_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+        date_from = _parse_detail_date_from(request.query_params.get("date_from"))
         try:
-            intent = api.generate_session_intent(self.team, session_id=session_id)
+            intent = api.generate_session_intent(self.team, session_id=session_id, date_from=date_from)
         except contracts.IntentGenerationUnavailable:
             return Response(
                 {"detail": "Intent generation is unavailable (LLM not configured)."},

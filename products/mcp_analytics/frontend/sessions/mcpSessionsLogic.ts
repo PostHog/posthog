@@ -165,11 +165,13 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                         return null
                     }
                     // session_id comes from untrusted event properties — encode it so path/query
-                    // delimiters can't redirect this POST to another same-origin endpoint. The
-                    // summary covers the whole session, so no date bound is sent.
+                    // delimiters can't redirect this POST to another same-origin endpoint. Bound the
+                    // intent scan by the session's start so older sessions resolve, mirroring loadToolCalls.
+                    const session = values.sessions.find((s) => s.session_id === sessionId)
                     return await mcpAnalyticsSessionsGenerateIntent(
                         String(values.currentProjectId),
-                        encodeURIComponent(sessionId)
+                        encodeURIComponent(sessionId),
+                        { date_from: session?.session_start || undefined }
                     )
                 },
             },

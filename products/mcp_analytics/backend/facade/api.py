@@ -68,14 +68,15 @@ def list_mcp_tool_calls(team: Team, session_id: str, date_from: datetime | None 
     return logic.list_mcp_tool_calls(team, session_id=session_id, date_from=date_from)
 
 
-def generate_session_intent(team: Team, session_id: str) -> str:
+def generate_session_intent(team: Team, session_id: str, date_from: datetime | None = None) -> str:
     """Generate (or return the cached) intent summary for an MCP session.
 
     Shared entry point for the UI's on-demand button and any future caller
-    (e.g. clustering). Persists the result to ``MCPSession.intent``. Summarises the
-    whole session — intent fetching is not bounded by any date filter.
+    (e.g. clustering). Persists the result to ``MCPSession.intent``. ``date_from``
+    bounds the event scan to keep older sessions summarisable (same bound as
+    ``list_mcp_tool_calls``).
     """
-    return logic.generate_session_intent(team, session_id=session_id)
+    return logic.generate_session_intent(team, session_id=session_id, date_from=date_from)
 
 
 def get_intent_cluster_snapshot(team: Team) -> contracts.IntentClusterSnapshot:

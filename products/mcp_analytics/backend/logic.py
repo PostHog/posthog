@@ -305,7 +305,7 @@ def _attach_intents(team: Team, session_ids: list[str]) -> dict[str, str]:
     return {session_id: intent for session_id, intent in rows if intent}
 
 
-def generate_session_intent(team: Team, session_id: str) -> str:
+def generate_session_intent(team: Team, session_id: str, date_from: datetime | None = None) -> str:
     """Return the session's intent summary, generating and persisting it on first request.
 
     Cache-on-empty: an existing non-empty ``MCPSession.intent`` is returned as-is. Otherwise the
@@ -315,14 +315,14 @@ def generate_session_intent(team: Team, session_id: str) -> str:
     doesn't surface a non-intent as an intent.
     Raises ``contracts.IntentGenerationUnavailable`` if the LLM is unreachable.
 
-    The whole session's intents are summarised, not just those inside the active date filter —
-    ``fetch_session_intents`` reads every recorded intent for the session.
+    ``date_from`` bounds the event scan; the UI passes the session's start (the same bound
+    ``list_mcp_tool_calls`` uses) so any listed session stays summarisable.
     """
     existing = MCPSession.objects.filter(team=team, session_id=session_id).values_list("intent", flat=True).first()
     if existing:
         return existing
 
-    intents = intent_generation.fetch_session_intents(team, session_id)
+    intents = intent_generation.fetch_session_intents(team, session_id, date_from=date_from)
     if not intents:
         return intent_generation.NO_INTENT_MESSAGE
 

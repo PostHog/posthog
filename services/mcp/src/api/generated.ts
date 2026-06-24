@@ -55156,6 +55156,13 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type EnvironmentsMcpAnalyticsSessionsGenerateIntentParams = {
+    /**
+     * Absolute ISO timestamp lower bound for the intent scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted.
+     */
+    date_from?: string;
+    };
+
     export type EnvironmentsMcpAnalyticsSessionsToolCallsParams = {
     /**
      * Absolute ISO timestamp lower bound for the event scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted.
@@ -61564,6 +61571,13 @@ export namespace Schemas {
      * Case-insensitive substring filter matched against session_id, distinct_id, mcp_client_name, and tools_used.
      */
     search?: string;
+    };
+
+    export type McpAnalyticsSessionsGenerateIntentParams = {
+    /**
+     * Absolute ISO timestamp lower bound for the intent scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted.
+     */
+    date_from?: string;
     };
 
     export type McpAnalyticsSessionsToolCallsParams = {
