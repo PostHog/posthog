@@ -78,9 +78,8 @@ Pushes still trigger CI, which burns runner credits, so batch related commits an
 #### Definition of done — run preflight before pushing
 
 Before you push (or tell the human a task is done), run `hogli ci:preflight --fix` and resolve everything it reports.
-It scopes a curated set of checks to the files your branch touched — formatting, lint, lockfile integrity, OpenAPI drift, migration conflicts — each mapped to a failure class that has taken master down, so they never burn a full CI matrix.
-It is advisory (it never blocks); the point is to fix locally what CI would otherwise reject.
-Checks that need the dev stack or `node_modules` skip with a note when those are absent, so it is always safe to run.
+It scopes checks to the files your branch touched — formatting, lint, lockfile integrity, OpenAPI drift, migration conflicts — each mapped to a failure class that has taken master down, plus a branch-freshness check that tells you to merge master in when the branch is stale.
+It is advisory (it never blocks): fix the `✗ fail` lines and act on the `→ advisory` ones (including merging master). Checks needing the dev stack or `node_modules` skip with a note when those are absent, so it is always safe to run.
 
 ### Public open source repo guidance
 

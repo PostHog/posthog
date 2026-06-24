@@ -3,8 +3,9 @@
 ``ci:preflight`` is the pre-push counterpart to ``ci:insights``: insights tells
 you what's broken on master, preflight stops you from being the one who breaks
 it. It scopes a curated set of checks to the files your branch actually touched,
-each mapped to a CI failure class we've seen take master down, and is advisory by
-default so it never blocks a push.
+each mapped to a CI failure class we've seen take master down, plus an always-on
+branch-freshness check (a stale branch breaks CI on merge whatever the diff), and
+is advisory by default so it never blocks a push.
 
     hogli ci:preflight            # report what your diff could break in CI
     hogli ci:preflight --fix      # auto-remediate what's safe, report the rest
@@ -19,11 +20,13 @@ checkout or inside an agent sandbox. The agent loop is expected to run this with
 
 from __future__ import annotations
 
+import os
 import json
 import shutil
 import socket
 import subprocess
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import PurePath
 from typing import Any, Literal
 
@@ -176,6 +179,83 @@ def _run_check(chk: Check, do_fix: bool) -> tuple[Status, str]:
     return "fail", detail[-1] if detail else f"exit {result.returncode}"
 
 
+# Branch-freshness defaults. A branch far behind master accumulates semantic
+# conflicts and generated-file drift (migrations, OpenAPI, lockfile), and lags CI
+# workflow changes that assume a rebased base — all of which only surface at PR
+# time. Merging master in early defuses them. Advisory only; never auto-merged (a
+# merge can conflict and is the human/agent's call). Deliberately aggressive:
+# master moves fast (hundreds of commits/day), so even a day-old branch is worth
+# re-syncing before a push. Env-tunable; calibrate from the `behind_commits` /
+# `branch_age_days` telemetry below.
+_MASTER_REF = "origin/master"
+_STALE_COMMITS_DEFAULT = 10
+_STALE_DAYS_DEFAULT = 1
+
+
+def _git(*args: str, timeout: float = 5.0) -> str | None:
+    """Run a git command in the repo, returning trimmed stdout or None on any failure."""
+    try:
+        result = subprocess.run(["git", "-C", str(REPO_ROOT), *args], capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def _env_int(var: str, default: int) -> int:
+    try:
+        return int(os.environ.get(var, default))
+    except ValueError:
+        return default
+
+
+def _commit_age_days(ref: str) -> int | None:
+    """Whole days since *ref* was committed — how long since the branch last held master's state."""
+    iso = _git("show", "-s", "--format=%cI", ref)
+    if not iso:
+        return None
+    try:
+        when = datetime.fromisoformat(iso)
+    except ValueError:
+        return None
+    return max(0, (datetime.now(when.tzinfo) - when).days)
+
+
+def _staleness() -> tuple[Status, str, dict[str, Any]]:
+    """How far the branch has drifted from master, independent of the diff.
+
+    Best-effort ``git fetch`` so the count reflects real master movement; falls
+    back to the local ref when offline, and skips when there's no merge-base
+    (fresh clone, no remote). On PostHog's squash-merge master, commits behind ≈
+    PRs merged since the branch last synced. Returns (status, detail, telemetry props).
+    """
+    _git("fetch", "--quiet", "origin", "master", timeout=10.0)  # best-effort; offline falls back to local ref
+    merge_base = _git("merge-base", "HEAD", _MASTER_REF)
+    if not merge_base:
+        return "skipped", f"no merge-base with {_MASTER_REF}", {"stale": None}
+
+    # Commits on master the branch doesn't have = how far behind. Zero means the
+    # branch already contains master's tip (up to date or ahead), so age is moot.
+    count = _git("rev-list", "--count", f"{merge_base}..{_MASTER_REF}")
+    behind = int(count) if count and count.isdigit() else 0
+    if behind == 0:
+        return "pass", "even with master", {"stale": False, "behind_commits": 0, "branch_age_days": 0}
+
+    age_days = _commit_age_days(merge_base)  # merge-base age ≈ time since the branch last synced with master
+    props: dict[str, Any] = {"stale": False, "behind_commits": behind, "branch_age_days": age_days}
+
+    reasons: list[str] = []
+    if behind >= _env_int("HOGLI_PREFLIGHT_STALE_COMMITS", _STALE_COMMITS_DEFAULT):
+        reasons.append(f"{behind} commits (≈ PRs) behind")
+    if age_days is not None and age_days >= _env_int("HOGLI_PREFLIGHT_STALE_DAYS", _STALE_DAYS_DEFAULT):
+        reasons.append(f"last synced {age_days}d ago")
+    if reasons:
+        props["stale"] = True
+        return "advisory", f"{' · '.join(reasons)} — merge master in: git merge {_MASTER_REF}", props
+
+    synced = f", synced {age_days}d ago" if age_days is not None else ""
+    return "pass", f"{behind} commits behind master{synced}", props
+
+
 _ICON: dict[Status, str] = {"pass": "✓", "fail": "✗", "advisory": "→", "skipped": "·"}
 _COLOR: dict[Status, str] = {"pass": "green", "fail": "red", "advisory": "yellow", "skipped": "bright_black"}
 
@@ -190,10 +270,12 @@ def _emit_telemetry(summary: dict[str, Any]) -> None:
     inactive, so this already respects ``POSTHOG_TELEMETRY_OPT_OUT`` /
     ``DO_NOT_TRACK`` / ``hogli telemetry:off`` / CI auto-off. No new consent surface.
     """
-    props: dict[str, Any] = {k: summary[k] for k in ("changed_files", "triggered", "failures", "mode")}
+    keys = ("changed_files", "triggered", "failures", "mode", "stale", "behind_commits", "branch_age_days")
+    props: dict[str, Any] = {k: summary[k] for k in keys if k in summary}
     props["results"] = {r["check"]: r["status"] for r in summary["results"]}
     # Registries are read directly by design (see hogli.hooks). Merge the same
-    # dev-context props the command lifecycle attaches to command_completed.
+    # dev-context props the command lifecycle attaches to command_completed
+    # (incl. git_branch, so a run ties back to its PR).
     for hook in telemetry_property_hooks:
         try:
             props.update(hook("ci:preflight"))
@@ -225,6 +307,15 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
     if not as_json:
         click.secho(f"\n  ci:preflight — {len(files)} changed file(s) vs {base}\n", bold=True)
 
+    # Always-on branch-health check, independent of which files changed: a stale
+    # branch breaks CI on merge no matter what the diff touches. Advisory only —
+    # it never counts toward `failures` (a merge is the human/agent's call).
+    stale_status, stale_detail, stale_props = _staleness()
+    results.append({"check": "staleness", "status": stale_status, "files": 0, "detail": stale_detail})
+    if not as_json:
+        click.secho(f"   {_ICON[stale_status]} [staleness] branch freshness vs master", fg=_COLOR[stale_status])
+        click.echo(f"       {stale_detail}")
+
     for chk in triggered:
         status, detail = _run_check(chk, do_fix)
         failures += status == "fail"
@@ -239,6 +330,7 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
         "failures": failures,
         "mode": "fix" if do_fix else ("strict" if strict else "advisory"),
         "results": results,
+        **stale_props,
     }
     if as_json:
         click.echo(json.dumps(summary))
