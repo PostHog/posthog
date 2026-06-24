@@ -9,7 +9,6 @@ import structlog
 from jsonpath_ng.exceptions import JSONPathError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from requests import PreparedRequest, Response
-from requests.auth import AuthBase
 from urllib3.util.retry import Retry
 
 from posthog.schema import (
@@ -882,7 +881,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             {
                 **manifest,
                 "resources": engine_resources,
-                "client": {**client, "session": _build_preview_session(preview_auth, redact_values=secret_values)},
+                "client": {**client, "session": _build_preview_session(secret_values)},
             },
         )
 
@@ -935,16 +934,12 @@ class _PreviewSession(_NoRedirectSession):
         return super().send(request, **kwargs)
 
 
-def _build_preview_session(auth: AuthBase | None, redact_values: tuple[str, ...] | None = None) -> _PreviewSession:
+def _build_preview_session(redact_values: tuple[str, ...]) -> _PreviewSession:
     """A tracked preview session: no transport retries, credentials registered
     for value-based redaction (auth may be injected under a manifest-chosen
-    param/header the denylist can't anticipate). Pass ``redact_values`` when the
-    caller already computed them to avoid a second ``auth_secret_values`` pass."""
+    param/header the denylist can't anticipate)."""
     session = _PreviewSession()
-    adapter = make_tracked_adapter(
-        retry=Retry(total=0),
-        redact_values=redact_values if redact_values is not None else auth_secret_values(auth),
-    )
+    adapter = make_tracked_adapter(retry=Retry(total=0), redact_values=redact_values)
     session.mount("https://", adapter)
     session.mount("http://", adapter)
     return session
@@ -967,6 +962,8 @@ def _collect_preview_rows(resource: Any, max_rows: int) -> list[dict[str, Any]]:
     Iterating a :class:`Resource` yields pages (``list[dict]``). Returning as
     soon as the cap is hit abandons the lazy generator, which stops it issuing
     further requests — the bound on a fan-out child's per-parent request volume.
+    This rests on the engine yielding per parent lazily; an engine change that
+    eagerly pre-fetches all parents would break the bound.
     """
     rows: list[dict[str, Any]] = []
     for page in resource:

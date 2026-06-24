@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
+import requests
 from parameterized import parameterized
 from requests import Response
 from urllib3.response import HTTPResponse
@@ -20,8 +21,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
     MAX_MANIFEST_RESOURCES,
     PREVIEW_MAX_ROWS,
+    PROBE_CONNECT_TIMEOUT,
     PROBE_ERROR_SNIPPET_BYTES,
     PROBE_MAX_RESOURCES,
+    PROBE_READ_TIMEOUT,
     CustomSource,
     FanoutChain,
     ManifestValidationError,
@@ -1561,6 +1564,18 @@ def _apikey_manifest() -> dict:
     manifest = _minimal_manifest()
     manifest["client"]["auth"] = {"type": "api_key", "name": "key", "location": "query"}
     return manifest
+
+
+class TestPreviewSession(SimpleTestCase):
+    def test_send_pins_no_redirect_and_default_timeout(self):
+        prepared = requests.Request("GET", "https://acme.example.com/").prepare()
+
+        with patch.object(requests.Session, "send", return_value=Response()) as parent_send:
+            _PreviewSession().send(prepared)
+
+        forwarded = parent_send.call_args.kwargs
+        assert forwarded["allow_redirects"] is False
+        assert forwarded["timeout"] == (PROBE_CONNECT_TIMEOUT, PROBE_READ_TIMEOUT)
 
 
 class TestJsonTypeLabel(SimpleTestCase):
