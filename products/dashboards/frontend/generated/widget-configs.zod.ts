@@ -61,6 +61,8 @@ export const experimentsWidgetFormSchema = experimentsWidgetConfigSchema.pick({
 export const logsWidgetFormSchema = logsWidgetConfigSchema.pick({
     limit: true,
     dateRange: true,
+    wrapLines: true,
+    timezone: true,
 })
 
 export const sessionReplayWidgetFormSchema = sessionReplayWidgetConfigSchema.pick({

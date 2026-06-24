@@ -717,12 +717,23 @@ export const LogsListWidgetConfigApiSeverityLevelsItem = {
     Fatal: 'fatal',
 } as const
 
+/**
+ * Render log timestamps in UTC or in each viewer's local timezone.
+ */
+export type LogsListWidgetConfigApiTimezone =
+    (typeof LogsListWidgetConfigApiTimezone)[keyof typeof LogsListWidgetConfigApiTimezone]
+
+export const LogsListWidgetConfigApiTimezone = {
+    Utc: 'UTC',
+    Local: 'local',
+} as const
+
 export interface LogsListWidgetConfigApi {
     dateRange?: WidgetDateRangeApi | null
     /**
      * Maximum number of log lines to return.
      * @minimum 1
-     * @maximum 25
+     * @maximum 100
      */
     limit?: number
     /** Sort by newest (latest) or oldest (earliest) first. */
@@ -731,6 +742,12 @@ export interface LogsListWidgetConfigApi {
     severityLevels?: LogsListWidgetConfigApiSeverityLevelsItem[]
     /** Only show logs from these services. Empty shows all services. */
     serviceNames?: string[]
+    /** Wrap long log lines instead of truncating them to a single row. */
+    wrapLines?: boolean
+    /** Render log timestamps in UTC or in each viewer's local timezone. */
+    timezone?: LogsListWidgetConfigApiTimezone
+    /** short_id of a saved logs view to use as the source. When set, the saved view owns the date range, severity, service, and property filters; only orderBy and limit still apply. */
+    savedViewId?: string | null
 }
 
 export type DashboardWidgetConfigApi =

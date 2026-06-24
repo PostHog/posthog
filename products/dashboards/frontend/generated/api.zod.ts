@@ -237,10 +237,12 @@ export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourLimitMax 
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourOrderByDefault = `created_at`
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourOrderDirectionDefault = `DESC`
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneFourStatusDefault = `all`
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSixLimitDefault = 10
-export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSixLimitMax = 25
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSixLimitDefault = 50
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSixLimitMax = 100
 
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSixOrderByDefault = `latest`
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSixWrapLinesDefault = false
+export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSixTimezoneDefault = `UTC`
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneNameMax = 400
 
 export const dashboardsPartialUpdateBodyDeleteInsightsDefault = false
@@ -722,6 +724,28 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                             .array(zod.string())
                                             .optional()
                                             .describe('Only show logs from these services. Empty shows all services.'),
+                                        wrapLines: zod
+                                            .boolean()
+                                            .default(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSixWrapLinesDefault
+                                            )
+                                            .describe(
+                                                'Wrap long log lines instead of truncating them to a single row.'
+                                            ),
+                                        timezone: zod
+                                            .enum(['UTC', 'local'])
+                                            .default(
+                                                dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSixTimezoneDefault
+                                            )
+                                            .describe(
+                                                "Render log timestamps in UTC or in each viewer's local timezone."
+                                            ),
+                                        savedViewId: zod
+                                            .union([zod.string(), zod.null()])
+                                            .optional()
+                                            .describe(
+                                                'short_id of a saved logs view to use as the source. When set, the saved view owns the date range, severity, service, and property filters; only orderBy and limit still apply.'
+                                            ),
                                     }),
                                 ])
                                 .optional()
@@ -940,10 +964,12 @@ export const dashboardsWidgetsBatchCreateBodyWidgetsItemFiveNameMax = 400
 
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemSixNameMax = 400
 
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemSixConfigOneLimitDefault = 10
-export const dashboardsWidgetsBatchCreateBodyWidgetsItemSixConfigOneLimitMax = 25
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemSixConfigOneLimitDefault = 50
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemSixConfigOneLimitMax = 100
 
 export const dashboardsWidgetsBatchCreateBodyWidgetsItemSixConfigOneOrderByDefault = `latest`
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemSixConfigOneWrapLinesDefault = false
+export const dashboardsWidgetsBatchCreateBodyWidgetsItemSixConfigOneTimezoneDefault = `UTC`
 export const dashboardsWidgetsBatchCreateBodyWidgetsMax = 10
 
 export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
@@ -1690,6 +1716,20 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                     .array(zod.string())
                                     .optional()
                                     .describe('Only show logs from these services. Empty shows all services.'),
+                                wrapLines: zod
+                                    .boolean()
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemSixConfigOneWrapLinesDefault)
+                                    .describe('Wrap long log lines instead of truncating them to a single row.'),
+                                timezone: zod
+                                    .enum(['UTC', 'local'])
+                                    .default(dashboardsWidgetsBatchCreateBodyWidgetsItemSixConfigOneTimezoneDefault)
+                                    .describe("Render log timestamps in UTC or in each viewer's local timezone."),
+                                savedViewId: zod
+                                    .union([zod.string(), zod.null()])
+                                    .optional()
+                                    .describe(
+                                        'short_id of a saved logs view to use as the source. When set, the saved view owns the date range, severity, service, and property filters; only orderBy and limit still apply.'
+                                    ),
                             })
                             .describe('Configuration for the recent logs widget.'),
                     }),
