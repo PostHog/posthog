@@ -1287,7 +1287,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             else:
                 raise serializers.ValidationError({"slack_alert_channel_id": "Must be a string."})
         # AI resolution channels: list of valid channel strings or null
-        VALID_CHANNELS = {"widget", "api", "email", "slack", "teams", "github"}
+        VALID_CHANNELS = {"widget", "email", "slack", "teams", "github"}
         if "ai_resolution_channels" in value:
             channels = value.get("ai_resolution_channels")
             if channels is None:

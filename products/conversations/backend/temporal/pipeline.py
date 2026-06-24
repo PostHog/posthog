@@ -1070,7 +1070,7 @@ def _persist_reply_sync(
         if ticket:
             settings_dict = ticket.team.conversations_settings or {}
             modes = settings_dict.get("ai_reply_modes") or {}
-            channel_modes = modes.get(ticket.effective_channel) or {}
+            channel_modes = modes.get(ticket.channel_source) or {}
             mode = channel_modes.get(ticket_type, "private_note")
             if mode == "bot_reply":
                 is_private = False

@@ -9,7 +9,6 @@ import { supportSettingsLogic } from './supportSettingsLogic'
 
 const CHANNEL_LABELS: Record<string, string> = {
     widget: 'Widget',
-    api: 'API',
     slack: 'Slack',
     email: 'Email',
     teams: 'Microsoft Teams',
