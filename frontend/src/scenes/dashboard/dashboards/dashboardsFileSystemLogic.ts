@@ -29,8 +29,10 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
         actions: [projectTreeDataLogic, ['createSavedItem']],
     })),
     actions({
-        // Tree arm: select a folder ('' = the dashboards root). Expansion is owned by the LemonTree panel.
+        // Tree arm: select a folder ('' = the dashboards root).
         navigateToFolder: (folder: string) => ({ folder }),
+        // Toggle a folder's expand/collapse state in the panel (folders start expanded — see collapsedFolders).
+        toggleFolder: (folder: string) => ({ folder }),
         // Create a folder inside the current folder (the UI prompts for the name).
         createFolder: (name: string) => ({ name }),
     }),
@@ -74,6 +76,14 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
             '',
             {
                 navigateToFolder: (_, { folder }) => folder,
+            },
+        ],
+        // Folders the user has explicitly collapsed. Everything else is expanded by default (the tree
+        // derives expandedItemIds as "all folders minus these"), so newly-loaded folders appear open.
+        collapsedFolders: [
+            {} as Record<string, boolean>,
+            {
+                toggleFolder: (state, { folder }) => ({ ...state, [folder]: !state[folder] }),
             },
         ],
     }),

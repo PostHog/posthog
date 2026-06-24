@@ -37,7 +37,11 @@ describe('DashboardsTree', () => {
 
     beforeEach(() => {
         navigateToFolder.mockClear()
-        ;(useActions as jest.Mock).mockReturnValue({ navigateToFolder, createFolder: jest.fn() })
+        ;(useActions as jest.Mock).mockReturnValue({
+            navigateToFolder,
+            toggleFolder: jest.fn(),
+            createFolder: jest.fn(),
+        })
     })
 
     function mockValues(overrides: Record<string, any>): void {
@@ -46,6 +50,7 @@ describe('DashboardsTree', () => {
             currentFolder: '',
             currentSubtreeDashboards: [],
             entryByRef: {},
+            collapsedFolders: {},
             dashboardsLoading: false,
             ...overrides,
         })
