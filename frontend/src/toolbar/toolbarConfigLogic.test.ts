@@ -368,15 +368,18 @@ describe('toolbar toolbarConfigLogic', () => {
             })
         }
 
-        it.each([404, 405])('does not report an exception for expected missing-route status %p', async (status) => {
-            mockHeadCheckStatus(status)
-            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
-            logic.mount()
-            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
-            expect(captureExceptionSpy).not.toHaveBeenCalled()
-        })
+        it.each([400, 403, 404, 405, 429])(
+            'does not report an exception for expected 4xx client error %p',
+            async (status) => {
+                mockHeadCheckStatus(status)
+                const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+                logic.mount()
+                await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+                expect(captureExceptionSpy).not.toHaveBeenCalled()
+            }
+        )
 
-        it.each([403, 500, 504])('reports an exception for unexpected http status %p', async (status) => {
+        it.each([500, 502, 504])('reports an exception for 5xx server error %p', async (status) => {
             mockHeadCheckStatus(status)
             const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
             logic.mount()

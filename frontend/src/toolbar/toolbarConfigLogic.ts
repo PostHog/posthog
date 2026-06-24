@@ -606,14 +606,6 @@ function classifyFetchError(error: unknown): string {
     return 'unknown'
 }
 
-/**
- * HTTP statuses from the uiHost reachability check that mean the host simply
- * doesn't serve `/toolbar_oauth/check` (reverse-proxied or older self-hosted
- * instances). These are expected, handled by the auth/config fallback, and must
- * not be reported as exceptions — only tracked as analytics.
- */
-const EXPECTED_UI_HOST_CHECK_STATUSES = new Set([404, 405])
-
 /** Extract the HTTP status from an `HTTP <status>` error, or null if not one. */
 function httpStatusFromError(error: unknown): number | null {
     if (error instanceof Error && error.message.startsWith('HTTP ')) {
@@ -621,6 +613,18 @@ function httpStatusFromError(error: unknown): number | null {
         return Number.isNaN(status) ? null : status
     }
     return null
+}
+
+/**
+ * A 4xx from the uiHost reachability check is an expected outcome: the configured
+ * host simply isn't a current PostHog backend (misconfigured host, a proxy not
+ * forwarding `/toolbar_oauth/*`, or an older self-hosted version). The check is
+ * designed to detect this and falls back to the auth/config path, so it must not
+ * be reported as an exception — only tracked as analytics. Mirrors `toolbarApi`,
+ * which reports only 5xx server errors and treats client errors as expected.
+ */
+function isExpectedUiHostCheckError(httpStatus: number | null): boolean {
+    return httpStatus !== null && httpStatus >= 400 && httpStatus < 500
 }
 
 /**
@@ -676,10 +680,10 @@ function verifyUiHostReachability(
             actions.setAuthStatus('error')
             const errorType = classifyFetchError(error)
             const httpStatus = httpStatusFromError(error)
-            // A missing-route response (404/405) just means this uiHost doesn't serve
-            // `/toolbar_oauth/check` — expected and handled below, so don't report it as
-            // an exception (it floods error tracking). Genuinely unexpected failures still are.
-            if (httpStatus === null || !EXPECTED_UI_HOST_CHECK_STATUSES.has(httpStatus)) {
+            // Expected 4xx misconfigurations are handled below (config modal / fallback) and
+            // would otherwise flood error tracking — don't report them. Genuine network/CORS,
+            // timeout, and 5xx server failures still are.
+            if (!isExpectedUiHostCheckError(httpStatus)) {
                 captureToolbarException(error, 'ui_host_check', {
                     error_type: errorType,
                 })
