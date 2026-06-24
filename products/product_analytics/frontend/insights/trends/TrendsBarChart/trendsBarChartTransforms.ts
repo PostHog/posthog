@@ -3,6 +3,7 @@ import type { Series, TimeInterval, TimeSeriesBarChartConfig } from '@posthog/qu
 
 import { COMPARE_PREVIOUS_DIM_OPACITY, dimHexColor } from '../shared/compareDimming'
 import { schemaGoalLinesToConfigs } from '../shared/goalLinesAdapter'
+import { humanizeSeriesLabel } from '../shared/humanizeSeriesLabel'
 import { buildTrendsYAxisConfig } from '../shared/trendsAxisFormat'
 import type { GoalLineLike, YFormatterFields } from '../shared/trendsChartDisplayOptions'
 
@@ -62,7 +63,7 @@ function buildMainTrendsBarSeries<R extends TrendsBarResultLike, M = unknown>(
     const yAxisId = opts.showMultipleYAxes && index > 0 ? `y${index}` : DEFAULT_Y_AXIS_ID
     return {
         key: String(r.id),
-        label: r.label ?? '',
+        label: humanizeSeriesLabel(r.label),
         data,
         color,
         meta,
