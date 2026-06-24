@@ -6302,7 +6302,7 @@ const api = {
     },
 
     organizationIntegrations: {
-        async list(): Promise<PaginatedResponse<IntegrationType>> {
+        async list(): Promise<PaginatedResponse<IntegrationType> | null> {
             return await new ApiRequest().organizationIntegrations().get()
         },
         async delete(id: IntegrationType['id']): Promise<void> {
