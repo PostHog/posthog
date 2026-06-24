@@ -8,6 +8,7 @@ import { buildTheme } from 'lib/charts/utils/theme'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { formatEventName } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
@@ -77,17 +78,22 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
 
     const hasData = (indexedResults ?? []).some((r: IndexedTrendResult) => r.count !== 0)
 
+    const humanizedResults = useMemo(
+        () => (indexedResults ?? []).map((r) => ({ ...r, label: formatEventName(r.label) ?? r.label })),
+        [indexedResults]
+    )
+
     // `TimeSeriesBarChart` has a single y-axis — `showMultipleYAxes` is intentionally not forwarded.
     const series: Series<TrendsSeriesMeta>[] = useMemo(
         () =>
-            buildStickinessBarSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
+            buildStickinessBarSeries<IndexedTrendResult, TrendsSeriesMeta>(humanizedResults, {
                 getColor: getTrendsColor,
                 // With the quill legend on, hidden series stay listed (dimmed) and are excluded via
                 // config.legend.hiddenKeys instead of being dropped here, so the legend can restore them.
                 getHidden: quillLegendEnabled ? undefined : getTrendsHidden,
                 buildMeta: buildTrendsSeriesMeta,
             }),
-        [indexedResults, getTrendsColor, getTrendsHidden, quillLegendEnabled]
+        [humanizedResults, getTrendsColor, getTrendsHidden, quillLegendEnabled]
     )
 
     const chartConfig: TimeSeriesBarChartConfig = useMemo(
