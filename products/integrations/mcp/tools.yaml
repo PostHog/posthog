@@ -55,6 +55,9 @@ tools:
     integrations-authorize-retrieve:
         operation: integrations_authorize_retrieve
         enabled: false
+    integrations-bing-ads-accounts-retrieve:
+        operation: integrations_bing_ads_accounts_retrieve
+        enabled: false
     integrations-channels-retrieve:
         operation: integrations_channels_retrieve
         enabled: true
