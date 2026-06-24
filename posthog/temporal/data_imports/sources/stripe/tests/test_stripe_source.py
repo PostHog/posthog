@@ -5,7 +5,6 @@ from unittest import mock
 from unittest.mock import MagicMock, patch
 
 import stripe as stripe_lib
-
 from stripe import ListObject
 
 from posthog.temporal.data_imports.sources.generated_configs import StripeAuthMethodConfig, StripeSourceConfig
