@@ -13,8 +13,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 
 from products.review_hog.backend.reviewer.constants import MAX_CONCURRENT_SANDBOXES
-from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext, extract_json_from_text
-from products.tasks.backend.services.custom_prompt_multi_turn_runner import MultiTurnSession
+from products.tasks.backend.facade.agents import CustomPromptSandboxContext, MultiTurnSession, extract_json_from_text
 
 logger = logging.getLogger(__name__)
 
@@ -31,9 +30,6 @@ def _resolve_context_for_local_dev(repository: str) -> CustomPromptSandboxContex
     """Build a sandbox context from the first team/user in the local database.
 
     Requires a GitHub integration for the team (Task.create_and_run resolves it).
-    Inlined here because products/tasks dropped the shared
-    ``resolve_sandbox_context_for_local_dev`` helper when the custom-prompt runner
-    was refactored into ``custom_prompt_multi_turn_runner``.
     """
     team = Team.objects.select_related("organization").first()
     if not team:

@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, patch
 from pydantic import BaseModel
 
 from products.review_hog.backend.reviewer.sandbox.executor import run_sandbox_review
-from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
+from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 _DUMMY_CONTEXT = CustomPromptSandboxContext(team_id=1, user_id=1, repository="test/repo")
 _MOCK_RESOLVE_CTX = AsyncMock(return_value=_DUMMY_CONTEXT)

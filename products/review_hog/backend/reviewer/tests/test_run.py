@@ -19,7 +19,7 @@ _RUN = "products.review_hog.backend.reviewer.run"
 
 
 @pytest.fixture
-def mock_tool_functions(tmp_path: Path) -> Generator[dict[str, Mock], None, None]:
+def mock_tool_functions(tmp_path: Path) -> Generator[dict[str, Mock]]:
     """Create mocked versions of all tool functions used in main()."""
     with (
         patch(f"{_RUN}.PRParser") as mock_parser_class,
@@ -33,6 +33,7 @@ def mock_tool_functions(tmp_path: Path) -> Generator[dict[str, Mock], None, None
         patch(f"{_RUN}.deduplicate_issues") as mock_deduplicate,
         patch(f"{_RUN}.validate_issues") as mock_validate,
         patch(f"{_RUN}.prepare_validation_markdown") as mock_prepare_validation,
+        patch(f"{_RUN}.publish_review") as mock_publish,
         patch(f"{_RUN}._REVIEW_HOG_DIR", tmp_path),
     ):
         yield {
@@ -47,6 +48,7 @@ def mock_tool_functions(tmp_path: Path) -> Generator[dict[str, Mock], None, None
             "deduplicate": mock_deduplicate,
             "validate": mock_validate,
             "prepare_validation": mock_prepare_validation,
+            "publish": mock_publish,
         }
 
 
