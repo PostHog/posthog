@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 import { Fragment } from 'react'
 
-import { IconExternal } from '@posthog/icons'
+import { IconCollapse, IconExternal, IconExpand } from '@posthog/icons'
 import {
     LemonButton,
     LemonSkeleton,
@@ -354,6 +354,17 @@ function RunsTable({
     })
 
     const columns: LemonTableColumns<WorkflowRun> = [
+        {
+            // Visible expand affordance — the whole row toggles (onRow below), this just shows state.
+            key: 'expand',
+            width: 0,
+            render: (_, run) =>
+                run.runId != null ? (
+                    <span className="text-secondary">
+                        {expandedRunKeys.includes(runRowKey(run)) ? <IconCollapse /> : <IconExpand />}
+                    </span>
+                ) : null,
+        },
         {
             title: 'Workflow',
             key: 'workflow',
