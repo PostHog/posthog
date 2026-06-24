@@ -226,34 +226,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
 
         select_fields.extend(
             [
-                ast.Alias(
-                    alias="start_interval_index",
-                    expr=parse_expr(
-                        """
-                        arrayJoin(
-                            arrayFilter(
-                                x -> x > -1,
-                                arrayMap(
-                                (interval_index, interval_date, _start_event_timestamps) ->
-                                    if(
-                                        {is_valid_start_interval},
-                                        interval_index - 1,
-                                        -1
-                                    ),
-                                    arrayEnumerate(date_range),
-                                    date_range,
-                                    arrayResize(
-                                        [start_event_timestamps],
-                                        length(date_range),
-                                        start_event_timestamps
-                                    )
-                                )
-                            )
-                        )
-                    """,
-                        {"is_valid_start_interval": is_valid_start_interval},
-                    ),
-                ),
+                self._start_interval_index_alias_expr(is_valid_start_interval),
                 ast.Alias(alias="intervals_from_base", expr=intervals_from_base_expr),
             ]
         )
@@ -365,34 +338,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         select_fields.extend(
             [
                 ast.Alias(alias="return_event_timestamps", expr=return_event_timestamps_expr),
-                ast.Alias(
-                    alias="start_interval_index",
-                    expr=parse_expr(
-                        """
-                        arrayJoin(
-                            arrayFilter(
-                                x -> x > -1,
-                                arrayMap(
-                                (interval_index, interval_date, _start_event_timestamps) ->
-                                    if(
-                                        {is_valid_start_interval},
-                                        interval_index - 1,
-                                        -1
-                                    ),
-                                    arrayEnumerate(date_range),
-                                    date_range,
-                                    arrayResize(
-                                        [start_event_timestamps],
-                                        length(date_range),
-                                        start_event_timestamps
-                                    )
-                                )
-                            )
-                        )
-                    """,
-                        {"is_valid_start_interval": is_valid_start_interval},
-                    ),
-                ),
+                self._start_interval_index_alias_expr(is_valid_start_interval),
                 ast.Alias(alias="intervals_from_base", expr=intervals_from_base_expr),
             ]
         )
@@ -450,6 +396,38 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             },
         )
 
+    def _start_interval_index_alias_expr(self, is_valid_start_interval: ast.Expr) -> ast.Alias:
+        # Explodes the (0-based) indices of intervals whose start event matched, shared by the single-scan
+        # and UNION-outer shapes. Reads the date_range and start_event_timestamps aliases from the same SELECT.
+        return ast.Alias(
+            alias="start_interval_index",
+            expr=parse_expr(
+                """
+                arrayJoin(
+                    arrayFilter(
+                        x -> x > -1,
+                        arrayMap(
+                        (interval_index, interval_date, _start_event_timestamps) ->
+                            if(
+                                {is_valid_start_interval},
+                                interval_index - 1,
+                                -1
+                            ),
+                            arrayEnumerate(date_range),
+                            date_range,
+                            arrayResize(
+                                [start_event_timestamps],
+                                length(date_range),
+                                start_event_timestamps
+                            )
+                        )
+                    )
+                )
+            """,
+                {"is_valid_start_interval": is_valid_start_interval},
+            ),
+        )
+
     def _build_dwh_retention_event_query(
         self,
         entity: RetentionEntity,
@@ -497,23 +475,9 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                 return_event_data_expr = event_data_expr
         else:
             if query_kind == "start":
-                timestamps_expr = parse_expr(
-                    """
-                    arraySort(
-                        groupUniqArrayIf(
-                            {start_of_interval_sql},
-                            {entity_expr} and
-                            {filter_timestamp}
-                        )
-                    )
-                    """,
-                    {
-                        "start_of_interval_sql": start_of_interval_sql,
-                        "entity_expr": entity_expr,
-                        "filter_timestamp": self.events_timestamp_filter(field=timestamp_field),
-                    },
+                start_event_timestamps_expr = self._single_scan_start_event_timestamps_expr(
+                    timestamp_field, entity_expr
                 )
-                start_event_timestamps_expr = timestamps_expr
                 return_event_timestamps_expr = ast.Array(exprs=[])
             else:
                 timestamps_expr = self._get_dwh_return_timestamps_expr(
