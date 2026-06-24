@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconChevronDown, IconClock, IconNotebook, IconStack } from '@posthog/icons'
-import { LemonInput, LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { pluralize } from 'lib/utils/strings'
@@ -17,9 +17,18 @@ import { ScratchpadEntryCard } from './ScratchpadEntryCard'
  * Read-only: the harness writes scratchpad notes on internal scope; humans inspect them here.
  */
 export function ScratchpadPanel(): JSX.Element {
-    const { entries, entriesLoading, totalCount, lastUpdatedAt, groups, searchText, grouping, expandedNamespaces } =
-        useValues(scratchpadLogic)
-    const { setSearchText, setGrouping, toggleNamespace } = useActions(scratchpadLogic)
+    const {
+        entries,
+        entriesLoading,
+        loadFailed,
+        totalCount,
+        lastUpdatedAt,
+        groups,
+        searchText,
+        grouping,
+        expandedNamespaces,
+    } = useValues(scratchpadLogic)
+    const { setSearchText, setGrouping, toggleNamespace, loadEntries } = useActions(scratchpadLogic)
 
     const isInitialLoad = entriesLoading && entries === null
     const isSearching = searchText.trim().length > 0
@@ -54,6 +63,8 @@ export function ScratchpadPanel(): JSX.Element {
                     <LemonSkeleton className="h-12 w-full rounded" />
                     <LemonSkeleton className="h-12 w-full rounded" />
                 </div>
+            ) : loadFailed && (!entries || entries.length === 0) ? (
+                <ScratchpadErrorState onRetry={() => loadEntries()} loading={entriesLoading} />
             ) : !entries || entries.length === 0 ? (
                 <ScratchpadEmptyState isSearching={isSearching} />
             ) : grouping === 'topic' ? (
@@ -127,6 +138,19 @@ function ScratchpadHeader({
                     ) : null}
                 </span>
             )}
+        </div>
+    )
+}
+
+function ScratchpadErrorState({ onRetry, loading }: { onRetry: () => void; loading: boolean }): JSX.Element {
+    return (
+        <div className="flex flex-col items-center gap-2 rounded border border-dashed border-primary bg-bg-light px-4 py-8 text-center text-sm text-muted">
+            <span>
+                Couldn't load the scratchpad. The scout API may be unavailable or this project may not be enrolled yet.
+            </span>
+            <LemonButton type="secondary" size="small" onClick={onRetry} loading={loading}>
+                Retry
+            </LemonButton>
         </div>
     )
 }

@@ -81,6 +81,16 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
     reducers({
         searchText: ['', { setSearchText: (_, { searchText }) => searchText }],
         grouping: ['recent' as ScratchpadGrouping, { setGrouping: (_, { grouping }) => grouping }],
+        // Did the most recent load reject? Lets the panel tell a failed load apart from an empty
+        // project (kea-loaders leaves `entries` at its prior value on failure, so it can't).
+        loadFailed: [
+            false,
+            {
+                loadEntries: () => false,
+                loadEntriesSuccess: () => false,
+                loadEntriesFailure: () => true,
+            },
+        ],
         // Which "By topic" clusters are open. Start collapsed (high-level view of topics first);
         // switching grouping resets the set so entering "By topic" always opens fully collapsed.
         expandedNamespaces: [

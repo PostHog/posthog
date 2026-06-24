@@ -43,6 +43,16 @@ function isStaffOnlyTab(tab: string | undefined): boolean {
  * so opening it can render the detail instantly from the list row instead of waiting on a fresh
  * `GET`. The background fetch still runs to converge on the authoritative record.
  */
+// The Fleet memory callout reads the same singleton `scratchpadLogic` the panel filters, so a
+// leftover search (especially a no-match one) would make it count zero and hide itself. Clear the
+// search whenever the scratchpad closes — by any path (close button, report/scout open, Back nav).
+function clearScratchpadSearch(): void {
+    const mounted = scratchpadLogic.findMounted()
+    if (mounted?.values.searchText) {
+        mounted.actions.setSearchText('')
+    }
+}
+
 function findLoadedReport(id: string, runsReports: SignalReport[]): SignalReport | null {
     const fromRuns = runsReports.find((r) => r.id === id)
     if (fromRuns) {
@@ -263,6 +273,9 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 actions.seedSelectedReport(null)
                 return
             }
+            // Opening a report closes the scratchpad (reducer) — clear its transient search so the
+            // callout doesn't stay hidden behind a stale no-match filter on the way back.
+            clearScratchpadSearch()
             // The open method is resolved once the authoritative record lands in loadSelectedReportSuccess.
             cache.pendingOpenMethod = openMethod
             // A report and a scout detail are mutually exclusive full-width views.
@@ -294,8 +307,12 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             cache.pendingOpenMethod = undefined
         },
         setSelectedScoutSkillName: ({ skillName }) => {
-            if (skillName !== null && values.selectedReportId !== null) {
-                actions.setSelectedReportId(null)
+            if (skillName !== null) {
+                // Opening a scout detail closes the scratchpad (reducer) — clear its transient search.
+                clearScratchpadSearch()
+                if (values.selectedReportId !== null) {
+                    actions.setSelectedReportId(null)
+                }
             }
         },
         setScratchpadOpen: ({ open }) => {
@@ -309,12 +326,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                     actions.setSelectedScoutSkillName(null)
                 }
             } else {
-                // The callout reads this same singleton logic, so a leftover search (esp. one with no
-                // matches) would make it count zero memories and hide itself. Clear it on the way out.
-                const mounted = scratchpadLogic.findMounted()
-                if (mounted?.values.searchText) {
-                    mounted.actions.setSearchText('')
-                }
+                clearScratchpadSearch()
             }
         },
         loadSourceConfigsSuccess: () => {
