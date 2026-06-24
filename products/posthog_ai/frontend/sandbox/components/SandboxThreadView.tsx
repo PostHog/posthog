@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useCallback, useMemo } from 'react'
+import { memo, useCallback, useMemo } from 'react'
 
 import { ReasoningAnswer } from '../messages/ReasoningAnswer'
 import { SandboxPullRequestCard } from '../SandboxPullRequestCard'
@@ -9,6 +9,11 @@ import type { ThreadItem } from '../types/sandboxStreamTypes'
 import { getRandomThinkingMessage } from '../utils/thinkingMessages'
 import { SandboxThreadRow } from './SandboxThreadRow'
 import { VirtualizedThread } from './VirtualizedThread'
+
+/** Stable row key — defined at module scope so `getItemKey` never changes identity across renders. */
+function getThreadItemKey(item: ThreadItem): string {
+    return item.id
+}
 
 /**
  * Sandbox-runtime thread presenter. Reads `sandboxStreamLogic.values.threadItems` (assistant text,
@@ -23,37 +28,43 @@ import { VirtualizedThread } from './VirtualizedThread'
  * then render in document flow, unchanged from the pre-virtualized layout.
  */
 export function SandboxThreadView({ virtualized = true }: { virtualized?: boolean } = {}): JSX.Element {
-    // Drive the thinking indicator from real agent progress: show the latest `_posthog/progress`
-    // message while the run is active, falling back to the canned rotation.
-    const {
-        threadItems,
-        toolInvocations,
-        currentProgress,
-        isThinking,
-        streamPhase,
-        runArtifacts,
-        turnComplete,
-        currentRunStatus,
-    } = useValues(sandboxStreamLogic)
+    const { threadItems, toolInvocations, isThinking, streamPhase, runArtifacts, turnComplete, currentRunStatus } =
+        useValues(sandboxStreamLogic)
     const turnCancelled = currentRunStatus === 'cancelled'
     const hasActiveProgressItem = threadItems.some(
         (item) => item.type === 'progress' && item.progressSteps?.some((step) => step.status === 'in_progress')
     )
 
-    const header = runArtifacts.branch ? (
-        <SandboxRunContext branch={runArtifacts.branch} baseBranch={runArtifacts.baseBranch} repo={runArtifacts.repo} />
-    ) : undefined
+    // Header/footer are kept as memoized leaf components with stable element identity so they don't rebuild
+    // `VirtualizedThread`'s `renderRow` (and re-sweep visible rows) on every streamed frame. Each is wrapped
+    // in `VirtualizedThread.Row` like the item rows so it gets react-window positioning + height measurement.
+    const { branch, baseBranch, repo } = runArtifacts
+    const header = useMemo(
+        () =>
+            branch ? (
+                <VirtualizedThread.Row>
+                    <SandboxThreadHeader branch={branch} baseBranch={baseBranch} repo={repo} />
+                </VirtualizedThread.Row>
+            ) : undefined,
+        [branch, baseBranch, repo]
+    )
 
     const showThinking = streamPhase === 'thinking' && !hasActiveProgressItem
     // Post-turn only: a reconnect refetch can fold in a pr_url mid-run, so gate on !isThinking.
     const pullRequestUrl = !isThinking ? runArtifacts.prUrl : undefined
-    const footer =
-        showThinking || pullRequestUrl ? (
-            <>
-                {showThinking && <SandboxThinkingIndicator progress={currentProgress} />}
-                {pullRequestUrl && <SandboxPullRequestCard prUrl={pullRequestUrl} branch={runArtifacts.branch} />}
-            </>
-        ) : undefined
+    const footer = useMemo(
+        () =>
+            showThinking || pullRequestUrl ? (
+                <VirtualizedThread.Row>
+                    <SandboxThreadFooter
+                        showThinking={showThinking}
+                        pullRequestUrl={pullRequestUrl}
+                        prBranch={branch}
+                    />
+                </VirtualizedThread.Row>
+            ) : undefined,
+        [showThinking, pullRequestUrl, branch]
+    )
 
     const renderItem = useCallback(
         (item: ThreadItem, index: number): JSX.Element => (
@@ -74,7 +85,7 @@ export function SandboxThreadView({ virtualized = true }: { virtualized?: boolea
     return (
         <VirtualizedThread.Root
             items={threadItems}
-            getItemKey={(item) => item.id}
+            getItemKey={getThreadItemKey}
             header={header}
             footer={footer}
             stickToBottom
@@ -84,6 +95,42 @@ export function SandboxThreadView({ virtualized = true }: { virtualized?: boolea
         </VirtualizedThread.Root>
     )
 }
+
+/** Leading run-context row. Memoized so it only re-renders when the run's branch/repo refs change. */
+const SandboxThreadHeader = memo(function SandboxThreadHeader({
+    branch,
+    baseBranch,
+    repo,
+}: {
+    branch: string
+    baseBranch?: string
+    repo?: string
+}): JSX.Element {
+    return <SandboxRunContext branch={branch} baseBranch={baseBranch} repo={repo} />
+})
+
+/**
+ * Trailing row: the "what's it doing now" thinking line and/or the produced PR card. Subscribes to
+ * `currentProgress` itself so the frequently-updating progress text stays isolated here — it never
+ * re-renders `SandboxThreadView` or destabilizes the footer's element identity during streaming.
+ */
+const SandboxThreadFooter = memo(function SandboxThreadFooter({
+    showThinking,
+    pullRequestUrl,
+    prBranch,
+}: {
+    showThinking: boolean
+    pullRequestUrl?: string
+    prBranch?: string
+}): JSX.Element {
+    const { currentProgress } = useValues(sandboxStreamLogic)
+    return (
+        <>
+            {showThinking && <SandboxThinkingIndicator progress={currentProgress} />}
+            {pullRequestUrl && <SandboxPullRequestCard prUrl={pullRequestUrl} branch={prBranch} />}
+        </>
+    )
+})
 
 /**
  * Bottom-of-thread "what's it doing right now" line for sandbox conversations. Reflects the latest
