@@ -1202,6 +1202,53 @@ describe('the feature flag release conditions logic', () => {
             })
         })
 
+        it("keeps an explicit-user condition's properties when the flag-level index is a group", async () => {
+            logic?.unmount()
+
+            logic = featureFlagReleaseConditionsLogic({
+                id: 'transition-user-cond-under-group-flag',
+                filters: {
+                    ...generateFeatureFlagFilters([
+                        {
+                            properties: userProperties,
+                            rollout_percentage: 50,
+                            variant: null,
+                            sort_key: 'user-cond',
+                            aggregation_group_type_index: null,
+                        },
+                        {
+                            properties: groupProperties,
+                            rollout_percentage: 30,
+                            variant: 'test',
+                            sort_key: 'group-cond',
+                            aggregation_group_type_index: 0,
+                        },
+                    ]),
+                    // Flag-level index is a group (a number). This is what makes the resolver
+                    // differ from `??`: the explicit-null user condition must resolve to users,
+                    // not collapse into this group index, so toggling to users leaves its
+                    // properties untouched (under the old `??` they were wrongly wiped).
+                    aggregation_group_type_index: 1,
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.mount()
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.setAggregationGroupTypeIndex(null)
+            }).toMatchValues({
+                filters: expect.objectContaining({
+                    aggregation_group_type_index: null,
+                    groups: [
+                        expect.objectContaining({ sort_key: 'user-cond', properties: userProperties }),
+                        expect.objectContaining({ sort_key: 'group-cond', properties: [] }),
+                    ],
+                }),
+            })
+        })
+
         // v2 Properties → Device: the UI calls setAggregationGroupTypeIndex(null) when switching
         // to Device mode. Group-scoped condition properties are dropped (incompatible with
         // distinct_id bucketing) while person-scoped condition properties are preserved.
