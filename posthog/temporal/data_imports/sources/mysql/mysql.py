@@ -288,24 +288,47 @@ def _is_bad_plan_error(e: pymysql.err.OperationalError) -> bool:
 # ~3s and surfacing the drop as error-tracking noise.
 _MAX_CONNECT_ATTEMPTS = 5
 
+# pymysql error code 2003 (CR_CONN_HOST_ERROR): the catch-all "Can't connect to MySQL server
+# on '<host>'" raised for any failure to establish the connection. Almost always a deterministic
+# config problem (wrong host/port, closed firewall) and so non-retryable — the one transient
+# exception is an SSL handshake the peer aborted with an unexpected EOF (see
+# `_is_transient_connect_drop`).
+_CANT_CONNECT_TO_SERVER_CODE = 2003
+
+# OpenSSL's signature for "the peer closed the connection before the TLS handshake finished".
+# pymysql wraps it as the 2003 connect failure above. Unlike WRONG_VERSION_NUMBER (a server that
+# doesn't speak TLS at all — a deterministic config error, already non-retryable), an unexpected
+# EOF mid-handshake is a transient drop: an overloaded server, a proxy/load-balancer idle cull, a
+# failover, or a momentary network blip, all of which a fresh attempt recovers from. Mirrors the
+# Postgres source, which retries its own "SSL connection has been closed unexpectedly" on connect.
+_SSL_UNEXPECTED_EOF_TOKEN = "[SSL: UNEXPECTED_EOF_WHILE_READING]"
+
 
 def _is_transient_connect_drop(e: BaseException) -> bool:
     """Return True if the connection was dropped mid-handshake — a transient blip.
 
-    pymysql reports a socket close while reading the server greeting as the same
-    2013 code we see mid-query, but at connect time it means the server hung up
-    before the handshake finished (an overloaded server, a proxy idle cull, a
-    failover, a momentary network blip) — a fresh attempt recovers. The one 2013
-    that is *not* transient is the SSL-version mismatch (a deterministic config
-    error, already non-retryable): it arrives with an `[SSL: ...` suffix, so
-    exclude that and let it surface.
+    Two shapes share this transient class, both surfaced by pymysql as an
+    `OperationalError` at connect time:
+
+    - `2013` (lost connection): a socket close while reading the server greeting —
+      an overloaded server, a proxy idle cull, a failover, a momentary network blip.
+      A fresh attempt recovers. The one 2013 that is *not* transient is the SSL-version
+      mismatch (a deterministic config error, already non-retryable): it arrives with an
+      `[SSL: ...` suffix, so exclude that and let it surface.
+    - `2003` (can't connect) carrying an `[SSL: UNEXPECTED_EOF_WHILE_READING]` cause:
+      the peer aborted the TLS handshake with an unexpected EOF — the SSL-flavoured
+      sibling of the 2013 drop, equally transient. The generic 2003 (wrong host/port,
+      firewall) stays non-retryable, so match only the unexpected-EOF token.
     """
     if not isinstance(e, pymysql.err.OperationalError):
         return False
     code = e.args[0] if e.args else None
-    if code != _LOST_CONNECTION_DURING_QUERY_CODE:
-        return False
-    return "[SSL:" not in " ".join(str(arg) for arg in e.args)
+    args_text = " ".join(str(arg) for arg in e.args)
+    if code == _LOST_CONNECTION_DURING_QUERY_CODE:
+        return "[SSL:" not in args_text
+    if code == _CANT_CONNECT_TO_SERVER_CODE:
+        return _SSL_UNEXPECTED_EOF_TOKEN in args_text
+    return False
 
 
 def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
