@@ -152,8 +152,8 @@ tools:
         title: List Jira projects
         description: >
             List Jira projects available through a connected Jira integration. Use integrations-list with kind=jira
-            first to find the integration id, then pass a returned project key as `config.project_key` when creating
-            an error tracking external reference.
+            first to find the integration id, then pass a returned project key as `config.project_key` when creating an
+            error tracking external reference.
     integrations-linear-teams-retrieve:
         operation: integrations_linear_teams_retrieve
         enabled: true
