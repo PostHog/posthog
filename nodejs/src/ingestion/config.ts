@@ -1,5 +1,4 @@
 import type { CommonConfig } from '~/common/config'
-import { INGESTION_DOWNSTREAM_PRODUCER, INGESTION_UPSTREAM_PRODUCER, type ProducerName } from '~/common/outputs'
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CLICKHOUSE_AI_EVENTS_JSON,
@@ -16,6 +15,11 @@ import {
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
 } from '~/config/kafka-topics'
+import {
+    INGESTION_DOWNSTREAM_PRODUCER,
+    INGESTION_UPSTREAM_PRODUCER,
+    type ProducerName,
+} from '~/ingestion/common/producers'
 import type { PostgresRouterConfig } from '~/utils/db/postgres'
 import { isDevEnv, isProdEnv } from '~/utils/env-utils'
 
@@ -56,27 +60,6 @@ export type RedisConnectionsConfig = Pick<
     | 'POSTHOG_REDIS_HOST'
     | 'POSTHOG_REDIS_PORT'
     | 'POSTHOG_REDIS_PASSWORD'
->
-
-/** PersonHog gRPC client config */
-export type PersonHogConfig = Pick<
-    CommonConfig,
-    | 'PERSONHOG_ENABLED'
-    | 'PERSONHOG_ADDR'
-    | 'PERSONHOG_GROUPS_ROLLOUT_PERCENTAGE'
-    | 'PERSONHOG_GROUPS_ROLLOUT_TEAM_IDS'
-    | 'PERSONHOG_PERSONS_ROLLOUT_PERCENTAGE'
-    | 'PERSONHOG_PERSONS_ROLLOUT_TEAM_IDS'
-    | 'PERSONHOG_TLS'
-    | 'PERSONHOG_TIMEOUT_MS'
-    | 'PERSONHOG_READ_MAX_BYTES'
-    | 'PERSONHOG_WRITE_MAX_BYTES'
-    | 'PERSONHOG_PING_INTERVAL_MS'
-    | 'PERSONHOG_PING_TIMEOUT_MS'
-    | 'PERSONHOG_PING_IDLE_CONNECTION'
-    | 'PERSONHOG_IDLE_CONNECTION_TIMEOUT_MS'
-    | 'PERSONHOG_STATE_MONITOR_POLL_INTERVAL_MS'
-    | 'PLUGIN_SERVER_MODE'
 >
 
 /** Kafka consumer loop tuning config */

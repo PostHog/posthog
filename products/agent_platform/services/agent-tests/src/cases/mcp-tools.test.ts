@@ -337,7 +337,7 @@ describe('runtime MCPs: real e2e', () => {
                             {
                                 name: 'promote-revision',
                                 requires_approval: true,
-                                approval_policy: { approvers: ['team_admins'], ttl_ms: 900_000 },
+                                approval_policy: { type: 'agent', ttl_ms: 900_000 },
                             },
                         ],
                     },
@@ -413,7 +413,7 @@ describe('runtime MCPs: real e2e', () => {
                             {
                                 name: 'promote-revision',
                                 requires_approval: true,
-                                approval_policy: { approvers: ['team_admins'], ttl_ms: 900_000 },
+                                approval_policy: { type: 'agent', ttl_ms: 900_000 },
                             },
                         ],
                     },

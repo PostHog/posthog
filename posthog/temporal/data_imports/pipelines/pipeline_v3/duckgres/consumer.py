@@ -103,6 +103,7 @@ class DuckgresBatchConsumerAdapter:
         *,
         limit: int,
         retry_backoff_base_seconds: int,
+        exclude_keys: set[tuple[int, str]] | None = None,
     ) -> list[PendingBatch]:
         team_ids = await self._enabled_team_ids()
         if team_ids is not None and not team_ids:
@@ -115,6 +116,7 @@ class DuckgresBatchConsumerAdapter:
             limit=limit,
             retry_backoff_base_seconds=retry_backoff_base_seconds,
             team_ids=team_ids,
+            exclude_keys=exclude_keys,
         )
 
     async def unlock(
@@ -160,13 +162,23 @@ class DuckgresBatchConsumerAdapter:
             )
             capture_exception(e)
 
+    async def verify_advisory_lock(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_id: int,
+        schema_id: str,
+    ) -> bool:
+        return await DuckgresBatchQueue.verify_advisory_lock(conn, team_id=team_id, schema_id=schema_id)
+
     async def get_stale_executing(
         self,
         conn: psycopg.AsyncConnection[Any],
         *,
         grace_seconds: int,
+        keep_locks: bool = False,
     ) -> list[PendingBatch]:
-        return await DuckgresBatchQueue.get_stale_executing(conn, grace_seconds=grace_seconds)
+        return await DuckgresBatchQueue.get_stale_executing(conn, grace_seconds=grace_seconds, keep_locks=keep_locks)
 
     async def reconcile_failed_runs(
         self,

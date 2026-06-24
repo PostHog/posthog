@@ -1251,7 +1251,7 @@ class TestExportFanOut:
         insert_sql, count_sql, s3_glob, _ = self._run_export(
             export_persons_to_duckling_s3, target, row_count=3_000_000, team_id=2, date=datetime(2026, 6, 17)
         )
-        assert "PARTITION BY toString(cityHash64(pd.distinct_id) % 3)" in insert_sql
+        assert "PARTITION BY toString(cityHash64(distinct_id) % 3)" in insert_sql
         # Pin the full predicate: dropping is_deleted/date would silently over-size the fan-out.
         assert "FROM person WHERE team_id = 2 AND toDate(_timestamp) = '2026-06-17' AND is_deleted = 0" in count_sql
         assert s3_glob == "s3://bkt/backfill/persons/2/year=2026/month=06/run1_*.parquet"
@@ -1260,7 +1260,7 @@ class TestExportFanOut:
         insert_sql, count_sql, s3_glob, _ = self._run_export(
             export_persons_full_to_duckling_s3, target, row_count=5_000_000, team_id=2
         )
-        assert "PARTITION BY toString(cityHash64(pd.distinct_id) % 5)" in insert_sql
+        assert "PARTITION BY toString(cityHash64(distinct_id) % 5)" in insert_sql
         assert "FROM person_distinct_id2 WHERE team_id = 2 AND is_deleted = 0" in count_sql
         assert s3_glob == "s3://bkt/backfill/persons/2/year=0/month=0/run1_*.parquet"
 
@@ -1357,6 +1357,30 @@ class TestRegisterFilesWithDuckling:
         sql, params = cur.execute.call_args.args
         assert "glob(%s)" in sql
         assert params == ("s3://bkt/x/run1_*.parquet",)
+
+    def test_glob_run_files_empty_day_returns_no_files(self):
+        # A zero-event team-day writes no Parquet, so the glob matches nothing and
+        # duckgres returns a command-complete with no result set: fetchall() raises
+        # "the last operation didn't produce a result". _glob_run_files must absorb
+        # that and return [] (nothing to register).
+        conn = MagicMock()
+        cur = MagicMock()
+        cur.fetchall.side_effect = psycopg.ProgrammingError("the last operation didn't produce a result")
+        conn.cursor.return_value.__enter__.return_value = cur
+        conn.cursor.return_value.__exit__.return_value = False
+
+        assert _glob_run_files(conn, "s3://bkt/x/run1_*.parquet") == []
+
+    def test_glob_run_files_propagates_other_programming_errors(self):
+        # A genuine SQL error must not be swallowed as "no files".
+        conn = MagicMock()
+        cur = MagicMock()
+        cur.fetchall.side_effect = psycopg.ProgrammingError("syntax error at or near")
+        conn.cursor.return_value.__enter__.return_value = cur
+        conn.cursor.return_value.__exit__.return_value = False
+
+        with pytest.raises(psycopg.ProgrammingError, match="syntax error"):
+            _glob_run_files(conn, "s3://bkt/x/run1_*.parquet")
 
 
 # Column SELECT used to synthesize events Parquet files for the round-trip test.

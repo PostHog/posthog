@@ -1907,6 +1907,7 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
             "new_issues": error_tracking_api.get_new_issues_for_team(team),
             "daily_counts": error_tracking_api.get_daily_exception_counts(team),
             "crash_free": error_tracking_api.get_crash_free_sessions(team),
+            "source_maps_recommendation": error_tracking_api.get_source_maps_recommendation_for_team(team),
             "error_tracking_url": f"{settings.SITE_URL}/project/{team_id}/error_tracking?utm_source=error_tracking_weekly_digest",
             "ingestion_failures_url": error_tracking_api.build_ingestion_failures_url(team_id),
         }

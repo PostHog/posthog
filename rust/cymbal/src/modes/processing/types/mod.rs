@@ -2,15 +2,12 @@ use common_types::embedding::{EmbeddingModel, EmbeddingRequest};
 use common_types::error_tracking::RawFrameId;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2::{Digest, Sha512};
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::ops::{Deref, DerefMut};
 use uuid::Uuid;
 
-use crate::fingerprinting::{
-    Fingerprint, FingerprintBuilder, FingerprintComponent, FingerprintRecordPart,
-};
+use crate::fingerprinting::{FingerprintBuilder, FingerprintComponent, FingerprintRecordPart};
 use crate::frames::releases::{ReleaseInfo, ReleaseRecord};
 use crate::frames::{Frame, RawFrame};
 use crate::issue_resolution::Issue;
@@ -134,15 +131,20 @@ pub struct RawErrProps {
     pub other: HashMap<String, Value>,
 }
 
-#[derive(Debug, Clone)]
-pub struct FingerprintedErrProps {
-    pub exception_list: ExceptionList,
-    pub fingerprint: Fingerprint,
-    pub proposed_issue_name: Option<String>,
-    pub proposed_issue_description: Option<String>,
-    pub proposed_fingerprint: String, // We suggest a fingerprint, based on hashes, but let users override client-side
-    pub handled: Option<bool>,
-    pub other: HashMap<String, Value>,
+impl RawErrProps {
+    pub fn add_error_message(&mut self, msg: impl ToString) {
+        let mut errors = match self.other.remove("$cymbal_errors") {
+            Some(serde_json::Value::Array(errors)) => errors,
+            _ => Vec::new(),
+        };
+
+        errors.push(serde_json::Value::String(msg.to_string()));
+
+        self.other.insert(
+            "$cymbal_errors".to_string(),
+            serde_json::Value::Array(errors),
+        );
+    }
 }
 
 // We emit this
@@ -180,20 +182,6 @@ pub struct OutputErrProps {
     #[serde(rename = "$exception_functions")]
     pub functions: Vec<String>,
 }
-
-const RESERVED_PROPERTIES: [&str; 11] = [
-    "$exception_list",
-    "$exception_fingerprint",
-    "$exception_issue_id",
-    "$exception_fingerprint_record",
-    "$exception_proposed_fingerprint",
-    "$exception_handled",
-    "$exception_releases",
-    "$exception_types",
-    "$exception_values",
-    "$exception_sources",
-    "$exception_functions",
-];
 
 impl FingerprintComponent for Exception {
     fn update(&self, fp: &mut FingerprintBuilder) {
@@ -235,86 +223,6 @@ impl Exception {
             if (has_no_resolved || frame.resolved) && frame.in_app {
                 frame.update(fp)
             }
-        }
-    }
-}
-
-impl RawErrProps {
-    pub fn add_error_message(&mut self, msg: impl ToString) {
-        let mut errors = match self.other.remove("$cymbal_errors") {
-            Some(serde_json::Value::Array(errors)) => errors,
-            _ => Vec::new(),
-        };
-
-        errors.push(serde_json::Value::String(msg.to_string()));
-
-        self.other.insert(
-            "$cymbal_errors".to_string(),
-            serde_json::Value::Array(errors),
-        );
-    }
-
-    pub fn to_fingerprinted(self, mut fingerprint: Fingerprint) -> FingerprintedErrProps {
-        // We always track the fingerprint we'd have proposed if none was set
-        let proposed_fingerprint = fingerprint.value.clone();
-
-        // But if one was set, we use that and modify our fingerprint to reflect that
-        if let Some(existing) = self.fingerprint {
-            fingerprint.record.clear();
-            fingerprint.record.push(FingerprintRecordPart::Manual);
-            fingerprint.value = existing;
-            if fingerprint.value.len() > 64 {
-                let mut hasher = Sha512::default();
-                hasher.update(fingerprint.value);
-                fingerprint.value = format!("{:x}", hasher.finalize());
-            }
-            fingerprint.assignment = None;
-        }
-
-        FingerprintedErrProps {
-            exception_list: self.exception_list,
-            fingerprint,
-            proposed_issue_name: self.issue_name,
-            proposed_issue_description: self.issue_description,
-            proposed_fingerprint,
-            handled: self.handled,
-            other: self.other,
-        }
-    }
-}
-
-impl FingerprintedErrProps {
-    pub fn to_output(self, issue_id: Uuid) -> OutputErrProps {
-        let sources = self.exception_list.get_unique_sources();
-        let functions = self.exception_list.get_unique_functions();
-        let releases = self.exception_list.get_release_map();
-        let types = self.exception_list.get_unique_types();
-        let values = self.exception_list.get_unique_messages();
-        let handled: bool = self
-            .handled
-            .unwrap_or_else(|| self.exception_list.get_is_handled());
-
-        // If users send properties that are reserved, it will results in property keys being duplicated
-        let sanitized_others = self
-            .other
-            .into_iter()
-            .filter(|(k, _)| !RESERVED_PROPERTIES.contains(&k.as_str()))
-            .collect();
-
-        OutputErrProps {
-            exception_list: self.exception_list,
-            fingerprint: self.fingerprint.value,
-            issue_id,
-            proposed_fingerprint: self.proposed_fingerprint,
-            fingerprint_record: self.fingerprint.record,
-            other: sanitized_others,
-
-            types,
-            values,
-            sources,
-            functions,
-            handled,
-            releases,
         }
     }
 }

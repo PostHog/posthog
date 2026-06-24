@@ -23,7 +23,7 @@ permissions:
     pull-requests: read
 
 env:
-    DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+    DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
     DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
 jobs:
@@ -268,6 +268,9 @@ jobs:
             # historical-flag override requests to the Rust flags service. Any non-empty
             # value is fine for CI — the Rust service in the test stack accepts it.
             INTERNAL_REQUEST_TOKEN: 'mcp-ci-internal-request-token'
+            # Internal API auth needs a non-empty INTERNAL_API_SECRET when DEBUG/TEST are off, and
+            # this job boots the app prod-like. The dev value is fine for CI.
+            INTERNAL_API_SECRET: 'posthog123'
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -391,7 +394,7 @@ jobs:
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Start Docker services

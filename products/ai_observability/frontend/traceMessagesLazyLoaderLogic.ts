@@ -10,11 +10,11 @@ import type { traceMessagesLazyLoaderLogicType } from './traceMessagesLazyLoader
 import { parsePartialJSON } from './utils'
 
 export interface TraceMessages {
-    firstInput: unknown
+    lastInput: unknown
     lastOutput: unknown
-    // First/last $ai_generation payloads, used when the preferred $ai_trace
+    // Latest $ai_generation payloads, used when the preferred $ai_trace
     // state wrapper is missing or resolves to an empty messages array.
-    firstInputFallback: unknown
+    lastInputFallback: unknown
     lastOutputFallback: unknown
 }
 
@@ -58,9 +58,9 @@ export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType
                     const next = { ...state }
                     for (const traceId of requestedTraceIds) {
                         next[traceId] = results[traceId] ?? {
-                            firstInput: null,
+                            lastInput: null,
                             lastOutput: null,
-                            firstInputFallback: null,
+                            lastInputFallback: null,
                             lastOutputFallback: null,
                         }
                     }
@@ -193,18 +193,18 @@ export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType
                                             substring(input_state, 1, ${FIELD_TRUNCATE_CHARS}),
                                             event = '$ai_trace'
                                                 AND length(input_state) > 0
-                                        ) AS first_input,
+                                        ) AS last_input,
                                         anyIf(
                                             substring(output_state, 1, ${FIELD_TRUNCATE_CHARS}),
                                             event = '$ai_trace'
                                                 AND length(output_state) > 0
                                         ) AS last_output,
-                                        argMinIf(
+                                        argMaxIf(
                                             substring(input, 1, ${FIELD_TRUNCATE_CHARS}),
                                             timestamp,
                                             event = '$ai_generation'
                                                 AND length(input) > 0
-                                        ) AS first_input_fallback,
+                                        ) AS last_input_fallback,
                                         argMaxIf(
                                             substring(output_choices, 1, ${FIELD_TRUNCATE_CHARS}),
                                             timestamp,
@@ -224,13 +224,18 @@ export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType
                             const results: Record<string, TraceMessages> = {}
 
                             for (const row of response.results || []) {
-                                const [traceId, firstInput, lastOutput, firstInputFallback, lastOutputFallback] =
-                                    row as [string, unknown, unknown, unknown, unknown]
+                                const [traceId, lastInput, lastOutput, lastInputFallback, lastOutputFallback] = row as [
+                                    string,
+                                    unknown,
+                                    unknown,
+                                    unknown,
+                                    unknown,
+                                ]
                                 if (traceId) {
                                     results[traceId] = {
-                                        firstInput: parseTruncatedJson(firstInput),
+                                        lastInput: parseTruncatedJson(lastInput),
                                         lastOutput: parseTruncatedJson(lastOutput),
-                                        firstInputFallback: parseTruncatedJson(firstInputFallback),
+                                        lastInputFallback: parseTruncatedJson(lastInputFallback),
                                         lastOutputFallback: parseTruncatedJson(lastOutputFallback),
                                     }
                                 }

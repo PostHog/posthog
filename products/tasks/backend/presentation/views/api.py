@@ -64,6 +64,7 @@ from products.tasks.backend.presentation.serializers import (
     SandboxEnvironmentWriteSerializer,
     SlackThreadContextQuerySerializer,
     SlackThreadContextResponseSerializer,
+    StreamReadTokenResponseSerializer,
     TaskAutomationSerializer,
     TaskAutomationWriteSerializer,
     TaskListQuerySerializer,
@@ -113,6 +114,9 @@ TASK_RUN_STREAM_KEEPALIVE_PAYLOAD = {"type": "keepalive"}
 TASK_RUN_STREAM_CONNECTION_MAX_SECONDS = 15 * 60
 TASK_RUN_STREAM_END_EVENT_NAME = "end"
 TASK_RUN_STREAM_ROTATED_PAYLOAD = {"type": "rotated"}
+# Distinct from the rotation `end` event above: this fires once when the run itself
+# completes, so clients stop reconnecting instead of resuming from Last-Event-ID.
+TASK_RUN_STREAM_COMPLETE_EVENT_NAME = "stream-end"
 TASK_RUN_ARTIFACT_UPLOAD_EXPIRATION_SECONDS = 60 * 60
 
 
@@ -680,7 +684,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         task_id = self._task_id()
         is_internal_debug_read = (
             _is_internal_debug_team(self.team_id)
-            and self.action in ("list", "retrieve", "logs", "session_logs", "stream")
+            and self.action in ("list", "retrieve", "logs", "session_logs", "stream", "stream_token")
             and self.request.query_params.get("ph_debug") == "true"
         )
         if not tasks_facade.task_accessible_for_run_view(
@@ -1208,6 +1212,33 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if token is None:
             raise NotFound()
         return Response(ConnectionTokenResponseSerializer({"token": token}).data)
+
+    @validated_request(
+        responses={
+            200: OpenApiResponse(
+                response=StreamReadTokenResponseSerializer,
+                description="Run-scoped token for reading the live event stream via the agent-proxy",
+            ),
+            404: OpenApiResponse(description="Task run not found"),
+        },
+        summary="Get task run stream read token",
+        description="Generate a run-scoped JWT that authorizes reading this task run's live event stream via the agent-proxy.",
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="stream_token",
+        required_scopes=["task:read"],
+    )
+    def stream_token(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        token = tasks_facade.create_task_run_stream_read_token(pk, task_id, self.team_id)
+        if token is None:
+            raise NotFound()
+        stream_base_url = tasks_facade.resolve_stream_base_url(
+            distinct_id=request.user.distinct_id, organization_id=self.team.organization_id
+        )
+        return Response(StreamReadTokenResponseSerializer({"token": token, "stream_base_url": stream_base_url}).data)
 
     @validated_request(
         request_serializer=TaskRunCommandRequestSerializer,
@@ -1738,6 +1769,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                             )
                             return
                     outcome = "completed"
+                    # read_stream_entries only returns on the completion sentinel; emit an
+                    # explicit terminal event so the client stops reconnecting without
+                    # consulting run status (a dropped connection never reaches here).
+                    yield format_sse_event({"status": "complete"}, event_name=TASK_RUN_STREAM_COMPLETE_EVENT_NAME)
                 except TaskRunStreamError as e:
                     outcome = "stream_error"
                     logger.error("TaskRunRedisStream error for stream %s: %s", stream_key, e, exc_info=True)
