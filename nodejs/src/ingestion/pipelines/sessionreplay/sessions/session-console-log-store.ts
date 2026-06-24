@@ -22,16 +22,19 @@ export class SessionConsoleLogStore {
     private pendingMessages: ConsoleLogEntry[] = []
     private readonly messageLimit: number
 
+    private readonly enabled: boolean
+
     constructor(
         private readonly outputs: IngestionOutputs<LogEntriesOutput>,
-        options: { messageLimit: number }
+        options: { messageLimit: number; enabled?: boolean }
     ) {
         this.messageLimit = options.messageLimit
+        this.enabled = options.enabled ?? true
         logger.debug('session_console_log_store_created')
     }
 
     public async storeSessionConsoleLogs(logs: ConsoleLogEntry[]): Promise<void> {
-        if (logs.length === 0) {
+        if (!this.enabled || logs.length === 0) {
             return
         }
 

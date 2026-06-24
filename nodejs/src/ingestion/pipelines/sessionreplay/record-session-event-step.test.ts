@@ -23,6 +23,7 @@ describe('createRecordSessionEventStep', () => {
     const defaultTeam: TeamForReplay = {
         teamId: 1,
         consoleLogIngestionEnabled: false,
+        aiTrainingOptedIn: true,
     }
 
     const createParsedMessage = (overrides: Partial<ParsedMessageData> = {}): ParsedMessageData => ({

@@ -191,6 +191,7 @@ describe('session recording integration', () => {
         team: {
             teamId,
             consoleLogIngestionEnabled: false,
+            aiTrainingOptedIn: true,
         },
         message: {
             distinct_id: 'distinct_id',
