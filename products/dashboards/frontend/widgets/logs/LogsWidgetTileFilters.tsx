@@ -1,6 +1,12 @@
-import { useRef } from 'react'
+import { useActions, useValues } from 'kea'
+import { useEffect, useMemo, useRef } from 'react'
 
+import { IconExternal } from '@posthog/icons'
+
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import type { DateRange, LogMessage } from '~/queries/schema/schema-general'
 
@@ -18,6 +24,7 @@ import {
     type LogsOrderByValue,
     type LogsSeverityLevel,
 } from './logsWidgetConfigValidation'
+import { logsWidgetSavedViewsLogic } from './logsWidgetSavedViewsLogic'
 
 export type LogsWidgetTileFiltersProps = DashboardWidgetTileFiltersProps
 
@@ -27,6 +34,9 @@ const SORT_OPTIONS: { value: LogsOrderByValue; label: string }[] = [
 ]
 
 const ALL_SEVERITY_LEVELS = 6
+
+const NO_SAVED_VIEW_OPTION = { value: null as string | null, label: 'No saved view' }
+const CREATE_SAVED_VIEW_VALUE = '__create_saved_view__'
 
 function severityReadOnlyLabel(levels: LogsSeverityLevel[]): string {
     if (levels.length === 0 || levels.length === ALL_SEVERITY_LEVELS) {
@@ -55,6 +65,36 @@ export function LogsWidgetTileFilters({
     const serviceNames = parsed.serviceNames ?? []
     const orderBy = (parsed.orderBy ?? 'latest') as LogsOrderByValue
     const dateFrom = (parsed.dateRange?.date_from ?? LOGS_DEFAULT_DATE_FROM) as WidgetDateFromValue
+    const savedViewId = parsed.savedViewId ?? null
+    const hasSavedView = !!savedViewId
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const savedViewsEnabled = !!featureFlags[FEATURE_FLAGS.LOGS_SAVED_VIEWS]
+    // Keep the picker reachable when a view is already persisted, even if the flag is later turned
+    // off — otherwise the tile would be stuck on that view with no way to clear it.
+    const showSavedViewPicker = savedViewsEnabled || hasSavedView
+    const { savedViewOptions, savedViewsLoading, savedViewLabelById } = useValues(logsWidgetSavedViewsLogic)
+    const { ensureSavedViewsLoaded } = useActions(logsWidgetSavedViewsLogic)
+
+    useEffect(() => {
+        if (showSavedViewPicker) {
+            ensureSavedViewsLoaded()
+        }
+    }, [showSavedViewPicker, ensureSavedViewsLoaded])
+
+    const savedViewSelectOptions = useMemo(
+        () => [
+            NO_SAVED_VIEW_OPTION,
+            ...savedViewOptions,
+            {
+                value: CREATE_SAVED_VIEW_VALUE,
+                label: 'Create a saved view',
+                sideIcon: <IconExternal className="size-3.5" />,
+            },
+        ],
+        [savedViewOptions]
+    )
+    const savedViewLabel = savedViewId ? (savedViewLabelById[savedViewId] ?? savedViewId) : savedViewId
 
     const configRef = useRef(config)
     configRef.current = config
@@ -68,21 +108,39 @@ export function LogsWidgetTileFilters({
         severityLevels?: LogsSeverityLevel[]
         serviceNames?: string[]
         orderBy?: LogsOrderByValue
+        savedViewId?: string | null
     }): Promise<void> => {
         const nextConfig = patchLogsWidgetFilterFields(configRef.current, patch)
         configRef.current = nextConfig
         await persistConfigNow(nextConfig)
     }
 
+    const applySavedView = async (value: string | null): Promise<void> => {
+        // The "create" item is a navigation shortcut, not a persisted value.
+        if (value === CREATE_SAVED_VIEW_VALUE) {
+            window.open(urls.logs(), '_blank', 'noopener,noreferrer')
+            return
+        }
+        await applyPatch({ savedViewId: value })
+    }
+
     if (!canUpdate) {
         return (
             <WidgetTileFiltersBar dataAttr="logs-widget-tile-filters-readonly">
-                <WidgetTileFilterReadOnlyValue>
-                    <span className="text-secondary">Levels:</span> {severityReadOnlyLabel(severityLevels)}
-                </WidgetTileFilterReadOnlyValue>
-                <WidgetTileFilterReadOnlyValue>
-                    <span className="text-secondary">Services:</span> {servicesReadOnlyLabel(serviceNames)}
-                </WidgetTileFilterReadOnlyValue>
+                {hasSavedView ? (
+                    <WidgetTileFilterReadOnlyValue>
+                        <span className="text-secondary">Saved view:</span> {savedViewLabel}
+                    </WidgetTileFilterReadOnlyValue>
+                ) : (
+                    <>
+                        <WidgetTileFilterReadOnlyValue>
+                            <span className="text-secondary">Levels:</span> {severityReadOnlyLabel(severityLevels)}
+                        </WidgetTileFilterReadOnlyValue>
+                        <WidgetTileFilterReadOnlyValue>
+                            <span className="text-secondary">Services:</span> {servicesReadOnlyLabel(serviceNames)}
+                        </WidgetTileFilterReadOnlyValue>
+                    </>
+                )}
                 <WidgetTileFilterReadOnlyValue>
                     {SORT_OPTIONS.find((option) => option.value === orderBy)?.label ?? orderBy}
                 </WidgetTileFilterReadOnlyValue>
@@ -94,15 +152,29 @@ export function LogsWidgetTileFilters({
 
     return (
         <WidgetTileFiltersBar dataAttr="logs-widget-tile-filters">
-            <SeverityLevelsFilter
-                value={severityLevels as LogMessage['severity_text'][]}
-                onChange={(levels) => void applyPatch({ severityLevels: levels as LogsSeverityLevel[] })}
-            />
-            <ServiceFilter
-                value={serviceNames}
-                dateRange={serviceDateRange}
-                onChange={(services) => void applyPatch({ serviceNames: services ?? [] })}
-            />
+            {showSavedViewPicker ? (
+                <LemonSelect
+                    size="small"
+                    value={savedViewId}
+                    loading={savedViewsLoading}
+                    options={savedViewSelectOptions}
+                    placeholder="Saved view"
+                    onChange={(value) => void applySavedView(value ?? null)}
+                />
+            ) : null}
+            {!hasSavedView ? (
+                <>
+                    <SeverityLevelsFilter
+                        value={severityLevels as LogMessage['severity_text'][]}
+                        onChange={(levels) => void applyPatch({ severityLevels: levels as LogsSeverityLevel[] })}
+                    />
+                    <ServiceFilter
+                        value={serviceNames}
+                        dateRange={serviceDateRange}
+                        onChange={(services) => void applyPatch({ serviceNames: services ?? [] })}
+                    />
+                </>
+            ) : null}
             <LemonSelect
                 size="small"
                 value={orderBy}
