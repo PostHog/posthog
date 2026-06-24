@@ -220,7 +220,7 @@ describe('FunnelLineChart', () => {
             })
 
             await screen.findByRole('img', { name: /chart with/i })
-            const legend = await screen.findByTestId('funnel-line-legend')
+            const legend = await screen.findByTestId('hog-chart-timeseries-line-legend')
             const labels = Array.from(legend.children).map((el) => el.textContent?.trim())
             expect(labels).toEqual(['Spike', 'Bramble'])
         })
@@ -247,7 +247,7 @@ describe('FunnelLineChart', () => {
             renderInsight({ query })
 
             await screen.findByRole('img', { name: /chart with/i })
-            expect(screen.queryByTestId('funnel-line-legend')).not.toBeInTheDocument()
+            expect(screen.queryByTestId('hog-chart-timeseries-line-legend')).not.toBeInTheDocument()
         })
 
         it('assigns a distinct color to each breakdown series', async () => {
@@ -259,7 +259,7 @@ describe('FunnelLineChart', () => {
             })
 
             await screen.findByRole('img', { name: /chart with/i })
-            const legend = await screen.findByTestId('funnel-line-legend')
+            const legend = await screen.findByTestId('hog-chart-timeseries-line-legend')
             // The label span also carries an inline style now (max-width), so keep only the colored swatches.
             const swatchColors = Array.from(legend.querySelectorAll<HTMLElement>('span[style]'))
                 .map((el) => el.style.backgroundColor)

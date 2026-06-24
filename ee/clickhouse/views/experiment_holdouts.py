@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from posthog.api.documentation import FeatureFlagConditionGroupSchemaSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 from products.experiments.backend.models.experiment import ExperimentHoldout, holdout_filters_for_flag
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
@@ -27,7 +28,9 @@ class HoldoutFiltersField(serializers.JSONField):
     pass
 
 
-class ExperimentHoldoutSerializer(serializers.ModelSerializer):
+class ExperimentHoldoutSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+    """A holdout group — a stable slice of users excluded from experiment exposure."""
+
     created_by = UserBasicSerializer(read_only=True)
     # Declared explicitly only to attach the typed schema; `required=False` mirrors the model's
     # JSONField default. Help text for name/description is added via Meta.extra_kwargs so the
@@ -55,12 +58,14 @@ class ExperimentHoldoutSerializer(serializers.ModelSerializer):
             "created_by",
             "created_at",
             "updated_at",
+            "user_access_level",
         ]
         read_only_fields = [
             "id",
             "created_by",
             "created_at",
             "updated_at",
+            "user_access_level",
         ]
         extra_kwargs = {
             "name": {"help_text": "Human-readable name for the holdout group."},
@@ -134,7 +139,10 @@ class ExperimentHoldoutSerializer(serializers.ModelSerializer):
 
 @extend_schema(extensions={"x-swagger-tag": "experiment_holdouts", "x-product": "experiments"})
 class ExperimentHoldoutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "experiment"
+    # Deliberately NOT an AccessControlViewSetMixin: holdouts are shared project config that
+    # inherit experiment access, with no per-holdout grants. Exposing `/{id}/access_controls`
+    # would let an object-level holdout grant bypass resource-level experiment access.
+    scope_object = "experiment_holdout"
     queryset = ExperimentHoldout.objects.prefetch_related("created_by").all()
     serializer_class = ExperimentHoldoutSerializer
     ordering = "-created_at"

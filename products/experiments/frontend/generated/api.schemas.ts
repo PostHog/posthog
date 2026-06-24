@@ -440,6 +440,9 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+/**
+ * A holdout group — a stable slice of users excluded from experiment exposure.
+ */
 export interface ExperimentHoldoutApi {
     readonly id: number
     /**
@@ -458,6 +461,11 @@ export interface ExperimentHoldoutApi {
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedExperimentHoldoutListApi {
@@ -469,6 +477,9 @@ export interface PaginatedExperimentHoldoutListApi {
     results: ExperimentHoldoutApi[]
 }
 
+/**
+ * A holdout group — a stable slice of users excluded from experiment exposure.
+ */
 export interface PatchedExperimentHoldoutApi {
     readonly id?: number
     /**
@@ -487,6 +498,11 @@ export interface PatchedExperimentHoldoutApi {
     readonly created_by?: UserBasicApi
     readonly created_at?: string
     readonly updated_at?: string
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
 /**

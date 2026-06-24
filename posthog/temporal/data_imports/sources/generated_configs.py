@@ -2480,6 +2480,11 @@ class QuickBooksSourceConfig(config.Config):
 
 
 @config.config
+class RB2BSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class RDStationMarketingSourceConfig(config.Config):
     pass
 
@@ -2988,6 +2993,11 @@ class SupabaseSourceConfig(config.Config):
     connection_string: str | None = None
     schema: str | None = None
     ssh_tunnel: SSHTunnelConfig | None = None
+
+
+@config.config
+class SuperwallSourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -3946,6 +3956,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.QUALAROO: QualarooSourceConfig,
         ExternalDataSourceType.QUALTRICS: QualtricsSourceConfig,
         ExternalDataSourceType.QUICKBOOKS: QuickBooksSourceConfig,
+        ExternalDataSourceType.RB2B: RB2BSourceConfig,
         ExternalDataSourceType.RDSTATIONMARKETING: RDStationMarketingSourceConfig,
         ExternalDataSourceType.RKICOVID: RKICovidSourceConfig,
         ExternalDataSourceType.RAILZ: RailzSourceConfig,
@@ -4041,6 +4052,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.STREAMLABS: StreamlabsSourceConfig,
         ExternalDataSourceType.STRIPE: StripeSourceConfig,
         ExternalDataSourceType.SUPABASE: SupabaseSourceConfig,
+        ExternalDataSourceType.SUPERWALL: SuperwallSourceConfig,
         ExternalDataSourceType.SURVEYMONKEY: SurveyMonkeySourceConfig,
         ExternalDataSourceType.SURVEYSPARROW: SurveySparrowSourceConfig,
         ExternalDataSourceType.SURVICATE: SurvicateSourceConfig,
