@@ -316,6 +316,29 @@ describe('MCPClientProfile', () => {
             it('uses clientName for non-Anthropic clients (no vendorClient)', () => {
                 expect(new MCPClientProfile({ clientName: 'Claude Desktop' }).isCliModeEnabled()).toBe(false)
             })
+
+            it('enables CLI mode for the ClaudeDesign vendor header', () => {
+                expect(new MCPClientProfile({ vendorClient: 'ClaudeDesign' }).isCliModeEnabled()).toBe(true)
+            })
+
+            it.each([['Claude-User'], ['claude-user'], ['Claude_User']])(
+                'enables CLI mode via the %s user-agent when the vendor header is absent',
+                (userAgent) => {
+                    // Claude.ai web/desktop and some internal Anthropic tools connect
+                    // without x-anthropic-client, identifying only via this user-agent.
+                    expect(new MCPClientProfile({ userAgent }).isCliModeEnabled()).toBe(true)
+                }
+            )
+
+            it.each([['Anthropic/ClaudeAI'], ['Anthropic/Toolbox'], ['anthropic/claudeai']])(
+                'enables CLI mode via the pooled %s clientInfo.name when the vendor header is absent',
+                (clientName) => {
+                    // Header-less Anthropic sessions report only the pooled Anthropic/*
+                    // pool-owner name. Matching it for CLI mode is safe (unlike UI-host
+                    // detection) because every Anthropic product belongs in CLI mode.
+                    expect(new MCPClientProfile({ clientName }).isCliModeEnabled()).toBe(true)
+                }
+            )
         })
     })
 
