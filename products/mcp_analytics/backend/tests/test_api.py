@@ -112,7 +112,7 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
                 distinct_id=distinct_id,
                 timestamp=timestamp,
                 properties={
-                    "$mcp_session_id": session_id,
+                    "$session_id": session_id,
                     "$mcp_tool_name": tool,
                     "$mcp_client_name": client_name,
                 },
@@ -170,8 +170,8 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
 
         assert [s.session_id for s in page.results] == [session_id]
 
-    def test_excludes_events_without_mcp_session_id(self) -> None:
-        # Events with no $mcp_session_id (e.g. the bare-schema producers) must not
+    def test_excludes_events_without_session_id(self) -> None:
+        # Events with no $session_id (e.g. the bare-schema producers) must not
         # collapse into one empty-keyed "session".
         kept = str(uuid7())
         self._seed_session(kept, ["query_run"])
@@ -306,7 +306,7 @@ class TestGenerateSessionIntent(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTest
             event="$mcp_tool_call",
             distinct_id="seed",
             timestamp=datetime.now(tz=UTC),
-            properties={"$mcp_session_id": session_id, "$mcp_tool_name": tool, "$mcp_intent": intent},
+            properties={"$session_id": session_id, "$mcp_tool_name": tool, "$mcp_intent": intent},
         )
 
     def test_returns_cached_intent_without_calling_llm(self) -> None:
@@ -355,7 +355,7 @@ class TestGenerateSessionIntent(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTest
             event="$mcp_tool_call",
             distinct_id="seed",
             timestamp=datetime.now(tz=UTC),
-            properties={"$mcp_session_id": session_id, "$mcp_tool_name": "query_run"},
+            properties={"$session_id": session_id, "$mcp_tool_name": "query_run"},
         )
 
         with patch.object(intent_generation, "summarize_intents") as mock_summarize:
@@ -389,7 +389,7 @@ class TestSessionEventsLookbackBound(_MCPAnalyticsTeamScopedTestMixin, Clickhous
             event="$mcp_tool_call",
             distinct_id="seed",
             timestamp=timestamp,
-            properties={"$mcp_session_id": session_id, "$mcp_tool_name": tool, "$mcp_intent": intent},
+            properties={"$session_id": session_id, "$mcp_tool_name": tool, "$mcp_intent": intent},
         )
 
     @parameterized.expand(

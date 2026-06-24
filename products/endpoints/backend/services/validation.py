@@ -9,16 +9,21 @@ import re
 import uuid
 from typing import Optional
 
+from django.conf import settings
+
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import EndpointRequest, HogQLQuery, HogQLVariable
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import prepare_ast_for_printing
+from posthog.hogql.variables import replace_variables
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Team
+from posthog.models import Team, User
 
 from products.endpoints.backend.constants import (
     DATA_FRESHNESS_BUCKET_SPECS,
@@ -53,8 +58,9 @@ def validate_bucket_overrides(bucket_overrides: dict[str, str] | None) -> None:
         raise ValidationError(f"Invalid bucket override values: {invalid}. Valid options: {valid_options}")
 
 
-def validate_hogql_query(query: HogQLQuery, team: Team) -> None:
-    """Validate that a HogQL query can be parsed and the variables are valid."""
+def validate_hogql_query(query: HogQLQuery, team: Team, user: User) -> None:
+    """Validate that a HogQL query parses, its variables are valid, and the author can
+    access every table/view it references."""
     try:
         ast_node = parse_select(query.query)
     except ExposedHogQLError as e:
@@ -67,6 +73,36 @@ def validate_hogql_query(query: HogQLQuery, team: Team) -> None:
         raise ValidationError({"query": "Unknown error occurred parsing the query."})
 
     validate_variable_placeholders(ast_node, query.variables or {}, team)
+
+    _validate_query_access(ast_node, query, team, user)
+
+
+def _validate_query_access(
+    ast_node: ast.SelectQuery | ast.SelectSetQuery,
+    query: HogQLQuery,
+    team: Team,
+    user: User,
+) -> None:
+    """Resolve the query under the author's access control; raise if it hits a denied table/view."""
+    resolvable_ast: ast.Expr = ast_node
+    if query.variables:
+        # Substitute {variables.x} so the AST resolves (endpoints allow variables; views don't).
+        # Missing definitions were already caught by validate_variable_placeholders above.
+        resolvable_ast = replace_variables(ast_node, list(query.variables.values()), team)
+
+    context = HogQLContext(team_id=team.pk, user=user, enable_select_queries=True)
+    try:
+        # Using prepare_ast_for_printing instead of prepare_and_print_ast
+        # because table/view access is enforced during resolution
+        prepare_ast_for_printing(node=resolvable_ast, context=context, dialect="clickhouse")
+    except ExposedHogQLError as err:
+        # Surfaces "You don't have access to table `X`." (QueryError) and other resolver errors.
+        raise ValidationError({"query": f"Invalid HogQL query: {err}"}) from err
+    except Exception as err:
+        capture_exception(err)
+        if not settings.DEBUG:
+            raise ValidationError({"query": f"Unexpected {err.__class__.__name__}"})
+        raise
 
 
 def sync_hogql_query_variables(query: HogQLQuery, team: Team) -> None:
@@ -184,7 +220,7 @@ def validate_variable_placeholders(node: ast.AST, variables: Optional[dict[str, 
             )
 
 
-def validate_endpoint_request(data: EndpointRequest, team: Team, strict: bool = True) -> None:
+def validate_endpoint_request(data: EndpointRequest, team: Team, user: User, strict: bool = True) -> None:
     """Validate a create/update payload. With strict=True, name and query are required."""
     query = data.query
     if not query and strict:
@@ -205,12 +241,12 @@ def validate_endpoint_request(data: EndpointRequest, team: Team, strict: bool = 
 
     if query and isinstance(query, HogQLQuery) and query.query:
         sync_hogql_query_variables(query, team)
-        validate_hogql_query(query, team)
+        validate_hogql_query(query, team, user)
 
     validate_data_freshness(data.data_freshness_seconds)
 
 
-def validate_update_request(data: EndpointRequest, team: Team, endpoint: Endpoint | None = None) -> None:
+def validate_update_request(data: EndpointRequest, team: Team, user: User, endpoint: Endpoint | None = None) -> None:
     """Validate an update payload against the endpoint's resulting state."""
     validate_data_freshness(data.data_freshness_seconds)
 
@@ -233,4 +269,4 @@ def validate_update_request(data: EndpointRequest, team: Team, endpoint: Endpoin
 
     if data.query and isinstance(data.query, HogQLQuery) and data.query.query:
         sync_hogql_query_variables(data.query, team)
-        validate_hogql_query(data.query, team)
+        validate_hogql_query(data.query, team, user)

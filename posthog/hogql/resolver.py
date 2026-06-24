@@ -8,7 +8,7 @@ import re2
 from posthog.hogql import ast
 from posthog.hogql.ast import ConstantType, FieldTraverserType
 from posthog.hogql.base import _T_AST
-from posthog.hogql.constants import HogQLDialect
+from posthog.hogql.constants import SQL_TARGET_DIALECTS, HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQuery, StringJSONDatabaseField
@@ -114,11 +114,6 @@ assert POSTGRES_KEYWORD_TYPES.keys() == ast.VALID_KEYWORD_NAMES, (
 # DuckDB is Postgres-wire compatible and accepts nearly all PG-specific constructs, so it
 # takes the PG code path in the resolver.
 _POSTGRES_FAMILY: frozenset[HogQLDialect] = frozenset({"postgres", "duckdb"})
-
-# All dialects that compile to an external SQL database queried directly (as opposed to
-# ClickHouse / HogQL). MySQL shares the standard-SQL keyword surface (CURRENT_DATE & co.)
-# but not Postgres-specific features like PIVOT/UNPIVOT, TRY_CAST, or positional references.
-_DIRECT_SQL_FAMILY: frozenset[HogQLDialect] = frozenset({"postgres", "duckdb", "mysql"})
 
 
 def resolve_constant_data_type(constant: Any) -> ConstantType:
@@ -1878,7 +1873,7 @@ class Resolver(CloningVisitor):
         scope = self._get_scope()
         name = str(node.chain[0])
 
-        if self.dialect in _DIRECT_SQL_FAMILY and len(node.chain) == 1:
+        if self.dialect in SQL_TARGET_DIALECTS and len(node.chain) == 1:
             keyword = name.lower()
             if keyword in POSTGRES_KEYWORD_TYPES and name not in scope.columns and name not in scope.aliases:
                 keyword_type = POSTGRES_KEYWORD_TYPES[keyword]
@@ -1921,7 +1916,7 @@ class Resolver(CloningVisitor):
         if (
             not type
             and len(node.chain) == 1
-            and self.dialect in _DIRECT_SQL_FAMILY
+            and self.dialect in SQL_TARGET_DIALECTS
             and name.lower() in POSTGRES_KEYWORD_TYPES
             and name in scope.columns
         ):

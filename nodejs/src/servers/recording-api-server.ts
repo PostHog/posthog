@@ -1,20 +1,21 @@
-import { CommonConfig } from '../common/config'
-import { defaultConfig, overrideConfigWithEnv } from '../config/config'
-import { KafkaBrokerConfig } from '../ingestion/config'
-import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
-import { createProducerRegistry } from '../session-replay/recording-api/outputs/producer-registry'
-import { createOutputsRegistry } from '../session-replay/recording-api/outputs/registry'
-import { RecordingApi } from '../session-replay/recording-api/recording-api'
+import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import {
+    KafkaSessionreplayProducerEnvConfig,
+    getDefaultKafkaSessionreplayProducerEnvConfig,
+} from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
+import { createProducerRegistry } from '~/recording-api/outputs/producer-registry'
+import { createOutputsRegistry } from '~/recording-api/outputs/registry'
+import { RecordingApi } from '~/recording-api/recording-api'
 import {
     RecordingApiConfig,
     RecordingApiOutputsConfig,
     type RecordingApiProducerName,
     getDefaultRecordingApiOutputsConfig,
-} from '../session-replay/recording-api/types'
-import {
-    KafkaSessionreplayProducerEnvConfig,
-    getDefaultKafkaSessionreplayProducerEnvConfig,
-} from '../session-replay/shared/outputs/producer-config'
+} from '~/recording-api/types'
+
+import { CommonConfig } from '../common/config'
+import { defaultConfig, overrideConfigWithEnv } from '../config/config'
+import { KafkaBrokerConfig } from '../ingestion/config'
 import { PostgresRouter, PostgresRouterConfig } from '../utils/db/postgres'
 import { logger } from '../utils/logger'
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'

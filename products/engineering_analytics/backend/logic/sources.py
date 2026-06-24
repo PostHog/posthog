@@ -78,6 +78,12 @@ def resolve_github_tables(
         tables = _synced_table_names(team=team, source=source)
         pull_requests = tables.get(PULL_REQUESTS_SCHEMA)
         workflow_runs = tables.get(WORKFLOW_RUNS_SCHEMA)
+        # Both endpoints are required together, by design: every read surface (cards, PR list,
+        # lifecycle) joins workflow_runs for CI status and the push / re-run rollup, so a source
+        # with only pull_requests synced can't serve a complete result. The trade-off is that a
+        # half-synced source makes the whole product 400 (e.g. while workflow_runs is still
+        # backfilling) instead of degrading to PRs-without-CI. Relaxing this to a graceful
+        # PR-only mode (null CI columns) is a deliberate future change, not handled here.
         if pull_requests and workflow_runs:
             return GitHubTables(pull_requests=pull_requests, workflow_runs=workflow_runs)
     if source_id is not None:

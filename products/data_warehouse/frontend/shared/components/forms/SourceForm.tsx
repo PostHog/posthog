@@ -34,6 +34,7 @@ import {
 import { CDC_SOURCE_TYPES } from '../../cdc'
 import { CustomSourceManifestBuilder } from './CustomSourceManifestBuilder'
 import { GitHubRepositorySelector } from './GitHubRepositorySelector'
+import { GoogleSearchConsoleSiteSelector } from './GoogleSearchConsoleSiteSelector'
 import { SourceIntegrationChoice } from './IntegrationChoice'
 import { parseConnectionStringForSource } from './parsers'
 import { supportsDirectQuery } from './schemaGroupingUtils'
@@ -303,6 +304,13 @@ export const sourceFieldToElement = (
     if (field.type === 'text' && field.name === 'repository' && sourceConfig.name === 'Github') {
         // Special case, this is the GitHub repository field
         return <GitHubRepositorySelector key={field.name} />
+    }
+
+    if (field.type === 'text' && field.name === 'site_url' && sourceConfig.name === 'GoogleSearchConsole') {
+        // Special case — once the user picks an OAuth integration the selector swaps the
+        // text input for a dropdown populated from the Search Console API. Avoids the
+        // `sc-domain:` vs trailing-slash typos that bounce off `validate_credentials`.
+        return <GoogleSearchConsoleSiteSelector key={field.name} />
     }
 
     return (
@@ -845,9 +853,10 @@ export function SourceFormComponent({
                                     : 'Prefix cannot consist of only underscores'
                         }
 
-                        const cleanedPrefix = value ? value.trim() : ''
                         const sourceType = sourceConfig.name.toLowerCase()
-                        const tableName = `${cleanedPrefix}${sourceType}_table_name`.toLowerCase()
+                        const tableName = (
+                            cleaned ? `${sourceType}.${cleaned}.table_name` : `${sourceType}.table_name`
+                        ).toLowerCase()
                         return (
                             <>
                                 <LemonInput

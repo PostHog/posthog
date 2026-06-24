@@ -187,7 +187,7 @@ function findTool(tools: Tool<ZodObjectAny>[], name: string): Tool<ZodObjectAny>
 
 export function createExecTool(
     allTools: Tool<ZodObjectAny>[],
-    context: Context,
+    context: Context | undefined,
     toolDescription: string,
     commandReference: string,
     mcpConsumer: string | undefined,
@@ -345,6 +345,9 @@ export function createExecTool(
                 case 'call': {
                     if (!rest) {
                         throw new Error('Usage: call [--json] [--confirm] <tool_name> <json_input>')
+                    }
+                    if (!context) {
+                        throw new Error('Cannot call PostHog tools without an API context')
                     }
                     const { forceJson, confirmed, rest: callArgs } = parseCallFlags(rest)
                     if (!callArgs) {

@@ -57,7 +57,17 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
             return
 
         new_source = SourceRegistry.get_source(source_type_enum)
-        config = new_source.parse_config(source.job_inputs)
+
+        try:
+            config = new_source.parse_config(source.job_inputs)
+        except Exception:
+            # Config parsing is deterministic over the stored `job_inputs`, so a corrupt or
+            # double-encoded config fails identically on every discovery run - there is nothing
+            # to retry. The per-schema sync path surfaces and disables the source on the same
+            # config, so skip quietly here rather than spamming retries and error tracking.
+            logger.warning("Skipping schema discovery: source config could not be parsed", exc_info=True)
+            return
+
         try:
             schemas = new_source.get_schemas(config, inputs.team_id)
         except Exception as e:

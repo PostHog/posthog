@@ -64,6 +64,7 @@ export interface UserBasicApi {
 
 /**
  * * `team` - Only team
+ * * `organization` - Organization
  * * `global` - Global
  * * `feature_flag` - Feature Flag
  */
@@ -72,9 +73,19 @@ export type DashboardTemplateScopeEnumApi =
 
 export const DashboardTemplateScopeEnumApi = {
     Team: 'team',
+    Organization: 'organization',
     Global: 'global',
     FeatureFlag: 'feature_flag',
 } as const
+
+export interface NonPortableReferencesApi {
+    /** Count of distinct action references in the template's tiles that are specific to the source project. */
+    actions: number
+    /** Count of distinct cohort references in the template's tiles that are specific to the source project. */
+    cohorts: number
+    /** Names of data warehouse tables referenced by the template's tiles that are specific to the source project. */
+    warehouse_tables: string[]
+}
 
 export interface DashboardTemplateApi {
     readonly id: string
@@ -116,6 +127,8 @@ export interface DashboardTemplateApi {
     availability_contexts?: string[] | null
     /** Manually curated; used to highlight templates in the UI. */
     is_featured?: boolean
+    /** Read-only. Project-specific references (actions, cohorts, data warehouse tables) embedded in this template's tiles that may not resolve when it is used in another project. Events and properties are matched by name and are portable, so they are not reported here. */
+    readonly non_portable_references: NonPortableReferencesApi
 }
 
 export interface PaginatedDashboardTemplateListApi {
@@ -167,6 +180,8 @@ export interface PatchedDashboardTemplateApi {
     availability_contexts?: string[] | null
     /** Manually curated; used to highlight templates in the UI. */
     is_featured?: boolean
+    /** Read-only. Project-specific references (actions, cohorts, data warehouse tables) embedded in this template's tiles that may not resolve when it is used in another project. Events and properties are matched by name and are portable, so they are not reported here. */
+    readonly non_portable_references?: NonPortableReferencesApi
 }
 
 export interface CopyDashboardTemplateApi {
@@ -372,6 +387,28 @@ export interface DashboardCollaboratorApi {
     readonly added_at: string
     readonly updated_at: string
     user_uuid: string
+}
+
+/**
+ * OpenAPI-only shape for a dashboard's filters object (agents/MCP).
+ *
+ * Documents the dashboard-level filters that act as the single source of truth for the
+ * dashboard's tiles. Runtime persistence reads the raw ``filters`` dict from the request body, so
+ * extra keys are accepted, but these are the ones agents should set.
+ */
+export interface DashboardFiltersOpenApiApi {
+    /**
+     * Dashboard-level start of the date range, e.g. '-30d', '-7d', or an ISO date. Applies to all tiles.
+     * @nullable
+     */
+    date_from?: string | null
+    /**
+     * Dashboard-level end of the date range, e.g. '-1d' or an ISO date. Null/omitted means up to now.
+     * @nullable
+     */
+    date_to?: string | null
+    /** Dashboard-level property filters applied to every tile (PostHog property filter group). */
+    properties?: unknown
 }
 
 /**
@@ -706,6 +743,8 @@ export interface PatchedPatchedDashboardOpenApiApi {
     name?: string | null
     description?: string
     pinned?: boolean
+    /** Dashboard-level filters (date range and properties) applied across all tiles as the source of truth. */
+    filters?: DashboardFiltersOpenApiApi
     /** Custom color mapping for breakdown values. */
     breakdown_colors?: unknown
     /**
@@ -2008,6 +2047,7 @@ export const ChartDisplayTypeApi = {
     ActionsAreaGraph: 'ActionsAreaGraph',
     ActionsLineGraphCumulative: 'ActionsLineGraphCumulative',
     BoldNumber: 'BoldNumber',
+    Metric: 'Metric',
     ActionsPie: 'ActionsPie',
     ActionsBarValue: 'ActionsBarValue',
     ActionsTable: 'ActionsTable',
@@ -2039,6 +2079,23 @@ export interface GoalLineApi {
     position?: PositionApi | null
     value: number
 }
+
+export type LegendPositionApi = (typeof LegendPositionApi)[keyof typeof LegendPositionApi]
+
+export const LegendPositionApi = {
+    Top: 'top',
+    Bottom: 'bottom',
+    Left: 'left',
+    Right: 'right',
+} as const
+
+export type MetricSummaryApi = (typeof MetricSummaryApi)[keyof typeof MetricSummaryApi]
+
+export const MetricSummaryApi = {
+    Total: 'total',
+    Average: 'average',
+    Latest: 'latest',
+} as const
 
 export type ResultCustomizationByApi = (typeof ResultCustomizationByApi)[keyof typeof ResultCustomizationByApi]
 
@@ -2125,6 +2182,22 @@ export interface TrendsFilterApi {
     goalLines?: GoalLineApi[] | null
     hiddenLegendIndexes?: number[] | null
     hideWeekends?: boolean | null
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
+    legendPosition?: LegendPositionApi | null
+    /** Metric display: change pill color when the metric decreased. Defaults to red. */
+    metricChangeDecreaseColor?: string | null
+    /** Metric display: change pill color when the metric increased. Defaults to green. */
+    metricChangeIncreaseColor?: string | null
+    /** Metric display: color the sparkline by whether the metric increased or decreased. */
+    metricColorByDirection?: boolean | null
+    /** Metric display: line color when the metric decreased. Defaults to red. */
+    metricLineDecreaseColor?: string | null
+    /** Metric display: line color when the metric increased. Defaults to green. */
+    metricLineIncreaseColor?: string | null
+    /** Show the period-over-period change pill on the Metric display. */
+    metricShowChange?: boolean | null
+    /** Metric display: which summary the resting headline shows — the period total, the average, or the latest point. Hovering the sparkline always shows the hovered point's value. Also drives the change pill: total/average compare against the previous period when "compare to previous" is on; latest compares first→last of the series. */
+    metricSummary?: MetricSummaryApi | null
     minDecimalPlaces?: number | null
     movingAverageIntervals?: number | null
     /** Wether result datasets are associated by their values or by their order. */
@@ -2459,6 +2532,8 @@ export interface FunnelsFilterApi {
     /** Trends only: hide periods whose conversion window has not fully elapsed yet, so the recent tail of the trend isn't dragged down by entrants who still have time to convert. */
     hideIncompleteConversionWindowPeriods?: boolean | null
     layout?: FunnelLayoutApi | null
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
+    legendPosition?: LegendPositionApi | null
     /** Customizations for the appearance of result datasets. */
     resultCustomizations?: FunnelsFilterApiResultCustomizations
     /** Whether to render annotations on the chart. Only applies to historical-trends funnels. */
@@ -3058,6 +3133,8 @@ export interface StickinessFilterApi {
     computedAs?: StickinessComputationModeApi | null
     display?: ChartDisplayTypeApi | null
     hiddenLegendIndexes?: number[] | null
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
+    legendPosition?: LegendPositionApi | null
     /** Whether result datasets are associated by their values or by their order. */
     resultCustomizationBy?: ResultCustomizationByApi | null
     /** Customizations for the appearance of result datasets. */
@@ -3133,6 +3210,8 @@ export const LifecycleToggleApi = {
 } as const
 
 export interface LifecycleFilterApi {
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
+    legendPosition?: LegendPositionApi | null
     showLegend?: boolean | null
     /** Append per-band percentage to each value label (e.g. `580 (42%)`). Requires `showValuesOnSeries` — on its own it has no visible effect. */
     showPercentagesOnSeries?: boolean | null
@@ -4223,6 +4302,7 @@ export const IntegrationKindApi = {
     CustomerioApp: 'customerio-app',
     CustomerioWebhook: 'customerio-webhook',
     CustomerioTrack: 'customerio-track',
+    Postgresql: 'postgresql',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {
@@ -4917,6 +4997,8 @@ export interface PersonsNodeApi {
 }
 
 export interface FunnelsActorsQueryApi {
+    /** When the source funnel has compare-to-previous enabled, scopes the actors to a single period. The runner resolves `'previous'` to the shifted date range; `'current'` (or unset) uses the source's own date range. */
+    compare?: CompareApi | null
     /** Index of the step for which we want to get the timestamp for, per person. Positive for converted persons, negative for dropped of persons. */
     funnelStep?: number | null
     /** The breakdown value for which to get persons for. This is an array for person and event properties, a string for groups and an integer for cohorts. */
@@ -8404,7 +8486,7 @@ export type DashboardTemplatesListParams = {
      */
     ordering?: string
     /**
-     * Optional. `global`: official templates only. `team`: this project's saved templates only (`scope=team` rows for the current project). `feature_flag`: feature-flag dashboard templates only. Omit for both official and this project's templates (default dashboard template picker behavior).
+     * Optional. `global`: official templates only. `team`: this project's saved templates only (`scope=team` rows for the current project). `organization`: templates shared across all projects in this organization. `feature_flag`: feature-flag dashboard templates only. Omit for official, organization, and this project's templates (default dashboard template picker behavior).
      */
     scope?: DashboardTemplatesListScope
 }
@@ -8414,6 +8496,7 @@ export type DashboardTemplatesListScope = (typeof DashboardTemplatesListScope)[k
 export const DashboardTemplatesListScope = {
     FeatureFlag: 'feature_flag',
     Global: 'global',
+    Organization: 'organization',
     Team: 'team',
 } as const
 

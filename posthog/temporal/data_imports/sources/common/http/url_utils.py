@@ -23,6 +23,7 @@ _REDACT_PARAM_NAMES: Final[frozenset[str]] = frozenset(
         # Generic auth/secret param names
         "api_key",
         "apikey",
+        "appid",  # OpenWeather passes the API key as the `appid` query param
         "access_token",
         "auth",
         "auth_token",

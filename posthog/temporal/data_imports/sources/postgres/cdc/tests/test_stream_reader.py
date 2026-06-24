@@ -20,6 +20,45 @@ def params():
     )
 
 
+def _params(require_ssl: bool) -> PgCDCConnectionParams:
+    return PgCDCConnectionParams(
+        host="localhost",
+        port=5432,
+        database="postgres",
+        user="postgres",
+        password="password",
+        require_ssl=require_ssl,
+        slot_name="posthog_slot",
+        publication_name="posthog_pub",
+    )
+
+
+class TestPgCDCStreamReaderSSL:
+    @pytest.mark.parametrize("require_ssl", [True, False])
+    def test_connect_forwards_require_ssl(self, require_ssl):
+        connect = mock.MagicMock(return_value=mock.MagicMock())
+        reader = PgCDCStreamReader(_params(require_ssl))
+        with patch(
+            "posthog.temporal.data_imports.sources.postgres.cdc.stream_reader._connect_to_postgres",
+            connect,
+        ):
+            reader.connect()
+
+        assert connect.call_args.kwargs["require_ssl"] is require_ssl
+
+    @pytest.mark.parametrize("require_ssl", [True, False])
+    def test_confirm_position_forwards_require_ssl(self, require_ssl):
+        connect = mock.MagicMock(return_value=mock.MagicMock())
+        reader = PgCDCStreamReader(_params(require_ssl))
+        with patch(
+            "posthog.temporal.data_imports.sources.postgres.cdc.stream_reader._connect_to_postgres",
+            connect,
+        ):
+            reader.confirm_position("0/1234ABCD")
+
+        assert connect.call_args.kwargs["require_ssl"] is require_ssl
+
+
 class TestPgCDCStreamReaderConnect:
     def test_connect_retries_transient_dropped_connection(self, params):
         good_conn = mock.MagicMock()

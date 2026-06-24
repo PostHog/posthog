@@ -216,7 +216,10 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
                 properties=properties,
             )
             runner = RevenueAnalyticsTopCustomersQueryRunner(
-                team=self.team, query=query, modifiers=HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True)
+                team=self.team,
+                query=query,
+                user=self.user,
+                modifiers=HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True),
             )
 
             response = runner.calculate()

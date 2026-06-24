@@ -240,6 +240,8 @@ class EndpointCrudService:
 
         except APIException:
             raise
+        except ValidationError:
+            raise
         except Exception as e:
             current_version = endpoint.get_version()
             capture_exception(

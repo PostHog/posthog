@@ -131,6 +131,18 @@
                     <th>partition_count</th>
                     <td>{{ current_partition_count|default:"None" }}</td>
                 </tr>
+                {% if current_partition_count_override is not None %}
+                <tr>
+                    <th>partition_count_override</th>
+                    <td>{{ current_partition_count_override }} (pinned, applies on next reset)</td>
+                </tr>
+                {% endif %}
+                {% if current_partition_size_override is not None %}
+                <tr>
+                    <th>partition_size_override</th>
+                    <td>{{ current_partition_size_override }} (pinned, applies on next reset)</td>
+                </tr>
+                {% endif %}
                 <tr>
                     <th>partitioning_keys</th>
                     <td>{{ current_partition_keys|default:"None" }}</td>
@@ -179,7 +191,18 @@
             {% elif current_partition_mode == "md5" %}
                 <p class="help">
                     md5 mode hashes the primary key into <code>partition_count</code> buckets.
-                    Typical values: 50 to 1,000.
+                    <br><br>
+                    <strong>Sizing:</strong> the pipeline targets ~200&nbsp;MB per partition, so a
+                    good starting point is
+                    <code>partition_count ≈ ceil(total table size in bytes / 200&nbsp;MB)</code>.
+                    For example a 2&nbsp;GB table → ~10, a 10&nbsp;GB table → ~50. Use the source-side
+                    table size (incl. indexes/TOAST for Postgres), not the Delta footprint.
+                    <br><br>
+                    <strong>Trade-off:</strong> md5 hashing scatters changed rows uniformly, so every
+                    incremental sync touches (and rewrites) <em>every</em> partition that has changes.
+                    More buckets means more, smaller merges; fewer buckets means fewer, larger ones.
+                    Don't over-partition a small or low-churn table — pin a lower count if the
+                    auto-detected value is making syncs slow.
                 </p>
                 <div class="partitioning-controls">
                     <label for="partition_count_input">New partition count:</label>

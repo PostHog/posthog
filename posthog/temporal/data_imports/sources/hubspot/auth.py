@@ -2,17 +2,46 @@ from django.conf import settings
 
 import requests
 import structlog
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 
 logger = structlog.get_logger(__name__)
 
+# Cap how long a single Retry-After can stall the token refresh, so a misbehaving
+# header can't pin the activity open.
+MAX_RETRY_AFTER_SECONDS = 60
+# Stateless backoff used when a 429 carries no Retry-After hint (or for 5xx).
+_FALLBACK_WAIT = wait_exponential_jitter(initial=1, max=30)
+
 
 class HubspotRetryableError(Exception):
-    """Transient HubSpot API failure (429 rate limit or 5xx) that should be retried with backoff."""
+    """Transient HubSpot API failure (429 rate limit, 5xx, or portal migration) that should be retried with backoff."""
 
-    pass
+    def __init__(self, message: str, retry_after: float | None = None) -> None:
+        super().__init__(message)
+        # Seconds HubSpot asked us to wait (from a 429 Retry-After), if any.
+        self.retry_after = retry_after
+
+
+def _parse_retry_after(res: requests.Response) -> float | None:
+    """HubSpot sends Retry-After as delta-seconds on 429s; ignore other (non-numeric) forms."""
+    raw = res.headers.get("Retry-After")
+    if raw is None:
+        return None
+    try:
+        seconds = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return max(0.0, seconds)
+
+
+def _wait_strategy(retry_state: RetryCallState) -> float:
+    """Honor a 429's Retry-After when present, else fall back to jittered backoff."""
+    exc = retry_state.outcome.exception() if retry_state.outcome is not None else None
+    if isinstance(exc, HubspotRetryableError) and exc.retry_after is not None:
+        return min(exc.retry_after, MAX_RETRY_AFTER_SECONDS)
+    return _FALLBACK_WAIT(retry_state)
 
 
 def _error_message_from_response(res: requests.Response) -> str:
@@ -30,7 +59,7 @@ def _error_message_from_response(res: requests.Response) -> str:
     # instead of failing the whole sync on a momentary rate limit.
     retry=retry_if_exception_type((HubspotRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
+    wait=_wait_strategy,
     reraise=True,
 )
 def hubspot_refresh_access_token(refresh_token: str, source_id: str | None = None) -> str:
@@ -50,6 +79,12 @@ def hubspot_refresh_access_token(refresh_token: str, source_id: str | None = Non
         # retryable error so the calling fetch loop backs off and retries instead of failing the
         # whole sync on a momentary rate limit.
         if res.status_code == 429 or res.status_code >= 500:
+            retry_after = _parse_retry_after(res) if res.status_code == 429 else None
+            raise HubspotRetryableError(err_message, retry_after=retry_after)
+        # HubSpot briefly returns this (on a non-5xx) while a portal is migrated between data
+        # centers; the portal becomes reachable again once the migration finishes, so back off
+        # and retry rather than failing the sync (and disabling the schema) on a transient state.
+        if "migration in progress" in err_message.lower():
             raise HubspotRetryableError(err_message)
         raise Exception(err_message)
 

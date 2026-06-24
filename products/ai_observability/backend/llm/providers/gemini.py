@@ -62,6 +62,8 @@ class GeminiConfig:
         "gemini-1.5-flash",
     ]
 
+    DEFAULT_MODEL: str = "gemini-2.5-flash"
+
 
 class GeminiAdapter:
     """Gemini provider implementing the unified Client interface."""

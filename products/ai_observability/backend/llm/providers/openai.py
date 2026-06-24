@@ -82,6 +82,8 @@ class OpenAIConfig:
         "o4-mini",
     ]
 
+    DEFAULT_MODEL: str = "gpt-5-mini"
+
     SUPPORTED_MODELS_WITH_THINKING: list[str] = [
         "gpt-5.4",
         "gpt-5.2",

@@ -71,7 +71,9 @@ Pass the description straight to the `body` argument of the PR-creation tool (th
 
 ### Pushing to remote
 
-Pushes trigger CI, which burns runner credits. Refrain from pushing unless explicitly instructed or until the task is complete — batch local commits and push once at the end rather than after every change. If you're mid-task or iterating, keep work local.
+Don't open GitHub issues or pull requests without human instruction.
+Once a branch already has an open PR, push incremental changes and fixes to it without waiting for human guidance — keeping the PR current is part of the work.
+Pushes still trigger CI, which burns runner credits, so batch related commits and push once the increment is ready rather than after every change.
 
 ### Public open source repo guidance
 
@@ -135,6 +137,7 @@ See [.agents/security.md](.agents/security.md) for SQL, HogQL, and semgrep secur
 - Python: do not create empty `__init__.py` files
 - jest tests: when writing jest tests, prefer a single top-level describe block in a file
 - Tests: prefer parameterized tests (use the `parameterized` library in Python) — if you're writing multiple assertions for variations of the same logic, it should be parameterized
+- Tests must earn their place: every new test has to catch a realistic regression no existing test already catches (if you can't name it, don't add it), assert observable behavior through the public interface rather than implementation details, and stay cheap — deterministic, isolated, and at the lowest level that catches the bug (see `/writing-tests`)
 - Reduce nesting: Use early returns, guard clauses, and helper methods to avoid deeply nested code
 - Markdown: prefer semantic line breaks; no hard wrapping
 - Use American English spelling
@@ -161,6 +164,7 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 - `/django-migrations` — any Django migration
 - `/clickhouse-migrations` — any ClickHouse migration
 - `/adopting-generated-api-types` — any frontend file using `lib/api`, `api.get<`, `api.create<`, or handwritten API types
+- `/writing-tests` — adding or substantially changing any test (pytest, Jest, or Playwright)
 
 **Invoke when in the area:**
 
