@@ -60,6 +60,27 @@ def extract_webfault_detail(fault: Any) -> str:
     return "; ".join(parts)
 
 
+def _wrap_with_fault_detail(e: Exception, context: str) -> ValueError:
+    """Wrap a bingads SDK error so the SOAP fault detail the generic faultstring hides reaches
+    both the logs and the retry classifier. Every Bing Ads SOAP call should funnel its errors
+    through here — otherwise the real, stable code (``InvalidReportColumn``, ``InvalidCredentials``,
+    etc.) is lost behind the opaque "Invalid client data..." umbrella message.
+
+    Preserves the underlying exception's type and message — plus any SOAP fault detail — so the
+    retry framework can selectively recognise auth/config failures as non-retryable while transient
+    SDK errors (network, Bing outage, rate limits) keep their original signature and stay retryable.
+    """
+    fault_detail = extract_webfault_detail(e.fault) if isinstance(e, WebFault) else ""
+    logger.warning(
+        context,
+        error=str(e),
+        error_type=type(e).__name__,
+        fault_detail=fault_detail,
+    )
+    detail_suffix = f" ({fault_detail})" if fault_detail else ""
+    return ValueError(f"{context}: {type(e).__name__}: {e}{detail_suffix}")
+
+
 class BingAdsClient:
     def __init__(self, access_token: str, refresh_token: str, developer_token: str):
         self.developer_token = developer_token
@@ -101,21 +122,7 @@ class BingAdsClient:
             user = service_client.GetUser(UserId=None).User
             self._customer_id = user.CustomerId
         except Exception as e:
-            # For SOAP faults the str(e) is a generic umbrella message ("Invalid client data...");
-            # the actionable error code lives in the fault detail, so surface it explicitly.
-            fault_detail = extract_webfault_detail(e.fault) if isinstance(e, WebFault) else ""
-            logger.warning(
-                "Failed to fetch customer ID",
-                error=str(e),
-                error_type=type(e).__name__,
-                fault_detail=fault_detail,
-            )
-            # Preserve the underlying exception's type and message — plus any SOAP fault detail —
-            # so the retry framework can selectively recognise auth-related failures as
-            # non-retryable while transient SDK errors (network, Bing outage, rate limits) keep
-            # their original signature and remain retryable.
-            detail_suffix = f" ({fault_detail})" if fault_detail else ""
-            raise ValueError(f"Failed to fetch customer ID: {type(e).__name__}: {e}{detail_suffix}") from e
+            raise _wrap_with_fault_detail(e, "Failed to fetch customer ID") from e
 
         return self._customer_id
 
@@ -167,29 +174,32 @@ class BingAdsClient:
         self.authorization_data.account_id = account_id
         self.authorization_data.customer_id = customer_id
 
-        reporting_service_manager = reporting.ReportingServiceManager(
-            authorization_data=self.authorization_data,
-            poll_interval_in_milliseconds=REPORT_POLL_INTERVAL_MS,
-            environment=ENVIRONMENT,
-        )
+        try:
+            reporting_service_manager = reporting.ReportingServiceManager(
+                authorization_data=self.authorization_data,
+                poll_interval_in_milliseconds=REPORT_POLL_INTERVAL_MS,
+                environment=ENVIRONMENT,
+            )
 
-        # Build report request using SDK's factory pattern
-        report_request = build_report_request(
-            service_factory=reporting_service_manager._service_client.factory,
-            report_config=report_config,
-            field_names=schema["field_names"],
-            account_id=account_id,
-            start_date=start_date,
-            end_date=end_date,
-        )
+            # Build report request using SDK's factory pattern
+            report_request = build_report_request(
+                service_factory=reporting_service_manager._service_client.factory,
+                report_config=report_config,
+                field_names=schema["field_names"],
+                account_id=account_id,
+                start_date=start_date,
+                end_date=end_date,
+            )
 
-        # Download and extract CSV from ZIP
-        csv_data = download_and_extract_report_csv(
-            reporting_service_manager=reporting_service_manager,
-            report_request=report_request,
-            report_type=report_config["report_type"],
-            account_id=account_id,
-        )
+            # Download and extract CSV from ZIP
+            csv_data = download_and_extract_report_csv(
+                reporting_service_manager=reporting_service_manager,
+                report_request=report_request,
+                report_type=report_config["report_type"],
+                account_id=account_id,
+            )
+        except Exception as e:
+            raise _wrap_with_fault_detail(e, f"Failed to generate {resource.value} report") from e
 
         return parse_csv_to_dicts(csv_data)
 

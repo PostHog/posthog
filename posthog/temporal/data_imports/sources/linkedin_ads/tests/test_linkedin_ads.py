@@ -7,7 +7,9 @@ import pytest
 from unittest import mock
 
 import pyarrow as pa
+from parameterized import parameterized
 
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.sources.generated_configs import LinkedinAdsSourceConfig
 from posthog.temporal.data_imports.sources.linkedin_ads.client import LinkedinAdsDailyRateLimitError
@@ -22,6 +24,7 @@ from posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads import (
     linkedin_ads_client,
     linkedin_ads_source,
 )
+from posthog.temporal.data_imports.sources.linkedin_ads.source import LinkedInAdsSource
 
 from products.data_warehouse.backend.types import IncrementalFieldType
 
@@ -356,6 +359,7 @@ class TestLinkedinAdsClientFunction:
         """Test client creation with no access token raises error."""
         mock_integration = mock.MagicMock()
         mock_integration.access_token = None
+        mock_integration.sensitive_config = {}  # no refresh token → not expired, skips refresh
         mock_integration_model.objects.get.return_value = mock_integration
 
         config = LinkedinAdsSourceConfig(linkedin_ads_integration_id=123, account_id="456")
@@ -377,6 +381,7 @@ class TestLinkedinAdsClientFunction:
 
         mock_integration = mock.MagicMock()
         mock_integration.access_token = "token"
+        mock_integration.sensitive_config = {}  # no refresh token → not expired, skips refresh
 
         def fake_get(*args, **kwargs):
             calls.append("Integration.objects.get")
@@ -388,6 +393,55 @@ class TestLinkedinAdsClientFunction:
         linkedin_ads_client(config, team_id=789)
 
         assert calls == ["close_old_connections", "Integration.objects.get"]
+
+
+@mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads.OauthIntegration")
+@mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads.Integration")
+class TestLinkedinAdsClientTokenRefresh:
+    """Token refresh behaviour of linkedin_ads_client."""
+
+    config = LinkedinAdsSourceConfig(linkedin_ads_integration_id=123, account_id="456")
+
+    @parameterized.expand(
+        [
+            ("expired_token_is_refreshed", True),
+            ("valid_token_is_not_refreshed", False),
+        ]
+    )
+    def test_refreshes_only_when_token_is_expired(self, mock_integration_model, mock_oauth_cls, _name, token_expired):
+        integration = mock.MagicMock()
+        integration.access_token = "refreshed-token"
+        integration.errors = ""
+        mock_integration_model.objects.get.return_value = integration
+
+        oauth = mock_oauth_cls.return_value
+        oauth.access_token_expired.return_value = token_expired
+
+        client = linkedin_ads_client(self.config, team_id=789)
+
+        if token_expired:
+            oauth.refresh_access_token.assert_called_once()
+        else:
+            oauth.refresh_access_token.assert_not_called()
+        assert client.access_token == "refreshed-token"
+
+    def test_failed_refresh_raises_non_retryable_message(self, mock_integration_model, mock_oauth_cls):
+        integration = mock.MagicMock()
+        integration.access_token = "stale-token"
+        integration.errors = ERROR_TOKEN_REFRESH_FAILED
+        mock_integration_model.objects.get.return_value = integration
+
+        oauth = mock_oauth_cls.return_value
+        oauth.access_token_expired.return_value = True
+
+        with pytest.raises(Exception) as exc_info:
+            linkedin_ads_client(self.config, team_id=789)
+
+        message = str(exc_info.value)
+        assert "Failed to refresh token for LinkedIn Ads integration" in message
+        # The message must be classified non-retryable so a dead token stops the sync instead of looping.
+        patterns = LinkedInAdsSource().get_non_retryable_errors()
+        assert any(pattern in message for pattern in patterns)
 
 
 @mock.patch("posthog.temporal.data_imports.sources.linkedin_ads.linkedin_ads.linkedin_ads_client")

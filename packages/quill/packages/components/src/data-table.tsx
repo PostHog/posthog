@@ -67,6 +67,12 @@ export interface DataTableProps<TData, TValue> {
      */
     fullWidth?: boolean
     /**
+     * Cell density, forwarded to the Table primitive. `'sm'` tightens head/cell
+     * inline padding to `0.75rem` — pair with a `Card size="sm"` so edge columns
+     * align with the card's inline padding.
+     */
+    size?: 'default' | 'sm'
+    /**
      * Rendered in place of rows when `data` is empty. Defaults to a minimal
      * "No results" Empty; pass a richer node (custom copy, actions) to override.
      */
@@ -190,6 +196,7 @@ function DataTable<TData, TValue>({
     className,
     stickyHeader,
     fullWidth,
+    size,
     empty = DEFAULT_EMPTY,
     pageSize,
     pageSizeOptions,
@@ -217,7 +224,7 @@ function DataTable<TData, TValue>({
     const rows = table.getRowModel().rows
 
     const tableElement = (
-        <Table className={className} stickyHeader={stickyHeader} fullWidth={fullWidth}>
+        <Table className={className} stickyHeader={stickyHeader} fullWidth={fullWidth} size={size}>
             <TableHeader>
                 {table.getHeaderGroups().map((headerGroup) => (
                     <TableRow key={headerGroup.id}>

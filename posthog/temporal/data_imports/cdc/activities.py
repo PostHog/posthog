@@ -33,6 +33,7 @@ from posthog.temporal.data_imports.cdc.batcher import (
     enrich_delete_rows,
 )
 from posthog.temporal.data_imports.cdc.types import ChangeEvent
+from posthog.temporal.data_imports.pipelines.helpers import resolve_table_and_folder_names
 from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.common import SyncTypeLiteral
 from posthog.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import PostgresProducer
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3.writer import S3BatchWriter
@@ -194,7 +195,8 @@ class CDCExtractActivity:
                 job_id=job_id,
                 schema_id=str(schema.id),
                 source_id=str(source.id),
-                resource_name=schema.name,
+                # Fall back to `name` for entries persisted before resource_name was stored.
+                resource_name=run_meta.get("resource_name", schema.name),
                 sync_type=typing.cast(SyncTypeLiteral, "cdc"),
                 run_uuid=run_uuid,
                 logger=log,
@@ -203,6 +205,7 @@ class CDCExtractActivity:
                 cdc_table_mode=run_meta.get("cdc_table_mode"),
                 workflow_id=current_workflow_id(),
                 workflow_run_id=current_workflow_run_id(),
+                **self._partition_kwargs(schema),
             )
 
             from posthog.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult
@@ -318,6 +321,7 @@ class CDCExtractActivity:
             cdc_table_mode=tracker.cdc_table_mode,
             workflow_id=current_workflow_id(),
             workflow_run_id=current_workflow_run_id(),
+            **self._partition_kwargs(schema),
         )
         try:
             producer.send_batch_notification(
@@ -361,6 +365,8 @@ class CDCExtractActivity:
             entry = {
                 "job_id": str(tracker.job.id),
                 "run_uuid": tracker.run_uuid,
+                # Replayed by the deferred flush so it targets the same Delta table this batch went to.
+                "resource_name": tracker.write_resource_name,
                 "data_folder": tracker.s3_writer.get_data_folder(),
                 "schema_path": None,  # written on finalization
                 "total_batches": 0,
@@ -396,6 +402,34 @@ class CDCExtractActivity:
         )
 
     # ------------------------------------------------------------------
+    # Storage naming
+    # ------------------------------------------------------------------
+    def _consolidated_resource_name(self, schema: ExternalDataSchema) -> str:
+        """Storage name for the consolidated table — must match the snapshot pipeline's.
+
+        The CDC stream must target the same folder, otherwise streamed changes
+        land in a parallel Delta table no query reads. `name` and folder diverge
+        for rows renamed bare→qualified (`name="public.users"`, folder `users`).
+        """
+        _table_storage_name, folder_name = resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name)
+        return folder_name
+
+    def _partition_kwargs(self, schema: ExternalDataSchema) -> dict[str, typing.Any]:
+        """Replay snapshot partitioning so CDC rows match the target Delta.
+
+        Without this, partitioned targets silently drop CDC rows. No-op when unpartitioned.
+        """
+        if not schema.partitioning_enabled:
+            return {}
+        return {
+            "partition_count": schema.partition_count,
+            "partition_size": schema.partition_size,
+            "partition_keys": schema.partitioning_keys,
+            "partition_mode": schema.partition_mode,
+            "partition_format": schema.partition_format,
+        }
+
+    # ------------------------------------------------------------------
     # Per-flush processing
     # ------------------------------------------------------------------
     def _process_flush(
@@ -424,15 +458,23 @@ class CDCExtractActivity:
 
             enriched_table = enrich_delete_rows(raw_table, key_columns)
 
+            # Consolidated shares the snapshot's canonical folder; the `_cdc` companion is
+            # CDC-only and stays self-consistent with its `name`-keyed snapshot seed.
             batch_writes: list[tuple[pa.Table, str, str]] = []
             if cdc_table_mode == "consolidated":
-                batch_writes.append((deduplicate_table(enriched_table, key_columns), schema.name, "incremental_merge"))
+                consolidated_name = self._consolidated_resource_name(schema)
+                batch_writes.append(
+                    (deduplicate_table(enriched_table, key_columns), consolidated_name, "incremental_merge")
+                )
             elif cdc_table_mode == "cdc_only":
                 batch_writes.append(
                     (build_scd2_table(enriched_table, key_columns), f"{schema.name}_cdc", "scd2_append")
                 )
             elif cdc_table_mode == "both":
-                batch_writes.append((deduplicate_table(enriched_table, key_columns), schema.name, "incremental_merge"))
+                consolidated_name = self._consolidated_resource_name(schema)
+                batch_writes.append(
+                    (deduplicate_table(enriched_table, key_columns), consolidated_name, "incremental_merge")
+                )
                 batch_writes.append(
                     (build_scd2_table(enriched_table, key_columns), f"{schema.name}_cdc", "scd2_append")
                 )
@@ -635,25 +677,32 @@ class CDCExtractActivity:
             columns=filtered,
         )
 
+    def _qualified_table_name(self, schema: ExternalDataSchema) -> str:
+        """Resolve a CDC schema row to its source-qualified `schema.table` name.
+
+        Prefers stored schema_metadata, then a dotted display name, then the source's
+        default schema — so a row stored bare (`orders`) still resolves to its real
+        source location (`public.orders`).
+        """
+        default_schema = (self.source.job_inputs or {}).get("schema") if self.source else None
+        metadata = schema.sync_type_config.get("schema_metadata") or {}
+        src_schema = metadata.get("source_schema")
+        src_table = metadata.get("source_table_name")
+        if isinstance(src_schema, str) and isinstance(src_table, str):
+            return f"{src_schema}.{src_table}"
+        if "." in schema.name:
+            return schema.name
+        return f"{default_schema or 'public'}.{schema.name}"
+
     def _build_event_name_map(self) -> dict[str, str]:
         """Map each schema's source-qualified `schema.table` name to its stored `name`.
 
         WAL events are always qualified (`public.orders`) but `name` may be stored bare
         (`orders`), so an exact-equality match silently drops every change for a bare row.
         """
-        default_schema = (self.source.job_inputs or {}).get("schema") if self.source else None
         mapping: dict[str, str] = {}
         for schema in self.cdc_schemas:
-            metadata = schema.sync_type_config.get("schema_metadata") or {}
-            src_schema = metadata.get("source_schema")
-            src_table = metadata.get("source_table_name")
-            if isinstance(src_schema, str) and isinstance(src_table, str):
-                qualified = f"{src_schema}.{src_table}"
-            elif "." in schema.name:
-                qualified = schema.name
-            else:
-                qualified = f"{default_schema or 'public'}.{schema.name}"
-            mapping[qualified] = schema.name
+            mapping[self._qualified_table_name(schema)] = schema.name
             mapping.setdefault(schema.name, schema.name)  # also match a bare-emitted name
         return mapping
 
@@ -922,7 +971,9 @@ class CDCExtractActivity:
             schema.save(update_fields=["status", "latest_error", "updated_at"])
             self._schema_log(schema).warning("cdc_schema_reset_for_slot_recovery", schema_id=str(schema.id))
 
-        resource_fields = self.adapter.recreate_slot(self.source, tables=[s.name for s in self.cdc_schemas])
+        resource_fields = self.adapter.recreate_slot(
+            self.source, tables=[self._qualified_table_name(s) for s in self.cdc_schemas]
+        )
 
         self.source.job_inputs = {**(self.source.job_inputs or {}), **resource_fields}
         self.source.save(update_fields=["job_inputs", "updated_at"])

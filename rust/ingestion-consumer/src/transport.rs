@@ -1,7 +1,7 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use dashmap::DashMap;
 use metrics::{counter, gauge, histogram};
 use rand::Rng;
 use tokio::sync::Semaphore;
@@ -48,11 +48,16 @@ impl Drop for InFlightGuard {
 /// and retries with a longer, jittered backoff. This keeps the consumer correct
 /// when a worker is shared by other callers and its true capacity isn't a
 /// number this consumer can reserve in advance.
+///
+/// Semaphores are created lazily on first send to a worker and pruned via
+/// [`remove_worker`](HttpTransport::remove_worker), so the worker pool can
+/// change at runtime (workers joining/leaving via discovery).
 pub struct HttpTransport {
     client: reqwest::Client,
     max_retries: u32,
     api_secret: Option<String>,
-    worker_semaphores: HashMap<String, Arc<Semaphore>>,
+    worker_semaphores: DashMap<String, Arc<Semaphore>>,
+    worker_concurrent_batches: usize,
 }
 
 impl HttpTransport {
@@ -74,22 +79,42 @@ impl HttpTransport {
             .build()
             .expect("failed to create HTTP client");
 
-        let worker_semaphores = worker_urls
-            .iter()
-            .map(|url| {
-                (
-                    url.clone(),
-                    Arc::new(Semaphore::new(worker_concurrent_batches)),
-                )
-            })
-            .collect();
+        // Pre-seed semaphores for the initial worker set; new workers get one
+        // lazily on first send (see `semaphore_for`).
+        let worker_semaphores = DashMap::new();
+        for url in worker_urls {
+            worker_semaphores.insert(
+                url.clone(),
+                Arc::new(Semaphore::new(worker_concurrent_batches)),
+            );
+        }
 
         Self {
             client,
             max_retries,
             api_secret,
             worker_semaphores,
+            worker_concurrent_batches,
         }
+    }
+
+    /// Get the worker's concurrency semaphore, creating it on first use so the
+    /// transport serves workers added at runtime without explicit registration.
+    fn semaphore_for(&self, worker_url: &str) -> Arc<Semaphore> {
+        if let Some(sem) = self.worker_semaphores.get(worker_url) {
+            return sem.clone();
+        }
+        self.worker_semaphores
+            .entry(worker_url.to_string())
+            .or_insert_with(|| Arc::new(Semaphore::new(self.worker_concurrent_batches)))
+            .clone()
+    }
+
+    /// Drop a worker's semaphore after it leaves the pool, so departed workers
+    /// don't accumulate. In-flight sends already hold a cloned `Arc`, so their
+    /// permits remain valid until they complete.
+    pub fn remove_worker(&self, worker_url: &str) {
+        self.worker_semaphores.remove(worker_url);
     }
 
     /// Check if a worker is ready by probing its health endpoint.
@@ -145,7 +170,7 @@ impl HttpTransport {
         worker_url: &str,
         batch_id: &str,
         messages: Vec<SerializedKafkaMessage>,
-    ) -> Result<u32, TransportError> {
+    ) -> Result<u32, SendError> {
         let message_count = messages.len();
         let request = IngestBatchRequest {
             batch_id: batch_id.to_string(),
@@ -154,11 +179,7 @@ impl HttpTransport {
 
         let url = format!("{worker_url}/ingest");
 
-        let semaphore = self
-            .worker_semaphores
-            .get(worker_url)
-            .ok_or_else(|| TransportError::UnknownWorker(worker_url.to_string()))?
-            .clone();
+        let semaphore = self.semaphore_for(worker_url);
 
         // Atomic "did we actually have to wait?" check. `available_permits`
         // followed by `acquire_owned` would race — a permit could be released
@@ -240,7 +261,10 @@ impl HttpTransport {
                         "Failed to send batch to worker"
                     );
                     if !err.is_retriable() {
-                        return Err(err);
+                        return Err(SendError {
+                            error: err,
+                            messages: request.messages,
+                        });
                     }
                     last_err = Some(err);
                 }
@@ -257,7 +281,10 @@ impl HttpTransport {
         );
         counter!("ingestion_consumer_transport_exhausted_total", "worker" => worker_url.to_string())
             .increment(1);
-        Err(err)
+        Err(SendError {
+            error: err,
+            messages: request.messages,
+        })
     }
 
     async fn do_send(
@@ -290,6 +317,15 @@ impl HttpTransport {
     }
 }
 
+/// Failure from [`HttpTransport::send_batch`], carrying back the batch's
+/// messages so the caller can defer/replay them (the worker may have died
+/// mid-send and the messages were never accepted).
+#[derive(Debug)]
+pub struct SendError {
+    pub error: TransportError,
+    pub messages: Vec<SerializedKafkaMessage>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum TransportError {
     #[error("HTTP request failed: {0}")]
@@ -303,9 +339,6 @@ pub enum TransportError {
 
     #[error("Worker returned error: {0}")]
     WorkerError(String),
-
-    #[error("Unknown worker URL: {0}")]
-    UnknownWorker(String),
 
     #[error("All retries exhausted")]
     RetriesExhausted,
@@ -323,7 +356,6 @@ impl TransportError {
             TransportError::Http(_) => true,
             TransportError::WorkerBusy(_) => true,
             TransportError::WorkerError(_) => true,
-            TransportError::UnknownWorker(_) => false,
             TransportError::RetriesExhausted => false,
         }
     }
@@ -356,7 +388,7 @@ mod tests {
     #[test]
     fn test_client_errors_are_not_retriable() {
         assert!(!TransportError::HttpStatus(400, "bad".into()).is_retriable());
-        assert!(!TransportError::UnknownWorker("x".into()).is_retriable());
+        assert!(!TransportError::RetriesExhausted.is_retriable());
     }
 
     #[test]

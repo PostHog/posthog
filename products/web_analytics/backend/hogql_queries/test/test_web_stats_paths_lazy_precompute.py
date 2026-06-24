@@ -30,6 +30,10 @@ from posthog.models.utils import uuid7
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
+from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import (
+    _breakdown_value_expr,
+    _entry_breakdown_value_expr,
+)
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -334,16 +338,51 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             self._run(self._build_query(include_scroll_depth=True))
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
 
+    def _set_path_cleaning_rules(self) -> None:
+        self.team.path_cleaning_filters = [
+            {"alias": "/project/<id>", "regex": "\\/project\\/\\d+", "order": 0},
+            {"alias": "/insights/<id>", "regex": "\\/insights\\/[0-9a-zA-Z]+", "order": 1},
+        ]
+        self.team.save()
+
     @freeze_time("2024-01-15T12:00:00Z")
     def test_path_cleaning_uses_lazy_path(self):
-        # Path cleaning is applied at READ time, so the precompute is
-        # rule-independent — cleaning rules can change without invalidating
-        # stored rows, and the lazy_computation query_hash doesn't carry the
-        # regex. A path-cleaning query should create a precompute job.
+        # Path cleaning is baked into the precompute at INSERT time, so a
+        # path-cleaning query is still lazy-eligible and creates a precompute job.
         self._seed_two_sessions()
         with self._enable_lazy():
             self._run(self._build_query(do_path_cleaning=True))
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() > 0
+
+    @parameterized.expand([("breakdown", _breakdown_value_expr), ("entry", _entry_breakdown_value_expr)])
+    def test_path_cleaning_baked_into_insert_expr(self, _name: str, fn):
+        # With team rules + doPathCleaning, the insert breakdown/entry exprs carry
+        # the cleaning regex chain; without it (or without rules) they store raw.
+        self._set_path_cleaning_rules()
+        cleaned = fn(WebStatsTableQueryRunner(team=self.team, query=self._build_query(do_path_cleaning=True)))
+        raw = fn(WebStatsTableQueryRunner(team=self.team, query=self._build_query(do_path_cleaning=False)))
+        assert "replaceRegexpAll" in repr(cleaned), f"{fn.__name__} must bake cleaning into the insert"
+        assert "replaceRegexpAll" not in repr(raw), f"{fn.__name__} must store raw paths when cleaning is off"
+
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_path_cleaning_gets_distinct_cache_entry(self):
+        # Cleaning is part of the insert AST now, so doPathCleaning on/off map to
+        # distinct query_hashes / jobs (a rules change spawns a fresh job).
+        self._seed_two_sessions()
+        self._set_path_cleaning_rules()
+        with self._enable_lazy():
+            self._run(self._build_query(do_path_cleaning=False))
+            raw_hashes = {str(j.query_hash) for j in PreaggregationJob.objects.filter(team_id=self.team.pk)}
+            PreaggregationJob.objects.filter(team_id=self.team.pk).delete()
+
+            self._run(self._build_query(do_path_cleaning=True))
+            cleaned_hashes = {str(j.query_hash) for j in PreaggregationJob.objects.filter(team_id=self.team.pk)}
+
+        assert raw_hashes, "expected raw run to create at least one job"
+        assert cleaned_hashes, "expected cleaned run to create at least one job"
+        assert raw_hashes.isdisjoint(cleaned_hashes), (
+            f"doPathCleaning on/off must produce distinct cache keys, got overlap: {raw_hashes & cleaned_hashes}"
+        )
 
     @freeze_time("2024-01-15T12:00:00Z")
     def test_uuid_session_mode_falls_through(self):
@@ -606,3 +645,64 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
             self._run(self._build_query(opt_in_precompute=False))
         assert PreaggregationJob.objects.filter(team_id=self.team.pk).count() == 0
+
+    @parameterized.expand([("allowlisted", True), ("not_allowlisted", False)])
+    @freeze_time("2024-01-15T12:00:00Z")
+    def test_pathkey_mirror_runs_only_for_allowlisted_teams(self, _name: str, allowlisted: bool) -> None:
+        import products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute as mod
+
+        job_id = uuid.uuid4()
+        mirror_team_ids = [self.team.pk] if allowlisted else []
+        with (
+            self._enable_lazy(),
+            override_settings(WEB_STATS_PATHS_PREAGG_MIRROR_PATHKEY_TEAM_IDS=mirror_team_ids),
+            patch.object(
+                mod,
+                "ensure_web_stats_paths_precomputed",
+                return_value=LazyComputationResult(ready=True, job_ids=[job_id]),
+            ),
+            patch.object(mod, "execute_read_query", return_value=[]),
+            patch.object(mod, "mirror_jobs_to_pathkey") as mock_mirror,
+        ):
+            runner = WebStatsTableQueryRunner(team=self.team, query=self._build_query())
+            mod.execute_lazy_precomputed_read(runner, sort_column="visitors", sort_direction="DESC", limit=11, offset=0)
+
+        if allowlisted:
+            mock_mirror.assert_called_once_with(team_id=self.team.pk, job_ids=[str(job_id)])
+        else:
+            mock_mirror.assert_not_called()
+
+    def test_mirror_jobs_to_pathkey_copies_rows_between_tables(self) -> None:
+        from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import mirror_jobs_to_pathkey
+
+        job_id = uuid.uuid4()
+        with patch(
+            "products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute.sync_execute"
+        ) as mock_exec:
+            mirror_jobs_to_pathkey(team_id=self.team.pk, job_ids=[str(job_id)])
+
+        mock_exec.assert_called_once()
+        sql, params = mock_exec.call_args.args
+        assert "INSERT INTO web_stats_paths_preaggregated_pathkey" in sql
+        assert "FROM web_stats_paths_preaggregated" in sql
+        assert params["team_id"] == self.team.pk
+        assert params["job_ids"] == [job_id]  # coerced from str back to UUID
+
+    def test_mirror_jobs_to_pathkey_swallows_errors(self) -> None:
+        from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import mirror_jobs_to_pathkey
+
+        with patch(
+            "products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute.sync_execute",
+            side_effect=ValueError("boom"),
+        ):
+            # Must not raise — a failed mirror cannot affect the primary read.
+            mirror_jobs_to_pathkey(team_id=self.team.pk, job_ids=[str(uuid.uuid4())])
+
+    def test_mirror_jobs_to_pathkey_noop_on_empty(self) -> None:
+        from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import mirror_jobs_to_pathkey
+
+        with patch(
+            "products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute.sync_execute"
+        ) as mock_exec:
+            mirror_jobs_to_pathkey(team_id=self.team.pk, job_ids=[])
+        mock_exec.assert_not_called()

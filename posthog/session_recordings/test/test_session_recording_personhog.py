@@ -5,7 +5,7 @@ TestLoadPersonIntegration — parameterized integration test (ORM + personhog).
 """
 
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
 
 from django.test import SimpleTestCase
 
@@ -87,15 +87,16 @@ class TestLoadPersonRouting(SimpleTestCase):
         recording = SessionRecording()
         recording.distinct_id = "test-distinct-id"
         recording.team_id = 1
-        # Use a real-looking mock for the team FK — bypass Django's descriptor
+        # Use a real-looking mock for the team FK — bypass Django's descriptor.
         mock_team = MagicMock()
         mock_team.pk = 1
-        recording.__dict__["_team_cache"] = mock_team
-        object.__setattr__(recording, "_team_cache", mock_team)
-        # Patch the property access used in load_person
-        type(recording).team = property(lambda self: mock_team)  # type: ignore[assignment]
 
-        recording.load_person()
+        # Patch `team` at the class level via patch.object so the original FK
+        # descriptor is restored afterwards. A bare `type(recording).team = ...`
+        # leaks a setter-less property into every later SessionRecording test in
+        # the same process (only visible when those tests run on the same shard).
+        with patch.object(type(recording), "team", new_callable=PropertyMock, return_value=mock_team):
+            recording.load_person()
 
         mock_routing_counter.labels.assert_called_with(
             operation="load_person", source=expected_source, client_name="posthog-django"

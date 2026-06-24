@@ -244,8 +244,9 @@ export function drawArea(
 
     ctx.globalAlpha = opacity
 
-    // Gradient applies only to the un-stacked baseline fill; dashed-partial segments
-    // stay on a solid fill via the branch below.
+    // A gradient fill always paints the whole area; partial dashing then only affects the stroke
+    // (drawLine), so the fade stays intact under an in-progress dashed tail instead of flipping to
+    // the solid + hatch treatment below (which non-gradient area charts still use).
     const useGradient = series.fill?.gradient && !bottomValues
     let gradient: CanvasGradient | null = null
     if (useGradient) {
@@ -259,7 +260,7 @@ export function drawArea(
             continue
         }
 
-        if (dashedFrom === null && dashedTo === null) {
+        if (useGradient || (dashedFrom === null && dashedTo === null)) {
             ctx.fillStyle = gradient ?? series.color
             fillAreaPath(ctx, top, bottom)
             continue
@@ -288,11 +289,12 @@ export function drawArea(
         const solidStart = toSplit === -1 ? 0 : toSplit
         const solidEnd = fromSplit === -1 ? top.length : fromSplit
 
+        // Solid stops exactly where the trailing hatch begins (its `hatchStart = fromSplit - 1`), sharing
+        // that one boundary point — no overlap. Otherwise the solid fill bleeds under the first dashed
+        // segment and the shaded region stops a step past where the line turns dashed.
         if (solidEnd - solidStart >= 2) {
-            const trailingHatchPresent = dashedFrom !== null && fromSplit !== -1
-            const slicedEnd = trailingHatchPresent ? Math.min(top.length, solidEnd + 1) : solidEnd
             ctx.fillStyle = series.color
-            fillAreaPath(ctx, top.slice(solidStart, slicedEnd), bottom.slice(solidStart, slicedEnd))
+            fillAreaPath(ctx, top.slice(solidStart, solidEnd), bottom.slice(solidStart, solidEnd))
         }
 
         if (dashedFrom !== null && fromSplit > 0) {

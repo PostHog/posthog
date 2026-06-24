@@ -45,7 +45,6 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
 
     def setUp(self):
         super().setUp()
-        self._cleanups: list = []
         base = Path(__file__).parent
         campaign_table, *_rest, cleanup_c = create_data_warehouse_table_from_csv(
             base / "test/google_ads/campaign.csv",
@@ -61,14 +60,10 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
             f"{TEST_BUCKET}.stats",
             self.team,
         )
-        self._cleanups += [cleanup_c, cleanup_s]
+        self.addCleanup(cleanup_c)
+        self.addCleanup(cleanup_s)
         self._campaign_table = campaign_table
         self._stats_table = stats_table
-
-    def tearDown(self):
-        for fn in self._cleanups:
-            fn()
-        super().tearDown()
 
     def _adapter(self) -> GoogleAdsAdapter:
         config = GoogleAdsConfig(

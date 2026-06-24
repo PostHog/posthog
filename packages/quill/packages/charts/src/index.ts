@@ -78,6 +78,7 @@ export type { RadialSlicePayload } from './core/hooks/useRadialInteraction'
 // Chart context (for custom overlay children)
 export { useChart, useChartHover, useChartLayout } from './core/chart-context'
 export type { BaseChartContext, ChartHoverContextValue, ChartLayoutContextValue } from './core/chart-context'
+export type { Gutter } from './core/y-axis-gutters'
 
 // Core types
 export type {

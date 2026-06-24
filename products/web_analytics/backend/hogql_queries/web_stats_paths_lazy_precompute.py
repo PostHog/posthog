@@ -11,8 +11,11 @@ attributing bounce to sessions that entered on the path.
 """
 
 import time
+import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Optional
+
+from django.conf import settings
 
 import structlog
 from prometheus_client import Counter, Histogram
@@ -23,7 +26,13 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.preaggregation.web_stats_paths_preaggregated_sql import (
+    DISTRIBUTED_WEB_STATS_PATHS_PREAGGREGATED_PATHKEY_TABLE,
+    DISTRIBUTED_WEB_STATS_PATHS_PREAGGREGATED_TABLE,
+)
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
+from posthog.settings import DEBUG, TEST
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
@@ -85,6 +94,15 @@ WEB_STATS_PATHS_LAZY_ROWS = Histogram(
     "web_stats_paths_lazy_precompute_rows",
     "Distinct `breakdown_value` rows returned by the lazy precompute read (post-LIMIT cap).",
     buckets=(1, 10, 100, 500, 1000, 2500, 5000, 7500, 10000, float("inf")),
+)
+
+# Best-effort mirror of the precomputed rows into the colocated `_pathkey` table
+# variant (PR #64948) so its read layout can be A/B-compared. Failures here never
+# affect the primary read, so we only count them.
+WEB_STATS_PATHS_PATHKEY_MIRROR_FAILED = Counter(
+    "web_stats_paths_pathkey_mirror_failed_total",
+    "Best-effort copies into web_stats_paths_preaggregated_pathkey that failed, by error class.",
+    ["error_type"],
 )
 
 
@@ -191,30 +209,39 @@ def _breakdown_value_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr:
       entered on this path". Bounce contributes for every row because
       `breakdown_value == entry_breakdown_value` is always true.
 
-    Path cleaning is applied at READ time (see `_READ_SQL_TEMPLATE`), not here.
-    Storing raw paths keeps the precompute rule-independent: a team can edit
-    their cleaning rules and the existing precomputed rows remain valid — the
-    next read just groups them by the new cleaned values.
+    Path cleaning is applied HERE, at INSERT time, via `runner._apply_path_cleaning`
+    (a no-op when `doPathCleaning` is off or the team has no rules). Storing
+    already-cleaned paths collapses the breakdown to the cleaned cardinality and
+    lets the read group the column directly — it avoids running the team's
+    cleaning regex chain over every row on every read, which dominates read cost
+    on high-path-cardinality teams. The cache key carries the cleaning: the
+    regexes are part of this INSERT AST, so `doPathCleaning` on/off (and a rules
+    change) produce distinct `query_hash`es / jobs that coexist — a rules edit
+    just spawns a fresh job rather than invalidating in place.
 
     The cache key differentiates PAGE vs INITIAL_PAGE automatically: the AST
     for each branch differs, so the lazy_computation `query_hash` differs and
     the two precomputes coexist as distinct jobs."""
     if runner.query.breakdownBy == WebStatsBreakdown.INITIAL_PAGE:
         return _entry_breakdown_value_expr(runner)
-    path = ast.Field(chain=["events", "properties", "$pathname"])
+    path: ast.Expr = ast.Field(chain=["events", "properties", "$pathname"])
     if runner.query.includeHost:
-        return _prepend_host_nullif_empty(ast.Field(chain=["events", "properties", "$host"]), path)
-    return path
+        path = _prepend_host_nullif_empty(ast.Field(chain=["events", "properties", "$host"]), path)
+    # Clean after the optional host prefix so the stored value matches what the
+    # read previously produced via `_apply_path_cleaning(breakdown_value)`.
+    return runner._apply_path_cleaning(path)
 
 
 def _entry_breakdown_value_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr:
     """Entry pathname (optionally `entry_hostname`-prefixed) — must match the
-    same shape as `_breakdown_value_expr` so the equality check inside the
-    INSERT properly identifies sessions that entered on each path."""
-    path = ast.Field(chain=["session", "$entry_pathname"])
+    same shape AND cleaning as `_breakdown_value_expr` so the equality check
+    inside the INSERT properly identifies sessions that entered on each path.
+    Cleaning is applied identically (after the optional host prefix) so a cleaned
+    pathname still matches its cleaned entry path."""
+    path: ast.Expr = ast.Field(chain=["session", "$entry_pathname"])
     if runner.query.includeHost:
-        return _prepend_host_nullif_empty(ast.Field(chain=["session", "$entry_hostname"]), path)
-    return path
+        path = _prepend_host_nullif_empty(ast.Field(chain=["session", "$entry_hostname"]), path)
+    return runner._apply_path_cleaning(path)
 
 
 # HogQL template for the precompute INSERT. The lazy_computation framework
@@ -303,6 +330,59 @@ def ensure_web_stats_paths_precomputed(
     )
 
 
+# Columns shared by both tables, in declaration order. The pathkey table mirrors
+# the original schema exactly, so the copy is a straight column-for-column INSERT.
+_PATHKEY_MIRROR_COLUMNS = (
+    "team_id, job_id, time_window_start, breakdown_value, "
+    "uniq_users_state, sum_pageviews_state, avg_bounce_state, computed_at, expires_at"
+)
+
+# Mirror the primary insert's durability settings (quorum + synchronous
+# distribution), disabled on single-node TEST/DEBUG like the executor does.
+_PATHKEY_MIRROR_SETTINGS: dict = {
+    "insert_distributed_sync": 1,
+    "insert_quorum": 0 if TEST or DEBUG else "auto",
+    "load_balancing": "in_order",
+}
+
+
+def mirror_jobs_to_pathkey(*, team_id: int, job_ids: list[str]) -> None:
+    """Best-effort copy of precomputed PATHS rows for `job_ids` into the colocated
+    pathkey table (PR #64948). Idempotent (ReplacingMergeTree) and never raises —
+    a failed mirror must not affect the primary read."""
+    if not job_ids:
+        return
+
+    primary = DISTRIBUTED_WEB_STATS_PATHS_PREAGGREGATED_TABLE()
+    pathkey = DISTRIBUTED_WEB_STATS_PATHS_PREAGGREGATED_PATHKEY_TABLE()
+    sql = f"""
+        INSERT INTO {pathkey} ({_PATHKEY_MIRROR_COLUMNS})
+        SELECT {_PATHKEY_MIRROR_COLUMNS}
+        FROM {primary}
+        WHERE team_id = %(team_id)s AND job_id IN %(job_ids)s
+    """
+    try:
+        with tags_context(
+            team_id=team_id,
+            product=Product.WEB_ANALYTICS,
+            feature=Feature.QUERY,
+            query_type="web_stats_paths_pathkey_mirror_insert",
+        ):
+            sync_execute(
+                sql,
+                {"team_id": team_id, "job_ids": [uuid.UUID(jid) for jid in job_ids]},
+                settings=_PATHKEY_MIRROR_SETTINGS,
+            )
+    except Exception as exc:
+        WEB_STATS_PATHS_PATHKEY_MIRROR_FAILED.labels(error_type=_bucket_error_label(exc)).inc()
+        logger.warning(
+            "web_stats_paths_pathkey_mirror_failed",
+            team_id=team_id,
+            job_count=len(job_ids),
+            error_type=type(exc).__name__,
+        )
+
+
 # Returns one row per breakdown_value with (current, previous) period pairs
 # plus a fill-fraction column for the bar visualisation:
 #   breakdown_value, visitors, prev_visitors, views, prev_views, bounce_rate,
@@ -339,12 +419,12 @@ ENSURE_BUDGET_MS = 120 * 1000
 # directly against the UTC bounds we pass in via `{cur_start}` etc. without
 # HogQL coercing them to the team's local timezone.
 #
-# `breakdown_expr` is the (raw or cleaned) breakdown column. Path cleaning is
-# applied here in the read rather than baked into the precompute, so rule
-# edits don't invalidate stored rows and the lazy_computation query_hash
-# doesn't carry the regex string. Cleaning is a chain of nested
-# `replaceRegexpAll` calls (see `apply_path_cleaning`), and ClickHouse
-# aggregate `*Merge` functions remain associative across the GROUP BY change.
+# `breakdown_expr` is the stored `breakdown_value` column directly — no read-time
+# cleaning. Path cleaning is baked into the precompute at INSERT time (see
+# `_breakdown_value_expr`), so the stored column is already cleaned (or raw, for a
+# `doPathCleaning=False` job — the two are distinct `query_hash`es). This avoids
+# running the team's nested `replaceRegexpAll` chain over every row on every read,
+# which dominated read cost on high-path-cardinality teams.
 # The SELECT alias is deliberately `breakdown` (not `breakdown_value`) to avoid
 # shadowing the underlying column name. With the same name, HogQL resolves
 # `breakdown_value` in GROUP BY to the SELECT alias (printing without the
@@ -460,7 +540,7 @@ def execute_read_query(
         "cur_end": ast.Constant(value=current_end_utc),
         "prev_start": ast.Constant(value=prev_start),
         "prev_end": ast.Constant(value=prev_end),
-        "breakdown_expr": runner._apply_path_cleaning(ast.Field(chain=["breakdown_value"])),
+        "breakdown_expr": ast.Field(chain=["breakdown_value"]),
         "fill_fraction_expr": _fill_fraction_expr(sort_column),
     }
 
@@ -622,6 +702,14 @@ def execute_lazy_precomputed_read(
             offset=offset,
         )
         read_duration_ms = int((time.perf_counter() - read_started) * 1000)
+
+        # Best-effort dual-write: mirror these jobs' rows into the colocated pathkey
+        # table for A/B read comparison. Narrowly scoped to the allowlisted teams
+        # (default: Cloud project 2) so only they pay the extra mirror write. After
+        # the read so it never adds latency to the user's response; swallows errors.
+        if team_id in settings.WEB_STATS_PATHS_PREAGG_MIRROR_PATHKEY_TEAM_IDS:
+            mirror_jobs_to_pathkey(team_id=team_id, job_ids=job_ids)
+
         total_duration_ms = int((time.perf_counter() - overall_started) * 1000)
 
         rows_returned = len(rows) if rows else 0
