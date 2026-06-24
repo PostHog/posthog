@@ -11,6 +11,7 @@ import { OriginProduct, Task, TaskRun, TaskRunEnvironment, TaskRunStatus } from 
 const taskTrackerUrl = (): string => '/tasks'
 const taskNewUrl = (): string => '/tasks/new'
 const taskDetailUrl = (taskId: string): string => `/tasks/${taskId}`
+const taskDetailRunUrl = (taskId: string, runId: string): string => `/tasks/${taskId}?runId=${runId}`
 
 const CREATED_BY: Task['created_by'] = {
     id: 1,
@@ -67,7 +68,7 @@ const TASKS: Task[] = [
         github_integration: 1,
         json_schema: null,
         internal: false,
-        latest_run: mockRun('task-2', TaskRunStatus.IN_PROGRESS, '2024-01-15T11:40:00Z', null),
+        latest_run: mockRun('task-2', TaskRunStatus.COMPLETED, '2024-01-15T11:40:00Z', '2024-01-15T11:52:00Z'),
         created_at: '2024-01-15T11:38:00Z',
         updated_at: '2024-01-15T11:40:00Z',
         created_by: CREATED_BY,
@@ -143,6 +144,9 @@ export const TaskSelected: Story = {
 
 // The tasks request never resolves, so the list column shows its loading skeletons.
 export const Loading: Story = {
+    parameters: {
+        testOptions: { waitForLoadersToDisappear: false },
+    },
     decorators: [
         mswDecorator({
             get: {
@@ -152,6 +156,94 @@ export const Loading: Story = {
                 },
                 '/api/projects/:team_id/tasks/repositories/': { repositories: [] },
                 '/api/environments/:team_id/integrations/': { results: [] },
+            },
+        }),
+    ],
+}
+
+// Detail route before either the task payload or run list has resolved.
+export const TaskDetailLoading: Story = {
+    parameters: {
+        pageUrl: taskDetailUrl('task-1'),
+        testOptions: { waitForLoadersToDisappear: false },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/tasks/task-1/': async () => {
+                    await delay('infinite')
+                    return HttpResponse.json(TASKS[0])
+                },
+                '/api/projects/:team_id/tasks/task-1/runs/': async () => {
+                    await delay('infinite')
+                    return HttpResponse.json({ count: 0, next: null, previous: null, results: [] })
+                },
+            },
+        }),
+    ],
+}
+
+// Missing task id uses the shared NotFound scene convention.
+export const TaskNotFound: Story = {
+    parameters: {
+        pageUrl: taskDetailUrl('missing-task'),
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/tasks/missing-task/': () =>
+                    HttpResponse.json({ detail: 'Not found.' }, { status: 404 }),
+                '/api/projects/:team_id/tasks/missing-task/runs/': () =>
+                    HttpResponse.json({ detail: 'Not found.' }, { status: 404 }),
+            },
+        }),
+    ],
+}
+
+// Non-404 task load failures render inline with a retry action.
+export const TaskLoadError: Story = {
+    parameters: {
+        pageUrl: taskDetailUrl('task-1'),
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/tasks/task-1/': () =>
+                    HttpResponse.json({ detail: 'Could not load task.' }, { status: 500 }),
+                '/api/projects/:team_id/tasks/task-1/runs/': { count: 0, next: null, previous: null, results: [] },
+            },
+        }),
+    ],
+}
+
+// Run-list failures are isolated from the already-loaded task metadata and description.
+export const TaskRunsLoadError: Story = {
+    parameters: {
+        pageUrl: taskDetailUrl('task-1'),
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/tasks/task-1/': TASKS[0],
+                '/api/projects/:team_id/tasks/task-1/runs/': () =>
+                    HttpResponse.json({ detail: 'Could not load task runs.' }, { status: 500 }),
+            },
+        }),
+    ],
+}
+
+// Deep-linked run ids that no longer exist use the same NotFound convention as missing tasks.
+export const TaskRunNotFound: Story = {
+    parameters: {
+        pageUrl: taskDetailRunUrl('task-1', '00000000-0000-4000-8000-000000000001'),
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/tasks/task-1/': TASKS[0],
+                '/api/projects/:team_id/tasks/task-1/runs/': { count: 0, next: null, previous: null, results: [] },
+                '/api/projects/:team_id/tasks/task-1/runs/00000000-0000-4000-8000-000000000001/': () =>
+                    HttpResponse.json({ detail: 'Not found.' }, { status: 404 }),
             },
         }),
     ],
