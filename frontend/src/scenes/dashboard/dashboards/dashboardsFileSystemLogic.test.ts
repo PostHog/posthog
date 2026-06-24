@@ -198,4 +198,11 @@ describe('dashboardsFileSystemLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.currentFolder).toEqual('Marketing')
     })
+
+    it('refetches on undo (restoredItems) so restored items reappear without a reload', async () => {
+        await expectLogic(logic).toDispatchActions(['loadFolderEntriesSuccess'])
+        await expectLogic(logic, () => {
+            projectTreeDataLogic.actions.restoredItems(['Marketing/Q1/X'])
+        }).toDispatchActions(['loadFolderEntries', 'loadDashboardFileSystemEntries'])
+    })
 })

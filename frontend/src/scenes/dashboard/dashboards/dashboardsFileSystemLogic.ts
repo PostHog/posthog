@@ -227,6 +227,12 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
                 actions.navigateToFolder('')
             }
         },
+        [projectTreeDataLogic.actionTypes.restoredItems]: () => {
+            // An undo-delete restored items server-side; refetch so they reappear without a page reload.
+            actions.loadFolderEntries()
+            actions.loadDashboardFileSystemEntries()
+            dashboardsModel.actions.loadDashboards()
+        },
     })),
     afterMount(({ actions }) => {
         actions.loadDashboardFileSystemEntries()
