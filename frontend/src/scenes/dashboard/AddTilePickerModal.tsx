@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import { ReactNode } from 'react'
 
 import { IconCursorClick, IconGraph, IconGridMasonry, IconLetter } from '@posthog/icons'
+import { LemonTag } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -19,6 +20,7 @@ interface TileOption {
     description: string
     icon: JSX.Element
     preview: JSX.Element
+    tag?: 'beta'
     'data-attr': string
 }
 
@@ -218,9 +220,12 @@ export function AddTilePickerModal(): JSX.Element | null {
         {
             type: 'widget',
             label: 'Widget',
-            description: 'Drop in a ready-made widget from across PostHog.',
+            description: dashboardWidgetsEnabled
+                ? 'Drop in a ready-made widget from across PostHog.'
+                : 'Drop in a ready-made widget from across PostHog. Enable it from feature previews first.',
             icon: <IconGridMasonry />,
             preview: <WidgetPreview />,
+            tag: dashboardWidgetsEnabled ? undefined : 'beta',
             'data-attr': 'dashboard-picker-widget',
         },
     ]
@@ -258,6 +263,11 @@ export function AddTilePickerModal(): JSX.Element | null {
                         <div className="flex items-center gap-2">
                             <span className="text-lg text-accent">{option.icon}</span>
                             <span className="font-semibold text-primary">{option.label}</span>
+                            {option.tag === 'beta' && (
+                                <LemonTag type="warning" size="small">
+                                    Beta
+                                </LemonTag>
+                            )}
                         </div>
                         <div className="text-xs text-secondary">{option.description}</div>
                     </button>
