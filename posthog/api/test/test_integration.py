@@ -2223,6 +2223,36 @@ class TestGitHubTeamIntegrationComplete:
         assert "integration_id=" in response["Location"]
         mock_refresh.assert_called_once()
 
+    @pytest.mark.parametrize("callback_installation_id,expect_error", [("12345", False), ("99999", True)])
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_team_update_callback_binds_seeded_installation_id(
+        self, mock_refresh, callback_installation_id, expect_error, client: HttpClient
+    ):
+        client.force_login(self.user)
+        mock_refresh.return_value = self._team_github_integration(installation_id="12345")
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token="prepare-token",
+                flow=FlowKind.TEAM_UPDATE,
+                user_id=self.user.id,
+                team_id=self.team.pk,
+                installation_id="12345",
+            ),
+        )
+
+        response = client.get(
+            "/integrations/github/callback/",
+            {"installation_id": callback_installation_id, "setup_action": "update"},
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        if expect_error:
+            assert "github_setup_error=invalid_state" in response["Location"]
+            assert not Integration.objects.filter(team=self.team, integration_id=callback_installation_id).exists()
+        else:
+            assert "github_setup_error" not in response["Location"]
+            assert "integration_id=" in response["Location"]
+
     def test_install_callback_without_state_redirects_invalid_state(self, client: HttpClient):
         client.force_login(self.user)
         next_path = f"/project/{self.team.pk}/settings/project-integrations"

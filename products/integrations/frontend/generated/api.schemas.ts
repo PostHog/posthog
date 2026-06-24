@@ -350,6 +350,8 @@ export interface GoogleSearchConsoleSitesResponseApi {
 export interface GitHubPrepareCallbackRequestApi {
     /** Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Code). */
     next?: string
+    /** GitHub installation ID being managed; binds the seeded update state so a callback can't swap in a different installation. */
+    installation_id?: string
 }
 
 export interface IntegrationAccessRequestApi {

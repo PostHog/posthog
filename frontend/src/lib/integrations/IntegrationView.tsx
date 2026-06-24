@@ -122,6 +122,7 @@ export function IntegrationView({
                                                           currentTeam.id,
                                                           urls.settings('project-integrations')
                                                       ),
+                                                      installation_id: integration.config?.installation_id,
                                                   }
                                               )
                                           }

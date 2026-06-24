@@ -157,7 +157,7 @@ def finish_team_github_setup_update(
 
     if cache.get(github_callback_state.unified_authorize_pending_cache_key(user.id)) is not None:
         _, next_url, _ = github_callback_state.consume_github_authorize_state(
-            request, state_raw, setup_action="update", code=None
+            request, state_raw, setup_action="update", code=None, installation_id=installation_id_str
         )
 
     refreshed = refresh_team_github_integration(user, team_id, installation_id_str, existing=existing)
@@ -184,7 +184,7 @@ def execute_team_github_finish_setup(
     installation_id_str = str(installation_id)
 
     _state_token, next_url, _team_id = github_callback_state.consume_github_authorize_state(
-        request, state_raw, setup_action=setup_action, code=code
+        request, state_raw, setup_action=setup_action, code=code, installation_id=installation_id_str
     )
 
     is_already_installed = setup_action == "update" or not code

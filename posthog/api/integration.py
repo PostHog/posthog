@@ -26,7 +26,12 @@ from posthog.api.github_callback.team_services import (
     create_team_github_integration_from_oauth_code,
     link_existing_team_github_integration,
 )
-from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState, github_app_install_url
+from posthog.api.github_callback.types import (
+    FlowKind,
+    GitHubAuthorizeState,
+    github_app_install_url,
+    is_valid_github_installation_id,
+)
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
@@ -682,6 +687,11 @@ class GitHubPrepareCallbackRequestSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Code).",
     )
+    installation_id = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="GitHub installation ID being managed; binds the seeded update state so a callback can't swap in a different installation.",
+    )
 
 
 @extend_schema(extensions={"x-product": "integrations"})
@@ -1298,6 +1308,9 @@ class IntegrationViewSet(
         next_url = str(serializer.validated_data.get("next") or "")
         if next_url and not is_relative_url(next_url):
             raise ValidationError("next must be a relative path starting with /")
+        installation_id = str(serializer.validated_data.get("installation_id") or "") or None
+        if installation_id is not None and not is_valid_github_installation_id(installation_id):
+            raise ValidationError("Invalid installation_id")
         token = os.urandom(33).hex()
         github_callback_state.store_unified_authorize_state(
             GitHubAuthorizeState(
@@ -1305,6 +1318,7 @@ class IntegrationViewSet(
                 flow=FlowKind.TEAM_UPDATE,
                 user_id=github_callback_state.authenticated_user_id(request),
                 team_id=self.team_id,
+                installation_id=installation_id,
                 next_url=next_url or None,
             ),
         )

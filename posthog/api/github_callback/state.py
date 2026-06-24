@@ -145,6 +145,7 @@ def consume_github_authorize_state(
     *,
     setup_action: str = "",
     code: str | None = None,
+    installation_id: str | None = None,
 ) -> tuple[str, str, int | None]:
     user_id = authenticated_user_id(request)
     pending_token = cache.get(unified_authorize_pending_cache_key(user_id))
@@ -167,6 +168,15 @@ def consume_github_authorize_state(
             raise ValidationError("Invalid or expired state token", code="invalid_state")
 
     cached_state = GitHubAuthorizeState.try_from_cache(expected_token, cached)
+
+    # Bind the callback to the installation the seeded state intended. The callback's
+    # `installation_id` is taken from the user-controlled query string, so without this a member
+    # who learns a sibling installation ID could swap it in and have an admin's pending update flow
+    # link that installation into this team. Raise before consuming so a genuine callback still works.
+    if cached_state is not None and cached_state.installation_id is not None:
+        if installation_id is None or str(installation_id) != str(cached_state.installation_id):
+            raise ValidationError("Invalid or expired state token", code="invalid_state")
+
     team_id = cached_state.team_id if cached_state is not None else team_id_from_next_url(cached_next)
 
     cache.delete(unified_authorize_cache_key(expected_token))
