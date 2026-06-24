@@ -498,7 +498,8 @@ class BuildBetterSourceConfig(config.Config):
 
 @config.config
 class BuildkiteSourceConfig(config.Config):
-    pass
+    api_access_token: str
+    organization: str
 
 
 @config.config
