@@ -2847,66 +2847,6 @@ export interface FileSystemShortcutReorderApi {
 }
 
 /**
- * * `home` - Home
- * * `pinned` - Pinned
- * * `custom_products` - Custom Products
- */
-export type PersistedFolderTypeEnumApi = (typeof PersistedFolderTypeEnumApi)[keyof typeof PersistedFolderTypeEnumApi]
-
-export const PersistedFolderTypeEnumApi = {
-    Home: 'home',
-    Pinned: 'pinned',
-    CustomProducts: 'custom_products',
-} as const
-
-export interface PersistedFolderApi {
-    readonly id: string
-    /** Which persisted folder this is for the user (home, pinned, custom_products).
-     *
-     * * `home` - Home
-     * * `pinned` - Pinned
-     * * `custom_products` - Custom Products */
-    type: PersistedFolderTypeEnumApi
-    /**
-     * Protocol prefix of the folder location, e.g. 'products://'.
-     * @maxLength 64
-     */
-    protocol?: string
-    /** Path within the protocol that the folder resolves to. */
-    path?: string
-    readonly created_at: string
-    readonly updated_at: string
-}
-
-export interface PaginatedPersistedFolderListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: PersistedFolderApi[]
-}
-
-export interface PatchedPersistedFolderApi {
-    readonly id?: string
-    /** Which persisted folder this is for the user (home, pinned, custom_products).
-     *
-     * * `home` - Home
-     * * `pinned` - Pinned
-     * * `custom_products` - Custom Products */
-    type?: PersistedFolderTypeEnumApi
-    /**
-     * Protocol prefix of the folder location, e.g. 'products://'.
-     * @maxLength 64
-     */
-    protocol?: string
-    /** Path within the protocol that the folder resolves to. */
-    path?: string
-    readonly created_at?: string
-    readonly updated_at?: string
-}
-
-/**
  * * `image/png` - image/png
  * * `application/pdf` - application/pdf
  * * `text/csv` - text/csv
@@ -3915,17 +3855,6 @@ export type DesktopFileSystemShortcutListParams = {
     offset?: number
 }
 
-export type DesktopPersistedFolderListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
 export type ExportsListParams = {
     /**
      * Number of results to return per page.
@@ -3953,17 +3882,6 @@ export type FileSystemListParams = {
 }
 
 export type FileSystemShortcutListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type PersistedFolderListParams = {
     /**
      * Number of results to return per page.
      */

@@ -70,7 +70,6 @@ import {
     MatchingEventsResponse,
     Node,
     NodeKind,
-    PersistedFolder,
     QueryLogTags,
     QuerySchema,
     QueryStatusResponse,
@@ -614,15 +613,6 @@ export class ApiRequest {
 
     public fileSystemShortcutReorder(teamId?: TeamType['id']): ApiRequest {
         return this.fileSystemShortcut(teamId).addPathComponent('reorder')
-    }
-
-    // # Persisted folder
-    public persistedFolder(projectId?: ProjectType['id']): ApiRequest {
-        return this.projectsDetail(projectId).addPathComponent('persisted_folder')
-    }
-
-    public persistedFolderDetail(id: NonNullable<PersistedFolder['id']>, projectId?: ProjectType['id']): ApiRequest {
-        return this.persistedFolder(projectId).addPathComponent(id)
     }
 
     // # User product list
@@ -2592,18 +2582,6 @@ const api = {
         },
         async reorder(orderedIds: NonNullable<FileSystemEntry['id']>[]): Promise<FileSystemEntry[]> {
             return await new ApiRequest().fileSystemShortcutReorder().create({ data: { ordered_ids: orderedIds } })
-        },
-    },
-
-    persistedFolder: {
-        async list(): Promise<CountedPaginatedResponse<PersistedFolder>> {
-            return await new ApiRequest().persistedFolder().get()
-        },
-        async create(data: { protocol: string; path: string; type?: string }): Promise<PersistedFolder> {
-            return await new ApiRequest().persistedFolder().create({ data })
-        },
-        async delete(id: PersistedFolder['id']): Promise<void> {
-            return await new ApiRequest().persistedFolderDetail(id).delete()
         },
     },
 

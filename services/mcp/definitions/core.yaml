@@ -238,24 +238,6 @@ tools:
     desktop-file-system-update:
         operation: desktop_file_system_update
         enabled: false
-    desktop-persisted-folder-create:
-        operation: desktop_persisted_folder_create
-        enabled: false
-    desktop-persisted-folder-destroy:
-        operation: desktop_persisted_folder_destroy
-        enabled: false
-    desktop-persisted-folder-list:
-        operation: desktop_persisted_folder_list
-        enabled: false
-    desktop-persisted-folder-partial-update:
-        operation: desktop_persisted_folder_partial_update
-        enabled: false
-    desktop-persisted-folder-retrieve:
-        operation: desktop_persisted_folder_retrieve
-        enabled: false
-    desktop-persisted-folder-update:
-        operation: desktop_persisted_folder_update
-        enabled: false
     domains-create:
         operation: domains_create
         enabled: false
@@ -438,24 +420,6 @@ tools:
         enabled: false
     organizations-projects-settings-as-of-retrieve:
         operation: organizations_projects_settings_as_of_retrieve
-        enabled: false
-    persisted-folder-create:
-        operation: persisted_folder_create
-        enabled: false
-    persisted-folder-destroy:
-        operation: persisted_folder_destroy
-        enabled: false
-    persisted-folder-list:
-        operation: persisted_folder_list
-        enabled: false
-    persisted-folder-partial-update:
-        operation: persisted_folder_partial_update
-        enabled: false
-    persisted-folder-retrieve:
-        operation: persisted_folder_retrieve
-        enabled: false
-    persisted-folder-update:
-        operation: persisted_folder_update
         enabled: false
     project-get:
         operation: organizations_projects_retrieve
