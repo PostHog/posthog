@@ -346,6 +346,7 @@ class TestOAuthModels(TestCase):
         ("reverse domain style", "com.posthog.code://oauth"),
         ("cursor scheme", "cursor://oauth"),
         ("vscode scheme", "vscode://oauth"),
+        ("authority-less native scheme", "com.example.app:/oauth"),
     ]
 
     @parameterized.expand(valid_custom_scheme_uris)
@@ -363,7 +364,13 @@ class TestOAuthModels(TestCase):
         )
         self.assertEqual(app.redirect_uris, redirect_uri)
 
-    def test_custom_scheme_with_fragment_still_rejected(self):
+    @parameterized.expand(
+        [
+            ("authority form", "myapp://callback#fragment"),
+            ("authority-less native", "com.example.app:/oauth#fragment"),
+        ]
+    )
+    def test_custom_scheme_with_fragment_still_rejected(self, _name, redirect_uri):
         with self.assertRaises(ValidationError):
             OAuthApplication.objects.create(
                 name="Invalid Custom Scheme App",
@@ -371,7 +378,7 @@ class TestOAuthModels(TestCase):
                 client_secret="invalid_custom_scheme_client_secret",
                 client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
                 authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-                redirect_uris="myapp://callback#fragment",
+                redirect_uris=redirect_uri,
                 organization=self.organization,
                 algorithm="RS256",
             )
@@ -423,6 +430,19 @@ class TestOAuthModels(TestCase):
                 client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
                 authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
                 redirect_uris="https://example.com/callback#fragment",
+                organization=self.organization,
+                algorithm="RS256",
+            )
+
+    def test_code_grant_application_requires_redirect_uri(self):
+        with self.assertRaises(ValidationError):
+            OAuthApplication.objects.create(
+                name="No Redirect App",
+                client_id="no_redirect_client_id",
+                client_secret="no_redirect_client_secret",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="",
                 organization=self.organization,
                 algorithm="RS256",
             )
