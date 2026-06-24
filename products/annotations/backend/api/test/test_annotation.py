@@ -299,6 +299,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             (None, {"hidden", "visible", "unset"}),
             ("false", {"visible", "unset"}),
             ("0", {"visible", "unset"}),
+            ("banana", {"visible", "unset"}),
             ("true", {"hidden"}),
             ("1", {"hidden"}),
         ]
