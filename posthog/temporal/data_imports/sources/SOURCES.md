@@ -136,6 +136,7 @@ the row lists both.
 | mailjet           | HTTP                        | requests                                                        | ✅                          |
 | matomo            | HTTP                        | requests                                                        | ✅                          |
 | meta_ads          | HTTP                        | requests                                                        | ✅                          |
+| metabase          | HTTP                        | requests                                                        | ✅                          |
 | mixpanel          | HTTP                        | requests                                                        | ✅                          |
 | mollie            | HTTP                        | requests                                                        | ✅                          |
 | monday            | HTTP (GraphQL)              | requests                                                        | ✅                          |
@@ -486,7 +487,6 @@ doesn't conflict with concurrent PRs.
 - mention
 - mercado_ads
 - merge
-- metabase
 - metricool
 - metronome
 - microsoft_dataverse
