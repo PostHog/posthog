@@ -14,6 +14,7 @@ import {
     escapeDottedHogQLIdentifier,
     escapeHogQLString,
     hogql,
+    isNodeWithSource,
     supportsBarValueStacking,
 } from './utils'
 
@@ -207,5 +208,29 @@ describe('supportsBarValueStacking', () => {
         { name: 'null query', query: null, expected: false },
     ])('returns $expected for $name', ({ query, expected }) => {
         expect(supportsBarValueStacking(query)).toBe(expected)
+    })
+})
+
+describe('isNodeWithSource', () => {
+    it.each([
+        { name: 'null', query: null, expected: false },
+        { name: 'undefined', query: undefined, expected: false },
+        {
+            name: 'wrapper node with a defined source',
+            query: { kind: NodeKind.InsightVizNode, source: { kind: NodeKind.TrendsQuery } },
+            expected: true,
+        },
+        {
+            name: 'wrapper node with an undefined source',
+            query: { kind: NodeKind.InsightVizNode },
+            expected: false,
+        },
+        {
+            name: 'source node (no wrapper)',
+            query: { kind: NodeKind.TrendsQuery, series: [] },
+            expected: false,
+        },
+    ])('returns $expected for $name', ({ query, expected }) => {
+        expect(isNodeWithSource(query as any)).toBe(expected)
     })
 })

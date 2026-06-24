@@ -99,7 +99,13 @@ export function isNodeWithSource(node?: Record<string, any> | null): node is Dat
         return false
     }
 
-    return isDataTableNode(node) || isDataVisualizationNode(node) || isInsightVizNode(node)
+    if (!isDataTableNode(node) && !isDataVisualizationNode(node) && !isInsightVizNode(node)) {
+        return false
+    }
+
+    // A node can carry a wrapper-node kind but have an undefined `source` (e.g. a malformed query).
+    // Guard against it here so callers can safely access `node.source` after this check.
+    return node.source != null
 }
 
 export function isEventsNode(node?: Record<string, any> | null): node is EventsNode {
