@@ -36,7 +36,7 @@ from posthog.schema import EmbeddingModelName
 
 from posthog.api.embedding_worker import emit_embedding_request
 
-from products.signals.backend.artefact_schemas import NoteArtefact
+from products.signals.backend.artefact_schemas import ActionabilityAssessment, NoteArtefact, SafetyJudgment
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalScoutRun
 from products.signals.backend.scout_harness.tools.emit import SCOUT_SIGNAL_WEIGHT, SOURCE_PRODUCT, SOURCE_TYPE
 
@@ -96,6 +96,8 @@ def create_scout_report(
     signals: Sequence[ScoutReportSignal],
     attribution: ArtefactAttribution,
     status: SignalReport.Status = SignalReport.Status.READY,
+    safety: SafetyJudgment | None = None,
+    actionability: ActionabilityAssessment | None = None,
     run: SignalScoutRun | None = None,
 ) -> PersistedScoutReport:
     """Author a `SignalReport` directly plus its backing signal rows, in one report-owning transaction.
@@ -106,9 +108,11 @@ def create_scout_report(
     a `report_id` that doesn't exist. This function owns its transaction boundary; do not wrap it in an
     outer atomic block (that would defer the commit and the emits past your control).
 
-    `status` is the status the report is born at. Phase 1 defaults to READY (the custom-agent
-    precedent); the safety/actionability judge (Phase 2) is what will choose READY vs SUPPRESSED vs
-    PENDING_INPUT before this is called.
+    `status` is the status the report is born at. It defaults to READY (the custom-agent precedent);
+    the safety/actionability judge (`judge.py`) is what chooses READY vs SUPPRESSED vs PENDING_INPUT
+    and passes the resolved status here. `safety` / `actionability`, when provided, are written as the
+    report's status artefacts (the same `safety_judgment` / `actionability_judgment` types the pipeline
+    writes) so the verdict that set the status is auditable on the report, not just implicit in it.
     """
     _validate_create_inputs(title, summary, signals)
 
@@ -136,6 +140,17 @@ def create_scout_report(
             attribution=attribution,
             reevaluate_autostart=False,
         )
+        # The judge verdicts that set `status`, recorded as the report's status artefacts so the
+        # decision is auditable on the report (and so the inbox derives the same actionability/safety
+        # state a pipeline report would). Written in-txn with the report for the same no-divergence reason.
+        if safety is not None:
+            SignalReportArtefact.append_status(
+                team_id=team_id, report_id=report_id, content=safety, attribution=attribution
+            )
+        if actionability is not None:
+            SignalReportArtefact.append_status(
+                team_id=team_id, report_id=report_id, content=actionability, attribution=attribution
+            )
 
     # Committed: now emit the backing signals. Sequential (not on_commit) so the call is observable
     # and so a Kafka failure surfaces to the caller rather than being swallowed by a commit hook.

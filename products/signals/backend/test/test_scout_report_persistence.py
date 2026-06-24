@@ -12,6 +12,7 @@ from parameterized import parameterized
 from posthog.models import Organization, Team
 from posthog.models.scoping import team_scope
 
+from products.signals.backend.artefact_schemas import ActionabilityAssessment, ActionabilityChoice, SafetyJudgment
 from products.signals.backend.models import (
     ArtefactAttribution,
     SignalReport,
@@ -27,6 +28,7 @@ from products.signals.backend.scout_report import (
     soft_delete_scout_signal,
     update_scout_report,
 )
+from products.signals.backend.scout_report.judge import resolve_authored_report_status
 
 PERSISTENCE_MODULE = "products.signals.backend.scout_report.persistence"
 
@@ -170,6 +172,44 @@ class TestScoutReportPersistence(BaseTest):
         with pytest.raises(InvalidScoutReportError):
             update_scout_report(team_id=self.team.id, report_id=other_report.report_id, title="hijacked")
         assert SignalReport.objects.get(id=other_report.report_id).title == "theirs"
+
+    @parameterized.expand(
+        [
+            # Unsafe always suppresses, regardless of the scout's actionability call.
+            ("unsafe_immediately", False, ActionabilityChoice.IMMEDIATELY_ACTIONABLE, SignalReport.Status.SUPPRESSED),
+            ("unsafe_human", False, ActionabilityChoice.REQUIRES_HUMAN_INPUT, SignalReport.Status.SUPPRESSED),
+            ("unsafe_not_actionable", False, ActionabilityChoice.NOT_ACTIONABLE, SignalReport.Status.SUPPRESSED),
+            # Safe routes on actionability.
+            ("safe_immediately", True, ActionabilityChoice.IMMEDIATELY_ACTIONABLE, SignalReport.Status.READY),
+            ("safe_human", True, ActionabilityChoice.REQUIRES_HUMAN_INPUT, SignalReport.Status.PENDING_INPUT),
+            ("safe_not_actionable", True, ActionabilityChoice.NOT_ACTIONABLE, SignalReport.Status.SUPPRESSED),
+        ]
+    )
+    def test_resolve_authored_report_status(self, _name, safe, actionability, expected) -> None:
+        assert resolve_authored_report_status(safe=safe, actionability=actionability) == expected
+
+    def test_create_records_safety_and_actionability_artefacts(self) -> None:
+        # The judge verdicts that set the status are persisted as the report's status artefacts, so the
+        # inbox derives the same safety/actionability state a pipeline report would.
+        result = create_scout_report(
+            team_id=self.team.id,
+            title="t",
+            summary="s",
+            signals=[ScoutReportSignal(description="d", source_id="obs")],
+            attribution=ArtefactAttribution.system(),
+            status=SignalReport.Status.PENDING_INPUT,
+            safety=SafetyJudgment(choice=True, explanation=None),
+            actionability=ActionabilityAssessment(
+                explanation="needs a product decision",
+                actionability=ActionabilityChoice.REQUIRES_HUMAN_INPUT,
+                already_addressed=False,
+            ),
+        )
+        report = SignalReport.objects.get(id=result.report_id)
+        assert report.status == SignalReport.Status.PENDING_INPUT
+        types = set(SignalReportArtefact.objects.filter(report_id=result.report_id).values_list("type", flat=True))
+        assert SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT in types
+        assert SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT in types
 
     def test_soft_delete_re_emits_tombstone_preserving_id_and_timestamp(self) -> None:
         # Soft-delete is a re-emit of the same document_id with metadata.deleted=True; the original
