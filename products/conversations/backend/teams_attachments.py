@@ -152,6 +152,10 @@ def extract_teams_graph_images(
 
     Graph inline images appear as ``<img src="...hostedContents/{id}/$value">``
     in ``body.content``. The src URL requires a Graph token to fetch.
+
+    The URL path is validated against the expected teams_team_id, channel_id,
+    and message id to prevent a confused-deputy attack where crafted HTML
+    could make us fetch arbitrary hostedContents the Graph token can read.
     """
     body = msg.get("body") or {}
     html_content = body.get("content") or ""
@@ -159,6 +163,8 @@ def extract_teams_graph_images(
     src_urls = _RE_HOSTED_CONTENT_SRC.findall(html_content)
     if not src_urls:
         return []
+
+    msg_id = msg.get("id") or ""
 
     hosted_contents = msg.get("hostedContents") or []
     hosted_map: dict[str, dict[str, Any]] = {}
@@ -168,18 +174,20 @@ def extract_teams_graph_images(
             hosted_map[hc_id] = hc
 
     images: list[dict[str, Any]] = []
-    for src_url in src_urls:
-        # The regex already anchors to graph.microsoft.com, but re-validate the
-        # parsed host before sending the Graph token (defense in depth).
+    for idx, src_url in enumerate(src_urls):
         if not _is_graph_url(src_url):
             logger.warning("teams_graph_image_untrusted_host", url=src_url[:200])
+            continue
+
+        if not _is_expected_hosted_content_path(src_url, teams_team_id, channel_id, msg_id):
+            logger.warning("teams_graph_image_path_mismatch", url=src_url[:200], msg_id=msg_id)
             continue
 
         image_bytes = _download_image(src_url, token)
         if not image_bytes:
             continue
 
-        name = "image"
+        name = f"image_{idx + 1}"
         mimetype = "image/png"
         hc_id = _extract_hosted_content_id(src_url)
         if hc_id and hc_id in hosted_map:
@@ -191,6 +199,34 @@ def extract_teams_graph_images(
             images.append(result)
 
     return images
+
+
+def _is_expected_hosted_content_path(url: str, teams_team_id: str, channel_id: str, msg_id: str) -> bool:
+    """Validate that a hostedContents URL belongs to the expected team/channel/message.
+
+    Accepts both top-level message paths:
+        /teams/{tid}/channels/{cid}/messages/{mid}/hostedContents/{hcid}/$value
+    and reply paths:
+        /teams/{tid}/channels/{cid}/messages/{root}/replies/{mid}/hostedContents/{hcid}/$value
+    """
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return False
+    path = parsed.path.lower()
+    tid = teams_team_id.lower()
+    cid = channel_id.lower()
+    mid = msg_id.lower()
+
+    if f"/teams/{tid}/channels/{cid}/" not in path:
+        return False
+
+    # Must reference this message — either as the direct message or as a reply id
+    if f"/messages/{mid}/hostedcontents/" in path:
+        return True
+    if f"/replies/{mid}/hostedcontents/" in path:
+        return True
+    return False
 
 
 def _extract_hosted_content_id(url: str) -> str | None:

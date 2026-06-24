@@ -156,6 +156,69 @@ class TestTeamsImageIngest(SimpleTestCase):
         assert extract_teams_bot_attachments(attachments, fake_team, "bot-token") == []
         mock_download.assert_not_called()
 
+    @patch("products.conversations.backend.teams_attachments._download_image")
+    def test_extract_graph_images_rejects_wrong_team_channel(self, mock_download: MagicMock) -> None:
+        fake_team = MagicMock()
+        fake_team.id = 1
+
+        # URL points to a different team/channel than the one we're processing
+        evil_url = (
+            "https://graph.microsoft.com/v1.0/teams/OTHER_TEAM/channels/OTHER_CH/messages/m1/hostedContents/hc1/$value"
+        )
+        msg = {
+            "id": "m1",
+            "body": {
+                "contentType": "html",
+                "content": f'<img src="{evil_url}" />',
+            },
+        }
+        images = extract_teams_graph_images(msg, fake_team, "t1", "c1", "graph-token")
+
+        assert images == []
+        mock_download.assert_not_called()
+
+    @patch("products.conversations.backend.teams_attachments._download_image")
+    def test_extract_graph_images_rejects_wrong_message_id(self, mock_download: MagicMock) -> None:
+        fake_team = MagicMock()
+        fake_team.id = 1
+
+        # URL references a different message than the one we're processing
+        evil_url = "https://graph.microsoft.com/v1.0/teams/t1/channels/c1/messages/OTHER_MSG/hostedContents/hc1/$value"
+        msg = {
+            "id": "m1",
+            "body": {
+                "contentType": "html",
+                "content": f'<img src="{evil_url}" />',
+            },
+        }
+        images = extract_teams_graph_images(msg, fake_team, "t1", "c1", "graph-token")
+
+        assert images == []
+        mock_download.assert_not_called()
+
+    @patch("products.conversations.backend.teams_attachments.save_file_to_uploaded_media")
+    @patch("products.conversations.backend.teams_attachments._download_image")
+    def test_extract_graph_images_accepts_reply_path(self, mock_download: MagicMock, mock_save: MagicMock) -> None:
+        mock_download.return_value = VALID_PNG_BYTES
+        mock_save.return_value = "https://app.posthog.com/uploaded_media/reply"
+
+        fake_team = MagicMock()
+        fake_team.id = 1
+
+        reply_url = "https://graph.microsoft.com/v1.0/teams/t1/channels/c1/messages/root123/replies/r1/hostedContents/hc1/$value"
+        msg = {
+            "id": "r1",
+            "body": {
+                "contentType": "html",
+                "content": f'<img src="{reply_url}" />',
+            },
+            "hostedContents": [{"id": "hc1", "contentType": "image/jpeg"}],
+        }
+        images = extract_teams_graph_images(msg, fake_team, "t1", "c1", "graph-token")
+
+        assert len(images) == 1
+        mock_download.assert_called_once_with(reply_url, "graph-token")
+
     @patch("products.conversations.backend.teams_attachments.requests.get")
     def test_download_image_blocks_redirects(self, mock_get: MagicMock) -> None:
         resp = MagicMock()
