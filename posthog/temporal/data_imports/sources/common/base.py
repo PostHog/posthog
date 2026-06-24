@@ -3,6 +3,8 @@ from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Generic, Optional, TypeVar, Union
 
+import structlog
+
 from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 if TYPE_CHECKING:
@@ -28,6 +30,8 @@ from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import get_config_for_source
 
 from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField
+
+logger = structlog.get_logger(__name__)
 
 MARKETING_ANALYTICS_SUGGESTED_TABLE_TOOLTIP = "Required for Marketing analytics to work with this source."
 
@@ -162,6 +166,9 @@ class _BaseSource(ABC, Generic[ConfigType]):
         cls = self._config_class
         kwargs: dict[str, Any] = {}
         for f in dataclasses.fields(cls):
+            # `init=False` fields aren't accepted by `__init__`; passing them raises TypeError.
+            if not f.init:
+                continue
             if f.default is not dataclasses.MISSING or f.default_factory is not dataclasses.MISSING:
                 continue
             kwargs[f.name] = ""
@@ -180,10 +187,11 @@ class _BaseSource(ABC, Generic[ConfigType]):
             return []
         try:
             schemas = self.get_schemas(self._placeholder_config(), team_id=0)
+            canonical = self.get_canonical_descriptions()
+            return [_documented_table_from_schema(schema, canonical.get(schema.name, {})) for schema in schemas]
         except Exception:
+            logger.exception("get_documented_tables failed", source_type=str(self.source_type))
             return []
-        canonical = self.get_canonical_descriptions()
-        return [_documented_table_from_schema(schema, canonical.get(schema.name, {})) for schema in schemas]
 
     @property
     @abstractmethod

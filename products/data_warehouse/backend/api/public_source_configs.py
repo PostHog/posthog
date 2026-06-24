@@ -1,3 +1,4 @@
+import structlog
 from drf_spectacular.utils import extend_schema
 from rest_framework import permissions, status, viewsets
 from rest_framework.request import Request
@@ -6,6 +7,8 @@ from rest_framework.response import Response
 from posthog.schema import SourceConfig
 
 from posthog.temporal.data_imports.sources import SourceRegistry
+
+logger = structlog.get_logger(__name__)
 
 
 def build_source_configs() -> dict[str, dict]:
@@ -25,6 +28,7 @@ def build_source_configs() -> dict[str, dict]:
         try:
             config["tables"] = source.get_documented_tables()
         except Exception:
+            logger.exception("build_source_configs: get_documented_tables failed", source_type=str(source_type))
             config["tables"] = []
         results[str(source_type)] = config
 
