@@ -32,7 +32,6 @@ import {
 import { taskDetailSceneLogic } from '../logics/taskDetailSceneLogic'
 import { CollapsibleContent } from './CollapsibleContent'
 import { TaskRunChat } from './TaskRunChat'
-import { TaskRunItem } from './TaskRunItem'
 
 export interface TaskDetailPageProps {
     taskId: string
@@ -40,8 +39,8 @@ export interface TaskDetailPageProps {
 
 export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
     const sceneLogic = taskDetailSceneLogic({ taskId })
-    const { task, taskLoading, runs, selectedRunId, selectedRun, runsLoading } = useValues(sceneLogic)
-    const { setSelectedRunId, runTask, deleteTask } = useActions(sceneLogic)
+    const { task, taskLoading, runs, selectedRun, runsLoading } = useValues(sceneLogic)
+    const { runTask, deleteTask } = useActions(sceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
 
@@ -111,25 +110,6 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                         Archive task
                     </ButtonPrimitive>
                 </ScenePanelActionsSection>
-
-                {runs.length > 0 && (
-                    <>
-                        <ScenePanelDivider />
-                        <ScenePanelInfoSection>
-                            <div className="text-xs font-semibold text-muted mb-2">Run History</div>
-                            <div className="flex flex-col gap-1">
-                                {runs.map((run) => (
-                                    <TaskRunItem
-                                        key={run.id}
-                                        run={run}
-                                        isSelected={run.id === selectedRunId}
-                                        onClick={() => setSelectedRunId(run.id, taskId)}
-                                    />
-                                ))}
-                            </div>
-                        </ScenePanelInfoSection>
-                    </>
-                )}
             </ScenePanel>
 
             <SceneTitleSection
