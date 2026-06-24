@@ -47,6 +47,10 @@ class MaxChatViewSet(viewsets.ViewSet):
 
     CONVERSATION_TIMEOUT = 3600  # one hour
     MAX_BACKOFF = 40  # Maximum backoff in seconds to prevent gateway timeouts
+    # Cap how long any single Anthropic call may block a worker. The SDK defaults to 600s,
+    # which lets stalled requests pile up (each holding conversation history + a connection)
+    # and exhaust worker memory when Anthropic is slow or erroring.
+    ANTHROPIC_TIMEOUT_SECONDS = 30.0
     basename = "max"
 
     def _convert_headers(self, headers: MutableMapping[str, str]) -> dict[str, str]:
@@ -79,7 +83,9 @@ class MaxChatViewSet(viewsets.ViewSet):
                 return self._handle_rate_limit(retry_after, limit_type)
 
             # Initialize Anthropic client (non-blocking)
-            client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+            client = anthropic.Anthropic(
+                api_key=settings.ANTHROPIC_API_KEY, timeout=self.ANTHROPIC_TIMEOUT_SECONDS
+            )
 
             data = request.data
             if not data or "message" not in data:
