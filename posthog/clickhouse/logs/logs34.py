@@ -114,6 +114,7 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABAS
     `attribute_key` LowCardinality(String),
     `attribute_value` String,
     `attribute_type` LowCardinality(String),
+    `severity_text` LowCardinality(String),
     `attribute_count` SimpleAggregateFunction(sum, UInt64)
 )
 AS SELECT
@@ -125,6 +126,7 @@ AS SELECT
     attribute_key,
     attribute_value,
     attribute_type,
+    severity_text,
     attribute_count
 FROM
 (
@@ -134,6 +136,7 @@ FROM
         toStartOfInterval(original_expiry_timestamp, toIntervalMinute(10)) AS original_expiry_time_bucket,
         service_name AS service_name,
         resource_fingerprint,
+        severity_text AS severity_text,
         mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS attributes,
         arrayJoin(attributes) AS attribute,
         'log' AS attribute_type,
@@ -147,6 +150,7 @@ FROM
         original_expiry_time_bucket,
         service_name,
         resource_fingerprint,
+        severity_text,
         attributes
 )
 """
@@ -164,6 +168,7 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABAS
     `attribute_key` LowCardinality(String),
     `attribute_value` String,
     `attribute_type` LowCardinality(String),
+    `severity_text` LowCardinality(String),
     `attribute_count` SimpleAggregateFunction(sum, UInt64)
 )
 AS SELECT
@@ -175,6 +180,7 @@ AS SELECT
     attribute_key,
     attribute_value,
     attribute_type,
+    severity_text,
     attribute_count
 FROM
 (
@@ -184,6 +190,7 @@ FROM
         toStartOfInterval(original_expiry_timestamp, toIntervalMinute(10)) AS original_expiry_time_bucket,
         service_name AS service_name,
         resource_fingerprint,
+        severity_text AS severity_text,
         arrayJoin(resource_attributes) AS attribute,
         'resource' AS attribute_type,
         attribute.1 AS attribute_key,
@@ -196,6 +203,7 @@ FROM
         original_expiry_time_bucket,
         service_name,
         resource_fingerprint,
+        severity_text,
         resource_attributes
 )
 """

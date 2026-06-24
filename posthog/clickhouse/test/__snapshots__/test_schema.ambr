@@ -2587,6 +2587,7 @@
       `attribute_count` SimpleAggregateFunction(sum, UInt64),
       `attribute_type` LowCardinality(String) DEFAULT 'log',
       `original_expiry_time_bucket` DateTime DEFAULT now(),
+      `severity_text` LowCardinality(String),
       INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_attribute_value attribute_value TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
@@ -2594,7 +2595,7 @@
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.log_attributes2', '{replica}-{shard}')
   PARTITION BY toDate(original_expiry_time_bucket)
-  ORDER BY (team_id, attribute_type, time_bucket, resource_fingerprint, attribute_key, attribute_value)
+  ORDER BY (team_id, attribute_type, time_bucket, resource_fingerprint, attribute_key, attribute_value, severity_text)
   TTL original_expiry_time_bucket
   SETTINGS
       deduplicate_merge_projection_mode = 'drop',
@@ -2967,6 +2968,7 @@
       `attribute_key` LowCardinality(String),
       `attribute_value` String,
       `attribute_type` LowCardinality(String),
+      `severity_text` LowCardinality(String),
       `attribute_count` SimpleAggregateFunction(sum, UInt64)
   )
   AS SELECT
@@ -2978,6 +2980,7 @@
       attribute_key,
       attribute_value,
       attribute_type,
+      severity_text,
       attribute_count
   FROM
   (
@@ -2987,6 +2990,7 @@
           toStartOfInterval(original_expiry_timestamp, toIntervalMinute(10)) AS original_expiry_time_bucket,
           service_name AS service_name,
           resource_fingerprint,
+          severity_text AS severity_text,
           mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS attributes,
           arrayJoin(attributes) AS attribute,
           'log' AS attribute_type,
@@ -3000,6 +3004,7 @@
           original_expiry_time_bucket,
           service_name,
           resource_fingerprint,
+          severity_text,
           attributes
   )
   
@@ -3018,6 +3023,7 @@
       `attribute_key` LowCardinality(String),
       `attribute_value` String,
       `attribute_type` LowCardinality(String),
+      `severity_text` LowCardinality(String),
       `attribute_count` SimpleAggregateFunction(sum, UInt64)
   )
   AS SELECT
@@ -3029,6 +3035,7 @@
       attribute_key,
       attribute_value,
       attribute_type,
+      severity_text,
       attribute_count
   FROM
   (
@@ -3038,6 +3045,7 @@
           toStartOfInterval(original_expiry_timestamp, toIntervalMinute(10)) AS original_expiry_time_bucket,
           service_name AS service_name,
           resource_fingerprint,
+          severity_text AS severity_text,
           arrayJoin(resource_attributes) AS attribute,
           'resource' AS attribute_type,
           attribute.1 AS attribute_key,
@@ -3050,6 +3058,7 @@
           original_expiry_time_bucket,
           service_name,
           resource_fingerprint,
+          severity_text,
           resource_attributes
   )
   
@@ -8901,6 +8910,7 @@
       `attribute_count` SimpleAggregateFunction(sum, UInt64),
       `attribute_type` LowCardinality(String) DEFAULT 'log',
       `original_expiry_time_bucket` DateTime DEFAULT now(),
+      `severity_text` LowCardinality(String),
       INDEX idx_attribute_key attribute_key TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_attribute_value attribute_value TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
@@ -8908,7 +8918,7 @@
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.log_attributes2', '{replica}-{shard}')
   PARTITION BY toDate(original_expiry_time_bucket)
-  ORDER BY (team_id, attribute_type, time_bucket, resource_fingerprint, attribute_key, attribute_value)
+  ORDER BY (team_id, attribute_type, time_bucket, resource_fingerprint, attribute_key, attribute_value, severity_text)
   TTL original_expiry_time_bucket
   SETTINGS
       deduplicate_merge_projection_mode = 'drop',
