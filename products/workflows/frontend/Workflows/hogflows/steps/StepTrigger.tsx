@@ -264,11 +264,6 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                 description: 'Trigger your workflow to run for each person in an audience you define.',
                 value: 'batch',
                 icon: <IconPeople />,
-                tag: (
-                    <LemonTag type="completion" className="ml-1">
-                        Beta
-                    </LemonTag>
-                ),
             },
             ...getRegisteredTriggerTypes()
                 .filter((t) => !t.featureFlag || featureFlags[t.featureFlag])

@@ -2,10 +2,11 @@ import './InsightCard.scss'
 
 import { useMergeRefs } from '@floating-ui/react'
 import clsx from 'clsx'
-import { BindLogic, useValues } from 'kea'
-import React, { useMemo, useState } from 'react'
+import { BindLogic, useActions, useValues } from 'kea'
+import React, { useMemo, useRef, useState } from 'react'
 import { LayoutItem } from 'react-grid-layout'
 import { useInView } from 'react-intersection-observer'
+import { useDebouncedCallback } from 'use-debounce'
 
 import { ApiError } from 'lib/api'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
@@ -26,9 +27,10 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { insightsModel } from '~/models/insightsModel'
 import { extractValidationError } from '~/queries/nodes/InsightViz/utils'
 import { Query } from '~/queries/Query/Query'
-import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
+import { DashboardFilter, HogQLVariable, Node } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -46,6 +48,7 @@ import { EditModeEdge, EditModeEdgeOverlay } from './EditModeEdgeOverlay'
 import { InsightMeta } from './InsightMeta'
 
 const IS_STORYBOOK = inStorybook() || inStorybookTestRunner()
+const DISPLAY_OPTIONS_PERSIST_DEBOUNCE_MS = 700
 
 export interface InsightCardProps extends Resizeable {
     /** Insight to display. */
@@ -173,6 +176,21 @@ function InsightCardInternal(
     const mergedRefs = useMergeRefs([ref, inViewRef])
 
     const { theme } = useValues(themeLogic)
+    const { updateInsightDirect } = useActions(insightsModel)
+
+    // Display options edited from the card ⋯ menu mutate the saved insight directly (no per-tile
+    // override), mirroring the legend/labels/annotations quick toggles. Debounced so rapid edits
+    // (e.g. typing an axis label) collapse into a single PATCH.
+    const insightRef = useRef(insight)
+    insightRef.current = insight
+    const canEditInsight = insight.user_access_level
+        ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, AccessControlLevel.Editor)
+        : true
+    const canPersistDisplayOptions = !!dashboardId && canEditInsight
+    const persistDisplayOptions = useDebouncedCallback((node: Node) => {
+        updateInsightDirect(insightRef.current, { query: node })
+    }, DISPLAY_OPTIONS_PERSIST_DEBOUNCE_MS)
+
     // Stable reference so the memoized viz below isn't invalidated on every grid re-render.
     const insightLogicProps: InsightLogicProps = useMemo(
         () => ({
@@ -181,8 +199,9 @@ function InsightCardInternal(
             cachedInsight: insight,
             loadPriority,
             doNotLoad,
+            setQuery: canPersistDisplayOptions ? persistDisplayOptions : undefined,
         }),
-        [insight, dashboardId, loadPriority, doNotLoad]
+        [insight, dashboardId, loadPriority, doNotLoad, canPersistDisplayOptions, persistDisplayOptions]
     )
 
     const { insightLoading } = useValues(insightLogic(insightLogicProps))
@@ -299,6 +318,7 @@ function InsightCardInternal(
                         insight={insight}
                         ribbonColor={ribbonColor}
                         dashboardId={dashboardId}
+                        persistDisplayOptions={canPersistDisplayOptions ? persistDisplayOptions : undefined}
                         updateColor={updateColor}
                         toggleShowDescription={toggleShowDescription}
                         removeFromDashboard={removeFromDashboard}
