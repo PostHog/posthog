@@ -4,7 +4,9 @@ import sys
 import pytest
 from unittest import mock
 
+import structlog
 from parameterized import parameterized
+from structlog.testing import capture_logs
 
 import posthog.web_memory_sampler as sampler
 
@@ -79,17 +81,13 @@ def test_sample_once_records_gauge_and_log_only_when_rss_available(
     _name, rss_value, expected_gauge_sets, expected_log_count
 ):
     gauge_sets: list[float] = []
-    log_events: list[tuple] = []
-
-    class _RecordingLog:
-        def info(self, *args, **kwargs):
-            log_events.append((args, kwargs))
 
     with (
         mock.patch.object(sampler, "current_rss_mb", lambda: rss_value),
         mock.patch.object(sampler.WORKER_RSS_MB, "set", lambda value: gauge_sets.append(value)),
+        capture_logs() as log_events,
     ):
-        sampler._sample_once(_RecordingLog(), "pod-1", "7500")
+        sampler._sample_once(structlog.get_logger("test"), "pod-1", "7500")
 
     assert gauge_sets == expected_gauge_sets
     assert len(log_events) == expected_log_count
