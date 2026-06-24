@@ -64,8 +64,24 @@ pub async fn main() -> Result<(), Error> {
         }
     }
     if let Err(e) = staging::ensure_staging_dir(&staging_dir).await {
-        error!("Failed to create staging dir {}: {e:#}", staging_dir.display());
+        error!(
+            "Failed to create staging dir {}: {e:#}",
+            staging_dir.display()
+        );
         return Err(e);
+    }
+
+    // Periodically report staging directory disk usage
+    {
+        let staging_dir = staging_dir.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(60));
+            loop {
+                interval.tick().await;
+                let bytes = staging::staging_dir_bytes(&staging_dir).await;
+                batch_import_worker::metrics::staging_dir_bytes(bytes as f64);
+            }
+        });
     }
 
     let context = Arc::new(AppContext::new(&config).await.unwrap());

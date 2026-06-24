@@ -661,6 +661,7 @@ mod tests {
     use chrono::{TimeZone, Utc};
     use httpmock::MockServer;
     use std::path::Path;
+    use tempfile::TempDir;
     use tokio::fs;
 
     struct MockExtractor;
@@ -690,7 +691,11 @@ mod tests {
 {"event": "test2", "timestamp": "2023-01-01T01:00:00Z"}
 {"event": "test3", "timestamp": "2023-01-01T02:00:00Z"}"#;
 
-    fn create_test_source(base_url: String, interval_duration: i64) -> DateRangeExportSource {
+    fn create_test_source(
+        base_url: String,
+        interval_duration: i64,
+        staging_dir: PathBuf,
+    ) -> DateRangeExportSource {
         let start = Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap();
         let end = Utc.with_ymd_and_hms(2023, 1, 1, 6, 0, 0).unwrap();
 
@@ -700,7 +705,7 @@ mod tests {
             end,
             interval_duration,
             Arc::new(MockExtractor),
-            std::env::temp_dir(),
+            staging_dir,
         )
         .with_auth(AuthConfig::None)
         .with_date_format("%Y-%m-%dT%H:%M:%SZ".to_string())
@@ -712,7 +717,8 @@ mod tests {
     #[tokio::test]
     async fn test_interval_generation() {
         let server = MockServer::start();
-        let source = create_test_source(server.url("/export"), 3600); // 1 hour intervals
+        let _staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, _staging.path().to_path_buf()); // 1 hour intervals
 
         let keys = source.keys().await.unwrap();
         assert_eq!(keys.len(), 6); // 6 hours with 1-hour intervals
@@ -751,7 +757,8 @@ mod tests {
     #[tokio::test]
     async fn test_interval_key_parsing() {
         let server = MockServer::start();
-        let source = create_test_source(server.url("/export"), 3600);
+        let _staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, _staging.path().to_path_buf());
 
         let key = "2023-01-01T00:00:00+00:00_2023-01-01T01:00:00+00:00";
         let interval = source.interval_from_key(key).unwrap();
@@ -781,7 +788,8 @@ mod tests {
                 .body(TEST_DATA);
         });
 
-        let source = create_test_source(server.url("/export"), 3600);
+        let _staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, _staging.path().to_path_buf());
         source.prepare_for_job().await.unwrap();
 
         let keys = source.keys().await.unwrap();
@@ -804,7 +812,8 @@ mod tests {
             then.status(404);
         });
 
-        let source = create_test_source(server.url("/export"), 3600);
+        let _staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, _staging.path().to_path_buf());
         source.prepare_for_job().await.unwrap();
 
         let keys = source.keys().await.unwrap();
@@ -831,6 +840,7 @@ mod tests {
 
         let start = Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap();
         let end = Utc.with_ymd_and_hms(2023, 1, 1, 1, 0, 0).unwrap();
+        let _staging = TempDir::new().unwrap();
 
         let source = DateRangeExportSource::builder(
             server.url("/export"),
@@ -838,7 +848,7 @@ mod tests {
             end,
             3600,
             Arc::new(MockExtractor),
-            std::env::temp_dir(),
+            _staging.path().to_path_buf(),
         )
         .with_auth(AuthConfig::ApiKey {
             header_name: "X-API-Key".to_string(),
@@ -868,6 +878,7 @@ mod tests {
 
         let start = Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap();
         let end = Utc.with_ymd_and_hms(2023, 1, 1, 1, 0, 0).unwrap();
+        let _staging = TempDir::new().unwrap();
 
         let source = DateRangeExportSource::builder(
             server.url("/export"),
@@ -875,7 +886,7 @@ mod tests {
             end,
             3600,
             Arc::new(MockExtractor),
-            std::env::temp_dir(),
+            _staging.path().to_path_buf(),
         )
         .with_auth(AuthConfig::BearerToken {
             token: "test-token".to_string(),
@@ -899,7 +910,8 @@ mod tests {
             then.status(200).body(TEST_DATA);
         });
 
-        let source = create_test_source(server.url("/export"), 3600);
+        let _staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, _staging.path().to_path_buf());
         source.prepare_for_job().await.unwrap();
 
         let keys = source.keys().await.unwrap();
@@ -926,7 +938,8 @@ mod tests {
             then.status(200).body(TEST_DATA);
         });
 
-        let source = create_test_source(server.url("/export"), 3600);
+        let _staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, _staging.path().to_path_buf());
         source.prepare_for_job().await.unwrap();
 
         let keys = source.keys().await.unwrap();
@@ -955,7 +968,8 @@ mod tests {
             then.status(401);
         });
 
-        let source = create_test_source(server.url("/export"), 3600);
+        let _staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, _staging.path().to_path_buf());
         source.prepare_for_job().await.unwrap();
 
         let keys = source.keys().await.unwrap();
@@ -980,7 +994,8 @@ mod tests {
             then.status(500);
         });
 
-        let source = create_test_source(server.url("/export"), 3600);
+        let _staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, _staging.path().to_path_buf());
         source.prepare_for_job().await.unwrap();
 
         let keys = source.keys().await.unwrap();
@@ -1007,6 +1022,7 @@ mod tests {
 
         let start = Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap();
         let end = Utc.with_ymd_and_hms(2023, 1, 1, 1, 0, 0).unwrap();
+        let _staging = TempDir::new().unwrap();
 
         let mut headers = HashMap::new();
         headers.insert("X-Custom-Header".to_string(), "custom-value".to_string());
@@ -1017,7 +1033,7 @@ mod tests {
             end,
             3600,
             Arc::new(MockExtractor),
-            std::env::temp_dir(),
+            _staging.path().to_path_buf(),
         )
         .with_auth(AuthConfig::None)
         .with_date_format("%Y-%m-%dT%H:%M:%SZ".to_string())
@@ -1039,7 +1055,8 @@ mod tests {
             then.status(200).body(TEST_DATA);
         });
 
-        let source = create_test_source(server.url("/export"), 3600);
+        let _staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, _staging.path().to_path_buf());
         source.prepare_for_job().await.unwrap();
 
         let keys = source.keys().await.unwrap();
@@ -1064,7 +1081,8 @@ mod tests {
             then.status(200).body(TEST_DATA);
         });
 
-        let source = create_test_source(server.url("/export"), 3600);
+        let _staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, _staging.path().to_path_buf());
         source.prepare_for_job().await.unwrap();
 
         let keys = source.keys().await.unwrap();
@@ -1086,7 +1104,8 @@ mod tests {
             then.status(200).body(TEST_DATA);
         });
 
-        let source = create_test_source(server.url("/export"), 3600);
+        let _staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, _staging.path().to_path_buf());
         source.prepare_for_job().await.unwrap();
 
         let keys = source.keys().await.unwrap();
@@ -1106,7 +1125,8 @@ mod tests {
     #[tokio::test]
     async fn test_format_date_range_from_key() {
         let server = MockServer::start();
-        let source = create_test_source(server.url("/export"), 3600);
+        let _staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, _staging.path().to_path_buf());
 
         let key = "2023-01-01T00:00:00+00:00_2023-01-01T01:00:00+00:00";
         let formatted = source.format_date_range_from_key(key).unwrap();
@@ -1117,7 +1137,8 @@ mod tests {
     #[tokio::test]
     async fn test_format_date_range_from_key_different_dates() {
         let server = MockServer::start();
-        let source = create_test_source(server.url("/export"), 3600);
+        let _staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, _staging.path().to_path_buf());
 
         let key = "2023-12-31T23:30:00+00:00_2024-01-01T00:30:00+00:00";
         let formatted = source.format_date_range_from_key(key).unwrap();
@@ -1128,7 +1149,8 @@ mod tests {
     #[tokio::test]
     async fn test_format_date_range_from_invalid_key() {
         let server = MockServer::start();
-        let source = create_test_source(server.url("/export"), 3600);
+        let _staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, _staging.path().to_path_buf());
 
         let key = "invalid-key-format";
         let formatted = source.format_date_range_from_key(key);
@@ -1139,7 +1161,8 @@ mod tests {
     #[tokio::test]
     async fn test_get_date_range_for_key_trait_method() {
         let server = MockServer::start();
-        let source = create_test_source(server.url("/export"), 3600);
+        let _staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, _staging.path().to_path_buf());
 
         let key = "2023-06-15T12:00:00+00:00_2023-06-15T13:00:00+00:00";
         let date_range = source.get_date_range_for_key(key).unwrap();
@@ -1150,7 +1173,8 @@ mod tests {
     #[tokio::test]
     async fn test_format_date_range_edge_cases() {
         let server = MockServer::start();
-        let source = create_test_source(server.url("/export"), 3600);
+        let _staging = TempDir::new().unwrap();
+        let source = create_test_source(server.url("/export"), 3600, _staging.path().to_path_buf());
 
         let key_with_ms = "2023-01-01T00:00:00.123+00:00_2023-01-01T01:30:45.456+00:00";
         let formatted = source.format_date_range_from_key(key_with_ms).unwrap();
@@ -1177,13 +1201,14 @@ mod tests {
             then.status(429); // Always return 429
         });
 
+        let _staging = TempDir::new().unwrap();
         let source = DateRangeExportSource::builder(
             server.url("/export"),
             Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap(),
             Utc.with_ymd_and_hms(2023, 1, 1, 1, 0, 0).unwrap(),
             3600,
             Arc::new(MockExtractor),
-            std::env::temp_dir(),
+            _staging.path().to_path_buf(),
         )
         .build()
         .unwrap();
@@ -1275,6 +1300,7 @@ mod tests {
         // the end date query parameter for inclusive APIs.
         let start = Utc.with_ymd_and_hms(2025, 6, 5, 0, 0, 0).unwrap();
         let end = Utc.with_ymd_and_hms(2025, 6, 7, 0, 0, 0).unwrap();
+        let _staging = TempDir::new().unwrap();
 
         let source = DateRangeExportSource::builder(
             server.url("/export"),
@@ -1282,7 +1308,7 @@ mod tests {
             end,
             86400, // 1 day intervals - also used to adjust end date for inclusive APIs
             Arc::new(MockExtractor),
-            std::env::temp_dir(),
+            _staging.path().to_path_buf(),
         )
         .with_query_params("from_date".to_string(), "to_date".to_string())
         .with_date_format("%Y-%m-%d".to_string())

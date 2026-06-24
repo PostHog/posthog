@@ -203,9 +203,9 @@ impl SourceConfig {
                 config.create_source(secrets, !is_restarting).await?,
             )),
             SourceConfig::S3(config) => Ok(Box::new(config.create_source(secrets).await?)),
-            SourceConfig::S3Gzip(config) => {
-                Ok(Box::new(config.create_gzip_source(secrets, staging_dir).await?))
-            }
+            SourceConfig::S3Gzip(config) => Ok(Box::new(
+                config.create_gzip_source(secrets, staging_dir).await?,
+            )),
             SourceConfig::DateRangeExport(config) => {
                 Ok(Box::new(config.create_source(secrets, staging_dir).await?))
             }

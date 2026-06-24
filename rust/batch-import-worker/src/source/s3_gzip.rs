@@ -239,20 +239,15 @@ impl DataSource for GzipS3Source {
 
         let mut stream = get.body;
         let mut total_bytes: u64 = 0;
-        while let Some(chunk) = stream
-            .try_next()
-            .await
-            .with_context(|| {
-                format!(
-                    "Failed to read body data from S3 object s3://{0}/{key}",
-                    self.bucket,
-                )
-            })?
-        {
-            raw_file
-                .write_all(&chunk)
-                .await
-                .with_context(|| format!("Failed to write raw file: {}", raw_file_path.display()))?;
+        while let Some(chunk) = stream.try_next().await.with_context(|| {
+            format!(
+                "Failed to read body data from S3 object s3://{0}/{key}",
+                self.bucket,
+            )
+        })? {
+            raw_file.write_all(&chunk).await.with_context(|| {
+                format!("Failed to write raw file: {}", raw_file_path.display())
+            })?;
             total_bytes += chunk.len() as u64;
         }
 
@@ -264,7 +259,10 @@ impl DataSource for GzipS3Source {
 
         if total_bytes == 0 {
             if let Err(e) = tokio::fs::remove_file(&raw_file_path).await {
-                warn!("Failed to remove empty raw file {}: {e}", raw_file_path.display());
+                warn!(
+                    "Failed to remove empty raw file {}: {e}",
+                    raw_file_path.display()
+                );
             }
 
             let empty_data_file_path = temp_dir.join(format!("{}.data", safe_key));

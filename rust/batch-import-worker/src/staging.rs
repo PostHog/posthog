@@ -25,20 +25,33 @@ pub async fn sweep_staging_dir(path: &Path) -> Result<u64, Error> {
     };
 
     let mut removed: u64 = 0;
-    while let Some(entry) = entries.next_entry().await? {
-        let entry_path = entry.path();
-        let file_type = entry.file_type().await?;
+    loop {
+        let entry = match entries.next_entry().await {
+            Ok(Some(e)) => e,
+            Ok(None) => break,
+            Err(e) => {
+                warn!("Error iterating staging dir {}: {e}", path.display());
+                continue;
+            }
+        };
 
-        let result = if file_type.is_dir() {
+        let entry_path = entry.path();
+        let is_dir = match entry.file_type().await {
+            Ok(ft) => ft.is_dir(),
+            Err(e) => {
+                warn!("Cannot stat {}, skipping: {e}", entry_path.display());
+                continue;
+            }
+        };
+
+        let result = if is_dir {
             tokio::fs::remove_dir_all(&entry_path).await
         } else {
             tokio::fs::remove_file(&entry_path).await
         };
 
         match result {
-            Ok(()) => {
-                removed += 1;
-            }
+            Ok(()) => removed += 1,
             Err(e) => {
                 warn!(
                     "Failed to remove stale staging entry {}: {e}",
