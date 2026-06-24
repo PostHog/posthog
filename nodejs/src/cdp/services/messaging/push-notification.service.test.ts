@@ -150,7 +150,7 @@ describe('PushNotificationService', () => {
             expect(result.finished).toBe(true)
         })
 
-        it('logs warning when no device token found', async () => {
+        it('logs warning and records push_skipped when no device token found', async () => {
             const invocation = createSendPushNotificationInvocation({})
 
             const result = await service.executeSendPushNotification(invocation)
@@ -158,6 +158,9 @@ describe('PushNotificationService', () => {
             expect(result.logs.map((log) => log.message)).toContainEqual(
                 expect.stringContaining('No active FCM device token found')
             )
+            // No token means nothing was delivered — record push_skipped, not push_sent.
+            expect(result.metrics).toContainEqual(expect.objectContaining({ metric_name: 'push_skipped', count: 1 }))
+            expect(result.metrics).not.toContainEqual(expect.objectContaining({ metric_name: 'push_sent' }))
         })
 
         it('does not match tokens for a different app identifier', async () => {

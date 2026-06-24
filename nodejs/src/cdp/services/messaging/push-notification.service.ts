@@ -51,6 +51,10 @@ export class PushNotificationService {
         const addLog = createAddLogFunction(result.logs)
 
         let success = false
+        // A push is "skipped" (not failed) when the person has no registered device token —
+        // there's nothing to deliver, but it isn't an error either. Tracked separately so the
+        // push_sent metric only reflects notifications we actually handed off to FCM/APNS.
+        let skipped = false
 
         try {
             const integration = await this.integrationManager.get(params.integrationId)
@@ -59,9 +63,9 @@ export class PushNotificationService {
             }
 
             if (integration.kind === 'firebase') {
-                await this.executeFcm(result, params, integration, invocation)
+                skipped = !(await this.executeFcm(result, params, integration, invocation))
             } else if (integration.kind === 'apns') {
-                await this.executeApns(result, params, integration, invocation)
+                skipped = !(await this.executeApns(result, params, integration, invocation))
             } else {
                 throw new Error(`Unsupported push integration kind: ${integration.kind}`)
             }
@@ -74,24 +78,26 @@ export class PushNotificationService {
 
         result.invocation.state.vmState!.stack.push({ success })
 
+        const metricName = !success ? 'push_failed' : skipped ? 'push_skipped' : 'push_sent'
         result.metrics.push({
             team_id: invocation.teamId,
             app_source_id: invocation.parentRunId ?? invocation.functionId,
             instance_id: invocation.state.actionId || invocation.id,
             metric_kind: 'other',
-            metric_name: success ? ('push_sent' as const) : ('push_failed' as const),
+            metric_name: metricName,
             count: 1,
         })
 
         return result
     }
 
+    /** Returns true if a notification was handed off to FCM, false if skipped (no device token). */
     private async executeFcm(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersSendPushNotificationType,
         integration: IntegrationType,
         invocation: CyclotronJobInvocationHogFunction
-    ): Promise<void> {
+    ): Promise<boolean> {
         const addLog = createAddLogFunction(result.logs)
         const payload = params.payload
 
@@ -106,7 +112,7 @@ export class PushNotificationService {
 
         if (!token) {
             addLog('warn', `No active FCM device token found for distinct_id: ${params.distinctId}`)
-            return
+            return false
         }
 
         const url = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`
@@ -166,14 +172,16 @@ export class PushNotificationService {
 
         pushNotificationSentCounter.labels({ platform: 'fcm' }).inc()
         addLog('info', `Push notification sent via FCM`)
+        return true
     }
 
+    /** Returns true if a notification was handed off to APNS, false if skipped (no device token). */
     private async executeApns(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersSendPushNotificationType,
         integration: IntegrationType,
         invocation: CyclotronJobInvocationHogFunction
-    ): Promise<void> {
+    ): Promise<boolean> {
         const addLog = createAddLogFunction(result.logs)
         const payload = params.payload
 
@@ -190,7 +198,7 @@ export class PushNotificationService {
 
         if (!token) {
             addLog('warn', `No active APNS device token found for distinct_id: ${params.distinctId}`)
-            return
+            return false
         }
 
         const jwt = this.generateApnsJwt(appleTeamId, keyId, signingKey)
@@ -270,6 +278,7 @@ export class PushNotificationService {
 
         pushNotificationSentCounter.labels({ platform: 'apns' }).inc()
         addLog('info', `Push notification sent via APNS`)
+        return true
     }
 
     private generateApnsJwt(teamId: string, keyId: string, signingKey: string): string {

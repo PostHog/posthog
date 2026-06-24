@@ -241,6 +241,7 @@ export type MinimalAppMetric = {
         | 'email_unsubscribed'
         | 'push_sent'
         | 'push_failed'
+        | 'push_skipped'
         | 'quota_limited'
     count: number
 }

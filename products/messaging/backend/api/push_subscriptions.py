@@ -31,6 +31,10 @@ APP_ID_CONFIG_KEY: dict[str, str] = {
     "apns": "bundle_id",
 }
 
+# Shared instance: deriving the encryption keys runs PBKDF2 (100k iterations per key) and is
+# cached on the instance, so a module-level singleton avoids re-deriving on every request.
+_encrypted_fields = EncryptedFieldMixin()
+
 
 # We lookup integrations based on the app_id provided by the client, which corresponds to
 # the `project_id` for Firebase and `bundle_id` for APNS. This allows us to support multiple
@@ -181,7 +185,7 @@ def push_subscriptions(request: Request):
             ),
         )
 
-    encrypted_token = EncryptedFieldMixin().encrypt(device_token)
+    encrypted_token = _encrypted_fields.encrypt(device_token)
     property_key = f"$device_push_subscription_{app_id}"
 
     try:
