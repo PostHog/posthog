@@ -2881,7 +2881,12 @@ def _activate_warm_run(run: TaskRun, task: Task, team_id: int, *, message: str |
         task.save(update_fields=["description", "updated_at"])
     signal_task_run_user_message(run.id, task.id, team_id, content=message, artifact_ids=artifact_ids)
     TaskRun.update_state_atomic(run.id, remove_keys=["await_user_message"])
-    observe_prewarmed_activated(run)
+    # Only count activations of Runs that actually carry the prewarmed marker, so the activation
+    # numerator stays consistent with the workflow_start{prewarmed="true"} denominator — otherwise
+    # warm Runs provisioned before this ships (await_user_message set, prewarmed absent) would push
+    # the hit rate above 1 during the deploy transition.
+    if (run.state or {}).get("prewarmed"):
+        observe_prewarmed_activated(run)
 
 
 def warm_task_sandbox(

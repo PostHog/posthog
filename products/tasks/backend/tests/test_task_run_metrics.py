@@ -104,6 +104,24 @@ class TestTaskRunMetrics(TestCase):
 
         assert _sample_value("posthog_tasks_prewarmed_activated_total", labels) == before + 1
 
+    def test_activating_run_without_prewarmed_marker_does_not_increment(self) -> None:
+        # Warm Runs provisioned before this ships have await_user_message but no prewarmed marker;
+        # activating them must not inflate the numerator (would push hit rate above 1).
+        from products.tasks.backend.facade import api as facade
+
+        run = self.task.create_run(
+            environment=TaskRun.Environment.CLOUD,
+            mode="interactive",
+            extra_state={"await_user_message": True},
+        )
+        labels = {"origin_product": "user_created"}
+        before = _sample_value("posthog_tasks_prewarmed_activated_total", labels)
+
+        with patch.object(facade, "signal_task_run_user_message", return_value=True):
+            facade._activate_warm_run(run, self.task, self.team.id, message="go", artifact_ids=[])
+
+        assert _sample_value("posthog_tasks_prewarmed_activated_total", labels) == before
+
     @parameterized.expand(
         [
             ("started", "team", None, [("attempted", "requested"), ("started", "accepted")], True),
