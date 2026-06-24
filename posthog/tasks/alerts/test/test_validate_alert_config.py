@@ -365,12 +365,38 @@ class TestValidateAlertConfig:
             "daily",
         )
 
-    def test_detector_config_rejected_for_non_trends_insight(self) -> None:
-        with pytest.raises(ValueError, match="Anomaly detection alerts are only supported for trends insights"):
+    def test_detector_config_accepted_for_hogql_insight(self) -> None:
+        # SQL/HogQL insights support anomaly detection (last/first-row series), so a detector_config
+        # is accepted — not rejected like genuinely-unsupported kinds.
+        validate_alert_config(
+            _hogql_query(),
+            _base_condition(),
+            _hogql_config(),
+            _base_threshold(),
+            "daily",
+            detector_config={"type": "zscore", "threshold": 0.95, "window": 30},
+        )
+
+    def test_detector_config_rejected_for_any_row_hogql_alert(self) -> None:
+        # any_row rows are entities, not a time series — reject anomaly detection at config time
+        # so the alert can't be saved only to fail every check.
+        with pytest.raises(ValueError, match="Anomaly detection isn't supported for any-row SQL alerts"):
             validate_alert_config(
                 _hogql_query(),
                 _base_condition(),
-                _hogql_config(),
+                {"type": "HogQLAlertConfig", "evaluation": "any_row"},
+                _base_threshold(),
+                "daily",
+                detector_config={"type": "zscore", "threshold": 0.95, "window": 30},
+            )
+
+    def test_detector_config_rejected_for_unsupported_insight(self) -> None:
+        # Funnels have no detector extractor, so a detector_config is rejected at config time.
+        with pytest.raises(ValueError, match="Anomaly detection alerts aren't supported"):
+            validate_alert_config(
+                {"kind": "FunnelsQuery", "series": [{"kind": "EventsNode", "event": "a"}]},
+                _base_condition(),
+                {"type": "FunnelsAlertConfig", "metric": "conversion_from_start", "funnel_step": None},
                 _base_threshold(),
                 "daily",
                 detector_config={"type": "zscore", "threshold": 0.95, "window": 30},
