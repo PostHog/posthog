@@ -347,6 +347,41 @@ export interface GoogleSearchConsoleSitesResponseApi {
     sites: GoogleSearchConsoleSiteApi[]
 }
 
+export interface GitHubLinkExistingRequestApi {
+    /**
+     * Sibling team in the same organization whose GitHub installation should be reused.
+     * @nullable
+     */
+    source_team_id?: number | null
+    /** GitHub installation ID to link; resolved within the organization when source_team_id is omitted. */
+    installation_id?: string
+}
+
+/**
+ * * `posthog_code` - posthog_code
+ */
+export type ConnectFromEnumApi = (typeof ConnectFromEnumApi)[keyof typeof ConnectFromEnumApi]
+
+export const ConnectFromEnumApi = {
+    PosthogCode: 'posthog_code',
+} as const
+
+export interface GitHubOAuthAuthorizeRequestApi {
+    /** GitHub installation ID to carry through the User OAuth flow. */
+    installation_id?: string
+    /** Relative URL to redirect to after the OAuth flow completes. */
+    next?: string
+    /** Originating surface for the connect flow; only 'posthog_code' is recognized.
+     *
+     * * `posthog_code` - posthog_code */
+    connect_from?: ConnectFromEnumApi
+}
+
+export interface GitHubOAuthAuthorizeResponseApi {
+    /** GitHub User OAuth URL the client should redirect to. */
+    oauth_url: string
+}
+
 export interface GitHubPrepareCallbackRequestApi {
     /** Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Code). */
     next?: string

@@ -10,6 +10,9 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     GitHubBranchesResponseApi,
+    GitHubLinkExistingRequestApi,
+    GitHubOAuthAuthorizeRequestApi,
+    GitHubOAuthAuthorizeResponseApi,
     GitHubPrepareCallbackRequestApi,
     GitHubReposRefreshResponseApi,
     GitHubReposResponseApi,
@@ -695,14 +698,14 @@ export const getIntegrationsGithubLinkExistingCreateUrl = (projectId: string) =>
  */
 export const integrationsGithubLinkExistingCreate = async (
     projectId: string,
-    integrationConfigApi: NonReadonly<IntegrationConfigApi>,
+    gitHubLinkExistingRequestApi?: GitHubLinkExistingRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getIntegrationsGithubLinkExistingCreateUrl(projectId), {
+): Promise<IntegrationConfigApi> => {
+    return apiMutator<IntegrationConfigApi>(getIntegrationsGithubLinkExistingCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(integrationConfigApi),
+        body: JSON.stringify(gitHubLinkExistingRequestApi),
     })
 }
 
@@ -715,14 +718,14 @@ export const getIntegrationsGithubOauthAuthorizeCreateUrl = (projectId: string) 
  */
 export const integrationsGithubOauthAuthorizeCreate = async (
     projectId: string,
-    integrationConfigApi: NonReadonly<IntegrationConfigApi>,
+    gitHubOAuthAuthorizeRequestApi?: GitHubOAuthAuthorizeRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getIntegrationsGithubOauthAuthorizeCreateUrl(projectId), {
+): Promise<GitHubOAuthAuthorizeResponseApi> => {
+    return apiMutator<GitHubOAuthAuthorizeResponseApi>(getIntegrationsGithubOauthAuthorizeCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(integrationConfigApi),
+        body: JSON.stringify(gitHubOAuthAuthorizeRequestApi),
     })
 }
 

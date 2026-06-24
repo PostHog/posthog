@@ -694,6 +694,41 @@ class GitHubPrepareCallbackRequestSerializer(serializers.Serializer):
     )
 
 
+class GitHubLinkExistingRequestSerializer(serializers.Serializer):
+    source_team_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Sibling team in the same organization whose GitHub installation should be reused.",
+    )
+    installation_id = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="GitHub installation ID to link; resolved within the organization when source_team_id is omitted.",
+    )
+
+
+class GitHubOAuthAuthorizeRequestSerializer(serializers.Serializer):
+    installation_id = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="GitHub installation ID to carry through the User OAuth flow.",
+    )
+    next = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Relative URL to redirect to after the OAuth flow completes.",
+    )
+    connect_from = serializers.ChoiceField(
+        required=False,
+        choices=["posthog_code"],
+        help_text="Originating surface for the connect flow; only 'posthog_code' is recognized.",
+    )
+
+
+class GitHubOAuthAuthorizeResponseSerializer(serializers.Serializer):
+    oauth_url = serializers.CharField(help_text="GitHub User OAuth URL the client should redirect to.")
+
+
 @extend_schema(extensions={"x-product": "integrations"})
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
@@ -1324,6 +1359,10 @@ class IntegrationViewSet(
         )
         return Response(status=204)
 
+    @extend_schema(
+        request=GitHubLinkExistingRequestSerializer,
+        responses={200: IntegrationSerializer},
+    )
     @action(methods=["POST"], detail=False, url_path="github/link_existing")
     def github_link_existing(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Reuse a GitHub installation already linked to a sibling team in the same organization."""
@@ -1336,6 +1375,10 @@ class IntegrationViewSet(
         )
         return Response(self.get_serializer(instance).data)
 
+    @extend_schema(
+        request=GitHubOAuthAuthorizeRequestSerializer,
+        responses={200: GitHubOAuthAuthorizeResponseSerializer},
+    )
     @action(methods=["POST"], detail=False, url_path="github/oauth_authorize")
     def github_oauth_authorize(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Mint a User OAuth URL to bootstrap a fresh `code` when the install flow returns without one."""

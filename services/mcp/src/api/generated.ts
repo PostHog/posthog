@@ -13143,6 +13143,16 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `posthog_code` - posthog_code
+     */
+    export type ConnectFromEnum = typeof ConnectFromEnum[keyof typeof ConnectFromEnum];
+
+
+    export const ConnectFromEnum = {
+      PosthogCode: 'posthog_code',
+    } as const;
+
+    /**
      * Response containing a JWT token for direct sandbox connection
      */
     export interface ConnectionTokenResponse {
@@ -23487,6 +23497,32 @@ export namespace Schemas {
       default_branch?: string | null;
       /** Whether more branches exist beyond the returned page */
       has_more: boolean;
+    }
+
+    export interface GitHubLinkExistingRequest {
+      /**
+         * Sibling team in the same organization whose GitHub installation should be reused.
+         * @nullable
+         */
+      source_team_id?: number | null;
+      /** GitHub installation ID to link; resolved within the organization when source_team_id is omitted. */
+      installation_id?: string;
+    }
+
+    export interface GitHubOAuthAuthorizeRequest {
+      /** GitHub installation ID to carry through the User OAuth flow. */
+      installation_id?: string;
+      /** Relative URL to redirect to after the OAuth flow completes. */
+      next?: string;
+      /** Originating surface for the connect flow; only 'posthog_code' is recognized.
+       *
+       * * `posthog_code` - posthog_code */
+      connect_from?: ConnectFromEnum;
+    }
+
+    export interface GitHubOAuthAuthorizeResponse {
+      /** GitHub User OAuth URL the client should redirect to. */
+      oauth_url: string;
     }
 
     export interface GitHubPrepareCallbackRequest {
