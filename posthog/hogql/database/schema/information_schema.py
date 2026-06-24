@@ -194,12 +194,17 @@ def _warehouse_metadata(
                 "table__name", "column_name", "description"
             ):
                 descriptions[(table_name, column_name)] = description
-            # `.queryable()` (not `.objects`) drops soft-deleted tables and orphans of a soft-deleted
-            # source — otherwise a re-synced table's dead duplicate clobbers the live row_count with a
-            # stale/null value. Oldest first so the newest row wins a name collision, matching the
-            # last-write-wins order `serialize_database` uses.
+            # `DataWarehouseTable` is on the IDOR baseline (not team-scoped), so `team_scope` is a
+            # no-op for it — filter by team_id explicitly or it reads every team's tables. `.queryable()`
+            # (not `.objects`) drops soft-deleted tables and orphans of a soft-deleted source —
+            # otherwise a re-synced table's dead duplicate clobbers the live row_count with a stale/null
+            # value. Oldest first so the newest row wins a name collision, matching the last-write-wins
+            # order `serialize_database` uses.
             for table_name, row_count in (
-                DataWarehouseTable.objects.queryable().order_by("created_at").values_list("name", "row_count")
+                DataWarehouseTable.objects.queryable()
+                .filter(team_id=team_id)
+                .order_by("created_at")
+                .values_list("name", "row_count")
             ):
                 row_counts[table_name] = row_count
             # Views carry their row count on the materialized backing table (`saved_query.table`).

@@ -14,6 +14,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.models import Team
 from posthog.models.scoping import team_scope
 
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -109,12 +110,15 @@ class TestInformationSchemaPushdown(APIBaseTest):
 
 
 class TestWarehouseMetadata(APIBaseTest):
-    def _table(self, name: str, row_count: int | None, *, deleted: bool = False) -> DataWarehouseTable:
-        credential = DataWarehouseCredential.objects.create(access_key="x", access_secret="x", team=self.team)
+    def _table(
+        self, name: str, row_count: int | None, *, deleted: bool = False, team: Team | None = None
+    ) -> DataWarehouseTable:
+        team = team or self.team
+        credential = DataWarehouseCredential.objects.create(access_key="x", access_secret="x", team=team)
         return DataWarehouseTable.objects.create(
             name=name,
             format="Parquet",
-            team=self.team,
+            team=team,
             credential=credential,
             url_pattern="https://bucket.s3/data/*",
             row_count=row_count,
@@ -137,6 +141,15 @@ class TestWarehouseMetadata(APIBaseTest):
         )
         _descriptions, _row_counts, view_row_counts = _warehouse_metadata(self.team.id)
         assert view_row_counts["orders_view"] == 42
+
+    def test_metadata_does_not_leak_other_teams_row_counts(self):
+        # `DataWarehouseTable` is not team-scoped, so the query must filter team_id explicitly — a
+        # same-named table in another team must not surface (or clobber) this team's count.
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        self._table("shared", 999, team=other_team)
+        self._table("shared", 7)
+        _descriptions, row_counts, _view_row_counts = _warehouse_metadata(self.team.id)
+        assert row_counts["shared"] == 7
 
 
 class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
