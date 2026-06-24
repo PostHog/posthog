@@ -266,7 +266,7 @@ import type {
 
 import { AgentMode } from '../queries/schema'
 import type { AttachedContext, MaxUIContext } from '../scenes/max/maxTypes'
-import { AlertSimulationResult, AlertType, AlertTypeWrite } from './components/Alerts/types'
+import { AlertConfig, AlertSimulationResult, AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
     ErrorTrackingFingerprint,
     ErrorTrackingRelease,
@@ -4160,12 +4160,17 @@ const api = {
         ): Promise<RawAnnotationType> {
             return await new ApiRequest().annotation(annotationId).update({ data })
         },
-        async list(params?: { limit?: number; offset?: number }): Promise<PaginatedResponse<RawAnnotationType>> {
+        async list(params?: {
+            limit?: number
+            offset?: number
+            hidden_in_user_interface?: boolean
+        }): Promise<PaginatedResponse<RawAnnotationType>> {
             return await new ApiRequest()
                 .annotations()
                 .withQueryString({
                     limit: params?.limit,
                     offset: params?.offset,
+                    hidden_in_user_interface: params?.hidden_in_user_interface,
                 })
                 .get()
         },
@@ -6420,6 +6425,7 @@ const api = {
             detector_config: Record<string, any>
             series_index?: number
             date_from?: string
+            config?: AlertConfig | null
         }): Promise<AlertSimulationResult> {
             return await new ApiRequest().alerts().withAction('simulate').create({ data })
         },

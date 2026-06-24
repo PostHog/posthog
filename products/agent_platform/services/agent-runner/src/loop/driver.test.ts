@@ -13,6 +13,9 @@ import {
 import { Pool } from 'pg'
 
 import {
+    type AnalyticsEvent,
+    type AnalyticsGenerationEvent,
+    type AnalyticsSink,
     AgentRevision,
     type ApprovalRequest,
     type ApprovalStore,
@@ -666,7 +669,7 @@ describe('driver runSession', () => {
                 streamFn: recordingStreamFn(calls),
                 gatewayHeaders: { 'X-PostHog-Distinct-Id': 'team:1:agent:app', 'X-PostHog-Trace-Id': TEST_SESSION_ID },
                 gatewayUsage: { client: { getUsage } as never, phc: 'phc_test' },
-                useGatewayCost: true,
+                gatewayEmitsGenerations: true,
             })
             expect(out.state).toBe('completed')
             // One outbound call, headers carry the static gateway headers
@@ -733,7 +736,7 @@ describe('driver runSession', () => {
                 streamFn: recordingStreamFn(calls),
                 gatewayHeaders: {},
                 gatewayUsage: { client: { getUsage } as never, phc: 'phc_test' },
-                useGatewayCost: true,
+                gatewayEmitsGenerations: true,
             })
             expect(out.state).toBe('completed')
             expect(session.usage_total.cost_total).toBe(0)
@@ -810,6 +813,43 @@ describe('driver runSession', () => {
             expect(out.state).toBe('completed')
             const last = session.conversation.at(-1) as { role: string; content: unknown }
             expect(last.role).toBe('assistant')
+        })
+    })
+
+    /**
+     * Generation-event emission splits by path: on the gateway path the gateway
+     * emits the cost-bearing `$ai_generation`, so the runner must NOT emit its
+     * own (double-counting); off the gateway path it emits one, without cost
+     * (pi-ai's estimate is never used — ingestion prices it from the catalog).
+     * Spans/trace are runner-only and emitted on both paths.
+     */
+    describe('analytics generation emission', () => {
+        function recordingSink(events: AnalyticsEvent[]): AnalyticsSink {
+            return { write: async (batch) => void events.push(...batch) }
+        }
+
+        it('suppresses the runner $ai_generation on the gateway path; still emits the trace', async () => {
+            const events: AnalyticsEvent[] = []
+            const out = await run(makeRev(), makeSession(), {
+                script: [stop('hi back')],
+                analytics: recordingSink(events),
+                gatewayEmitsGenerations: true,
+            })
+            expect(out.state).toBe('completed')
+            expect(events.filter((e) => e.kind === 'generation')).toHaveLength(0)
+            expect(events.some((e) => e.kind === 'trace')).toBe(true)
+        })
+
+        it('emits one $ai_generation without cost on the direct path', async () => {
+            const events: AnalyticsEvent[] = []
+            const out = await run(makeRev(), makeSession(), {
+                script: [stop('hi back')],
+                analytics: recordingSink(events),
+            })
+            expect(out.state).toBe('completed')
+            const gens = events.filter((e): e is AnalyticsGenerationEvent => e.kind === 'generation')
+            expect(gens).toHaveLength(1)
+            expect(gens[0].cost_usd).toBeUndefined()
         })
     })
 

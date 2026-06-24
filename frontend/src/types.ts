@@ -751,6 +751,7 @@ export interface ConversationsSettings {
     github_integration_id?: number | null
     github_repos?: string[] | null
     ai_suggestions_enabled?: boolean
+    ai_diagnostics_enabled?: boolean
 }
 
 export interface LogsSettings {
@@ -2863,6 +2864,8 @@ export interface RawAnnotationType {
     creation_type?: 'USR' | 'GIT'
     /** Optional emoji shown in place of the default badge when surfacing the annotation. */
     emoji?: string | null
+    /** When true, the annotation is hidden from the UI but still readable over the API and MCP. */
+    hidden_in_user_interface?: boolean | null
 }
 
 export interface AnnotationType extends Omit<RawAnnotationType, 'created_at' | 'date_marker'> {

@@ -9091,13 +9091,15 @@ export namespace Schemas {
       insight: number;
       /** Detector configuration to simulate. */
       detector_config: DetectorConfig;
-      /** Zero-based index of the series to analyze. */
+      /** Zero-based index of the series to analyze (trends insights only). */
       series_index?: number;
       /**
-         * Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). If not provided, uses the detector's minimum required samples.
+         * Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). If not provided, uses the detector's minimum required samples. Trends insights only — a SQL query's own rows are the series.
          * @nullable
          */
       date_from?: string | null;
+      /** Per-insight-kind alert config. For SQL insights, selects the evaluated column and read direction (last_row/first_row) so the preview matches the alert; ignored for trends. */
+      config?: AlertConfigUnion | null;
     }
 
     export type AlertSimulateResponseSubDetectorScoresItem = { [key: string]: unknown };
@@ -9231,6 +9233,11 @@ export namespace Schemas {
          * @nullable
          */
       emoji?: string | null;
+      /**
+         * When true, the annotation is hidden from the PostHog UI (charts and the annotations list) but still readable over the API and MCP. Use for high-frequency markers like deployments that would otherwise crowd the UI. Null (the default) means the annotation is shown.
+         * @nullable
+         */
+      hidden_in_user_interface?: boolean | null;
     }
 
     export interface AppMetricSeries {
@@ -34775,6 +34782,11 @@ export namespace Schemas {
          * @nullable
          */
       emoji?: string | null;
+      /**
+         * When true, the annotation is hidden from the PostHog UI (charts and the annotations list) but still readable over the API and MCP. Use for high-frequency markers like deployments that would otherwise crowd the UI. Null (the default) means the annotation is shown.
+         * @nullable
+         */
+      hidden_in_user_interface?: boolean | null;
     }
 
     export interface PatchedApprovalPolicy {
@@ -40309,6 +40321,12 @@ export namespace Schemas {
          * @nullable
          */
       ci_prompt?: string | null;
+      /**
+         * Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.
+         * @maxLength 255
+         * @nullable
+         */
+      branch?: string | null;
     }
 
     export type PatchedTeamDefaultModifiers = { [key: string]: unknown };
@@ -49712,6 +49730,12 @@ export namespace Schemas {
          * @nullable
          */
       ci_prompt?: string | null;
+      /**
+         * Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.
+         * @maxLength 255
+         * @nullable
+         */
+      branch?: string | null;
     }
 
     export type TeamDefaultModifiers = { [key: string]: unknown };
@@ -50387,6 +50411,53 @@ export namespace Schemas {
       token: string;
     }
 
+    /**
+     * Settings-initiated link can target a specific PostHog team + Slack workspace.
+     *
+     * Both are optional — when omitted we fall back to the user's ``current_team``
+     * and that team's first Slack ``Integration`` (mirrors ``github_start`` for
+     * the simple case). The frontend passes both explicitly once it has the
+     * linkable-workspace list and the user has picked a workspace.
+     */
+    export interface UserSlackLinkStartRequest {
+      /**
+         * Optional team/project id to link against; defaults to the user's current team.
+         * @nullable
+         */
+      team_id?: number | null;
+      /**
+         * Specific Slack workspace id to link against, scoped to the team. Disambiguates when one team has multiple Slack integrations (rare).
+         * @nullable
+         */
+      slack_team_id?: string | null;
+    }
+
+    export interface UserSlackLinkStartResponse {
+      /** URL to open in the browser to start the Sign-in-with-Slack flow. */
+      install_url: string;
+    }
+
+    export interface UserSlackLinkableWorkspaceItem {
+      /** PostHog team/project id owning the Slack workspace install. */
+      posthog_team_id: number;
+      /** PostHog team/project name, for display in a picker. */
+      posthog_team_name: string;
+      /** PostHog organization name owning the team, for picker disambiguation. */
+      posthog_organization_name: string;
+      /** Slack workspace (team) id. */
+      slack_team_id: string;
+      /**
+         * Slack workspace display name as known by PostHog.
+         * @nullable
+         */
+      slack_team_name?: string | null;
+    }
+
+    export interface UserSlackLinkableWorkspaceListResponse {
+      /** Slack workspaces the user could link to but hasn't yet. */
+      results: UserSlackLinkableWorkspaceItem[];
+    }
+
     export interface UtmEvent {
       /** UTM campaign value from pageview events */
       utm_campaign: string;
@@ -50548,6 +50619,40 @@ export namespace Schemas {
          * @nullable
          */
       table_suffix: string | null;
+    }
+
+    /**
+     * Request body for warming a full idling Run while composing a Code-app cloud task.
+     *
+     * Collection-level: no task exists yet at typing time. The warmer births a draft Task and an
+     * interactive Run that boots, clones, checks out `branch`, and starts the agent, then idles awaiting
+     * the first message. `github_integration` is a plain integration PK (an integer); the view re-scopes
+     * it to the caller's team before use.
+     */
+    export interface WarmTaskRequest {
+      /**
+         * Target GitHub repository to clone, in `organization/repo` format (e.g. `posthog/posthog`).
+         * @maxLength 255
+         */
+      repository: string;
+      /** Primary key of the team's GitHub integration to clone with. */
+      github_integration: number;
+      /**
+         * Branch to check out in the warm sandbox. Defaults to the repository's default branch when omitted.
+         * @maxLength 255
+         * @nullable
+         */
+      branch?: string | null;
+    }
+
+    /**
+     * Response for a successful warm request — the draft Task + idling warm Run reused on submit.
+     */
+    export interface WarmTaskResponse {
+      /** Id of the draft Task birthed for the warm Run. */
+      task_id: string;
+      /** Id of the idling warm Run. The normal create+run path reuses and activates it on submit. */
+      run_id: string;
     }
 
     export interface WeeklyDigestResponse {
@@ -63683,6 +63788,10 @@ export namespace Schemas {
 
     export type UsersIntegrationsListParams = {
     /**
+     * Integration kind to list. Defaults to `github` for back-compat with mobile and the Code SDK, which call this endpoint without a query param and expect GitHub-shaped items.
+     */
+    kind?: UsersIntegrationsListKind;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -63691,6 +63800,14 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type UsersIntegrationsListKind = typeof UsersIntegrationsListKind[keyof typeof UsersIntegrationsListKind];
+
+
+    export const UsersIntegrationsListKind = {
+      Github: 'github',
+      Slack: 'slack',
+    } as const;
 
     export type UsersIntegrationsGithubBranchesRetrieveParams = {
     /**
