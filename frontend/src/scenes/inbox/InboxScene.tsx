@@ -86,8 +86,9 @@ function InboxListView(): JSX.Element {
     return (
         <div ref={widthRef} className="flex min-h-0 flex-1">
             <div className="flex flex-col min-h-0 flex-1 min-w-0">
-                {/* pl-5 (20px) aligns the first tab label with the SceneTitleSection description above. */}
-                <div className="flex items-end justify-between gap-2 border-b border-primary pl-5 pr-2 shrink-0">
+                {/* pl-5 (20px) aligns the first tab label with the SceneTitleSection description above;
+                    pr-6 matches the report list's px-6 so the scope select shares the list's right edge. */}
+                <div className="flex items-end justify-between gap-2 border-b border-primary pl-5 pr-6 shrink-0">
                     <InboxTabBar showConfigTab={!wide} onboarding={onboarding} />
                     {!onboarding && isReportListTab(effectiveTab) && (
                         <div className="pb-1.5">

@@ -40,6 +40,8 @@ def _base_url_for(config: SurveyMonkeySourceConfig) -> str:
 
 @SourceRegistry.register
 class SurveyMonkeySource(ResumableSource[SurveyMonkeySourceConfig, SurveyMonkeyResumeConfig]):
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SURVEYMONKEY

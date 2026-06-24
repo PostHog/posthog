@@ -39,6 +39,8 @@ _DISPUTES_INCREMENTAL_FIELDS: list[IncrementalField] = [
 
 @SourceRegistry.register
 class CheckoutComSource(ResumableSource[CheckoutComSourceConfig, CheckoutComResumeConfig]):
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CHECKOUTCOM
