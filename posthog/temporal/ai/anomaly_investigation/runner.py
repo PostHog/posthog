@@ -26,7 +26,6 @@ from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel, ValidationError
 
 from posthog.models import Team, User
-from posthog.models.alert import AlertConfiguration
 from posthog.temporal.ai.anomaly_investigation.prompts import SYSTEM_PROMPT
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationReport
 from posthog.temporal.ai.anomaly_investigation.tools import (
@@ -37,6 +36,8 @@ from posthog.temporal.ai.anomaly_investigation.tools import (
     SimulateDetectorArgs,
     TopBreakdownArgs,
 )
+
+from products.alerts.backend.models.alert import AlertConfiguration
 
 logger = logging.getLogger(__name__)
 
@@ -159,7 +160,7 @@ async def run_investigation(
     llm_with_final_report = llm.bind_tools([final_report_tool], tool_choice=FINAL_REPORT_TOOL_NAME)
 
     # Without a langchain CallbackHandler attached, MaxChatAnthropic's posthog_properties
-    # never reach LLM analytics — langchain-anthropic itself doesn't emit $ai_* events.
+    # never reach AI observability — langchain-anthropic itself doesn't emit $ai_* events.
     # Attach one here so every generation/span this agent makes shows up under
     # ai_product=alert_investigation_agent, matching the convention used by other
     # Temporal-driven agents (see llma_eval_reports/report_agent/graph.py).

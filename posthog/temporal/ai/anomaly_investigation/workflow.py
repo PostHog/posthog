@@ -22,7 +22,6 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models import Team, User
-from posthog.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from posthog.tasks.alerts.utils import dispatch_alert_notification, record_alert_delivery
 from posthog.temporal.ai.anomaly_investigation.charts import png_to_b64, render_series_chart
 from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderContext, build_investigation_notebook
@@ -33,7 +32,8 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.utils import absolute_uri
 
-from products.notebooks.backend.models import Notebook
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
+from products.notebooks.backend.facade import api as notebooks
 
 logger = structlog.get_logger(__name__)
 
@@ -146,14 +146,13 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         )
     )
 
-    notebook = await sync_to_async(Notebook.objects.create, thread_sensitive=False)(
-        team=team,
+    notebook = await sync_to_async(notebooks.create_notebook, thread_sensitive=False)(
+        team.id,
         title=f"Investigation — {alert.name or 'anomaly alert'}",
         content=notebook_content,
         text_content=result.report.summary,
-        created_by=user,
-        last_modified_by=user,
-        visibility=Notebook.Visibility.DEFAULT,
+        created_by_id=user.id,
+        last_modified_by_id=user.id,
     )
 
     summary_for_list = _truncate_summary(result.report.summary)

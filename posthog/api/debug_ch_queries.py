@@ -7,19 +7,23 @@ from typing import Optional
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
+from posthog.permissions import APIScopePermission
 from posthog.settings.base_variables import DEBUG
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
@@ -28,10 +32,21 @@ from products.experiments.backend.models.team_experiments_config import TeamExpe
 logger = logging.getLogger(__name__)
 
 
+@extend_schema(exclude=True)
 class DebugCHQueries(viewsets.ViewSet):
     """
     List recent CH queries initiated by this user.
     """
+
+    # `scope_object = "INTERNAL"` blocks a staff user's full-access (`*`) PAT via the
+    # wildcard short-circuit in `APIScopePermission.has_permission`. The action below pins
+    # `query_performance:read` — an OAuth-hidden, PAT-grantable scope (see
+    # OAUTH_HIDDEN_SCOPE_OBJECTS) that automation carries; the browser uses session auth,
+    # which bypasses scope checks. `is_staff` gates the action itself in every case.
+    scope_object = "INTERNAL"
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
+    required_scopes: Optional[list[str]] = None
 
     def _get_path(self, query: str) -> Optional[str]:
         try:
@@ -344,7 +359,7 @@ class DebugCHQueries(viewsets.ViewSet):
             logger.warning("Failed to fetch org ARR from billing tables, skipping", exc_info=True)
             return {}
 
-    @action(detail=False, methods=["GET"], url_path="slowest_queries")
+    @action(detail=False, methods=["GET"], url_path="slowest_queries", required_scopes=["query_performance:read"])
     def slowest_queries(self, request):
         if not request.user.is_staff:
             raise exceptions.PermissionDenied("Only staff users can view slowest queries.")
@@ -403,7 +418,12 @@ class DebugCHQueries(viewsets.ViewSet):
                 argMax(JSONExtractString(log_comment, 'experiment_metric_name'), type) AS experiment_metric_name,
                 argMax(JSONExtractString(log_comment, 'experiment_execution_path'), type) AS experiment_execution_path,
                 argMax(JSONExtractString(log_comment, 'experiment_metric_type'), type) AS experiment_metric_type,
-                argMax(JSONExtractInt(log_comment, 'experiment_id'), type) AS experiment_id
+                argMax(JSONExtractString(log_comment, 'experiment_funnel_order_type'), type) AS experiment_funnel_order_type,
+                argMax(JSONExtractInt(log_comment, 'experiment_id'), type) AS experiment_id,
+                argMax(JSONExtractString(log_comment, 'experiment_exposures_path'), type) AS experiment_exposures_path,
+                argMax(JSONExtractString(log_comment, 'experiment_metric_events_path'), type) AS experiment_metric_events_path,
+                argMax(JSONExtractString(log_comment, 'experiment_query_surface'), type) AS experiment_query_surface,
+                argMax(JSONExtractString(log_comment, 'experiment_precompute_table'), type) AS experiment_precompute_table
             FROM (
                 SELECT
                     query_id, query, query_start_time, query_duration_ms, exception,
@@ -459,7 +479,12 @@ class DebugCHQueries(viewsets.ViewSet):
                     "experiment_metric_name": row[9],
                     "experiment_execution_path": row[10],
                     "experiment_metric_type": row[11],
-                    "experiment_id": row[12] or None,
+                    "experiment_funnel_order_type": row[12] or None,
+                    "experiment_id": row[13] or None,
+                    "experiment_exposures_path": row[14],
+                    "experiment_metric_events_path": row[15],
+                    "experiment_query_surface": row[16],
+                    "experiment_precompute_table": row[17],
                 }
                 for row in response
             ]

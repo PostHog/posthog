@@ -13,8 +13,9 @@ import { getPublicSupportSnippet } from 'lib/components/Support/supportLogic'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
-import { debounce, inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
+import { debounce } from 'lib/utils/async'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -96,7 +97,11 @@ function DebugInfoPanel(): JSX.Element | null {
             <h3 id="debug-info" className="min-w-[25rem]">
                 Debug information
             </h3>
-            <p>Include this snippet when creating an issue (feature request or bug report) on GitHub.</p>
+            <p>
+                Include this snippet when creating an issue (feature request or bug report) on GitHub. The session and
+                admin links inside it are internal references the PostHog team uses to look into your report — they only
+                resolve for PostHog staff.
+            </p>
             {anyLoading ? (
                 <LemonSkeleton repeat={2} active={true} />
             ) : (

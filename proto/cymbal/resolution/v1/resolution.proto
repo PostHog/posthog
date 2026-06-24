@@ -1,0 +1,129 @@
+syntax = "proto3";
+package cymbal.resolution.v1;
+
+// CymbalResolution is the internal API used by cymbal to offload symbol
+// resolution work. Cymbal remains the owner of HTTP /process ingestion,
+// grouping, issue linking, suppression, alerting, and final response shaping.
+//
+// Connection model
+// ----------------
+// * Resolve is a bidirectional stream of independent exception-level items.
+//   Each ResolveItem carries a per-stream id that is echoed on exactly one
+//   ResolveOutcome. Retry outcomes are caller-side reroute/backoff signals.
+// * Subscribe is a long-lived server stream of LoadEvent messages emitted on a
+//   periodic tick. Callers use the latest LoadEvent for routing decisions.
+service CymbalResolution {
+  // Resolve resolves exception-level symbol-resolution items. The server admits
+  // each item independently and streams outcomes as they complete.
+  rpc Resolve(stream ResolveItem) returns (stream ResolveOutcome);
+
+  // Subscribe opens a long-lived freshness/draining stream for one server instance.
+  rpc Subscribe(SubscribeRequest) returns (stream LoadEvent);
+}
+
+// ResolveItem is one exception-level symbol-resolution request. The id is a
+// per-stream correlation token chosen by the caller and echoed by the server.
+message ResolveItem {
+  uint64 id = 1;
+  int32 team_id = 2;
+  // Serialized rust/cymbal Exception before frame and exception remapping.
+  bytes exception_json = 3;
+  // Serialized resolution metadata. The current convention is JSON bytes with
+  // resolver-specific keys such as `debug_images_json`.
+  bytes metadata = 4;
+  // Deadline for this logical exception in milliseconds. The server may shed
+  // stale items instead of starting work it cannot return in time.
+  uint32 deadline_ms = 5;
+}
+
+// ResolveOutcome is a server outcome for one ResolveItem id. Accepted is an
+// admission signal; Done, Error, and Retry are terminal outcomes.
+message ResolveOutcome {
+  uint64 id = 1;
+
+  oneof result {
+    Done done = 2;
+    Error error = 3;
+    Retry retry = 4;
+    Accepted accepted = 5;
+  }
+}
+
+// Accepted means the pod admitted the item and will process it. It is emitted
+// before the terminal outcome so callers can distinguish routing acceptance
+// from full resolution completion.
+message Accepted {}
+
+// Done means the item completed and contains the resolved exception payload.
+message Done {
+  // Serialized rust/cymbal Exception after frame resolution and exception
+  // remapping. It replaces only the submitted exception item, not the full
+  // event or exception list.
+  bytes resolved_exception_json = 1;
+}
+
+// Error is a terminal item failure. The kind enum is the shared control-flow
+// surface; callers should not parse message text.
+message Error {
+  ErrorKind kind = 1;
+  string message = 2;
+  // Optional structured diagnostics. Implementations must not require callers
+  // to understand this field for control flow.
+  bytes details_json = 3;
+}
+
+enum ErrorKind {
+  ERROR_KIND_UNSPECIFIED = 0;
+  // The request payload or metadata did not match the cymbal-resolution wire
+  // contract. This is an internal caller/protocol error.
+  ERROR_KIND_INVALID_PAYLOAD = 1;
+  // The request was well-formed, but user-provided symbol data or stack data
+  // is bad and should be sent to DLQ rather than retried.
+  ERROR_KIND_POISON = 2;
+  // The handler encountered an unexpected internal error while resolving.
+  ERROR_KIND_UNHANDLED = 3;
+  // The pod is resource exhausted. Callers should reroute/back off using
+  // overload policy rather than generic retry policy.
+  ERROR_KIND_OVERLOADED = 4;
+}
+
+// Retry means the service did not complete the item and cymbal may retry or
+// reroute it according to caller-side policy. Overload has a dedicated variant
+// so resource exhaustion can use a separate caller policy.
+message Retry {
+  string code = 1;
+  string message = 2;
+  // Optional server hint in milliseconds. A zero value means no hint.
+  uint32 retry_after_ms = 3;
+}
+
+// SubscribeRequest opens a long-lived stream of LoadEvent ticks. v1 is
+// intentionally tiny: callers describe themselves for logs and may hint a
+// cadence, but the server has the final say so a misbehaving caller cannot
+// induce excess work.
+message SubscribeRequest {
+  // Free-form identifier for the subscribing process. Used in server logs and
+  // metrics labels; not interpreted otherwise. Recommended format is
+  // `<service>/<instance>`.
+  string subscriber_id = 1;
+  // Caller-preferred tick cadence, in milliseconds. The server may clamp this
+  // to a safe range; a zero value means "use the server default". This is a
+  // hint and not a contract.
+  uint32 tick_hint_ms = 2;
+}
+
+// LoadEvent is one freshness/draining tick. Emitted independently of any
+// Resolve work. Callers should treat the latest LoadEvent per endpoint as the
+// routing-relevant snapshot.
+message LoadEvent {
+  // Stable identity of the cymbal-resolution pod that emitted this event.
+  string service_instance_id = 1;
+  // True when the pod is preparing to shut down. Routers should stop sending
+  // new work; in-flight requests are still served.
+  bool draining = 3;
+  // Monotonic per-subscription sequence assigned by the server, starting at 1
+  // for the first tick of each Subscribe stream.
+  uint64 sequence = 4;
+  // Optional short human-readable note. Not interpreted by the router.
+  string message = 5;
+}

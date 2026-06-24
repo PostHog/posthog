@@ -5,6 +5,7 @@ if TYPE_CHECKING:
     from posthog.models.integration import Integration
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -20,16 +21,14 @@ from posthog.temporal.data_imports.sources.common.base import (
     WebhookDeletionResult,
     WebhookSource,
 )
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.common.webhook_s3 import (
-    WebhookSourceManager,
-    is_webhook_feature_flag_enabled,
-)
+from posthog.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import SlackSourceConfig
-from posthog.temporal.data_imports.sources.slack.settings import ENDPOINTS, messages_endpoint_config
+from posthog.temporal.data_imports.sources.slack.settings import ENDPOINTS
 from posthog.temporal.data_imports.sources.slack.slack import (
     SlackResumeConfig,
     get_channels,
@@ -83,10 +82,10 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SLACK,
+            category=DataWarehouseSourceCategory.COMMUNICATION,
             caption="Connect your Slack workspace to sync channels, users, and messages.",
             iconPath="/static/services/slack.png",
             featureFlag="slack-dwh",
-            unreleasedSource=True,
             releaseStatus="alpha",
             fields=cast(
                 list[FieldType],
@@ -152,6 +151,11 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
             ),
         )
 
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.slack.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "invalid_auth": "Your Slack token is invalid. Please reconnect the source.",
@@ -187,21 +191,24 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
         if not access_token:
             raise ValueError("Slack access token not found")
 
-        msg_config = messages_endpoint_config()
-        webhook_flag_enabled = is_webhook_feature_flag_enabled(team_id)
         authed_user = self._get_authed_user_id(integration)
         channels = get_channels(integration.id, access_token, authed_user, force_refresh=force_refresh)
         for ch in channels:
             if ch["id"] in ENDPOINTS:
                 continue
+            # Channel message tables are webhook-only: messages arrive via the realtime webhook
+            # pipeline, not the polling sync, so incremental/append don't apply and full-refresh
+            # would only delete data and reload nothing. Webhook is the only sync method we offer
+            # (mirrors the Customer.io webhook schemas).
             schemas.append(
                 SourceSchema(
                     name=ch["id"],
                     label=ch["name"],
-                    supports_incremental=len(msg_config.incremental_fields) > 0,
-                    supports_webhooks=webhook_flag_enabled,
-                    supports_append=len(msg_config.incremental_fields) > 0,
-                    incremental_fields=msg_config.incremental_fields,
+                    supports_incremental=False,
+                    supports_append=False,
+                    supports_webhooks=True,
+                    webhook_only=True,
+                    incremental_fields=[],
                 )
             )
 

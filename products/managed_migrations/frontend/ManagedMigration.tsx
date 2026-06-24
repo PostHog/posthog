@@ -22,7 +22,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { type ManagedMigrationForm, managedMigrationLogic } from './managedMigrationLogic'
-import { type ManagedMigration } from './types'
+import { type ManagedMigration as ManagedMigrationData } from './types'
 
 const STATUS_COLORS = {
     running: 'primary',
@@ -261,7 +261,9 @@ export function ManagedMigrations(): JSX.Element {
     const { managedMigrationId, migrations, migrationsLoading } = useValues(managedMigrationLogic)
     const { pauseMigration, resumeMigration } = useActions(managedMigrationLogic)
 
-    const calculateProgress = (migration: ManagedMigration): { progress: number; completed: number; total: number } => {
+    const calculateProgress = (
+        migration: ManagedMigrationData
+    ): { progress: number; completed: number; total: number } => {
         if (migration.state?.parts && Array.isArray(migration.state.parts)) {
             const parts = migration.state.parts
             const totalParts = parts.length
@@ -311,7 +313,7 @@ export function ManagedMigrations(): JSX.Element {
                             {
                                 title: 'Source',
                                 dataIndex: 'source_type',
-                                render: (_: any, migration: ManagedMigration) => {
+                                render: (_: any, migration: ManagedMigrationData) => {
                                     let sourceType: string = migration.source_type
                                     if (migration.source_type === 'date_range_export') {
                                         sourceType = migration.content_type
@@ -356,7 +358,7 @@ export function ManagedMigrations(): JSX.Element {
                             {
                                 title: 'Content Type',
                                 dataIndex: 'content_type',
-                                render: (_: any, migration: ManagedMigration) => {
+                                render: (_: any, migration: ManagedMigrationData) => {
                                     const contentTypeConfig = {
                                         captured: {
                                             icon: '/static/icons/favicon.ico?v=2023-07-07',
@@ -389,14 +391,14 @@ export function ManagedMigrations(): JSX.Element {
                             {
                                 title: 'Status',
                                 dataIndex: 'display_status',
-                                render: (_: any, migration: ManagedMigration) => (
+                                render: (_: any, migration: ManagedMigrationData) => (
                                     <StatusTag status={migration.display_status} />
                                 ),
                             },
                             {
                                 title: 'Progress',
                                 key: 'progress',
-                                render: (_: any, migration: ManagedMigration) => {
+                                render: (_: any, migration: ManagedMigrationData) => {
                                     const { progress, completed, total } = calculateProgress(migration)
                                     return (
                                         <div className="flex flex-col gap-1">
@@ -422,7 +424,7 @@ export function ManagedMigrations(): JSX.Element {
                             {
                                 title: 'Created by',
                                 dataIndex: 'created_by',
-                                render: function Render(_: any, migration: ManagedMigration) {
+                                render: function Render(_: any, migration: ManagedMigrationData) {
                                     return (
                                         <div className="flex flex-row items-center flex-nowrap">
                                             {migration.created_by && (
@@ -450,12 +452,12 @@ export function ManagedMigrations(): JSX.Element {
                             {
                                 title: 'Status Message',
                                 dataIndex: 'status_message',
-                                render: (_: any, migration: ManagedMigration) => migration.status_message || '-',
+                                render: (_: any, migration: ManagedMigrationData) => migration.status_message || '-',
                             },
                             {
                                 title: 'Actions',
                                 key: 'actions',
-                                render: (_: any, migration: ManagedMigration) => {
+                                render: (_: any, migration: ManagedMigrationData) => {
                                     if (migration.display_status === 'running') {
                                         return (
                                             <LemonButton

@@ -1,11 +1,11 @@
+import { AppMetricsOutput, HogInvocationResultsOutput, LogEntriesOutput } from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { getRedisHost } from '~/utils/db/redis'
 
 import type { CommonConfig } from '../common/config'
 import { InternalCaptureService } from '../common/services/internal-capture'
-import { AppMetricsOutput, LogEntriesOutput } from '../ingestion/common/outputs'
-import { IngestionOutputs } from '../ingestion/outputs/ingestion-outputs'
-import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
 import { PostgresRouter } from '../utils/db/postgres'
 import { logger } from '../utils/logger'
 import { PubSub } from '../utils/pubsub'
@@ -31,11 +31,14 @@ import { HogFunctionManagerService } from './services/managers/hog-function-mana
 import { HogFunctionTemplateManagerService } from './services/managers/hog-function-template-manager.service'
 import { IntegrationManagerService } from './services/managers/integration-manager.service'
 import { RecipientsManagerService } from './services/managers/recipients-manager.service'
+import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
 import { EmailService } from './services/messaging/email.service'
+import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { PushNotificationService } from './services/messaging/push-notification.service'
 import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
+import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
 import { HogWatcherService } from './services/monitoring/hog-watcher.service'
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
@@ -46,6 +49,7 @@ import { EncryptedFields } from './utils/encryption-utils'
 export type CdpOutput =
     | AppMetricsOutput
     | LogEntriesOutput
+    | HogInvocationResultsOutput
     | PrefilteredEventsOutput
     | PrecalculatedPersonPropertiesOutput
     | BatchHogflowRequestsOutput
@@ -79,12 +83,18 @@ export interface CdpCoreServices {
      */
     hogWatcherMirror: HogWatcherService | null
     hogExecutor: HogExecutorService
+    /** Rebuilds the templated/resolved input bundle for a hog function — used by the rerun path to re-derive `inputs` after they're stripped from the persisted payload. */
+    hogInputsService: HogInputsService
     hogFunctionTemplateManager: HogFunctionTemplateManagerService
     hogFlowFunctionsService: HogFlowFunctionsService
     recipientsManager: RecipientsManagerService
     recipientPreferencesService: RecipientPreferencesService
+    teamWorkflowsConfigService: TeamWorkflowsConfigService
     hogFlowExecutor: HogFlowExecutorService
     hogFunctionMonitoringService: HogFunctionMonitoringService
+    capturedEventsService: CapturedEventsService
+    /** Per-invocation lifecycle row producer for the new runs/invocations UI + rerun path. */
+    hogInvocationResultsService: HogInvocationResultsService
     /** Fans `CyclotronJobInvocationResult` batches across monitoring / warehouse / captured-events. */
     invocationResultsService: InvocationResultsService
     nativeDestinationExecutorService: NativeDestinationExecutorService
@@ -92,6 +102,7 @@ export interface CdpCoreServices {
     recipientTokensService: RecipientTokensService
     /** Resolved outputs shared across every CDP service/consumer. */
     outputs: CdpOutputs
+    emailService: EmailService
 }
 
 export type CdpCoreServicesConfig = Pick<
@@ -135,10 +146,16 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_FETCH_RETRIES'
         | 'CDP_FETCH_BACKOFF_BASE_MS'
         | 'CDP_FETCH_BACKOFF_MAX_MS'
+        | 'CDP_SELF_LOOP_GUARD_MODE'
+        | 'CDP_EMAIL_QUEUE_ROUTING'
+        | 'CDP_EMAIL_TRACKING_URL'
         | 'HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC'
         | 'HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER'
         | 'HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC'
         | 'HOG_FUNCTION_MONITORING_LOG_ENTRIES_PRODUCER'
+        | 'HOG_INVOCATION_RESULTS_TOPIC'
+        | 'HOG_INVOCATION_RESULTS_PRODUCER'
+        | 'HOG_INVOCATION_RESULTS_ENABLED'
         | 'CDP_PREFILTERED_EVENTS_TOPIC'
         | 'CDP_PREFILTERED_EVENTS_PRODUCER'
         | 'CDP_PRECALCULATED_PERSON_PROPERTIES_TOPIC'
@@ -364,6 +381,8 @@ export function createCdpCoreServices(
           )
         : null
 
+    const trackingCodeSigner = new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL)
+    const teamWorkflowsConfigService = new TeamWorkflowsConfigService(deps.postgres)
     const emailService = new EmailService(
         {
             sesAccessKeyId: config.SES_ACCESS_KEY_ID,
@@ -372,8 +391,10 @@ export function createCdpCoreServices(
             sesEndpoint: config.SES_ENDPOINT,
         },
         deps.integrationManager,
+        teamWorkflowsConfigService,
         config.ENCRYPTION_SALT_KEYS,
-        config.SITE_URL
+        config.SITE_URL,
+        trackingCodeSigner
     )
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
     const hogInputsService = new HogInputsService(deps.integrationManager, recipientTokensService, deps.encryptedFields)
@@ -389,6 +410,8 @@ export function createCdpCoreServices(
             fetchRetries: config.CDP_FETCH_RETRIES,
             fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
             fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
+            emailQueueRouting: config.CDP_EMAIL_QUEUE_ROUTING,
+            selfLoopGuardMode: config.CDP_SELF_LOOP_GUARD_MODE,
         },
         { teamManager: deps.teamManager, siteUrl: config.SITE_URL },
         hogInputsService,
@@ -417,10 +440,12 @@ export function createCdpCoreServices(
     const outputs = createCdpOutputsRegistry().build(deps.cdpProducerRegistry, config)
 
     const hogFunctionMonitoringService = new HogFunctionMonitoringService(outputs)
+    const hogInvocationResultsService = new HogInvocationResultsService(outputs, config)
     const warehouseWebhooksService = new WarehouseWebhooksService(outputs)
     const capturedEventsService = new CapturedEventsService(deps.internalCaptureService, deps.teamManager)
     const invocationResultsService = new InvocationResultsService(
         hogFunctionMonitoringService,
+        hogInvocationResultsService,
         warehouseWebhooksService,
         capturedEventsService
     )
@@ -436,16 +461,21 @@ export function createCdpCoreServices(
         hogWatcher,
         hogWatcherMirror,
         hogExecutor,
+        hogInputsService,
         hogFunctionTemplateManager,
         hogFlowFunctionsService,
         recipientsManager,
         recipientPreferencesService,
+        teamWorkflowsConfigService,
         hogFlowExecutor,
         hogFunctionMonitoringService,
+        capturedEventsService,
+        hogInvocationResultsService,
         invocationResultsService,
         nativeDestinationExecutorService,
         segmentDestinationExecutorService,
         recipientTokensService,
         outputs,
+        emailService,
     }
 }

@@ -3,7 +3,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
-from typing import ClassVar, Union
+from typing import ClassVar, Union, cast
 
 import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin
@@ -21,8 +21,6 @@ from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY
 
-from products.data_warehouse.backend.models import DataWarehouseTable, ExternalDataSource
-from products.data_warehouse.backend.models.credential import DataWarehouseCredential
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.marketing_analytics.backend.hogql_queries.adapters.base import (
     BingAdsConfig,
@@ -53,6 +51,9 @@ from products.marketing_analytics.backend.hogql_queries.adapters.self_managed im
 )
 from products.marketing_analytics.backend.hogql_queries.adapters.snapchat_ads import SnapchatAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.tiktok_ads import TikTokAdsAdapter
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 # Test Constants
 TEST_DATE_FROM = "2024-01-01"
@@ -2608,11 +2609,14 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
     # ================================================================
 
     @parameterized.expand(
-        [
-            ("simple_column", "campaign_name", ast.Field),
-            ("constant_source", "const:linkedin", ast.Constant),
-            ("constant_currency", "const:USD", ast.Constant),
-        ]
+        cast(
+            list[tuple[str, str, type[ast.Expr]]],
+            [
+                ("simple_column", "campaign_name", ast.Field),
+                ("constant_source", "const:linkedin", ast.Constant),
+                ("constant_currency", "const:USD", ast.Constant),
+            ],
+        )
     )
     def test_resolve_field_or_constant(self, _name, field_value, expected_type):
         table = self._create_mock_table("test_table", "aws")

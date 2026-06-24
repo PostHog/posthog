@@ -27,6 +27,11 @@ export interface VisibleLogsTimeRange {
     date_to: string
 }
 
+export interface VisibleRowRange {
+    startIndex: number
+    stopIndex: number
+}
+
 export type LogCursor = number | null
 
 export interface LogsViewerLogicProps {
@@ -134,6 +139,10 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
 
         // Per-row prettify
         togglePrettifyLog: (logId: string) => ({ logId }),
+
+        // Scroll position in the virtualized list (the range of rows currently in
+        // the viewport). Drives the brush overlay on the sparkline.
+        setVisibleRowRange: (startIndex: number, stopIndex: number) => ({ startIndex, stopIndex }),
     }),
 
     reducers(() => ({
@@ -308,6 +317,15 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 setLogs: () => new Set<string>(),
             },
         ],
+
+        visibleRowRange: [
+            null as VisibleRowRange | null,
+            {
+                setVisibleRowRange: (_, { startIndex, stopIndex }) => ({ startIndex, stopIndex }),
+                clearLogs: () => null,
+                setLogs: () => null,
+            },
+        ],
     })),
 
     selectors({
@@ -348,6 +366,33 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 return {
                     date_from: dayjs(firstTimestamp).toISOString(),
                     date_to: dayjs(lastTimestamp).add(1, 'millisecond').toISOString(),
+                }
+            },
+        ],
+
+        // Date range covered by the currently-visible (scrolled-into-view) rows.
+        // Returns null when no rows are rendered or the indices don't line up with
+        // loaded logs. The values are always ordered date_from <= date_to regardless
+        // of `orderBy`.
+        visibleRowDateRange: [
+            (state) => [state.visibleRowRange, state.logs],
+            (visibleRowRange: VisibleRowRange | null, logs: ParsedLogMessage[]): VisibleLogsTimeRange | null => {
+                if (!visibleRowRange || logs.length === 0) {
+                    return null
+                }
+                const startIndex = Math.max(0, Math.min(visibleRowRange.startIndex, logs.length - 1))
+                const stopIndex = Math.max(0, Math.min(visibleRowRange.stopIndex, logs.length - 1))
+                const a = logs[startIndex]?.timestamp
+                const b = logs[stopIndex]?.timestamp
+                if (!a || !b) {
+                    return null
+                }
+                const ta = dayjs(a)
+                const tb = dayjs(b)
+                const [earlier, later] = ta.isBefore(tb) ? [ta, tb] : [tb, ta]
+                return {
+                    date_from: earlier.toISOString(),
+                    date_to: later.toISOString(),
                 }
             },
         ],
@@ -472,6 +517,9 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
         copyLinkToLog: ({ logId }) => {
             posthog.capture('logs link copied')
             const url = new URL(window.location.href)
+            // Linked logs only open in the Viewer tab, so always point the shared link there
+            // regardless of which tab the link was copied from.
+            url.searchParams.set('activeTab', 'viewer')
             url.searchParams.set('linkToLogId', logId)
             if (values.visibleLogsTimeRange) {
                 url.searchParams.set(

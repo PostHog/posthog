@@ -27,7 +27,8 @@ from posthog.hogql.constants import LimitContext
 
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 
-from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 class TestTrendsDashboardFilters(BaseTest):

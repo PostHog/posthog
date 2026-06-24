@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { mapErrorToAuthResponse, mapKnownErrorMessage, validateBearerToken } from '@/lib/auth-errors'
+import { mapErrorToAuthResponse, validateBearerToken } from '@/lib/auth-errors'
 import { getPostHogClient } from '@/lib/posthog'
 import {
     type ClientInfo,
@@ -9,8 +9,9 @@ import {
     type Transport,
 } from '@/lib/request-properties'
 import { getRegionFromRequest } from '@/lib/routing'
-import { sanitizeHeaderValue } from '@/lib/utils'
+import { extractBearerToken, sanitizeHeaderValue } from '@/lib/utils'
 
+import { authFailuresTotal } from './metrics'
 import type { HonoCtx } from './types'
 
 const InitializeParamsSchema = z.object({
@@ -52,8 +53,13 @@ function parseClientInfo(bodyText: string): ClientInfo {
 }
 
 function authenticate(c: HonoCtx): Response | null {
-    const token = c.req.header('Authorization')?.split(' ')[1]
-    return validateBearerToken(token, c.req.raw, getRegionFromRequest(c.req.raw))
+    const token = extractBearerToken(c.req.raw)
+    const error = validateBearerToken(token, c.req.raw, getRegionFromRequest(c.req.raw))
+    if (error) {
+        const reason = !token ? 'missing_token' : 'invalid_token'
+        authFailuresTotal.inc({ reason })
+    }
+    return error
 }
 
 async function preserveBody(c: HonoCtx): Promise<string> {
@@ -78,6 +84,7 @@ export async function authenticateAndParse(
 
     props.mcpSessionId = sanitizeHeaderValue(c.req.header('mcp-session-id') || undefined)
     props.mcpConversationId = sanitizeHeaderValue(c.req.header('mcp-conversation-id') || undefined)
+    props.region = props.region || getRegionFromRequest(c.req.raw) || undefined
     if (new URL(c.req.url).searchParams.get('_deprecated') === 'sse') {
         props.viaSseRedirect = true
     }
@@ -89,6 +96,8 @@ export function handleCatchError(error: unknown, props: RequestProperties): Resp
     console.error('[handleCatchError]', error)
     const authResponse = mapErrorToAuthResponse(error)
     if (authResponse) {
+        const reason = authResponse.status === 403 ? 'insufficient_scope' : 'invalid_token'
+        authFailuresTotal.inc({ reason })
         return authResponse
     }
     try {
@@ -101,12 +110,4 @@ export function handleCatchError(error: unknown, props: RequestProperties): Resp
         }
     } catch {}
     return new Response('Internal server error', { status: 500 })
-}
-
-export async function passThrough(response: Response): Promise<Response> {
-    if (response.ok) {
-        return response
-    }
-    const body = await response.clone().text()
-    return mapKnownErrorMessage(body) ?? response
 }

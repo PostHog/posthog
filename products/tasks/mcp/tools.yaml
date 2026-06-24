@@ -1,0 +1,257 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Tasks
+feature: tasks
+url_prefix: /tasks
+ui_apps: {}
+tools:
+    code-invites-check-access-retrieve:
+        operation: code_invites_check_access_retrieve
+        enabled: false
+    code-invites-redeem-create:
+        operation: code_invites_redeem_create
+        enabled: false
+    sandbox-create:
+        operation: sandbox_create
+        enabled: false
+    sandbox-destroy:
+        operation: sandbox_destroy
+        enabled: false
+    sandbox-list:
+        operation: sandbox_list
+        enabled: false
+    sandbox-partial-update:
+        operation: sandbox_partial_update
+        enabled: false
+    sandbox-retrieve:
+        operation: sandbox_retrieve
+        enabled: false
+    task-automations-create:
+        operation: task_automations_create
+        enabled: false
+    task-automations-destroy:
+        operation: task_automations_destroy
+        enabled: false
+    task-automations-list:
+        operation: task_automations_list
+        enabled: false
+    task-automations-partial-update:
+        operation: task_automations_partial_update
+        enabled: false
+    task-automations-retrieve:
+        operation: task_automations_retrieve
+        enabled: false
+    task-automations-run-create:
+        operation: task_automations_run_create
+        enabled: false
+    tasks-create:
+        operation: tasks_create
+        enabled: false
+    tasks-destroy:
+        operation: tasks_destroy
+        enabled: false
+    tasks-list:
+        operation: tasks_list
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        list: true
+        title: List tasks
+        description: >
+            List agent tasks in the current project. Supports filtering by `origin_product`, `stage`, `organization`,
+            `repository`, `created_by`, and `internal`. Returns lightweight task metadata only — call tasks-retrieve for
+            the full task including its latest run, or tasks-runs-list for run history. Requires the calling token's
+            organization to have Tasks access enabled.
+        feature_flag: tasks
+        response:
+            include:
+                - id
+                - task_number
+                - title
+                - description
+                - origin_product
+                - repository
+                - internal
+                - created_at
+                - updated_at
+    tasks-partial-update:
+        operation: tasks_partial_update
+        enabled: false
+    tasks-presence-create:
+        operation: tasks_presence_create
+        enabled: false
+    tasks-presence-destroy:
+        operation: tasks_presence_destroy
+        enabled: false
+    tasks-repositories-retrieve:
+        operation: tasks_repositories_retrieve
+        enabled: false
+    tasks-repository-readiness-retrieve:
+        operation: tasks_repository_readiness_retrieve
+        enabled: false
+    tasks-retrieve:
+        operation: tasks_retrieve
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Get task
+        description: >
+            Get a specific task by ID, including its description, repository, origin product, current stage, and latest
+            run summary. Sandbox connection credentials and the presigned log URL are omitted from the embedded
+            `latest_run`. Use tasks-runs-list or tasks-runs-retrieve to inspect past executions.
+        feature_flag: tasks
+        response:
+            exclude:
+                - latest_run.log_url
+                - latest_run.state.sandbox_connect_token
+                - latest_run.state.sandbox_url
+    tasks-run-create:
+        operation: tasks_run_create
+        enabled: false
+    tasks-runs-append-log-create:
+        operation: tasks_runs_append_log_create
+        enabled: false
+    tasks-runs-artifacts-create:
+        operation: tasks_runs_artifacts_create
+        enabled: false
+    tasks-runs-artifacts-download-create:
+        operation: tasks_runs_artifacts_download_create
+        enabled: false
+    tasks-runs-artifacts-finalize-upload-create:
+        operation: tasks_runs_artifacts_finalize_upload_create
+        enabled: false
+    tasks-runs-artifacts-prepare-upload-create:
+        operation: tasks_runs_artifacts_prepare_upload_create
+        enabled: false
+    tasks-runs-artifacts-presign-create:
+        operation: tasks_runs_artifacts_presign_create
+        enabled: false
+    tasks-runs-command-create:
+        operation: tasks_runs_command_create
+        enabled: false
+    tasks-runs-connection-token-retrieve:
+        operation: tasks_runs_connection_token_retrieve
+        enabled: false
+    tasks-runs-create:
+        operation: tasks_runs_create
+        enabled: false
+    tasks-runs-list:
+        operation: tasks_runs_list
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List task runs
+        description: >
+            List all runs for a specific task. Returns lightweight run metadata only — call tasks-runs-retrieve for full
+            run detail including state, output, and artifacts.
+        feature_flag: tasks
+        response:
+            include:
+                - id
+                - task
+                - stage
+                - branch
+                - status
+                - environment
+                - error_message
+                - state.sandbox_environment_id
+                - created_at
+                - updated_at
+                - completed_at
+    tasks-runs-partial-update:
+        operation: tasks_runs_partial_update
+        enabled: false
+    tasks-runs-relay-message-create:
+        operation: tasks_runs_relay_message_create
+        enabled: false
+    tasks-runs-resume-in-cloud-create:
+        operation: tasks_runs_resume_in_cloud_create
+        enabled: false
+    tasks-runs-retrieve:
+        operation: tasks_runs_retrieve
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get task run
+        description: >
+            Get full details for a specific task run including status, stage, environment, branch, artifacts summary,
+            state, error message, and timestamps. Sandbox connection credentials (`state.sandbox_connect_token`,
+            `state.sandbox_url`) and the presigned `log_url` are omitted from the response.
+        feature_flag: tasks
+        response:
+            exclude:
+                - log_url
+                - state.sandbox_connect_token
+                - state.sandbox_url
+    tasks-runs-session-logs-retrieve:
+        operation: tasks_runs_session_logs_retrieve
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get task run session logs
+        description: >
+            Fetch session log events emitted by the agent for a specific run. Supports filtering by `event_types`,
+            `exclude_types`, pagination with `limit`/`offset`, and `after` cursor. Use this instead of the streaming
+            endpoint when invoking from an MCP client.
+        param_overrides:
+            limit:
+                description: Maximum number of entries to return (default 100, max 5000)
+                default: 100
+        feature_flag: tasks
+    tasks-runs-set-output-partial-update:
+        operation: tasks_runs_set_output_partial_update
+        enabled: false
+    tasks-runs-start-create:
+        operation: tasks_runs_start_create
+        enabled: false
+    tasks-runs-stream-retrieve:
+        operation: tasks_runs_stream_retrieve
+        enabled: false
+    tasks-runs-stream-token-retrieve:
+        operation: tasks_runs_stream_token_retrieve
+        enabled: false
+    tasks-slack-thread-context-retrieve:
+        operation: tasks_slack_thread_context_retrieve
+        enabled: false
+    tasks-staged-artifacts-finalize-upload-create:
+        operation: tasks_staged_artifacts_finalize_upload_create
+        enabled: false
+    tasks-staged-artifacts-prepare-upload-create:
+        operation: tasks_staged_artifacts_prepare_upload_create
+        enabled: false
+    tasks-summaries-create:
+        operation: tasks_summaries_create
+        enabled: false
+    tasks-update:
+        operation: tasks_update
+        enabled: false
+    tasks-warm-create:
+        operation: tasks_warm_create
+        enabled: false

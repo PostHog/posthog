@@ -100,14 +100,18 @@ describe('reverseProxyCheckerLogic', () => {
         })
             .toFinishAllListeners()
             .toMatchValues({
-                hasReverseProxy: false,
+                // On error with no prior successful load the status stays unknown (null) rather
+                // than a confirmed false — consumers gate on `=== false`, so this fails safe.
+                hasReverseProxy: null,
             })
 
         expect(toastErrorSpy).not.toHaveBeenCalled()
+        // The error is captured directly (not wrapped) so its type is preserved at the
+        // top of `$exception_list` — that lets the central `before_send` filter recognise
+        // `ReadOnlyModeError` without depending on cause-chain serialization.
         expect(captureExceptionSpy).toHaveBeenCalledWith(
-            expect.objectContaining({
-                message: expect.stringContaining('reverseProxyCheckerLogic: loadHasReverseProxy query failed'),
-            })
+            expect.objectContaining({ status: 500 }),
+            expect.objectContaining({ posthog_source: 'reverseProxyCheckerLogic.loadHasReverseProxy' })
         )
 
         toastErrorSpy.mockRestore()

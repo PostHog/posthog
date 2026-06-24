@@ -25,6 +25,7 @@ export interface InterviewExportPayload {
     interviewee_identifier: string
     user_name: string
     topic: string
+    already_replied: boolean
     /**
      * NOTE: `agent_context`, `questions`, and the Vapi credentials are intentionally NOT in
      * this payload. They live behind `POST /api/user_interviews/share/<token>/start_call/`

@@ -3,7 +3,7 @@ import uuid
 import secrets
 from typing import ClassVar
 
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -102,6 +102,43 @@ class TestTask(TestCase):
         task_run = TaskRun.objects.get(id=run_id)
         self.assertEqual(task_run.state["initial_permission_mode"], "bypassPermissions")
         self.assertEqual(task.origin_product, Task.OriginProduct.SLACK)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_threads_ai_stage_into_state(self, mock_execute_workflow):
+        user = User.objects.create(email="test@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
+
+        Task.create_and_run(
+            team=self.team,
+            title="Signal Task",
+            description="Signal Description",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            user_id=user.id,
+            repository="posthog/posthog",
+            ai_stage="research",
+        )
+
+        run_id = mock_execute_workflow.call_args.kwargs["run_id"]
+        task_run = TaskRun.objects.get(id=run_id)
+        self.assertEqual(task_run.state["ai_stage"], "research")
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_omits_ai_stage_when_not_provided(self, mock_execute_workflow):
+        user = User.objects.create(email="test@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
+
+        Task.create_and_run(
+            team=self.team,
+            title="Plain Task",
+            description="Plain Description",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            user_id=user.id,
+            repository="posthog/posthog",
+        )
+
+        run_id = mock_execute_workflow.call_args.kwargs["run_id"]
+        task_run = TaskRun.objects.get(id=run_id)
+        self.assertNotIn("ai_stage", task_run.state)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_omits_permission_mode_when_not_provided(self, mock_execute_workflow):
@@ -902,16 +939,16 @@ class TestTaskRun(TestCase):
 
         from django.core.cache import cache
 
-        cache.delete(f"tasks:task_run:heartbeat:{run.id}")
+        cache.delete(f"tasks:task_run:heartbeat:{run.id}:active")
 
-        run.heartbeat_workflow()
+        run.heartbeat_workflow(agent_active=True)
 
         if expect_signal:
             mock_connect.assert_called_once()
         else:
             mock_connect.assert_not_called()
 
-        cache.delete(f"tasks:task_run:heartbeat:{run.id}")
+        cache.delete(f"tasks:task_run:heartbeat:{run.id}:active")
 
     @patch("posthog.temporal.common.client.sync_connect")
     def test_heartbeat_workflow_rate_limited_by_cache(self, mock_connect):
@@ -924,17 +961,48 @@ class TestTaskRun(TestCase):
 
         from django.core.cache import cache
 
-        cache_key = f"tasks:task_run:heartbeat:{run.id}"
+        cache_key = f"tasks:task_run:heartbeat:{run.id}:active"
         cache.delete(cache_key)
+        handle = mock_connect.return_value.get_workflow_handle.return_value
+        handle.signal = AsyncMock()
 
-        run.heartbeat_workflow()
+        run.heartbeat_workflow(agent_active=True)
         mock_connect.assert_called_once()
+        handle.signal.assert_called_once()
+        self.assertEqual(handle.signal.call_args.kwargs, {"arg": True})
 
         mock_connect.reset_mock()
-        run.heartbeat_workflow()
+        run.heartbeat_workflow(agent_active=True)
         mock_connect.assert_not_called()
 
         cache.delete(cache_key)
+
+    @patch("posthog.temporal.common.client.sync_connect")
+    def test_heartbeat_workflow_ignores_idle_heartbeats(self, mock_connect):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"mode": "background"},
+        )
+
+        from django.core.cache import cache
+
+        cache.delete(f"tasks:task_run:heartbeat:{run.id}:active")
+
+        handle = mock_connect.return_value.get_workflow_handle.return_value
+        handle.signal = AsyncMock()
+
+        run.heartbeat_workflow(agent_active=False)
+        mock_connect.assert_not_called()
+
+        run.heartbeat_workflow(agent_active=True)
+
+        mock_connect.assert_called_once()
+        handle.signal.assert_called_once()
+        self.assertEqual(handle.signal.call_args.kwargs, {"arg": True})
+
+        cache.delete(f"tasks:task_run:heartbeat:{run.id}:active")
 
 
 class TestSandboxSnapshot(TestCase):

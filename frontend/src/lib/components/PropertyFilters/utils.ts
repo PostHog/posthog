@@ -1,13 +1,13 @@
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { isKeyOf } from 'lib/utils/guards'
 import {
     allOperatorsMapping,
-    capitalizeFirstLetter,
     cohortOperatorMap,
     isOperatorCohort,
     isOperatorFlag,
     isOperatorMulti,
-    isKeyOf,
-} from 'lib/utils'
+} from 'lib/utils/operators'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { propertyDefinitionsModelType } from '~/models/propertyDefinitionsModelType'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
@@ -226,6 +226,18 @@ export function isValidPropertyFilter(
 
 export function isCohortPropertyFilter(filter?: AnyFilterLike | null): filter is CohortPropertyFilter {
     return filter?.type === PropertyFilterType.Cohort
+}
+
+// Filter keys whose value we offer a read-only group-info card for on hover.
+// '$group_key' is the group's true identity (always a group key). 'id' is a
+// group *property* that conventionally holds the group key (e.g. CRM-imported
+// groups), so a card is a useful confirmation there too — but it is display
+// only: the lookup falls back to the plain label when the value isn't a real
+// group key, and we deliberately do NOT swap the value editor for these (only
+// the true '$group_key' identity gets the group picker). 'id' is also the
+// Cohort key, so the Group type gate matters.
+export function isGroupCardFilterKey(key: string | number | undefined, type: PropertyFilterType | undefined): boolean {
+    return type === PropertyFilterType.Group && (key === '$group_key' || key === 'id')
 }
 export function isEventMetadataPropertyFilter(filter?: AnyFilterLike | null): filter is EventMetadataPropertyFilter {
     return filter?.type === PropertyFilterType.EventMetadata
@@ -601,6 +613,8 @@ export function createDefaultPropertyFilter(
     const propertyValueType = describeProperty(propertyKey, apiType, taxonomicGroup.groupTypeIndex)
     const property_name_to_default_operator_override: Partial<Record<string | number, PropertyOperator>> = {
         $active_feature_flags: PropertyOperator.IContains,
+        $current_url: PropertyOperator.IContains,
+        $pathname: PropertyOperator.IContains,
     }
     const propValueTypeToDefaultOpOverride = {
         [PropertyType.Duration]: PropertyOperator.GreaterThan,

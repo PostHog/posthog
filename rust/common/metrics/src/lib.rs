@@ -51,6 +51,18 @@ pub fn setup_metrics_routes_for_product(router: Router, product: impl Into<Strin
     install_metrics_routes(router, Some(product.into()), &[])
 }
 
+/// Like [`setup_metrics_routes`], but applies per-metric histogram bucket
+/// overrides on top of the default bucket configuration. Use when the default
+/// latency-shaped buckets don't fit a histogram's native unit (e.g. byte
+/// counts). See [`setup_metrics_routes_for_product_with_overrides`] for the
+/// overrides shape.
+pub fn setup_metrics_routes_with_overrides(
+    router: Router,
+    overrides: &[(Matcher, &[f64])],
+) -> Router {
+    install_metrics_routes(router, None, overrides)
+}
+
 /// Like [`setup_metrics_routes_for_product`], but applies per-metric histogram
 /// bucket overrides on top of the default bucket configuration. Each entry in
 /// `overrides` is a `(Matcher, &[f64])` pair: the matcher (Full / Prefix /

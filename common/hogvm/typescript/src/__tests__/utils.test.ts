@@ -1,4 +1,4 @@
-import { calculateCost, convertHogToJS, convertJSToHog } from '../utils'
+import { calculateCost, convertHogToJS, convertJSToHog, getNestedValue } from '../utils'
 
 const PTR_COST = 8
 
@@ -50,5 +50,31 @@ describe('hogvm utils', () => {
         map.set('a', map)
         const js2 = convertHogToJS(map)
         expect(js2.a === js2).toBe(true)
+    })
+
+    describe('getNestedValue', () => {
+        test.each([
+            ['own string key on plain object', { a: 1 }, ['a'], 1],
+            ['missing key on plain object', { a: 1 }, ['b'], null],
+            ['nested own keys on plain object', { a: { b: 2 } }, ['a', 'b'], 2],
+            ['inherited toString returns null', {}, ['toString'], null],
+            ['inherited hasOwnProperty returns null', {}, ['hasOwnProperty'], null],
+            ['inherited constructor returns null', {}, ['constructor'], null],
+            ['__proto__ does not traverse the chain', {}, ['__proto__'], null],
+            ['Map key lookup', new Map([['a', 1]]), ['a'], 1],
+            ['array index 1 returns first element', ['x', 'y'], [1], 'x'],
+            ['array index -1 returns last element', ['x', 'y'], [-1], 'y'],
+        ])('%s', (_label, obj, chain, expected) => {
+            expect(getNestedValue(obj, chain)).toEqual(expected)
+        })
+
+        test('throws on zero-index array access', () => {
+            expect(() => getNestedValue([1, 2], [0])).toThrow('Hog arrays start from index 1')
+        })
+
+        test('does not return inherited values from an array prototype', () => {
+            expect(getNestedValue([], ['push'])).toBeNull()
+            expect(getNestedValue([], ['map'])).toBeNull()
+        })
     })
 })

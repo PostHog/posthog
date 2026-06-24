@@ -13,8 +13,7 @@ import { ManualCalculatorMetricType } from './calculations'
 import { runningTimeLogic } from './runningTimeLogic'
 
 export interface RunningTimeConfigModalProps {
-    experimentId: Experiment['id']
-    tabId: string
+    experiment: Experiment
 }
 
 const METRIC_TYPE_OPTIONS: { value: ManualCalculatorMetricType; label: string }[] = [
@@ -45,7 +44,7 @@ function getBaselineHelp(metricType: ManualCalculatorMetricType): string {
     }
 }
 
-export function RunningTimeConfigModal({ experimentId, tabId }: RunningTimeConfigModalProps): JSX.Element {
+export function RunningTimeConfigModal({ experiment: experimentProp }: RunningTimeConfigModalProps): JSX.Element {
     const {
         config,
         manualFormPreview,
@@ -55,8 +54,9 @@ export function RunningTimeConfigModal({ experimentId, tabId }: RunningTimeConfi
         remainingDays,
         isRunningTimeConfigModalOpen,
         experiment,
-    } = useValues(runningTimeLogic({ experimentId, tabId }))
-    const { setConfig, save, cancel } = useActions(runningTimeLogic({ experimentId, tabId }))
+        isSaving,
+    } = useValues(runningTimeLogic({ experiment: experimentProp }))
+    const { setConfig, save, cancel } = useActions(runningTimeLogic({ experiment: experimentProp }))
 
     const hasAutomaticData = remainingDays !== null
     const isPreLaunch = !isLaunched(experiment)
@@ -268,10 +268,10 @@ export function RunningTimeConfigModal({ experimentId, tabId }: RunningTimeConfi
                     </div>
                 )}
                 <div className="flex items-center gap-2 justify-end w-full">
-                    <LemonButton type="secondary" onClick={cancel}>
+                    <LemonButton type="secondary" onClick={cancel} disabledReason={isSaving ? 'Saving…' : undefined}>
                         Cancel
                     </LemonButton>
-                    <LemonButton type="primary" onClick={save}>
+                    <LemonButton type="primary" onClick={save} loading={isSaving}>
                         Save
                     </LemonButton>
                 </div>

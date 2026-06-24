@@ -19,6 +19,7 @@ function makeNotification(overrides: Partial<InAppNotification> = {}): InAppNoti
         source_url: '',
         source_type: null,
         source_id: null,
+        metadata: null,
         target_type: 'user',
         target_id: '42',
         created_at: '2026-05-07T12:00:00Z',
@@ -118,7 +119,7 @@ describe('sidePanelNotificationsLogic.loadGroupChildren', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/environments/:tid/notifications/': () => [
+                '/api/projects/:tid/notifications/': () => [
                     200,
                     {
                         results: [makeNotification({ id: 'child-1' }), makeNotification({ id: 'child-2' })],
@@ -162,8 +163,8 @@ describe('sidePanelNotificationsLogic.toggleGroupRead', () => {
     beforeEach(() => {
         useMocks({
             post: {
-                '/api/environments/:tid/notifications/mark_read_bulk/': () => [200, { updated: 2 }],
-                '/api/environments/:tid/notifications/mark_unread_bulk/': () => [200, { updated: 2 }],
+                '/api/projects/:tid/notifications/mark_read_bulk/': () => [200, { updated: 2 }],
+                '/api/projects/:tid/notifications/mark_unread_bulk/': () => [200, { updated: 2 }],
             },
         })
         initKeaTests()

@@ -2,9 +2,9 @@ from django.conf import settings
 
 from rest_framework.request import Request
 
-from posthog.models.insight_variable import InsightVariable
-
 from products.endpoints.backend.models import Endpoint, EndpointVersion
+from products.endpoints.backend.services.strategies import InsightEndpointStrategy
+from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 INSIGHT_VARIABLE_TYPE_TO_OPENAPI: dict[str, dict] = {
     InsightVariable.Type.STRING: {"type": "string"},
@@ -27,7 +27,7 @@ def generate_openapi_spec(
         version: Specific version to generate spec for. If None, uses current version.
     """
     base_url = settings.SITE_URL
-    run_path = f"/api/environments/{team_id}/endpoints/{endpoint.name}/run"
+    run_path = f"/api/projects/{team_id}/endpoints/{endpoint.name}/run"
     target_version = version or endpoint.get_version()
     description = target_version.description
 
@@ -82,9 +82,25 @@ def generate_openapi_spec(
                                 }
                             },
                         },
-                        "400": {"description": "Invalid request"},
+                        "400": {
+                            "description": (
+                                "Invalid request, or the query is too expensive to run inline. "
+                                "Query-cost failures carry a stable `code`: `query_timeout`, "
+                                "`query_memory_limit`, `query_too_large`, or `query_estimated_too_slow` — "
+                                "narrow the query's scope (e.g. a smaller date range) or materialize the endpoint."
+                            ),
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}},
+                        },
                         "401": {"description": "Authentication required"},
                         "404": {"description": "Endpoint not found"},
+                        "503": {
+                            "description": (
+                                "The shared ClickHouse query pool is momentarily at capacity (`code`: "
+                                "`query_capacity`). Retry shortly; materialize the endpoint to run on dedicated "
+                                "compute that isn't affected by shared query load."
+                            ),
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}},
+                        },
                     },
                 }
             }
@@ -108,6 +124,27 @@ def _build_component_schemas(endpoint: Endpoint, version: EndpointVersion, team_
     is_materialized = bool(version and version.is_materialized and version.saved_query)
 
     schemas: dict = {
+        "Error": {
+            "type": "object",
+            "description": "Error response body.",
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "description": "Coarse error category (e.g. 'validation_error', 'server_error'). Branch on `code`, not `type`.",
+                },
+                "code": {
+                    "type": "string",
+                    "description": "Stable machine-readable error code to branch on, e.g. 'query_timeout' or 'query_capacity'.",
+                },
+                "detail": {"type": "string", "description": "Human-readable explanation and remediation."},
+                "attr": {
+                    "type": "string",
+                    "nullable": True,
+                    "description": "The request field that caused the error, when applicable.",
+                },
+            },
+            "required": ["type", "code", "detail"],
+        },
         "EndpointRunRequest": {
             "type": "object",
             "properties": {
@@ -237,10 +274,6 @@ def _get_single_breakdown_property(breakdown_filter: dict) -> str | None:
     return None
 
 
-# Query types that support user-configurable breakdown filtering
-BREAKDOWN_SUPPORTED_QUERY_TYPES = {"TrendsQuery", "RetentionQuery"}
-
-
 def _build_variables_schema(query: dict, is_materialized: bool, team_id: int) -> dict | None:
     """Build schema for variables based on query type and materialization state."""
     query_kind = query.get("kind")
@@ -275,7 +308,7 @@ def _build_variables_schema(query: dict, is_materialized: bool, team_id: int) ->
                     properties[code_name]["example"] = default_value
     else:
         # Insight queries - only include breakdown for supported query types
-        if query_kind in BREAKDOWN_SUPPORTED_QUERY_TYPES:
+        if query_kind in InsightEndpointStrategy.BREAKDOWN_SUPPORTED_QUERY_TYPES:
             breakdown_filter = query.get("breakdownFilter") or {}
             breakdown = _get_single_breakdown_property(breakdown_filter)
             if breakdown:

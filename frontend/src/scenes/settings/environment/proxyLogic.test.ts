@@ -33,6 +33,9 @@ describe('proxyLogic — shouldShowCloudflareOptIn', () => {
     let logic: ReturnType<typeof proxyLogic.build>
 
     beforeEach(() => {
+        // cloudflareOptInAcknowledged is persisted to localStorage — wipe it so each test
+        // starts from a clean slate and isn't polluted by prior tests' acknowledgments.
+        localStorage.clear()
         useMocks({
             get: {
                 [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records`]: proxyRecordsResponse([]),
@@ -65,7 +68,7 @@ describe('proxyLogic — shouldShowCloudflareOptIn', () => {
         })
     })
 
-    it('returns false when the organization already has proxy records, regardless of acknowledgment', async () => {
+    it('returns false when the organization already has proxy records', async () => {
         useMocks({
             get: {
                 [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records`]: proxyRecordsResponse([mockProxyRecord()]),
@@ -74,7 +77,6 @@ describe('proxyLogic — shouldShowCloudflareOptIn', () => {
         await mountLogic()
 
         await expectLogic(logic).toMatchValues({
-            cloudflareOptInAcknowledged: false,
             shouldShowCloudflareOptIn: false,
         })
         expect(logic.values.proxyRecords.length).toBeGreaterThan(0)
@@ -100,6 +102,33 @@ describe('proxyLogic — shouldShowCloudflareOptIn', () => {
         await expectLogic(logic, () => {
             logic.actions.acknowledgeCloudflareOptIn()
         }).toMatchValues({
+            cloudflareOptInAcknowledged: true,
+            shouldShowCloudflareOptIn: false,
+        })
+    })
+
+    it('does not show the banner before the initial records load resolves', () => {
+        // Mount synchronously without awaiting toFinishAllListeners — this mimics the
+        // first paint after mount, before the proxy_records API call has returned.
+        logic = proxyLogic()
+        logic.mount()
+
+        expect(logic.values.proxyRecordsLoaded).toBe(false)
+        expect(logic.values.shouldShowCloudflareOptIn).toBe(false)
+    })
+
+    it('auto-persists acknowledgment when loadRecordsSuccess returns existing records', async () => {
+        useMocks({
+            get: {
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records`]: proxyRecordsResponse([mockProxyRecord()]),
+            },
+        })
+        await mountLogic()
+
+        // Records existing on the backend is durable proof of prior consent — the reducer
+        // re-persists this via { persist: true } so the banner doesn't flash again on
+        // browsers where localStorage was cleared.
+        await expectLogic(logic).toMatchValues({
             cloudflareOptInAcknowledged: true,
             shouldShowCloudflareOptIn: false,
         })

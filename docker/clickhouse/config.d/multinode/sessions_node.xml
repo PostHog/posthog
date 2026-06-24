@@ -118,6 +118,9 @@
         <warpstream_shared>
             <kafka_broker_list from_env="KAFKA_HOSTS"/>
         </warpstream_shared>
+        <warpstream_cyclotron>
+            <kafka_broker_list from_env="KAFKA_HOSTS"/>
+        </warpstream_cyclotron>
     </named_collections>
 
     <macros>

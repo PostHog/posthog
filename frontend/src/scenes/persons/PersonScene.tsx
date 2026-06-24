@@ -17,9 +17,9 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { isMobile, pluralize } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { openInAdminPanel } from 'lib/utils/person-actions'
+import { isMobile } from 'lib/utils/dom'
+import { pluralize } from 'lib/utils/strings'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
@@ -43,8 +43,9 @@ import { ComposeTicketButton } from 'products/conversations/frontend/components/
 import { FeedbackButton } from 'products/customer_analytics/frontend/components/FeedbackButton'
 
 import { MergeSplitPerson } from './MergeSplitPerson'
-import { asDisplay } from './person-utils'
+import { asDisplay, pickBestPersonDistinctId } from './person-utils'
 import { PersonCohorts } from './PersonCohorts'
+import { PersonLogsTab } from './PersonLogsTab'
 import PersonProfileCanvas from './PersonProfileCanvas'
 import { PERSON_EVENTS_CONTEXT_KEY, PersonsLogicProps, personsLogic } from './personsLogic'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
@@ -59,6 +60,9 @@ export const scene: SceneExport<PersonsLogicProps> = {
 }
 
 function PersonCaption({ person }: { person: PersonType }): JSX.Element {
+    // Show the most human-readable distinct ID first; the rest fall into the "+N" menu.
+    const primaryDistinctId = pickBestPersonDistinctId(person.distinct_ids) ?? person.distinct_ids[0]
+    const otherDistinctIds = person.distinct_ids.filter((distinct_id) => distinct_id !== primaryDistinctId)
     return (
         <div className="flex flex-wrap items-center gap-2">
             <div className="flex deprecated-space-x-1">
@@ -70,20 +74,20 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
                             description="person distinct ID"
                             style={{ justifyContent: 'flex-end' }}
                         >
-                            {person.distinct_ids[0]}
+                            {primaryDistinctId}
                         </CopyToClipboardInline>
                     </span>
                 </div>
-                {person.distinct_ids.length > 1 && (
+                {otherDistinctIds.length > 0 && (
                     <LemonMenu
-                        items={person.distinct_ids.slice(1).map((distinct_id: string) => ({
+                        items={otherDistinctIds.map((distinct_id: string) => ({
                             label: distinct_id,
                             sideIcon: <IconCopy className="text-primary-3000" />,
                             onClick: () => copyToClipboard(distinct_id, 'distinct id'),
                         }))}
                     >
                         <LemonTag type="primary" className="inline-flex">
-                            <span>+{person.distinct_ids.length - 1}</span>
+                            <span>+{otherDistinctIds.length}</span>
                             <IconChevronDown className="w-4 h-4" />
                         </LemonTag>
                     </LemonMenu>
@@ -101,7 +105,10 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
             </div>
             <div className="flex items-center gap-1">
                 <span className="text-secondary">Merge restrictions:</span> {person.is_identified ? 'applied' : 'none'}
-                <Link to="https://posthog.com/docs/data/identify#alias-assigning-multiple-distinct-ids-to-the-same-user">
+                <Link
+                    to="https://posthog.com/docs/data/identify#alias-assigning-multiple-distinct-ids-to-the-same-user"
+                    target="_blank"
+                >
                     <Tooltip
                         title={
                             <>
@@ -165,7 +172,7 @@ function LaunchToolbarButton({ distinctId }: LaunchToolbarButtonProps): JSX.Elem
     )
 }
 
-export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
+export function PersonScene(): JSX.Element | null {
     const mountedPersonsLogic = useMountedLogic(personsLogic)
     const {
         feedEnabled,
@@ -200,10 +207,25 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { user } = useValues(userLogic)
-    const eventsQueryLogicKey = `${PERSON_EVENTS_CONTEXT_KEY}-${tabId ?? mountedPersonsLogic.key}`
+    const eventsQueryLogicKey = `${PERSON_EVENTS_CONTEXT_KEY}-${mountedPersonsLogic.key}`
 
     if (personError) {
-        return <NotFound object="person" meta={{ urlId }} />
+        return (
+            <div className="flex flex-col items-center justify-center w-full p-8">
+                <LemonBanner
+                    type="error"
+                    className="max-w-200 w-full"
+                    action={{
+                        children: 'Reload',
+                        onClick: () => window.location.reload(),
+                        'data-attr': 'person-load-error-reload',
+                    }}
+                >
+                    <p>We couldn't load this person.</p>
+                    <p className="text-muted mb-0">{personError}</p>
+                </LemonBanner>
+            </div>
+        )
     }
     if (!person) {
         return personLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="person" meta={{ urlId }} />
@@ -227,7 +249,7 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
                         <ComposeTicketButton
                             size="small"
                             type="secondary"
-                            distinctId={person.distinct_ids[0]}
+                            distinctId={primaryDistinctId ?? person.distinct_ids[0]}
                             email={typeof person.properties?.email === 'string' ? person.properties.email : undefined}
                         />
                         {user?.is_staff && <OpenInAdminPanelButton />}
@@ -312,7 +334,6 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
                                 context={{
                                     insightProps: {
                                         dashboardItemId: `new-${PERSON_EVENTS_CONTEXT_KEY}`,
-                                        tabId,
                                         dataNodeCollectionId: eventsQueryLogicKey,
                                     },
                                     customActions: (
@@ -370,14 +391,33 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
                         ),
                     },
                     {
+                        key: PersonsTabType.LOGS,
+                        label: <span data-attr="persons-logs-tab">Logs</span>,
+                        content: <PersonLogsTab person={person} />,
+                    },
+                    {
                         key: PersonsTabType.EXCEPTIONS,
                         label: <span data-attr="persons-exceptions-tab">Exceptions</span>,
-                        content: <Query query={exceptionsQuery} setQuery={(q) => setExceptionsQuery(q)} />,
+                        content: (
+                            <Query
+                                uniqueKey="person-profile-exceptions"
+                                attachTo={mountedPersonsLogic}
+                                query={exceptionsQuery}
+                                setQuery={(q) => setExceptionsQuery(q)}
+                            />
+                        ),
                     },
                     {
                         key: PersonsTabType.SURVEY_RESPONSES,
                         label: <span data-attr="persons-survey-responses-tab">Surveys</span>,
-                        content: <Query query={surveyResponsesQuery} setQuery={(q) => setSurveyResponsesQuery(q)} />,
+                        content: (
+                            <Query
+                                uniqueKey="person-profile-surveys"
+                                attachTo={mountedPersonsLogic}
+                                query={surveyResponsesQuery}
+                                setQuery={(q) => setSurveyResponsesQuery(q)}
+                            />
+                        ),
                     },
                     {
                         key: PersonsTabType.COHORTS,
@@ -472,7 +512,7 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
                 ]}
             />
 
-            {splitMergeModalShown && person && <MergeSplitPerson person={person} tabId={tabId} />}
+            {splitMergeModalShown && person && <MergeSplitPerson person={person} />}
         </SceneContent>
     )
 }
@@ -480,6 +520,22 @@ export function PersonScene({ tabId }: { tabId?: string }): JSX.Element | null {
 function OpenInAdminPanelButton({ size = 'small' }: { size?: LemonButtonProps['size'] }): JSX.Element {
     const { person } = useValues(personsLogic)
     const disabledReason = !person?.properties.email ? 'Person has no email' : undefined
+
+    const openInAdminPanel = async (email: string): Promise<void> => {
+        try {
+            const response = await api.users.list(email)
+
+            if (!response.results || response.results.length === 0) {
+                throw new Error('User not found')
+            }
+
+            const userId = response.results[0].id
+            window.open(`/admin/posthog/user/${userId}/change/`, '_blank')
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error)
+            lemonToast.error(`Failed to open admin panel: ${message}`)
+        }
+    }
 
     return (
         <LemonButton

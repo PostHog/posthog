@@ -32,6 +32,7 @@ audit runs rather than every CI build.
 from __future__ import annotations
 
 import os
+from collections import defaultdict
 from typing import Any
 
 import pytest
@@ -39,15 +40,24 @@ import pytest
 from hypothesis import (
     HealthCheck,
     assume,
+    event,
     given,
     settings,
     strategies as st,
+    target,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.errors import BaseHogQLError
-from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.test._generated_grammar_strategies import expr_strategy, select_strategy
+from posthog.hogql.parser import parse_expr, parse_select, parse_string_template
+from posthog.hogql.scripts._diagnostic_common import ast_depth, ast_kpaths
+from posthog.hogql.test._generated_grammar_strategies import (
+    expr_strategy,
+    fullTemplateString_strategy as full_template_string_strategy,
+    select_strategy,
+)
+from posthog.hogql.test._grammar_token_strategies import _RESERVED_KEYWORDS
+from posthog.hogql.test._pbt_corpus_db import shared_corpus_database
 from posthog.hogql.visitor import clear_locations
 
 pytestmark = pytest.mark.skipif(
@@ -243,6 +253,261 @@ def _apply_jiggle(query: str) -> st.SearchStrategy[str]:
 
 
 # ---------------------------------------------------------------------------
+# Mutation layer
+# ---------------------------------------------------------------------------
+#
+# The grammar generator only emits *valid* surface (it walks valid
+# productions). To exercise the rejection path — "does the candidate
+# refuse what the oracle refuses?" — we perturb a valid query into a
+# near-miss invalid one. Each operator targets a distinct syntactic
+# failure mode. A mutation that happens to land on still-valid syntax
+# is harmless: it flows through the normal acceptance-parity check.
+#
+# Tokens are crude space-split units (the generator emits space-separated
+# tokens), which keeps the perturbations cheap and the invalid forms
+# realistic (a stray `)` mid-query, a doubled keyword, a truncated tail).
+
+# Reserved keywords / operators that are hostile when injected into an
+# arbitrary position — they break the surrounding production without
+# being silently absorbable as identifiers.
+_INJECTION_TOKENS = (
+    "select",
+    "from",
+    "where",
+    "group",
+    "by",
+    "join",
+    "union",
+    "(",
+    ")",
+    "[",
+    "]",
+    ",",
+    "*",
+    "+",
+    "::",
+    "->",
+    "between",
+    "and",
+)
+
+
+@st.composite
+def _mutate_once(draw: Any, query: str) -> str:
+    """Apply a single perturbation. Returns the query unchanged when it's
+    too short to perturb meaningfully."""
+    tokens = [t for t in query.split(" ") if t != ""]
+    if len(tokens) < 2:
+        return query
+
+    op = draw(
+        st.sampled_from(
+            [
+                "delete",  # drop a token — unbalances counts, strands operators
+                "duplicate",  # repeat a token — e.g. `SELECT SELECT`
+                "swap",  # reorder adjacent tokens
+                "inject",  # splice in a hostile keyword/operator
+                "drop_paren",  # remove one `(` or `)` to unbalance nesting
+                "truncate",  # cut the tail — incomplete production
+            ]
+        )
+    )
+
+    if op == "delete":
+        i = draw(st.integers(min_value=0, max_value=len(tokens) - 1))
+        del tokens[i]
+    elif op == "duplicate":
+        i = draw(st.integers(min_value=0, max_value=len(tokens) - 1))
+        tokens.insert(i, tokens[i])
+    elif op == "swap":
+        i = draw(st.integers(min_value=0, max_value=len(tokens) - 2))
+        tokens[i], tokens[i + 1] = tokens[i + 1], tokens[i]
+    elif op == "inject":
+        i = draw(st.integers(min_value=0, max_value=len(tokens)))
+        tokens.insert(i, draw(st.sampled_from(_INJECTION_TOKENS)))
+    elif op == "drop_paren":
+        paren_positions = [i for i, t in enumerate(tokens) if t in ("(", ")", "[", "]")]
+        if not paren_positions:
+            return query
+        del tokens[draw(st.sampled_from(paren_positions))]
+    elif op == "truncate":
+        cut = draw(st.integers(min_value=1, max_value=len(tokens) - 1))
+        tokens = tokens[:cut]
+
+    return " ".join(tokens)
+
+
+def _apply_mutation(query: str) -> st.SearchStrategy[str]:
+    """Perturb a valid query into a near-miss invalid one (1-3 stacked
+    mutations). Used by the diagnostic's ``--mutate`` mode to flood the
+    rejection path: most outputs are invalid, so the two-sided contract
+    (oracle rejects -> candidate must reject) gets exercised heavily."""
+
+    @st.composite
+    def _inner(draw: Any) -> str:
+        result = query
+        for _ in range(draw(st.integers(min_value=1, max_value=3))):
+            result = draw(_mutate_once(result))
+        return result
+
+    return _inner()
+
+
+# ---------------------------------------------------------------------------
+# Grammar-aware mutation layer
+# ---------------------------------------------------------------------------
+#
+# Token mutation (above) mostly yields *lexically* broken junk that both
+# backends reject at the lexer / early-parse stage — cheap, but it rarely
+# reaches the interesting over-acceptance boundary. Grammar-aware mutation
+# corrupts at the *production* level using the grammar's own vocabulary
+# (the reserved-keyword set, bracket pairs, literal forms): empty a
+# bracketed argument list, turn a `{x}` placeholder into a `{}` / `{k: v}`
+# dict, swap or duplicate a keyword, retype a literal, mismatch a bracket.
+# The results are structurally plausible but illegal — exactly the shapes
+# where one parser is liable to be more lenient than the other (both
+# reject-parity bugs found this session, `from {}` and `* columns()`, are
+# of this kind, where blind token edits would have to get lucky).
+
+_BRACKET_OPENERS: dict[str, str] = {"(": ")", "{": "}", "[": "]"}
+_BRACKET_CLOSERS: frozenset[str] = frozenset((")", "}", "]"))
+_RESERVED_KEYWORD_TUPLE: tuple[str, ...] = tuple(sorted(_RESERVED_KEYWORDS))
+
+# Tokens that sit right at the lexer / parser edge: ambiguous operators and
+# malformed-literal shapes. Mirrors the hostile-token seeding in ClickHouse's
+# own parser fuzzer grammar template.
+_ADVERSARIAL_TOKENS: tuple[str, ...] = (
+    "<>",
+    "<=>",
+    "::",
+    "->",
+    "||",
+    "!",
+    ":",
+    "..",
+    "1e",
+    "1e-",
+    "0x",
+    "1.2.3",
+    ".5.5",
+    "''",
+    "`",
+    "@",
+    "#",
+)
+
+
+def _bracket_pairs(tokens: list[str]) -> list[tuple[int, int]]:
+    """`(open_index, close_index)` for each matching bracket pair. Brackets
+    never occur inside HogQL string / identifier literals (their alphabets
+    exclude them), so a flat scan needs no quote tracking. Inner pairs are
+    listed before the outer pairs that enclose them."""
+    stack: list[int] = []
+    pairs: list[tuple[int, int]] = []
+    for i, tok in enumerate(tokens):
+        if tok in _BRACKET_OPENERS:
+            stack.append(i)
+        elif tok in _BRACKET_CLOSERS and stack:
+            pairs.append((stack.pop(), i))
+    return pairs
+
+
+def _string_mask(tokens: list[str]) -> list[bool]:
+    """Per-token "inside a quoted string / identifier" flag, by quote parity
+    — so keyword / identifier edits skip literal contents (a string literal
+    can contain a space and split across several tokens)."""
+    mask: list[bool] = []
+    in_squote = in_dquote = False
+    for tok in tokens:
+        mask.append(in_squote or in_dquote)
+        if tok.count("'") % 2 == 1:
+            in_squote = not in_squote
+        if tok.count('"') % 2 == 1:
+            in_dquote = not in_dquote
+    return mask
+
+
+@st.composite
+def _grammar_mutate_once(draw: Any, query: str) -> str:
+    """Apply one grammar-aware perturbation, returning the query unchanged
+    when no operator applies."""
+    tokens = [t for t in query.split(" ") if t != ""]
+    if len(tokens) < 2:
+        return query
+    mask = _string_mask(tokens)
+    pairs = _bracket_pairs(tokens)
+    nonempty_pairs = [(o, c) for (o, c) in pairs if c - o > 1]
+    brace_pairs = [(o, c) for (o, c) in pairs if tokens[o] == "{"]
+    kw_idx = [i for i, t in enumerate(tokens) if not mask[i] and t.lower() in _RESERVED_KEYWORDS]
+    ident_idx = [
+        i
+        for i, t in enumerate(tokens)
+        if not mask[i] and t.isascii() and t.isidentifier() and t.lower() not in _RESERVED_KEYWORDS
+    ]
+    lit_idx = [i for i, t in enumerate(tokens) if t.lstrip("-").isdigit() or (len(t) >= 2 and t[0] == "'" == t[-1])]
+
+    ops: list[str] = ["adversarial_inject"]  # always applicable
+    if nonempty_pairs:
+        ops.append("empty_brackets")
+    if pairs:
+        ops.append("bracket_retype")
+    if brace_pairs:
+        ops.append("brace_dictify")
+    if kw_idx:
+        ops += ["keyword_swap", "keyword_duplicate"]
+    if ident_idx:
+        ops.append("ident_to_keyword")
+    if lit_idx:
+        ops.append("literal_corrupt")
+    op = draw(st.sampled_from(ops))
+
+    if op == "empty_brackets":
+        o, c = draw(st.sampled_from(nonempty_pairs))
+        return " ".join(tokens[: o + 1] + tokens[c:])
+    if op == "bracket_retype":
+        o, c = draw(st.sampled_from(pairs))
+        tokens[c] = draw(st.sampled_from([x for x in (")", "}", "]") if x != tokens[c]]))
+        return " ".join(tokens)
+    if op == "brace_dictify":
+        o, c = draw(st.sampled_from(brace_pairs))
+        inner = tokens[o + 1 : c] or ["1"]
+        tokens[o : c + 1] = ["{", *inner, ":", *inner, "}"]
+        return " ".join(tokens)
+    if op == "keyword_swap":
+        tokens[draw(st.sampled_from(kw_idx))] = draw(st.sampled_from(_RESERVED_KEYWORD_TUPLE))
+        return " ".join(tokens)
+    if op == "keyword_duplicate":
+        i = draw(st.sampled_from(kw_idx))
+        tokens.insert(i, tokens[i])
+        return " ".join(tokens)
+    if op == "ident_to_keyword":
+        tokens[draw(st.sampled_from(ident_idx))] = draw(st.sampled_from(_RESERVED_KEYWORD_TUPLE))
+        return " ".join(tokens)
+    if op == "literal_corrupt":
+        tokens[draw(st.sampled_from(lit_idx))] = draw(st.sampled_from(_ADVERSARIAL_TOKENS))
+        return " ".join(tokens)
+    # adversarial_inject
+    tokens.insert(draw(st.integers(min_value=0, max_value=len(tokens))), draw(st.sampled_from(_ADVERSARIAL_TOKENS)))
+    return " ".join(tokens)
+
+
+def _apply_grammar_mutation(query: str) -> st.SearchStrategy[str]:
+    """Perturb a valid query into a structurally-plausible invalid one with
+    1-2 stacked grammar-aware mutations. Used by the diagnostic's
+    ``--grammar-mutate`` mode to probe over-acceptance with near-miss shapes
+    a parser is more likely to wrongly accept than lexical junk is."""
+
+    @st.composite
+    def _inner(draw: Any) -> str:
+        result = query
+        for _ in range(draw(st.integers(min_value=1, max_value=2))):
+            result = draw(_grammar_mutate_once(result))
+        return result
+
+    return _inner()
+
+
+# ---------------------------------------------------------------------------
 # Differential parsing harness
 # ---------------------------------------------------------------------------
 
@@ -267,9 +532,22 @@ def _try_parse(query: str, rule: str, backend: str) -> tuple[bool, ast.AST | Non
     the failure. The whole point of the differential PBT is to surface
     asymmetric crashes; swallowing them here would defeat that.
     """
-    parser_fn = parse_expr if rule == "expr" else parse_select
     try:
-        node = parser_fn(query, backend=backend)  # type: ignore[arg-type]
+        if rule == "expr":
+            node: ast.AST = parse_expr(query, backend=backend)  # type: ignore[arg-type]
+        elif rule == "select":
+            node = parse_select(query, backend=backend)  # type: ignore[arg-type]
+        elif rule == "full_template_string":
+            # The strategy emits "F'<contents>" (the wrapped F-string grammar form), but
+            # `parse_string_template` takes the inside and re-adds the F-quote itself, so
+            # strip the leading "F'" here. Asserted (rather than `removeprefix`) so a future
+            # strategy or jiggle regression that drops the leading "F'" fails loudly instead
+            # of silently producing "F'F'…" inputs that both backends accept (the second F'
+            # becomes FULL_STRING_TEXT content) and that the parity assertion treats as fine.
+            assert query.startswith("F'"), f"fullTemplateString strategy emitted unexpected prefix: {query!r}"
+            node = parse_string_template(query[2:], backend=backend)  # type: ignore[arg-type]
+        else:
+            raise ValueError(f"unknown rule: {rule!r}")
         return True, clear_locations(node)
     except BaseHogQLError:
         return False, None
@@ -292,16 +570,31 @@ def _assert_backends_agree(query: str, rule: str) -> None:
         # Both rejected — uninteresting; the grammar generator can
         # over-produce strings that neither visitor accepts. ``assume(False)``
         # raises ``UnsatisfiedAssumption`` to skip the example.
+        event("outcome", "both_reject")
         assume(False)
 
     if a_ok != b_ok:
+        event("outcome", "accept/reject divergence")
         accepted, rejected = (_BACKEND_A, _BACKEND_B) if a_ok else (_BACKEND_B, _BACKEND_A)
         raise AssertionError(f"{accepted!r} accepted but {rejected!r} rejected ({rule!r}): {query!r}")
 
     if a_ast != b_ast:
+        event("outcome", "ast mismatch")
         raise AssertionError(
             f"AST mismatch for {rule!r}: {query!r}\n  {_BACKEND_A}:  {a_ast!r}\n  {_BACKEND_B}: {b_ast!r}"
         )
+
+    # Both backends accepted and agree. Surface a coverage-flavoured signal
+    # to Hypothesis so the shrinker preserves interesting shapes (deep ASTs,
+    # novel k-paths) when it minimises failing examples — and so the optional
+    # `Phase.target` hill-climbing phase can hunt for them at generation time
+    # if turned on. Both targets are cheap in-process AST walks; no native
+    # instrumentation needed.
+    event("outcome", "match")
+    kpaths = ast_kpaths(a_ast, _KPATH_K)
+    target(float(len(kpaths - _SEEN_KPATHS[rule])), label="novel_kpaths")
+    _SEEN_KPATHS[rule].update(kpaths)
+    target(float(ast_depth(a_ast)), label="ast_depth")
 
 
 # Shared Hypothesis settings. Strategies overgenerate (semantic-visitor
@@ -309,6 +602,11 @@ def _assert_backends_agree(query: str, rule: str) -> None:
 _PBT_SETTINGS = settings(
     max_examples=int(os.environ.get("GRAMMAR_PBT_EXAMPLES", "1000")),
     deadline=None,
+    # Replay the per-developer local seed read-only + write new examples to the
+    # default `.hypothesis/examples` (see _pbt_corpus_db). The seed dir is
+    # `.gitignore`d — devs populate it locally if they want, nothing churns the
+    # repo.
+    database=shared_corpus_database(),
     # ``too_slow`` and ``filter_too_much`` are characteristics of the
     # grind itself (deep ASTs, semantic-visitor rejections drop a
     # sizable fraction). ``data_too_large`` is deliberately *not*
@@ -322,6 +620,13 @@ _PBT_SETTINGS = settings(
         HealthCheck.filter_too_much,
     ],
 )
+
+# Per-rule AST k-path coverage seen so far this session — feeds the `target()`
+# steering in `_assert_backends_agree`. Keyed by rule so expr / select / full
+# template don't pollute each other's novelty signal. Process-local, so the
+# steering only counts within a single pytest run.
+_SEEN_KPATHS: dict[str, set[tuple[str, ...]]] = defaultdict(set)
+_KPATH_K: int = int(os.environ.get("GRAMMAR_PBT_KPATH_K", "2"))
 
 # Wall-clock timeout per test (via pytest-timeout, which is already a
 # project dependency). Hypothesis shrinking on a deep AST tree can run
@@ -365,3 +670,26 @@ class TestSelectGrammarPBT:
     @_PBT_SETTINGS
     def test_select_backends_agree_with_jiggle(self, query: str) -> None:
         _assert_backends_agree(query, rule="select")
+
+
+@pytest.mark.timeout(_PBT_TIMEOUT_SECONDS)
+class TestFullTemplateStringGrammarPBT:
+    """``parse_string_template`` differential parity over the full
+    ``fullTemplateString`` grammar surface — auto-generated from .g4.
+
+    Covers the standalone ``parseFullTemplateString`` parser entry point
+    (the ``F'…`` form used by the public ``parse_string_template`` API),
+    which isn't reachable from the ``expr``/``select`` grammar rules.
+    The grammar rule is ``QUOTE_SINGLE_TEMPLATE_FULL stringContentsFull* EOF``
+    — no closing quote; the body lexes through to end-of-input.
+    """
+
+    @given(query=full_template_string_strategy())
+    @_PBT_SETTINGS
+    def test_full_template_string_backends_agree(self, query: str) -> None:
+        _assert_backends_agree(query, rule="full_template_string")
+
+    @given(query=full_template_string_strategy().flatmap(_apply_jiggle))
+    @_PBT_SETTINGS
+    def test_full_template_string_backends_agree_with_jiggle(self, query: str) -> None:
+        _assert_backends_agree(query, rule="full_template_string")

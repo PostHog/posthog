@@ -31,8 +31,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
 )
 
-from products.data_warehouse.backend.models import ExternalDataSchema
-from products.data_warehouse.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_top_customers_query_runner import (
@@ -45,6 +44,7 @@ from products.revenue_analytics.backend.hogql_queries.test.data.structure import
     STRIPE_INVOICE_COLUMNS,
     STRIPE_PRODUCT_COLUMNS,
 )
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 INVOICE_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_invoices"
 PRODUCT_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.top_customers_query_runner.stripe_products"
@@ -216,7 +216,10 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
                 properties=properties,
             )
             runner = RevenueAnalyticsTopCustomersQueryRunner(
-                team=self.team, query=query, modifiers=HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True)
+                team=self.team,
+                query=query,
+                user=self.user,
+                modifiers=HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True),
             )
 
             response = runner.calculate()

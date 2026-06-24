@@ -32,6 +32,49 @@ export const SET_UP_REVERSE_PROXY: SetupTask = {
     getUrl: () => urls.settings('organization-proxy'),
 }
 
+/**
+ * AI tasks - appended to the end of every product's setup flow.
+ * These surface PostHog's AI capabilities regardless of which product the user onboards with.
+ */
+export const AI_TASKS: SetupTask[] = [
+    {
+        id: SetupTaskId.UsePosthogAi,
+        title: 'Try PostHog AI',
+        description:
+            "Ask Max, PostHog's AI assistant, to build insights, write SQL, and answer questions about your data.",
+        taskType: 'ai',
+        requiresManualCompletion: true,
+        getUrl: () => urls.ai(),
+    },
+    {
+        id: SetupTaskId.UsePosthogCode,
+        title: 'Try PostHog Code',
+        description:
+            'An AI devtool that understands your product, not just your codebase — it triages bugs and opens pull requests from your product data.',
+        taskType: 'ai',
+        requiresManualCompletion: true,
+        docsUrl: 'https://posthog.com/code',
+    },
+    {
+        id: SetupTaskId.UsePosthogMcp,
+        title: 'Try PostHog MCP',
+        description:
+            'Query your PostHog data in plain English from your coding agent — run funnels, check errors, and toggle flags without leaving your editor.',
+        taskType: 'ai',
+        requiresManualCompletion: true,
+        docsUrl: 'https://posthog.com/mcp',
+    },
+    {
+        id: SetupTaskId.UsePosthogInSlack,
+        title: 'Try PostHog in Slack',
+        description:
+            'Tag @PostHog in any Slack thread to ask data questions, run SQL, and draft pull requests — plus get insights and alerts delivered to your channels.',
+        taskType: 'ai',
+        requiresManualCompletion: true,
+        getUrl: () => urls.integration('slack'),
+    },
+]
+
 // ============================================================================
 // Product Setup Registry
 // ============================================================================
@@ -120,6 +163,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 title: 'Track custom events',
                 description: 'Go beyond autocapture by tracking specific actions that matter.',
                 taskType: 'explore',
+                dependsOn: [SetupTaskId.IngestFirstEvent],
                 requiresManualCompletion: true,
                 docsUrl: 'https://posthog.com/tutorials/event-tracking-guide#setting-up-custom-events',
                 targetSelector: '[data-attr="help-button"]',
@@ -476,51 +520,51 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
         ],
     },
 
-    [ProductKey.LLM_ANALYTICS]: {
-        productKey: ProductKey.LLM_ANALYTICS,
-        title: 'Get started with LLM analytics',
+    [ProductKey.AI_OBSERVABILITY]: {
+        productKey: ProductKey.AI_OBSERVABILITY,
+        title: 'Get started with AI observability',
         tasks: [
             {
                 id: SetupTaskId.IngestFirstLlmEvent,
-                title: 'Send your first LLM event',
+                title: 'Send your first AI event',
                 description: 'Install the PostHog LLM SDK to start tracking AI usage.',
-                skipWarning: "Without LLM events, you can't track AI model usage.",
+                skipWarning: "Without AI events, you can't track AI model usage.",
                 taskType: 'setup',
                 getUrl: () =>
-                    urls.onboarding({ productKey: ProductKey.LLM_ANALYTICS, stepKey: OnboardingStepKey.INSTALL }),
+                    urls.onboarding({ productKey: ProductKey.AI_OBSERVABILITY, stepKey: OnboardingStepKey.INSTALL }),
                 targetSelector: '[data-attr="menu-item-llm_analytics"]',
             },
             SET_UP_REVERSE_PROXY,
             {
                 id: SetupTaskId.ViewFirstTrace,
                 title: 'View your first trace',
-                description: 'See a complete LLM request trace with prompts and latency.',
+                description: 'See a complete AI request trace with prompts and latency.',
                 taskType: 'onboarding',
                 dependsOn: [SetupTaskId.IngestFirstEvent],
-                getUrl: () => urls.llmAnalyticsTraces(),
+                getUrl: () => urls.aiObservabilityTraces(),
                 targetSelector: '[data-attr="llm-trace-table"]',
             },
             {
                 id: SetupTaskId.TrackCosts,
-                title: 'Track LLM costs and usage',
+                title: 'Track AI costs and usage',
                 description: 'Monitor AI spending and usage by model and use case.',
                 taskType: 'onboarding',
                 dependsOn: [SetupTaskId.IngestFirstEvent],
-                getUrl: () => urls.llmAnalyticsDashboard(),
+                getUrl: () => urls.aiObservabilityDashboard(),
             },
             {
                 id: SetupTaskId.SetUpLlmEvaluation,
                 title: 'Set up LLM evaluation',
-                description: 'Score and evaluate LLM outputs for quality.',
+                description: 'Score and evaluate AI outputs for quality.',
                 taskType: 'explore',
-                getUrl: () => urls.llmAnalyticsEvaluations(),
+                getUrl: () => urls.aiObservabilityEvaluations(),
             },
             {
                 id: SetupTaskId.RunAiPlayground,
                 title: 'Run your first AI playground',
                 description: 'Test and refine your AI prompts with real-time feedback.',
                 taskType: 'explore',
-                getUrl: () => urls.llmAnalyticsPlayground(),
+                getUrl: () => urls.aiObservabilityPlayground(),
                 targetSelector: '[data-attr="ai-playground-run-button"]',
             },
         ],
@@ -700,19 +744,22 @@ export function getProductSetupConfig(productKey: ProductKey): ProductSetupConfi
     return PRODUCT_SETUP_REGISTRY[productKey] ?? null
 }
 
-/** Get all tasks for a product, optionally filtered by type */
+/** Get all tasks for a product, optionally filtered by type. AI tasks are appended to every product. */
 export function getTasksForProduct(
     productKey: ProductKey,
-    taskType?: 'setup' | 'onboarding' | 'explore' | 'all'
+    taskType?: 'setup' | 'onboarding' | 'explore' | 'ai' | 'all'
 ): SetupTask[] {
     const config = getProductSetupConfig(productKey)
     if (!config) {
         return []
     }
+
+    const tasks = [...config.tasks, ...AI_TASKS]
     if (!taskType || taskType === 'all') {
-        return config.tasks
+        return tasks
     }
-    return config.tasks.filter((t) => t.taskType === taskType)
+
+    return tasks.filter((t) => t.taskType === taskType)
 }
 
 /** List of products that have setup flows configured */

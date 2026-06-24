@@ -1,12 +1,43 @@
 import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
 
-import { LemonButton, LemonSelect, LemonTag, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
 import { AvailableColumn, ExternalDataSourceSyncSchema } from '~/types'
+
+const LOOKBACK_UNIT_SECONDS = {
+    minutes: 60,
+    hours: 3600,
+    days: 86400,
+} as const
+type LookbackUnit = keyof typeof LOOKBACK_UNIT_SECONDS
+
+// Only timestamp/date incremental fields support a lookback window; the watermark for these is a
+// point in time we can safely re-read from. Mirrors IncrementalFieldType on the backend.
+const LOOKBACK_ELIGIBLE_TYPES = new Set(['datetime', 'date', 'timestamp'])
+export const isLookbackEligibleType = (fieldType: string | null | undefined): boolean =>
+    !!fieldType && LOOKBACK_ELIGIBLE_TYPES.has(fieldType)
+
+export const secondsToLookbackParts = (
+    seconds: number | null | undefined
+): { amount: number | null; unit: LookbackUnit } => {
+    if (!seconds || seconds <= 0) {
+        return { amount: null, unit: 'hours' }
+    }
+    // Show the largest unit the value divides into evenly so a 2-day window reads as "2 days", not "48 hours".
+    for (const unit of ['days', 'hours', 'minutes'] as LookbackUnit[]) {
+        if (seconds % LOOKBACK_UNIT_SECONDS[unit] === 0) {
+            return { amount: seconds / LOOKBACK_UNIT_SECONDS[unit], unit }
+        }
+    }
+    // Floor (not round) so a non-divisible value never displays as more than it is and then
+    // saves back the inflated number — e.g. 90 s shows "1 minute" and round-trips to 60 s.
+    return { amount: Math.floor(seconds / 60), unit: 'minutes' }
+}
 
 const getIncrementalSyncSupported = (
     schema: ExternalDataSourceSyncSchema
@@ -60,7 +91,8 @@ interface SyncMethodFormProps {
         incrementalField: string | null,
         incrementalFieldType: string | null,
         primaryKeyColumns: string[] | null,
-        cdcTableMode?: 'consolidated' | 'cdc_only' | 'both'
+        cdcTableMode?: 'consolidated' | 'cdc_only' | 'both',
+        incrementalFieldLookbackSeconds?: number | null
     ) => void
     availableColumns?: AvailableColumn[]
     detectedPrimaryKeys?: string[] | null
@@ -92,8 +124,12 @@ const getCdcSyncSupported = (
     }
 }
 
+// xmin is offered only when the source advertises it for the table and the gating flag is on.
+export const shouldOfferXmin = (schema: ExternalDataSourceSyncSchema, xminFlagEnabled: boolean): boolean =>
+    !schema.webhook_only && xminFlagEnabled && !!schema.xmin_available
+
 const getSaveDisabledReason = (
-    syncType: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | undefined,
+    syncType: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | 'xmin' | undefined,
     incrementalField: string | null,
     appendField: string | null
 ): string | undefined => {
@@ -114,9 +150,13 @@ const getInitialRadioState = (
     schema: ExternalDataSourceSyncSchema,
     incrementalSyncSupported: boolean,
     appendSyncSupported: boolean
-): 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' => {
+): 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | 'xmin' => {
     if (schema.sync_type) {
         return schema.sync_type
+    }
+    // Webhook-only schemas can only ever use the webhook sync method.
+    if (schema.webhook_only) {
+        return 'webhook'
     }
     if (schema.supports_webhooks) {
         return 'webhook'
@@ -148,6 +188,7 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     },
     ref
 ): JSX.Element {
+    const xminFlagEnabled = useFeatureFlag('DWH_POSTGRES_XMIN')
     const incrementalSyncSupported = getIncrementalSyncSupported(schema)
     const appendSyncSupported = getAppendOnlySyncSupported(schema)
     const cdcSyncSupported = getCdcSyncSupported(schema)
@@ -171,19 +212,25 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
     const [cdcTableMode, setCdcTableMode] = useState<'consolidated' | 'cdc_only' | 'both'>(
         schema.cdc_table_mode ?? 'consolidated'
     )
+    const initialLookback = secondsToLookbackParts(schema.incremental_field_lookback_seconds)
+    const [lookbackAmount, setLookbackAmount] = useState<number | null>(initialLookback.amount)
+    const [lookbackUnit, setLookbackUnit] = useState<LookbackUnit>(initialLookback.unit)
 
     useEffect(() => {
-        setRadioValue(
-            schema.sync_type ??
-                (schema.supports_webhooks ? 'webhook' : incrementalSyncSupported.disabled ? 'append' : 'incremental')
-        )
+        setRadioValue(getInitialRadioState(schema, !incrementalSyncSupported.disabled, !appendSyncSupported.disabled))
         setIncrementalFieldValue(defaultField)
         setAppendFieldValue(defaultField)
         setPrimaryKeyColumns(schema.primary_key_columns ?? (primaryKeyLocked ? [] : (resolvedDetectedPks ?? [])))
+        const resetLookback = secondsToLookbackParts(schema.incremental_field_lookback_seconds)
+        setLookbackAmount(resetLookback.amount)
+        setLookbackUnit(resetLookback.unit)
     }, [schema.table]) // oxlint-disable-line react-hooks/exhaustive-deps
 
+    const lookbackSeconds =
+        lookbackAmount != null && lookbackAmount > 0 ? lookbackAmount * LOOKBACK_UNIT_SECONDS[lookbackUnit] : null
+
     const radioOptions: {
-        value: 'webhook' | 'incremental' | 'append' | 'full_refresh' | 'cdc'
+        value: 'webhook' | 'incremental' | 'append' | 'full_refresh' | 'cdc' | 'xmin'
         disabledReason?: string
         label: JSX.Element
     }[] = []
@@ -211,7 +258,11 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
         })
     }
 
-    if (schema.cdc_available) {
+    // Webhook-only schemas (e.g. Stripe Discount) have no API list endpoint, so the
+    // incremental / append / cdc / full_refresh options would all produce empty syncs.
+    const hideNonWebhookOptions = !!schema.webhook_only
+
+    if (!hideNonWebhookOptions && schema.cdc_available) {
         radioOptions.push({
             value: 'cdc',
             disabledReason: (cdcSyncSupported.disabled && cdcSyncSupported.disabledReason) || undefined,
@@ -265,8 +316,8 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                                             <div className="font-normal mb-2">
                                                 <div className="font-semibold">Both</div>
                                                 <p className="m-0 text-secondary text-sm">
-                                                    CDC history table plus an auto-generated view for the current state
-                                                    (<code>valid_to IS NULL</code>).
+                                                    Consolidated current-state table plus a separate <code>_cdc</code>
+                                                    -suffixed history table.
                                                 </p>
                                             </div>
                                         ),
@@ -280,196 +331,269 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
         })
     }
 
-    radioOptions.push(
-        {
-            value: 'incremental',
-            disabledReason: (incrementalSyncSupported.disabled && incrementalSyncSupported.disabledReason) || undefined,
+    if (shouldOfferXmin(schema, xminFlagEnabled)) {
+        radioOptions.push({
+            value: 'xmin',
             label: (
                 <div className="mb-4 font-normal">
                     <div className="items-center flex leading-[normal] overflow-hidden mb-1">
-                        <h4 className="mb-0 mr-2 text-base font-semibold">Incremental replication</h4>
-                        {!incrementalSyncSupported.disabled && !schema.supports_webhooks && !schema.cdc_available && (
-                            <LemonTag type="success">Recommended</LemonTag>
-                        )}
+                        <h4 className="mb-0 mr-2 text-base font-semibold">xmin replication</h4>
                     </div>
                     <p className="mb-2">
-                        When using incremental replication, we'll store the max value of the below field on each sync
-                        and only sync rows with greater or equal value on the next run.
+                        Incremental replication using Postgres' internal <code>xmin</code> system column to track
+                        changed rows — no <code>updated_at</code> column required. Each sync reads only rows inserted or
+                        updated since the last run. Requires a primary key on the source table.
                     </p>
                     <p className="mb-2">
-                        You should pick a field that increments or updates each time the row is updated, such as a{' '}
-                        <code>updated_at</code> timestamp.
+                        Does not capture row deletes, and reads the full table on every sync (the <code>xmin</code>{' '}
+                        column is unindexed). Choose CDC if you need deletes or have a very large, high-churn table.
                     </p>
-                    {!incrementalSyncSupported.disabled && (
-                        <>
-                            <LemonSelect
-                                value={incrementalFieldValue}
-                                onChange={(newValue) => {
-                                    setIncrementalFieldValue(newValue)
-                                    setRadioValue('incremental')
-                                }}
-                                options={
-                                    schema.incremental_fields.map((n) => ({
-                                        value: n.field,
-                                        label: (
-                                            <>
-                                                <span className="leading-5">{n.label}</span>
-                                                <LemonTag className="ml-2" type="success">
-                                                    {n.type}
-                                                </LemonTag>
-                                            </>
-                                        ),
-                                    })) ?? []
-                                }
-                            />
-                            {radioValue === 'incremental' &&
-                                incrementalFieldValue &&
-                                schema.incremental_fields.find((n) => n.field === incrementalFieldValue)?.nullable && (
-                                    <LemonBanner type="warning" className="mt-2">
-                                        This field is nullable. Any rows where <code>{incrementalFieldValue}</code> is
-                                        null will not be synced.
-                                    </LemonBanner>
-                                )}
-                            {radioValue === 'incremental' &&
-                                incrementalFieldValue &&
-                                schema.incremental_fields.find((n) => n.field === incrementalFieldValue)?.is_indexed ===
-                                    false && (
-                                    <LemonBanner type="warning" className="mt-2">
-                                        No index detected on <code>{incrementalFieldValue}</code>. Incremental syncs
-                                        query this column on every run; without an index the source database may scan
-                                        the full table on each sync. Consider adding an index, or pick a different
-                                        incremental field.
-                                    </LemonBanner>
-                                )}
-                            {radioValue === 'incremental' && columns.length > 0 && (
-                                <>
-                                    <p className="mt-4 mb-2">
-                                        Optionally, select one or more columns to use as the primary key for
-                                        deduplication. If not set, PostHog will attempt to auto-detect the primary key
-                                        from the source.
-                                    </p>
-                                    <LemonInputSelect
-                                        mode="multiple"
-                                        value={primaryKeyColumns}
-                                        onChange={(newValue) => !primaryKeyLocked && setPrimaryKeyColumns(newValue)}
-                                        disabled={primaryKeyLocked}
-                                        options={columns.map((col) => ({
-                                            key: col.field,
-                                            label: `${col.label} (${col.type})`,
-                                        }))}
-                                        placeholder={
-                                            resolvedDetectedPks
-                                                ? `Auto-detected: ${resolvedDetectedPks.join(', ')}`
-                                                : 'No primary key detected'
-                                        }
-                                    />
-                                    {primaryKeyLocked && (
-                                        <LemonBanner type="info" className="mt-2">
-                                            Primary key cannot be changed after data has been synced. Delete the synced
-                                            data first to change it.
+                </div>
+            ),
+        })
+    }
+
+    if (!hideNonWebhookOptions) {
+        radioOptions.push(
+            {
+                value: 'incremental',
+                disabledReason:
+                    (incrementalSyncSupported.disabled && incrementalSyncSupported.disabledReason) || undefined,
+                label: (
+                    <div className="mb-4 font-normal">
+                        <div className="items-center flex leading-[normal] overflow-hidden mb-1">
+                            <h4 className="mb-0 mr-2 text-base font-semibold">Incremental replication</h4>
+                            {!incrementalSyncSupported.disabled &&
+                                !schema.supports_webhooks &&
+                                !schema.cdc_available && <LemonTag type="success">Recommended</LemonTag>}
+                        </div>
+                        <p className="mb-2">
+                            When using incremental replication, we'll store the max value of the below field on each
+                            sync and only sync rows with greater or equal value on the next run.
+                        </p>
+                        <p className="mb-2">
+                            You should pick a field that increments or updates each time the row is updated, such as a{' '}
+                            <code>updated_at</code> timestamp.
+                        </p>
+                        {!incrementalSyncSupported.disabled && (
+                            <>
+                                <LemonSelect
+                                    value={incrementalFieldValue}
+                                    onChange={(newValue) => {
+                                        setIncrementalFieldValue(newValue)
+                                        setRadioValue('incremental')
+                                    }}
+                                    options={
+                                        schema.incremental_fields.map((n) => ({
+                                            value: n.field,
+                                            label: (
+                                                <>
+                                                    <span className="leading-5">{n.label}</span>
+                                                    <LemonTag className="ml-2" type="success">
+                                                        {n.type}
+                                                    </LemonTag>
+                                                </>
+                                            ),
+                                        })) ?? []
+                                    }
+                                />
+                                {radioValue === 'incremental' &&
+                                    incrementalFieldValue &&
+                                    schema.incremental_fields.find((n) => n.field === incrementalFieldValue)
+                                        ?.nullable && (
+                                        <LemonBanner type="warning" className="mt-2">
+                                            This field is nullable. Any rows where <code>{incrementalFieldValue}</code>{' '}
+                                            is null will not be synced.
                                         </LemonBanner>
                                     )}
-                                    {primaryKeyColumns.length === 0 && !resolvedDetectedPks && !primaryKeyLocked && (
-                                        <LemonBanner type="info" className="mt-2">
-                                            No primary key could be auto-detected from the source. Select one manually
-                                            to enable incremental sync, or use full table replication instead.
+                                {radioValue === 'incremental' &&
+                                    incrementalFieldValue &&
+                                    schema.incremental_fields.find((n) => n.field === incrementalFieldValue)
+                                        ?.is_indexed === false && (
+                                        <LemonBanner type="warning" className="mt-2">
+                                            No index detected on <code>{incrementalFieldValue}</code>. Incremental syncs
+                                            query this column on every run; without an index the source database may
+                                            scan the full table on each sync. Consider adding an index, or pick a
+                                            different incremental field.
                                         </LemonBanner>
                                     )}
-                                    {primaryKeyColumns.length > 0 &&
-                                        primaryKeyColumns.some(
-                                            (pk) => columns.find((col) => col.field === pk)?.nullable
-                                        ) && (
-                                            <LemonBanner type="warning" className="mt-2">
-                                                One or more selected primary key columns are nullable. Rows with null
-                                                values may cause issues with deduplication.
+                                {radioValue === 'incremental' &&
+                                    incrementalFieldValue &&
+                                    isLookbackEligibleType(
+                                        schema.incremental_fields.find((n) => n.field === incrementalFieldValue)
+                                            ?.field_type
+                                    ) && (
+                                        <div className="mt-4">
+                                            <p className="mb-1 font-semibold">Lookback window (optional)</p>
+                                            <p className="mb-2 text-secondary text-sm">
+                                                On each sync, re-read rows from this far before the last synced value of{' '}
+                                                <code>{incrementalFieldValue}</code>. Catches rows that arrive late or
+                                                with a backdated value. The stored sync position isn't changed.
+                                            </p>
+                                            <div className="flex items-center gap-2">
+                                                <LemonInput
+                                                    type="number"
+                                                    min={0}
+                                                    max={60}
+                                                    value={lookbackAmount ?? undefined}
+                                                    onChange={(newValue) => setLookbackAmount(newValue ?? null)}
+                                                    placeholder="0"
+                                                    className="w-24"
+                                                />
+                                                <LemonSelect
+                                                    value={lookbackUnit}
+                                                    onChange={(newValue) => setLookbackUnit(newValue)}
+                                                    options={[
+                                                        { value: 'minutes', label: 'minutes' },
+                                                        { value: 'hours', label: 'hours' },
+                                                        { value: 'days', label: 'days' },
+                                                    ]}
+                                                />
+                                            </div>
+                                            {lookbackSeconds !== null && lookbackSeconds > 604800 && (
+                                                <LemonBanner type="warning" className="mt-2">
+                                                    Large lookback windows re-read more source data on every sync, which
+                                                    increases warehouse cost and sync duration. Consider a shorter
+                                                    window if your source timestamps are broadly reliable.
+                                                </LemonBanner>
+                                            )}
+                                        </div>
+                                    )}
+                                {radioValue === 'incremental' && columns.length > 0 && (
+                                    <>
+                                        <p className="mt-4 mb-2">
+                                            Optionally, select one or more columns to use as the primary key for
+                                            deduplication. If not set, PostHog will attempt to auto-detect the primary
+                                            key from the source.
+                                        </p>
+                                        <LemonInputSelect
+                                            mode="multiple"
+                                            value={primaryKeyColumns}
+                                            onChange={(newValue) => !primaryKeyLocked && setPrimaryKeyColumns(newValue)}
+                                            disabled={primaryKeyLocked}
+                                            options={columns.map((col) => ({
+                                                key: col.field,
+                                                label: `${col.label} (${col.type})`,
+                                            }))}
+                                            placeholder={
+                                                resolvedDetectedPks
+                                                    ? `Auto-detected: ${resolvedDetectedPks.join(', ')}`
+                                                    : 'No primary key detected'
+                                            }
+                                        />
+                                        {primaryKeyLocked && (
+                                            <LemonBanner type="info" className="mt-2">
+                                                Primary key cannot be changed after data has been synced. Delete the
+                                                synced data first to change it.
                                             </LemonBanner>
                                         )}
-                                </>
-                            )}
-                        </>
-                    )}
-                </div>
-            ),
-        },
-        {
-            value: 'append',
-            disabledReason: (appendSyncSupported.disabled && appendSyncSupported.disabledReason) || undefined,
-            label: (
-                <div className="mb-4 font-normal">
-                    <div className="items-center flex leading-[normal] overflow-hidden mb-1">
-                        <h4 className="mb-0 mr-2 text-base font-semibold">Append only replication</h4>
-                    </div>
-                    <p className="mb-2">
-                        When using append only replication, similar to incremental above, we'll store the max value of
-                        the below field on each sync and only sync rows with greater or equal value on the next run. But
-                        unlike incremental replication, we'll append the rows as opposed to merge them into the existing
-                        table, meaning you can have duplicate data if the value for the below field changes on a row.
-                        You should only use append only replication for sources that don't support incremental.
-                    </p>
-                    <p className="mb-2">
-                        You should pick a field that doesn't change each time the row is updated, such as a{' '}
-                        <code>created_at</code> timestamp.
-                    </p>
-                    {!appendSyncSupported.disabled && (
-                        <>
-                            <LemonSelect
-                                value={appendFieldValue}
-                                onChange={(newValue) => {
-                                    setAppendFieldValue(newValue)
-                                    setRadioValue('append')
-                                }}
-                                options={
-                                    schema.incremental_fields.map((n) => ({
-                                        value: n.field,
-                                        label: (
-                                            <>
-                                                <span className="leading-5">{n.label}</span>
-                                                <LemonTag className="ml-2" type="success">
-                                                    {n.type}
-                                                </LemonTag>
-                                            </>
-                                        ),
-                                    })) ?? []
-                                }
-                            />
-                            {radioValue === 'append' &&
-                                appendFieldValue &&
-                                schema.incremental_fields.find((n) => n.field === appendFieldValue)?.nullable && (
-                                    <LemonBanner type="warning" className="mt-2">
-                                        This field is nullable. Any rows where <code>{appendFieldValue}</code> is null
-                                        will not be synced.
-                                    </LemonBanner>
+                                        {primaryKeyColumns.length === 0 &&
+                                            !resolvedDetectedPks &&
+                                            !primaryKeyLocked && (
+                                                <LemonBanner type="info" className="mt-2">
+                                                    No primary key could be auto-detected from the source. Select one
+                                                    manually to enable incremental sync, or use full table replication
+                                                    instead.
+                                                </LemonBanner>
+                                            )}
+                                        {primaryKeyColumns.length > 0 &&
+                                            primaryKeyColumns.some(
+                                                (pk) => columns.find((col) => col.field === pk)?.nullable
+                                            ) && (
+                                                <LemonBanner type="warning" className="mt-2">
+                                                    One or more selected primary key columns are nullable. Rows with
+                                                    null values may cause issues with deduplication.
+                                                </LemonBanner>
+                                            )}
+                                    </>
                                 )}
-                            {radioValue === 'append' &&
-                                appendFieldValue &&
-                                schema.incremental_fields.find((n) => n.field === appendFieldValue)?.is_indexed ===
-                                    false && (
-                                    <LemonBanner type="warning" className="mt-2">
-                                        No index detected on <code>{appendFieldValue}</code>. Append only syncs query
-                                        this column on every run; without an index the source database may scan the full
-                                        table on each sync. Consider adding an index, or pick a different field.
-                                    </LemonBanner>
-                                )}
-                        </>
-                    )}
-                </div>
-            ),
-        },
-        {
-            value: 'full_refresh',
-            label: (
-                <div className="mb-6 font-normal">
-                    <div className="items-center flex leading-[normal] overflow-hidden mb-1">
-                        <h4 className="mb-0 mr-2 text-base font-semibold">Full table replication</h4>
+                            </>
+                        )}
                     </div>
-                    <p className="m-0">
-                        We'll replicate the whole table on every sync. This can take longer to sync and increase your
-                        monthly billing.
-                    </p>
-                </div>
-            ),
-        }
-    )
+                ),
+            },
+            {
+                value: 'append',
+                disabledReason: (appendSyncSupported.disabled && appendSyncSupported.disabledReason) || undefined,
+                label: (
+                    <div className="mb-4 font-normal">
+                        <div className="items-center flex leading-[normal] overflow-hidden mb-1">
+                            <h4 className="mb-0 mr-2 text-base font-semibold">Append only replication</h4>
+                        </div>
+                        <p className="mb-2">
+                            When using append only replication, similar to incremental above, we'll store the max value
+                            of the below field on each sync and only sync rows with greater or equal value on the next
+                            run. But unlike incremental replication, we'll append the rows as opposed to merge them into
+                            the existing table, meaning you can have duplicate data if the value for the below field
+                            changes on a row. You should only use append only replication for sources that don't support
+                            incremental.
+                        </p>
+                        <p className="mb-2">
+                            You should pick a field that doesn't change each time the row is updated, such as a{' '}
+                            <code>created_at</code> timestamp.
+                        </p>
+                        {!appendSyncSupported.disabled && (
+                            <>
+                                <LemonSelect
+                                    value={appendFieldValue}
+                                    onChange={(newValue) => {
+                                        setAppendFieldValue(newValue)
+                                        setRadioValue('append')
+                                    }}
+                                    options={
+                                        schema.incremental_fields.map((n) => ({
+                                            value: n.field,
+                                            label: (
+                                                <>
+                                                    <span className="leading-5">{n.label}</span>
+                                                    <LemonTag className="ml-2" type="success">
+                                                        {n.type}
+                                                    </LemonTag>
+                                                </>
+                                            ),
+                                        })) ?? []
+                                    }
+                                />
+                                {radioValue === 'append' &&
+                                    appendFieldValue &&
+                                    schema.incremental_fields.find((n) => n.field === appendFieldValue)?.nullable && (
+                                        <LemonBanner type="warning" className="mt-2">
+                                            This field is nullable. Any rows where <code>{appendFieldValue}</code> is
+                                            null will not be synced.
+                                        </LemonBanner>
+                                    )}
+                                {radioValue === 'append' &&
+                                    appendFieldValue &&
+                                    schema.incremental_fields.find((n) => n.field === appendFieldValue)?.is_indexed ===
+                                        false && (
+                                        <LemonBanner type="warning" className="mt-2">
+                                            No index detected on <code>{appendFieldValue}</code>. Append only syncs
+                                            query this column on every run; without an index the source database may
+                                            scan the full table on each sync. Consider adding an index, or pick a
+                                            different field.
+                                        </LemonBanner>
+                                    )}
+                            </>
+                        )}
+                    </div>
+                ),
+            },
+            {
+                value: 'full_refresh',
+                label: (
+                    <div className="mb-6 font-normal">
+                        <div className="items-center flex leading-[normal] overflow-hidden mb-1">
+                            <h4 className="mb-0 mr-2 text-base font-semibold">Full table replication</h4>
+                        </div>
+                        <p className="m-0">
+                            We'll replicate the whole table on every sync. This can take longer to sync and increase
+                            your monthly billing.
+                        </p>
+                    </div>
+                ),
+            }
+        )
+    }
 
     // The form is "dirty" if the user has deviated from the server-persisted sync config. For a
     // schema that has never been set up (`schema.sync_type` is null), any selection counts as
@@ -490,6 +614,9 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
             if (primaryKeyColumns.some((pk, index) => pk !== serverPrimaryKeys[index])) {
                 return true
             }
+            if (lookbackSeconds !== (schema.incremental_field_lookback_seconds ?? null)) {
+                return true
+            }
         }
         if (radioValue === 'append' && appendFieldValue !== (schema.incremental_field ?? null)) {
             return true
@@ -508,6 +635,9 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
             onSave('webhook', null, null, null)
         } else if (radioValue === 'cdc') {
             onSave('cdc', null, null, null, cdcTableMode)
+        } else if (radioValue === 'xmin') {
+            // xmin carries no user-picked incremental field; the source projects the system column.
+            onSave('xmin', null, null, null)
         } else if (radioValue === 'incremental') {
             const fieldSelected = schema.incremental_fields.find((n) => n.field === incrementalFieldValue)
             if (!fieldSelected) {
@@ -519,7 +649,9 @@ export const SyncMethodForm = forwardRef<SyncMethodFormHandle, SyncMethodFormPro
                 'incremental',
                 incrementalFieldValue,
                 fieldSelected.field_type,
-                primaryKeyColumns.length > 0 ? primaryKeyColumns : null
+                primaryKeyColumns.length > 0 ? primaryKeyColumns : null,
+                undefined,
+                isLookbackEligibleType(fieldSelected.field_type) ? lookbackSeconds : null
             )
         } else if (radioValue === 'append') {
             const fieldSelected = schema.incremental_fields.find((n) => n.field === appendFieldValue)

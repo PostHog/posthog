@@ -10,7 +10,9 @@ export enum Scene {
     Action = 'Action',
     Actions = 'Actions',
     AdvancedActivityLogs = 'AdvancedActivityLogs',
+    AgenticAccountMismatch = 'AgenticAccountMismatch',
     AgenticAuthorize = 'AgenticAuthorize',
+    AIGateway = 'AIGateway',
     Annotations = 'Annotations',
     Approval = 'Approval',
     AsyncMigrations = 'AsyncMigrations',
@@ -38,6 +40,7 @@ export enum Scene {
     DataOps = 'DataOps',
     DataWarehouseRedirect = 'DataWarehouseRedirect',
     DataWarehouseSource = 'DataWarehouseSource',
+    DataWarehouseSourceConnect = 'DataWarehouseSourceConnect',
     DataWarehouseSourceNew = 'DataWarehouseSourceNew',
     DataWarehouseSourceSchema = 'DataWarehouseSourceSchema',
     DeadLetterQueue = 'DeadLetterQueue',
@@ -62,9 +65,6 @@ export enum Scene {
     Subscription = 'Subscription',
     ExperimentsSharedMetric = 'ExperimentsSharedMetric',
     ExperimentsSharedMetrics = 'ExperimentsSharedMetrics',
-    Deployment = 'Deployment',
-    DeploymentProject = 'DeploymentProject',
-    Deployments = 'Deployments',
     ExploreEvents = 'ExploreEvents',
     ExploreSessions = 'ExploreSessions',
     FeatureFlag = 'FeatureFlag',
@@ -82,6 +82,7 @@ export enum Scene {
     Insight = 'Insight',
     InsightQuickStart = 'InsightQuickStart',
     IntegrationsRedirect = 'IntegrationsRedirect',
+    IntegrationsLanding = 'IntegrationsLanding',
     StripeConfirmInstall = 'StripeConfirmInstall',
     IngestionWarnings = 'IngestionWarnings',
     InviteSignup = 'InviteSignup',
@@ -116,6 +117,7 @@ export enum Scene {
     Person = 'Person',
     Persons = 'Persons',
     AccountConnected = 'AccountConnected',
+    CredentialReview = 'CredentialReview',
     Pipeline = 'Pipeline',
     PipelineStatus = 'PipelineStatus',
     PipelineNode = 'PipelineNode',
@@ -142,7 +144,8 @@ export enum Scene {
     SavedInsights = 'SavedInsights',
     Health = 'Health',
     HealthCategoryDetail = 'HealthCategoryDetail',
-    SdkDoctor = 'SdkDoctor',
+    HealthAlerts = 'HealthAlerts',
+    SdkHealth = 'SdkHealth',
     SessionAttributionExplorer = 'SessionAttributionExplorer',
     SessionGroupSummariesTable = 'SessionGroupSummariesTable',
     SessionGroupSummary = 'SessionGroupSummary',
@@ -163,6 +166,7 @@ export enum Scene {
     Tracing = 'Tracing',
     Metrics = 'Metrics',
     Transformations = 'Transformations',
+    EventFiltering = 'EventFiltering',
     Unsubscribe = 'Unsubscribe',
     UserInterview = 'UserInterview',
     UserInterviewResponse = 'UserInterviewResponse',
@@ -184,16 +188,17 @@ export enum Scene {
     EarlyAccessFeature = 'EarlyAccessFeature',
     EndpointsScene = 'EndpointsScene',
     Game368Hedgehogs = 'Game368Hedgehogs',
-    LLMAnalytics = 'LLMAnalytics',
-    LLMAnalyticsDataset = 'LLMAnalyticsDataset',
-    LLMAnalyticsDatasets = 'LLMAnalyticsDatasets',
-    LLMAnalyticsEvaluation = 'LLMAnalyticsEvaluation',
-    LLMAnalyticsEvaluations = 'LLMAnalyticsEvaluations',
-    LLMAnalyticsPlayground = 'LLMAnalyticsPlayground',
-    LLMAnalyticsTrace = 'LLMAnalyticsTrace',
-    LLMAnalyticsUsers = 'LLMAnalyticsUsers',
+    AIObservability = 'AIObservability',
+    AIObservabilityDataset = 'AIObservabilityDataset',
+    AIObservabilityDatasets = 'AIObservabilityDatasets',
+    AIObservabilityEvaluation = 'AIObservabilityEvaluation',
+    AIObservabilityEvaluations = 'AIObservabilityEvaluations',
+    AIObservabilityPlayground = 'AIObservabilityPlayground',
+    AIObservabilityTrace = 'AIObservabilityTrace',
+    AIObservabilityUsers = 'AIObservabilityUsers',
     Logs = 'Logs',
     LogsAlertDetail = 'LogsAlertDetail',
+    LogsAlertNotificationDetail = 'LogsAlertNotificationDetail',
     LogsSamplingNew = 'LogsSamplingNew',
     LogsSamplingDetail = 'LogsSamplingDetail',
     ManagedMigration = 'ManagedMigration',
@@ -204,8 +209,10 @@ export enum Scene {
     NewAction = 'NewAction',
     TaskDetail = 'TaskDetail',
     TaskTracker = 'TaskTracker',
+    SlackTaskContext = 'SlackTaskContext',
     OrganizationDeactivated = 'OrganizationDeactivated',
     OrganizationPendingDeletion = 'OrganizationPendingDeletion',
+    ProjectPendingDeletion = 'ProjectPendingDeletion',
     CustomerJourneyTemplates = 'CustomerJourneyTemplates',
 }
 
@@ -229,7 +236,6 @@ export interface SceneExport<T = SceneProps> {
 // we use an untyped SceneProps to satisfy the types
 export interface LoadedScene extends SceneExport<SceneProps> {
     id: string
-    tabId?: string
     sceneParams: SceneParams
 }
 
@@ -344,6 +350,9 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.Survey]: AccessControlResourceType.Survey,
     [Scene.Surveys]: AccessControlResourceType.Survey,
 
+    // Endpoints
+    [Scene.EndpointsScene]: AccessControlResourceType.Endpoint,
+
     // Product Tours
     [Scene.ProductTour]: AccessControlResourceType.ProductTour,
     [Scene.ProductTours]: AccessControlResourceType.ProductTour,
@@ -352,19 +361,22 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.Experiment]: AccessControlResourceType.Experiment,
     [Scene.Experiments]: AccessControlResourceType.Experiment,
 
+    // Exports
+    [Scene.Exports]: AccessControlResourceType.Export,
+
     // Customer analytics (only journey scenes — configuration uses project-level admin)
     [Scene.CustomerJourneyBuilder]: AccessControlResourceType.CustomerAnalytics,
     [Scene.CustomerJourneyTemplates]: AccessControlResourceType.CustomerAnalytics,
 
-    // LLM Analytics
-    [Scene.LLMAnalytics]: AccessControlResourceType.LlmAnalytics,
-    [Scene.LLMAnalyticsDataset]: AccessControlResourceType.LlmAnalytics,
-    [Scene.LLMAnalyticsDatasets]: AccessControlResourceType.LlmAnalytics,
-    [Scene.LLMAnalyticsEvaluation]: AccessControlResourceType.LlmAnalytics,
-    [Scene.LLMAnalyticsEvaluations]: AccessControlResourceType.LlmAnalytics,
-    [Scene.LLMAnalyticsPlayground]: AccessControlResourceType.LlmAnalytics,
-    [Scene.LLMAnalyticsTrace]: AccessControlResourceType.LlmAnalytics,
-    [Scene.LLMAnalyticsUsers]: AccessControlResourceType.LlmAnalytics,
+    // AI observability
+    [Scene.AIObservability]: AccessControlResourceType.LlmAnalytics,
+    [Scene.AIObservabilityDataset]: AccessControlResourceType.LlmAnalytics,
+    [Scene.AIObservabilityDatasets]: AccessControlResourceType.LlmAnalytics,
+    [Scene.AIObservabilityEvaluation]: AccessControlResourceType.LlmAnalytics,
+    [Scene.AIObservabilityEvaluations]: AccessControlResourceType.LlmAnalytics,
+    [Scene.AIObservabilityPlayground]: AccessControlResourceType.LlmAnalytics,
+    [Scene.AIObservabilityTrace]: AccessControlResourceType.LlmAnalytics,
+    [Scene.AIObservabilityUsers]: AccessControlResourceType.LlmAnalytics,
 
     // Data warehouse sources - not included here because self-managed sources don't have access control.
     // Managed sources handle access control at the logic level via SIDE_PANEL_CONTEXT_KEY.

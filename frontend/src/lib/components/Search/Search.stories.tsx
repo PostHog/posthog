@@ -1,4 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { delay, HttpResponse } from 'msw'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import { EMPTY_PAGINATED_RESPONSE, toPaginatedResponse } from '~/mocks/handlers'
@@ -70,7 +71,7 @@ const MOCK_PRODUCT_RECENTS = [
         path: 'LLM analytics',
         type: 'llm_analytics',
         ref: 'llm_analytics',
-        href: '/project/2/llm-analytics',
+        href: '/project/2/ai-observability',
         last_viewed_at: new Date(Date.now() - 1000 * 60 * 60).toISOString(),
     },
     {
@@ -188,8 +189,9 @@ export const Default: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/environments/:team_id/file_system/': (_req, res, ctx) => {
-                    return res(ctx.delay(10), ctx.json(toPaginatedResponse(MOCK_RECENTS)))
+                '/api/environments/:team_id/file_system/': async () => {
+                    await delay(10)
+                    return HttpResponse.json(toPaginatedResponse(MOCK_RECENTS))
                 },
                 '/api/environments/:team_id/search/': () => [200, { results: [], counts: {} }],
                 ...SHARED_MOCKS,
@@ -216,11 +218,13 @@ export const ProductRecentsAndStarred: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/environments/:team_id/file_system/': (_req, res, ctx) => {
-                    return res(ctx.delay(10), ctx.json(toPaginatedResponse(MOCK_PRODUCT_RECENTS)))
+                '/api/environments/:team_id/file_system/': async () => {
+                    await delay(10)
+                    return HttpResponse.json(toPaginatedResponse(MOCK_PRODUCT_RECENTS))
                 },
-                '/api/environments/:team_id/file_system_shortcut/': (_req, res, ctx) => {
-                    return res(ctx.delay(10), ctx.json(toPaginatedResponse(MOCK_PRODUCT_STARRED)))
+                '/api/environments/:team_id/file_system_shortcut/': async () => {
+                    await delay(10)
+                    return HttpResponse.json(toPaginatedResponse(MOCK_PRODUCT_STARRED))
                 },
                 '/api/environments/:team_id/search/': () => [200, { results: [], counts: {} }],
                 ...SHARED_MOCKS,
@@ -241,7 +245,7 @@ export const ProductRecentsAndStarred: Story = {
     parameters: {
         docs: {
             description: {
-                story: 'Recents and starred entries whose `type` matches an entry in `availableOnboardingProducts` render with the manifest brand colour (e.g. green for web analytics, purple for LLM analytics) instead of falling back to `currentColor`. Demonstrates the fix for product icons in recents/starred shortcuts.',
+                story: 'Recents and starred entries whose `type` matches an entry in `availableOnboardingProducts` render with the manifest brand colour (e.g. green for web analytics, purple for AI observability) instead of falling back to `currentColor`. Demonstrates the fix for product icons in recents/starred shortcuts.',
             },
         },
     },
@@ -251,11 +255,13 @@ export const Searching: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/environments/:team_id/file_system/': (_req, res, ctx) => {
-                    return res(ctx.delay(10), ctx.json(toPaginatedResponse(MOCK_RECENTS)))
+                '/api/environments/:team_id/file_system/': async () => {
+                    await delay(10)
+                    return HttpResponse.json(toPaginatedResponse(MOCK_RECENTS))
                 },
-                '/api/environments/:team_id/search/': (_req, res, ctx) => {
-                    return res(ctx.delay(100), ctx.json(MOCK_SEARCH_RESULTS))
+                '/api/environments/:team_id/search/': async () => {
+                    await delay(100)
+                    return HttpResponse.json(MOCK_SEARCH_RESULTS)
                 },
                 ...SHARED_MOCKS,
             },

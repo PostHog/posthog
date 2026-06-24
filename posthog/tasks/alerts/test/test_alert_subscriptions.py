@@ -5,12 +5,13 @@ from unittest.mock import MagicMock, patch
 from posthog.schema import ChartDisplayType, EventsNode, TrendsFilter, TrendsQuery
 
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.models import AlertConfiguration, User
-from posthog.models.alert import AlertSubscription
+from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.tasks.alerts.utils import send_notifications_for_breaches
 from posthog.tasks.test.utils_email_tests import mock_email_messages
+
+from products.alerts.backend.models import AlertConfiguration, AlertSubscription
 
 
 @freeze_time("2024-06-02T08:55:00.000Z")
@@ -40,7 +41,7 @@ class TestAlertSubscriptionOrgMembership(APIBaseTest):
                 "calculation_interval": "daily",
                 "config": {"type": "TrendsAlertConfig", "series_index": 0},
                 "condition": {"type": "absolute_value"},
-                "threshold": {"configuration": {"type": "absolute", "bounds": {}}},
+                "threshold": {"configuration": {"type": "absolute", "bounds": {"lower": 0}}},
             },
         ).json()
 
@@ -105,7 +106,7 @@ class TestGetSubscribedUsersEmails(APIBaseTest):
                 "calculation_interval": "daily",
                 "config": {"type": "TrendsAlertConfig", "series_index": 0},
                 "condition": {"type": "absolute_value"},
-                "threshold": {"configuration": {"type": "absolute", "bounds": {}}},
+                "threshold": {"configuration": {"type": "absolute", "bounds": {"lower": 0}}},
             },
         ).json()
 
@@ -175,7 +176,7 @@ class TestAlertEmailNotifications(APIBaseTest):
                 "calculation_interval": "daily",
                 "config": {"type": "TrendsAlertConfig", "series_index": 0},
                 "condition": {"type": "absolute_value"},
-                "threshold": {"configuration": {"type": "absolute", "bounds": {}}},
+                "threshold": {"configuration": {"type": "absolute", "bounds": {"lower": 0}}},
             },
         ).json()
 

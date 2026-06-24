@@ -4,8 +4,9 @@ from posthog.test.base import BaseTest, _create_action, _create_event, _create_p
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_response_in_tests
 
-from posthog.models import Action
 from posthog.models.utils import UUIDT
+
+from products.actions.backend.models.action import Action
 
 
 def _create_action_with_property(**kwargs):

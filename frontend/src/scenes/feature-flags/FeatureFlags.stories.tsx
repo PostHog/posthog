@@ -33,9 +33,9 @@ const meta: Meta = {
                         detail: 'Not found.',
                     },
                 ],
-                '/api/projects/:team_id/feature_flags/:flagId/': (req) => [
+                '/api/projects/:team_id/feature_flags/:flagId/': ({ params }) => [
                     200,
-                    featureFlags.results.find((r) => r.id === Number(req.params['flagId'])),
+                    featureFlags.results.find((r) => r.id === Number(params['flagId'])),
                 ],
                 '/api/projects/:team_id/feature_flags/:flagId/status': () => [
                     200,
@@ -47,6 +47,7 @@ const meta: Meta = {
                 '/api/environments/:team_id/default_evaluation_contexts/': {
                     default_evaluation_contexts: [],
                     available_contexts: [],
+                    hidden_contexts: [],
                     enabled: false,
                 },
             },
@@ -170,6 +171,8 @@ export const NewRemoteConfigFlagPayloadError: Story = {
 
         logic.actions.setFeatureFlagValue('key', 'demo-remote-config-flag')
         logic.actions.setFeatureFlagValue('is_remote_configuration', true)
+        // Yield to let React flush the state updates before triggering validation.
+        await new Promise((resolve) => setTimeout(resolve, 50))
         // Submit with empty payload: validatePayloadRequired fails, submitFeatureFlagFailure fires,
         // the listener expands the payload section, and the inline error is rendered.
         logic.actions.submitFeatureFlag()

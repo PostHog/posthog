@@ -1,33 +1,38 @@
+from datetime import date
+
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 import structlog
 
-from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_operator, sync_revenue_analytics_views
+from posthog.temporal.data_imports.pipelines.helpers import (
+    incremental_type_to_initial_value,
+    incremental_type_to_operator,
+    initial_datetime,
+    sync_revenue_analytics_views,
+)
 from posthog.temporal.data_imports.sources.stripe.constants import CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME
 
-from products.data_warehouse.backend.models import (
-    DataWarehouseCredential,
-    DataWarehouseManagedViewSet,
-    ExternalDataSchema,
-    ExternalDataSource,
-)
+from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
 from products.data_warehouse.backend.types import (
     DataWarehouseManagedViewSetKind,
     ExternalDataSourceType,
     IncrementalFieldType,
 )
+from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
-PATH = "products.data_warehouse.backend.models.datawarehouse_saved_query"
+PATH = "products.data_modeling.backend.models.datawarehouse_saved_query"
 
 
 @pytest.mark.parametrize(
     "field_type,expected",
     [
-        # Date is the only inclusive case — day-granularity cursors otherwise lose any
-        # rows landed on the boundary day after the cursor is saved.
+        # Date and XID are the inclusive (`>=`) cases.
         (IncrementalFieldType.Date, ">="),
+        (IncrementalFieldType.XID, ">="),
         (IncrementalFieldType.DateTime, ">"),
         (IncrementalFieldType.Timestamp, ">"),
         (IncrementalFieldType.Integer, ">"),
@@ -37,6 +42,22 @@ PATH = "products.data_warehouse.backend.models.datawarehouse_saved_query"
 )
 def test_incremental_type_to_operator(field_type: IncrementalFieldType, expected: str) -> None:
     assert incremental_type_to_operator(field_type) == expected
+
+
+@pytest.mark.parametrize(
+    "field_type,expected",
+    [
+        (IncrementalFieldType.XID, 0),
+        (IncrementalFieldType.Integer, 0),
+        (IncrementalFieldType.Numeric, 0),
+        (IncrementalFieldType.ObjectID, "000000000000000000000000"),
+        (IncrementalFieldType.DateTime, initial_datetime),
+        (IncrementalFieldType.Timestamp, initial_datetime),
+        (IncrementalFieldType.Date, date(1970, 1, 1)),
+    ],
+)
+def test_incremental_type_to_initial_value(field_type: IncrementalFieldType, expected: object) -> None:
+    assert incremental_type_to_initial_value(field_type) == expected
 
 
 class TestSyncRevenueAnalyticsViews(BaseTest):

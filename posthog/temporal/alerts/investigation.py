@@ -12,8 +12,7 @@ from datetime import UTC, datetime, timedelta
 
 from posthog.schema import AlertState
 
-from posthog.models import AlertConfiguration
-from posthog.models.alert import AlertCheck, InvestigationStatus
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 
 INVESTIGATION_COOLDOWN = timedelta(hours=1)
 

@@ -5,7 +5,8 @@ import { useEffect, useState } from 'react'
 import { IconCheckCircle, IconGlobe, IconList } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonLabel, LemonModal, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -61,7 +62,7 @@ function ConclusionForm(): JSX.Element {
                 <LemonTextArea
                     className="w-full border rounded p-2"
                     minRows={6}
-                    maxLength={400}
+                    maxLength={4000}
                     placeholder="Optional details about why this conclusion was selected..."
                     value={experiment.conclusion_comment || ''}
                     onChange={(value) =>
@@ -197,27 +198,24 @@ export function ResumeExperimentModal(): JSX.Element {
 }
 
 export function FinishExperimentModal(): JSX.Element {
-    const { experiment, isSingleVariantShipped, shippedVariantKey } = useValues(experimentLogic)
+    const { experiment, variants, isSingleVariantShipped, shippedVariantKey, endExperimentLoading } =
+        useValues(experimentLogic)
     const { finishExperiment, endExperimentWithoutShipping, restoreUnmodifiedExperiment } = useActions(experimentLogic)
     const { closeFinishExperimentModal } = useActions(modalsLogic)
     const { isFinishExperimentModalOpen } = useValues(modalsLogic)
     const { aggregationLabel } = useValues(groupsModel)
-
-    const showReleaseModeChoice = useFeatureFlag('EXPERIMENTS_SHIP_VARIANT_RELEASE_MODE', 'test')
+    const { featureFlags } = useValues(featureFlagLogic)
+    const conclusionFirst = !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_END_MODAL_CONCLUSION_FIRST]
 
     const [selectedVariantKey, setSelectedVariantKey] = useState<string | null>()
     const [releaseToEveryone, setReleaseToEveryone] = useState<boolean>(false)
 
     useEffect(() => {
-        if (experiment.parameters?.feature_flag_variants?.length > 1) {
+        if (variants.length > 1) {
             // First test variant selected by default
-            setSelectedVariantKey(experiment.parameters.feature_flag_variants[1].key)
+            setSelectedVariantKey(variants[1].key)
         }
-    }, [
-        experiment.id,
-        experiment.parameters?.feature_flag_variants?.length,
-        experiment.parameters?.feature_flag_variants,
-    ])
+    }, [experiment.id, variants])
 
     const aggregationTargetName =
         experiment.filters.aggregation_group_type_index != null
@@ -228,11 +226,9 @@ export function FinishExperimentModal(): JSX.Element {
         if (isSingleVariantShipped || !selectedVariantKey) {
             endExperimentWithoutShipping()
         } else {
-            // Control variant: preserve pre-flag behavior (prepend catch-all release condition).
-            // Test variant: honor the user's radio choice.
             finishExperiment({
                 selectedVariantKey,
-                releaseToEveryone: showReleaseModeChoice ? releaseToEveryone : true,
+                releaseToEveryone,
             })
         }
     }
@@ -278,6 +274,7 @@ export function FinishExperimentModal(): JSX.Element {
                         <LemonButton
                             onClick={handleEndExperiment}
                             type="primary"
+                            loading={endExperimentLoading}
                             disabledReason={!experiment.conclusion && 'Select a conclusion'}
                         >
                             End experiment
@@ -286,6 +283,7 @@ export function FinishExperimentModal(): JSX.Element {
                 }
             >
                 <div className="space-y-4">
+                    {conclusionFirst && <ConclusionForm />}
                     {isSingleVariantShipped ? (
                         <div>
                             <LemonBanner type="info" className="mb-4">
@@ -299,13 +297,10 @@ export function FinishExperimentModal(): JSX.Element {
                     ) : (
                         <>
                             <div>
-                                <LemonLabel>Variant to keep</LemonLabel>
-                                {!showReleaseModeChoice && (
-                                    <div className="text-sm text-secondary mb-2">
-                                        The selected variant will be rolled out to{' '}
-                                        <b>100% of {aggregationTargetName}</b>.
-                                    </div>
-                                )}
+                                <LemonLabel showOptional>Variant to keep</LemonLabel>
+                                <div className="text-xs text-muted mb-1">
+                                    Leave blank to end the experiment without rolling out a variant.
+                                </div>
                                 <div className="w-1/2 mt-1">
                                     <LemonSelect
                                         className="w-full"
@@ -329,7 +324,7 @@ export function FinishExperimentModal(): JSX.Element {
                                     />
                                 </div>
                             </div>
-                            {showReleaseModeChoice && selectedVariantKey && (
+                            {selectedVariantKey && (
                                 <div className="flex flex-col gap-2">
                                     <LemonLabel>How to release this variant</LemonLabel>
                                     <div
@@ -387,7 +382,7 @@ export function FinishExperimentModal(): JSX.Element {
                             )}
                         </>
                     )}
-                    <ConclusionForm />
+                    {!conclusionFirst && <ConclusionForm />}
                     {!isSingleVariantShipped && (
                         <LemonBanner type="info" className="mb-4">
                             For more precise control over your release, adjust the rollout percentage and release

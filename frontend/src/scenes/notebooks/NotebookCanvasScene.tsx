@@ -4,8 +4,8 @@ import { useMemo } from 'react'
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu, lemonToast } from '@posthog/lemon-ui'
 
-import { uuid } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { uuid } from 'lib/utils/dom'
 import { getTextFromFile, selectFiles } from 'lib/utils/file-utils'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -61,8 +61,11 @@ export function NotebookCanvas(): JSX.Element {
                                             contentType: 'application/json',
                                             multiple: false,
                                         })
-                                            .then((files) => getTextFromFile(files[0]))
-                                            .then((text) => {
+                                            .then(async (files) => {
+                                                if (!files.length) {
+                                                    return
+                                                }
+                                                const text = await getTextFromFile(files[0])
                                                 const data = JSON.parse(text)
                                                 if (data.type !== 'doc') {
                                                     throw new Error('Not a notebook')

@@ -1,10 +1,15 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { mcpAnalyticsSessionsList, mcpAnalyticsSessionsToolCalls } from '../generated/api'
-import type { MCPSessionApi, MCPToolCallApi } from '../generated/api.schemas'
+import {
+    mcpAnalyticsSessionsGenerateIntent,
+    mcpAnalyticsSessionsList,
+    mcpAnalyticsSessionsToolCalls,
+} from '../generated/api'
+import type { MCPSessionApi, MCPSessionIntentApi, MCPToolCallApi } from '../generated/api.schemas'
 import type { mcpSessionsLogicType } from './mcpSessionsLogicType'
 
 export interface MCPSessionsFilters {
@@ -16,6 +21,9 @@ const DEFAULT_FILTERS: MCPSessionsFilters = {
 }
 
 const SEARCH_DEBOUNCE_MS = 300
+
+// How many sessions to fetch per request. Each "Load more" appends the next page
+export const SESSIONS_PAGE_SIZE = 50
 
 // Must stay aligned with SESSION_SORT_FIELDS on the backend (logic.py).
 export type MCPSessionSortColumn =
@@ -32,7 +40,13 @@ export interface MCPSessionSorting {
     order: 1 | -1
 }
 
-const DEFAULT_SORTING: MCPSessionSorting = { column: 'session_end', order: -1 }
+const DEFAULT_SORTING: MCPSessionSorting = { column: 'session_start', order: -1 }
+
+export type MCPSessionOrderBy = `${'' | '-'}${MCPSessionSortColumn}`
+
+export function orderByParam(sorting: MCPSessionSorting | null): MCPSessionOrderBy | undefined {
+    return sorting ? `${sorting.order === -1 ? '-' : ''}${sorting.column}` : undefined
+}
 
 export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
     path(['products', 'mcp_analytics', 'frontend', 'sessions', 'mcpSessionsLogic']),
@@ -41,46 +55,94 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
     })),
     actions({
         // Declared explicitly so kea-typegen emits a no-arg signature for the loader
-        // action below — without this, the `(_, breakpoint)` loader signature forces
+        // actions below — without this, the `(_, breakpoint)` loader signature forces
         // every call site to pass a placeholder argument.
         loadSessions: true,
+        loadMoreSessions: true,
         setFilters: (filters: Partial<MCPSessionsFilters>) => ({ filters }),
         setSorting: (sorting: MCPSessionSorting | null) => ({ sorting }),
+        setHasNext: (hasNext: boolean) => ({ hasNext }),
         selectSession: (sessionId: string | null) => ({ sessionId }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         sessions: [
             [] as MCPSessionApi[],
             {
+                // First page / reset (search or sort change). Replaces the list.
                 loadSessions: async (_, breakpoint) => {
-                    // Debounce keystroke-driven loads. afterMount fires loadSessions with no
-                    // payload, in which case we still want the initial fetch to be fast — so
-                    // only honour the debounce when there is a search term.
                     if (values.filters.search) {
                         await breakpoint(SEARCH_DEBOUNCE_MS)
                     }
                     if (!values.currentProjectId) {
                         return []
                     }
-                    const sorting = values.sorting
-                    const orderBy = sorting ? `${sorting.order === -1 ? '-' : ''}${sorting.column}` : undefined
                     const response = await mcpAnalyticsSessionsList(String(values.currentProjectId), {
                         search: values.filters.search || undefined,
-                        order_by: orderBy,
+                        order_by: orderByParam(values.sorting),
+                        limit: SESSIONS_PAGE_SIZE,
+                        offset: 0,
                     })
+                    actions.setHasNext(response.has_next ?? false)
                     return [...(response.results ?? [])]
+                },
+                // Load more: append the next page at offset = current length.
+                loadMoreSessions: async () => {
+                    if (!values.currentProjectId) {
+                        return values.sessions
+                    }
+                    // Snapshot the list and the query (search + sort) before the await. If a
+                    // concurrent loadSessions reset (sort/search change) lands while this page
+                    // is in flight, merging against the post-await values.sessions would corrupt
+                    // the list — so we both offset and merge from the snapshot, and drop this
+                    // page entirely if the query changed underneath us.
+                    const baseSessions = values.sessions
+                    const search = values.filters.search
+                    const orderBy = orderByParam(values.sorting)
+                    const response = await mcpAnalyticsSessionsList(String(values.currentProjectId), {
+                        search: search || undefined,
+                        order_by: orderBy,
+                        limit: SESSIONS_PAGE_SIZE,
+                        offset: baseSessions.length,
+                    })
+                    if (search !== values.filters.search || orderBy !== orderByParam(values.sorting)) {
+                        return values.sessions
+                    }
+                    actions.setHasNext(response.has_next ?? false)
+                    return [...baseSessions, ...(response.results ?? [])]
                 },
             },
         ],
         toolCalls: [
             [] as MCPToolCallApi[],
             {
-                loadToolCalls: async (sessionId: string) => {
+                loadToolCalls: async (sessionId: string, breakpoint) => {
                     if (!values.currentProjectId || !sessionId) {
                         return []
                     }
-                    const response = await mcpAnalyticsSessionsToolCalls(String(values.currentProjectId), sessionId)
+                    // session_id comes from untrusted event properties — encode it so path/query
+                    // delimiters can't redirect this request to another same-origin endpoint.
+                    const response = await mcpAnalyticsSessionsToolCalls(
+                        String(values.currentProjectId),
+                        encodeURIComponent(sessionId)
+                    )
+                    breakpoint()
                     return [...(response.results ?? [])]
+                },
+            },
+        ],
+        generatedIntent: [
+            null as MCPSessionIntentApi | null,
+            {
+                generateIntent: async (sessionId: string) => {
+                    if (!values.currentProjectId || !sessionId) {
+                        return null
+                    }
+                    // session_id comes from untrusted event properties — encode it so path/query
+                    // delimiters can't redirect this POST to another same-origin endpoint.
+                    return await mcpAnalyticsSessionsGenerateIntent(
+                        String(values.currentProjectId),
+                        encodeURIComponent(sessionId)
+                    )
                 },
             },
         ],
@@ -104,6 +166,32 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                 setSorting: (_, { sorting }) => sorting,
             },
         ],
+        hasNext: [
+            false,
+            {
+                setHasNext: (_, { hasNext }) => hasNext,
+                // Hide "Load more" the moment a reset starts so it isn't shown (disabled,
+                // spinning) during the reset; setHasNext restores it when the page resolves.
+                loadSessions: () => false,
+            },
+        ],
+        intentOverrides: [
+            {} as Record<string, string>,
+            {
+                generateIntentSuccess: (state, { generatedIntent }) =>
+                    generatedIntent?.intent
+                        ? { ...state, [generatedIntent.session_id]: generatedIntent.intent }
+                        : state,
+            },
+        ],
+        generatingSessionId: [
+            null as string | null,
+            {
+                generateIntent: (_, sessionId) => sessionId,
+                generateIntentSuccess: () => null,
+                generateIntentFailure: () => null,
+            },
+        ],
     }),
     selectors({
         selectedSession: [
@@ -115,8 +203,25 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                 return sessions.find((session) => session.session_id === selectedSessionId) ?? null
             },
         ],
+        selectedSessionIntent: [
+            (s) => [s.selectedSession, s.intentOverrides, s.selectedSessionId],
+            (selectedSession, intentOverrides, selectedSessionId): string => {
+                if (selectedSessionId && intentOverrides[selectedSessionId]) {
+                    return intentOverrides[selectedSessionId]
+                }
+                return selectedSession?.intent ?? ''
+            },
+        ],
+        // True only while a generation for the *currently selected* session is running, so a
+        // generation kicked off for another session never shows a spinner on this one.
+        isSelectedSessionGenerating: [
+            (s) => [s.generatedIntentLoading, s.generatingSessionId, s.selectedSessionId],
+            (generatedIntentLoading, generatingSessionId, selectedSessionId): boolean =>
+                generatedIntentLoading && generatingSessionId === selectedSessionId,
+        ],
     }),
     listeners(({ actions, values }) => ({
+        // A new filter or sort changes the result set — reload from the first page.
         setFilters: () => {
             actions.loadSessions()
         },
@@ -128,9 +233,14 @@ export const mcpSessionsLogic = kea<mcpSessionsLogicType>([
                 actions.loadToolCalls(sessionId)
             }
         },
+        // The button just resets to its idle state on failure; surface a toast so the user
+        // knows the request failed (e.g. a 503 when intent generation is unavailable).
+        generateIntentFailure: () => {
+            lemonToast.error('Could not generate the session intent. Please try again.')
+        },
+        // Only fires on a reset load (not on loadMore), so appending more pages doesn't
+        // steal the user's selection. Auto-selects the first row when the set changes.
         loadSessionsSuccess: ({ sessions }) => {
-            // Auto-select the first session whenever results come back. If the user
-            // had a session pinned that is no longer in the filtered set, clear it.
             if (sessions.length === 0) {
                 if (values.selectedSessionId) {
                     actions.selectSession(null)

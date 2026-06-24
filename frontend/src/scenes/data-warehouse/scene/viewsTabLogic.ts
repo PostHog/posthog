@@ -5,6 +5,7 @@ import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import {
     DataWarehouseSavedQuery,
@@ -20,7 +21,12 @@ export const PAGE_SIZE = 10
 export const viewsTabLogic = kea<viewsTabLogicType>([
     path(['scenes', 'data-warehouse', 'scene', 'viewsTabLogic']),
     connect(() => ({
-        values: [dataWarehouseViewsLogic, ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueriesLoading']],
+        values: [
+            dataWarehouseViewsLogic,
+            ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueriesLoading'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
         actions: [dataWarehouseViewsLogic, ['deleteDataWarehouseSavedQuery', 'runDataWarehouseSavedQuery']],
     })),
     actions({
@@ -33,6 +39,8 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
         setMaterializedViewsPage: (page: number) => ({ page }),
         setViewsPage: (page: number) => ({ page }),
         loadVisibleData: true,
+        openAccessControlModal: (view: DataWarehouseSavedQuery) => ({ view }),
+        closeAccessControlModal: true,
     }),
     reducers({
         searchTerm: [
@@ -53,6 +61,20 @@ export const viewsTabLogic = kea<viewsTabLogicType>([
             {
                 setViewsPage: (_, { page }) => page,
                 setSearchTerm: () => 1, // Reset to page 1 on search
+            },
+        ],
+        accessControlModalOpen: [
+            false,
+            {
+                openAccessControlModal: () => true,
+                closeAccessControlModal: () => false,
+            },
+        ],
+        editingAccessControlView: [
+            null as DataWarehouseSavedQuery | null,
+            {
+                openAccessControlModal: (_, { view }) => view,
+                closeAccessControlModal: () => null,
             },
         ],
     }),

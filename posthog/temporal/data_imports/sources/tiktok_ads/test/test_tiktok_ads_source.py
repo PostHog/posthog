@@ -9,11 +9,14 @@ from unittest.mock import MagicMock, Mock, patch
 import structlog
 from parameterized import parameterized
 
+from posthog.schema import ReleaseStatus
+
 from posthog.models.integration import Integration
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.generated_configs import TikTokAdsSourceConfig
 from posthog.temporal.data_imports.sources.tiktok_ads.source import TikTokAdsSource
+from posthog.temporal.data_imports.sources.tiktok_ads.utils import TikTokAdsPaginator
 
 from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalFieldType
 
@@ -39,13 +42,75 @@ class TestTikTokAdsSource:
         """Test that source type is correctly identified."""
         assert self.source.source_type == ExternalDataSourceType.TIKTOKADS
 
+    @parameterized.expand(
+        [
+            ("advertiser_deleted", 40001, "The advertiser 123 doesn't exist or has been deleted."),
+            ("invalid_parameter", 40002, "Invalid parameter"),
+        ]
+    )
+    def test_non_retryable_paginator_error_matches_source_pattern(self, name, api_code, message):
+        """The ValueError the paginator raises for non-retryable codes must match a
+        pattern in get_non_retryable_errors, otherwise the job retries forever."""
+        paginator = TikTokAdsPaginator()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"code": api_code, "message": message, "data": {}}
+
+        with pytest.raises(ValueError) as exc_info:
+            paginator.update_state(mock_response)
+
+        error_message = str(exc_info.value)
+        patterns = self.source.get_non_retryable_errors()
+        assert any(pattern in error_message for pattern in patterns), (
+            f"TikTok non-retryable error '{error_message}' does not match any non-retryable pattern"
+        )
+
+    @parameterized.expand(
+        [
+            ("deleted_integration", "ValueError: Integration not found: 173586"),
+            ("missing_integration", "Integration not found: 456"),
+        ]
+    )
+    def test_deleted_integration_is_non_retryable(self, name, observed_error):
+        """A deleted/disconnected integration (get_oauth_integration raising
+        "Integration not found: <id>") must be recognised as non-retryable —
+        retrying can't recreate the row, the customer has to reconnect."""
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert any(pattern in observed_error for pattern in non_retryable_errors)
+
+    @parameterized.expand(
+        [
+            ("server_error", "500 Server Error for url: https://business-api.tiktok.com/open_api/v1.3/campaign/get/"),
+            ("connection_reset", "ConnectionError: Connection reset by peer"),
+        ]
+    )
+    def test_transient_errors_stay_retryable(self, name, observed_error):
+        """Transient infrastructure failures must NOT be classified as non-retryable."""
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert not any(pattern in observed_error for pattern in non_retryable_errors)
+
+    def test_retryable_paginator_error_does_not_match_source_pattern(self):
+        """Retryable rate-limit/server errors must NOT be classified as non-retryable."""
+        paginator = TikTokAdsPaginator()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"code": 50000, "message": "Internal server error", "data": {}}
+
+        # Retryable codes raise TikTokAdsAPIError, not ValueError; capture its message.
+        with pytest.raises(Exception) as exc_info:
+            paginator.update_state(mock_response)
+
+        error_message = str(exc_info.value)
+        patterns = self.source.get_non_retryable_errors()
+        assert not any(pattern in error_message for pattern in patterns)
+
     def test_get_source_config(self):
         """Test source configuration generation."""
         config = self.source.get_source_config
 
         assert config.name.value == "TikTokAds"
         assert config.label == "TikTok Ads"
-        assert config.releaseStatus == "beta"
+        assert config.releaseStatus == ReleaseStatus.GA
         assert len(config.fields) == 2
 
         advertiser_field = config.fields[0]

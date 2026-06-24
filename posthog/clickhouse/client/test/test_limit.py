@@ -14,7 +14,7 @@ class TestRateLimit(BaseTest):
         super().setUp()
         self.limit = RateLimit(
             max_concurrency=1,
-            applicable=lambda *args, **kwargs: (kwargs.get("is_api") if "is_api" in kwargs else args[0]),
+            applicable=lambda *args, **kwargs: kwargs.get("is_api") if "is_api" in kwargs else args[0],
             limit_name="api_per_team",
             get_task_name=lambda *args, **kwargs: f"rate-limit-test-task:{kwargs.get('team_id') or args[1]}",
             get_task_key=lambda *args, **kwargs: f"limit:rate-limit-test-task:{kwargs.get('team_id') or args[1]}",
@@ -388,8 +388,10 @@ class TestMaterializedEndpointsRateLimiter(BaseTest):
                 slot = rate_limiter.use(team_id=self.team.id, task_id=f"test-slot-{i}", is_materialized_endpoint=True)
                 acquired_slots.append(slot)
 
-            # 11th request should fail
-            with self.assertRaises(ConcurrencyLimitExceeded):
+            # 11th request should fail. The production rate limiter has a 30s retry_timeout;
+            # we explicitly disable retries here so the test doesn't burn 30s waiting for a
+            # slot we know will never free up.
+            with patch.object(rate_limiter, "retry", None), self.assertRaises(ConcurrencyLimitExceeded):
                 rate_limiter.use(team_id=self.team.id, task_id="test-slot-overflow", is_materialized_endpoint=True)
         finally:
             # Clean up all acquired slots

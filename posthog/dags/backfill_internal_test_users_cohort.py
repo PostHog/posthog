@@ -2,9 +2,9 @@ import dagster
 
 from posthog.dags.common import JobOwners
 from posthog.dags.common.ops import get_all_team_ids_op
-from posthog.models.cohort import Cohort
-from posthog.models.cohort.cohort import INTERNAL_TEST_USERS_COHORT_NAME, CohortKind
 from posthog.models.team import Team
+
+from products.cohorts.backend.models.cohort import INTERNAL_TEST_USERS_COHORT_NAME, Cohort, CohortKind
 
 # Standard filter: matches people with $internal_or_test_user set to true
 _INTERNAL_TEST_USERS_FILTERS: dict = {

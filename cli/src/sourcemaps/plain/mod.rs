@@ -2,7 +2,7 @@ use anyhow::Result;
 use clap::Subcommand;
 
 use crate::sourcemaps::{
-    args::{FileSelectionArgs, ReleaseArgs},
+    args::{FileSelectionArgs, ReleaseArgs, UploadConflictArgs},
     inject::InjectArgs,
 };
 
@@ -33,13 +33,16 @@ pub struct ProcessArgs {
     #[clap(flatten)]
     pub release: ReleaseArgs,
 
-    /// Whether to delete the source map files after uploading them
+    /// Whether to delete the source map files after uploading them [default: false]
     #[arg(long, default_value = "false")]
     pub delete_after: bool,
 
     /// The maximum number of chunks to upload in a single batch
     #[arg(long, default_value = "50")]
     pub batch_size: usize,
+
+    #[clap(flatten)]
+    pub conflict: UploadConflictArgs,
 }
 
 impl ProcessArgs {
@@ -64,6 +67,7 @@ impl From<ProcessArgs> for (InjectArgs, upload::Args) {
             skip_ssl_verification: false,
             batch_size: args.batch_size,
             release: args.release,
+            conflict: args.conflict,
         };
 
         (inject_args, upload_args)

@@ -1,2 +1,0 @@
-{% extends "base.jinja" %}
-{% block task %}Apply the lens intent and rate the session on {% if scale_label %}the '{{ scale_label }}' scale{% else %}the scale{% endif %} from {{ scale_min }} to {{ scale_max }}. Use `reasoning` to cite the moments that drove your score.{% endblock %}

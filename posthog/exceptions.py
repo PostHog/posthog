@@ -6,6 +6,7 @@ from django.http.response import JsonResponse
 import structlog
 from rest_framework import status
 from rest_framework.exceptions import APIException
+from rest_framework.response import Response
 
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.cloud_utils import is_cloud
@@ -122,3 +123,35 @@ def generate_exception_response(
         tags={"endpoint": endpoint, "code": code, "type": type, "attr": attr},
     )
     return JsonResponse({"type": type, "code": code, "detail": detail, "attr": attr}, status=status_code)
+
+
+def exception_handler(exc: Exception, context: ExceptionContext) -> Optional[Response]:
+    """
+    Wraps drf-exceptions-hog and, on 401, advertises the OAuth protected resource
+    metadata document via WWW-Authenticate per RFC 9728, so that MCP-style agents
+    can bootstrap from a stock 401.
+    """
+    # Imported lazily: exceptions_hog calls a non-lazy gettext at module import time,
+    # which raises AppRegistryNotReady when posthog.exceptions is imported during
+    # manage.py bootstrap (before Django apps are loaded).
+    from exceptions_hog import exception_handler as _exceptions_hog_handler
+
+    # Imported lazily to avoid pulling settings into module import.
+    from posthog.utils import absolute_uri
+
+    response = _exceptions_hog_handler(exc, context)
+    if response is not None and response.status_code == status.HTTP_401_UNAUTHORIZED:
+        # A view may pin its own challenge (e.g. the skills marketplace git endpoints, which
+        # git clients can only satisfy with Basic — they cannot complete a Bearer/OAuth flow).
+        view_challenge = getattr(context.get("view"), "www_authenticate_challenge", None)
+        if view_challenge:
+            # Strip CR/LF defensively — this is a view-supplied value, so never let it inject
+            # additional response headers even if a future view derives it from request data.
+            response["WWW-Authenticate"] = view_challenge.replace("\r", "").replace("\n", "")
+        else:
+            # Pin to SITE_URL rather than request.build_absolute_uri(): with permissive
+            # ALLOWED_HOSTS, the Host header can otherwise steer the discovery hint to an
+            # attacker-controlled origin.
+            metadata_url = absolute_uri("/.well-known/oauth-protected-resource")
+            response["WWW-Authenticate"] = f'Bearer resource_metadata="{metadata_url}"'
+    return response

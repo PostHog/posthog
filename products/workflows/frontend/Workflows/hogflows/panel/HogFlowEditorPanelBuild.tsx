@@ -16,6 +16,7 @@ import '../registry'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
+import { PERSON_DEPENDENT_ACTION_TYPES, workflowLogic } from '../../workflowLogic'
 import { getRegisteredActionNodeCategories } from '../registry/actions/actionNodeRegistry'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { getDelayDescription } from '../steps/stepDelayLogic'
@@ -71,8 +72,8 @@ export const DELAY_NODES_TO_SHOW: CreateActionType[] = [
     },
     {
         type: 'wait_until_time_window',
-        name: 'Wait until window',
-        description: 'Wait until a specified time window.',
+        name: 'Time window',
+        description: 'Wait for the next allowed time window before continuing.',
         config: {
             timezone: null,
             day: 'any',
@@ -81,8 +82,8 @@ export const DELAY_NODES_TO_SHOW: CreateActionType[] = [
     },
     {
         type: 'wait_until_condition',
-        name: 'Wait until condition',
-        description: 'Wait until a condition is met or a duration has passed.',
+        name: 'Wait until',
+        description: 'Wait until a matching event fires or a condition is met, up to a maximum duration.',
         branchEdges: 1,
         config: {
             condition: { filters: null },
@@ -284,10 +285,18 @@ function HogFunctionTemplatesChooser(): JSX.Element {
 
 export function HogFlowEditorPanelBuild(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { isRowScopedTrigger } = useValues(workflowLogic)
 
     const registeredCategories = getRegisteredActionNodeCategories().filter(
         (cat) => !cat.featureFlag || featureFlags[cat.featureFlag]
     )
+
+    // Warehouse-triggered workflows have no person, so don't offer person-dependent steps at all.
+    const hideIfRowScoped = (nodes: CreateActionType[]): CreateActionType[] =>
+        isRowScopedTrigger ? nodes.filter((node) => !PERSON_DEPENDENT_ACTION_TYPES.has(node.type)) : nodes
+
+    const delayNodes = hideIfRowScoped(DELAY_NODES_TO_SHOW)
+    const logicNodes = hideIfRowScoped(LOGIC_NODES_TO_SHOW)
 
     return (
         <div className="flex overflow-y-auto flex-col gap-px p-2" data-attr="workflow-add-action">
@@ -305,16 +314,20 @@ export function HogFlowEditorPanelBuild(): JSX.Element {
             <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
                 Delays <LemonDivider className="flex-1" />
             </span>
-            {DELAY_NODES_TO_SHOW.map((action, index) => (
+            {delayNodes.map((action, index) => (
                 <HogFlowEditorToolbarNode key={`${action.type}-${index}`} action={action} />
             ))}
 
-            <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
-                Audience split <LemonDivider className="flex-1" />
-            </span>
-            {LOGIC_NODES_TO_SHOW.map((action, index) => (
-                <HogFlowEditorToolbarNode key={`${action.type}-${index}`} action={action} />
-            ))}
+            {logicNodes.length > 0 && (
+                <>
+                    <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
+                        Audience split <LemonDivider className="flex-1" />
+                    </span>
+                    {logicNodes.map((action, index) => (
+                        <HogFlowEditorToolbarNode key={`${action.type}-${index}`} action={action} />
+                    ))}
+                </>
+            )}
 
             <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
                 PostHog actions <LemonDivider className="flex-1" />

@@ -26,6 +26,7 @@ from posthog.tasks.email import NotificationSetting, should_send_notification
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.user_permissions import UserPermissions
 
+from products.web_analytics.backend.temporal.digest_common import paginate_index, paginate_keyset
 from products.web_analytics.backend.temporal.weekly_digest.types import (
     WA_DIGEST_EMAIL_UNAVAILABLE_TYPE,
     DigestBatchInput,
@@ -58,24 +59,6 @@ def _get_org_queryset_for_digest(input: WAWeeklyDigestInput) -> tuple[QuerySet[O
     return qs, cutoff
 
 
-def _paginate_index(items: list[str], cursor: str | None, page_size: int) -> tuple[list[str], str | None]:
-    start = int(cursor) if cursor is not None else 0
-    page = items[start : start + page_size]
-    next_index = start + len(page)
-    next_cursor = str(next_index) if next_index < len(items) else None
-    return page, next_cursor
-
-
-def _paginate_keyset(qs: QuerySet[Organization], cursor: str | None, page_size: int) -> tuple[list[str], str | None]:
-    if cursor is not None:
-        qs = qs.filter(id__gt=cursor)
-    fetched = [str(oid) for oid in qs.order_by("id").values_list("id", flat=True)[: page_size + 1]]
-    page = fetched[:page_size]
-    has_more = len(fetched) > page_size
-    next_cursor = page[-1] if has_more and page else None
-    return page, next_cursor
-
-
 def _get_org_batch_page(input: OrgBatchPageInput) -> OrgBatchPageResult:
     """Raises non-retryable `ApplicationError` when email is globally unavailable
     — per-org skips would silently absorb the outage.
@@ -101,14 +84,14 @@ def _get_org_batch_page(input: OrgBatchPageInput) -> OrgBatchPageResult:
     cutoff: datetime | None = None
 
     if workflow_input.org_ids:
-        page_org_ids, next_cursor = _paginate_index(list(workflow_input.org_ids), input.cursor, input.page_size)
+        page_org_ids, next_cursor = paginate_index(list(workflow_input.org_ids), input.cursor, input.page_size)
         source = "configured"
     else:
         qs, cutoff = _get_org_queryset_for_digest(workflow_input)
-        page_org_ids, next_cursor = _paginate_keyset(qs, input.cursor, input.page_size)
+        page_org_ids, next_cursor = paginate_keyset(qs, input.cursor, input.page_size)
         source = "keyset"
 
-    batches = [list(b) for b in batched(page_org_ids, workflow_input.batch_size)]
+    batches = [list(b) for b in batched(page_org_ids, workflow_input.batch_size, strict=False)]
     logger.info(
         "wa digest org batch page",
         source=source,

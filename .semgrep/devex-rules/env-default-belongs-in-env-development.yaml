@@ -28,6 +28,7 @@ rules:
               - '/bin/start'
               - '/bin/start-backend'
               - '/bin/start-celery'
+              - '/bin/start-worker'
       pattern-regex: '(?m)^\s*export\s+[A-Z_][A-Z0-9_]*=\$\{[A-Z_][A-Z0-9_]*:-[^}]+\}\s*$'
       metadata:
           category: best-practice

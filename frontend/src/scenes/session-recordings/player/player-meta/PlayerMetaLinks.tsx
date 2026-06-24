@@ -28,8 +28,7 @@ import {
 import { PlayerShareMenu } from 'scenes/session-recordings/player/share/PlayerShareMenu'
 import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic'
 
-import { AccessControlResourceType } from '~/types'
-import { AccessControlLevel } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { PlayerMetaBreakpoints } from './PlayerMeta'
 
@@ -139,6 +138,12 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
     const { skipInactivitySetting } = useValues(playerSettingsLogic)
     const { setSkipInactivitySetting } = useActions(playerSettingsLogic)
 
+    // Creating an export requires editor access to the export resource.
+    const exportAccessControlDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Export,
+        AccessControlLevel.Editor
+    )
+
     const isStandardMode =
         (logicProps.mode ?? SessionRecordingPlayerMode.Standard) === SessionRecordingPlayerMode.Standard
 
@@ -192,6 +197,7 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
                 onClick: () => exportRecordingToFile(),
                 tooltip:
                     'Export PostHog recording data to a JSON file. This can be loaded later into PostHog for playback.',
+                disabledReason: exportAccessControlDisabledReason ?? undefined,
                 'data-attr': 'replay-export-posthog-json',
             },
             isStandardMode && {
@@ -202,6 +208,10 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
                 tooltip: hasReachedExportFullVideoLimit
                     ? 'You have reached your export limit.'
                     : 'Export PostHog recording data to MP4 video file.',
+                disabledReason:
+                    (hasReachedExportFullVideoLimit ? 'You have reached your export limit.' : undefined) ??
+                    exportAccessControlDisabledReason ??
+                    undefined,
                 'data-attr': 'replay-export-mp4',
                 className: hasReachedExportFullVideoLimit ? 'replay-export-limit-reached-button' : '',
             },
@@ -233,6 +243,7 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
         isMuted,
         setMuted,
         hasReachedExportFullVideoLimit,
+        exportAccessControlDisabledReason,
     ])
 
     return (

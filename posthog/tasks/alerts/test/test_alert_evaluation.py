@@ -7,10 +7,10 @@ from unittest.mock import MagicMock, patch
 from posthog.schema import AlertState, ChartDisplayType, EventsNode, TrendsFilter, TrendsFormulaNode, TrendsQuery
 
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.models import AlertConfiguration
-from posthog.models.alert import AlertCheck
 from posthog.models.instance_setting import set_instance_setting
 from posthog.tasks.alerts.test.alert_check_helpers import run_alert_check
+
+from products.alerts.backend.models import AlertCheck, AlertConfiguration
 
 
 @freeze_time("2024-06-02T08:55:00.000Z")
@@ -41,7 +41,7 @@ class TestAlertEvaluation(APIBaseTest, ClickhouseDestroyTablesMixin):
                 "calculation_interval": "daily",
                 "config": {"type": "TrendsAlertConfig", "series_index": 0},
                 "condition": {"type": "absolute_value"},
-                "threshold": {"configuration": {"type": "absolute", "bounds": {}}},
+                "threshold": {"configuration": {"type": "absolute", "bounds": {"lower": 0}}},
             },
         ).json()
 

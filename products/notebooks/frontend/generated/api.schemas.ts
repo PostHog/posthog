@@ -9,13 +9,13 @@
  */
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -95,6 +95,15 @@ export interface PaginatedNotebookMinimalListApi {
     results: NotebookMinimalApi[]
 }
 
+/**
+ * Parent resource this notebook is attached to, or `null`. Returns `{type: 'account', id: <uuid>}` for account-linked notebooks; used by the frontend to route breadcrumbs back to the resource's list.
+ * @nullable
+ */
+export type NotebookApiParentResource = {
+    readonly type: 'account'
+    readonly id: string
+} | null
+
 export interface NotebookApi {
     /** UUID of the notebook. */
     readonly id: string
@@ -130,30 +139,22 @@ export interface NotebookApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    /**
+     * Parent resource this notebook is attached to, or `null`. Returns `{type: 'account', id: <uuid>}` for account-linked notebooks; used by the frontend to route breadcrumbs back to the resource's list.
+     * @nullable
+     */
+    readonly parent_resource: NotebookApiParentResource
     _create_in_folder?: string
 }
 
-export interface SharePasswordApi {
-    readonly id: number
-    readonly created_at: string
-    /**
-     * @maxLength 100
-     * @nullable
-     */
-    note?: string | null
-    readonly created_by_email: string
-    readonly is_active: boolean
-}
-
-export interface SharingConfigurationApi {
-    readonly created_at: string
-    enabled?: boolean
-    /** @nullable */
-    readonly access_token: string | null
-    settings?: unknown
-    password_required?: boolean
-    readonly share_passwords: readonly SharePasswordApi[]
-}
+/**
+ * Parent resource this notebook is attached to, or `null`. Returns `{type: 'account', id: <uuid>}` for account-linked notebooks; used by the frontend to route breadcrumbs back to the resource's list.
+ * @nullable
+ */
+export type PatchedNotebookApiParentResource = {
+    readonly type: 'account'
+    readonly id: string
+} | null
 
 export interface PatchedNotebookApi {
     /** UUID of the notebook. */
@@ -190,7 +191,65 @@ export interface PatchedNotebookApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+    /**
+     * Parent resource this notebook is attached to, or `null`. Returns `{type: 'account', id: <uuid>}` for account-linked notebooks; used by the frontend to route breadcrumbs back to the resource's list.
+     * @nullable
+     */
+    readonly parent_resource?: PatchedNotebookApiParentResource
     _create_in_folder?: string
+}
+
+export interface NotebookCollabCursorApi {
+    /**
+     * ProseMirror selection head position (rich v1 notebooks).
+     * @minimum 0
+     */
+    head?: number
+    /**
+     * Index of the caret's block node in the markdown notebook document (markdown notebooks).
+     * @minimum 0
+     */
+    node_index?: number
+    /**
+     * Caret offset in the plain text of the focused editable element, in UTF-16 code units.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Index of the focused list item when the caret is inside a list block.
+     * @minimum 0
+     */
+    list_item_index?: number
+}
+
+export interface NotebookMarkdownSaveApi {
+    /** Unique identifier for the client session, used to skip self-echo on the update stream. */
+    client_id: string
+    /** The notebook version the submitted content is based on (optimistic concurrency baseline). */
+    version: number
+    /** The full markdown notebook document: a ProseMirror doc wrapping a single markdown node. */
+    content: unknown
+    /** Plain text for search indexing. */
+    text_content?: string
+    /** Updated notebook title. */
+    title?: string
+    /** The author's caret in the saved markdown, broadcast with the update so other clients can move the author's remote caret together with the text change. */
+    cursor?: NotebookCollabCursorApi
+}
+
+export interface NotebookCollabPresenceApi {
+    /**
+     * Unique identifier for the client session, used to skip self-echo on the update stream.
+     * @maxLength 200
+     */
+    client_id: string
+    /**
+     * The notebook version the cursor position is relative to.
+     * @minimum 0
+     */
+    version: number
+    /** The caller's caret position, broadcast to other clients on this notebook's collab stream. */
+    cursor: NotebookCollabCursorApi
 }
 
 export interface NotebookCollabSaveApi {
@@ -215,10 +274,10 @@ export interface NotebookCollabSaveApi {
 
 export type NotebooksListParams = {
     /**
- * Filter for notebooks that match a provided filter.
-                Each match pair is separated by a colon,
-                multiple match pairs can be sent separated by a space or a comma
- */
+     * Filter for notebooks that match a provided filter.
+     *                 Each match pair is separated by a colon,
+     *                 multiple match pairs can be sent separated by a space or a comma
+     */
     contains?: string
     /**
      * The UUID of the Notebook's creator

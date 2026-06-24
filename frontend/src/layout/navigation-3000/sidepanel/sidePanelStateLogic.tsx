@@ -17,19 +17,6 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
         setSidePanelOpen: (open: boolean) => ({ open }),
         setSidePanelOptions: (options: string | null) => ({ options }),
         setSidePanelAvailable: (available: boolean) => ({ available }),
-        onSceneTabChanged: (previousTabId: string | null, newTabId: string) => ({ previousTabId, newTabId }),
-        // Restores side panel state for a scene tab without touching the URL. Unlike openSidePanel/
-        // closeSidePanel this has no actionToUrl, so it can't navigate the active tab to a stale
-        // location mid-tab-switch. The tab's own stored URL hash already carries `#panel=…`.
-        restoreSidePanelStateForTab: (
-            open: boolean,
-            selectedTab: SidePanelTab | null,
-            selectedTabOptions: string | null
-        ) => ({
-            open,
-            selectedTab,
-            selectedTabOptions,
-        }),
     }),
 
     reducers(() => ({
@@ -44,7 +31,6 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
             { persist: true },
             {
                 openSidePanel: (_, { tab }) => tab,
-                restoreSidePanelStateForTab: (state, { open, selectedTab }) => (open ? selectedTab : state),
             },
         ],
 
@@ -54,22 +40,21 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
                 openSidePanel: (_, { options }) => options ?? null,
                 setSidePanelOptions: (_, { options }) => options ?? null,
                 closeSidePanel: () => null,
-                restoreSidePanelStateForTab: (_, { open, selectedTabOptions }) => (open ? selectedTabOptions : null),
             },
         ],
+        // Not persisted: the panel must only open from an explicit trigger (click or URL #panel hash),
+        // never auto-reopen on returning to the app.
         sidePanelOpen: [
             false,
-            { persist: true },
             {
                 setSidePanelOpen: (_, { open }) => open,
-                restoreSidePanelStateForTab: (_, { open }) => open,
             },
         ],
     })),
     windowValues(() => ({
         modalMode: (window: Window) => window?.innerWidth < 992, // Sync width threshold with Sass variable $lg!
     })),
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, values }) => ({
         // NOTE: We explicitly reference the actions instead of connecting so that people don't accidentally
         // use this logic instead of sidePanelStateLogic
         openSidePanel: ({ tab }) => {
@@ -84,41 +69,6 @@ export const sidePanelStateLogic = kea<sidePanelStateLogicType>([
             } else if (values.selectedTab === tab) {
                 // Otherwise we only close it if the tab is the currently open one
                 actions.setSidePanelOpen(false)
-            }
-        },
-        onSceneTabChanged: ({ previousTabId, newTabId }) => {
-            // Skip if we already processed this exact transition (activateTab fires early, setScene fires later)
-            const transitionKey = `${previousTabId}->${newTabId}`
-            if (cache.lastProcessedTransition === transitionKey) {
-                return
-            }
-            cache.lastProcessedTransition = transitionKey
-
-            if (!cache.sidePanelStateByTab) {
-                cache.sidePanelStateByTab = {}
-            }
-
-            // Save current side panel state for the previous tab
-            if (previousTabId) {
-                cache.sidePanelStateByTab[previousTabId] = {
-                    open: values.sidePanelOpen,
-                    selectedTab: values.selectedTab,
-                    selectedTabOptions: values.selectedTabOptions,
-                }
-            }
-
-            // Restore state for the new tab (preserve current state for never-visited tabs
-            // so the URL hash handler can set it if needed). Use restoreSidePanelStateForTab
-            // rather than openSidePanel/closeSidePanel: those carry an actionToUrl that would
-            // replace() the active tab's URL using the stale (pre-switch) router location,
-            // overwriting the just-activated tab with the previous tab's pathname.
-            const savedState = cache.sidePanelStateByTab[newTabId]
-            if (savedState) {
-                actions.restoreSidePanelStateForTab(
-                    !!(savedState.open && savedState.selectedTab),
-                    savedState.selectedTab,
-                    savedState.selectedTabOptions
-                )
             }
         },
     })),

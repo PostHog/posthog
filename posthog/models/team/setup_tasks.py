@@ -65,11 +65,11 @@ class SetupTaskId(StrEnum):
     ViewFirstError = "view_first_error"
     ResolveFirstError = "resolve_first_error"
 
-    # LLM Analytics
-    IngestFirstLlmEvent = "ingest_first_llm_event"
+    # AI observability
+    IngestFirstAiEvent = "ingest_first_llm_event"
     ViewFirstTrace = "view_first_trace"
     TrackCosts = "track_costs"
-    SetUpLlmEvaluation = "set_up_llm_evaluation"
+    SetUpAiEvaluation = "set_up_llm_evaluation"
     RunAIPlayground = "run_ai_playground"
 
     # Revenue Analytics
@@ -96,3 +96,9 @@ class SetupTaskId(StrEnum):
     # Early Access Features
     CreateEarlyAccessFeature = "create_early_access_feature"
     UpdateFeatureStage = "update_feature_stage"
+
+    # AI (shown for every product)
+    UsePostHogAi = "use_posthog_ai"
+    UsePostHogCode = "use_posthog_code"
+    UsePostHogMcp = "use_posthog_mcp"
+    UsePostHogInSlack = "use_posthog_in_slack"

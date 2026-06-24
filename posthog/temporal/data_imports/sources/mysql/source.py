@@ -1,9 +1,12 @@
-from typing import Optional, cast
+from typing import TYPE_CHECKING, Optional, cast
 
-import structlog
 from sshtunnel import BaseSSHTunnelForwarderError
 
+if TYPE_CHECKING:
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -15,26 +18,63 @@ from posthog.schema import (
 )
 
 from posthog.exceptions_capture import capture_exception
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.base import FieldType
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.common.sql import resolve_detected_primary_keys
+from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
 from posthog.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
 from posthog.temporal.data_imports.sources.mysql.mysql import (
-    filter_mysql_incremental_fields,
-    get_leading_index_columns_for_schemas as get_mysql_leading_index_columns_for_schemas,
-    get_primary_keys_for_schemas as get_mysql_primary_keys_for_schemas,
-    get_schemas as get_mysql_schemas,
-    mysql_source,
+    MySQLImplementation,
+    get_connection_metadata as get_mysql_connection_metadata,
 )
 
-from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField
+from products.data_warehouse.backend.mysql_helpers import reconcile_mysql_schemas
+from products.data_warehouse.backend.types import ExternalDataSourceType
+
+_MYSQL_IMPLEMENTATION = MySQLImplementation()
+
+# Create-time-only refinement of the connection error shown when a source fails to
+# validate. pymysql collapses every connect-level failure into error 2003,
+# "Can't connect to MySQL server on '<host>' (<os detail>)", so the generic
+# "check all connection details" message can't tell the user whether the host is
+# wrong, the port is closed, or a firewall is dropping us — unlike the Postgres
+# source, which is granular. We match the OS detail (and the 1049 "Unknown database"
+# server error) to give the same actionable messages. Kept out of
+# get_non_retryable_errors — which the sync path also consults for retry
+# classification — so connection-error retry behaviour is unchanged.
+_VALIDATE_CONNECTION_HINTS: list[tuple[str, str]] = [
+    (
+        "Name or service not known",
+        "Host could not be resolved. Check the host is spelled correctly and reachable from PostHog.",
+    ),
+    (
+        "nodename nor servname provided",
+        "Host could not be resolved. Check the host is spelled correctly and reachable from PostHog.",
+    ),
+    (
+        "Connection refused",
+        "Could not connect to the host on the port given. Check the host and port are correct and the MySQL server is accepting connections.",
+    ),
+    ("timed out", "Connection timed out. Does your database have our IP addresses allowed?"),
+    (
+        "No route to host",
+        "Could not reach the host. Check the host is correct and that PostHog's IP addresses are allowed through your firewall.",
+    ),
+    (
+        "Network is unreachable",
+        "Could not reach the host. Check the host is correct and that PostHog's IP addresses are allowed through your firewall.",
+    ),
+    ("Unknown database", "Database does not exist. Check the database name is correct."),
+]
 
 
 @SourceRegistry.register
-class MySQLSource(SimpleSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+class MySQLSource(SQLSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+    @property
+    def get_implementation(self) -> MySQLImplementation:
+        return _MYSQL_IMPLEMENTATION
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.MYSQL
@@ -43,20 +83,13 @@ class MySQLSource(SimpleSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatab
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.MY_SQL,
+            category=DataWarehouseSourceCategory.DATABASES,
             caption="Enter your MySQL/MariaDB credentials to automatically pull your MySQL data into the PostHog Data warehouse.",
             iconPath="/static/services/mysql.png",
             docsUrl="https://posthog.com/docs/cdp/sources/mysql",
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="connection_string",
-                        label="Connection string (optional)",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=False,
-                        placeholder="mysql://user:password@localhost:3306/database",
-                        secret=True,
-                    ),
                     SourceFieldInputConfig(
                         name="host",
                         label="Host",
@@ -101,8 +134,8 @@ class MySQLSource(SimpleSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatab
                         name="schema",
                         label="Schema",
                         type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="public",
+                        required=False,
+                        placeholder="Leave blank to include all databases",
                         secret=False,
                     ),
                     SourceFieldSelectConfig(
@@ -125,92 +158,105 @@ class MySQLSource(SimpleSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatab
         return {
             "Can't connect to MySQL server on": None,
             "No primary key defined for table": None,
-            "Access denied for user": None,
+            # MySQL/MariaDB error 1045 (ER_ACCESS_DENIED_ERROR): the user/password (or the
+            # user's host grant) is wrong. Surface it as an auth failure — mirroring the Postgres
+            # source — so the user fixes credentials instead of the generic "check connection
+            # details" message sending them to check the host/port.
+            "Access denied for user": "Invalid user or password",
             "sqlstate 42S02": None,  # Table not found error
-            "ProgrammingError: (1146": None,  # Table not found error
-            "OperationalError: (1356": None,  # View not found error
+            # MySQL/MariaDB error 1146 (ER_NO_SUCH_TABLE): a table the sync reads no longer exists
+            # in the source — it was renamed or dropped after the schema was set up. The streaming
+            # query reissues the same statement on every attempt, so it fails identically forever.
+            # Match the locale-independent error code (the table name is volatile and the message
+            # text is translated on non-English servers): `(1146,` appears both in the raw pymysql
+            # `str(exc)` the import/sync path classifies — `(1146, "Table ... doesn't exist")` — and
+            # in the class-name-prefixed `ProgrammingError: (1146, ...)` form the refresh-schemas
+            # path builds. The previous `"ProgrammingError: (1146"` key only matched the latter, so
+            # sync hit this error retried to the maximum instead of stopping.
+            "(1146,": "A table this sync reads no longer exists in your source database (MySQL error 1146). It was most likely renamed or dropped — restore the table, or remove it from the sync, then resync.",
+            # MySQL/MariaDB error 1356 (ER_VIEW_INVALID): a view the sync reads is broken — it
+            # references tables/columns that were dropped or renamed, or the view's definer lost the
+            # rights to read them. The streaming query reissues the same statement every attempt, so
+            # it fails identically forever. Match the locale-independent code `(1356,`, which appears
+            # both in the raw pymysql `str(exc)` the import/sync path classifies — `(1356, "View ...
+            # references invalid table(s) ...")` — and in the class-name-prefixed
+            # `OperationalError: (1356, ...)` form the refresh-schemas path builds. The previous
+            # `"OperationalError: (1356"` key only matched the latter.
+            "(1356,": "A view this sync reads is no longer valid (MySQL error 1356). It references tables or columns that were dropped or renamed, or its definer lost access to them — fix the view definition in your source database, or remove it from the sync, then resync.",
             "Bad handshake": None,
+            # Raised by the `sshtunnel` library (via the shared `open_ssh_tunnel` helper) when the
+            # SSH tunnel can't be brought up — the bastion host is unreachable, the host/port is
+            # wrong, the SSH key/credentials are rejected, or a firewall blocks PostHog's IPs. The
+            # main streaming path already classifies this via `Any_Source_Errors`, but the schema-
+            # discovery activity only checks the per-source dict, so without this entry it keeps
+            # retrying and reporting the customer's gateway misconfig as error-tracking noise.
+            # Postgres and MSSQL already treat this identical error as non-retryable.
+            "Could not establish session to SSH gateway": "Could not connect to your SSH tunnel. Check that the SSH host, port, and credentials are correct, the bastion host is running and reachable, and that PostHog's IP addresses are allowed through its firewall.",
+            # MySQL/MariaDB error 1129 (ER_HOST_IS_BLOCKED): the server has blocked our import
+            # host because aborted/interrupted connections from it exceeded `max_connect_errors`.
+            # The block is server-side state that only a DB admin can clear (FLUSH HOSTS /
+            # `mysqladmin flush-hosts`, a restart, or raising `max_connect_errors`) — retrying just
+            # adds more failed connections and keeps the host blocked. Match only the stable phrase,
+            # not the volatile host IP or the `mysqladmin`/`mariadb-admin` wording that varies by server.
+            "is blocked because of many connection errors": "Your MySQL/MariaDB server has blocked PostHog's host after too many interrupted connections (error 1129). Ask your database admin to run 'FLUSH HOSTS' (or 'mysqladmin flush-hosts') and consider raising 'max_connect_errors', then retry the sync.",
+            # OpenSSL's signature for "tried to speak TLS to an endpoint that replied with
+            # non-TLS bytes" — the source has SSL enabled but the server (or a proxy in front
+            # of it, e.g. a plain TCP proxy) doesn't speak TLS, or the host/port is wrong. This
+            # arrives wrapped as a pymysql OperationalError(2013, 'Lost connection ...'), but it
+            # is a deterministic config mismatch, not the transient connection-drop that 2013
+            # usually signals — so match only the stable SSL token, never the generic 2013 text.
+            "[SSL: WRONG_VERSION_NUMBER]": "We couldn't establish an SSL connection to your MySQL server — it responded as if SSL is not enabled. If your server (or a proxy in front of it) doesn't support SSL, set 'Use SSL?' to No; otherwise check that you're connecting to an SSL-enabled host and port.",
             # Raised from the shared `_decimal_array_from_values` fallback in
             # `pipelines/pipeline/utils.py` when a numeric/decimal value exceeds Delta Lake's
             # decimal budget (precision > 76 or scale > 32). Fixed source-data shape — retrying
             # won't help.
             "Cannot build decimal array from values": "One of your numeric columns contains values that exceed our decimal storage limits (max precision 76, max scale 32). Please constrain the column with a lower precision/scale, cast it to text in a view, or round the values at the source.",
+            # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
+            # when an integer column's source type was widened (e.g. `INT` → `BIGINT`) after the
+            # destination table was created with the narrower type. Delta Lake can't widen an
+            # existing column in place, so retrying won't help — the table must be reset and
+            # fully re-synced to adopt the new type.
+            "Source column type changed": "A column's type changed in your source database (for example an integer column was widened to bigint) and no longer fits the type we stored. We can't widen an existing column in place — please reset and fully re-sync this table to adopt the new type.",
+            # MySQL/MariaDB error 1054 (ER_BAD_FIELD_ERROR): a column the sync query references no
+            # longer exists in the source table — almost always the configured incremental field
+            # after the column was renamed or dropped (schema drift). The streaming query reissues
+            # the same WHERE/ORDER BY on every attempt, so it fails identically forever; the COUNT(*)
+            # probe already swallows this same error expecting it to be classified here. Match on the
+            # locale-independent error code (the column name and clause are volatile, and the message
+            # text is translated on non-English servers) so it catches both the raw pymysql string and
+            # the Temporal-wrapped `OperationalError: (1054, ...)` form.
+            '(1054, "Unknown column': "A column referenced during sync no longer exists in your source table (MySQL error 1054). This usually means a column was renamed or dropped — if it's the table's incremental field, update it to a column that exists (or switch to a full re-sync), then resync.",
+            # MySQL/MariaDB error 1130 (ER_HOST_NOT_PRIVILEGED): the server has no grant permitting
+            # PostHog's connecting host, so the handshake is rejected before any credentials are
+            # checked. Only a DB admin can fix this server-side (GRANT for the host, or allow our
+            # egress / SSH-tunnel host) — retrying connects from the same host fails identically.
+            # Match the stable tail phrase, not the volatile host in the message prefix.
+            "is not allowed to connect to this MySQL server": "Your MySQL/MariaDB server isn't allowing connections from PostHog's host (error 1130). Ask your database admin to grant access for the connecting host (or allow our IP / SSH-tunnel host), then retry the sync.",
+            # MySQL/MariaDB error 1142 (ER_TABLEACCESS_DENIED_ERROR): the connecting user authenticated
+            # fine but lacks the SELECT privilege on a table the sync reads — distinct from the 1045
+            # login failure already handled above. Only a DB admin can GRANT it, and the streaming query
+            # reissues the same statement every attempt, so it fails identically forever. Match the
+            # locale-independent error code (the user, host, and table are volatile and the message text
+            # is translated on non-English servers), consistent with the other code-prefixed entries.
+            "(1142,": "PostHog's database user doesn't have SELECT permission on a table this sync reads (MySQL error 1142). Ask your database admin to grant SELECT on it, or remove that table from the sync, then resync.",
         }
 
-    def get_schemas(
+    def reconcile_schema_metadata(
         self,
-        config: MySQLSourceConfig,
+        source: "ExternalDataSource",
+        source_schemas: list[SourceSchema],
         team_id: int,
-        with_counts: bool = False,
-        names: list[str] | None = None,
-        force_refresh: bool = False,
-    ) -> list[SourceSchema]:
-        schemas = []
+    ) -> list[str]:
+        """Delegates to `reconcile_mysql_schemas` so direct-query mode also rebuilds DWH tables."""
+        return reconcile_mysql_schemas(source=source, source_schemas=source_schemas, team_id=team_id)
 
-        with self.with_ssh_tunnel(config) as (host, port):
-            db_schemas = get_mysql_schemas(
-                host=host,
-                port=port,
-                user=config.user,
-                password=config.password,
-                database=config.database,
-                using_ssl=config.using_ssl,
-                schema=config.schema,
-                names=names,
-            )
-            try:
-                detected_pks = get_mysql_primary_keys_for_schemas(
-                    host=host,
-                    port=port,
-                    user=config.user,
-                    password=config.password,
-                    database=config.database,
-                    schema=config.schema,
-                    table_names=list(db_schemas.keys()),
-                    using_ssl=config.using_ssl,
-                )
-            except Exception as e:
-                structlog.get_logger().warning("Failed to detect primary keys for MySQL schemas", exc_info=e)
-                detected_pks = {}
-
-            indexed_columns_by_table = get_mysql_leading_index_columns_for_schemas(
-                host=host,
-                port=port,
-                user=config.user,
-                password=config.password,
-                database=config.database,
-                schema=config.schema,
-                table_names=list(db_schemas.keys()),
-                using_ssl=config.using_ssl,
-            )
-
-        for table_name, columns in db_schemas.items():
-            incremental_field_tuples = filter_mysql_incremental_fields(columns)
-            indexed_cols = indexed_columns_by_table.get(table_name) if indexed_columns_by_table is not None else None
-            incremental_fields: list[IncrementalField] = [
-                {
-                    "label": field_name,
-                    "type": field_type,
-                    "field": field_name,
-                    "field_type": field_type,
-                    "nullable": nullable,
-                    "is_indexed": True if indexed_cols is None else field_name in indexed_cols,
-                }
-                for field_name, field_type, nullable in incremental_field_tuples
-            ]
-
-            schemas.append(
-                SourceSchema(
-                    name=table_name,
-                    supports_incremental=len(incremental_fields) > 0,
-                    supports_append=len(incremental_fields) > 0,
-                    incremental_fields=incremental_fields,
-                    columns=columns,
-                    detected_primary_keys=resolve_detected_primary_keys(detected_pks.get(table_name), columns),
-                )
-            )
-
-        return schemas
+    def get_connection_metadata(
+        self, config: MySQLSourceConfig, team_id: int, require_ssl: bool = False
+    ) -> dict[str, object]:
+        # `require_ssl` keeps signature parity with Postgres; MySQL SSL is governed by
+        # `config.using_ssl` inside `connect`.
+        with self.get_implementation.connect(config) as conn:
+            return get_mysql_connection_metadata(conn, database=config.database)
 
     def validate_credentials(
         self, config: MySQLSourceConfig, team_id: int, schema_name: Optional[str] = None
@@ -231,28 +277,40 @@ class MySQLSource(SimpleSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatab
             return (
                 False,
                 e.value
-                or "Could not connect to MySQL via the SSH tunnel. Please check all connection details are valid.",
+                or f"Could not connect to {self.get_source_config.name} via the SSH tunnel. Please check all connection details are valid.",
             )
         except Exception as e:
+            # Connection/credential failures we already classify as non-retryable during sync
+            # (an unreachable host, a refused connection, a blocked host, an SSL mismatch, ...)
+            # are expected user/upstream errors, not bugs on our side. Surface the friendly
+            # message without reporting them to error tracking — only genuinely unexpected
+            # failures get captured. Mirrors the Postgres and MSSQL `validate_credentials` handling.
+            error_msg = " ".join(str(arg) for arg in e.args) if e.args else str(e)
+            # Refine the generic connect failure into a specific, actionable message first.
+            for hint_pattern, hint_message in _VALIDATE_CONNECTION_HINTS:
+                if hint_pattern in error_msg:
+                    return False, hint_message
+            for pattern, friendly_error in self.get_non_retryable_errors().items():
+                if pattern in error_msg:
+                    return (
+                        False,
+                        friendly_error
+                        or f"Could not connect to {self.get_source_config.name}. Please check all connection details are valid.",
+                    )
+
             capture_exception(e)
-            return False, "Could not connect to MySQL. Please check all connection details are valid."
+            return (
+                False,
+                f"Could not connect to {self.get_source_config.name}. Please check all connection details are valid.",
+            )
 
         return True, None
 
-    def source_for_pipeline(self, config: MySQLSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        ssh_tunnel = self.make_ssh_tunnel_func(config)
-
-        return mysql_source(
-            tunnel=ssh_tunnel,
-            user=config.user,
-            password=config.password,
-            database=config.database,
-            using_ssl=config.using_ssl,
-            schema=config.schema,
-            table_names=[inputs.schema_name],
-            should_use_incremental_field=inputs.should_use_incremental_field,
-            logger=inputs.logger,
-            incremental_field=inputs.incremental_field,
-            incremental_field_type=inputs.incremental_field_type,
-            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
-        )
+    def validate_credentials_for_access_method(
+        self,
+        config: MySQLSourceConfig,
+        team_id: int,
+        access_method: str,
+        schema_name: Optional[str] = None,
+    ) -> tuple[bool, str | None]:
+        return self.validate_credentials(config, team_id, schema_name=schema_name)

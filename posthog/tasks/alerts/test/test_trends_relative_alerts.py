@@ -26,10 +26,10 @@ from posthog.schema import (
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.calculate_results import calculate_for_query_based_insight
-from posthog.models import AlertConfiguration
-from posthog.models.alert import AlertCheck
 from posthog.models.instance_setting import set_instance_setting
 from posthog.tasks.alerts.test.alert_check_helpers import run_alert_check
+
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 
 # Tuesday
 FROZEN_TIME = dateutil.parser.parse("2024-06-04T08:55:00.000Z")
@@ -2001,7 +2001,10 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             idempotency_key=ANY,
         )
 
-    @patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight", wraps=calculate_for_query_based_insight)
+    @patch(
+        "products.alerts.backend.evaluation.trends.calculate_for_query_based_insight",
+        wraps=calculate_for_query_based_insight,
+    )
     def test_hourly_relative_increase_alert_respects_latest_data(
         self, mock_calculate: MagicMock, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
     ) -> None:
@@ -2071,7 +2074,10 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
             mock_send_breaches.assert_not_called()
 
-    @patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight", wraps=calculate_for_query_based_insight)
+    @patch(
+        "products.alerts.backend.evaluation.trends.calculate_for_query_based_insight",
+        wraps=calculate_for_query_based_insight,
+    )
     def test_hourly_relative_decrease_alert_respects_latest_data(
         self, mock_calculate: MagicMock, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
     ) -> None:

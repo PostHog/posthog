@@ -1,5 +1,4 @@
-import { NotFound } from 'lib/components/NotFound'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { AllowTrainingCallout } from 'lib/components/AllowTrainingCallout/AllowTrainingCallout'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 
@@ -17,12 +16,6 @@ export const scene: SceneExport = {
 }
 
 export function TaskTracker(): JSX.Element {
-    const isEnabled = useFeatureFlag('TASKS')
-
-    if (!isEnabled) {
-        return <NotFound object="Tasks" caption="This feature is not enabled for your project." />
-    }
-
     return (
         <SceneContent>
             <SceneTitleSection
@@ -33,6 +26,7 @@ export function TaskTracker(): JSX.Element {
                 }}
             />
 
+            <AllowTrainingCallout featureName="Tasks" />
             <TasksList />
         </SceneContent>
     )

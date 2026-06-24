@@ -1,0 +1,117 @@
+import time
+import asyncio
+import datetime as dt
+
+import pytest
+from posthog.test.base import _create_event, flush_persons_and_events
+from unittest.mock import patch
+
+from django.test.client import Client as HttpClient
+
+from products.batch_exports.backend.models.batch_export import BatchExportRun
+from products.batch_exports.backend.tests.api.operations import (
+    backfill_batch_export_ok,
+    cancel_batch_export_backfill_ok,
+    create_batch_export_ok,
+    get_batch_export_backfill_ok,
+    list_batch_export_backfills_ok,
+)
+
+pytestmark = [
+    pytest.mark.usefixtures("temporal_worker", "cleanup"),
+]
+
+
+def wait_for_backfill_creation(client: HttpClient, team_id: int, batch_export_id: str):
+    total = 0
+    timeout = 30
+    while total < timeout:
+        response = list_batch_export_backfills_ok(client, team_id, batch_export_id)
+        backfills = response["results"]
+        if len(backfills) == 0:
+            time.sleep(1)
+            total += 1
+        else:
+            return backfills[0]
+
+    raise Exception("Backfill not found")
+
+
+def wait_for_backfill_runs(backfill_id: str, timeout: int = 30) -> list[BatchExportRun]:
+    total = 0
+    while total < timeout:
+        runs = list(BatchExportRun.objects.filter(backfill_id=backfill_id))
+        if runs:
+            return runs
+        time.sleep(1)
+        total += 1
+
+    raise Exception("No runs found for backfill")
+
+
+@pytest.mark.django_db(transaction=True)
+def test_cancelling_a_batch_export_backfill(client: HttpClient, organization, team, user, temporal):
+    """Test cancelling a BatchExportBackfill."""
+    destination_data = {
+        "type": "AwsS3",
+        "config": {
+            "bucket_name": "my-production-s3-bucket",
+            "region": "us-east-1",
+            "prefix": "posthog-events/",
+            "aws_access_key_id": "abc123",
+            "aws_secret_access_key": "secret",
+        },
+    }
+    batch_export_data = {
+        "name": "my-production-s3-bucket-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+
+    with patch("products.batch_exports.backend.temporal.pipeline.producer.Producer.start") as mock_producer_start:
+        # Mock the producer to sleep so we can test cancellation
+        async def mock_sleep(*args, **kwargs):
+            await asyncio.sleep(30)
+            return None
+
+        mock_producer_start.side_effect = mock_sleep
+        batch_export = create_batch_export_ok(
+            client,
+            team.pk,
+            batch_export_data,
+        )
+        batch_export_id = batch_export["id"]
+
+        # ensure there is data to backfill, otherwise validation will fail
+        _create_event(
+            team=team,
+            event="$pageview",
+            distinct_id="person_1",
+            timestamp=dt.datetime(2023, 10, 23, 0, 1, 0, tzinfo=dt.UTC),
+        )
+        flush_persons_and_events()
+
+        start_at = "2023-10-23T00:00:00+00:00"
+        end_at = "2023-10-24T00:00:00+00:00"
+        backfill_batch_export_ok(client, team.pk, batch_export_id, start_at, end_at)
+
+        # backfill model is created as part of a temporal activity, so we need to wait for it to be created
+        backfill_data = wait_for_backfill_creation(client, team.pk, batch_export_id)
+        assert backfill_data["status"] in ("Running", "Starting")
+        backfill_id = backfill_data["id"]
+
+        # wait for at least one run to be created so we can verify runs are cancelled too
+        wait_for_backfill_runs(backfill_id)
+
+        data = cancel_batch_export_backfill_ok(client, team.pk, batch_export_id, backfill_id)
+        assert data["cancelled"] is True
+
+        backfill_data = get_batch_export_backfill_ok(client, team.pk, batch_export_id, backfill_id)
+        assert backfill_data["status"] == "Cancelled"
+
+        runs = BatchExportRun.objects.filter(backfill_id=backfill_id)
+        assert runs.count() > 0
+        for run in runs:
+            assert run.status == BatchExportRun.Status.CANCELLED

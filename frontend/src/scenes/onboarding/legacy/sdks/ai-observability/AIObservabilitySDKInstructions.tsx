@@ -1,0 +1,272 @@
+import { EmbeddingEvent } from '@posthog/shared-onboarding/ai-observability/_snippets/embedding-event'
+import { GenerationEvent } from '@posthog/shared-onboarding/ai-observability/_snippets/generation-event'
+import { NotableGenerationProperties } from '@posthog/shared-onboarding/ai-observability/_snippets/notable-generation-properties'
+import { SpanEvent } from '@posthog/shared-onboarding/ai-observability/_snippets/span-event'
+import { TraceEvent } from '@posthog/shared-onboarding/ai-observability/_snippets/trace-event'
+import { AnthropicInstallation } from '@posthog/shared-onboarding/ai-observability/anthropic'
+import { AutoGenInstallation } from '@posthog/shared-onboarding/ai-observability/autogen'
+import { AWSBedrockInstallation } from '@posthog/shared-onboarding/ai-observability/aws-bedrock'
+import { AzureOpenAIInstallation } from '@posthog/shared-onboarding/ai-observability/azure-openai'
+import { CerebrasInstallation } from '@posthog/shared-onboarding/ai-observability/cerebras'
+import { CloudflareAIGatewayInstallation } from '@posthog/shared-onboarding/ai-observability/cloudflare-ai-gateway'
+import { CohereInstallation } from '@posthog/shared-onboarding/ai-observability/cohere'
+import { ConvexInstallation } from '@posthog/shared-onboarding/ai-observability/convex'
+import { CrewAIInstallation } from '@posthog/shared-onboarding/ai-observability/crewai'
+import { DedalusInstallation } from '@posthog/shared-onboarding/ai-observability/dedalus'
+import { DeepSeekInstallation } from '@posthog/shared-onboarding/ai-observability/deepseek'
+import { DSPyInstallation } from '@posthog/shared-onboarding/ai-observability/dspy'
+import { FireworksAIInstallation } from '@posthog/shared-onboarding/ai-observability/fireworks-ai'
+import { GoogleInstallation } from '@posthog/shared-onboarding/ai-observability/google'
+import { GroqInstallation } from '@posthog/shared-onboarding/ai-observability/groq'
+import { HeliconeInstallation } from '@posthog/shared-onboarding/ai-observability/helicone'
+import { HuggingFaceInstallation } from '@posthog/shared-onboarding/ai-observability/hugging-face'
+import { InstructorInstallation } from '@posthog/shared-onboarding/ai-observability/instructor'
+import { LangChainInstallation } from '@posthog/shared-onboarding/ai-observability/langchain'
+import { LangGraphInstallation } from '@posthog/shared-onboarding/ai-observability/langgraph'
+import { LiteLLMInstallation } from '@posthog/shared-onboarding/ai-observability/litellm'
+import { LlamaIndexInstallation } from '@posthog/shared-onboarding/ai-observability/llamaindex'
+import { ManualInstallation } from '@posthog/shared-onboarding/ai-observability/manual'
+import { MastraInstallation } from '@posthog/shared-onboarding/ai-observability/mastra'
+import { MirascopeInstallation } from '@posthog/shared-onboarding/ai-observability/mirascope'
+import { MistralInstallation } from '@posthog/shared-onboarding/ai-observability/mistral'
+import { OllamaInstallation } from '@posthog/shared-onboarding/ai-observability/ollama'
+import { OpenAIInstallation } from '@posthog/shared-onboarding/ai-observability/openai'
+import { OpenAIAgentsInstallation } from '@posthog/shared-onboarding/ai-observability/openai-agents'
+import { OpenRouterInstallation } from '@posthog/shared-onboarding/ai-observability/openrouter'
+import { OpenTelemetryInstallation } from '@posthog/shared-onboarding/ai-observability/opentelemetry'
+import { PerplexityInstallation } from '@posthog/shared-onboarding/ai-observability/perplexity'
+import { PortkeyInstallation } from '@posthog/shared-onboarding/ai-observability/portkey'
+import { PydanticAIInstallation } from '@posthog/shared-onboarding/ai-observability/pydantic-ai'
+import { SemanticKernelInstallation } from '@posthog/shared-onboarding/ai-observability/semantic-kernel'
+import { SmolagentsInstallation } from '@posthog/shared-onboarding/ai-observability/smolagents'
+import { TogetherAIInstallation } from '@posthog/shared-onboarding/ai-observability/together-ai'
+import { VercelAIInstallation } from '@posthog/shared-onboarding/ai-observability/vercel-ai'
+import { VercelAIGatewayInstallation } from '@posthog/shared-onboarding/ai-observability/vercel-ai-gateway'
+import { XAIInstallation } from '@posthog/shared-onboarding/ai-observability/xai'
+
+import { SDKInstructionsMap, SDKKey, SDKTag, SDKTagOverrides } from '~/types'
+
+import { withOnboardingDocsWrapper } from '../shared/onboardingWrappers'
+
+// Snippet configurations, defined once
+const MANUAL_SNIPPETS = {
+    GenerationEvent,
+    TraceEvent,
+    SpanEvent,
+    EmbeddingEvent,
+}
+
+const PROVIDER_SNIPPETS = {
+    NotableGenerationProperties,
+}
+
+// Manual capture, all event types
+const LLMManualInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: ManualInstallation,
+    snippets: MANUAL_SNIPPETS,
+})
+
+// LLM Providers
+const LLMOpenAIInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: OpenAIInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMAnthropicInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: AnthropicInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMGoogleInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: GoogleInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMOpenRouterInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: OpenRouterInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMLangChainInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: LangChainInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMLiteLLMInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: LiteLLMInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMVercelAIInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: VercelAIInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMVercelAIGatewayInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: VercelAIGatewayInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMInstructorInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: InstructorInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMCrewAIInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: CrewAIInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMPydanticAIInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: PydanticAIInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMLlamaIndexInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: LlamaIndexInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMDSPyInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: DSPyInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMAWSBedrockInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: AWSBedrockInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMAutoGenInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: AutoGenInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMSemanticKernelInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: SemanticKernelInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMSmolagentsInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: SmolagentsInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMLangGraphInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: LangGraphInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMMastraInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: MastraInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMMirascopeInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: MirascopeInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMGroqInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: GroqInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMHeliconeInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: HeliconeInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMMistralInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: MistralInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMOllamaInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: OllamaInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMDeepSeekInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: DeepSeekInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMTogetherAIInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: TogetherAIInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMFireworksAIInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: FireworksAIInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMAzureOpenAIInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: AzureOpenAIInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMCerebrasInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: CerebrasInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMPerplexityInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: PerplexityInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMPortkeyInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: PortkeyInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMConvexInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: ConvexInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMCohereInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: CohereInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMHuggingFaceInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: HuggingFaceInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMXAIInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: XAIInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMOpenAIAgentsInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: OpenAIAgentsInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMCloudflareAIGatewayInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: CloudflareAIGatewayInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMDedalusInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: DedalusInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+const LLMOpenTelemetryInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: OpenTelemetryInstallation,
+    snippets: PROVIDER_SNIPPETS,
+})
+
+export const AIObservabilitySDKTagOverrides: SDKTagOverrides = {
+    [SDKKey.HELICONE]: [SDKTag.GATEWAY],
+}
+
+export const AIObservabilitySDKInstructions: SDKInstructionsMap = {
+    [SDKKey.OPENAI]: LLMOpenAIInstructionsWrapper,
+    [SDKKey.ANTHROPIC]: LLMAnthropicInstructionsWrapper,
+    [SDKKey.AWS_BEDROCK]: LLMAWSBedrockInstructionsWrapper,
+    [SDKKey.GOOGLE_GEMINI]: LLMGoogleInstructionsWrapper,
+    [SDKKey.VERCEL_AI]: LLMVercelAIInstructionsWrapper,
+    [SDKKey.VERCEL_AI_GATEWAY]: LLMVercelAIGatewayInstructionsWrapper,
+    [SDKKey.LANGCHAIN]: LLMLangChainInstructionsWrapper,
+    [SDKKey.LITELLM]: LLMLiteLLMInstructionsWrapper,
+    [SDKKey.OPENROUTER]: LLMOpenRouterInstructionsWrapper,
+    [SDKKey.CLOUDFLARE_AI_GATEWAY]: LLMCloudflareAIGatewayInstructionsWrapper,
+    [SDKKey.DEDALUS]: LLMDedalusInstructionsWrapper,
+    [SDKKey.INSTRUCTOR]: LLMInstructorInstructionsWrapper,
+    [SDKKey.CREWAI]: LLMCrewAIInstructionsWrapper,
+    [SDKKey.PYDANTIC_AI]: LLMPydanticAIInstructionsWrapper,
+    [SDKKey.LLAMAINDEX]: LLMLlamaIndexInstructionsWrapper,
+    [SDKKey.DSPY]: LLMDSPyInstructionsWrapper,
+    [SDKKey.AUTOGEN]: LLMAutoGenInstructionsWrapper,
+    [SDKKey.SEMANTIC_KERNEL]: LLMSemanticKernelInstructionsWrapper,
+    [SDKKey.SMOLAGENTS]: LLMSmolagentsInstructionsWrapper,
+    [SDKKey.LANGGRAPH]: LLMLangGraphInstructionsWrapper,
+    [SDKKey.MASTRA]: LLMMastraInstructionsWrapper,
+    [SDKKey.MIRASCOPE]: LLMMirascopeInstructionsWrapper,
+    [SDKKey.GROQ]: LLMGroqInstructionsWrapper,
+    [SDKKey.HELICONE]: LLMHeliconeInstructionsWrapper,
+    [SDKKey.MISTRAL]: LLMMistralInstructionsWrapper,
+    [SDKKey.OLLAMA]: LLMOllamaInstructionsWrapper,
+    [SDKKey.DEEPSEEK]: LLMDeepSeekInstructionsWrapper,
+    [SDKKey.TOGETHER_AI]: LLMTogetherAIInstructionsWrapper,
+    [SDKKey.FIREWORKS_AI]: LLMFireworksAIInstructionsWrapper,
+    [SDKKey.AZURE_OPENAI]: LLMAzureOpenAIInstructionsWrapper,
+    [SDKKey.CEREBRAS]: LLMCerebrasInstructionsWrapper,
+    [SDKKey.PERPLEXITY]: LLMPerplexityInstructionsWrapper,
+    [SDKKey.PORTKEY]: LLMPortkeyInstructionsWrapper,
+    [SDKKey.CONVEX]: LLMConvexInstructionsWrapper,
+    [SDKKey.COHERE]: LLMCohereInstructionsWrapper,
+    [SDKKey.HUGGING_FACE]: LLMHuggingFaceInstructionsWrapper,
+    [SDKKey.XAI]: LLMXAIInstructionsWrapper,
+    [SDKKey.OPENAI_AGENTS]: LLMOpenAIAgentsInstructionsWrapper,
+    [SDKKey.OPENTELEMETRY]: LLMOpenTelemetryInstructionsWrapper,
+    [SDKKey.MANUAL_CAPTURE]: LLMManualInstructionsWrapper,
+}

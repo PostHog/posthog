@@ -4,8 +4,9 @@ import copy
 import logging
 from typing import Any
 
-from posthog.models.action.action import Action
 from posthog.models.team.team import Team
+
+from products.actions.backend.models.action import Action
 
 
 def _get_source_name(source: dict) -> str:
@@ -45,7 +46,11 @@ def get_default_metric_title(metric_dict: dict) -> str:
 logger = logging.getLogger(__name__)
 
 
-def refresh_action_names_in_metric(query: dict[str, Any] | None, team: Team) -> dict[str, Any] | None:
+def refresh_action_names_in_metric(
+    query: dict[str, Any] | None,
+    team: Team,
+    actions_by_id: dict[int, str] | None = None,
+) -> dict[str, Any] | None:
     """
     Update ActionsNode names in a metric query to reflect current action names.
 
@@ -60,6 +65,9 @@ def refresh_action_names_in_metric(query: dict[str, Any] | None, team: Team) -> 
     Args:
         query: The metric query dictionary (ExperimentMetric)
         team: The team to fetch actions for
+        actions_by_id: Optional preloaded {action_id: name} map. When provided, the
+            per-call DB query is skipped — callers serializing many experiments can
+            resolve every action in one batched query and pass the result in here.
 
     Returns:
         Updated query dict with refreshed action names, or original query if errors occur
@@ -78,11 +86,12 @@ def refresh_action_names_in_metric(query: dict[str, Any] | None, team: Team) -> 
         if not action_ids:
             return query
 
-        # Fetch all actions in a single query
-        # Only include actions that still exist (not deleted)
-        actions_by_id = {
-            action.id: action.name for action in Action.objects.filter(id__in=action_ids, team=team, deleted=False)
-        }
+        if actions_by_id is None:
+            # Fetch all actions in a single query
+            # Only include actions that still exist (not deleted)
+            actions_by_id = {
+                action.id: action.name for action in Action.objects.filter(id__in=action_ids, team=team, deleted=False)
+            }
 
         # Update action names throughout the query
         # If an action was deleted, its ID won't be in actions_by_id and the old name will be preserved
@@ -134,3 +143,47 @@ def _update_action_names(obj: Any, actions_by_id: dict[int, str]) -> None:
     elif isinstance(obj, list):
         for item in obj:
             _update_action_names(item, actions_by_id)
+
+
+def _collect_event_names_and_action_ids(obj: Any, event_names: set[str], action_ids: set[int]) -> None:
+    """Recursively collect EventsNode event names and ActionsNode IDs from a metric query."""
+    if isinstance(obj, dict):
+        kind = obj.get("kind")
+        if kind == "EventsNode":
+            event = obj.get("event")
+            # A null event means "all events" and references no specific custom event.
+            if event:
+                event_names.add(event)
+        elif kind == "ActionsNode" and "id" in obj:
+            try:
+                action_ids.add(int(obj["id"]))
+            except (ValueError, TypeError):
+                logger.warning("Invalid action ID in ActionsNode: %s", obj["id"])
+        for value in obj.values():
+            _collect_event_names_and_action_ids(value, event_names, action_ids)
+    elif isinstance(obj, list):
+        for item in obj:
+            _collect_event_names_and_action_ids(item, event_names, action_ids)
+
+
+def collect_metric_events_and_action_ids(metrics: list[dict[str, Any]]) -> tuple[set[str], set[int]]:
+    """Collect direct event names and referenced action IDs from metric queries (no DB access).
+
+    Kept DB-free so callers handling many experiments can resolve every action in a
+    single batched query rather than one query per experiment.
+    """
+    event_names: set[str] = set()
+    action_ids: set[int] = set()
+    for metric in metrics:
+        _collect_event_names_and_action_ids(metric, event_names, action_ids)
+    return event_names, action_ids
+
+
+def resolve_action_events(action_ids: set[int], team: Team) -> dict[int, set[str]]:
+    """Resolve action IDs to their step event names in a single query."""
+    if not action_ids:
+        return {}
+    return {
+        action.id: {event for event in action.get_step_events() if event}
+        for action in Action.objects.filter(id__in=action_ids, team=team, deleted=False)
+    }

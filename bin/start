@@ -71,6 +71,7 @@ source_env_defaults() {
             export "$name=$value"
         fi
     done < "$1"
+    return 0
 }
 # .env.local: already in env if processed by op run, otherwise source directly
 if [[ -f "$REPOSITORY_ROOT/.env.local" ]] && [[ -z "$_POSTHOG_OP_RESOLVED" ]]; then
@@ -126,6 +127,14 @@ export BEHAVIORAL_COHORTS_DATABASE_URL=${BEHAVIORAL_COHORTS_DATABASE_URL:-postgr
 export FLAGS_READ_STORE_DATABASE_URL=${FLAGS_READ_STORE_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/flags_read_store}
 export CYCLOTRON_DATABASE_URL=${CYCLOTRON_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/cyclotron}
 export CYCLOTRON_NODE_DATABASE_URL=${CYCLOTRON_NODE_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/cyclotron_node}
+
+# Clean up orphaned dev processes left behind by a previous unclean shutdown.
+# These "zombies" hold ports and memory and cause most local dev issues. Only
+# orphans are killed — processes under an active process manager are left alone.
+# Set HOGLI_SKIP_ZOMBIE_CHECK=1 to skip. Never let it fail the script (set -e).
+if [[ -z "${HOGLI_SKIP_ZOMBIE_CHECK:-}" ]] && command -v hogli &>/dev/null; then
+    hogli doctor:zombies --yes || true
+fi
 
 # Geo files
 ./bin/download-mmdb

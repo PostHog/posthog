@@ -1,0 +1,84 @@
+import { useCallback, useMemo } from 'react'
+
+import type { TooltipContext } from '@posthog/quill-charts'
+
+import { roundToDecimal } from 'lib/utils/numbers'
+import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
+import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+
+import type { RetentionSeriesMeta } from './retentionChartTransforms'
+
+const NOOP = (): void => {}
+
+interface RetentionTooltipProps {
+    context: TooltipContext<RetentionSeriesMeta>
+    xAxisLabels: string[]
+    period?: string
+    selectedInterval: number | null
+    shouldShowMeanPerBreakdown: boolean
+    isPercentage: boolean
+    groupTypeLabel?: string
+    onRowClick?: (datum: SeriesDatum) => void
+}
+
+export function RetentionTooltip({
+    context,
+    xAxisLabels,
+    period,
+    selectedInterval,
+    shouldShowMeanPerBreakdown,
+    isPercentage,
+    groupTypeLabel,
+    onRowClick,
+}: RetentionTooltipProps): React.ReactElement {
+    const seriesData = useMemo<SeriesDatum[]>(
+        () =>
+            context.seriesData
+                // Each retention series is already its own row (cohort or breakdown value), so the
+                // breakdown value is carried by `label`. Don't set `breakdown_value` here — it would
+                // flip InsightTooltip into its breakdown-column pivot, which renders one column per
+                // series and leaves every other cell as "–".
+                .map((entry, idx) => ({
+                    id: idx,
+                    dataIndex: context.dataIndex,
+                    datasetIndex: idx,
+                    order: entry.series.meta?.rowIndex ?? idx,
+                    label: entry.series.label,
+                    color: entry.color,
+                    count: entry.value,
+                }))
+                // Show highest values first, matching the legacy LineGraph tooltip.
+                .sort((a, b) => b.count - a.count || (a.label ?? '').localeCompare(b.label ?? ''))
+                .map((datum, id) => ({ ...datum, id })),
+        [context.seriesData, context.dataIndex]
+    )
+
+    const renderCount = useCallback(
+        (value: number): string => (isPercentage ? `${roundToDecimal(value)}%` : `${roundToDecimal(value)}`),
+        [isPercentage]
+    )
+
+    const renderSeries = useCallback(
+        (value: React.ReactNode): React.ReactElement => {
+            const showCohortPrefix = selectedInterval !== null || !shouldShowMeanPerBreakdown
+            return <>{showCohortPrefix ? <>Cohort {value}</> : value}</>
+        },
+        [selectedInterval, shouldShowMeanPerBreakdown]
+    )
+
+    const title =
+        selectedInterval !== null ? `${period} ${selectedInterval}` : (xAxisLabels[context.dataIndex] ?? context.label)
+
+    return (
+        <InsightTooltip
+            altTitle={title}
+            seriesData={seriesData}
+            groupTypeLabel={groupTypeLabel}
+            onClose={context.onUnpin ?? NOOP}
+            renderSeries={renderSeries}
+            renderCount={renderCount}
+            onRowClick={onRowClick}
+            hideInspectActorsSection={!onRowClick}
+        />
+    )
+}

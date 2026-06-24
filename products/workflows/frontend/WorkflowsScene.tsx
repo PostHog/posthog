@@ -1,4 +1,5 @@
 import { actions, kea, path, props, reducers, selectors, useActions, useValues } from 'kea'
+import { urlToAction } from 'kea-router'
 
 import { IconApple, IconAndroid, IconLetter, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
@@ -10,11 +11,9 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IconSlack, IconTwilio } from 'lib/lemon-ui/icons'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { addProductIntent } from 'lib/utils/product-intents'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -38,13 +37,11 @@ export type WorkflowsSceneTab = (typeof WORKFLOW_SCENE_TABS)[number]
 
 export type WorkflowsSceneProps = {
     tab?: WorkflowsSceneTab
-    tabId?: string
 }
 
 export const workflowsSceneLogic = kea<workflowsSceneLogicType>([
     props({} as WorkflowsSceneProps),
     path(() => ['scenes', 'workflows', 'workflowsSceneLogic']),
-    tabAwareScene(),
     actions({
         setCurrentTab: (tab: WorkflowsSceneTab) => ({ tab }),
     }),
@@ -71,10 +68,10 @@ export const workflowsSceneLogic = kea<workflowsSceneLogicType>([
             },
         ],
     }),
-    tabAwareActionToUrl(({ values }) => ({
+    trackedActionToUrl(({ values }) => ({
         setCurrentTab: () => [urls.workflows(values.currentTab)],
     })),
-    tabAwareUrlToAction(({ actions, values }) => {
+    urlToAction(({ actions, values }) => {
         return {
             [urls.workflows()]: () => {
                 if (values.currentTab !== 'workflows') {
@@ -167,7 +164,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
         {
             label: 'Workflows',
             key: 'workflows',
-            content: <WorkflowsTable {...props} />,
+            content: <WorkflowsTable />,
             link: urls.workflows(),
         },
         {

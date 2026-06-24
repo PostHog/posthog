@@ -55,10 +55,13 @@ export async function execAsync(bytecode: any[] | VMState | Bytecodes, options?:
         }
         if (response.state && response.asyncFunctionName && response.asyncFunctionArgs) {
             vmState = response.state
-            if (options?.asyncFunctions && response.asyncFunctionName in options.asyncFunctions) {
+            if (
+                options?.asyncFunctions &&
+                Object.prototype.hasOwnProperty.call(options.asyncFunctions, response.asyncFunctionName)
+            ) {
                 const result = await options?.asyncFunctions[response.asyncFunctionName](...response.asyncFunctionArgs)
                 vmState.stack.push(result)
-            } else if (response.asyncFunctionName in ASYNC_STL) {
+            } else if (Object.prototype.hasOwnProperty.call(ASYNC_STL, response.asyncFunctionName)) {
                 const result = await ASYNC_STL[response.asyncFunctionName].fn(
                     response.asyncFunctionArgs,
                     response.asyncFunctionName,
@@ -156,7 +159,7 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
         if (!frame.chunk || frame.chunk === 'root') {
             chunkBytecode = rootBytecode
             chunkGlobals = rootGlobals
-        } else if (frame.chunk.startsWith('stl/') && frame.chunk.substring(4) in BYTECODE_STL) {
+        } else if (frame.chunk.startsWith('stl/') && Object.hasOwn(BYTECODE_STL, frame.chunk.substring(4))) {
             chunkBytecode = BYTECODE_STL[frame.chunk.substring(4)][1]
             chunkGlobals = {}
         } else if (bytecodes[frame.chunk]) {
@@ -471,7 +474,7 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                     for (let i = 0; i < count; i++) {
                         chain.push(popStack())
                     }
-                    if (chunkGlobals && chain[0] in chunkGlobals && Object.hasOwn(chunkGlobals, chain[0])) {
+                    if (chunkGlobals && Object.hasOwn(chunkGlobals, chain[0])) {
                         pushStack(convertJSToHog(getNestedValue(chunkGlobals, chain, true)))
                     } else if (
                         options?.asyncFunctions &&
@@ -490,7 +493,7 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                                 })
                             )
                         )
-                    } else if (chain.length == 1 && chain[0] in ASYNC_STL && Object.hasOwn(ASYNC_STL, chain[0])) {
+                    } else if (chain.length == 1 && Object.hasOwn(ASYNC_STL, chain[0])) {
                         pushStack(
                             newHogClosure(
                                 newHogCallable('async', {
@@ -502,7 +505,7 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                                 })
                             )
                         )
-                    } else if (chain.length == 1 && chain[0] in STL && Object.hasOwn(STL, chain[0])) {
+                    } else if (chain.length == 1 && Object.hasOwn(STL, chain[0])) {
                         pushStack(
                             newHogClosure(
                                 newHogCallable('stl', {
@@ -514,7 +517,7 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                                 })
                             )
                         )
-                    } else if (chain.length == 1 && chain[0] in BYTECODE_STL && Object.hasOwn(BYTECODE_STL, chain[0])) {
+                    } else if (chain.length == 1 && Object.hasOwn(BYTECODE_STL, chain[0])) {
                         pushStack(
                             newHogClosure(
                                 newHogCallable('stl', {
@@ -700,7 +703,7 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                     checkTimeout()
                     const name = next()
                     temp = next() // args.length
-                    if (name in declaredFunctions && name !== 'toString') {
+                    if (Object.prototype.hasOwnProperty.call(declaredFunctions, name) && name !== 'toString') {
                         // This is for backwards compatibility. We use a closure on the stack with local functions now.
                         const [funcIp, argLen] = declaredFunctions[name]
                         frame.ip += 1 // advance for when we return
@@ -781,7 +784,7 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                             ((options?.asyncFunctions &&
                                 Object.hasOwn(options.asyncFunctions, name) &&
                                 options.asyncFunctions[name]) ||
-                                name in ASYNC_STL)
+                                Object.hasOwn(ASYNC_STL, name))
                         ) {
                             if (asyncSteps >= maxAsyncSteps) {
                                 throw new HogVMException(`Exceeded maximum number of async steps: ${maxAsyncSteps}`)
@@ -806,7 +809,7 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                                     asyncSteps: asyncSteps + 1,
                                 },
                             } satisfies ExecResult
-                        } else if (name in STL) {
+                        } else if (Object.hasOwn(STL, name)) {
                             const args =
                                 version === 0
                                     ? Array(temp)
@@ -814,7 +817,7 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                                           .map(() => popStack())
                                     : stackKeepFirstElements(stack.length - temp)
                             pushStack(STL[name].fn(args, name, options))
-                        } else if (name in BYTECODE_STL) {
+                        } else if (Object.hasOwn(BYTECODE_STL, name)) {
                             const argNames = BYTECODE_STL[name][0]
                             if (argNames.length !== temp) {
                                 throw new HogVMException(
@@ -890,7 +893,7 @@ export function exec(input: any[] | VMState | Bytecodes, options?: ExecOptions):
                         }
                         continue // resume the loop without incrementing frame.ip
                     } else if (closure.callable.__hogCallable__ === 'stl') {
-                        if (!closure.callable.name || !(closure.callable.name in STL)) {
+                        if (!closure.callable.name || !Object.hasOwn(STL, closure.callable.name)) {
                             throw new HogVMException(`Unsupported function call: ${closure.callable.name}`)
                         }
                         const stlFn = STL[closure.callable.name]

@@ -3,6 +3,7 @@ from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     FieldOrTable,
     IntegerDatabaseField,
+    MapStringDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
     Table,
@@ -24,14 +25,14 @@ class LogsTable(Table):
         "span_id": StringDatabaseField(name="span_id", nullable=False),
         "message": StringDatabaseField(name="body", nullable=False),
         "body": StringDatabaseField(name="body", nullable=False),
-        "attributes": StringJSONDatabaseField(name="attributes", nullable=False),
+        "attributes": MapStringDatabaseField(name="attributes", nullable=False),
         "time_bucket": DateTimeDatabaseField(name="time_bucket", nullable=False),
         "timestamp": DateTimeDatabaseField(name="timestamp", nullable=False),
         "observed_timestamp": DateTimeDatabaseField(name="observed_timestamp", nullable=False),
         "severity_text": StringDatabaseField(name="severity_text", nullable=False),
         "severity_number": IntegerDatabaseField(name="severity_number", nullable=False),
         "level": StringDatabaseField(name="level", nullable=False),
-        "resource_attributes": StringJSONDatabaseField(name="resource_attributes", nullable=False),
+        "resource_attributes": MapStringDatabaseField(name="resource_attributes", nullable=False),
         "resource_fingerprint": IntegerDatabaseField(name="resource_fingerprint", nullable=False),
         "instrumentation_scope": StringDatabaseField(name="instrumentation_scope", nullable=False),
         "event_name": StringDatabaseField(name="event_name", nullable=False),
@@ -39,6 +40,7 @@ class LogsTable(Table):
         # internal fields for query optimization
         "_part_starting_offset": IntegerDatabaseField(name="_part_starting_offset", nullable=True, hidden=True),
         "_part_offset": IntegerDatabaseField(name="_part_offset", nullable=True, hidden=True),
+        "_bytes_uncompressed": IntegerDatabaseField(name="_bytes_uncompressed", nullable=True, hidden=True),
         "mat_body_ipv4_matches": StringJSONDatabaseField(name="mat_body_ipv4_matches", nullable=True, hidden=True),
     }
 

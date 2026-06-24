@@ -2,8 +2,10 @@ import traceback
 
 from django.db import transaction
 
-from posthog.models import AlertConfiguration
 from posthog.tasks.alerts import utils as alert_utils
+
+from products.alerts.backend.evaluation import check_alert_for_insight
+from products.alerts.backend.models import AlertConfiguration
 
 
 def run_alert_check(alert_id: str) -> None:
@@ -13,7 +15,7 @@ def run_alert_check(alert_id: str) -> None:
     error = None
     result = None
     try:
-        result = alert_utils.check_alert_for_insight(alert)
+        result = check_alert_for_insight(alert)
     except Exception as e:
         error = {"message": str(e), "traceback": traceback.format_exc()}
 

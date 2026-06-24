@@ -362,12 +362,13 @@ def test_merge_from_non_base_branch_dismisses(repo: Path) -> None:
 
 
 def test_decide_no_prior_approval(monkeypatch: pytest.MonkeyPatch, repo: Path) -> None:
-    # No prior bot approval → no_op. Re-review here would burn LLM credits
-    # for a state we didn't create (a human dismissed the approval out-of-
-    # band) and the label-add path is the canonical re-review trigger.
+    # No prior bot approval, but the label is still on (decide-delta only runs
+    # when it is) and the agent hasn't approved — re-run the review on this
+    # push so the first-run ERROR case (LLM backend down, label retained)
+    # actually retries instead of staying labeled but stuck.
     monkeypatch.setattr(dismiss_check, "find_last_approved_sha", lambda *_: None)
     result = decide("PostHog/posthog", 1, _head(repo), repo)
-    _assert_decision(result, dismiss=False, review=False, reason="no_prior_approval")
+    _assert_decision(result, dismiss=False, review=True, reason="no_prior_approval")
     assert result.last_approved_sha is None
 
 

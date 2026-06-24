@@ -1,2 +1,0 @@
-{% extends "base.jinja" %}
-{% block task %}Apply the lens intent and choose tags from this fixed vocabulary: [{{ vocabulary }}]. {% if multi_label %}Pick every tag that applies.{% else %}Pick exactly one tag.{% endif %} Use `reasoning` to cite the moments that justify your choice.{% endblock %}

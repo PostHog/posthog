@@ -1,18 +1,30 @@
 """Postgres source helpers shared between warehouse and direct-query modes.
 
-Direct-query-mode-only utilities (DataWarehouseTable upserts, the `direct://postgres` url_pattern,
-the option keys that encode source location on a direct table) live in `direct_postgres.py`. This
-module holds the parts both modes need: schema metadata builders, location resolution, column
-filtering, and the reconcile/rename helpers.
+Direct-query-only utilities (DataWarehouseTable upserts, the `direct://postgres`
+url_pattern, the option keys that encode source location on a direct table) live
+in `direct_postgres.py`. Generic projection / `schema_metadata` builders live in
+`posthog/temporal/data_imports/sources/common/sql/{projection,metadata}.py`.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any
 
 from django.db.models import Q
 
+import structlog
+
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.common.sql.location import normalize_namespace
+from posthog.temporal.data_imports.sources.common.sql.metadata import (
+    extract_available_column_names,
+    sql_schema_metadata as _sql_schema_metadata,
+)
+from posthog.temporal.data_imports.sources.common.sql.projection import (
+    filter_columns_by_enabled_columns as _filter_columns_by_enabled_columns,
+    filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
+    prune_enabled_columns,
+)
 
 from products.data_warehouse.backend.direct_postgres import (
     DIRECT_POSTGRES_CATALOG_OPTION,
@@ -22,23 +34,23 @@ from products.data_warehouse.backend.direct_postgres import (
     rename_direct_postgres_join_references,
     upsert_direct_postgres_table,
 )
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.models.util import postgres_column_to_dwh_column, postgres_columns_to_dwh_columns
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.util import (
+    postgres_column_to_dwh_column,
+    postgres_columns_to_dwh_columns,
+)
 
 if TYPE_CHECKING:
     pass
 
-_TColumnValue = TypeVar("_TColumnValue")
+log = structlog.get_logger(__name__)
+
+# Re-exports for back-compat. New code: import from `common/sql/projection`.
+filter_columns_by_enabled_columns = _filter_columns_by_enabled_columns
+filter_dwh_columns_by_enabled_columns = _filter_dwh_columns_by_enabled_columns
 
 type PostgresDwhColumns = dict[str, dict[str, Any]]
 type PostgresSourceLocation = tuple[str | None, str, str]
-
-
-def _normalize_default_schema(default_schema: str | None) -> str | None:
-    if not isinstance(default_schema, str):
-        return None
-    normalized = default_schema.strip()
-    return normalized or None
 
 
 def postgres_schema_metadata(
@@ -48,19 +60,14 @@ def postgres_schema_metadata(
     source_schema: str | None = None,
     source_table_name: str | None = None,
 ) -> dict[str, Any]:
-    return {
-        "columns": [
-            {"name": column_name, "data_type": postgres_type, "is_nullable": nullable}
-            for column_name, postgres_type, nullable in columns
-        ],
-        "foreign_keys": [
-            {"column": column_name, "target_table": target_table, "target_column": target_column}
-            for column_name, target_table, target_column in (foreign_keys or [])
-        ],
-        "source_catalog": source_catalog,
-        "source_schema": source_schema,
-        "source_table_name": source_table_name,
-    }
+    """Back-compat wrapper around `sql_schema_metadata`."""
+    return _sql_schema_metadata(
+        columns,
+        foreign_keys,
+        source_catalog=source_catalog,
+        source_schema=source_schema,
+        source_table_name=source_table_name,
+    )
 
 
 def postgres_schema_metadata_to_dwh_columns(schema_metadata: dict[str, Any] | None) -> PostgresDwhColumns:
@@ -95,7 +102,7 @@ def get_postgres_source_location(
     source_catalog = schema_metadata.get("source_catalog") if isinstance(schema_metadata, dict) else None
     source_schema = schema_metadata.get("source_schema") if isinstance(schema_metadata, dict) else None
     source_table_name = schema_metadata.get("source_table_name") if isinstance(schema_metadata, dict) else None
-    normalized_default = _normalize_default_schema(default_schema)
+    normalized_default = normalize_namespace(default_schema)
 
     if isinstance(source_schema, str) and isinstance(source_table_name, str):
         return source_catalog if isinstance(source_catalog, str) else None, source_schema, source_table_name
@@ -152,39 +159,6 @@ def get_postgres_source_location_for_schema_model(
     )
 
 
-def filter_dwh_columns_by_enabled_columns(
-    columns: dict[str, _TColumnValue],
-    enabled_columns: list[str] | None,
-    primary_keys: list[str] | None,
-    incremental_field: str | None = None,
-) -> dict[str, _TColumnValue]:
-    # `None` and `[]` are distinct: `None` syncs all, `[]` retains only PKs + incremental.
-    if enabled_columns is None:
-        return columns
-    retained: set[str] = set(enabled_columns)
-    for pk in primary_keys or []:
-        retained.add(pk)
-    if incremental_field:
-        retained.add(incremental_field)
-    return {name: column for name, column in columns.items() if name in retained}
-
-
-def filter_columns_by_enabled_columns(
-    columns: list[tuple[str, str, bool]],
-    enabled_columns: list[str] | None,
-    primary_keys: list[str] | None,
-    incremental_field: str | None = None,
-) -> list[tuple[str, str, bool]]:
-    if enabled_columns is None:
-        return columns
-    retained: set[str] = set(enabled_columns)
-    for pk in primary_keys or []:
-        retained.add(pk)
-    if incremental_field:
-        retained.add(incremental_field)
-    return [col for col in columns if col[0] in retained]
-
-
 def reconcile_postgres_schemas(
     *,
     source: ExternalDataSource,
@@ -193,7 +167,7 @@ def reconcile_postgres_schemas(
 ) -> list[str]:
     """Persist `schema_metadata` on every Postgres row + (direct mode only) upsert its live-query
     `DataWarehouseTable`. Returns stale schema names that got soft-deleted (direct only)."""
-    from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
     is_direct = source.is_direct_query
     source_schema_names = [s.name for s in source_schemas]
@@ -247,8 +221,29 @@ def reconcile_postgres_schemas(
             source_schema=resolved_schema,
             source_table_name=resolved_table,
         )
-        matched.sync_type_config = {**(matched.sync_type_config or {}), "schema_metadata": schema_metadata}
-        matched.save(update_fields=["sync_type_config", "updated_at"])
+        new_sync_type_config = {**(matched.sync_type_config or {}), "schema_metadata": schema_metadata}
+        # Persist the detected primary key so tables discovered after source creation can be
+        # switched to CDC (which requires a PK). Don't clobber a value already stored — e.g. an
+        # explicit override set during creation or a prior refresh.
+        if source_schema.detected_primary_keys and not new_sync_type_config.get("primary_key_columns"):
+            new_sync_type_config["primary_key_columns"] = source_schema.detected_primary_keys
+        matched.sync_type_config = new_sync_type_config
+        update_fields = ["sync_type_config", "updated_at"]
+
+        # Drop dead columns so next sync doesn't emit `SELECT … missing_col`.
+        available_names = extract_available_column_names(schema_metadata)
+        pruned_enabled_columns, removed_columns = prune_enabled_columns(matched.enabled_columns, available_names)
+        if removed_columns:
+            log.info(
+                "postgres.reconcile_schemas.pruned_enabled_columns",
+                source_id=str(source.id),
+                schema_id=str(matched.id),
+                schema_name=matched.name,
+                removed_columns=removed_columns,
+            )
+            matched.enabled_columns = pruned_enabled_columns
+            update_fields.append("enabled_columns")
+        matched.save(update_fields=update_fields)
 
         if not is_direct:
             # Warehouse mode: the ingestion workflow manages `DataWarehouseTable` itself.
@@ -317,6 +312,8 @@ def reproject_direct_postgres_table(
             enabled_columns,
             schema_row.primary_key_columns,
             schema_row.incremental_field,
+            # Direct-postgres columns are keyed by raw, case-sensitive source names.
+            normalize=False,
         ),
         source_catalog=source_catalog,
         source_schema=source_schema,
@@ -335,7 +332,7 @@ def rename_postgres_schemas_to_match_source_schemas(
     Direct mode (`allow_rename=True`) rewrites `name` in place; warehouse mode pins
     `schema_metadata` only — the rename happens in `postgres_warehouse_migration`.
     """
-    from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
     default_schema = (source.job_inputs or {}).get("schema")
     schema_models = list(

@@ -4,7 +4,10 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import {
     IntegrationsChannelsRetrieveParams,
+    IntegrationsChannelsRetrieveQueryParams,
     IntegrationsDestroyParams,
+    IntegrationsGithubReposRetrieveParams,
+    IntegrationsGithubReposRetrieveQueryParams,
     IntegrationsListQueryParams,
     IntegrationsRetrieveParams,
 } from '@/generated/integrations/api'
@@ -49,7 +52,9 @@ const integrationGet = (): ToolBase<typeof IntegrationGetSchema, Schemas.Integra
     },
 })
 
-const IntegrationsChannelsRetrieveSchema = IntegrationsChannelsRetrieveParams.omit({ project_id: true })
+const IntegrationsChannelsRetrieveSchema = IntegrationsChannelsRetrieveParams.omit({ project_id: true }).extend(
+    IntegrationsChannelsRetrieveQueryParams.shape
+)
 
 const integrationsChannelsRetrieve = (): ToolBase<
     typeof IntegrationsChannelsRetrieveSchema,
@@ -62,6 +67,36 @@ const integrationsChannelsRetrieve = (): ToolBase<
         const result = await context.api.request<Schemas.SlackChannelsResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/channels/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+                search: params.search,
+            },
+        })
+        return result
+    },
+})
+
+const IntegrationsGithubReposRetrieveSchema = IntegrationsGithubReposRetrieveParams.omit({ project_id: true }).extend(
+    IntegrationsGithubReposRetrieveQueryParams.shape
+)
+
+const integrationsGithubReposRetrieve = (): ToolBase<
+    typeof IntegrationsGithubReposRetrieveSchema,
+    Schemas.GitHubReposResponse
+> => ({
+    name: 'integrations-github-repos-retrieve',
+    schema: IntegrationsGithubReposRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof IntegrationsGithubReposRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.GitHubReposResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/github_repos/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+                search: params.search,
+            },
         })
         return result
     },
@@ -100,5 +135,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'integration-delete': integrationDelete,
     'integration-get': integrationGet,
     'integrations-channels-retrieve': integrationsChannelsRetrieve,
+    'integrations-github-repos-retrieve': integrationsGithubReposRetrieve,
     'integrations-list': integrationsList,
 }

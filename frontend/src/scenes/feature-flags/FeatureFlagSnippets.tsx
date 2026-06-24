@@ -543,7 +543,7 @@ result.payload?.let { payload ->
     if (payload) {
         return (
             <CodeSnippet language={Language.Kotlin} wrap>
-                {`${clientSuffix}getFeatureFlagPayload("${flagKey}")`}
+                {`${clientSuffix}getFeatureFlagResult("${flagKey}")?.payload`}
             </CodeSnippet>
         )
     }
@@ -594,7 +594,7 @@ if (result.payload != null) {
     if (payload) {
         return (
             <CodeSnippet language={Language.Dart} wrap>
-                {`${clientSuffix}getFeatureFlagPayload('${flagKey}');`}
+                {`(${clientSuffix}getFeatureFlagResult('${flagKey}'))?.payload;`}
             </CodeSnippet>
         )
     }
@@ -646,7 +646,7 @@ if let payload = result.payload {
     if (payload) {
         return (
             <CodeSnippet language={Language.Swift} wrap>
-                {`${clientSuffix}getFeatureFlagPayload("${flagKey}")`}
+                {`${clientSuffix}getFeatureFlagResult("${flagKey}")?.payload`}
             </CodeSnippet>
         )
     }
@@ -703,7 +703,7 @@ const MyComponent = () => {
     if (payload) {
         return (
             <CodeSnippet language={Language.JSX} wrap>
-                {`${clientSuffix}getFeatureFlagPayload('${flagKey}')`}
+                {`${clientSuffix}getFeatureFlagResult('${flagKey}')?.payload`}
             </CodeSnippet>
         )
     }
@@ -805,11 +805,12 @@ export function JSSnippet({
     instantlyAvailableProperties,
     samplePropertyName,
 }: FeatureFlagSnippet): JSX.Element {
+    const clientSuffix = 'posthog.'
     if (payload) {
         return (
             <>
                 <CodeSnippet language={Language.JavaScript} wrap>
-                    {`posthog.getFeatureFlagPayload('${flagKey ?? ''}')`}
+                    {`${clientSuffix}getFeatureFlagResult('${flagKey ?? ''}')?.payload`}
                 </CodeSnippet>
             </>
         )
@@ -828,7 +829,6 @@ posthog.${
 
 `
 
-    const clientSuffix = 'posthog.'
     const flagFunction = multivariant ? 'getFeatureFlag' : 'isFeatureEnabled'
 
     const variantSuffix = multivariant ? ` == 'example-variant'` : ''

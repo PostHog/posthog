@@ -56,6 +56,7 @@ KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT_EMBEDDINGS = (
 )
 KAFKA_DOCUMENT_EMBEDDINGS_TOPIC = f"{KAFKA_PREFIX}clickhouse_document_embeddings{SUFFIX}"
 KAFKA_DOCUMENT_EMBEDDINGS_INPUT_TOPIC = f"{KAFKA_PREFIX}document_embeddings_input{SUFFIX}"
+KAFKA_DOCUMENT_EMBEDDING_RESULTS_TOPIC = f"{KAFKA_PREFIX}document_embedding_results{SUFFIX}"
 
 KAFKA_CDP_INTERNAL_EVENTS = f"{KAFKA_PREFIX}cdp_internal_events{SUFFIX}"
 KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES = (
@@ -82,3 +83,9 @@ KAFKA_WAREHOUSE_SOURCES_JOBS_DLQ = f"{KAFKA_PREFIX}data_warehouse_sources_jobs_d
 KAFKA_NOTIFICATION_EVENTS = f"{KAFKA_PREFIX}notification_events{SUFFIX}"
 
 KAFKA_SIGNALS_REPORT_COMPLETED = f"{KAFKA_PREFIX}signals_report_completed{SUFFIX}"
+
+# Producer: Django signal handlers in products/feature_flags/backend/flags_cache.py.
+# Consumer: rust/feature-flags flags-cache-builder bin. Not a plugin-server
+# concern — no Node-side mirror needed.
+KAFKA_FLAGS_CACHE_INVALIDATION = f"{KAFKA_PREFIX}flags_cache_invalidation{SUFFIX}"
+KAFKA_FLAGS_CACHE_INVALIDATION_DLQ = f"{KAFKA_PREFIX}flags_cache_invalidation_dlq{SUFFIX}"

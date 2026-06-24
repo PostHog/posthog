@@ -1,4 +1,5 @@
 import time
+from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -6,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from django.core.cache import cache
 from django.test import override_settings
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import User
@@ -131,9 +133,56 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         response = self.client.delete("/api/users/@me/integrations/github/99999/")
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    @patch("posthog.api.user_integration.UserGitHubIntegration.uninstall_app_installation")
+    def test_delete_last_reference_calls_github_uninstall(self, mock_uninstall):
+        mock_uninstall.return_value = True
+        _create_user_integration(self.user, integration_id="12345")
+
+        response = self.client.delete("/api/users/@me/integrations/github/12345/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        mock_uninstall.assert_called_once_with("12345")
+        self.assertFalse(UserIntegration.objects.filter(integration_id="12345").exists())
+
+    @patch("posthog.api.user_integration.UserGitHubIntegration.uninstall_app_installation")
+    def test_delete_skips_uninstall_when_team_reference_exists(self, mock_uninstall):
+        _create_user_integration(self.user, integration_id="12345")
+        Integration.objects.create(
+            team=self.team, kind="github", integration_id="12345", config={}, sensitive_config={}
+        )
+
+        response = self.client.delete("/api/users/@me/integrations/github/12345/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        mock_uninstall.assert_not_called()
+        self.assertFalse(UserIntegration.objects.filter(user=self.user, integration_id="12345").exists())
+
+    @patch("posthog.api.user_integration.UserGitHubIntegration.uninstall_app_installation")
+    def test_delete_skips_uninstall_when_other_user_reference_exists(self, mock_uninstall):
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
+        _create_user_integration(self.user, integration_id="12345")
+        _create_user_integration(other_user, integration_id="12345")
+
+        response = self.client.delete("/api/users/@me/integrations/github/12345/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        mock_uninstall.assert_not_called()
+
+    @patch(
+        "posthog.api.user_integration.UserGitHubIntegration.uninstall_if_last_reference",
+        side_effect=Exception("GitHub API error"),
+    )
+    def test_delete_still_returns_204_when_uninstall_fails(self, _mock_uninstall):
+        _create_user_integration(self.user, integration_id="12345")
+
+        response = self.client.delete("/api/users/@me/integrations/github/12345/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(UserIntegration.objects.filter(integration_id="12345").exists())
+
     @override_settings(GITHUB_APP_CLIENT_ID="client_id")
     @patch(
-        "posthog.api.user_integration.get_instance_settings",
+        "posthog.api.github_callback.personal_state.get_instance_settings",
         return_value={"GITHUB_APP_SLUG": "posthog-dev"},
     )
     def test_github_start_returns_install_url_when_no_team_github(self, _mock_settings):
@@ -162,12 +211,8 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertIn("client_id=gh_client_123", url)
         self.assertIn("redirect_uri=https%3A%2F%2Fus.posthog.com%2Fcomplete%2Fgithub-link%2F", url)
 
-    @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123")
-    @patch(
-        "posthog.api.user_integration.get_instance_settings",
-        return_value={"GITHUB_APP_SLUG": "posthog-dev"},
-    )
-    def test_github_start_returns_install_url_even_when_team_has_github_integration(self, _mock_settings):
+    @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123", SITE_URL="https://us.posthog.com")
+    def test_github_start_web_fast_path_returns_oauth_url_when_team_has_github_integration(self):
         Integration.objects.create(
             team=self.team,
             kind="github",
@@ -180,8 +225,11 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertIn("install_url", data)
-        self.assertEqual(data.get("connect_flow"), "app_install")
-        self.assertIn("github.com/apps/posthog-dev/installations/new", data["install_url"])
+        self.assertEqual(data.get("connect_flow"), "oauth_authorize")
+        url = data["install_url"]
+        self.assertIn("github.com/login/oauth/authorize", url)
+        self.assertIn("client_id=gh_client_123", url)
+        self.assertIn("redirect_uri=https%3A%2F%2Fus.posthog.com%2Fcomplete%2Fgithub-link%2F", url)
 
     @override_settings(
         GITHUB_APP_CLIENT_ID="gh_client_123", SITE_URL="https://us.posthog.com", GITHUB_APP_CLIENT_SECRET="s"
@@ -211,7 +259,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
 
     @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123")
     @patch(
-        "posthog.api.user_integration.get_instance_settings",
+        "posthog.api.github_callback.personal_state.get_instance_settings",
         return_value={"GITHUB_APP_SLUG": "posthog-dev"},
     )
     def test_github_start_posthog_code_skips_fast_path_when_already_linked(self, _mock_settings):
@@ -243,7 +291,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
     @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123")
     @patch("posthog.api.user_integration._has_unlinked_github_installations", return_value=False)
     @patch(
-        "posthog.api.user_integration.get_instance_settings",
+        "posthog.api.github_callback.personal_state.get_instance_settings",
         return_value={"GITHUB_APP_SLUG": "posthog-dev"},
     )
     def test_github_start_rejects_when_all_installations_linked(self, _mock_settings, _mock_unlinked):
@@ -260,7 +308,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
 
     def test_github_start_without_app_slug_returns_400(self):
         with patch(
-            "posthog.api.user_integration.get_instance_settings",
+            "posthog.api.github_callback.personal_state.get_instance_settings",
             return_value={"GITHUB_APP_SLUG": ""},
         ):
             response = self.client.post("/api/users/@me/integrations/github/start/")
@@ -383,7 +431,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         SITE_URL="https://us.posthog.com",
     )
     @patch(
-        "posthog.api.user_integration.get_instance_settings",
+        "posthog.api.github_callback.personal_state.get_instance_settings",
         return_value={"GITHUB_APP_SLUG": "posthog-dev"},
     )
     @patch("posthog.api.user_integration.requests.get")
@@ -450,14 +498,25 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.assertEqual(integration.sensitive_config["user_access_token"], "gho_access")
         self.assertEqual(integration.sensitive_config["access_token"], "ghs_install_token")
 
+    @parameterized.expand(
+        [
+            ("posthog_code", "/account-connected/github-integration"),
+            ("posthog_mobile", "posthog://github/callback"),
+        ]
+    )
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", GITHUB_APP_CLIENT_SECRET="client_secret")
     @patch("posthog.api.user_integration.requests.get")
     @patch("posthog.models.integration.GitHubIntegration.client_request")
     @patch("posthog.models.integration.GitHubIntegration.github_user_from_code")
-    def test_github_link_redirects_to_account_integration_connected_when_posthog_code(
-        self, mock_user_from_code, mock_client_request, mock_verify_get
+    def test_github_link_redirects_to_client_destination_on_success(
+        self,
+        connect_from,
+        expected_destination,
+        mock_user_from_code,
+        mock_client_request,
+        mock_verify_get,
     ):
-        """PostHog Code passes ``connect_from`` via start payload → cache; success uses return-to-app page."""
+        """First-party clients pass ``connect_from`` via start payload → cache; success redirects to their destination."""
         mock_verify_get.return_value = MagicMock(status_code=200)
         mock_user_from_code.return_value = _authorization()
         mock_install_info = MagicMock()
@@ -472,10 +531,10 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         }
         mock_client_request.side_effect = [mock_install_info, mock_access_token]
 
-        state = "test_state_posthog_code"
+        state = f"test_state_{connect_from}"
         cache.set(
             f"github_user_install_state:{state}",
-            {"user_id": self.user.id, "connect_from": "posthog_code"},
+            {"user_id": self.user.id, "connect_from": connect_from},
             timeout=600,
         )
 
@@ -486,8 +545,29 @@ class TestUserIntegrationEndpoints(APIBaseTest):
 
         self.assertEqual(response.status_code, 302)
         loc = response["Location"]
-        self.assertIn("/account-connected/github-integration", loc)
+        self.assertIn(expected_destination, loc)
         self.assertIn("provider=github", loc)
+        self.assertNotIn("error=", loc)
+
+    def test_github_link_redirects_to_mobile_deep_link_with_error(self):
+        """When GitHub returns an error, the mobile deep link still carries provider + error."""
+        state = "test_state_posthog_mobile_error"
+        cache.set(
+            f"github_user_install_state:{state}",
+            {"user_id": self.user.id, "connect_from": "posthog_mobile"},
+            timeout=600,
+        )
+
+        response = self.client.get(
+            "/complete/github-link/",
+            {"error": "access_denied", "state": state},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        loc = response["Location"]
+        self.assertIn("posthog://github/callback", loc)
+        self.assertIn("provider=github", loc)
+        self.assertIn("error=access_denied", loc)
 
     def test_github_link_callback_rejects_mismatched_state(self):
         cache.set("github_user_install_state:valid_state", {"user_id": self.user.id}, timeout=600)
@@ -891,3 +971,251 @@ class TestGithubUserFromCode(APIBaseTest):
         self.assertEqual(result.refresh_token, "ghr_user_refresh")
         self.assertEqual(result.access_token_expires_in, 28800)
         self.assertEqual(result.refresh_token_expires_in, 15897600)
+
+
+def _create_slack_user_integration(
+    user: User,
+    *,
+    slack_user_id: str = "U999",
+    slack_team_id: str = "T12345",
+    slack_team_name: str | None = "Test Workspace",
+    slack_email_at_link: str | None = "dev@example.com",
+) -> UserIntegration:
+    return UserIntegration.objects.create(
+        user=user,
+        kind=UserIntegration.IntegrationKind.SLACK,
+        integration_id=slack_user_id,
+        config={
+            "slack_team_id": slack_team_id,
+            "slack_team_name": slack_team_name,
+            "slack_email_at_link": slack_email_at_link,
+            "linked_at": int(time.time()),
+        },
+        sensitive_config={},
+    )
+
+
+class TestUserIntegrationKindParam(APIBaseTest):
+    """Back-compat + dispatch behavior of the unified list endpoint."""
+
+    def test_default_kind_returns_github_rows(self):
+        # Mobile + Code SDK call this URL without a query param and rely on
+        # receiving GitHub-shaped items. Don't change the default lightly.
+        _create_user_integration(self.user)  # github
+        response = self.client.get("/api/users/@me/integrations/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["installation_id"], "12345")
+
+    def test_explicit_github_kind_matches_default(self):
+        _create_user_integration(self.user)
+        default_response = self.client.get("/api/users/@me/integrations/")
+        explicit_response = self.client.get("/api/users/@me/integrations/?kind=github")
+        self.assertEqual(default_response.json(), explicit_response.json())
+
+    def test_unsupported_kind_returns_400(self):
+        response = self.client.get("/api/users/@me/integrations/?kind=bitbucket")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestUserIntegrationSlackEndpoints(APIBaseTest):
+    def test_slack_list_returns_empty_when_no_links(self):
+        response = self.client.get("/api/users/@me/integrations/?kind=slack")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], [])
+
+    def test_slack_list_returns_user_link_with_full_payload(self):
+        _create_slack_user_integration(self.user)
+        response = self.client.get("/api/users/@me/integrations/?kind=slack")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        row = results[0]
+        self.assertEqual(row["kind"], "slack")
+        self.assertEqual(row["slack_user_id"], "U999")
+        self.assertEqual(row["slack_team_id"], "T12345")
+        self.assertEqual(row["slack_team_name"], "Test Workspace")
+        self.assertEqual(row["slack_email_at_link"], "dev@example.com")
+
+    def test_slack_list_does_not_include_github_rows(self):
+        _create_user_integration(self.user)
+        _create_slack_user_integration(self.user)
+        response = self.client.get("/api/users/@me/integrations/?kind=slack")
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["kind"], "slack")
+
+    def test_slack_list_scoped_to_requesting_user(self):
+        other = User.objects.create(email="other@example.com", distinct_id="other-1")
+        _create_slack_user_integration(other, slack_user_id="U-OTHER")
+        response = self.client.get("/api/users/@me/integrations/?kind=slack")
+        self.assertEqual(response.json()["results"], [])
+
+    def test_slack_destroy_removes_row(self):
+        _create_slack_user_integration(self.user, slack_user_id="U999")
+        response = self.client.delete("/api/users/@me/integrations/slack/U999/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(
+            UserIntegration.objects.filter(
+                user=self.user, kind=UserIntegration.IntegrationKind.SLACK, integration_id="U999"
+            ).exists()
+        )
+
+    def test_slack_destroy_404_when_link_missing(self):
+        response = self.client.delete("/api/users/@me/integrations/slack/U-NOPE/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_slack_destroy_cannot_remove_other_users_link(self):
+        other = User.objects.create(email="other@example.com", distinct_id="other-2")
+        _create_slack_user_integration(other, slack_user_id="U-OTHER")
+        # The requesting user has no row with this slack_user_id, so we get 404,
+        # not 403 — the route refuses to acknowledge another user's rows.
+        response = self.client.delete("/api/users/@me/integrations/slack/U-OTHER/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertTrue(
+            UserIntegration.objects.filter(
+                user=other, kind=UserIntegration.IntegrationKind.SLACK, integration_id="U-OTHER"
+            ).exists()
+        )
+
+    def _enable_flag(self) -> Any:
+        return patch("posthog.api.user_integration.slack_oauth_link_enabled", return_value=True)
+
+    def _seed_workspace_integration(self) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T12345",
+            sensitive_config={"access_token": "xoxb-test"},
+        )
+
+    def test_slack_start_returns_install_url_when_workspace_connected(self):
+        self._seed_workspace_integration()
+        with self._enable_flag():
+            response = self.client.post("/api/users/@me/integrations/slack/start/", data={}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        install_url = response.json()["install_url"]
+        # Routes through the same backend authorize entry — settings is just
+        # another invite origin, not a separate OAuth flow.
+        self.assertIn("/complete/slack-link/start/?state=", install_url)
+
+    def test_slack_start_fails_when_no_workspace_integration(self):
+        with self._enable_flag():
+            response = self.client.post("/api/users/@me/integrations/slack/start/", data={}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("no Slack workspace", response.json()["detail"])
+
+    def test_slack_start_fails_when_already_linked(self):
+        self._seed_workspace_integration()
+        _create_slack_user_integration(self.user, slack_team_id="T12345")
+        with self._enable_flag():
+            response = self.client.post("/api/users/@me/integrations/slack/start/", data={}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("already linked", response.json()["detail"])
+
+    def test_slack_start_403_when_flag_off(self):
+        self._seed_workspace_integration()
+        with patch("posthog.api.user_integration.slack_oauth_link_enabled", return_value=False):
+            response = self.client.post("/api/users/@me/integrations/slack/start/", data={}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_slack_linkable_empty_when_no_workspaces_connected(self):
+        with self._enable_flag():
+            response = self.client.get("/api/users/@me/integrations/slack/linkable_workspaces/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"], [])
+
+    def test_slack_linkable_returns_workspaces_user_can_still_link(self):
+        self._seed_workspace_integration()
+        with self._enable_flag():
+            response = self.client.get("/api/users/@me/integrations/slack/linkable_workspaces/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["slack_team_id"], "T12345")
+        self.assertEqual(results[0]["posthog_team_id"], self.team.id)
+
+    def test_slack_linkable_excludes_workspaces_user_already_linked(self):
+        self._seed_workspace_integration()
+        _create_slack_user_integration(self.user, slack_team_id="T12345")
+        with self._enable_flag():
+            response = self.client.get("/api/users/@me/integrations/slack/linkable_workspaces/")
+        # The screenshot bug: user has linked the only workspace, so the
+        # picker has nothing to offer. Frontend uses the empty list to hide
+        # the "Link another workspace" button instead of letting the user
+        # attempt a duplicate link the backend would reject.
+        self.assertEqual(response.json()["results"], [])
+
+    def test_slack_linkable_skips_workspaces_with_flag_off(self):
+        self._seed_workspace_integration()
+        with patch("posthog.api.user_integration.slack_oauth_link_enabled", return_value=False):
+            response = self.client.get("/api/users/@me/integrations/slack/linkable_workspaces/")
+        self.assertEqual(response.json()["results"], [])
+
+    def test_slack_linkable_excludes_private_project_user_cannot_access(self):
+        # The endpoint scopes candidates by organization, but org membership
+        # alone is not access — an access-control-enabled project the user
+        # has no role in must not surface its Slack workspace metadata
+        # (workspace id, team name) in the picker. Without the per-team
+        # ``effective_membership_level`` filter, an org member could call this
+        # endpoint and enumerate Slack installs (plus project + organization
+        # names) for every private project in their orgs.
+        from posthog.constants import AvailableFeature
+        from posthog.models.organization import Organization, OrganizationMembership
+        from posthog.models.team import Team
+
+        from ee.models.rbac.access_control import AccessControl
+
+        ac_org = Organization.objects.create(name="AC Org")
+        # ``pre_save`` on Organization resets ``available_product_features`` on
+        # insert; set it after the initial save to opt the org into per-team
+        # access-control checks.
+        ac_org.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        ac_org.save()
+        private_team = Team.objects.create(organization=ac_org, name="Private Team")
+        AccessControl.objects.create(
+            team=private_team,
+            resource="project",
+            resource_id=str(private_team.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+        OrganizationMembership.objects.create(organization=ac_org, user=self.user)
+        Integration.objects.create(
+            team=private_team,
+            kind="slack",
+            integration_id="T-PRIVATE",
+            sensitive_config={"access_token": "xoxb-private"},
+        )
+
+        with self._enable_flag():
+            response = self.client.get("/api/users/@me/integrations/slack/linkable_workspaces/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertNotIn("T-PRIVATE", [r["slack_team_id"] for r in results])
+
+    def test_slack_start_with_explicit_slack_team_id_links_against_picked_workspace(self):
+        self._seed_workspace_integration()
+        with self._enable_flag():
+            response = self.client.post(
+                "/api/users/@me/integrations/slack/start/",
+                data={"team_id": self.team.id, "slack_team_id": "T12345"},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("/complete/slack-link/start/?state=", response.json()["install_url"])
+
+    def test_slack_start_with_explicit_unknown_slack_team_id_is_400(self):
+        self._seed_workspace_integration()
+        with self._enable_flag():
+            response = self.client.post(
+                "/api/users/@me/integrations/slack/start/",
+                data={"team_id": self.team.id, "slack_team_id": "T-NOPE"},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

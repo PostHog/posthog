@@ -11,7 +11,7 @@ import psycopg
 from psycopg import sql
 
 if TYPE_CHECKING:
-    from products.data_warehouse.backend.models import ExternalDataSource
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,10 @@ def cdc_pg_connection(source: ExternalDataSource, connect_timeout: int = 15) -> 
 
     source_impl = PostgresSource()
     config = source_impl.parse_config(source.job_inputs or {})
-    require_ssl = source_requires_ssl(source)
+    # Pass `config` so the SSH-tunnel `require_tls` opt-out is honored, matching the main
+    # pipeline path. Without it SSL is forced on, and a database reached over an SSH tunnel
+    # that doesn't speak SSL fails with "server does not support SSL, but SSL was required".
+    require_ssl = source_requires_ssl(source, config)
 
     with source_impl.with_ssh_tunnel(config) as (host, port):
         conn = _connect_to_postgres(
@@ -50,17 +53,33 @@ def create_slot_and_publication(
     conn: psycopg.Connection,
     slot_name: str,
     pub_name: str,
-    schema: str,
-    tables: list[str],
+    tables: list[tuple[str, str]],
 ) -> str:
     """Create a publication and replication slot.
 
+    ``tables`` is a list of ``(schema, table)`` pairs — each table is qualified by
+    its own schema, since a publication can span schemas. An empty list creates an
+    empty publication (tables added later via ALTER PUBLICATION ADD TABLE).
+
     Returns the consistent_point LSN from slot creation.
     """
+    create_publication(conn, pub_name, tables)
+    consistent_point = create_slot(conn, slot_name)
+    logger.info("Created publication '%s' with slot '%s'", pub_name, slot_name)
+    return consistent_point
+
+
+def create_publication(
+    conn: psycopg.Connection,
+    pub_name: str,
+    tables: list[tuple[str, str]],
+) -> None:
+    """Create a publication, optionally pre-populated with schema-qualified tables."""
     with conn.cursor() as cur:
         if tables:
             table_list = sql.SQL(", ").join(
-                sql.SQL("{}.{}").format(sql.Identifier(schema), sql.Identifier(t)) for t in tables
+                sql.SQL("{}.{}").format(sql.Identifier(table_schema), sql.Identifier(table_name))
+                for table_schema, table_name in tables
             )
             cur.execute(
                 sql.SQL("CREATE PUBLICATION {} FOR TABLE {} WITH (publish_via_partition_root = true)").format(
@@ -75,13 +94,9 @@ def create_slot_and_publication(
                     sql.Identifier(pub_name),
                 )
             )
-        # Must commit before creating the slot — PG forbids logical slot
-        # creation in a transaction that has performed writes.
+        # Commit immediately so callers can create a replication slot on the same connection next.
         conn.commit()
-
-    consistent_point = create_slot(conn, slot_name)
-    logger.info("Created publication '%s' with slot '%s'", pub_name, slot_name)
-    return consistent_point
+    logger.info("Created publication '%s'", pub_name)
 
 
 def create_slot(conn: psycopg.Connection, slot_name: str) -> str:
@@ -108,12 +123,10 @@ def create_slot(conn: psycopg.Connection, slot_name: str) -> str:
     return consistent_point
 
 
-def drop_slot_and_publication(
-    conn: psycopg.Connection,
-    slot_name: str,
-    pub_name: str,
-) -> None:
-    """Drop a replication slot and publication. Best-effort — logs and continues on errors."""
+def drop_slot(conn: psycopg.Connection, slot_name: str) -> None:
+    """Drop just the replication slot. Best-effort — used by self-managed rollback,
+    where the publication is customer-owned and must not be touched.
+    """
     with conn.cursor() as cur:
         try:
             cur.execute(
@@ -128,6 +141,23 @@ def drop_slot_and_publication(
             conn.rollback()
             logger.exception("Failed to drop replication slot '%s'", slot_name)
 
+
+def drop_slot_and_publication(
+    conn: psycopg.Connection,
+    slot_name: str,
+    pub_name: str,
+) -> None:
+    """Drop a replication slot and publication. Best-effort — logs and continues on errors."""
+    drop_slot(conn, slot_name)
+    drop_publication(conn, pub_name)
+
+
+def drop_publication(
+    conn: psycopg.Connection,
+    pub_name: str,
+) -> None:
+    """Drop a publication. Best-effort — logs and continues on errors."""
+    with conn.cursor() as cur:
         try:
             cur.execute(
                 sql.SQL("DROP PUBLICATION IF EXISTS {}").format(sql.Identifier(pub_name)),
@@ -189,6 +219,49 @@ def remove_table_from_publication(
     logger.info("Removed table %s.%s from publication '%s'", schema, table, pub_name)
 
 
+# Substrings of the errors Postgres raises when reading from / advancing a slot that it
+# invalidated (max_slot_wal_keep_size exceeded). Wordings differ across PG 13–17.
+_SLOT_INVALIDATION_MESSAGE_MARKERS = (
+    "can no longer get changes from replication slot",
+    "slot has been invalidated",
+    "cannot advance replication slot that has not previously reserved WAL",
+)
+
+
+def is_slot_invalidation_error(exc: BaseException) -> bool:
+    """Whether the exception (or anything in its chain) means the replication slot is
+    unusable and must be recreated: invalidated by Postgres or dropped entirely.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        message = str(current)
+        if isinstance(current, psycopg.errors.ObjectNotInPrerequisiteState) and any(
+            marker in message for marker in _SLOT_INVALIDATION_MESSAGE_MARKERS
+        ):
+            return True
+        if (
+            isinstance(current, psycopg.errors.UndefinedObject)
+            and "replication slot" in message
+            and "does not exist" in message
+        ):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def get_max_slot_wal_keep_size_mb(conn: psycopg.Connection) -> int | None:
+    """The server's max_slot_wal_keep_size in MB, or None when unlimited (-1) or unreadable."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT setting::bigint FROM pg_settings WHERE name = 'max_slot_wal_keep_size'")
+        row = cur.fetchone()
+    if row is None or row[0] is None:
+        return None
+    value = int(row[0])
+    return value if value >= 0 else None
+
+
 def get_slot_lag_bytes(conn: psycopg.Connection, slot_name: str) -> int | None:
     """Get the WAL lag in bytes for a replication slot.
 
@@ -219,3 +292,19 @@ def publication_exists(conn: psycopg.Connection, pub_name: str) -> bool:
     with conn.cursor() as cur:
         cur.execute(sql.SQL("SELECT 1 FROM pg_publication WHERE pubname = {}").format(sql.Literal(pub_name)))
         return cur.fetchone() is not None
+
+
+def get_publication_tables(conn: psycopg.Connection, pub_name: str) -> list[str]:
+    """List the schema-qualified tables (``schema.table``) in a publication, sorted.
+
+    Returns an empty list when the publication doesn't exist or has no tables.
+    These are exactly the tables whose changes the replication slot streams.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            sql.SQL(
+                "SELECT schemaname, tablename FROM pg_publication_tables "
+                "WHERE pubname = {} ORDER BY schemaname, tablename"
+            ).format(sql.Literal(pub_name))
+        )
+        return [f"{schemaname}.{tablename}" for schemaname, tablename in cur.fetchall()]

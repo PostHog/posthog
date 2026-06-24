@@ -7,6 +7,28 @@ mkdir -p posthog/temporal/data_imports/sources/{SOURCE_NAME}
 cp posthog/temporal/data_imports/sources/source.template posthog/temporal/data_imports/sources/{SOURCE_NAME}/source.py
 ```
 
+## Source metadata: category & keywords
+
+Every source's `get_source_config` must set a `category` (a `DataWarehouseSourceCategory`) — it groups the
+source in the new-source wizard catalog (a category rail + tile grid). A test asserts every registered source
+has one. Optionally set `keywords` (a list of lowercase search aliases, e.g. `["ga4", "ga"]`) for acronyms or
+alternate spellings users might search.
+
+```python
+from posthog.schema import DataWarehouseSourceCategory
+
+return SourceConfig(
+    name=SchemaExternalDataSourceType.STRIPE,
+    category=DataWarehouseSourceCategory.PAYMENTS___BILLING,
+    keywords=["billing", "subscriptions"],
+    ...
+)
+```
+
+The category list lives in `frontend/src/queries/schema/schema-general.ts` (`dataWarehouseSourceCategories`);
+`pnpm run schema:build` regenerates the Python enum. See the `implementing-warehouse-sources` skill for the
+full list of buckets and guidance on picking one.
+
 ## Source fields
 
 The fields shown on the frontend are all backend driven. We have a collection of 6 field types available to collect info such as API keys, auth logins, and file uploads.

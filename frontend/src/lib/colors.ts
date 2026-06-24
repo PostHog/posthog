@@ -122,10 +122,11 @@ export function getGraphColors(): Record<string, string | null> {
         axis: getColorVar('color-graph-axis'),
         crosshair: getColorVar('color-graph-crosshair'),
 
-        // TODO: these are not used anywhere, but setting them to the correct values
-        tooltipBackground: getColorVar('color-bg-surface-tooltip'),
+        // Surface-following popover, not the inverse --color-bg-surface-tooltip — stays dark in
+        // dark mode. Text pairs with the surface, so it's the plain primary, not the inverse.
+        tooltipBackground: getColorVar('color-bg-surface-popover'),
         tooltipTitle: getColorVar('color-text-primary'),
-        tooltipBody: getColorVar('color-bg-surface-tooltip'),
+        tooltipBody: getColorVar('color-text-primary'),
     }
 }
 

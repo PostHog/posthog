@@ -11,13 +11,16 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
+import { ReplayCaptureDiagnosticsModalButton } from 'scenes/session-recordings/components/ReplayCaptureDiagnosticsModalButton'
+import { hasReplayDiagnosticSignals } from 'scenes/session-recordings/utils/replayCaptureDiagnostics'
 import { urls } from 'scenes/urls'
 
 import { KNOWN_PROMOTED_PROPERTY_PARENTS } from '~/taxonomy/taxonomy'
 import { PropertyDefinitionType } from '~/types'
 
-import { ConversationDisplay } from 'products/llm_analytics/frontend/ConversationDisplay/ConversationDisplay'
-import { EvaluationDisplay } from 'products/llm_analytics/frontend/ConversationDisplay/EvaluationDisplay'
+import { ConversationDisplay } from 'products/ai_observability/frontend/ConversationDisplay/ConversationDisplay'
+import { EvaluationDisplay } from 'products/ai_observability/frontend/ConversationDisplay/EvaluationDisplay'
+import { TagDisplay } from 'products/ai_observability/frontend/ConversationDisplay/TagDisplay'
 
 import { MCPEventView } from './MCPEventView'
 
@@ -52,7 +55,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                     <div className="flex flex-row items-center gap-2">
                                         {properties.$ai_trace_id ? (
                                             <LemonButton
-                                                to={urls.llmAnalyticsTrace(
+                                                to={urls.aiObservabilityTrace(
                                                     properties.$ai_trace_id,
                                                     event.event !== '$ai_trace' ? { event: getEventId(event) } : {}
                                                 )}
@@ -91,6 +94,12 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                 <EvaluationDisplay eventProperties={properties} />
                             </div>
                         )
+                    case 'tag':
+                        return (
+                            <div className="mx-3 -mt-2 mb-2">
+                                <TagDisplay eventProperties={properties} />
+                            </div>
+                        )
                     case 'error_display':
                         return (
                             <div className="mx-3">
@@ -103,6 +112,9 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                                 <SurveyResponseDisplay
                                     eventProperties={properties}
                                     eventUuid={'uuid' in event && event.uuid ? event.uuid : undefined}
+                                    distinctId={'distinct_id' in event ? event.distinct_id : undefined}
+                                    timestamp={'timestamp' in event ? event.timestamp : undefined}
+                                    personProperties={'person' in event ? event.person?.properties : undefined}
                                 />
                             </div>
                         )
@@ -147,7 +159,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                             <div className="mx-3 -mt-4">
                                 <p>
                                     "Set once" person properties sent with this event. Will replace any property value
-                                    that have never been set on this person profile before now.{' '}
+                                    that has never been set on this person profile before now.{' '}
                                     <Link to="https://posthog.com/docs/getting-started/person-properties">
                                         Learn more
                                     </Link>
@@ -176,6 +188,11 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                     default:
                         return (
                             <div className="mx-3">
+                                {tabKey === 'debug_properties' && hasReplayDiagnosticSignals(properties) && (
+                                    <div className="mb-2">
+                                        <ReplayCaptureDiagnosticsModalButton eventProperties={properties} />
+                                    </div>
+                                )}
                                 <PropertiesTable
                                     type={PropertyDefinitionType.Event}
                                     properties={properties}

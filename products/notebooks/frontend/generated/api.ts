@@ -10,11 +10,12 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     NotebookApi,
+    NotebookCollabPresenceApi,
     NotebookCollabSaveApi,
+    NotebookMarkdownSaveApi,
     NotebooksListParams,
     PaginatedNotebookMinimalListApi,
     PatchedNotebookApi,
-    SharingConfigurationApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -39,7 +40,7 @@ export const getNotebooksListUrl = (projectId: string, params?: NotebooksListPar
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -81,79 +82,6 @@ export const notebooksCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(notebookApi),
-    })
-}
-
-export const getNotebooksSharingListUrl = (projectId: string, notebookId: string) => {
-    return `/api/projects/${projectId}/notebooks/${notebookId}/sharing/`
-}
-
-export const notebooksSharingList = async (
-    projectId: string,
-    notebookId: string,
-    options?: RequestInit
-): Promise<SharingConfigurationApi[]> => {
-    return apiMutator<SharingConfigurationApi[]>(getNotebooksSharingListUrl(projectId, notebookId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getNotebooksSharingPasswordsCreateUrl = (projectId: string, notebookId: string) => {
-    return `/api/projects/${projectId}/notebooks/${notebookId}/sharing/passwords/`
-}
-
-/**
- * Create a new password for the sharing configuration.
- */
-export const notebooksSharingPasswordsCreate = async (
-    projectId: string,
-    notebookId: string,
-    sharingConfigurationApi?: NonReadonly<SharingConfigurationApi>,
-    options?: RequestInit
-): Promise<SharingConfigurationApi> => {
-    return apiMutator<SharingConfigurationApi>(getNotebooksSharingPasswordsCreateUrl(projectId, notebookId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sharingConfigurationApi),
-    })
-}
-
-export const getNotebooksSharingPasswordsDestroyUrl = (projectId: string, notebookId: string, passwordId: string) => {
-    return `/api/projects/${projectId}/notebooks/${notebookId}/sharing/passwords/${passwordId}/`
-}
-
-/**
- * Delete a password from the sharing configuration.
- */
-export const notebooksSharingPasswordsDestroy = async (
-    projectId: string,
-    notebookId: string,
-    passwordId: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getNotebooksSharingPasswordsDestroyUrl(projectId, notebookId, passwordId), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
-export const getNotebooksSharingRefreshCreateUrl = (projectId: string, notebookId: string) => {
-    return `/api/projects/${projectId}/notebooks/${notebookId}/sharing/refresh/`
-}
-
-export const notebooksSharingRefreshCreate = async (
-    projectId: string,
-    notebookId: string,
-    sharingConfigurationApi?: NonReadonly<SharingConfigurationApi>,
-    options?: RequestInit
-): Promise<SharingConfigurationApi> => {
-    return apiMutator<SharingConfigurationApi>(getNotebooksSharingRefreshCreateUrl(projectId, notebookId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sharingConfigurationApi),
     })
 }
 
@@ -246,6 +174,48 @@ export const notebooksActivityRetrieve = async (
     return apiMutator<void>(getNotebooksActivityRetrieveUrl(projectId, shortId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getNotebooksCollabMarkdownSaveCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/collab/markdown_save/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksCollabMarkdownSaveCreate = async (
+    projectId: string,
+    shortId: string,
+    notebookMarkdownSaveApi: NotebookMarkdownSaveApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getNotebooksCollabMarkdownSaveCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(notebookMarkdownSaveApi),
+    })
+}
+
+export const getNotebooksCollabPresenceCreateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/notebooks/${shortId}/collab/presence/`
+}
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksCollabPresenceCreate = async (
+    projectId: string,
+    shortId: string,
+    notebookCollabPresenceApi: NotebookCollabPresenceApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getNotebooksCollabPresenceCreateUrl(projectId, shortId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(notebookCollabPresenceApi),
     })
 }
 

@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { identifierToHuman } from 'lib/utils'
+import { identifierToHuman } from 'lib/utils/strings'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
@@ -678,6 +678,7 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
         ...(cache.dateRange ? { dateRange: cache.dateRange } : {}),
         ...(cache.properties !== undefined ? { properties: cache.properties } : {}),
         ...(cache.samplingFactor ? { samplingFactor: cache.samplingFactor } : {}),
+        ...(cache.filterTestAccounts !== undefined ? { filterTestAccounts: cache.filterTestAccounts } : {}),
     }
 
     // Insight-specific filter merge (web analytics already returned above)

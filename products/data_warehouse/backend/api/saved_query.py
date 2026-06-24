@@ -10,7 +10,7 @@ from django.db.models.functions import Cast
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import extend_schema_field
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -18,7 +18,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from temporalio.client import ScheduleActionExecutionStartWorkflow
 
-from posthog.schema import DataWarehouseManagedViewsetKind, ProductKey
+from posthog.schema import DataWarehouseManagedViewsetKind
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database, SerializedField, serialize_fields
@@ -46,6 +46,11 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.temporal.common.client import sync_connect
 
+from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
+from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.data_load.saved_query_service import (
     pause_saved_query_schedule,
     saved_query_workflow_exists,
@@ -53,21 +58,62 @@ from products.data_warehouse.backend.data_load.saved_query_service import (
     trigger_saved_query_schedule,
     unpause_saved_query_schedule,
 )
-from products.data_warehouse.backend.models import (
-    CLICKHOUSE_HOGQL_MAPPING,
-    DataModelingJob,
-    DataWarehouseJoin,
-    DataWarehouseModelPath,
-    DataWarehouseSavedQuery,
-    DataWarehouseSavedQueryFolder,
-    clean_type,
-)
-from products.data_warehouse.backend.models.external_data_schema import (
+from products.warehouse_sources.backend.models.external_data_schema import (
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
 )
+from products.warehouse_sources.backend.models.util import (
+    CLICKHOUSE_HOGQL_MAPPING,
+    clean_type,
+    get_view_or_table_by_name,
+)
 
 logger = structlog.get_logger(__name__)
+
+# Cadences offered for view materialization. 15min is the fastest — sub-15min intervals
+# (1min, 5min) are source-only and not meaningful for materialized views, matching the
+# frontend `DataModelingSyncInterval` type. All values are accepted by
+# `sync_frequency_to_sync_frequency_interval`.
+SYNC_FREQUENCY_CHOICES = [
+    ("never", "never"),
+    ("15min", "15min"),
+    ("30min", "30min"),
+    ("1hour", "1hour"),
+    ("6hour", "6hour"),
+    ("12hour", "12hour"),
+    ("24hour", "24hour"),
+    ("7day", "7day"),
+    ("30day", "30day"),
+]
+
+# Deprecated sub-15min cadences clamped up to the 15min floor for backwards compatibility
+# with any legacy caller still sending them.
+DEPRECATED_FAST_SYNC_FREQUENCIES = {"1min", "5min"}
+
+
+class SyncFrequencyField(serializers.ChoiceField):
+    """Writable sync-cadence field for saved queries.
+
+    The cadence is stored on the model as a `sync_frequency_interval` duration, so reads derive
+    the cadence string from it; writes are validated against the choices and consumed by the
+    serializer's `update()`. Declaring it as a real (non read-only) field is what lets the
+    cadence flow into the generated PATCH body and MCP tool schema.
+    """
+
+    def __init__(self, **kwargs: Any) -> None:
+        kwargs.setdefault("choices", SYNC_FREQUENCY_CHOICES)
+        kwargs.setdefault("required", False)
+        kwargs.setdefault("allow_null", True)
+        super().__init__(**kwargs)
+
+    def to_internal_value(self, data: Any) -> str:
+        # Clamp deprecated sub-15min cadences up to the floor before validating against choices.
+        if data in DEPRECATED_FAST_SYNC_FREQUENCIES:
+            data = "15min"
+        return super().to_internal_value(data)
+
+    def get_attribute(self, instance: DataWarehouseSavedQuery) -> str | None:
+        return sync_frequency_interval_to_sync_frequency(instance.sync_frequency_interval)
 
 
 def delete_saved_query(saved_query: DataWarehouseSavedQuery) -> None:
@@ -130,7 +176,10 @@ class DataWarehouseSavedQuerySerializerMixin:
         team_id = self.context["team_id"]  # type: ignore[attr-defined]
         database = self.context.get("database", None)  # type: ignore[attr-defined]
         if not database:
-            database = Database.create_for(team_id=team_id)
+            database = Database.create_for(
+                team_id=team_id,
+                user=cast(User, self.context["request"].user),  # type: ignore[attr-defined]
+            )
 
         context = HogQLContext(team_id=team_id, database=database)
 
@@ -190,9 +239,31 @@ class DataWarehouseSavedQueryMinimalSerializer(
 class DataWarehouseSavedQuerySerializer(
     DataWarehouseSavedQuerySerializerMixin, UserAccessControlSerializerMixin, serializers.ModelSerializer
 ):
+    @extend_schema_field(
+        {
+            "type": "object",
+            "properties": {
+                "kind": {"type": "string", "enum": ["HogQLQuery"], "default": "HogQLQuery"},
+                "query": {"type": "string"},
+            },
+            "required": ["query"],
+        }
+    )
+    class QueryDefinitionField(serializers.JSONField):
+        pass
+
     created_by = UserBasicSerializer(read_only=True)
     columns = serializers.SerializerMethodField(read_only=True)
-    sync_frequency = serializers.SerializerMethodField()
+    query = QueryDefinitionField(
+        help_text='HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key (always "HogQLQuery"). Format the SQL string multi-line with indentation and inline `--` comments for non-obvious logic — the SQL editor renders it verbatim, so avoid minified single-line SQL. Example: {"kind": "HogQLQuery", "query": "SELECT\\n    event,\\n    count() AS cnt\\nFROM events\\nGROUP BY event\\nLIMIT 100"}',
+    )
+    sync_frequency = SyncFrequencyField(
+        help_text=(
+            "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', "
+            "'24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest "
+            "cadence available."
+        ),
+    )
     latest_history_id = serializers.SerializerMethodField(read_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
     managed_viewset_kind = serializers.SerializerMethodField(read_only=True)
@@ -273,9 +344,6 @@ class DataWarehouseSavedQuerySerializer(
             "name": {
                 "help_text": "Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.",
             },
-            "query": {
-                "help_text": 'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}',
-            },
         }
 
     @extend_schema_field(serializers.IntegerField(allow_null=True))
@@ -300,6 +368,9 @@ class DataWarehouseSavedQuerySerializer(
         validated_data["origin"] = DataWarehouseSavedQuery.Origin.DATA_WAREHOUSE
         soft_update = validated_data.pop("soft_update", False)
         dag_id = validated_data.pop("dag_id", None)
+        # Sync cadence is configured via materialization, not on creation — drop it so it
+        # isn't passed to the model constructor.
+        validated_data.pop("sync_frequency", None)
         view = DataWarehouseSavedQuery(**validated_data)
 
         if not soft_update:
@@ -388,7 +459,7 @@ class DataWarehouseSavedQuerySerializer(
         except DataWarehouseSavedQuery.DoesNotExist:
             before_update = None
 
-        sync_frequency = self.context["request"].data.get("sync_frequency", None)
+        sync_frequency = validated_data.pop("sync_frequency", None)
 
         if sync_frequency and posthoganalytics.feature_enabled(
             "data-modeling-backend-v2",
@@ -423,9 +494,6 @@ class DataWarehouseSavedQuerySerializer(
                 locked_instance.sync_frequency_interval = None
                 validated_data["sync_frequency_interval"] = None
             elif sync_frequency:
-                # Clamp deprecated 5min interval to 15min for saved queries
-                if sync_frequency == "5min":
-                    sync_frequency = "15min"
                 sync_frequency_interval = sync_frequency_to_sync_frequency_interval(sync_frequency)
                 validated_data["sync_frequency_interval"] = sync_frequency_interval
                 locked_instance.sync_frequency_interval = sync_frequency_interval
@@ -531,6 +599,19 @@ class DataWarehouseSavedQuerySerializer(
         return view
 
     def validate_query(self, query):
+        if not isinstance(query, dict):
+            raise exceptions.ValidationError(
+                detail=(
+                    'Query must be a JSON object with a "query" key, '
+                    f"got {type(query).__name__}. "
+                    'Example: {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 100"}'
+                )
+            )
+        if not isinstance(query.get("query"), str) or not query["query"].strip():
+            raise exceptions.ValidationError(
+                detail='Query object must contain a non-empty "query" key with the SQL string.'
+            )
+
         team_id = self.context["team_id"]
         user = self.context["request"].user
 
@@ -582,8 +663,10 @@ class DataWarehouseSavedQuerySerializer(
             if self.instance.name == name:
                 return name
 
-        name_exists_in_hogql_database = self.context["database"].has_table(name)
-        if name_exists_in_hogql_database:
+        # has_table covers system/posthog tables and warehouse objects the requesting user can see; it's
+        # user-filtered, so also resolve the name team-wide using get_view_or_table_by_name.
+        # Otherwise a user with denied table could create another one with colliding name.
+        if self.context["database"].has_table(name) or get_view_or_table_by_name(self.context["team_id"], name):
             raise serializers.ValidationError("A table with this name already exists.")
 
         return name
@@ -623,7 +706,6 @@ class DataWarehouseSavedQueryFolderSerializer(UserAccessControlSerializerMixin, 
         return normalized_name
 
 
-@extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
 class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "warehouse_view"
     queryset = DataWarehouseSavedQueryFolder.objects.all()
@@ -675,7 +757,6 @@ class DataWarehouseSavedQueryFolderViewSet(TeamAndOrgViewSetMixin, AccessControl
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
 
-@extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
 class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
@@ -697,7 +778,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         )
 
         if should_include_database:
-            context["database"] = Database.create_for(team_id=self.team_id)
+            context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
         return context
 
     def get_serializer_class(self):
@@ -788,12 +869,24 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
         from products.data_modeling.backend.services.saved_query_dag_sync import HasDependentsError
 
         instance: DataWarehouseSavedQuery = self.get_object()
+        name = instance.name
         try:
             delete_saved_query(instance)
         except HasDependentsError:
             raise serializers.ValidationError(
                 "Cannot delete this view because other views depend on it. Delete or update those views first."
             )
+
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=self.team_id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated_session(request),
+            item_id=instance.id,
+            scope="DataWarehouseSavedQuery",
+            activity="deleted",
+            detail=Detail(name=name),
+        )
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 

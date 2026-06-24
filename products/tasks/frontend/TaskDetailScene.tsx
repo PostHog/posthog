@@ -1,5 +1,4 @@
-import { NotFound } from 'lib/components/NotFound'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { AllowTrainingCallout } from 'lib/components/AllowTrainingCallout/AllowTrainingCallout'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -17,11 +16,10 @@ export const scene: SceneExport<TaskDetailSceneLogicProps> = {
 }
 
 export function TaskDetailScene({ taskId }: TaskDetailSceneLogicProps): JSX.Element {
-    const isEnabled = useFeatureFlag('TASKS')
-
-    if (!isEnabled) {
-        return <NotFound object="Tasks" caption="This feature is not enabled for your project." />
-    }
-
-    return <TaskDetailPage taskId={taskId} />
+    return (
+        <>
+            <AllowTrainingCallout featureName="PostHog Code" />
+            <TaskDetailPage taskId={taskId} />
+        </>
+    )
 }

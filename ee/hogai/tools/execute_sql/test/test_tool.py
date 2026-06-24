@@ -1,5 +1,5 @@
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, flush_persons_and_events
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
@@ -14,13 +14,13 @@ from posthog.schema import (
     VisualizationArtifactContent,
 )
 
-from posthog.models import Insight
+from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
+from products.product_analytics.backend.models.insight import Insight
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tools.execute_sql.tool import ExecuteSQLTool, ExecuteSQLToolArgs
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
-from ee.models import AgentArtifact, Conversation
 
 
 class TestExecuteSQLTool(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -199,7 +199,6 @@ class TestExecuteSQLTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(payload["query"], "SELECT count() FROM events WHERE {filters}")
         self.assertEqual(payload["filters"], {})
 
-    @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
     async def test_select_from_system_insights(self):
         await sync_to_async(Insight.objects.create)(
             team=self.team,

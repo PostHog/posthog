@@ -26,7 +26,9 @@ if TYPE_CHECKING:
     from posthog.temporal.data_imports.pipelines.pipeline_sync import PipelineInputs
     from posthog.temporal.data_imports.workflow_activities.import_data_sync import ImportDataActivityInputs
 
-    from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 
 @asynccontextmanager
@@ -49,6 +51,9 @@ async def _get_redis():
 
 def build_non_retryable_errors_redis_key(team_id: int, source_id: str, run_id: str) -> str:
     return f"posthog:data_warehouse:non_retryable_errors:{team_id}:{source_id}:{run_id}"
+
+
+NON_RETRYABLE_ERROR_RETRY_LIMIT = 3
 
 
 async def trim_source_job_inputs(source: "ExternalDataSource") -> None:
@@ -167,9 +172,11 @@ async def handle_non_retryable_error(
         )
         attempts = await redis_client.incr(retry_key)
 
-        if attempts <= 3:
+        if attempts <= NON_RETRYABLE_ERROR_RETRY_LIMIT:
             await redis_client.expire(retry_key, 86400)  # Expire after 24 hours
-            await logger.adebug(f"Non-retryable error attempt {attempts}/3, retrying. error={error_msg}")
+            await logger.adebug(
+                f"Non-retryable error attempt {attempts}/{NON_RETRYABLE_ERROR_RETRY_LIMIT}, retrying. error={error_msg}"
+            )
             raise error
 
     await logger.adebug(f"Non-retryable error after {attempts} runs, giving up. error={error_msg}")
@@ -190,7 +197,7 @@ async def reset_rows_synced_if_needed(
         and not should_resume
     ):
         job.rows_synced = 0
-        await database_sync_to_async_pool(job.save)()
+        await database_sync_to_async_pool(job.save)(update_fields=["rows_synced", "updated_at"])
 
 
 def validate_incremental_sync(
@@ -230,7 +237,7 @@ async def handle_reset_or_full_refresh(
     delta_table_helper: DeltaTableHelper,
     logger: FilteringBoundLogger,
 ) -> None:
-    from products.data_warehouse.backend.models import ExternalDataSchema
+    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
     if reset_pipeline and not should_resume:
         await logger.adebug("Deleting existing table due to reset_pipeline being set")
@@ -257,14 +264,8 @@ async def update_incremental_field_values(
     earliest_incremental_field_value: Any,
     logger: FilteringBoundLogger,
     log_prefix: str = "",
+    staging_run_uuid: str | None = None,
 ) -> tuple[Any, Any]:
-    # Update the incremental_field_last_value.
-    # If the resource returns data sorted in ascending timestamp order, we can update the
-    # `incremental_field_last_value` in the schema.
-    # However, if the data is returned in descending order, we only want to update the
-    # `incremental_field_last_value` once we have processed all of the data, otherwise if we fail halfway through,
-    # we'd not process older data the next time we retry. But we do store the earliest available value so that we
-    # can resume syncs if they stop mid way through without having to start from the beginning
     last_value = get_incremental_field_value(schema, pa_table)
 
     if last_value is not None:
@@ -275,7 +276,12 @@ async def update_incremental_field_values(
             await logger.adebug(
                 f"{log_prefix}Updating incremental_field_last_value with {last_incremental_field_value}"
             )
-            await database_sync_to_async_pool(schema.update_incremental_field_value)(last_incremental_field_value)
+            if staging_run_uuid is not None:
+                await database_sync_to_async_pool(schema.stage_incremental_field_value)(
+                    staging_run_uuid, last_incremental_field_value
+                )
+            else:
+                await database_sync_to_async_pool(schema.update_incremental_field_value)(last_incremental_field_value)
 
         if resource.sort_mode == "desc":
             earliest_value = get_incremental_field_value(schema, pa_table, aggregate="min")
@@ -283,9 +289,14 @@ async def update_incremental_field_values(
             if earliest_incremental_field_value is None or earliest_value < earliest_incremental_field_value:
                 earliest_incremental_field_value = earliest_value
                 await logger.adebug(f"{log_prefix}Updating incremental_field_earliest_value with {earliest_value}")
-                await database_sync_to_async_pool(schema.update_incremental_field_value)(
-                    earliest_value, type="earliest"
-                )
+                if staging_run_uuid is not None:
+                    await database_sync_to_async_pool(schema.stage_incremental_field_value)(
+                        staging_run_uuid, None, earliest_value
+                    )
+                else:
+                    await database_sync_to_async_pool(schema.update_incremental_field_value)(
+                        earliest_value, type="earliest"
+                    )
 
     return last_incremental_field_value, earliest_incremental_field_value
 
@@ -326,16 +337,50 @@ async def finalize_desc_sort_incremental_value(
     last_incremental_field_value: Any,
     logger: FilteringBoundLogger,
     log_prefix: str = "",
+    staging_run_uuid: str | None = None,
 ) -> None:
-    # As mentioned above, for sort mode 'desc' we only want to update the `incremental_field_last_value` once we
-    # have processed all of the data (we could also update it here for 'asc' but it's not needed)
     if resource.sort_mode == "desc" and last_incremental_field_value is not None:
         await logger.adebug(
             f"{log_prefix}Sort mode is 'desc' -> updating incremental_field_last_value "
             f"with {last_incremental_field_value}"
         )
         await database_sync_to_async_pool(schema.refresh_from_db)()
-        await database_sync_to_async_pool(schema.update_incremental_field_value)(last_incremental_field_value)
+        if staging_run_uuid is not None:
+            await database_sync_to_async_pool(schema.stage_incremental_field_value)(
+                staging_run_uuid, last_incremental_field_value
+            )
+        else:
+            await database_sync_to_async_pool(schema.update_incremental_field_value)(last_incremental_field_value)
+
+
+async def advance_xmin_state(
+    resource: SourceResponse,
+    schema: "ExternalDataSchema",
+    logger: FilteringBoundLogger,
+    log_prefix: str = "",
+) -> None:
+    """Persist the xmin ceiling captured at sync start, once the run's data is durable.
+
+    Persist-then-advance: the ceiling was captured before streaming and is stored only here, at
+    completion, so a mid-run crash re-reads the window next time (the upsert on PK is idempotent).
+    Deliberately not the per-batch MAX-of-observed advance, which would store the wrong value and is
+    wraparound-unsafe for xmin.
+    """
+    if (
+        not schema.is_xmin
+        or resource.xmin_ceiling_xid is None
+        or resource.xmin_ceiling_xid8 is None
+        or resource.xmin_num_wraparound is None
+    ):
+        return
+
+    await logger.adebug(f"{log_prefix}Advancing xmin cursor to ceiling {resource.xmin_ceiling_xid8}")
+    await database_sync_to_async_pool(schema.refresh_from_db)()
+    await database_sync_to_async_pool(schema.update_xmin_state)(
+        ceiling_xid=resource.xmin_ceiling_xid,
+        ceiling_xid8=resource.xmin_ceiling_xid8,
+        num_wraparound=resource.xmin_num_wraparound,
+    )
 
 
 async def cdp_producer_clear_chunks(cdp_producer: CDPProducer):

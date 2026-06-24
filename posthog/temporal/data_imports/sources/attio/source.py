@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
@@ -14,6 +15,7 @@ from posthog.temporal.data_imports.sources.attio.attio import (
 )
 from posthog.temporal.data_imports.sources.attio.settings import ATTIO_ENDPOINTS
 from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import AttioSourceConfig
@@ -27,16 +29,27 @@ class AttioSource(SimpleSource[AttioSourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.ATTIO
 
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.attio.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url: https://api.attio.com": "Your Attio API key is invalid or expired. Please generate a new key and reconnect.",
             "403 Client Error: Forbidden for url: https://api.attio.com": "Your Attio API key does not have the required scopes. Please check the API key permissions and try again.",
+            # Attio can return non-retryable 400 responses from object query endpoints under /v2/objects/.
+            # The exact cause can vary by object and workspace configuration (e.g. an optional standard object
+            # like users/workspaces/deals not being enabled), so avoid implying the object is missing when surfacing
+            # the error to users. Our request body is deterministic, so retrying will not recover.
+            "400 Client Error: Bad Request for url: https://api.attio.com/v2/objects/": "Attio rejected the request for this object query. Please verify the schema is available in Attio and that the request is valid, then try again.",
         }
 
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.ATTIO,
+            category=DataWarehouseSourceCategory.CRM,
             caption="""Enter your Attio API key to automatically pull your Attio data into the PostHog Data warehouse.
 
 You can generate an API key in your Attio workspace settings. Check out [this guide](https://attio.com/help/apps/other-apps/generating-an-api-key) for more details.

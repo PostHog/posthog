@@ -6,10 +6,10 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { hashCodeForString } from 'lib/utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
 import { CATEGORY_LABELS } from 'lib/utils/botDetection'
+import { hashCodeForString } from 'lib/utils/strings'
 import { deduplicateEvents } from 'scenes/activity/live/deduplicateEvents'
 import { teamLogic } from 'scenes/teamLogic'
 import { ProductTab } from 'scenes/web-analytics/common'
@@ -367,24 +367,19 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
             (recentUsersByLastSeen: Map<string, number>): number => recentUsersByLastSeen.size,
         ],
         selectedHost: [
-            (s) => [s.rawSelectedHost, s.featureFlags, s.productTab],
-            (rawSelectedHost: string | null, featureFlags: FeatureFlagsSet, productTab: ProductTab): string | null => {
+            (s) => [s.rawSelectedHost, s.productTab],
+            (rawSelectedHost: string | null, productTab: ProductTab): string | null => {
                 // The bot tab streams traffic across all hosts, so ignore any host filter
                 // a sibling tab may have set on the shared filter logic.
                 if (productTab === ProductTab.BOT_ANALYTICS) {
                     return null
                 }
-                return featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_FILTERS] ? rawSelectedHost : null
+                return rawSelectedHost
             },
         ],
         liveFilters: [
-            (s) => [s.rawLiveFilters, s.featureFlags],
-            (
-                rawLiveFilters: WebAnalyticsPropertyFilter[],
-                featureFlags: FeatureFlagsSet
-            ): WebAnalyticsPropertyFilter[] => {
-                return featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_FILTERS] ? rawLiveFilters : []
-            },
+            (s) => [s.rawLiveFilters],
+            (rawLiveFilters: WebAnalyticsPropertyFilter[]): WebAnalyticsPropertyFilter[] => rawLiveFilters,
         ],
         hasActiveFilters: [
             (s) => [s.liveFilters],
@@ -448,7 +443,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                     dateTo: handoff,
                     filters: values.liveFilters,
                     includeCity: !!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_CITY_BREAKDOWN],
-                    filtersEnabled: !!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_FILTERS],
+                    filtersEnabled: true,
                 })
 
                 const bucketMap = new Map<number, SlidingWindowBucket>()

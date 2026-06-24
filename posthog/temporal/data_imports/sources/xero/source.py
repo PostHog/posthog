@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class XeroSource(SimpleSource[XeroSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.XERO,
+            category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Xero",
             iconPath="/static/services/xero.png",
             fields=cast(list[FieldType], []),

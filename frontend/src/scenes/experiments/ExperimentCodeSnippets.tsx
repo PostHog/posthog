@@ -282,8 +282,9 @@ flag_key = "${flagKey}"
 
 # 1. Evaluate the flag and pull the variant payload — each variant carries its own
 #    {"prompt_name", "prompt_version"} payload set when the experiment was created.
-flags = posthog.evaluate_flags(distinct_id, flag_keys=[flag_key])
-payload = flags.get_flag_payload(flag_key)
+#    send_feature_flag_events=True emits the $feature_flag_called exposure event the
+#    experiment metric joins against — without it the results page stays blank.
+payload = posthog.get_feature_flag_payload(flag_key, distinct_id, send_feature_flag_events=True)
 if not payload:
     raise RuntimeError(f"No payload set for flag {flag_key}; was this experiment created via /create_from_prompt/?")
 if isinstance(payload, str):
@@ -332,8 +333,10 @@ const flagKey = '${flagKey}'
 
 // 1. Evaluate the flag and read the variant payload — each variant carries its own
 //    { prompt_name, prompt_version } payload set when the experiment was created.
-const flags = await posthog.evaluateFlags({ distinctId, flagKeys: [flagKey] })
-let payload = flags.getFlagPayload(flagKey)
+//    getFeatureFlagResult emits the $feature_flag_called exposure event the experiment
+//    metric joins against — without it the results page stays blank.
+const result = await posthog.getFeatureFlagResult(flagKey, distinctId)
+let payload = result?.payload
 if (!payload) {
     throw new Error(\`No payload set for flag \${flagKey}; was this experiment created via /create_from_prompt/?\`)
 }
@@ -388,9 +391,14 @@ What to do
 3. Find where the project makes LLM calls (route handler, service module, agent loop,
    background job — match the existing structure). For each LLM call, before invoking
    the model:
-   a) Evaluate the feature flag "${flagKey}" for the current user.
-   b) Read the variant's payload via the flag-payload API. Parse JSON if it returns a
-      string. Extract prompt_name and prompt_version.
+   a) Evaluate the feature flag "${flagKey}" for the current user, and make sure the
+      evaluation call also emits the $feature_flag_called exposure event (e.g. via
+      posthog.get_feature_flag_payload(..., send_feature_flag_events=True) in Python or
+      posthog.getFeatureFlagResult(...) in Node — without this event the experiment
+      metric has nothing to join the $ai_generation events against and the results
+      page stays blank).
+   b) Read the variant's payload from the evaluation result. Parse JSON if it returns
+      a string. Extract prompt_name and prompt_version.
    c) Use PostHog's prompt management API to fetch the prompt by name + version, then
       compile it. Pass the compiled prompt as the system message.
    d) Wrap the LLM client with PostHog's AI tracing wrapper (e.g. @posthog/ai for
@@ -410,8 +418,8 @@ Constraints
   the SDK surface evolves.
 
 Reference docs
-- LLM analytics overview:        https://posthog.com/docs/llm-analytics
-- Prompt management:             https://posthog.com/docs/llm-analytics/prompt-management
+- AI observability overview:     https://posthog.com/docs/ai-observability
+- Prompt management:             https://posthog.com/docs/prompt-management
 - Feature flag payloads:         https://posthog.com/docs/feature-flags/payloads
 - Experiments:                   https://posthog.com/docs/experiments
 - PostHog AI wrappers (OpenAI, Anthropic, Gemini): https://posthog.com/docs/ai-engineering

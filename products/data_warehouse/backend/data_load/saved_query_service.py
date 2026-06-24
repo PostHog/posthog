@@ -32,7 +32,7 @@ from products.data_modeling.backend.models.node import Node
 from products.data_modeling.backend.schedule import build_schedule_spec
 
 if TYPE_CHECKING:
-    from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 
 def get_saved_query_schedule(saved_query: "DataWarehouseSavedQuery") -> Schedule:

@@ -2,8 +2,8 @@ use crate::api::errors::FlagError;
 use crate::cohorts::cohort_models::Cohort;
 use crate::database::get_connection_with_metrics;
 use crate::flags::flag_models::{
-    EvaluationMetadata, FeatureFlag, FeatureFlagList, FeatureFlagRow, FlagPropertyGroup,
-    HypercacheFlagsWrapper,
+    default_has_experiment, EvaluationMetadata, FeatureFlag, FeatureFlagList, FeatureFlagRow,
+    FlagPropertyGroup, HypercacheFlagsWrapper,
 };
 use crate::metrics::consts::TOMBSTONE_COUNTER;
 use common_database::PostgresReader;
@@ -69,12 +69,6 @@ impl FeatureFlagList {
     pub fn prepare_regexes_in_place(flags: &mut [FeatureFlag]) {
         for flag in flags.iter_mut() {
             Self::prepare_group_regexes(&mut flag.filters.groups);
-            // super_groups currently only use Exact operators (early access enrollment),
-            // so prepare_regex() will no-op for each filter. We walk them anyway for
-            // forward-compatibility if super_groups ever gain regex-based filters.
-            if let Some(super_groups) = &mut flag.filters.super_groups {
-                Self::prepare_group_regexes(super_groups);
-            }
         }
     }
 
@@ -200,6 +194,9 @@ impl FeatureFlagList {
                         evaluation_runtime: row.evaluation_runtime,
                         evaluation_tags: row.evaluation_tags,
                         bucketing_identifier: row.bucketing_identifier,
+                        // The PG fallback query doesn't compute experiment linkage, so fall back
+                        // to the shared default (true) for this rare, transient cache-miss path.
+                        has_experiment: default_has_experiment(),
                     }),
                     Err(e) => {
                         // This is highly unlikely to happen, but if it does, we skip the flag.
@@ -644,6 +641,7 @@ mod tests {
             team_id: 123,
             name: Some("Test Flag".to_string()),
             key: "test_flag".to_string(),
+            has_experiment: false,
             filters: FlagFilters::default(),
             deleted: false,
             active: true,
@@ -1146,7 +1144,6 @@ mod tests {
         // Filter structure
         assert_eq!(full_flag.filters.groups.len(), 1);
         assert!(full_flag.filters.multivariate.is_some());
-        assert!(full_flag.filters.super_groups.is_some());
         assert_eq!(full_flag.filters.feature_enrollment, Some(true));
         assert!(full_flag.filters.holdout.is_some());
         let holdout = full_flag.filters.holdout.as_ref().unwrap();
@@ -1215,6 +1212,7 @@ mod tests {
             team_id: 1,
             name: None,
             key: "test_flag".to_string(),
+            has_experiment: false,
             filters: FlagFilters {
                 groups: vec![FlagPropertyGroup {
                     properties: Some(vec![
@@ -1226,6 +1224,7 @@ mod tests {
                             group_type_index: None,
                             negation: None,
                             compiled_regex: None,
+                            extra: Default::default(),
                         },
                         PropertyFilter {
                             key: "name".to_string(),
@@ -1235,6 +1234,7 @@ mod tests {
                             group_type_index: None,
                             negation: None,
                             compiled_regex: None,
+                            extra: Default::default(),
                         },
                     ]),
                     rollout_percentage: Some(100.0),
@@ -1243,9 +1243,10 @@ mod tests {
                 multivariate: None,
                 aggregation_group_type_index: None,
                 payloads: None,
-                super_groups: None,
                 feature_enrollment: None,
                 holdout: None,
+                early_exit: None,
+                extra: Default::default(),
             },
             active: true,
             deleted: false,
@@ -1325,6 +1326,7 @@ mod tests {
             team_id: 123,
             name: Some("Serialization Test".to_string()),
             key: "serialize_test".to_string(),
+            has_experiment: false,
             filters: FlagFilters::default(),
             deleted: false,
             active: true,

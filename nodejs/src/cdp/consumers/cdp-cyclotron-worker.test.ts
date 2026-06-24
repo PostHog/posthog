@@ -1,3 +1,4 @@
+import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime } from 'luxon'
@@ -38,7 +39,7 @@ describe('CdpCyclotronWorker', () => {
         await resetTestDatabase()
         hub = await createHub()
         team = await getFirstTeam(hub.postgres)
-        processor = new CdpCyclotronWorker(hub, createCdpConsumerDeps(hub))
+        processor = new CdpCyclotronWorker(hub, createCdpConsumerDeps(hub), createMockJobQueue())
 
         fn = await insertHogFunction(
             hub.postgres,

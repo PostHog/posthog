@@ -360,6 +360,7 @@ pub async fn process_replay_events(
         skip_person_processing: applied.skip_person_processing(),
         redirect_to_dlq: applied.redirect_to_dlq(),
         redirect_to_topic: applied.redirect_to_topic().map(|s| s.to_string()),
+        skip_heatmap_processing: false,
         overflow_reason,
     };
 

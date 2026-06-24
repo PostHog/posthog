@@ -1,7 +1,7 @@
-import { eventWithTime } from '@posthog/rrweb-types'
-import { fullSnapshotEvent } from '@posthog/rrweb-types'
-import { EventType } from '@posthog/rrweb-types'
-import { serializedNodeWithId } from '@posthog/rrweb-types'
+import { eventWithTime } from 'posthog-js/rrweb-types'
+import { fullSnapshotEvent } from 'posthog-js/rrweb-types'
+import { EventType } from 'posthog-js/rrweb-types'
+import { serializedNodeWithId } from 'posthog-js/rrweb-types'
 
 import { RecordingSnapshot } from '../types'
 

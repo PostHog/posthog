@@ -3,14 +3,16 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use common_types::ClickHouseEvent;
+use cymbal::symbolication::resolve::Resolve;
 use cymbal::{
-    config::Config,
     frames::{Frame, RawFrame},
-    symbol_store::{
+    modes::processing::ProcessingConfig,
+    symbolication::symbol_store::{
         apple::AppleProvider,
         caching::{Caching, SymbolSetCache},
         chunk_id::OrChunkId,
         hermesmap::HermesMapProvider,
+        native::NativeProvider,
         proguard::ProguardProvider,
         sourcemap::{OwnedSourceMapCache, SourcemapProvider},
         Catalog, Fetcher, Parser,
@@ -110,12 +112,12 @@ async fn end_to_end_resolver_test() {
         frame.source_url = Some(server.url(CHUNK_PATH).to_string());
     }
 
-    let mut config = Config::init_with_defaults().unwrap();
-    config.allow_internal_ips = true; // We're hitting localhost for the tests
+    let mut config = ProcessingConfig::init_with_defaults().unwrap();
+    config.resolver.allow_internal_ips = true; // We're hitting localhost for the tests
 
-    let sourcemap = SourcemapProvider::new(&config);
+    let sourcemap = SourcemapProvider::new(&config.resolver);
     let cache = Arc::new(Mutex::new(SymbolSetCache::new(
-        config.symbol_store_cache_max_bytes,
+        config.resolver.symbol_store_cache_max_bytes,
     )));
 
     let wrapped = NoOpChunkIdFetcher { inner: sourcemap };
@@ -131,13 +133,17 @@ async fn end_to_end_resolver_test() {
         inner: AppleProvider {},
     };
 
-    let catalog = Catalog::new(Caching::new(wrapped, cache), hmp, pgp, apple);
+    let native = NoOpChunkIdFetcher {
+        inner: NativeProvider {},
+    };
+
+    let catalog = Catalog::new(Caching::new(wrapped, cache), hmp, pgp, apple, native);
 
     let mut resolved_frames = Vec::new();
     for frame in test_stack {
         resolved_frames.push(
             frame
-                .resolve(exception.team_id, &catalog, &[])
+                .resolve(exception.team_id, &catalog, &[], 15)
                 .await
                 .unwrap(),
         );
@@ -153,7 +159,7 @@ async fn sourcemap_nulls_dont_go_on_frames() {
     let content = "{\"colno\":15,\"filename\":\"irrelevant_for_test\",\"function\":\"?\",\"in_app\":true,\"lineno\":476,\"platform\":\"web:javascript\"}";
     let frame: RawFrame = serde_json::from_str(content).unwrap();
 
-    let jsdata_bytes = include_bytes!("static/sourcemap_with_nulls.jsdata").to_vec();
+    let jsdata_bytes = include_bytes!("static/sourcemap_with_nulls.jsdata");
     let (data, decompressed_bytes): (SourceAndMap, usize) =
         read_symbol_data_with_byte_count(jsdata_bytes).unwrap();
     let smc = OwnedSourceMapCache::from_source_and_map(data, decompressed_bytes).unwrap();
@@ -169,7 +175,7 @@ async fn sourcemap_nulls_dont_go_on_frames() {
         .lookup(SourcePosition::new(location.line - 1, location.column))
         .unwrap();
 
-    let res = Frame::from((&frame, token));
+    let res = Frame::from((&frame, token, 15));
 
     assert!(!res.source.unwrap().contains('\0'));
 }
