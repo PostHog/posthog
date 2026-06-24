@@ -166,3 +166,29 @@ export const Empty: Story = {
         }),
     ],
 }
+
+// Below `lg` (1024px) the scene collapses to a single column; 568px lands in the mobile branch.
+const MOBILE_VIEWPORT = { width: 568, height: 812 }
+
+// Mobile: the list fills the screen and scrolls with the page, with a floating "New task" button.
+export const MobileList: Story = {
+    parameters: {
+        testOptions: { viewport: MOBILE_VIEWPORT },
+    },
+}
+
+// Mobile: the new-task composer is the single full-screen column.
+export const MobileNewTask: Story = {
+    parameters: {
+        pageUrl: urls.taskNew(),
+        testOptions: { viewport: MOBILE_VIEWPORT },
+    },
+}
+
+// Mobile: a selected task's detail fills the screen (its back button returns to the list).
+export const MobileTaskSelected: Story = {
+    parameters: {
+        pageUrl: urls.taskDetail('task-3'),
+        testOptions: { viewport: MOBILE_VIEWPORT },
+    },
+}
