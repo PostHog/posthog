@@ -6,6 +6,7 @@ import { Root, createRoot } from 'react-dom/client'
 
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonModal, LemonModalProps } from 'lib/lemon-ui/LemonModal'
+import { uuid } from 'lib/utils/dom'
 
 import { LemonDialogFormPropsType, lemonDialogLogic } from './lemonDialogLogic'
 
@@ -167,9 +168,11 @@ export const LemonFormDialog = ({
     errors,
     content,
     primaryButtonProps,
+    dialogKey,
     ...props
 }: LemonFormDialogProps): JSX.Element => {
-    const logic = lemonDialogLogic({ errors })
+    const logicProps = { errors, dialogKey }
+    const logic = lemonDialogLogic(logicProps)
     const { form, isFormValid, formValidationErrors } = useValues(logic)
     const { setFormValues } = useActions(logic)
     const [isLoading, setIsLoading] = useState(false)
@@ -206,6 +209,7 @@ export const LemonFormDialog = ({
     return (
         <Form
             logic={lemonDialogLogic}
+            props={logicProps}
             formKey="form"
             onKeyDown={
                 props.shouldAwaitSubmit
@@ -261,5 +265,7 @@ LemonDialog.open = (props: LemonDialogProps) => {
 
 LemonDialog.openForm = (props: LemonFormDialogProps) => {
     const { root, onDestroy } = createAndInsertRoot()
-    root.render(<LemonFormDialog {...props} onAfterClose={onDestroy} />)
+    // Each dialog gets a unique key so nested dialogs don't share the same
+    // lemonDialogLogic instance and corrupt each other's form state.
+    root.render(<LemonFormDialog {...props} dialogKey={uuid()} onAfterClose={onDestroy} />)
 }

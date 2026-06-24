@@ -8,7 +8,7 @@ import re2
 from posthog.hogql import ast
 from posthog.hogql.ast import ConstantType, FieldTraverserType
 from posthog.hogql.base import _T_AST
-from posthog.hogql.constants import HogQLDialect
+from posthog.hogql.constants import SQL_TARGET_DIALECTS, HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import FunctionCallTable, LazyTable, SavedQuery, StringJSONDatabaseField
@@ -1589,6 +1589,16 @@ class Resolver(CloningVisitor):
                 return self._expand_duplicating_macro(node, lambda: get_bot_name(node=node, args=node.args))
             if node.name in ("getBotOperator", "__preview_getBotOperator"):
                 return self._expand_duplicating_macro(node, lambda: get_bot_operator(node=node, args=node.args))
+            if node.name in ("_defaultChannelType", "_domainType"):
+                from posthog.hogql.database.schema.channel_type import (  # noqa: PLC0415 — avoid resolver->schema import cycle
+                    expand_default_channel_type_call,
+                    expand_domain_type_call,
+                )
+
+                builder = (
+                    expand_default_channel_type_call if node.name == "_defaultChannelType" else expand_domain_type_call
+                )
+                return self._expand_duplicating_macro(node, lambda: builder(node.args))
 
         if self._is_higher_order_array_call(node):
             node = self._visit_higher_order_array_call(node)
@@ -1863,7 +1873,7 @@ class Resolver(CloningVisitor):
         scope = self._get_scope()
         name = str(node.chain[0])
 
-        if self.dialect in _POSTGRES_FAMILY and len(node.chain) == 1:
+        if self.dialect in SQL_TARGET_DIALECTS and len(node.chain) == 1:
             keyword = name.lower()
             if keyword in POSTGRES_KEYWORD_TYPES and name not in scope.columns and name not in scope.aliases:
                 keyword_type = POSTGRES_KEYWORD_TYPES[keyword]
@@ -1906,7 +1916,7 @@ class Resolver(CloningVisitor):
         if (
             not type
             and len(node.chain) == 1
-            and self.dialect in _POSTGRES_FAMILY
+            and self.dialect in SQL_TARGET_DIALECTS
             and name.lower() in POSTGRES_KEYWORD_TYPES
             and name in scope.columns
         ):

@@ -7,7 +7,7 @@ from django.test.client import Client as HttpClient
 
 from rest_framework import status
 
-from products.batch_exports.backend.models.batch_export import S3_FAMILY_TYPES
+from products.batch_exports.backend.models.batch_export import S3_CREATABLE_TYPES
 from products.batch_exports.backend.tests.api.operations import create_batch_export
 
 pytestmark = [
@@ -27,9 +27,6 @@ _S3_FAMILY_BASE_CONFIG = {
 @pytest.mark.parametrize(
     "destination_type,extra_config,expected_persisted_type",
     [
-        # Legacy `S3` alias is accepted and persisted as-is (no coercion).
-        ("S3", {}, "S3"),
-        ("S3", {"endpoint_url": "https://localhost:9000"}, "S3"),
         # Refined AwsS3 (with AWS-only encryption field)
         ("AwsS3", {"encryption": "AES256"}, "AwsS3"),
         # Refined S3Compatible (endpoint_url is required)
@@ -46,7 +43,7 @@ def test_create_s3_family_batch_export(
     extra_config,
     expected_persisted_type,
 ):
-    """Posting any S3-family destination type creates a batch export and persists with the expected type."""
+    """Posting a creatable S3-family destination type creates a batch export and persists with the expected type."""
     client.force_login(user)
     response = create_batch_export(
         client,
@@ -64,7 +61,25 @@ def test_create_s3_family_batch_export(
     assert response.json()["destination"]["type"] == expected_persisted_type
 
 
-@pytest.mark.parametrize("destination_type", sorted(S3_FAMILY_TYPES))
+def test_create_legacy_s3_type_is_rejected(client: HttpClient, temporal, organization, team, user):
+    """The legacy `S3` type is deprecated and can no longer be created via the API."""
+    client.force_login(user)
+    response = create_batch_export(
+        client,
+        team.pk,
+        {
+            "name": "my-export",
+            "interval": "hour",
+            "destination": {"type": "S3", "config": {**_S3_FAMILY_BASE_CONFIG}},
+        },
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert "deprecated" in response.json()["detail"]
+    assert "AwsS3" in response.json()["detail"]
+    assert "S3Compatible" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("destination_type", sorted(S3_CREATABLE_TYPES))
 def test_create_s3_family_batch_export_validates_empty_inputs(
     client: HttpClient, temporal, organization, team, user, destination_type
 ):
@@ -95,7 +110,7 @@ def test_create_s3_family_batch_export_validates_empty_inputs(
 @pytest.mark.parametrize(
     "destination_type,missing_field",
     [
-        *((dt, field) for dt in sorted(S3_FAMILY_TYPES) for field in ("aws_access_key_id", "aws_secret_access_key")),
+        *((dt, field) for dt in sorted(S3_CREATABLE_TYPES) for field in ("aws_access_key_id", "aws_secret_access_key")),
         # `endpoint_url` is required only for S3Compatible.
         ("S3Compatible", "endpoint_url"),
     ],
@@ -203,7 +218,7 @@ def test_create_s3_batch_export_validates_file_format_and_compression(
     """Test creating a BatchExport with S3 destination validates file format and compression."""
 
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-s3-bucket",
             "region": "us-east-1",
@@ -238,8 +253,8 @@ def test_create_s3_batch_export_validates_file_format_and_compression(
 
 @pytest.mark.parametrize(
     "destination_type",
-    # Only types that accept `endpoint_url` reach the SSRF check.
-    ["S3", "S3Compatible"],
+    # Only creatable types that accept `endpoint_url` reach the SSRF check.
+    ["S3Compatible"],
 )
 @pytest.mark.parametrize(
     "endpoint_url",

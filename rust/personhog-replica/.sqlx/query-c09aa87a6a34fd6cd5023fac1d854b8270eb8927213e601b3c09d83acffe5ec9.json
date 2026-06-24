@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                UPDATE posthog_person SET version = $3\n                WHERE team_id = $1 AND uuid = ANY($2)\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "UuidArray",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c09aa87a6a34fd6cd5023fac1d854b8270eb8927213e601b3c09d83acffe5ec9"
+}

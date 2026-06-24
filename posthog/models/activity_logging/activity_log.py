@@ -387,6 +387,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     "OrganizationDomain": [
         "organization",
         "scim_provisioned_users",
+        # Internal link to the IdP config mirror; the mirrored fields themselves are already logged
+        "identity_provider_config",
     ],
     "Subscription": [
         # Scheduler-derived field; keep it out of user-facing change diffs even when another
@@ -418,6 +420,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     ],
     "Experiment": [
         "feature_flag",
+        "feature_flag_auto_archived",
         "exposure_cohort",
         "holdout",
         "saved_metrics",

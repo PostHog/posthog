@@ -47,7 +47,11 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             | 'CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE'
             | 'CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES'
             | 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'
-        >
+        >,
+        // Worker-level options the queue passes through to the worker on
+        // construction. Currently just fair dequeue; other per-worker tweaks
+        // could go here without bloating the constructor signature further.
+        private workerOptions: { fairDequeue?: boolean } = {}
     ) {
         this.sanitizer = createInvocationSanitizer(config)
     }
@@ -92,6 +96,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             batchMaxSize: this.consumerBatchSize,
             pollDelayMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MS,
             includeEmptyBatches: true,
+            fairDequeue: this.workerOptions.fairDequeue,
         })
 
         await this.worker.connect(async (jobs) => {

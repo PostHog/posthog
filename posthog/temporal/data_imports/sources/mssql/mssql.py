@@ -9,10 +9,11 @@ just holds an instance and validates credentials.
 
 from __future__ import annotations
 
+import time
 import collections
-from collections.abc import Iterator
-from contextlib import contextmanager
-from typing import Any
+from collections.abc import Callable, Iterator
+from contextlib import ExitStack, contextmanager
+from typing import Any, TypeVar
 
 import pyarrow as pa
 import pymssql
@@ -64,6 +65,101 @@ _IDENTIFIER_QUOTER = BracketIdentifierQuoter()
 # Schemas every MSSQL database ships with that never hold user tables. `db_*` covers the
 # fixed database roles (db_owner, db_datareader, …), which also surface as schemas.
 SYSTEM_MSSQL_SCHEMAS = ("sys", "guest", "INFORMATION_SCHEMA")
+
+_T = TypeVar("_T")
+
+# DB-Lib error 20047 — "DBPROCESS is dead or not enabled". The TDS connection died mid-stream (an
+# idle cull, a failover, a brief network blip), leaving pymssql's dbprocess dead so the in-flight
+# fetch raises. A fresh connection recovers, so this is transient rather than a config error.
+_TRANSIENT_CONNECTION_ERROR = "DBPROCESS is dead or not enabled"
+_MAX_DISCOVERY_CONNECTION_ATTEMPTS = 5
+
+# SQL Server error 1205 — this session was picked as the deadlock victim and its transaction was
+# rolled back to break a lock cycle with a concurrent process. SQL Server's own guidance is to
+# rerun the transaction: lock contention is momentary, so re-running the identical query usually
+# succeeds. Transient lock contention, not a config or data problem.
+_DEADLOCK_VICTIM_ERROR = "was deadlocked on lock resources"
+_MAX_DEADLOCK_ATTEMPTS = 5
+
+# paramiko raises a bare, message-less EOFError from `start_client` when the SSH gateway accepts
+# the TCP connection but closes it during the SSH handshake — a non-SSH service on the port, a
+# bastion refusing PostHog's IPs, or a proxy that resets the stream. sshtunnel doesn't wrap it, so
+# it escapes as an EOFError whose `str()` is empty, matching no non-retryable rule and retrying
+# forever. `connect` translates it into this stable, classifiable message (see
+# `MSSQLSource.get_non_retryable_errors`) — same gateway-config class as a wrapped tunnel failure.
+_SSH_HANDSHAKE_EOF_ERROR = "SSH gateway closed the connection during the SSH handshake"
+
+
+def _is_transient_connection_error(error: BaseException) -> bool:
+    """True for a mid-stream TDS connection death that a fresh connection recovers from."""
+    message = " ".join(str(arg) for arg in error.args) if error.args else str(error)
+    return _TRANSIENT_CONNECTION_ERROR in message
+
+
+def _is_deadlock_victim_error(error: BaseException) -> bool:
+    """True for a SQL Server 1205 deadlock-victim error that a rerun recovers from."""
+    message = " ".join(str(arg) for arg in error.args) if error.args else str(error)
+    return _DEADLOCK_VICTIM_ERROR in message
+
+
+def retry_on_transient_connection_error(
+    operation: Callable[[], _T],
+    *,
+    max_attempts: int = _MAX_DISCOVERY_CONNECTION_ATTEMPTS,
+) -> _T:
+    """Run `operation`, retrying a transient MSSQL connection death with bounded backoff.
+
+    Mirrors the in-process discovery retry the Postgres and MySQL sources use: a momentary
+    connection death recovers on a fresh connect-and-discover cycle, so retry it here instead of
+    failing schema discovery on the first blip and surfacing it as captured error-tracking noise.
+    Permanent errors re-raise immediately — `_is_transient_connection_error` only matches the
+    transient mid-stream drop.
+    """
+    attempt = 0
+    while True:
+        try:
+            return operation()
+        except pymssql.Error as e:
+            attempt += 1
+            if attempt >= max_attempts or not _is_transient_connection_error(e):
+                raise
+            structlog.get_logger().warning(
+                "Transient MSSQL connection death during schema discovery; retrying",
+                attempt=attempt,
+                max_attempts=max_attempts,
+                exc_info=e,
+            )
+            time.sleep(min(2 * attempt, 30))
+
+
+def retry_on_deadlock(
+    operation: Callable[[], _T],
+    *,
+    max_attempts: int = _MAX_DEADLOCK_ATTEMPTS,
+    logger: FilteringBoundLogger | None = None,
+) -> _T:
+    """Run `operation`, rerunning it with bounded backoff when SQL Server picks us as the deadlock victim.
+
+    A 1205 rolls back our transaction to break the lock cycle, so rerunning the identical query is
+    safe and usually succeeds once the contending process releases its locks. Used around the read
+    query before any rows are streamed — retrying mid-stream would re-yield already-emitted rows.
+    Anything other than a deadlock victim re-raises immediately.
+    """
+    attempt = 0
+    while True:
+        try:
+            return operation()
+        except pymssql.Error as e:
+            attempt += 1
+            if attempt >= max_attempts or not _is_deadlock_victim_error(e):
+                raise
+            (logger or structlog.get_logger()).warning(
+                "MSSQL query chosen as deadlock victim; rerunning",
+                attempt=attempt,
+                max_attempts=max_attempts,
+                exc_info=e,
+            )
+            time.sleep(min(2 * attempt, 30))
 
 
 def _non_system_schema_clause(column: str) -> tuple[str, dict[str, str]]:
@@ -256,7 +352,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
         Opens the SSH tunnel (if configured) once, then connects with the
         MSSQL-wide conventions: 5s login timeout.
         """
-        with open_ssh_tunnel(config) as (host, port):
+        with self._ssh_tunnel_endpoint(config) as (host, port):
             with pymssql.connect(
                 server=host,
                 # pymssql requires port to be str
@@ -267,6 +363,21 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
                 login_timeout=5,
             ) as conn:
                 yield conn
+
+    @contextmanager
+    def _ssh_tunnel_endpoint(self, config: MSSQLSourceConfig) -> Iterator[tuple[str, int]]:
+        """Yield the `(host, port)` to connect to, going through the SSH tunnel if configured.
+
+        Translates a bare paramiko handshake `EOFError` into `_SSH_HANDSHAKE_EOF_ERROR`. The
+        `yield` sits outside the `except` so a failure raised by the connection body can never be
+        misattributed to the tunnel handshake.
+        """
+        with ExitStack() as stack:
+            try:
+                host, port = stack.enter_context(open_ssh_tunnel(config))
+            except EOFError as e:
+                raise Exception(_SSH_HANDSHAKE_EOF_ERROR) from e
+            yield host, port
 
     # ------------------------------------------------------------------
     # Listing — batch queries run once during `get_schemas`
@@ -774,7 +885,7 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
 
                     logger.debug(f"MS SQL query: {query} with args: {args}")
 
-                    cursor.execute(query, args)
+                    retry_on_deadlock(lambda: cursor.execute(query, args), logger=logger)
 
                     column_names = [column[0] for column in cursor.description or []]
 

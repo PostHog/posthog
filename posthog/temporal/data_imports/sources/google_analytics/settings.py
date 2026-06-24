@@ -42,21 +42,21 @@ GOOGLE_ANALYTICS_REPORT_SCHEMAS: dict[str, GoogleAnalyticsReportSchema] = {
         "dimensions": ["date"],
         "metrics": ["active1DayUsers"],
         "primary_key": ["date"],
-        "should_sync_default": False,
+        "should_sync_default": True,
         "description": "1-day active users per day (DAU).",
     },
     "weekly_active_users": {
         "dimensions": ["date"],
         "metrics": ["active7DayUsers"],
         "primary_key": ["date"],
-        "should_sync_default": False,
+        "should_sync_default": True,
         "description": "Rolling 7-day active users per day (WAU).",
     },
     "four_weekly_active_users": {
         "dimensions": ["date"],
         "metrics": ["active28DayUsers"],
         "primary_key": ["date"],
-        "should_sync_default": False,
+        "should_sync_default": True,
         "description": "Rolling 28-day active users per day.",
     },
     "devices": {
@@ -118,7 +118,7 @@ GOOGLE_ANALYTICS_REPORT_SCHEMAS: dict[str, GoogleAnalyticsReportSchema] = {
         "dimensions": ["date", "firstUserSource", "firstUserMedium"],
         "metrics": ["totalUsers", "newUsers", "sessions", "engagedSessions"],
         "primary_key": ["date", "firstUserSource", "firstUserMedium"],
-        "should_sync_default": False,
+        "should_sync_default": True,
         "description": "Daily acquisition broken out by the source and medium that first acquired each user.",
     },
     "events": {

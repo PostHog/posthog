@@ -106,6 +106,31 @@ The specs read as cautious ("coarse", "deferred", "later") because they're writt
 
 The gap between them is **just data ingestion** (the path from warehouse snapshots to lifecycle events). v1 lives on HogQL over `github_pull_requests` + `github_workflow_runs`; no event ingestion, no PR-as-group-type, no webhook receiver yet.
 
+## What pays for the destination: token cost per outcome
+
+The destination (lifecycle events + git history) is easy to defer while the payoff reads as "nicer CI metrics."
+Attaching **dollars** changes the calculus, and it's the strongest near-term reason to build it.
+
+LLM analytics already knows what agent work _costs_ — the `$ai_*_cost_usd` properties on generation events.
+What it structurally cannot know is whether that spend was _worth it_: it has no concept of merge, revert, or rework.
+That denominator — a PR's outcome and lifecycle — lives only here.
+Token cost alone is trivia; **token cost per outcome** is the metric, and the join only lands in this product.
+
+Roughly in order of "impossible elsewhere":
+
+- **Rework cost (needs git history).** Sum agent spend across a change _and its fixups_ — a reverted PR plus its two follow-up fixes is the true cost of churn, invisible without the commit/PR graph.
+- **Cost ÷ outcome.** "$X of agent tokens; Y% of those PRs merged, Z% reverted within a week" — a funnel with cost attached at each step.
+- **Cost per code area.** Which products/paths burn the most agent tokens, via the PR's changed files.
+- **The full three-ledger picture.** Human-hours + CI-minutes + tokens on the same unit (the PR) — the only place an agent-authored change and a human one are economically comparable.
+
+Division of labor matters: LLM analytics does the cost grouping itself (it groups by any key on the event).
+This product's job is the **join** — the agent stamps the **branch** at capture time (it knows the branch; the PR often doesn't exist yet), and we resolve that branch to a PR via `github_pull_requests.head.ref`, then enrich with outcome and lifecycle.
+Not the commit SHA: the PR snapshot is current-state-only, so a SHA join matches only the latest push and silently drops every earlier one — undercounting exactly the multi-push work.
+Review and CI-bot spend self-attributes (the PR exists by then); the coding slice is the part that needs us.
+
+So cost is a _payload_, not a new surface: it rides the same lifecycle model, and it's the forcing function that makes ingesting that model — and the git history behind it — worth funding.
+It serves both motivations — a DevEx dogfood metric, and the economics of the AI-to-prod loop.
+
 ## Locked decisions
 
 Change one only in a separate PR with a written reason. Engineering-level decisions live in [SPEC.md](./SPEC.md) → Locked decisions.

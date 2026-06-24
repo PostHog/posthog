@@ -12,6 +12,8 @@
 import { defineNativeTool, NativeTool, NativeToolSchema, Type } from '@posthog/agent-shared'
 
 import { httpRequestV1 } from './tools/http-request.v1'
+import { identityConnectV1 } from './tools/identity-connect.v1'
+import { identityFetchV1 } from './tools/identity-fetch.v1'
 import { loadSkill } from './tools/load-skill'
 import {
     memoryDeleteV1,
@@ -54,6 +56,7 @@ import {
 } from './tools/posthog-agent-management.v1'
 import { posthogListProjectsV1 } from './tools/posthog-projects.v1'
 import { posthogQueryV1 } from './tools/posthog-query.v1'
+import { posthogAgentApplicationsSpecSchemaV1 } from './tools/posthog-spec-schema.v1'
 import {
     slackPostMessageV1,
     slackReactV1,
@@ -81,7 +84,7 @@ export const nativeToolsCatalogV1 = defineNativeTool({
     id: '@posthog/agent-applications-native-tools-list',
     description: [
         'List every native (@posthog/*) tool available to put in an agent spec —',
-        'id, description, required scopes/integrations, and cost hint. Call this to',
+        'id, description, the credential provider + scopes it needs, and cost hint. Call this to',
         'discover what tools you can wire into an agent you are building or editing,',
         'instead of guessing tool ids. The validator rejects unknown ids, so check here first.',
     ].join(' '),
@@ -92,8 +95,7 @@ export const nativeToolsCatalogV1 = defineNativeTool({
                 id: Type.String(),
                 description: Type.String(),
                 requires: Type.Object({
-                    integrations: Type.Array(Type.String()),
-                    scopes: Type.Array(Type.String()),
+                    provider: Type.Optional(Type.Object({ id: Type.String(), scopes: Type.Array(Type.String()) })),
                 }),
                 cost_hint: Type.String(),
             })
@@ -105,10 +107,7 @@ export const nativeToolsCatalogV1 = defineNativeTool({
             tools: listNativeTools().map((t) => ({
                 id: t.id,
                 description: t.schema.description,
-                requires: {
-                    integrations: t.schema.requires.integrations,
-                    scopes: t.schema.requires.scopes,
-                },
+                requires: { provider: t.schema.requires.provider },
                 cost_hint: t.schema.cost_hint,
             })),
         }
@@ -147,12 +146,15 @@ export const ALL_TOOLS: NativeTool[] = [
     posthogAgentApplicationsSessionsRetrieveV1,
     posthogAgentApplicationsSessionLogsV1,
     nativeToolsCatalogV1,
+    posthogAgentApplicationsSpecSchemaV1,
     slackPostMessageV1,
     slackUpdateMessageV1,
     slackReadChannelV1,
     slackReadThreadV1,
     slackReactV1,
     httpRequestV1,
+    identityConnectV1,
+    identityFetchV1,
     endTurnTool,
     endSessionTool,
     emitEventTool,

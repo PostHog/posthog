@@ -135,6 +135,18 @@ class PullRequestListItemSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "labels": {"help_text": "GitHub label names on the pull request."},
+            "pushes": {
+                "help_text": "CI triggers attributed to this PR: distinct head SHAs across its workflow runs. "
+                "Fork-PR runs are unattributed.",
+            },
+            "rerun_cycles": {
+                "help_text": "Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run).",
+            },
+            "estimated_cost_usd": {
+                "help_text": "Estimated Depot CI cost in USD. Null until the job-level warehouse source "
+                "(github_workflow_jobs) lands; run-level data carries no runner tier, so no honest figure exists yet.",
+                "allow_null": True,
+            },
         }
 
 
@@ -174,6 +186,10 @@ class WorkflowHealthDaySerializer(DataclassSerializer):
             "run_count": {"help_text": "Runs started that day."},
             "completed": {"help_text": "Runs that completed that day."},
             "successes": {"help_text": "Completed runs with conclusion 'success' that day."},
+            "failures": {
+                "help_text": "Completed runs that failed that day (conclusion 'failure' or 'timed_out'); "
+                "excludes skipped, cancelled, and action_required runs."
+            },
         }
 
 
@@ -201,7 +217,7 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "last_failure_at": {
-                "help_text": "When the most recent run with conclusion 'failure' started, or null.",
+                "help_text": "When the most recent failing run (conclusion 'failure' or 'timed_out') started, or null.",
                 "allow_null": True,
             },
         }

@@ -9,14 +9,14 @@ from temporalio import activity
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
-from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
-from products.tasks.backend.services.agentsh import ENV_FILE, INFRASTRUCTURE_DOMAINS, _get_debug_only_domains
-from products.tasks.backend.services.connection_token import (
+from products.tasks.backend.logic.services.agentsh import ENV_FILE, INFRASTRUCTURE_DOMAINS, _get_debug_only_domains
+from products.tasks.backend.logic.services.connection_token import (
     SANDBOX_JWT_STATE_KID_KEY,
     get_primary_sandbox_jwt_kid,
     get_sandbox_jwt_public_key,
 )
-from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
+from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
+from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.temporal.metrics import StepTimer, increment_sandbox_created, increment_snapshot_usage
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
@@ -43,6 +43,15 @@ RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS = {
     "LLM_GATEWAY_URL",
     "POSTHOG_RESUME_RUN_ID",
     "BASH_ENV",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+    "DISABLE_TELEMETRY",
+    "DISABLE_ERROR_REPORTING",
+}
+
+NETWORK_RESTRICTED_AGENT_ENV = {
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "DISABLE_TELEMETRY": "1",
+    "DISABLE_ERROR_REPORTING": "1",
 }
 
 
@@ -107,11 +116,23 @@ class InjectFreshTokensOnResumeInput:
     repository: str | None
 
 
+def _is_covered_by_wildcard(host: str, wildcard_bases: set[str]) -> bool:
+    base = host[2:] if host.startswith("*.") else host
+    for wildcard_base in wildcard_bases:
+        if host.startswith("*.") and base == wildcard_base:
+            continue
+        if base == wildcard_base or base.endswith("." + wildcard_base):
+            return True
+    return False
+
+
 def _to_modal_domain_allowlist(allowed_domains: list[str]) -> list[str]:
     """Translate the agentsh allowlist into Modal's outbound_domain_allowlist.
 
-    Modal fences the whole sandbox, so union in the infra (and local tunnel) domains
-    the agent needs, and drop loopback aliases Modal rejects as invalid domains.
+    Modal fences the whole sandbox and supports `*.` wildcards that match the
+    apex and any subdomain, so union in the infra (and local tunnel) domains the
+    agent needs, drop loopback aliases Modal rejects as invalid domains, and
+    collapse entries already covered by a wildcard.
     """
     domains = list(allowed_domains)
     extra = list(INFRASTRUCTURE_DOMAINS)
@@ -120,7 +141,18 @@ def _to_modal_domain_allowlist(allowed_domains: list[str]) -> list[str]:
     for domain in extra:
         if domain not in domains:
             domains.append(domain)
-    return [d for d in domains if "." in d and d != "host.docker.internal"]
+
+    fqdns = [d for d in domains if "." in d and d != "host.docker.internal"]
+    wildcard_bases = {d[2:] for d in fqdns if d.startswith("*.")}
+
+    result: list[str] = []
+    seen: set[str] = set()
+    for domain in fqdns:
+        if domain in seen or _is_covered_by_wildcard(domain, wildcard_bases):
+            continue
+        seen.add(domain)
+        result.append(domain)
+    return result
 
 
 def _load_task(ctx: TaskProcessingContext) -> Task:
@@ -205,6 +237,9 @@ def _build_environment_variables(
     if settings.SANDBOX_LLM_GATEWAY_URL:
         environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
+    if ctx.allowed_domains is not None:
+        environment_variables.update(NETWORK_RESTRICTED_AGENT_ENV)
+
     environment_variables.update(get_git_identity_env_vars(task, ctx.state))
 
     run_state = parse_run_state(ctx.state)
@@ -227,6 +262,27 @@ def _emit_image_source_log(ctx: TaskProcessingContext, prepared: PrepareSandboxF
         )
     else:
         emit_agent_log(ctx.run_id, "debug", f"Creating environment from {prepared.image_source_label}")
+
+
+def _build_sandbox_tags(
+    ctx: TaskProcessingContext,
+    prepared: PrepareSandboxForRepositoryOutput,
+    use_vm_sandbox: bool,
+) -> dict[str, str]:
+    """Tags forwarded to the Modal sandbox so it can be traced back when debugging.
+
+    Modal tag values must be strings; None values are dropped so we don't emit empty tags.
+    """
+    tags: dict[str, str | int | None] = {
+        "task_id": ctx.task_id,
+        "task_run_id": ctx.run_id,
+        "origin_product": ctx.origin_product,
+        "team_id": ctx.team_id,
+        "workflow_id": TaskRun.get_workflow_id(ctx.task_id, ctx.run_id),
+        "image_source": prepared.image_source,
+        "sandbox_runtime": "vm" if use_vm_sandbox else "gvisor",
+    }
+    return {key: str(value) for key, value in tags.items() if value is not None}
 
 
 @activity.defn
@@ -375,7 +431,7 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
             environment_variables=prepared.environment_variables,
             snapshot_id=prepared.snapshot_id,
             snapshot_external_id=prepared.snapshot_external_id,
-            metadata={"task_id": ctx.task_id},
+            metadata=_build_sandbox_tags(ctx, prepared, use_vm_sandbox),
             vm_runtime=use_vm_sandbox,
             **ctx.sandbox_resource_overrides(),
         )

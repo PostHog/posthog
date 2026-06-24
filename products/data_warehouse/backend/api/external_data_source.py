@@ -42,8 +42,9 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
-from posthog.temporal.data_imports.cdc.adapters import CDCSourceAdapter, get_cdc_adapter
+from posthog.temporal.data_imports.cdc.adapters import CDCSourceAdapter, get_cdc_adapter, source_type_supports_cdc
 from posthog.temporal.data_imports.sources import SourceRegistry
+from posthog.temporal.data_imports.sources.clickhouse.source import ClickHouseSource
 from posthog.temporal.data_imports.sources.common.base import AnySource, ExternalWebhookInfo, FieldType, WebhookSource
 from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema, build_default_schemas
@@ -55,6 +56,7 @@ from posthog.temporal.data_imports.sources.common.sql import (
 )
 from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
 from posthog.temporal.data_imports.sources.custom.source import MAX_CUSTOM_SOURCES_PER_TEAM, manifest_request_hosts
+from posthog.temporal.data_imports.sources.mysql.source import MySQLSource
 from posthog.temporal.data_imports.sources.postgres.cdc.config import (
     DEFAULT_LAG_CRITICAL_THRESHOLD_MB,
     DEFAULT_LAG_WARNING_THRESHOLD_MB,
@@ -77,6 +79,7 @@ from products.data_warehouse.backend.api.external_data_schema import (
     source_supports_column_selection,
     unsupported_row_filter_reason,
 )
+from products.data_warehouse.backend.api.public_source_configs import build_source_configs
 from products.data_warehouse.backend.data_load.service import (
     bulk_create_external_data_job_schedules,
     bulk_delete_external_data_schedules,
@@ -87,11 +90,13 @@ from products.data_warehouse.backend.data_load.service import (
     ensure_cdc_slot_cleanup_schedule,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
+    is_xmin_enabled_for_team,
     sync_cdc_extraction_schedule,
     sync_discover_schemas_schedule,
     sync_external_data_job_workflow,
     trigger_external_data_source_workflow,
 )
+from products.data_warehouse.backend.direct_mysql import upsert_direct_mysql_table
 from products.data_warehouse.backend.direct_postgres import upsert_direct_postgres_table
 from products.data_warehouse.backend.external_data_source.webhooks import (
     create_and_register_webhook,
@@ -100,6 +105,7 @@ from products.data_warehouse.backend.external_data_source.webhooks import (
     get_webhook_url,
 )
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
+from products.data_warehouse.backend.mysql_helpers import get_mysql_source_location, reconcile_mysql_schemas
 from products.data_warehouse.backend.postgres_helpers import get_postgres_source_location, reconcile_postgres_schemas
 from products.data_warehouse.backend.postgres_warehouse_migration import (
     reconcile_refresh_name_substitutions as reconcile_postgres_refresh_name_substitutions,
@@ -121,7 +127,11 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.pending_source_credential import PendingSourceCredential
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.models.util import postgres_columns_to_dwh_columns, validate_source_prefix
+from products.warehouse_sources.backend.models.util import (
+    mysql_columns_to_dwh_columns,
+    postgres_columns_to_dwh_columns,
+    validate_source_prefix,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -353,7 +363,7 @@ def has_preserved_credentials(existing: dict[str, Any], incoming: dict[str, Any]
     return False
 
 
-def get_direct_postgres_connection_metadata(
+def get_direct_connection_metadata(
     *,
     source_impl: Any,
     source_config: Config,
@@ -386,6 +396,22 @@ def get_postgres_source_table_location(
         schema_name=schema_name,
         schema_metadata={
             "source_catalog": source_schema.source_catalog if source_schema else None,
+            "source_schema": source_schema.source_schema if source_schema else None,
+            "source_table_name": source_schema.source_table_name if source_schema else None,
+        },
+        default_schema=default_schema,
+    )
+
+
+def get_mysql_source_table_location(
+    *,
+    schema_name: str,
+    source_schema: SourceSchema | None,
+    default_schema: str | None,
+) -> tuple[str, str]:
+    return get_mysql_source_location(
+        schema_name=schema_name,
+        schema_metadata={
             "source_schema": source_schema.source_schema if source_schema else None,
             "source_table_name": source_schema.source_table_name if source_schema else None,
         },
@@ -427,7 +453,7 @@ class ExternalDataSourceConnectionMetadataSerializer(serializers.Serializer):
         read_only=True,
         required=False,
         allow_null=True,
-        choices=["duckdb", "postgres"],
+        choices=["duckdb", "postgres", "mysql"],
         help_text="Backend engine detected for the direct connection.",
     )
     function_source = serializers.CharField(
@@ -449,7 +475,7 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
         source="connection_metadata.engine",
         read_only=True,
         allow_null=True,
-        choices=["duckdb", "postgres"],
+        choices=["duckdb", "postgres", "mysql"],
         help_text="Backend engine detected for the direct connection.",
     )
 
@@ -466,7 +492,7 @@ class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         choices=ExternalDataSchema.SyncType.choices,
-        help_text="Requested sync mode for the schema.",
+        help_text="Requested sync mode for the schema (incremental, full_refresh, append, cdc, or xmin).",
     )
     incremental_field = serializers.CharField(
         required=False,
@@ -612,7 +638,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         read_only=True,
         allow_null=True,
         required=False,
-        choices=["duckdb", "postgres"],
+        choices=["duckdb", "postgres", "mysql"],
         help_text="Backend engine detected for the direct connection.",
     )
     revenue_analytics_config = ExternalDataSourceRevenueAnalyticsConfigSerializer(
@@ -640,6 +666,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "Ignored on update."
         ),
     )
+    direct_query_enabled = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether this synced source is also live-queryable via direct connection. "
+            "Defaults to true for new sources; ignored for pure direct-query sources."
+        ),
+    )
 
     class Meta:
         model = ExternalDataSource
@@ -656,6 +689,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "prefix",
             "description",
             "access_method",
+            "direct_query_enabled",
             "engine",
             "last_run_at",
             "schemas",
@@ -801,8 +835,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         validated_data.pop("created_via", None)
         incoming_prefix = validated_data.get("prefix", instance.prefix)
 
-        if instance.is_direct_postgres:
-            # For direct Postgres sources the prefix acts as the user-facing source name.
+        if instance.is_direct_query:
+            # For direct query sources the prefix acts as the user-facing source name.
             normalized_prefix = incoming_prefix.strip() if isinstance(incoming_prefix, str) else ""
             if not normalized_prefix:
                 raise ValidationError("Name is required for direct query sources")
@@ -820,6 +854,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         discovered_schemas: list[SourceSchema] | None = None
 
         new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
+
+        # CDC resource ownership changes must go through the CDC-specific endpoints.
+        for key in _CDC_EXPOSED_JOB_INPUT_KEYS:
+            if key in existing_job_inputs:
+                new_job_inputs[key] = existing_job_inputs[key]
+            else:
+                new_job_inputs.pop(key, None)
 
         # If the connection target changed, require credentials to be re-entered. Covers
         # both the generic `host` field and source-specific URL fields like ServiceNow's
@@ -940,10 +981,14 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             apply_sql_warehouse_schema_clear_migration(instance, old_schema)
 
         source_config: Config = source.parse_config(new_job_inputs)
-        validated_data["job_inputs"] = source_config.to_dict()
+        validated_job_inputs = source_config.to_dict()
+        for key in _CDC_EXPOSED_JOB_INPUT_KEYS:
+            if key in existing_job_inputs:
+                validated_job_inputs[key] = existing_job_inputs[key]
+        validated_data["job_inputs"] = validated_job_inputs
 
         if job_inputs_were_submitted:
-            if instance.source_type == ExternalDataSourceType.POSTGRES and isinstance(source, PostgresSource):
+            if isinstance(source, (PostgresSource, MySQLSource)):
                 credentials_valid, credentials_error = source.validate_credentials_for_access_method(
                     cast(Any, source_config), instance.team_id, instance.access_method
                 )
@@ -951,9 +996,9 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 credentials_valid, credentials_error = source.validate_credentials(source_config, instance.team_id)
             if not credentials_valid:
                 raise ValidationError(credentials_error or "Invalid credentials")
-            if instance.is_direct_postgres:
+            if instance.is_direct_query:
                 discovered_schemas = source.get_schemas(source_config, instance.team_id)
-                validated_data["connection_metadata"] = get_direct_postgres_connection_metadata(
+                validated_data["connection_metadata"] = get_direct_connection_metadata(
                     source_impl=source,
                     source_config=source_config,
                     team_id=instance.team_id,
@@ -963,17 +1008,26 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         updated_source: ExternalDataSource = super().update(instance, validated_data)
 
-        if updated_source.is_direct_postgres and discovered_schemas is not None:
+        if updated_source.is_direct_query and discovered_schemas is not None:
             schema_names = {schema.name: schema.label for schema in discovered_schemas}
             descriptions = {schema.name: schema.description for schema in discovered_schemas}
 
             with transaction.atomic():
                 ExternalDataSource._base_manager.filter(pk=updated_source.pk).select_for_update().get()
-                name_substitutions = reconcile_postgres_refresh_name_substitutions(
-                    source=updated_source,
-                    source_schemas=discovered_schemas,
-                    team_id=instance.team_id,
-                )
+                name_substitutions: dict[str, str] = {}
+                if updated_source.source_type == ExternalDataSourceType.POSTGRES:
+                    name_substitutions = reconcile_postgres_refresh_name_substitutions(
+                        source=updated_source,
+                        source_schemas=discovered_schemas,
+                        team_id=instance.team_id,
+                    )
+                elif source_namespace_is_blank(updated_source) and is_multi_schema_capable_sql_source(
+                    updated_source.source_type
+                ):
+                    name_substitutions = apply_sql_warehouse_refresh_migration(
+                        source=updated_source,
+                        team_id=instance.team_id,
+                    )
                 if name_substitutions:
                     schema_names = {name_substitutions.get(name, name): label for name, label in schema_names.items()}
                     descriptions = {
@@ -987,11 +1041,18 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 )
                 # Direct call (not via hook) so tests mocking `SourceRegistry.get_source` still
                 # exercise the real direct-query DataWarehouseTable rebuild.
-                reconcile_postgres_schemas(
-                    source=updated_source,
-                    source_schemas=discovered_schemas,
-                    team_id=instance.team_id,
-                )
+                if updated_source.source_type == ExternalDataSourceType.POSTGRES:
+                    reconcile_postgres_schemas(
+                        source=updated_source,
+                        source_schemas=discovered_schemas,
+                        team_id=instance.team_id,
+                    )
+                else:
+                    reconcile_mysql_schemas(
+                        source=updated_source,
+                        source_schemas=discovered_schemas,
+                        team_id=instance.team_id,
+                    )
 
             schemas = list(
                 ExternalDataSchema.objects.filter(team_id=instance.team_id, source_id=updated_source.id)
@@ -1038,6 +1099,14 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         default=ExternalDataSource.CreatedVia.API,
         help_text="Where the request came from",
     )
+    direct_query_enabled = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Whether a synced source should also be live-queryable via direct connection. "
+            "Defaults to true; ignored for pure direct-query sources."
+        ),
+    )
 
 
 class SourceSetupSerializer(serializers.Serializer):
@@ -1066,6 +1135,14 @@ class SourceSetupSerializer(serializers.Serializer):
     )
     description = serializers.CharField(
         max_length=400, required=False, allow_null=True, allow_blank=True, help_text="Human-readable description."
+    )
+    direct_query_enabled = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text=(
+            "Whether a synced source should also be live-queryable via direct connection. "
+            "Defaults to true; ignored for pure direct-query sources."
+        ),
     )
 
 
@@ -1245,7 +1322,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
-        context["database"] = Database.create_for(team_id=self.team_id)
+        # Building the full HogQL Database and serializing per-schema table columns is expensive
+        # and only needed when a caller reads `schemas[].table.columns` — which the source list view
+        # never does (it only reads name/row_count). Gate both to single-source reads.
+        include_columns = self.action != "list"
+        context["include_columns"] = include_columns
+        if include_columns:
+            context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
 
         return context
 
@@ -1295,6 +1378,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             description=serializer.validated_data.get("description"),
             access_method=serializer.validated_data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE),
             created_via=serializer.validated_data.get("created_via", ExternalDataSource.CreatedVia.API),
+            direct_query_enabled=serializer.validated_data.get("direct_query_enabled", True),
         )
 
     def _create_external_data_source(
@@ -1307,23 +1391,24 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         description: str | None,
         access_method: str,
         created_via: str,
+        direct_query_enabled: bool = True,
         skip_credential_validation: bool = False,
     ) -> Response:
         # `skip_credential_validation` is set only by the `setup` action, which has already run the
         # full config + credential gate (including the SSRF host check) before discovering schemas.
         # It avoids a second live credential round-trip — and the confusing failure mode where the
         # first check passes but a transient blip fails the second, leaving nothing created.
-        is_direct_postgres = (
-            access_method == ExternalDataSource.AccessMethod.DIRECT and source_type == ExternalDataSourceType.POSTGRES
-        )
+        is_direct_query = access_method == ExternalDataSource.AccessMethod.DIRECT
+        is_direct_postgres = is_direct_query and source_type == ExternalDataSourceType.POSTGRES
+        is_direct_mysql = is_direct_query and source_type == ExternalDataSourceType.MYSQL
 
-        if access_method == ExternalDataSource.AccessMethod.DIRECT and source_type != ExternalDataSourceType.POSTGRES:
+        if is_direct_query and not (is_direct_postgres or is_direct_mysql):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "Direct query mode is currently supported only for Postgres sources."},
+                data={"message": "Direct query mode is currently supported only for Postgres and MySQL sources."},
             )
 
-        if is_direct_postgres:
+        if is_direct_query:
             prefix = prefix.strip() if isinstance(prefix, str) else ""
             if not prefix:
                 return Response(
@@ -1390,6 +1475,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             prefix=prefix,
             description=description,
             access_method=access_method,
+            direct_query_enabled=direct_query_enabled,
         )
 
         # CDC: gate per-source-type adapter availability up front so downstream blocks
@@ -1403,8 +1489,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         )
 
         source_schemas = source.get_schemas(source_config, self.team_id)
-        if is_direct_postgres:
-            new_source_model.connection_metadata = get_direct_postgres_connection_metadata(
+        if is_direct_query:
+            new_source_model.connection_metadata = get_direct_connection_metadata(
                 source_impl=source,
                 source_config=source_config,
                 team_id=self.team_id,
@@ -1480,13 +1566,25 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 cdc_schema_name_by_location[(resolved_source_schema, resolved_source_table_name)] = schema_name
 
             if cdc_table_names_by_schema:
-                with cdc_pg_connection(new_source_model) as conn:
-                    for db_schema, cdc_table_names in cdc_table_names_by_schema.items():
-                        queried_pks = get_primary_key_columns(conn, db_schema, list(cdc_table_names))
-                        for table_name, primary_key_columns in queried_pks.items():
-                            schema_name = cdc_schema_name_by_location.get((db_schema, table_name))
-                            if schema_name is not None:
-                                pk_columns_by_table[schema_name] = primary_key_columns
+                try:
+                    with cdc_pg_connection(new_source_model) as conn:
+                        for db_schema, cdc_table_names in cdc_table_names_by_schema.items():
+                            queried_pks = get_primary_key_columns(conn, db_schema, list(cdc_table_names))
+                            for table_name, primary_key_columns in queried_pks.items():
+                                schema_name = cdc_schema_name_by_location.get((db_schema, table_name))
+                                if schema_name is not None:
+                                    pk_columns_by_table[schema_name] = primary_key_columns
+                except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+                    # Connecting to the user's database to detect CDC primary keys is expected to
+                    # fail when the host, port, credentials, or SSH tunnel are wrong, or the server
+                    # requires/refuses SSL. Surface it as a 400, but don't capture it — these are
+                    # user/upstream connection problems, not bugs in our code, and capturing every
+                    # one floods error tracking. Mirrors the CDC-prerequisite handlers below.
+                    new_source_model.delete()
+                    return Response(
+                        status=status.HTTP_400_BAD_REQUEST,
+                        data={"message": f"Could not connect to your database to set up change data capture: {e}"},
+                    )
 
             # CDC needs a PK for UPDATE/DELETE merges. Refuse here so `_setup_cdc_resources` doesn't
             # create replication state on the source for a config we're about to reject.
@@ -1576,6 +1674,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                         default_schema=default_source_schema,
                     )
                 )
+            elif is_direct_mysql:
+                # Direct mode needs a resolved source location for the live-query table; warehouse
+                # mode keeps storing whatever the source reported to avoid changing sync routing.
+                metadata_source_catalog = None
+                metadata_source_schema, metadata_source_table_name = get_mysql_source_table_location(
+                    schema_name=schema_name,
+                    source_schema=source_schema,
+                    default_schema=default_source_schema or source_config.to_dict().get("database"),
+                )
             else:
                 metadata_source_catalog = source_schema.source_catalog if source_schema else None
                 metadata_source_schema = source_schema.source_schema if source_schema else None
@@ -1625,11 +1732,34 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 effective_primary_key_columns = primary_key_columns or (
                     source_schema.detected_primary_keys if source_schema else None
                 )
+                # Lookback only applies to incremental (merge-by-PK makes the overlap re-read idempotent).
+                # Mirror the schema-update path's IntegerField(min_value=0, max_value=5_184_000) so both
+                # creation paths reject the same inputs instead of silently dropping null/float values.
+                lookback_seconds = schema.get("incremental_field_lookback_seconds")
+                if lookback_seconds is not None:
+                    # Coerce whole-number floats (e.g. 90.0) the way DRF's IntegerField does.
+                    if isinstance(lookback_seconds, float) and lookback_seconds.is_integer():
+                        lookback_seconds = int(lookback_seconds)
+                    # bool is an int subclass — exclude it so true/false aren't treated as 1/0.
+                    is_valid_int = isinstance(lookback_seconds, int) and not isinstance(lookback_seconds, bool)
+                    if not is_valid_int or not (0 <= lookback_seconds <= 5_184_000):
+                        new_source_model.delete()
+                        return Response(
+                            status=status.HTTP_400_BAD_REQUEST,
+                            data={
+                                "message": f"incremental_field_lookback_seconds must be an integer between 0 and 5184000 (60 days) for schema '{schema_name}'."
+                            },
+                        )
                 sync_type_config = {
                     "incremental_field": incremental_field,
                     "incremental_field_type": incremental_field_type,
                     "schema_metadata": schema_metadata,
                     **({"primary_key_columns": effective_primary_key_columns} if effective_primary_key_columns else {}),
+                    **(
+                        {"incremental_field_lookback_seconds": lookback_seconds}
+                        if sync_type == "incremental" and lookback_seconds is not None
+                        else {}
+                    ),
                 }
             elif is_cdc_schema and not cdc_not_set_up:
                 cdc_table_mode = schema.get("cdc_table_mode", "consolidated")
@@ -1664,9 +1794,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 row_filters=row_filters,
             )
 
-            # CDC + direct-postgres paths are Postgres-only — `get_postgres_source_table_location`
-            # guarantees non-None schema/table in that branch above. `cast` narrows for mypy
-            # without a runtime check. The adapter no-ops for self-managed / no-publication.
+            # The CDC path is Postgres-only, and the direct paths are engine-specific —
+            # `get_postgres_source_table_location` / `get_mysql_source_table_location` guarantee
+            # non-None schema/table in their branches above. `cast` narrows for mypy without a
+            # runtime check. The adapter no-ops for self-managed / no-publication.
             if is_cdc_schema and should_sync and cdc_enabled and cdc_adapter is not None:
                 cdc_adapter.add_table(
                     new_source_model,
@@ -1691,6 +1822,23 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                         normalize=False,
                     ),
                     source_catalog=metadata_source_catalog,
+                    source_schema=cast(str, metadata_source_schema),
+                    source_table_name=cast(str, metadata_source_table_name),
+                )
+                schema_model.save(update_fields=["table"])
+            elif new_source_model.is_direct_mysql and should_sync:
+                schema_model.table = upsert_direct_mysql_table(
+                    None,
+                    schema_name=schema_name,
+                    source=new_source_model,
+                    columns=filter_dwh_columns_by_enabled_columns(
+                        mysql_columns_to_dwh_columns(source_schema.columns if source_schema else []),
+                        enabled_columns,
+                        source_schema.detected_primary_keys if source_schema else None,
+                        incremental_field,
+                        # Direct-mysql columns are keyed by raw, case-sensitive source names.
+                        normalize=False,
+                    ),
                     source_schema=cast(str, metadata_source_schema),
                     source_table_name=cast(str, metadata_source_table_name),
                 )
@@ -1758,9 +1906,33 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         on failure, or None on success. Callers decide whether to delete the source
         on failure (create flow does; enable_cdc does not).
         """
+        management_mode = payload.get("cdc_management_mode", "posthog")
+        logger.info(
+            "Setting up CDC resources for source",
+            source_id=str(source_model.pk),
+            source_type=source_model.source_type,
+            management_mode=management_mode,
+        )
+
         resource_fields, error = adapter.setup_resources(source_model, payload)
         if error is not None:
+            logger.warning(
+                "CDC resource setup failed",
+                source_id=str(source_model.pk),
+                source_type=source_model.source_type,
+                management_mode=management_mode,
+                error=error,
+            )
             return error
+
+        logger.info(
+            "CDC resources provisioned",
+            source_id=str(source_model.pk),
+            management_mode=management_mode,
+            slot_name=resource_fields.get("cdc_slot_name"),
+            publication_name=resource_fields.get("cdc_publication_name"),
+            resource_keys=sorted(resource_fields.keys()),
+        )
 
         job_inputs = dict(source_model.job_inputs or {})
         job_inputs.update(
@@ -1959,14 +2131,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # upstream resources (e.g. Slack channels) appear immediately.
             schemas = source.get_schemas(config, self.team_id, force_refresh=True)
             connection_metadata = (
-                get_direct_postgres_connection_metadata(
+                get_direct_connection_metadata(
                     source_impl=source,
                     source_config=config,
                     team_id=self.team_id,
                     source_model=instance,
                     fallback=instance.connection_metadata,
                 )
-                if instance.is_direct_postgres
+                if instance.is_direct_query
                 else instance.connection_metadata
             )
             schema_names = {s.name: s.label for s in schemas}
@@ -2005,7 +2177,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         descriptions = {s.name: s.description for s in schemas}
         with transaction.atomic():
             ExternalDataSource._base_manager.filter(pk=instance.pk).select_for_update().get()
-            if instance.is_direct_postgres and connection_metadata != instance.connection_metadata:
+            if instance.is_direct_query and connection_metadata != instance.connection_metadata:
                 instance.connection_metadata = connection_metadata
                 instance.save(update_fields=["connection_metadata", "updated_at"])
             # Migrate/dedupe legacy rows before sync_old_schemas; non-Postgres only once namespace cleared.
@@ -2039,7 +2211,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 )
                 if reconciled_deleted_schemas:
                     schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
-            elif isinstance(source, SQLSource) and source.supports_column_selection:
+            elif instance.source_type == ExternalDataSourceType.MYSQL:
+                reconciled_deleted_schemas = reconcile_mysql_schemas(
+                    source=instance,
+                    source_schemas=schemas,
+                    team_id=self.team_id,
+                )
+                if reconciled_deleted_schemas:
+                    schemas_deleted = list({*schemas_deleted, *reconciled_deleted_schemas})
+            elif isinstance(source, (SQLSource, ClickHouseSource)) and source.supports_column_selection:
+                # ClickHouse isn't a SQLSource but exposes the same column-selection
+                # capability and reconcile hook, so it reuses this path.
                 source.reconcile_schema_metadata(source=instance, source_schemas=schemas, team_id=self.team_id)
         logger.debug(
             "refresh_schemas completed",
@@ -2080,7 +2262,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         source_config: Config = source.parse_config(request.data)
 
         access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
-        if source_type_model == ExternalDataSourceType.POSTGRES and isinstance(source, PostgresSource):
+        if isinstance(source, (PostgresSource, MySQLSource)):
             credentials_valid, credentials_error = source.validate_credentials_for_access_method(
                 cast(Any, source_config), self.team_id, access_method
             )
@@ -2114,6 +2296,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # which makes a network round-trip per call. With large schema lists (e.g. Slack workspaces with
         # thousands of channels) the per-iteration call inflated the response loop past the 120s gateway.
         cdc_enabled = is_cdc_enabled_for_team(self.team)
+        xmin_enabled = is_xmin_enabled_for_team(self.team)
+        # xmin is Postgres-only — gate on the source type so the capability never leaks to another SQL source.
+        is_postgres = source_type_model == ExternalDataSourceType.POSTGRES
         data = [
             {
                 "table": schema.name,
@@ -2123,6 +2308,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "incremental_available": schema.supports_incremental,
                 "append_available": schema.supports_append,
                 "cdc_available": schema.supports_cdc if cdc_enabled else None,
+                "xmin_available": schema.supports_xmin if (is_postgres and xmin_enabled) else None,
                 "incremental_field": schema.incremental_fields[0]["field"]
                 if len(schema.incremental_fields) > 0 and len(schema.incremental_fields[0]["field"]) > 0
                 else None,
@@ -2197,6 +2383,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         try:
             source_schemas = source.get_schemas(source_config, self.team_id)
+        except NotImplementedError:
+            # Source doesn't implement schema discovery (e.g. an unreleased source) so it can't be
+            # set up via this one-shot flow — a caller mistake, not a server error worth capturing.
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Source type '{source_type}' does not support one-shot setup."},
+            )
         except Exception as e:
             capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
@@ -2220,6 +2413,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             description=serializer.validated_data.get("description"),
             access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
             created_via=ExternalDataSource.CreatedVia.MCP,
+            direct_query_enabled=serializer.validated_data.get("direct_query_enabled", True),
             skip_credential_validation=True,
         )
         # Stored credentials are single-use: once the source owns them (in job_inputs), drop the stash.
@@ -2330,7 +2524,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             )
         source_config: Config = source.parse_config(payload)
 
-        if source_type_model == ExternalDataSourceType.POSTGRES and isinstance(source, PostgresSource):
+        if isinstance(source, (PostgresSource, MySQLSource)):
             credentials_valid, credentials_error = source.validate_credentials_for_access_method(
                 cast(Any, source_config), self.team_id, access_method
             )
@@ -2461,10 +2655,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         and by the self-managed setup popup to verify user-created publications.
         """
         source_type = request.data.get("source_type")
-        if source_type != ExternalDataSourceType.POSTGRES:
+        if not source_type_supports_cdc(source_type):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": "CDC prerequisite checks are only supported for Postgres."},
+                data={"message": "CDC prerequisite checks are only supported for CDC enabled sources."},
             )
 
         source_impl: PostgresSource = PostgresSource()
@@ -2582,6 +2776,16 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 slot_name=request.data.get("cdc_slot_name") or None,
                 publication_name=request.data.get("cdc_publication_name") or None,
             )
+        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+            # Probing the source's database to validate it is expected to fail when the host,
+            # credentials, or SSH tunnel are wrong, the server requires/refuses SSL, or it drops the
+            # connection. Surface it as a 400, but don't capture it — these are user/upstream
+            # connection problems, not bugs in our code, and capturing every one floods error
+            # tracking. Mirrors the detail=False check_cdc_prerequisites handler.
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Could not connect to source to check prerequisites: {e}"},
+            )
         except Exception as e:
             capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
             return Response(
@@ -2646,6 +2850,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 schema=schema_hint,
                 slot_name=request.data.get("cdc_slot_name") or None,
                 publication_name=request.data.get("cdc_publication_name") or None,
+            )
+        except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
+            # Expected user/upstream connection failure (bad host/credentials/SSH tunnel, server
+            # requires/refuses SSL, dropped connection). Surface as a 400 without capturing — see the
+            # check_cdc_prerequisites_for_source handler above.
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Could not connect to source to check prerequisites: {e}"},
             )
         except Exception as e:
             capture_exception(e, {"source_id": str(instance.id), "team_id": self.team_id})
@@ -2884,10 +3096,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         access_method = request.data.get("access_method", ExternalDataSource.AccessMethod.WAREHOUSE)
 
         if access_method == ExternalDataSource.AccessMethod.DIRECT:
-            if source_type != ExternalDataSourceType.POSTGRES:
+            if source_type not in (ExternalDataSourceType.POSTGRES, ExternalDataSourceType.MYSQL):
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
-                    data={"message": "Direct query mode is currently supported only for Postgres sources."},
+                    data={"message": "Direct query mode is currently supported only for Postgres and MySQL sources."},
                 )
 
             normalized_prefix = prefix.strip() if isinstance(prefix, str) else ""
@@ -2973,14 +3185,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
     @action(methods=["GET"], detail=False)
     def wizard(self, request: Request, *arg: Any, **kwargs: Any):
-        sources = SourceRegistry.get_all_sources()
-        results = {}
-        for source_type, source in sources.items():
-            config = source.get_source_config.model_dump()
-            config["supportsColumnSelection"] = bool(source.supports_column_selection)
-            results[str(source_type)] = config
-
-        return Response(status=status.HTTP_200_OK, data=results)
+        return Response(status=status.HTTP_200_OK, data=build_source_configs())
 
     @extend_schema(
         parameters=[
@@ -3047,7 +3252,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             ExternalDataSource._base_manager.filter(
                 team_id=self.team_id,
                 access_method=ExternalDataSource.AccessMethod.DIRECT,
-                source_type=ExternalDataSourceType.POSTGRES,
+                source_type__in=(ExternalDataSourceType.POSTGRES, ExternalDataSourceType.MYSQL),
             )
             .exclude(deleted=True)
             .only("id", "prefix", "connection_metadata")
@@ -3404,6 +3609,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 context={**serializer_context, "post_commit_actions": schema_post_commit_actions},
             )
             schema_serializer.is_valid(raise_exception=True)
+            # Do the webhook-only source-discovery call (e.g. Google Ads token refresh + field query)
+            # here, before the per-schema transaction below. Running it inside update()'s transaction
+            # held the DB connection idle-in-transaction long enough for the server to close it.
+            # update() reads the cached result, so it still validates and fails per-schema.
+            schema_serializer.warm_webhook_only_check(schema)
             prepared.append((schema, schema_serializer, schema_post_commit_actions))
 
         # Commit each schema in its own transaction. A single atomic block around the whole batch

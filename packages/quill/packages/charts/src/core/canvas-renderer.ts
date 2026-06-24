@@ -244,8 +244,9 @@ export function drawArea(
 
     ctx.globalAlpha = opacity
 
-    // Gradient applies only to the un-stacked baseline fill; dashed-partial segments
-    // stay on a solid fill via the branch below.
+    // A gradient fill always paints the whole area; partial dashing then only affects the stroke
+    // (drawLine), so the fade stays intact under an in-progress dashed tail instead of flipping to
+    // the solid + hatch treatment below (which non-gradient area charts still use).
     const useGradient = series.fill?.gradient && !bottomValues
     let gradient: CanvasGradient | null = null
     if (useGradient) {
@@ -259,7 +260,7 @@ export function drawArea(
             continue
         }
 
-        if (dashedFrom === null && dashedTo === null) {
+        if (useGradient || (dashedFrom === null && dashedTo === null)) {
             ctx.fillStyle = gradient ?? series.color
             fillAreaPath(ctx, top, bottom)
             continue
@@ -288,11 +289,12 @@ export function drawArea(
         const solidStart = toSplit === -1 ? 0 : toSplit
         const solidEnd = fromSplit === -1 ? top.length : fromSplit
 
+        // Solid stops exactly where the trailing hatch begins (its `hatchStart = fromSplit - 1`), sharing
+        // that one boundary point — no overlap. Otherwise the solid fill bleeds under the first dashed
+        // segment and the shaded region stops a step past where the line turns dashed.
         if (solidEnd - solidStart >= 2) {
-            const trailingHatchPresent = dashedFrom !== null && fromSplit !== -1
-            const slicedEnd = trailingHatchPresent ? Math.min(top.length, solidEnd + 1) : solidEnd
             ctx.fillStyle = series.color
-            fillAreaPath(ctx, top.slice(solidStart, slicedEnd), bottom.slice(solidStart, slicedEnd))
+            fillAreaPath(ctx, top.slice(solidStart, solidEnd), bottom.slice(solidStart, solidEnd))
         }
 
         if (dashedFrom !== null && fromSplit > 0) {
@@ -572,6 +574,68 @@ export function withVerticalClip(
     } finally {
         ctx.restore()
     }
+}
+
+export interface LineSeriesLayerOptions {
+    ctx: CanvasRenderingContext2D
+    dimensions: ChartDimensions
+    labels: string[]
+    /** Series to draw, in paint order. Excluded series are skipped. */
+    series: readonly ResolvedSeries[]
+    xScale: (label: string) => number | undefined
+    resolveYScale: (s: ResolvedSeries) => ScaleLinear<number, number> | ScaleLogarithmic<number, number>
+    /** y-values to plot for a series (e.g. stacked tops). Defaults to `series.data`. */
+    yValuesFor?: (s: ResolvedSeries) => number[] | undefined
+    /** Bottom edge for the area fill (stacked bottom or `fill.lowerData`). */
+    bottomFor?: (s: ResolvedSeries) => number[] | undefined
+    /** Whether to fill the area under a series. Defaults to `!!s.fill`. */
+    shouldFill?: (s: ResolvedSeries) => boolean
+    /** `per-series`: area then line+points per series (LineChart). `areas-first`: every area, then
+     *  every line+points (ComboChart) so a later area can't paint over an earlier line. */
+    zOrder?: 'per-series' | 'areas-first'
+}
+
+/** Draw a line/area layer (clipped vertically) — the per-series area/line/points orchestration shared
+ *  by LineChart and ComboChart. Callers supply the y-value source (raw vs stacked tops), the fill
+ *  predicate, and the z-order; the loop, clip, and primitive calls live here. */
+export function drawLineSeriesLayer(options: LineSeriesLayerOptions): void {
+    const { ctx, dimensions, labels, series, xScale, resolveYScale } = options
+    const yValuesFor = options.yValuesFor ?? (() => undefined)
+    const bottomFor = options.bottomFor ?? ((s: ResolvedSeries) => s.fill?.lowerData)
+    const shouldFill = options.shouldFill ?? ((s: ResolvedSeries) => !!s.fill)
+    const zOrder = options.zOrder ?? 'per-series'
+    const visible = series.filter((s) => !s.visibility?.excluded)
+
+    const paintArea = (s: ResolvedSeries): void => {
+        if (!shouldFill(s)) {
+            return
+        }
+        drawArea({ ctx, dimensions, labels, xScale, yScale: resolveYScale(s) }, s, yValuesFor(s), bottomFor(s))
+    }
+    const paintLine = (s: ResolvedSeries): void => {
+        if (s.fill?.lowerData) {
+            return
+        }
+        const drawCtx: DrawContext = { ctx, dimensions, labels, xScale, yScale: resolveYScale(s) }
+        drawLine(drawCtx, s, yValuesFor(s))
+        drawPoints(drawCtx, s, yValuesFor(s))
+    }
+
+    withVerticalClip(ctx, dimensions, () => {
+        if (zOrder === 'areas-first') {
+            for (const s of visible) {
+                paintArea(s)
+            }
+            for (const s of visible) {
+                paintLine(s)
+            }
+            return
+        }
+        for (const s of visible) {
+            paintArea(s)
+            paintLine(s)
+        }
+    })
 }
 
 /** Draw hover highlight rings for line/area series at the hovered index. Skips excluded,

@@ -159,7 +159,11 @@ function SessionsListPanel(): JSX.Element {
                             onValueChange={(value) => setSorting(valueToSorting(value as MCPSessionOrderBy))}
                         >
                             <SelectTrigger size="sm" data-attr="mcp-sessions-sort">
-                                <SelectValue />
+                                <SelectValue>
+                                    {(value: MCPSessionOrderBy) =>
+                                        SORT_OPTIONS.find((o) => o.value === value)?.label ?? value
+                                    }
+                                </SelectValue>
                             </SelectTrigger>
                             <SelectContent>
                                 {SORT_OPTIONS.map((option) => (

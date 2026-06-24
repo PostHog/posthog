@@ -569,7 +569,6 @@ class AssistantGraphName(StrEnum):
     INSIGHTS = "insights_graph"
     TAXONOMY = "taxonomy_graph"
     DEEP_RESEARCH = "deep_research_graph"
-    SUPPORT = "support_graph"
 
 
 class AssistantMode(StrEnum):

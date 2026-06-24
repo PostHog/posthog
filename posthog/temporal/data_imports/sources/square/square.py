@@ -25,9 +25,31 @@ SQUARE_HOSTS = {
 PAGE_SIZE = 100
 REQUEST_TIMEOUT_SECONDS = 60
 
+# A Square cursor that outlives its ~5 minute TTL mid-stream forces a full restart.
+# Allow a few restarts so a transient stall during the re-scan doesn't fail the sync,
+# while still bounding the work for a stream that paginates slower than its cursor lives.
+MAX_CURSOR_RESTARTS = 3
+
 
 class SquareRetryableError(Exception):
     pass
+
+
+class SquareInvalidCursorError(Exception):
+    pass
+
+
+def _is_invalid_cursor_error(response: requests.Response) -> bool:
+    """A 400 whose error payload points at the pagination cursor. Square cursors
+    have a ~5 minute lifetime, so a resumed or slowly-paginated cursor can expire
+    mid-stream and Square then rejects it as invalid/incompatible."""
+    if response.status_code != 400:
+        return False
+    try:
+        errors = response.json().get("errors") or []
+    except ValueError:
+        return False
+    return any(error.get("field") == "cursor" or error.get("code") == "INVALID_CURSOR" for error in errors)
 
 
 @dataclasses.dataclass
@@ -139,17 +161,41 @@ def get_rows(
         if response.status_code == 429 or response.status_code >= 500:
             raise SquareRetryableError(f"Square API error (retryable): status={response.status_code}, url={url}")
 
+        if _is_invalid_cursor_error(response):
+            raise SquareInvalidCursorError(f"Square rejected the pagination cursor for {endpoint}")
+
         if not response.ok:
             logger.error(f"Square API error: status={response.status_code}, body={response.text}, url={url}")
             response.raise_for_status()
 
         return response.json()
 
+    restarts_remaining = MAX_CURSOR_RESTARTS
     while True:
         # Square encodes the original query in the cursor, so subsequent pages are
         # requested with the cursor alone — re-sending filters/sort can error.
         params = {"cursor": cursor} if cursor else initial_params
-        data = fetch_page(params)
+        try:
+            data = fetch_page(params)
+        except SquareInvalidCursorError:
+            # An expired cursor can't be recovered by retrying it, so restart the
+            # stream from the beginning (merge dedupes on the primary key). A cursor-less
+            # initial request can't trigger this error, so a rejection there signals a
+            # malformed query rather than expiry — surface it instead of looping. The
+            # restart budget bounds the work when a stream keeps outliving its cursor.
+            if cursor is None or restarts_remaining <= 0:
+                raise
+            restarts_remaining -= 1
+            logger.warning(f"Square: cursor for {endpoint} was rejected, restarting stream from the beginning")
+            # Overwrite the stale cursor in the resume store now. Otherwise, if the
+            # restart finishes within a single page (no fresh next_cursor to save),
+            # the expired cursor lingers until its TTL and every later sync re-scans
+            # the whole stream. An empty cursor is falsy, so the next load resumes
+            # from the start rather than replaying the bad value.
+            if config.paginated:
+                resumable_source_manager.save_state(SquareResumeConfig(cursor=""))
+            cursor = None
+            continue
 
         items = data.get(config.data_key, [])
         next_cursor = data.get("cursor")

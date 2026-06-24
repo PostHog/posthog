@@ -47,6 +47,7 @@ docker run --rm \
     -e MODAL_TOKEN_ID='smoke-modal-token-id' \
     -e MODAL_TOKEN_SECRET='smoke-modal-token-secret' \
     -e AGENT_USE_AI_GATEWAY='1' \
+    -e POSTHOG_AI_GATEWAY_KEY='phs_smoke-test-gateway-key' \
     -e POSTHOG_AI_GATEWAY_URL='http://127.0.0.1:1/v1' \
     -e POSTHOG_API_BASE_URL='http://127.0.0.1:1' \
     -e HTTPS_PROXY='http://127.0.0.1:1' \

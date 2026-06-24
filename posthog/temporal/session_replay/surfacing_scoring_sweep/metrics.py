@@ -31,6 +31,16 @@ TOTAL_SCORED_DESCRIPTION = "Sessions scored in a surfacing scoring sweep tick"
 CHUNKS_FAILED_COUNTER = "surfacing_scoring_chunks_failed"
 CHUNKS_FAILED_DESCRIPTION = "Hash-partitioned chunks that failed in a surfacing scoring sweep tick"
 
+ESTIMATED_BACKLOG_GAUGE = "surfacing_scoring_estimated_backlog"
+ESTIMATED_BACKLOG_DESCRIPTION = (
+    "Estimated eligible-but-unscored session backlog (one hash bucket sampled, extrapolated)"
+)
+
+
+def record_backlog_estimate(estimated: int) -> None:
+    # Gauge, not counter: it's a standing quantity, and 0 (caught up) is meaningful — emit unconditionally.
+    get_metric_meter().create_gauge(ESTIMATED_BACKLOG_GAUGE, ESTIMATED_BACKLOG_DESCRIPTION).set(max(0, estimated))
+
 
 def record_tick_summary(*, total_scored: int, total_fetched: int, chunks_failed: int) -> None:
     if total_scored <= 0 and total_fetched <= 0 and chunks_failed <= 0:

@@ -27,10 +27,22 @@ class TestGithubSource:
             "GitHub access token not found",
             "Integration not found",
             "Missing integration ID",
+            "This installation has been suspended",
         ],
     )
     def test_non_retryable_errors(self, expected_key):
         assert expected_key in self.source.get_non_retryable_errors()
+
+    def test_suspended_installation_token_refresh_is_non_retryable(self):
+        # The raw GitHubIntegrationError raised by refresh_access_token on a suspended installation.
+        error_message = (
+            'Failed to refresh installation token: {"message":"This installation has been suspended",'
+            '"documentation_url":"https://docs.github.com/rest/reference/apps#create-an-installation-access-token-for-an-app",'
+            '"status":"403"}'
+        )
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert "This installation has been suspended" in non_retryable_errors
+        assert "This installation has been suspended" in error_message
 
     @pytest.mark.parametrize(
         "selection,github_integration_id,personal_access_token,expected_error",

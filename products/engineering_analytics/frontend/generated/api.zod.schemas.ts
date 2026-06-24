@@ -247,6 +247,18 @@ export const PullRequestListItemApi = zod.object({
             'Coarse open-to-merge time in seconds (merged_at - created_at; fuses draft and ready-for-review time). Null until merged.'
         ),
     labels: zod.array(zod.string()).describe('GitHub label names on the pull request.'),
+    pushes: zod
+        .number()
+        .describe(
+            'CI triggers attributed to this PR: distinct head SHAs across its workflow runs. Fork-PR runs are unattributed.'
+        ),
+    rerun_cycles: zod.number().describe('Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run).'),
+    estimated_cost_usd: zod
+        .number()
+        .nullish()
+        .describe(
+            'Estimated Depot CI cost in USD. Null until the job-level warehouse source (github_workflow_jobs) lands; run-level data carries no runner tier, so no honest figure exists yet.'
+        ),
 })
 
 export type PullRequestListItemApi = zod.input<typeof PullRequestListItemApi>
@@ -304,6 +316,20 @@ export const PullRequestListApi = zod.object({
                         'Coarse open-to-merge time in seconds (merged_at - created_at; fuses draft and ready-for-review time). Null until merged.'
                     ),
                 labels: zod.array(zod.string()).describe('GitHub label names on the pull request.'),
+                pushes: zod
+                    .number()
+                    .describe(
+                        'CI triggers attributed to this PR: distinct head SHAs across its workflow runs. Fork-PR runs are unattributed.'
+                    ),
+                rerun_cycles: zod
+                    .number()
+                    .describe('Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run).'),
+                estimated_cost_usd: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Estimated Depot CI cost in USD. Null until the job-level warehouse source (github_workflow_jobs) lands; run-level data carries no runner tier, so no honest figure exists yet.'
+                    ),
             })
         )
         .describe('Pull requests, newest first, capped at `limit`.'),
@@ -332,6 +358,11 @@ export const WorkflowHealthDayApi = zod.object({
     run_count: zod.number().describe('Runs started that day.'),
     completed: zod.number().describe('Runs that completed that day.'),
     successes: zod.number().describe("Completed runs with conclusion 'success' that day."),
+    failures: zod
+        .number()
+        .describe(
+            "Completed runs that failed that day (conclusion 'failure' or 'timed_out'); excludes skipped, cancelled, and action_required runs."
+        ),
 })
 
 export type WorkflowHealthDayApi = zod.input<typeof WorkflowHealthDayApi>
@@ -352,6 +383,11 @@ export const WorkflowHealthItemApi = zod.object({
                 run_count: zod.number().describe('Runs started that day.'),
                 completed: zod.number().describe('Runs that completed that day.'),
                 successes: zod.number().describe("Completed runs with conclusion 'success' that day."),
+                failures: zod
+                    .number()
+                    .describe(
+                        "Completed runs that failed that day (conclusion 'failure' or 'timed_out'); excludes skipped, cancelled, and action_required runs."
+                    ),
             })
         )
         .describe('Daily run history across the whole window, oldest first, zero-filled.'),
@@ -372,7 +408,7 @@ export const WorkflowHealthItemApi = zod.object({
     last_failure_at: zod.iso
         .datetime({ offset: true })
         .nullable()
-        .describe("When the most recent run with conclusion 'failure' started, or null."),
+        .describe("When the most recent failing run (conclusion 'failure' or 'timed_out') started, or null."),
 })
 
 export type WorkflowHealthItemApi = zod.input<typeof WorkflowHealthItemApi>

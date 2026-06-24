@@ -1,3 +1,5 @@
+import time
+import random
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
@@ -230,6 +232,64 @@ def _request(
     return _check_response(response, url, logger)
 
 
+# The export body is read lazily while iterating `iter_lines`, i.e. outside `_request`'s
+# retry. A connection dropped mid-day surfaces there (`requests` wraps the underlying
+# `IncompleteRead` as `ChunkedEncodingError`), so it must be retried separately or a single
+# truncated download fails the whole sync.
+STREAM_MAX_ATTEMPTS = 5
+_STREAM_RETRYABLE_ERRORS = (
+    requests.exceptions.ChunkedEncodingError,
+    requests.ConnectionError,
+    requests.ReadTimeout,
+)
+
+
+def _stream_export_day(
+    url: str,
+    *,
+    username: str,
+    secret: str,
+    project_id: str,
+    from_date: str,
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    """Stream one UTC day of the raw export as `CHUNK_SIZE` batches.
+
+    On a transient mid-stream drop the whole day is re-fetched from the start; already-yielded
+    rows are re-emitted, but merge dedupes them on `$insert_id` (the same property the day-level
+    resume relies on)."""
+    params = {"from_date": from_date, "to_date": from_date, "project_id": project_id}
+    for attempt in range(1, STREAM_MAX_ATTEMPTS + 1):
+        try:
+            with _request(
+                "GET", url, username=username, secret=secret, logger=logger, params=params, stream=True
+            ) as response:
+                batch: list[dict[str, Any]] = []
+                for line in response.iter_lines():
+                    if not line:
+                        continue
+                    batch.append(_flatten_event(orjson.loads(line)))
+                    if len(batch) >= CHUNK_SIZE:
+                        yield batch
+                        batch = []
+                if batch:
+                    yield batch
+            return
+        except _STREAM_RETRYABLE_ERRORS as e:
+            if attempt == STREAM_MAX_ATTEMPTS:
+                logger.warning(
+                    f"Mixpanel export: stream for {from_date} dropped ({type(e).__name__}); "
+                    f"giving up after {STREAM_MAX_ATTEMPTS} attempts"
+                )
+                raise
+            backoff = min(60.0, 2.0 * 2 ** (attempt - 1)) + random.uniform(0, 1)
+            logger.warning(
+                f"Mixpanel export: stream for {from_date} dropped ({type(e).__name__}); "
+                f"re-fetching day (attempt {attempt}/{STREAM_MAX_ATTEMPTS})"
+            )
+            time.sleep(backoff)
+
+
 def _iter_export(
     region: str,
     username: str,
@@ -255,22 +315,14 @@ def _iter_export(
         logger.debug(f"Mixpanel export: resuming from {resumed_from.isoformat()}")
 
     while current <= end_date:
-        from_date = current.isoformat()
-        params = {"from_date": from_date, "to_date": from_date, "project_id": project_id}
-
-        with _request(
-            "GET", url, username=username, secret=secret, logger=logger, params=params, stream=True
-        ) as response:
-            batch: list[dict[str, Any]] = []
-            for line in response.iter_lines():
-                if not line:
-                    continue
-                batch.append(_flatten_event(orjson.loads(line)))
-                if len(batch) >= CHUNK_SIZE:
-                    yield batch
-                    batch = []
-            if batch:
-                yield batch
+        yield from _stream_export_day(
+            url,
+            username=username,
+            secret=secret,
+            project_id=project_id,
+            from_date=current.isoformat(),
+            logger=logger,
+        )
 
         # Day complete: advance the resume cursor so a restart skips finished days.
         next_day = current + timedelta(days=1)

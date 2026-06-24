@@ -15,6 +15,7 @@ export enum SignalSourceProduct {
     SIGNALS_SCOUT = 'signals_scout',
     LOGS = 'logs',
     HEALTH_CHECKS = 'health_checks',
+    REPLAY_VISION = 'replay_vision',
 }
 
 export enum SignalSourceType {
@@ -32,6 +33,7 @@ export enum SignalSourceType {
     CROSS_SOURCE_ISSUE = 'cross_source_issue',
     ALERT_STATE_CHANGE = 'alert_state_change',
     HEALTH_ISSUE = 'health_issue',
+    SCANNER_FINDING = 'scanner_finding',
 }
 
 // ── Shared optional remediation ──────────────────────────────────────────────────
@@ -330,6 +332,9 @@ export interface SignalsScoutSignalExtra extends SignalExtraBase {
     /** The `tasks.TaskRun` id the scout span ran inside. Join key into the `signals_scouts_runs`
      * LLM-analytics view, which is keyed on `task_run_id` (the `scout_run_id` bridge row is not). */
     task_run_id: string
+    /** The `tasks.Task` id owning `task_run_id`. Pairs with it to deep-link the inbox card to the
+     * run in the Tasks UI. Absent on emissions made before this linkage was captured. */
+    task_id?: string
     finding_id: string
     skill_name: string
     skill_version: number
@@ -377,6 +382,26 @@ export interface LogsAlertStateChangeSignalInput extends SignalInputBase {
     source_type: 'alert_state_change'
     source_product: 'logs'
     extra: LogsAlertStateChangeSignalExtra
+}
+
+// Replay Vision scanner finding — the optional "side mission" finding a scanner's LLM pass
+// may attach to an observation when the scanner has `emits_signals` enabled.
+
+export interface ReplayVisionScannerFindingSignalExtra extends SignalExtraBase {
+    scanner_id: string
+    scanner_name: string
+    /** Replay Vision scanner type, e.g. 'monitor' / 'classifier' / 'scorer' / 'summarizer'. Kept open so new scanner types don't fail signal validation. */
+    scanner_type: string
+    observation_id: string
+    session_id: string
+    /** The model's self-reported confidence in the finding, in [0, 1]. Independent of `weight`. */
+    confidence: number
+}
+
+export interface ReplayVisionScannerFindingSignalInput extends SignalInputBase {
+    source_type: 'scanner_finding'
+    source_product: 'replay_vision'
+    extra: ReplayVisionScannerFindingSignalExtra
 }
 
 // Health-check issue (instrumentation problem detected by a HealthCheck)
@@ -445,3 +470,4 @@ export type SignalInput =
     | SignalsScoutSignalInput
     | LogsAlertStateChangeSignalInput
     | HealthCheckSignalInput
+    | ReplayVisionScannerFindingSignalInput

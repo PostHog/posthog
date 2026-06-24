@@ -96,14 +96,23 @@ function discoverProviders(): ProviderSpec[] {
     const pin = process.env.REAL_INFERENCE_PROVIDER?.toLowerCase()
     const out: ProviderSpec[] = []
     if ((!pin || pin === 'gateway') && process.env.POSTHOG_AI_GATEWAY_KEY && process.env.POSTHOG_AI_GATEWAY_URL) {
-        out.push({
-            label: 'ai-gateway',
-            model: posthogAiGatewayModel({
-                specModel: process.env.REAL_INFERENCE_MODEL_ID ?? 'openai/gpt-4.1-mini',
-                baseUrl: process.env.POSTHOG_AI_GATEWAY_URL,
-            }),
-            apiKey: process.env.POSTHOG_AI_GATEWAY_KEY,
-        })
+        const gatewayKey = process.env.POSTHOG_AI_GATEWAY_KEY
+        const gatewayUrl = process.env.POSTHOG_AI_GATEWAY_URL
+        // Exercise BOTH provider shapes through the gateway. openai authenticates
+        // with `Authorization: Bearer` natively; anthropic-messages relies on
+        // posthogAiGatewayModel pinning that header (the regression this guards —
+        // pi-ai's anthropic shape otherwise sends only `x-api-key`, which the
+        // gateway rejects). An explicit REAL_INFERENCE_MODEL_ID pins one model.
+        const gatewayModels = process.env.REAL_INFERENCE_MODEL_ID
+            ? [process.env.REAL_INFERENCE_MODEL_ID]
+            : ['openai/gpt-4.1-mini', 'anthropic/claude-haiku-4-5']
+        for (const specModel of gatewayModels) {
+            out.push({
+                label: `ai-gateway (${specModel})`,
+                model: posthogAiGatewayModel({ specModel, baseUrl: gatewayUrl, apiKey: gatewayKey }),
+                apiKey: gatewayKey,
+            })
+        }
     }
     if ((!pin || pin === 'anthropic') && process.env.ANTHROPIC_API_KEY) {
         out.push({

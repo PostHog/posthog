@@ -27,6 +27,7 @@ from posthog.models.user import User
 from posthog.person_db_router import PERSONS_DB_FOR_READ
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
+from posthog.utils import is_anonymous_id
 
 logger = structlog.get_logger(__name__)
 
@@ -81,21 +82,32 @@ class PersonStrategy(ActorStrategy):
         from posthog.personhog_client.client import get_personhog_client
 
         client = get_personhog_client()
+        result: Optional[dict[str, dict]] = None
         if client is not None:
             try:
                 result = self._get_actors_via_personhog(actor_ids, sort_by_created_at_descending, limit_per_person)
                 PERSONHOG_ROUTING_TOTAL.labels(
                     operation="get_actors", source="personhog", client_name=get_client_name()
                 ).inc()
-                return result
             except Exception:
                 PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
                     operation="get_actors", source="personhog", error_type="grpc_error", client_name=get_client_name()
                 ).inc()
                 logger.warning("personhog_get_actors_failure", team_id=self.team.pk, exc_info=True)
 
-        PERSONHOG_ROUTING_TOTAL.labels(operation="get_actors", source="raw_sql", client_name=get_client_name()).inc()
-        return self._get_actors_via_raw_sql(actor_ids, sort_by_created_at_descending)
+        if result is None:
+            PERSONHOG_ROUTING_TOTAL.labels(
+                operation="get_actors", source="raw_sql", client_name=get_client_name()
+            ).inc()
+            result = self._get_actors_via_raw_sql(actor_ids, sort_by_created_at_descending)
+
+        # Surface identified (non-anonymous) distinct IDs first so consumers that read distinct_ids[0]
+        # (person links, CSV exports) get the user-defined ID rather than an auto-generated anonymous one.
+        # Mirrors PersonSerializer.to_representation, which sorts the same way for the persons API.
+        for person in result.values():
+            person["distinct_ids"] = sorted(person["distinct_ids"], key=is_anonymous_id)
+
+        return result
 
     def _get_actors_via_personhog(
         self,
