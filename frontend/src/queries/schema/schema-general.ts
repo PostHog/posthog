@@ -4478,6 +4478,10 @@ export interface FunnelsActorsQuery extends InsightActorsQueryBase {
     funnelTrendsDropOff?: boolean
     /** Used together with `funnelTrendsDropOff` for funnels time conversion date for the persons modal. */
     funnelTrendsEntrancePeriodStart?: string
+    /** When the source funnel has compare-to-previous enabled, scopes the actors to a single
+     * period. The runner resolves `'previous'` to the shifted date range; `'current'` (or unset)
+     * uses the source's own date range. */
+    compare?: 'current' | 'previous'
 }
 
 export interface FunnelCorrelationActorsQuery extends InsightActorsQueryBase {
@@ -6932,6 +6936,9 @@ export const externalDataSources = [
     'Metronome',
     'Jobber',
     'Knock',
+    'Leexi',
+    'RB2B',
+    'Superwall',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

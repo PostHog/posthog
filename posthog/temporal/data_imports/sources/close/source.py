@@ -17,6 +17,7 @@ from posthog.temporal.data_imports.sources.close.close import (
 )
 from posthog.temporal.data_imports.sources.close.settings import CLOSE_ENDPOINTS
 from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -36,6 +37,11 @@ class CloseSource(ResumableSource[CloseSourceConfig, CloseResumeConfig]):
             "401 Client Error: Unauthorized for url": "Close authentication failed. Please check your API key.",
             "403 Client Error: Forbidden for url": "Your Close API key does not have access to this resource. Please check the key's permissions.",
         }
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.close.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
 
     def get_schemas(
         self,
