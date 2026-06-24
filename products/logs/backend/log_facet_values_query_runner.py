@@ -1,8 +1,10 @@
+import datetime as dt
 from dataclasses import dataclass
 from functools import cached_property
 from typing import TYPE_CHECKING, cast
+from zoneinfo import ZoneInfo
 
-from posthog.schema import CachedLogsQueryResponse, LogsQuery
+from posthog.schema import CachedLogsQueryResponse, IntervalType, LogsQuery
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -29,7 +31,8 @@ FACET_FIELDS: frozenset[str] = frozenset({"severity_text", "service_name"})
 
 DEFAULT_FACET_LIMIT = 100
 
-# Upper bound on facets in a single batch request — keeps the UNION query (one branch per facet) bounded.
+# Upper bound on facets in a single batch request — bounds the attribute query's OR list and the
+# number of per-column logs queries.
 MAX_FACETS_PER_REQUEST = 50
 
 
@@ -69,14 +72,11 @@ def build_facet_select(
     facet_resource_attribute: str | None = None,
     facet_attribute: str | None = None,
     facet_search: str | None = None,
-    facet_key: str | None = None,
 ) -> ast.SelectQuery:
-    """Cross-filtered per-value counts for one facet.
+    """Cross-filtered per-value counts for one facet over the `logs` table.
 
     Every active filter is applied except the one belonging to this facet (via the exclude_* args on
     LogsFilterBuilder), so selecting a value re-scopes the *other* facets without zeroing its siblings.
-    When facet_key is set the select also emits it as a literal column and casts the value to String, so
-    the result can be UNION ALL'd with other facets' selects into one batch query.
     """
     is_map_facet = facet_resource_attribute is not None or facet_attribute is not None
     facet = _facet_expr(facet_field, facet_resource_attribute, facet_attribute)
@@ -113,40 +113,21 @@ def build_facet_select(
                 placeholders={"facet": facet, "pattern": ast.Constant(value=ilike_pattern(search))},
             )
         )
-    where = ast.And(exprs=exprs)
-    limit = ast.Constant(value=query.limit or DEFAULT_FACET_LIMIT)
-
-    if facet_key is None:
-        select = parse_select(
-            """
-            SELECT {facet} AS value, count() AS count
-            FROM logs
-            WHERE {where}
-            GROUP BY {facet}
-            ORDER BY count() DESC, {facet} ASC
-            LIMIT {limit}
-            """,
-            placeholders={"facet": facet, "where": where, "limit": limit},
-        )
-    else:
-        # toString keeps the value column's type identical across all facets so the per-facet selects
-        # are UNION ALL compatible (severity_text is LowCardinality, map lookups are String).
-        select = parse_select(
-            """
-            SELECT {facet_key} AS facet_key, toString({facet}) AS value, count() AS count
-            FROM logs
-            WHERE {where}
-            GROUP BY {facet}
-            ORDER BY count() DESC, {facet} ASC
-            LIMIT {limit}
-            """,
-            placeholders={
-                "facet_key": ast.Constant(value=facet_key),
-                "facet": facet,
-                "where": where,
-                "limit": limit,
-            },
-        )
+    select = parse_select(
+        """
+        SELECT {facet} AS value, count() AS count
+        FROM logs
+        WHERE {where}
+        GROUP BY {facet}
+        ORDER BY count() DESC, {facet} ASC
+        LIMIT {limit}
+        """,
+        placeholders={
+            "facet": facet,
+            "where": ast.And(exprs=exprs),
+            "limit": ast.Constant(value=query.limit or DEFAULT_FACET_LIMIT),
+        },
+    )
     assert isinstance(select, ast.SelectQuery)
     return select
 
@@ -218,11 +199,13 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
 
 
 class LogFacetValuesMultiQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMixin):
-    """Cross-filtered per-value counts for many facets in one query.
+    """Per-value counts for many facets in one request.
 
-    Each facet's select is built exactly as the single-facet runner builds it (same own-filter
-    exclusion), then they're UNION ALL'd into a single ClickHouse query so the rail fetches every
-    facet in one request. Results are tagged with each facet's client-supplied key for bucketing.
+    Attribute facets (resource + log attribute keys) are answered by a single SELECT against the
+    pre-aggregated `log_attributes` table — one row per (attribute_type, attribute_key,
+    attribute_value), with `LIMIT n BY` giving each facet its own top-N — scoped by time range and
+    service. Column facets (severity_text/service_name) aren't in that table, so each runs as its own
+    cross-filtered `logs` query. Results from all are tagged with each facet's client key.
     """
 
     query: LogsQuery
@@ -235,15 +218,115 @@ class LogFacetValuesMultiQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], Lo
         if len(facets) > MAX_FACETS_PER_REQUEST:
             raise ValueError(f"At most {MAX_FACETS_PER_REQUEST} facets per request")
         self.facets = facets
+        self.attribute_facets = [f for f in facets if f.facet_resource_attribute or f.facet_attribute]
+        self.column_facets = [f for f in facets if f.facet_field]
+
+    @cached_property
+    def query_date_range(self) -> QueryDateRange:
+        # `log_attributes` is bucketed by time_bucket; mirror LogValuesQueryRunner's fixed 10-minute
+        # interval so the time-bucket bounds line up with how the table is aggregated.
+        return QueryDateRange(
+            date_range=self.query.dateRange,
+            team=self.team,
+            interval=IntervalType.MINUTE,
+            interval_count=10,
+            now=dt.datetime.now(),
+            timezone_info=ZoneInfo("UTC"),
+        )
 
     @cached_property
     def settings(self) -> HogQLGlobalSettings:
         return _facet_settings()
 
-    def _calculate(self) -> LogsQueryResponse:
+    def _attribute_pairs(self) -> list[tuple[str, str, LogFacet]]:
+        """(attribute_type, attribute_key, facet) for each attribute facet."""
+        pairs: list[tuple[str, str, LogFacet]] = []
+        for facet in self.attribute_facets:
+            if facet.facet_resource_attribute is not None:
+                pairs.append(("resource", facet.facet_resource_attribute, facet))
+            else:
+                pairs.append(("log", cast(str, facet.facet_attribute), facet))
+        return pairs
+
+    def _attribute_query(self) -> ast.SelectQuery:
+        # One OR branch per facet so each can carry its own type-ahead search; LIMIT BY then takes the
+        # top values per (type, key). Scoped by time bucket + service only — log_attributes carries
+        # neither severity nor log body, so those filters can't apply here.
+        facet_exprs: list[ast.Expr] = []
+        for attribute_type, attribute_key, facet in self._attribute_pairs():
+            conds: list[ast.Expr] = [
+                parse_expr(
+                    "attribute_type = {type} AND attribute_key = {key}",
+                    placeholders={
+                        "type": ast.Constant(value=attribute_type),
+                        "key": ast.Constant(value=attribute_key),
+                    },
+                )
+            ]
+            if facet.facet_search:
+                conds.append(
+                    parse_expr(
+                        "attribute_value ILIKE {pattern}",
+                        placeholders={"pattern": ast.Constant(value=ilike_pattern(facet.facet_search))},
+                    )
+                )
+            facet_exprs.append(ast.And(exprs=conds) if len(conds) > 1 else conds[0])
+
+        where_exprs: list[ast.Expr] = [
+            parse_expr(
+                "time_bucket >= {date_from_start_of_interval} "
+                "AND time_bucket <= {date_to_start_of_interval} + {one_interval_period}",
+                placeholders=self.query_date_range.to_placeholders(),
+            ),
+            ast.Or(exprs=facet_exprs) if len(facet_exprs) > 1 else facet_exprs[0],
+            parse_expr("attribute_value != ''"),
+        ]
+        if self.query.serviceNames:
+            where_exprs.append(
+                parse_expr(
+                    "service_name IN {serviceNames}",
+                    placeholders={
+                        "serviceNames": ast.Tuple(exprs=[ast.Constant(value=str(sn)) for sn in self.query.serviceNames])
+                    },
+                )
+            )
+
+        select = parse_select(
+            """
+            SELECT attribute_type, attribute_key, attribute_value AS value, sum(attribute_count) AS count
+            FROM log_attributes
+            WHERE {where}
+            GROUP BY attribute_type, attribute_key, attribute_value
+            ORDER BY attribute_key ASC, count DESC, value ASC
+            LIMIT {limit} BY (attribute_type, attribute_key)
+            """,
+            placeholders={
+                "where": ast.And(exprs=where_exprs),
+                "limit": ast.Constant(value=self.query.limit or DEFAULT_FACET_LIMIT),
+            },
+        )
+        assert isinstance(select, ast.SelectQuery)
+        return select
+
+    def _column_query(self, facet: LogFacet) -> ast.SelectQuery:
+        return build_facet_select(
+            self.query,
+            self.team,
+            self.query_date_range,
+            facet_field=facet.facet_field,
+            facet_search=facet.facet_search,
+        )
+
+    def to_query(self) -> ast.SelectQuery:
+        # The framework expects a single representative query; the real work spans several in _calculate.
+        if self.attribute_facets:
+            return self._attribute_query()
+        return self._column_query(self.column_facets[0])
+
+    def _run(self, query: ast.SelectQuery) -> list:
         response = execute_hogql_query(
             query_type="LogsQuery",
-            query=self.to_query(),
+            query=query,
             modifiers=self.modifiers,
             team=self.team,
             workload=Workload.LOGS,
@@ -251,21 +334,17 @@ class LogFacetValuesMultiQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], Lo
             limit_context=self.limit_context,
             settings=self.settings,
         )
-        results = [{"facetKey": row[0], "value": row[1], "count": row[2]} for row in (response.results or [])]
-        return LogsQueryResponse(results=results)
+        return response.results or []
 
-    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        selects: list[ast.SelectQuery | ast.SelectSetQuery] = [
-            build_facet_select(
-                self.query,
-                self.team,
-                self.query_date_range,
-                facet_field=facet.facet_field,
-                facet_resource_attribute=facet.facet_resource_attribute,
-                facet_attribute=facet.facet_attribute,
-                facet_search=facet.facet_search,
-                facet_key=facet.key,
-            )
-            for facet in self.facets
-        ]
-        return ast.SelectSetQuery.create_from_queries(selects, "UNION ALL")
+    def _calculate(self) -> LogsQueryResponse:
+        results: list[dict] = []
+        if self.attribute_facets:
+            key_by_pair = {(t, k): facet.key for t, k, facet in self._attribute_pairs()}
+            for attribute_type, attribute_key, value, count in self._run(self._attribute_query()):
+                facet_key = key_by_pair.get((attribute_type, attribute_key))
+                if facet_key is not None:
+                    results.append({"facetKey": facet_key, "value": value, "count": count})
+        for facet in self.column_facets:
+            for value, count in self._run(self._column_query(facet)):
+                results.append({"facetKey": facet.key, "value": value, "count": count})
+        return LogsQueryResponse(results=results)

@@ -207,8 +207,8 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
             response = self.client.post(f"/api/projects/{self.team.pk}/logs/facet_values", body, format="json")
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_multi_returns_each_facet_matching_the_single_endpoint(self):
-        """A batch request returns the same values+counts per facet as the single-facet endpoint."""
+    def test_multi_returns_every_facet(self):
+        """A batch request returns values for column facets (from logs) and attribute facets (from log_attributes)."""
         buckets = self._facet_multi(
             [
                 {"key": "level", "facetField": "severity_text"},
@@ -218,10 +218,14 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
             ]
         )
         self.assertEqual(set(buckets), {"level", "service", "ns", "method"})
+        # Column facets share the logs-table source with the single-facet endpoint, so they match exactly.
         self.assertEqual(buckets["level"], self._facet("severity_text"))
         self.assertEqual(buckets["service"], self._facet("service_name"))
-        self.assertEqual(buckets["ns"], self._facet_attr("k8s.namespace.name"))
-        self.assertEqual(buckets["method"], self._facet_log_attr("method"))
+        # Attribute facets come from the pre-aggregated log_attributes table.
+        for key in ("ns", "method"):
+            self.assertGreater(len(buckets[key]), 0)
+            self.assertTrue(all(count > 0 for count in buckets[key].values()))
+            self.assertNotIn("", buckets[key])
 
     def test_multi_cross_filters_each_facet_independently(self):
         """Each facet in a batch excludes only its own filter, honoring the others."""
