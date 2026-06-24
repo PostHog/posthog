@@ -26,6 +26,7 @@ from posthog.temporal.data_imports.sources.common.base import (
     WebhookDeletionResult,
     WebhookSource,
 )
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.mixins import OAuthMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -40,7 +41,7 @@ from posthog.temporal.data_imports.sources.github.github import (
     github_source,
     validate_credentials as validate_github_credentials,
 )
-from posthog.temporal.data_imports.sources.github.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from posthog.temporal.data_imports.sources.github.settings import ENDPOINTS, GITHUB_ENDPOINTS, INCREMENTAL_FIELDS
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
@@ -58,6 +59,8 @@ class GithubSource(
     WebhookSource[GithubSourceConfig],
     OAuthMixin,
 ):
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.GITHUB
@@ -162,6 +165,11 @@ If automatic creation failed, your token needs webhook permissions — the **adm
             ),
         )
 
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.github.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error": "Invalid GitHub credentials. Please reconnect your account.",
@@ -210,6 +218,25 @@ If automatic creation failed, your token needs webhook permissions — the **adm
             raise ValueError("GitHub access token not found")
         return integration.access_token
 
+    @staticmethod
+    def _schema_for_endpoint(endpoint: str) -> SourceSchema:
+        webhook_capable = endpoint in GITHUB_WEBHOOK_RESOURCE_MAP
+        # An endpoint whose poll does no first-sync backfill (initial_lookback_days == 0,
+        # i.e. workflow_jobs) can only ever be populated by the webhook — the per-run
+        # fan-out is too expensive to backfill at run volume. Offer it as webhook-only so
+        # users can't pick a poll mode that would sync an empty table forever. workflow_runs
+        # keeps its poll backfill; the webhook just replaces re-polling for it.
+        webhook_only = webhook_capable and GITHUB_ENDPOINTS[endpoint].initial_lookback_days == 0
+        supports_poll = bool(INCREMENTAL_FIELDS.get(endpoint)) and not webhook_only
+        return SourceSchema(
+            name=endpoint,
+            supports_incremental=supports_poll,
+            supports_append=supports_poll,
+            supports_webhooks=webhook_capable,
+            webhook_only=webhook_only,
+            incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+        )
+
     def get_schemas(
         self,
         config: GithubSourceConfig,
@@ -218,18 +245,7 @@ If automatic creation failed, your token needs webhook permissions — the **adm
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=bool(INCREMENTAL_FIELDS.get(endpoint)),
-                supports_append=bool(INCREMENTAL_FIELDS.get(endpoint)),
-                # Only the workflow endpoints can be steady-state webhook-fed; the
-                # poll fan-out is the backfill, the webhook replaces re-polling.
-                supports_webhooks=endpoint in GITHUB_WEBHOOK_RESOURCE_MAP,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
-            )
-            for endpoint in list(ENDPOINTS)
-        ]
+        schemas = [self._schema_for_endpoint(endpoint) for endpoint in list(ENDPOINTS)]
         if names is not None:
             names_set = set(names)
             schemas = [s for s in schemas if s.name in names_set]

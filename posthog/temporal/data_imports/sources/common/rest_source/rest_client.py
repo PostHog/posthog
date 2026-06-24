@@ -7,7 +7,10 @@ from typing import Any, Optional
 
 from requests import Request, Response, Session
 from requests.auth import AuthBase
-from requests.exceptions import JSONDecodeError as RequestsJSONDecodeError
+from requests.exceptions import (
+    ChunkedEncodingError,
+    JSONDecodeError as RequestsJSONDecodeError,
+)
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt
 
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
@@ -168,7 +171,12 @@ class RESTClient:
     )
     def _send_request(self, request: Request, hooks: Hooks) -> tuple[Response, Any]:
         prepared = self.session.prepare_request(request)
-        response = self.session.send(prepared)
+        # `send` reads the body eagerly (stream=False), so a connection dropped mid-stream
+        # surfaces here as ChunkedEncodingError. Reissue it like a truncated/partial body below.
+        try:
+            response = self.session.send(prepared)
+        except ChunkedEncodingError as e:
+            raise RESTClientRetryableError(f"Connection broken while reading response: {e}") from e
 
         if response.status_code == 429 or response.status_code >= 500:
             raise RESTClientRetryableError(

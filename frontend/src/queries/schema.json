@@ -18,6 +18,10 @@
             ],
             "type": "string"
         },
+        "AccessControlLevel": {
+            "enum": ["none", "member", "admin", "viewer", "editor", "manager"],
+            "type": "string"
+        },
         "AccountsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -19599,6 +19603,10 @@
                 },
                 "updated_at": {
                     "type": ["string", "null"]
+                },
+                "user_access_level": {
+                    "$ref": "#/definitions/AccessControlLevel",
+                    "description": "Read-only, server-computed effective access level; absent on a not-yet-created holdout."
                 }
             },
             "required": ["id", "name", "description", "filters", "created_by", "created_at", "updated_at"],
@@ -21474,7 +21482,9 @@
                 "Metronome",
                 "Jobber",
                 "Knock",
-                "Leexi"
+                "Leexi",
+                "RB2B",
+                "Superwall"
             ],
             "type": "string"
         },
@@ -21737,7 +21747,7 @@
                 "insight/hog",
                 "team_activity",
                 "home",
-                "apps",
+                "tools",
                 "live",
                 "chat",
                 "search",
@@ -22423,6 +22433,11 @@
         "FunnelsActorsQuery": {
             "additionalProperties": false,
             "properties": {
+                "compare": {
+                    "description": "When the source funnel has compare-to-previous enabled, scopes the actors to a single period. The runner resolves `'previous'` to the shifted date range; `'current'` (or unset) uses the source's own date range.",
+                    "enum": ["current", "previous"],
+                    "type": "string"
+                },
                 "funnelStep": {
                     "$ref": "#/definitions/integer",
                     "description": "Index of the step for which we want to get the timestamp for, per person. Positive for converted persons, negative for dropped of persons."

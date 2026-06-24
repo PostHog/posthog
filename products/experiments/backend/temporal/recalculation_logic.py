@@ -326,6 +326,7 @@ def _store_result(
     status: str,
     result: dict | None,
     error_message: str | None,
+    query_id: str | None = None,
 ) -> None:
     ExperimentMetricResult.objects.update_or_create(
         experiment_id=experiment_id,
@@ -336,7 +337,7 @@ def _store_result(
             "query_from": query_from,
             "status": status,
             "result": result,
-            "query_id": None,
+            "query_id": query_id,
             "completed_at": timezone.now() if status == ExperimentMetricResult.Status.COMPLETED else None,
             "error_message": error_message,
         },
@@ -482,6 +483,12 @@ def _calculate_experiment_metric_for_recalculation_sync(
         )
         recalc_fp = compute_recalc_fingerprint(config_fp, recalculation_id)
 
+        # Deterministic per-metric-per-run id. ClickHouse stamps it into the query_id as
+        # `{team_id}_{client_query_id}_{random}`, so the stored value is a greppable prefix for
+        # `system.query_log` (covers every attempt, including Temporal retries). Bound before the try so the
+        # failure paths can always persist it.
+        client_query_id = f"experiment_metric_recalc_{recalculation_id}_{metric_uuid}"
+
         calc_started_at = time.perf_counter()
         try:
             # Metric build + query live inside the try so unexpected shapes surface as a calculation-step failure.
@@ -497,6 +504,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 # warehouse HogQL access control is enforced against an accountable user instead of bypassed.
                 user=experiment.created_by,
             )
+
             # Attribute CH load back to this team + product so query_log analysis can tell whose recalc is
             # expensive without reverse-engineering the trigger string.
             tag_queries(
@@ -504,6 +512,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 team_id=state.team_id,
                 product=Product.EXPERIMENTS,
                 feature=Feature.CACHE_WARMUP,
+                client_query_id=client_query_id,
             )
             result = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
             result_dict = result.model_dump(mode="json")
@@ -517,6 +526,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 status=ExperimentMetricResult.Status.COMPLETED,
                 result=result_dict,
                 error_message=None,
+                query_id=client_query_id,
             )
             _capture_experiment_metric_event(
                 experiment,
@@ -540,6 +550,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 status=ExperimentMetricResult.Status.FAILED,
                 result=None,
                 error_message=message,
+                query_id=client_query_id,
             )
             logger.warning(
                 "Experiment metric recalculation failed due to insufficient data",
@@ -584,6 +595,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 status=ExperimentMetricResult.Status.FAILED,
                 result=None,
                 error_message=message,
+                query_id=client_query_id,
             )
             _record_failure(recalculation_id, metric_uuid, "calculation", message)
             logger.exception(

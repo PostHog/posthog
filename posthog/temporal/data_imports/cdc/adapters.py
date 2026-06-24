@@ -24,6 +24,7 @@ from posthog.temporal.data_imports.sources.postgres.cdc.adapter import PostgresC
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
+    from posthog.temporal.data_imports.cdc.errors import CDCErrorInfo
     from posthog.temporal.data_imports.cdc.types import CDCStreamReader
 
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -69,6 +70,12 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
         """Whether the exception means the engine invalidated or dropped the
         change-stream resource (PG: replication slot lost to max_slot_wal_keep_size)
         such that it cannot be resumed and must be recreated."""
+        ...
+
+    def classify_error(self, exc: BaseException) -> CDCErrorInfo | None:
+        """Interpret a single engine-specific exception as a CDC error category, or None
+        when unrecognized (the caller falls back to the engine-agnostic default). Mirrors
+        ``is_slot_invalidation_error``: keeps psycopg/engine specifics out of the shared layer."""
         ...
 
     def recreate_slot(self, source: ExternalDataSource, tables: list[str]) -> dict[str, Any]:

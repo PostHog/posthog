@@ -90,6 +90,7 @@ rules:
                               |CoreMemory
                               |CustomerJourney
                               |CustomerProfileConfig
+                              |CustomPropertyDefinition
                               |DAG
                               |Dashboard
                               |DashboardTemplate
@@ -354,6 +355,7 @@ rules:
                         |CoreMemory
                         |CustomerJourney
                         |CustomerProfileConfig
+                        |CustomPropertyDefinition
                         |DAG
                         |Dashboard
                         |DashboardTemplate
