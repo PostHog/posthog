@@ -134,5 +134,32 @@ describe('timeSensitiveAuthenticationLogic', () => {
                 showAuthenticationModal: true,
             })
         })
+
+        it('rejects the pending reauthentication promise with a real Error when dismissed', async () => {
+            // Callsites (e.g. organizationLogic.updateOrganization) await checkReauthentication() inside a
+            // kea-loader, and kea-loaders reads `.message` off the rejection value. Rejecting with `undefined`
+            // threw "Cannot read properties of undefined (reading 'message')" and crashed the page.
+            const mockUser = {
+                ...MOCK_DEFAULT_USER,
+                sensitive_session_expires_at: dayjs().subtract(1, 'hour').toISOString(),
+            }
+            userLogic.actions.loadUserSuccess(mockUser)
+
+            const reauthPromise = logic.asyncActions.checkReauthentication()
+            const rejection = reauthPromise.then(
+                () => {
+                    throw new Error('expected reauthentication promise to reject')
+                },
+                (e: unknown) => e
+            )
+
+            // Wait until the resolve/reject pair is registered before dismissing
+            await expectLogic(logic).toDispatchActions(['setTimeSensitiveAuthenticationRequired'])
+            logic.actions.setDismissedReauthentication(true)
+
+            const error = await rejection
+            expect(error).toBeInstanceOf(Error)
+            expect((error as Error).message).toBe('Re-authentication dismissed')
+        })
     })
 })

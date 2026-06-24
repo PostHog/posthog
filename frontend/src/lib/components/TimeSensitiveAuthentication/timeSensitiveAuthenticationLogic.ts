@@ -51,6 +51,7 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
         beginPasskey2FA: true,
         checkPasskeysAvailable: true,
         setTotpAvailable: (available: boolean) => ({ available }),
+        setGeneralError: (message: string | null) => ({ message }),
     }),
     reducers({
         dismissedReauthentication: [
@@ -71,6 +72,13 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
             true as boolean,
             {
                 setTotpAvailable: (_, { available }) => available,
+            },
+        ],
+        generalError: [
+            null as string | null,
+            {
+                setGeneralError: (_, { message }) => message,
+                setTimeSensitiveAuthenticationRequired: () => null,
             },
         ],
     }),
@@ -147,6 +155,8 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
                 const email = userLogic.findMounted()?.values.user?.email
                 await breakpoint(150)
 
+                actions.setGeneralError(null)
+
                 try {
                     if (!token) {
                         await api.create('api/login', { email, password })
@@ -162,6 +172,16 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
                         }
                         if (e.code === 'invalid_credentials') {
                             actions.setReauthenticationManualErrors({ password: 'Incorrect password' })
+                        }
+                        if (e.code === 'email_mfa_required') {
+                            // Email MFA can't be completed inside the modal — it needs the link from the
+                            // verification email. Explain that in place rather than leaving the modal silent
+                            // (which previously dumped the user onto the full login page with no context).
+                            actions.setGeneralError(
+                                `For your security, we've sent a verification link to ${
+                                    e.detail || email || 'your email address'
+                                }. Please check your inbox and click the link, then re-authenticate again.`
+                            )
                         }
                     }
 
@@ -227,13 +247,15 @@ export const timeSensitiveAuthenticationLogic = kea<timeSensitiveAuthenticationL
         },
         submitReauthenticationFailure: () => {
             if (Array.isArray(values.timeSensitiveAuthenticationRequired)) {
-                values.timeSensitiveAuthenticationRequired[1]() // Reject
+                // Reject with a real Error — callsites awaiting checkReauthentication() read `.message`
+                // off the rejection value, which throws if we reject with `undefined`.
+                values.timeSensitiveAuthenticationRequired[1](new Error('Re-authentication failed'))
             }
         },
         setDismissedReauthentication: ({ value }) => {
             if (value) {
                 if (Array.isArray(values.timeSensitiveAuthenticationRequired)) {
-                    values.timeSensitiveAuthenticationRequired[1]() // Reject
+                    values.timeSensitiveAuthenticationRequired[1](new Error('Re-authentication dismissed'))
                 }
                 posthog.capture('reauthentication_modal_dismissed')
             }

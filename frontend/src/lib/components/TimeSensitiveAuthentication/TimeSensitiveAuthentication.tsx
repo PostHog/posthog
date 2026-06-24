@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, LemonDivider, LemonInput, LemonModal, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonModal, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import passkeyLogo from 'lib/components/SocialLoginButton/passkey.svg'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -21,6 +21,7 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
         passkey2FALoading,
         passkeysAvailable,
         totpAvailable,
+        generalError,
     } = useValues(timeSensitiveAuthenticationLogic)
     const { submitReauthentication, setDismissedReauthentication, beginPasskey2FA } = useActions(
         timeSensitiveAuthenticationLogic
@@ -68,6 +69,12 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
                 Before accessing and changing sensitive settings, we ask you to&nbsp;re-authenticate. Just to ensure you
                 are you!
             </p>
+
+            {generalError ? (
+                <LemonBanner type="info" className="mb-4">
+                    {generalError}
+                </LemonBanner>
+            ) : null}
 
             {showPassword ? (
                 <Form
