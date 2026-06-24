@@ -1,15 +1,16 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
-import { UniversalFiltersGroup } from '~/types'
+import { PropertyFilterType, UniversalFiltersGroup } from '~/types'
 
 import { logsViewerFiltersLogic } from '../Filters/logsViewerFiltersLogic'
 import { facetRailLogic } from './facetRailLogic'
-import { FacetSource, resourceAttributeValues } from './facets'
+import { FacetSource, mapAttributeValues } from './facets'
 
 const LEVEL_SOURCE: FacetSource = { type: 'column', column: 'severity_text', filterKey: 'severityLevels' }
 const SERVICE_SOURCE: FacetSource = { type: 'column', column: 'service_name', filterKey: 'serviceNames' }
 const NAMESPACE_SOURCE: FacetSource = { type: 'resourceAttribute', key: 'k8s.namespace.name' }
+const STATUS_SOURCE: FacetSource = { type: 'logAttribute', key: 'http.status_code' }
 
 describe('facetRailLogic', () => {
     let filtersLogic: ReturnType<typeof logsViewerFiltersLogic.build>
@@ -91,7 +92,12 @@ describe('facetRailLogic', () => {
     })
 
     describe('resource attribute toggling', () => {
-        const read = (): string[] => resourceAttributeValues(filtersLogic.values.filterGroup, 'k8s.namespace.name')
+        const read = (): string[] =>
+            mapAttributeValues(
+                filtersLogic.values.filterGroup,
+                'k8s.namespace.name',
+                PropertyFilterType.LogResourceAttribute
+            )
 
         it('adds, accumulates (OR), and removes values as a log_resource_attribute filter in the group', async () => {
             await expectLogic(logic, () =>
@@ -122,6 +128,38 @@ describe('facetRailLogic', () => {
             expect(read()).toEqual([])
             // the single inner group holds no filters once the last value is removed
             expect((filtersLogic.values.filterGroup.values[0] as UniversalFiltersGroup).values).toEqual([])
+        })
+    })
+
+    describe('log attribute toggling', () => {
+        const read = (): string[] =>
+            mapAttributeValues(filtersLogic.values.filterGroup, 'http.status_code', PropertyFilterType.LogAttribute)
+
+        it('adds, accumulates (OR), and removes values as a log_attribute filter in the group', async () => {
+            await expectLogic(logic, () => logic.actions.toggleFacetValue(STATUS_SOURCE, '500')).toFinishAllListeners()
+            expect(read()).toEqual(['500'])
+
+            await expectLogic(logic, () => logic.actions.toggleFacetValue(STATUS_SOURCE, '404')).toFinishAllListeners()
+            expect(read()).toEqual(['500', '404'])
+
+            await expectLogic(logic, () => logic.actions.toggleFacetValue(STATUS_SOURCE, '500')).toFinishAllListeners()
+            expect(read()).toEqual(['404'])
+        })
+
+        it('keeps resource and log attribute selections on the same key independent', async () => {
+            await expectLogic(logic, () =>
+                logic.actions.toggleFacetValue({ type: 'resourceAttribute', key: 'http.status_code' }, '200')
+            ).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.toggleFacetValue(STATUS_SOURCE, '500')).toFinishAllListeners()
+
+            expect(read()).toEqual(['500'])
+            expect(
+                mapAttributeValues(
+                    filtersLogic.values.filterGroup,
+                    'http.status_code',
+                    PropertyFilterType.LogResourceAttribute
+                )
+            ).toEqual(['200'])
         })
     })
 })

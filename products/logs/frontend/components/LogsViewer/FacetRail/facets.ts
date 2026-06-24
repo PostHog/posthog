@@ -32,10 +32,22 @@ export type FacetField = 'severity_text' | 'service_name'
  * - `column`: a top-level logs column. Selection lives in a dedicated filter field (severityLevels/serviceNames).
  * - `resourceAttribute`: a `resource_attributes` map key (e.g. k8s.namespace.name). No dedicated field —
  *   selection is stored as a `log_resource_attribute` property filter inside the filterGroup.
+ * - `logAttribute`: an `attributes` map key (e.g. http.status_code). Selection is stored as a
+ *   `log_attribute` property filter inside the filterGroup.
  */
 export type FacetSource =
     | { type: 'column'; column: FacetField; filterKey: FacetFilterKey }
     | { type: 'resourceAttribute'; key: string }
+    | { type: 'logAttribute'; key: string }
+
+/** The two map-backed facet sources, both stored as property filters in the filterGroup. */
+export type MapAttributeSourceType = 'resourceAttribute' | 'logAttribute'
+
+/** The property filter type a map facet's selection is stored under. */
+export const MAP_ATTRIBUTE_FILTER_TYPE: Record<MapAttributeSourceType, PropertyFilterType> = {
+    resourceAttribute: PropertyFilterType.LogResourceAttribute,
+    logAttribute: PropertyFilterType.LogAttribute,
+}
 
 export interface FacetConfig {
     /** Stable id used for collapse state and data-attrs. */
@@ -56,26 +68,30 @@ export interface FacetConfig {
     maxHeight?: number
 }
 
-interface LogResourceAttributeFilter {
+interface MapAttributeFilter {
     key: string
-    type: PropertyFilterType.LogResourceAttribute
+    type: PropertyFilterType
     operator: PropertyOperator
     value?: PropertyFilterValue
 }
 
 // The logs filterGroup is always { AND, values: [{ AND, values: [<property filters>] }] } — the
 // editable property filters live in the single inner group.
-function innerFilters(group: UniversalFiltersGroup | undefined): LogResourceAttributeFilter[] {
-    return ((group?.values?.[0] as UniversalFiltersGroup | undefined)?.values ?? []) as LogResourceAttributeFilter[]
+function innerFilters(group: UniversalFiltersGroup | undefined): MapAttributeFilter[] {
+    return ((group?.values?.[0] as UniversalFiltersGroup | undefined)?.values ?? []) as MapAttributeFilter[]
 }
 
-function isResourceAttributeFilter(filter: LogResourceAttributeFilter, key: string): boolean {
-    return filter?.type === PropertyFilterType.LogResourceAttribute && filter?.key === key
+function isMapAttributeFilter(filter: MapAttributeFilter, key: string, filterType: PropertyFilterType): boolean {
+    return filter?.type === filterType && filter?.key === key
 }
 
-/** Values currently selected for a resource-attribute facet, read from the log_resource_attribute filter. */
-export function resourceAttributeValues(group: UniversalFiltersGroup | undefined, key: string): string[] {
-    const existing = innerFilters(group).find((f) => isResourceAttributeFilter(f, key))
+/** Values currently selected for a map facet, read from its log_resource_attribute/log_attribute filter. */
+export function mapAttributeValues(
+    group: UniversalFiltersGroup | undefined,
+    key: string,
+    filterType: PropertyFilterType
+): string[] {
+    const existing = innerFilters(group).find((f) => isMapAttributeFilter(f, key, filterType))
     const value = existing?.value
     if (Array.isArray(value)) {
         return value as string[]
@@ -83,25 +99,29 @@ export function resourceAttributeValues(group: UniversalFiltersGroup | undefined
     return value != null && value !== '' ? [String(value)] : []
 }
 
+/** Values currently selected for a map facet (resource or log attribute), read from its property filter. */
+export function selectedMapValues(group: UniversalFiltersGroup | undefined, source: FacetSource): string[] {
+    if (source.type === 'column') {
+        return []
+    }
+    return mapAttributeValues(group, source.key, MAP_ATTRIBUTE_FILTER_TYPE[source.type])
+}
+
 /**
- * Add or remove `value` from a resource-attribute facet's selection, returning a new filterGroup.
- * Multi-select is one log_resource_attribute filter per key with an array value (logs have no `in` operator).
+ * Add or remove `value` from a map facet's selection, returning a new filterGroup.
+ * Multi-select is one property filter per key with an array value (logs have no `in` operator).
  */
-export function toggleResourceAttributeFilter(
+export function toggleMapAttributeFilter(
     group: UniversalFiltersGroup | undefined,
     key: string,
-    value: string
+    value: string,
+    filterType: PropertyFilterType
 ): UniversalFiltersGroup {
-    const current = resourceAttributeValues(group, key)
+    const current = mapAttributeValues(group, key, filterType)
     const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value]
-    const others = innerFilters(group).filter((f) => !isResourceAttributeFilter(f, key))
-    const values: LogResourceAttributeFilter[] =
-        next.length > 0
-            ? [
-                  ...others,
-                  { key, type: PropertyFilterType.LogResourceAttribute, operator: PropertyOperator.Exact, value: next },
-              ]
-            : others
+    const others = innerFilters(group).filter((f) => !isMapAttributeFilter(f, key, filterType))
+    const values: MapAttributeFilter[] =
+        next.length > 0 ? [...others, { key, type: filterType, operator: PropertyOperator.Exact, value: next }] : others
     return { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values }] }
 }
 
@@ -141,10 +161,10 @@ const SERVICE_FACET: FacetConfig = {
 /** The rail is rendered entirely from this list — append a config to add a facet (or a new group). */
 export const FACETS: FacetConfig[] = [LEVEL_FACET, SERVICE_FACET]
 
-/** `FACETS` grouped by `group`, preserving first-appearance order of both groups and facets. */
-export function facetsByGroup(): [string, FacetConfig[]][] {
+/** Facets grouped by `group`, preserving first-appearance order of both groups and facets. */
+export function facetsByGroup(facets: FacetConfig[] = FACETS): [string, FacetConfig[]][] {
     const groups: [string, FacetConfig[]][] = []
-    for (const facet of FACETS) {
+    for (const facet of facets) {
         const existing = groups.find(([group]) => group === facet.group)
         if (existing) {
             existing[1].push(facet)

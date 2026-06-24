@@ -10,7 +10,8 @@ import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsVi
 import { Facet, FacetOption } from './Facet'
 import { facetCountsLogic } from './facetCountsLogic'
 import { facetRailLogic } from './facetRailLogic'
-import { FacetConfig, FacetField, FacetFilterKey, facetsByGroup, resourceAttributeValues } from './facets'
+import { FacetConfig, FacetFilterKey, facetsByGroup, selectedMapValues } from './facets'
+import { logsFacetsLogic } from './logsFacetsLogic'
 
 const DEFAULT_WIDTH_PX = 240
 const COLLAPSE_THRESHOLD_PX = 120
@@ -24,24 +25,15 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
     const railRef = useRef<HTMLDivElement>(null)
     const { setFacetRailCollapsed } = useActions(logsViewerConfigLogic)
     const { severityLevels, serviceNames, filterGroup } = useValues(logsViewerFiltersLogic)
-    const { levelValues, levelValuesLoading, serviceValues, serviceValuesLoading, facetSearch } = useValues(
-        facetCountsLogic({ id })
-    )
+    const { facetValues, facetValuesLoading, facetSearch } = useValues(facetCountsLogic({ id }))
     const { setFacetSearch } = useActions(facetCountsLogic({ id }))
+    const { facets } = useValues(logsFacetsLogic({ id }))
     const { collapsedFacets } = useValues(facetRailLogic({ id }))
     const { toggleFacetValue, toggleFacetCollapsed } = useActions(facetRailLogic({ id }))
 
     const selectedByKey: Record<FacetFilterKey, string[]> = {
         severityLevels: severityLevels ?? [],
         serviceNames: serviceNames ?? [],
-    }
-    const valuesByField: Record<FacetField, FacetOption[]> = {
-        severity_text: levelValues.map((r) => ({ value: r.value, label: r.value, count: r.count })),
-        service_name: serviceValues.map((r) => ({ value: r.value, label: r.value, count: r.count })),
-    }
-    const loadingByField: Record<FacetField, boolean> = {
-        severity_text: levelValuesLoading,
-        service_name: serviceValuesLoading,
     }
 
     const onToggleClosed = useCallback(
@@ -64,16 +56,16 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
 
     const renderFacet = (facet: FacetConfig): JSX.Element => {
         const { source } = facet
-        // Selection: column facets read their dedicated filter field; resource-attribute facets read
-        // their log_resource_attribute filter out of the group.
+        // Selection: column facets read their dedicated filter field; map facets (resource/log
+        // attribute) read their property filter out of the group.
         const selected =
-            source.type === 'resourceAttribute'
-                ? resourceAttributeValues(filterGroup, source.key)
-                : selectedByKey[source.filterKey]
-        // Counts/values + search are still keyed by FacetField (column facets only today); resource
-        // attribute facets get their own per-facet fetch in a follow-up.
-        const field: FacetField | null = source.type === 'column' ? source.column : null
-        const fetched = field ? valuesByField[field] : []
+            source.type === 'column' ? selectedByKey[source.filterKey] : selectedMapValues(filterGroup, source)
+        // Values + counts come from the cross-filtered endpoint, keyed by facet key.
+        const fetched: FacetOption[] = (facetValues[facet.key] ?? []).map((r) => ({
+            value: r.value,
+            label: r.value,
+            count: r.count,
+        }))
         const onToggle = (value: string): void => toggleFacetValue(source, value)
         const onToggleCollapsed = (): void => toggleFacetCollapsed(facet.key)
         const collapsed = collapsedFacets.includes(facet.key)
@@ -92,7 +84,7 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
                     options={options}
                     selected={selected}
                     onToggle={onToggle}
-                    loading={field ? loadingByField[field] : false}
+                    loading={facetValuesLoading}
                     collapsed={collapsed}
                     onToggleCollapsed={onToggleCollapsed}
                     dimZeroCounts
@@ -108,10 +100,10 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
                 options={fetched}
                 selected={selected}
                 onToggle={onToggle}
-                loading={field ? loadingByField[field] : false}
+                loading={facetValuesLoading}
                 emptyLabel={facet.emptyLabel}
-                searchValue={facet.searchable && field ? (facetSearch[field] ?? '') : undefined}
-                onSearchChange={facet.searchable && field ? (value) => setFacetSearch(field, value) : undefined}
+                searchValue={facet.searchable ? (facetSearch[facet.key] ?? '') : undefined}
+                onSearchChange={facet.searchable ? (value) => setFacetSearch(facet.key, value) : undefined}
                 searchPlaceholder={facet.searchPlaceholder}
                 collapsed={collapsed}
                 onToggleCollapsed={onToggleCollapsed}
@@ -132,12 +124,12 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
                 <span className="text-xs font-semibold text-secondary uppercase tracking-wide">Filters</span>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto p-2">
-                {facetsByGroup().map(([group, facets]) => (
+                {facetsByGroup(facets).map(([group, groupFacets]) => (
                     <div key={group}>
                         <div className="px-1 pb-1 mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted border-b border-primary">
                             {group}
                         </div>
-                        {facets.map(renderFacet)}
+                        {groupFacets.map(renderFacet)}
                     </div>
                 ))}
             </div>

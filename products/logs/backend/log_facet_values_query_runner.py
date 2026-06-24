@@ -28,10 +28,10 @@ DEFAULT_FACET_LIMIT = 100
 class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMixin):
     """Per-value counts for a single facet, cross-filtered.
 
-    The facet is either a top-level column (severity_text/service_name) or a resource attribute map
-    key (e.g. k8s.namespace.name). Every active filter is applied except the one belonging to this
-    facet, so selecting a value re-scopes the *other* facets without zeroing out its own siblings —
-    the standard faceted-search behaviour.
+    The facet is a top-level column (severity_text/service_name), a resource attribute map key
+    (e.g. k8s.namespace.name), or a log attribute map key (e.g. http.status_code). Every active
+    filter is applied except the one belonging to this facet, so selecting a value re-scopes the
+    *other* facets without zeroing out its own siblings — the standard faceted-search behaviour.
     """
 
     query: LogsQuery
@@ -43,27 +43,36 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
         *args,
         facet_field: str | None = None,
         facet_resource_attribute: str | None = None,
+        facet_attribute: str | None = None,
         facet_search: str | None = None,
         **kwargs,
     ):
         super().__init__(query, *args, **kwargs)
-        # A facet targets either a top-level column (severity_text/service_name) or a resource
-        # attribute map key (e.g. k8s.namespace.name). Exactly one must be supplied.
-        if bool(facet_field) == bool(facet_resource_attribute):
-            raise ValueError("Provide exactly one of facet_field or facet_resource_attribute")
+        # A facet targets either a top-level column (severity_text/service_name), a resource attribute
+        # map key (e.g. k8s.namespace.name), or a log attribute map key. Exactly one must be supplied.
+        if sum(bool(f) for f in (facet_field, facet_resource_attribute, facet_attribute)) != 1:
+            raise ValueError("Provide exactly one of facet_field, facet_resource_attribute, or facet_attribute")
         if facet_field is not None and facet_field not in FACET_FIELDS:
             raise ValueError(f"Unsupported facet field: {facet_field!r}")
         self.facet_field = facet_field
         self.facet_resource_attribute = facet_resource_attribute
+        self.facet_attribute = facet_attribute
         # Type-ahead over the facet's *own* values (e.g. service name contains "kafka"), distinct from
         # query.searchTerm which searches log bodies. Lets a dynamic facet search past the LIMIT window.
         self.facet_search = (facet_search or "").strip() or None
 
+    @property
+    def _is_map_facet(self) -> bool:
+        """A resource_attributes or attributes map lookup, as opposed to a top-level column."""
+        return self.facet_resource_attribute is not None or self.facet_attribute is not None
+
     def _facet_expr(self) -> ast.Expr:
-        """The expression a facet groups by: a top-level column or a resource_attributes map lookup."""
+        """The expression a facet groups by: a top-level column, a resource_attributes or attributes map lookup."""
         if self.facet_field is not None:
             return ast.Field(chain=[self.facet_field])
-        return ast.Field(chain=["resource_attributes", cast(str, self.facet_resource_attribute)])
+        if self.facet_resource_attribute is not None:
+            return ast.Field(chain=["resource_attributes", self.facet_resource_attribute])
+        return ast.Field(chain=["attributes", cast(str, self.facet_attribute)])
 
     @cached_property
     def settings(self) -> HogQLGlobalSettings:
@@ -97,6 +106,7 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
             self.query_date_range,
             exclude_facet_field=self.facet_field,
             exclude_resource_attribute=self.facet_resource_attribute,
+            exclude_attribute=self.facet_attribute,
         )
         exprs = [
             filter_builder.where(),
@@ -108,7 +118,7 @@ class LogFacetValuesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQue
                 },
             ),
         ]
-        if self.facet_resource_attribute is not None:
+        if self._is_map_facet:
             # A missing map key reads back as '' in ClickHouse — exclude it so the facet doesn't show a
             # blank value counting every log that lacks the attribute.
             exprs.append(parse_expr("{facet} != ''", placeholders={"facet": self._facet_expr()}))

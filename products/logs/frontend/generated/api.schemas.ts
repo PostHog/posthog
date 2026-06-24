@@ -1001,16 +1001,21 @@ export const FacetFieldEnumApi = {
 } as const
 
 export interface _LogsFacetValuesBodyApi {
-    /** Top-level column to facet on. Provide exactly one of facetField or facetResourceAttribute. Its own filter is excluded so counts reflect the other active filters.
+    /** Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute, or facetAttribute. Its own filter is excluded so counts reflect the other active filters.
      *
      * * `severity_text` - severity_text
      * * `service_name` - service_name */
     facetField?: FacetFieldEnumApi | null
     /**
-     * Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of facetField or facetResourceAttribute. Its own log_resource_attribute filter is excluded so counts reflect the other active filters.
+     * Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of facetField, facetResourceAttribute, or facetAttribute. Its own log_resource_attribute filter is excluded so counts reflect the other active filters.
      * @nullable
      */
     facetResourceAttribute?: string | null
+    /**
+     * Log attribute key to facet on (e.g. 'http.status_code'). Provide exactly one of facetField, facetResourceAttribute, or facetAttribute. Its own log_attribute filter is excluded so counts reflect the other active filters.
+     * @nullable
+     */
+    facetAttribute?: string | null
     /** Date range. Defaults to last hour. */
     dateRange?: _DateRangeApi
     /** Filter by log severity levels (ignored when faceting on severity_text). */

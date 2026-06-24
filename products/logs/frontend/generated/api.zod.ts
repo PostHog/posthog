@@ -613,13 +613,19 @@ export const LogsFacetValuesCreateBody = /* @__PURE__ */ zod.object({
                 ])
                 .optional()
                 .describe(
-                    'Top-level column to facet on. Provide exactly one of facetField or facetResourceAttribute. Its own filter is excluded so counts reflect the other active filters.\n\n\* `severity_text` - severity_text\n\* `service_name` - service_name'
+                    'Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute, or facetAttribute. Its own filter is excluded so counts reflect the other active filters.\n\n\* `severity_text` - severity_text\n\* `service_name` - service_name'
                 ),
             facetResourceAttribute: zod
                 .string()
                 .nullish()
                 .describe(
-                    "Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of facetField or facetResourceAttribute. Its own log_resource_attribute filter is excluded so counts reflect the other active filters."
+                    "Resource attribute key to facet on (e.g. 'k8s.namespace.name'). Provide exactly one of facetField, facetResourceAttribute, or facetAttribute. Its own log_resource_attribute filter is excluded so counts reflect the other active filters."
+                ),
+            facetAttribute: zod
+                .string()
+                .nullish()
+                .describe(
+                    "Log attribute key to facet on (e.g. 'http.status_code'). Provide exactly one of facetField, facetResourceAttribute, or facetAttribute. Its own log_attribute filter is excluded so counts reflect the other active filters."
                 ),
             dateRange: zod
                 .object({

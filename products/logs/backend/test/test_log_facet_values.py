@@ -42,6 +42,12 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         return {r["value"]: r["count"] for r in response.json()["results"]}
 
+    def _facet_log_attr(self, key: str, **filters) -> dict[str, int]:
+        body = {"query": {"facetAttribute": key, "dateRange": self.DATE_RANGE, **filters}}
+        response = self.client.post(f"/api/projects/{self.team.pk}/logs/facet_values", body, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return {r["value"]: r["count"] for r in response.json()["results"]}
+
     @parameterized.expand(
         [
             ("severity_text", "severityLevels"),
@@ -143,10 +149,50 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
     def test_resource_facet_search_no_match_returns_empty(self):
         self.assertEqual(self._facet_attr("k8s.namespace.name", facetSearch="no-such-namespace-xyz"), {})
 
+    @parameterized.expand([("method",), ("protocol",), ("level",)])
+    def test_facet_on_log_attribute_returns_values(self, key):
+        """A log attribute key can be faceted and returns its values with counts."""
+        result = self._facet_log_attr(key)
+        self.assertGreater(len(result), 0)
+        self.assertTrue(all(count > 0 for count in result.values()))
+
+    def test_log_facet_excludes_blank_for_missing_key(self):
+        """Logs lacking the key read back '' from the map; that bucket must not appear as a facet value."""
+        # method is present on only some fixture rows (the HTTP-style logs).
+        result = self._facet_log_attr("method")
+        self.assertGreater(len(result), 0)
+        self.assertNotIn("", result)
+
+    def test_log_facet_ignores_its_own_filter(self):
+        """Selecting a value via a log_attribute filter must not change that facet's own counts."""
+        base = self._facet_log_attr("level")
+        own_value = next(iter(base))
+        filter_group = [{"key": "level", "type": "log_attribute", "operator": "exact", "value": own_value}]
+        self.assertEqual(self._facet_log_attr("level", filterGroup=filter_group), base)
+
+    def test_log_facet_honors_other_filter(self):
+        """A top-level filter re-scopes a log-attribute facet's counts (strictly fewer)."""
+        base = self._facet_log_attr("level")
+        scoped = self._facet_log_attr("level", severityLevels=["error"])
+        self.assertLess(sum(scoped.values()), sum(base.values()))
+
+    @parameterized.expand([("post",), ("POST",)])
+    def test_log_facet_search_is_case_insensitive(self, term):
+        searched = self._facet_log_attr("method", facetSearch=term)
+        self.assertGreater(len(searched), 0)
+        self.assertTrue(all(term.lower() in value.lower() for value in searched))
+
     def test_requires_exactly_one_facet_target(self):
         for query in (
-            {},  # neither
-            {"facetField": "service_name", "facetResourceAttribute": "k8s.pod.name"},  # both
+            {},  # none
+            {"facetField": "service_name", "facetResourceAttribute": "k8s.pod.name"},  # two
+            {"facetField": "service_name", "facetAttribute": "method"},  # two
+            {"facetResourceAttribute": "k8s.pod.name", "facetAttribute": "method"},  # two
+            {  # all three
+                "facetField": "service_name",
+                "facetResourceAttribute": "k8s.pod.name",
+                "facetAttribute": "method",
+            },
         ):
             body = {"query": {**query, "dateRange": self.DATE_RANGE}}
             response = self.client.post(f"/api/projects/{self.team.pk}/logs/facet_values", body, format="json")
