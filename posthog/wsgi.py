@@ -12,6 +12,8 @@ import os
 
 from django.core.wsgi import get_wsgi_application
 
+import structlog
+
 from posthog.caching.redis_cluster_connection_factory import prewarm_query_cache_cluster_in_background
 from posthog.continuous_profiling import start_continuous_profiling
 from posthog.otel_instrumentation import initialize_otel
@@ -44,6 +46,35 @@ try:
 finally:
     gc.freeze()
     gc.enable()
+
+
+# A web worker logs `web_worker_started` once, here at the end of boot. Nginx Unit recycles a
+# worker after NGINX_UNIT_REQUEST_LIMIT requests, and the kernel respawns one whenever a worker
+# is OOM-killed (SIGKILL is uncatchable, so the kill itself can't be logged from inside the
+# worker). Either way the replacement boots and emits this line — so a burst of these on a pod
+# is the in-app fingerprint of worker churn / OOM kills, queryable in PostHog even though the
+# kill leaves no other application-level trace. Best-effort: never break worker startup.
+def _log_web_worker_started() -> None:
+    try:
+        rss_mb: float | None
+        try:
+            with open("/proc/self/statm") as statm:
+                rss_mb = int(statm.read().split()[1]) * os.sysconf("SC_PAGE_SIZE") / (1024 * 1024)
+        except (OSError, ValueError, IndexError):
+            rss_mb = None
+
+        structlog.get_logger("posthog.wsgi").info(
+            "web_worker_started",
+            pid=os.getpid(),
+            rss_mb=round(rss_mb, 1) if rss_mb is not None else None,
+            request_limit=os.getenv("NGINX_UNIT_REQUEST_LIMIT"),
+            pod=os.getenv("K8S_POD_NAME") or os.getenv("HOSTNAME"),
+        )
+    except Exception:
+        pass
+
+
+_log_web_worker_started()
 
 # Nginx Unit forks workers from a prototype process that imported this module, so
 # the query_cache RedisCluster must be discovered post-fork: a client built here at

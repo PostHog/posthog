@@ -143,3 +143,12 @@ At 180k docs CURRENT peak*mem was 96 MiB; at 360k it was 174 MiB — memory grow
 **Correctness trap (same as the reverse-lookup sibling).** The `report_id IN (...)` filter must stay AFTER the `argMax`: a signal re-grouped from report A to B is matched by the candidate scan (it once carried A) but must be excluded because its _latest_ metadata points to B. Pushing the report_id predicate before the argMax would resurface the stale attribution. Verified identical results between all three shapes including the re-grouped case.
 
 **Takeaway.** Before assuming a wide-column `argMax` is the cost, check whether the analyzer already prunes it (compare `read_bytes` against a content-free variant). When an `argMax ... GROUP BY high_cardinality_id` runs over a whole-history scan just to keep a small slice, bounding the group set with a `key IN (SELECT DISTINCT id WHERE <page predicate>)` prefilter trades a second (cheap, narrow) scan for an aggregation whose memory is bounded by the request page — the right lever for a memory/heavy-tenant-driven p95, even when it reads more bytes.
+
+**Follow-up — the same shape where the wide column _is_ consumed (sibling `_signals_for_report_query`).** The neighbouring query dedups the whole history then filters to a single report, and its outer SELECT _keeps_ `content`, so the analyzer can't prune the `argMax(content)` — the original genuinely reads and buffers content for every document. Same candidate-bound fix, measured at 180k docs / 600 reports / one target report (~300 of its docs):
+
+| Shape                              | dur_ms | read_rows | read_bytes | peak_mem   |
+| ---------------------------------- | ------ | --------- | ---------- | ---------- |
+| Original (dedup-all, filter after) | 583    | 180k      | 536 MiB    | 943 MiB    |
+| Candidate-bounded                  | 88     | 210k      | **30 MiB** | **11 MiB** |
+
+~18x fewer bytes, ~84x less memory, ~6.6x faster — far larger than the pruned-content case above, and on every axis (the extra DISTINCT scan reads only `document_id` + `metadata`, so total bytes still collapses because `content` is now read for one report's docs, not the team's). Lesson: the candidate-bound win scales with how much per-document data the post-filter throws away — biggest when the dedup buffers a wide column (`content`/`embedding`) that downstream actually needs.

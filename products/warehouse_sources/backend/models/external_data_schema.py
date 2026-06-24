@@ -1,10 +1,11 @@
 import sys
 import uuid
+from collections.abc import Callable, Iterable
 from datetime import date, datetime, timedelta
 from typing import Any, Literal, Optional
 
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 
 from dateutil import parser
 from django_deprecate_fields import deprecate_field
@@ -623,6 +624,56 @@ def update_should_sync(schema_id: str, team_id: int, should_sync: bool) -> Exter
             sync_external_data_job_workflow(schema, create=True)
 
     return schema
+
+
+def update_sync_type_config_keys(
+    schema_id: str | uuid.UUID,
+    team_id: int,
+    *,
+    updates: dict[str, Any] | None = None,
+    removes: Iterable[str] | None = None,
+    mutate: Callable[[dict[str, Any]], None] | None = None,
+    extra_model_fields: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Atomically merge keys into a schema's `sync_type_config` under a row lock and return the
+    persisted config.
+
+    The CDC extract activity holds a long-lived in-memory schema and writes `sync_type_config`
+    repeatedly across a run, while API PATCHes rewrite the same JSON concurrently. A
+    read-modify-write off a copy loaded earlier loses whichever side saved last. Re-fetching the
+    row inside the transaction with `select_for_update` makes every writer merge onto the latest
+    committed value instead of clobbering it.
+
+    `updates` sets keys, `removes` pops keys, and `mutate` runs last for in-place edits of nested
+    structures (e.g. appending to `cdc_deferred_runs`) that must happen inside the critical section.
+    Callers refresh their in-memory copy from the returned dict.
+
+    `extra_model_fields` saves additional model fields in the same transaction and row lock — use
+    when a reset must flip both `sync_type_config` and another field (e.g. `initial_sync_complete`)
+    atomically so no reader can observe the half-written state.
+
+    Saves with `skip_activity_log=True`: `sync_type_config` is excluded from the schema's audit
+    diff anyway, and the bypass skips the extra `_get_before_update` SELECT that can fail when the
+    pooler drops the connection mid-sync.
+    """
+    with transaction.atomic():
+        schema = ExternalDataSchema.objects.select_for_update().get(id=schema_id, team_id=team_id)
+        config = schema.sync_type_config or {}
+        if updates:
+            config.update(updates)
+        if removes:
+            for key in removes:
+                config.pop(key, None)
+        if mutate is not None:
+            mutate(config)
+        schema.sync_type_config = config
+        update_fields = ["sync_type_config", "updated_at"]
+        if extra_model_fields:
+            for field, value in extra_model_fields.items():
+                setattr(schema, field, value)
+                update_fields.append(field)
+        schema.save(update_fields=update_fields, skip_activity_log=True)
+        return config
 
 
 def get_all_schemas_for_source_id(source_id: str, team_id: int):
