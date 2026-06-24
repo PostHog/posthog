@@ -33226,6 +33226,8 @@ export namespace Schemas {
       ai_resolved?: boolean;
       /** @nullable */
       escalation_reason?: string | null;
+      /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.). */
+      readonly ai_triage: unknown;
       readonly created_at: string;
       readonly updated_at: string;
       readonly message_count: number;
@@ -40553,6 +40555,8 @@ export namespace Schemas {
       ai_resolved?: boolean;
       /** @nullable */
       escalation_reason?: string | null;
+      /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.). */
+      readonly ai_triage?: unknown;
       readonly created_at?: string;
       readonly updated_at?: string;
       readonly message_count?: number;
