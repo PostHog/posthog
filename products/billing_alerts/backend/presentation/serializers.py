@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from typing import Any
+from typing import Any, cast
 
 from django.db.models import QuerySet
 
@@ -15,6 +15,13 @@ from posthog.models.user import User
 
 from products.billing_alerts.backend.models import BillingAlertConfiguration, BillingAlertDelivery, BillingAlertEvent
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+
+_DESTINATION_TYPE_BY_TEMPLATE = {
+    "template-slack": "slack",
+    "template-webhook": "webhook",
+    "template-microsoft-teams": "teams",
+}
+_DESTINATION_TYPES_CACHE_KEY = "_billing_alert_destination_types_by_alert_id"
 
 
 class BillingAlertEventSerializer(serializers.ModelSerializer):
@@ -249,18 +256,67 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(serializers.ListField(child=serializers.ChoiceField(choices=["slack", "webhook", "teams"])))
     def get_destination_types(self, obj: BillingAlertConfiguration) -> list[str]:
-        template_ids = (
-            HogFunction.objects.filter(
-                team_id=obj.execution_team_id,
-                deleted=False,
-                template_id__in=["template-slack", "template-webhook", "template-microsoft-teams"],
-                filters__properties__contains=[{"key": "alert_id", "value": str(obj.id)}],
-            )
-            .values_list("template_id", flat=True)
-            .distinct()
-        )
-        type_map = {"template-slack": "slack", "template-webhook": "webhook", "template-microsoft-teams": "teams"}
-        return sorted(type_map[template_id] for template_id in template_ids if template_id in type_map)
+        cache = self.context.get(_DESTINATION_TYPES_CACHE_KEY)
+        if cache is None:
+            cache = self._load_destination_type_cache(obj)
+            self.context[_DESTINATION_TYPES_CACHE_KEY] = cache
+        destination_types_by_alert_id = cast(dict[str, list[str]], cache)
+        alert_id = str(obj.id)
+        if alert_id not in destination_types_by_alert_id:
+            destination_types_by_alert_id.update(self._load_destination_type_cache(obj))
+        return destination_types_by_alert_id.get(alert_id, [])
+
+    def _load_destination_type_cache(self, obj: BillingAlertConfiguration) -> dict[str, list[str]]:
+        alerts = self._destination_type_cache_alerts(obj)
+        alert_ids = {str(alert.id) for alert in alerts}
+        team_ids = {alert.execution_team_id for alert in alerts}
+        destination_types_by_alert_id: dict[str, set[str]] = {alert_id: set() for alert_id in alert_ids}
+
+        if not alert_ids or not team_ids:
+            return {}
+
+        hog_functions = HogFunction.objects.filter(
+            team_id__in=team_ids,
+            deleted=False,
+            template_id__in=list(_DESTINATION_TYPE_BY_TEMPLATE),
+        ).values_list("template_id", "filters")
+
+        for template_id, filters in hog_functions:
+            destination_type = _DESTINATION_TYPE_BY_TEMPLATE.get(template_id)
+            if destination_type is None or not isinstance(filters, dict):
+                continue
+
+            properties = filters.get("properties") or []
+            if not isinstance(properties, list):
+                continue
+
+            for property_filter in properties:
+                if not isinstance(property_filter, dict) or property_filter.get("key") != "alert_id":
+                    continue
+                alert_id = str(property_filter.get("value"))
+                if alert_id in destination_types_by_alert_id:
+                    destination_types_by_alert_id[alert_id].add(destination_type)
+
+        return {
+            alert_id: sorted(destination_types) for alert_id, destination_types in destination_types_by_alert_id.items()
+        }
+
+    def _destination_type_cache_alerts(self, obj: BillingAlertConfiguration) -> list[BillingAlertConfiguration]:
+        parent_instance = getattr(getattr(self, "parent", None), "instance", None)
+        instance = parent_instance if parent_instance is not None else self.instance
+
+        if isinstance(instance, BillingAlertConfiguration):
+            return [instance]
+        if isinstance(instance, QuerySet):
+            return [item for item in instance if isinstance(item, BillingAlertConfiguration)]
+        if instance is not None:
+            try:
+                alerts = [item for item in instance if isinstance(item, BillingAlertConfiguration)]
+                if alerts:
+                    return alerts
+            except TypeError:
+                pass
+        return [obj]
 
     @extend_schema_field(UserBasicSerializer(allow_null=True))
     def get_created_by(self, obj: BillingAlertConfiguration) -> dict[str, Any] | None:

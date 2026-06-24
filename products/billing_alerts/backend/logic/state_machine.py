@@ -45,7 +45,14 @@ def _event_kind(
 ) -> str:
     if evaluation.threshold_breached and not _cooldown_suppresses(alert, now) and next_state != alert.State.SNOOZED:
         return BillingAlertEvent.Kind.FIRING
-    if alert.state == BillingAlertConfiguration.State.FIRING and not evaluation.threshold_breached:
+    if (
+        alert.state
+        in (
+            BillingAlertConfiguration.State.FIRING,
+            BillingAlertConfiguration.State.SNOOZED,
+        )
+        and not evaluation.threshold_breached
+    ):
         return BillingAlertEvent.Kind.RESOLVED
     return BillingAlertEvent.Kind.CHECK
 
@@ -124,10 +131,12 @@ def evaluate_and_record_billing_alert(
         capture_exception(e, {"alert_id": str(alert.id), "feature": "billing_alerts"})
         logger.exception("Billing alert evaluation failed", alert_id=str(alert.id))
         with transaction.atomic():
-            alert.consecutive_failures += 1
+            locked_alert = BillingAlertConfiguration.objects.select_for_update().get(pk=alert.pk)
+            state_before = locked_alert.state
+            locked_alert.consecutive_failures += 1
             next_state = (
                 BillingAlertConfiguration.State.BROKEN
-                if alert.consecutive_failures >= MAX_FAILURES_BEFORE_BROKEN
+                if locked_alert.consecutive_failures >= MAX_FAILURES_BEFORE_BROKEN
                 else BillingAlertConfiguration.State.ERRORED
             )
             event_kind = (
@@ -135,12 +144,12 @@ def evaluate_and_record_billing_alert(
                 if next_state == BillingAlertConfiguration.State.BROKEN
                 else BillingAlertEvent.Kind.ERRORED
             )
-            alert.state = next_state
-            alert.last_checked_at = now
-            alert.next_check_at = now + timedelta(hours=alert.check_interval_hours)
+            locked_alert.state = next_state
+            locked_alert.last_checked_at = now
+            locked_alert.next_check_at = now + timedelta(hours=locked_alert.check_interval_hours)
             if next_state == BillingAlertConfiguration.State.BROKEN:
-                alert.enabled = False
-            alert.save(
+                locked_alert.enabled = False
+            locked_alert.save(
                 update_fields=[
                     "enabled",
                     "state",
@@ -151,12 +160,12 @@ def evaluate_and_record_billing_alert(
                 ]
             )
             return BillingAlertEvent.objects.create(
-                alert=alert,
+                alert=locked_alert,
                 kind=event_kind,
                 evaluation_date=None,
                 period_start=None,
                 period_end=None,
-                metric=alert.metric,
+                metric=locked_alert.metric,
                 threshold_breached=False,
                 state_before=state_before,
                 state_after=next_state,

@@ -5,7 +5,11 @@ from posthog.test.base import BaseTest
 
 from products.billing_alerts.backend.logic.evaluator import evaluate_billing_alert
 from products.billing_alerts.backend.logic.state_machine import evaluate_and_record_billing_alert, event_should_dispatch
-from products.billing_alerts.backend.models import BillingAlertConfiguration, BillingAlertEvent
+from products.billing_alerts.backend.models import (
+    MAX_FAILURES_BEFORE_BROKEN,
+    BillingAlertConfiguration,
+    BillingAlertEvent,
+)
 
 NOW = datetime(2026, 6, 23, 12, 0, tzinfo=UTC)
 
@@ -95,6 +99,29 @@ class TestBillingAlertEvaluator(BaseTest):
         assert event_should_dispatch(event) is True
         assert alert.state == BillingAlertConfiguration.State.ERRORED
 
+    def test_billing_service_error_uses_latest_failure_count(self) -> None:
+        alert = self._alert()
+        BillingAlertConfiguration.objects.filter(pk=alert.pk).update(
+            consecutive_failures=MAX_FAILURES_BEFORE_BROKEN - 1
+        )
+
+        event = evaluate_and_record_billing_alert(
+            alert,
+            now=NOW,
+            billing_response={
+                "type": "authentication_error",
+                "code": "authentication_failed",
+                "detail": "Authorization is invalid: Signature verification failed",
+            },
+        )
+        alert.refresh_from_db()
+
+        assert event.kind == BillingAlertEvent.Kind.BROKEN_CONFIG
+        assert event_should_dispatch(event) is True
+        assert alert.consecutive_failures == MAX_FAILURES_BEFORE_BROKEN
+        assert alert.state == BillingAlertConfiguration.State.BROKEN
+        assert alert.enabled is False
+
     def test_state_machine_records_firing_and_resolved_events(self) -> None:
         alert = self._alert()
 
@@ -114,4 +141,15 @@ class TestBillingAlertEvaluator(BaseTest):
 
         assert resolved.kind == BillingAlertEvent.Kind.RESOLVED
         assert resolved.threshold_breached is False
+        assert alert.state == BillingAlertConfiguration.State.NOT_FIRING
+
+    def test_state_machine_records_resolved_event_after_snoozed_alert_clears(self) -> None:
+        alert = self._alert(state=BillingAlertConfiguration.State.SNOOZED)
+
+        resolved = evaluate_and_record_billing_alert(alert, now=NOW, billing_response=_billing_response([60, 60, 70]))
+        alert.refresh_from_db()
+
+        assert resolved.kind == BillingAlertEvent.Kind.RESOLVED
+        assert resolved.threshold_breached is False
+        assert event_should_dispatch(resolved) is True
         assert alert.state == BillingAlertConfiguration.State.NOT_FIRING

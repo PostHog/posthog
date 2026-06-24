@@ -9,6 +9,8 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 
 from products.billing_alerts.backend.models import BillingAlertConfiguration, BillingAlertEvent
+from products.billing_alerts.backend.presentation.serializers import BillingAlertConfigurationSerializer
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 
 class TestBillingAlertAPI(APIBaseTest):
@@ -32,6 +34,38 @@ class TestBillingAlertAPI(APIBaseTest):
         }
         payload.update(overrides)
         return payload
+
+    def _alert(self, **overrides) -> BillingAlertConfiguration:
+        defaults = {
+            "organization_id": self.organization.id,
+            "execution_team_id": self.team.id,
+            "name": "Daily spend spike",
+            "metric": BillingAlertConfiguration.Metric.SPEND,
+            "threshold_type": BillingAlertConfiguration.ThresholdType.RELATIVE_INCREASE,
+            "threshold_percentage": Decimal("50"),
+        }
+        defaults.update(overrides)
+        return BillingAlertConfiguration.objects.create(**defaults)
+
+    def _destination(self, alert: BillingAlertConfiguration, template_id: str) -> HogFunction:
+        return HogFunction.objects.create(
+            team_id=alert.execution_team_id,
+            name=f"Billing alert destination {template_id}",
+            type="internal_destination",
+            enabled=True,
+            hog="",
+            template_id=template_id,
+            filters={
+                "properties": [
+                    {
+                        "key": "alert_id",
+                        "value": str(alert.id),
+                        "operator": "exact",
+                        "type": "event",
+                    }
+                ]
+            },
+        )
 
     def test_create_billing_alert(self) -> None:
         response = self.client.post(self.url, self._payload(), format="json")
@@ -65,6 +99,26 @@ class TestBillingAlertAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         results = response.json()["results"]
         assert [row["name"] for row in results] == ["Visible alert"]
+
+    def test_destination_types_are_loaded_once_for_alert_list_serializer(self) -> None:
+        slack_alert = self._alert(name="Slack alert")
+        webhook_alert = self._alert(name="Webhook alert")
+        empty_alert = self._alert(name="Empty alert")
+        self._destination(slack_alert, "template-slack")
+        self._destination(slack_alert, "template-slack")
+        self._destination(webhook_alert, "template-webhook")
+
+        serializer = BillingAlertConfigurationSerializer(
+            [slack_alert, webhook_alert, empty_alert],
+            many=True,
+        )
+
+        with self.assertNumQueries(1):
+            data = list(serializer.data)
+
+        assert data[0]["destination_types"] == ["slack"]
+        assert data[1]["destination_types"] == ["webhook"]
+        assert data[2]["destination_types"] == []
 
     def test_non_admin_cannot_create(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
