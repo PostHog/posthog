@@ -172,7 +172,151 @@ team/user/repository; tests updated & green; `ruff check products/review_hog/` c
 **Out of scope for Stage 2 (later stages):** productize beyond the CLI (Temporal parent workflow / API trigger
 / Postgres run state — `run.py` carries the `TODO: Make it a parent workflow…`); the remaining
 [Known issues](#known-issues--tech-debt) (duplicate report-generation logic; `is_directy_…` /
-`detected_in_pass` prompt-schema typos); product isolation (contracts + facade).
+`detected_in_pass` prompt-schema typos); product isolation (contracts + facade). Durable Postgres run
+state + cloud persistence is its own effort — now **Stage 3** below.
+
+### 🔭 Stage 3 — durable persistence & the loop-y review (cloud)
+
+> **Status: designed, not built.** This is the agreed direction for taking ReviewHog off local files and into
+> the cloud. Captured here so the next session starts from the decision, not a blank page.
+
+**Why.** Today every run writes Pydantic-serialized JSON/MD to a gitignored `reviews/<pr_number>/` tree — no
+DB, no `team_id`, no run identity (a "run" is just the PR-number directory). That blocks two things: running
+in the cloud, and the intended **loop-y** behavior — after the first pass ReviewHog should re-check the PR for
+new commits and new comments (from humans or other bots) and take **another turn**, repeating until nothing
+significant has changed. A PR review is therefore a **living document**, not a one-shot job — which is exactly
+the shape Signals' report/artefact store was built for, so we reuse that design.
+
+**Decided design (final — implement, don't re-litigate).** Settled across a research pass; the placement,
+the "not a SignalReport", and the "reuse the leaf, own the model" calls are made — build them.
+
+##### Placement & boundaries
+
+- **ReviewHog stays a top-level peer product** (`products/review_hog/`). It is **not** nested under
+  `products/signals/` — the repo has zero precedent for a product inside another, and the exact precedent for
+  "an agentic product that feeds Signals" is **`products/replay_vision/`**, a sibling that emits findings
+  through Signals' facade. ReviewHog is the same shape.
+- **A PR review is NOT a `SignalReport`.** SignalReport's lifecycle (ClickHouse embeddings → similarity
+  grouping → `total_weight` accrual → `signals_at_run` promotion gate → autonomy auto-start) answers "is this
+  worth acting on, and which group does it join?" — a PR answers both by its identity `(repo, pr_number)`.
+  Modeling reviews as SignalReports would mean faking embeddings/weight, defeating the promotion gate, and
+  polluting the Status enum. So: **separate parent entities, shared substrate only.**
+- **Reuse path = "peer + reuse the leaf"** (chosen over extracting a shared abstract base). Import mechanics
+  decided it: Signals' `artefact_schemas.py` is a genuine dependency-light **leaf** (pydantic only — pulls no
+  Django/core/temporal), so ReviewHog imports it cheaply. The Django artefact _model_ (funnel + fields + a
+  `tasks.Task` FK) is the entangled part — hoisting it into core would invert the dependency (core→product FK)
+  and force re-parenting migrations, and the repo rule is **nest-then-promote** (don't pre-build shared infra).
+  So ReviewHog **reuses the leaf and owns its own model**; a shared abstract base is deferred (see below).
+- **Signals stays untouched at the table & behavior level.** The only Signals change is a **pure code move**:
+  relocate the `ArtefactAttribution` dataclass from `products/signals/backend/models.py` into the leaf
+  (`artefact_schemas.py`, or a new `artefact_attribution.py`) and re-export it from `models.py` for existing
+  importers — no migration, no table change — so ReviewHog can import it without dragging the heavy models module.
+
+##### What ReviewHog reuses vs owns
+
+- **Reuse directly (shared infra, already legal):** `MultiTurnSession` via the Tasks facade
+  (`products.tasks.backend.facade.agents`, already imported by `executor.py`);
+  `posthog/storage/object_storage.py`; `GitHubIntegration.get_diff` / `first_for_team_repository`.
+- **Reuse from Signals' leaf** (`products.signals.backend.artefact_schemas`): `Commit`, `CodeReference`,
+  `TaskRunArtefact`, `NoteArtefact`, the registry helpers `artefact_type_for` / `parse_artefact_content`,
+  `ArtefactContentValidationError`, and `ArtefactAttribution` (after the move above).
+- **ReviewHog owns:** `ReviewReport` + `ReviewReportArtefact` (own tables + funnel mirroring
+  `SignalReportArtefact`) and its product-specific content schemas (`ReviewIssueFinding`, `ValidationVerdict`).
+
+##### Data model (`products/review_hog/backend/models.py`)
+
+Both models are **fail-closed team-scoped** (CLAUDE.md IDOR rule) using the proven base order
+`class X(UUIDModel, TeamScopedRootMixin)` — see `products/wizard/backend/models.py::WizardSession` and
+`products/mcp_analytics/backend/models.py::MCPSession`. `UUIDModel` gives the UUID7 PK; `TeamScopedRootMixin`
+gives the fail-closed `TeamScopedManager` + canonical-team `save()`; the subclass declares its own `team` FK.
+
+- **`ReviewReport(UUIDModel, TeamScopedRootMixin)`** — the living per-PR document:
+  - `team` FK → `posthog.Team` (CASCADE); `repository` (`owner/repo`); `pr_number`; `pr_url`; `head_branch`;
+    `base_branch`.
+  - `status` TextChoices — `active` / `idle` / `closed` (job/lifecycle state, _not_ SignalReport's machine).
+  - `run_count` (default 0); `last_run_at` (null); `created_at` / `updated_at`.
+  - **Watermark:** `head_sha` + `last_seen_comment_id` — what a turn has already reviewed, so the loop knows
+    what's new.
+  - Rendered report markdown: inline `TextField` for now (small); object-storage key if it grows.
+  - **Unique** on `(team, repository, pr_number)` — one living report per PR; this is the idempotency key, so
+    re-runs append turns rather than create a new report.
+- **`ReviewReportArtefact(UUIDModel, TeamScopedRootMixin)`** — the append-only work log, mirroring
+  `SignalReportArtefact`:
+  - `team` FK; `report` FK → `ReviewReport` (CASCADE, `related_name="artefacts"`); `type` CharField(choices);
+    `content` TextField (JSON via `model_dump_json()`); `created_at`; `updated_at` (null); `created_by` FK →
+    `posthog.User` (SET_NULL, null); `task` FK → `tasks.Task` (SET_NULL, null).
+  - `ArtefactType`: `issue_finding`, `validation_verdict`, `task_run`, `commit`, `code_reference`, `note`.
+  - **Funnel** (adapted from `SignalReportArtefact`): `_create` (derives `type` from the content-model class via
+    `artefact_type_for`, serializes `content.model_dump_json()`, maps `ArtefactAttribution` →
+    `created_by_id`/`task_id`), plus `append` / `add_log` / `append_finding`. **No** Signals auto-start hook.
+  - **Registry:** a ReviewHog-local `ARTEFACT_CONTENT_SCHEMAS` mapping its type strings → content models (reused
+    `Commit`/`CodeReference`/`TaskRunArtefact`/`NoteArtefact` + own `ReviewIssueFinding`/`ValidationVerdict`),
+    passed into the shared `artefact_type_for` / `parse_artefact_content` helpers.
+  - Indexes mirroring Signals: `(report)`, `(report, type)`, `(report, type, -created_at)` for latest-wins seeks.
+
+Content schemas (`products/review_hog/backend/reviewer/artefact_content.py`, pydantic):
+
+- **`ReviewIssueFinding`** — `file`, `start_line` / `end_line`, a stable `issue_key` (e.g. `file+anchor+lens`),
+  `title`, `body`, `suggestion`, `priority`, `source_lens`, `is_directly_related_to_changes`. **Latest-wins per
+  `issue_key`** across turns → still-valid / resolved / newly-appeared.
+- **`ValidationVerdict`** — `issue_key`, `is_valid`, `category`, `argumentation` (latest-wins per issue).
+- Reuse `Commit` / `CodeReference` / `TaskRunArtefact` / `NoteArtefact` from the Signals leaf for the
+  commit / code-pointer / turn / note entries.
+
+**Loop-y mapping:** issue → `issue_finding` (latest-wins per `issue_key`); validation → `validation_verdict`
+(latest-wins); a review **turn** → `task_run` (the sandbox `Task`, already created by `MultiTurnSession`);
+triggering commits / comments → `commit` / `note` work-log entries.
+
+##### Storage split
+
+Structured results (issues, verdicts, the report) → Postgres rows. Large / diff-bearing blobs → re-fetch on
+demand via `get_diff`, or `object_storage.write` under a team-scoped key (`review_hog/<team_id>/<pr>/…`) with
+only the key stored on the row — never a multi-hundred-KB diff in a `TextField`. Per-stage prompt/JSON scratch
+stays on sandbox disk.
+
+##### Implementation steps (ordered)
+
+1. **Signals leaf move (no migration):** relocate `ArtefactAttribution` into `artefact_schemas.py` (or a new
+   `artefact_attribution.py`), re-export from `models.py`; confirm no behavior/table change.
+2. **tach:** add a `[[modules]] path = "products.review_hog"` block with
+   `depends_on = ["products.signals", "products.tasks", "posthog", "ee"]`; `tach check --dependencies
+--interfaces` clean. (Signals isn't interface-gated, so the leaf import is permitted — keep imports to the
+   leaf, never `signals.backend.models`.)
+3. **Models:** add `products/review_hog/backend/models.py` (the two models + funnel + registry) and
+   `reviewer/artefact_content.py` (content schemas). Both models fail-closed via `TeamScopedRootMixin`.
+4. **Migration (`/django-migrations`):** `DEBUG=1 ./manage.py makemigrations review_hog` (new additive tables);
+   verify with `./manage.py sqlmigrate review_hog 0001`; confirm the IDOR/fail-closed baseline passes.
+5. **Persist-after-success:** swap the `reviews/<pr>/` filesystem writes for row writes — upsert `ReviewReport`
+   by `(team, repository, pr_number)`, append `ReviewReportArtefact`s in a narrow `transaction.atomic()` after
+   each sandbox stage/turn succeeds (mirror Signals' `run_agentic_report_activity`). Scratch stays on disk.
+6. **team/user:** thread a real `team_id` / `user_id` (replacing the hardcoded `_CLOUD_TEAM_ID=2` /
+   `_CLOUD_USER_ID` in `executor.py`) from the trigger; pass explicitly until the cloud trigger exists.
+7. **Large blobs:** route diffs / large prompts to `object_storage` by key (or re-fetch via `get_diff`).
+
+##### Cloud host, Temporal & GitHub (assumed / later)
+
+- **Cloud host assumed.** The orchestrator (`run.py main()`, a management-command coroutine — `run.py` carries
+  `TODO: Make it a parent workflow`) is to be reworked into a **Temporal parent workflow** in a later pass; for
+  now assume a cloud host runs it. On Temporal, persist large artifacts **inside** the activity and pass S3
+  keys / row ids **by reference** (~2 MiB payload cap).
+- **GitHub auth stays basic.** Keep the `GITHUB_TOKEN` path; move PR-fetch/publish onto the team-scoped
+  `GitHubIntegration` (`get_diff` / `first_for_team_repository`) only when genuine per-team cloud auth is needed.
+
+##### Deferred / future (do not build now)
+
+- **Shared abstract artefact base.** If a second consumer proves it out (nest-then-promote), extract an abstract
+  `AttributedArtefact` (funnel + fields, with `task` / `report` FKs declared per-subclass to avoid a core→tasks
+  FK) into a shared home; Signals would converge onto it via a **mixin only** (no table change). Not now.
+- **Temporal parent workflow** for the orchestrator (the `run.py` `TODO`).
+- **API viewset + frontend** to browse reviews (`/improving-drf-endpoints`).
+- **Emit into the Signals inbox.** Like `replay_vision`, ReviewHog could emit notable findings into Signals via
+  the facade `emit_signal` so they surface in the inbox — a product feature, separate from this storage work.
+
+**Reuse ledger:** _reuse directly_ — `MultiTurnSession` (Tasks facade), `object_storage`,
+`GitHubIntegration.get_diff`; _reuse from the Signals leaf_ — `Commit` / `CodeReference` / `TaskRunArtefact` /
+`NoteArtefact`, the type registry, `ArtefactAttribution`; _ReviewHog-owned_ — `ReviewReport` +
+`ReviewReportArtefact`, the funnel, and the `ReviewIssueFinding` / `ValidationVerdict` schemas. The on-disk
+`reviews/<pr>/` tree degrades to sandbox-only scratch.
 
 ---
 
