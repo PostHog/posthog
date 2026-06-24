@@ -14188,6 +14188,34 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    /**
+     * An account's current value for a custom property (read shape).
+     */
+    export interface CustomPropertyValue {
+      /** Unique id of this value record. */
+      readonly id: string;
+      /** Account the value belongs to. */
+      readonly account_id: string;
+      /** Custom property definition the value is for. */
+      readonly definition_id: string;
+      /** The stored value, typed per the property's data type. */
+      readonly value: string | number | boolean;
+      /** When this value was set. */
+      readonly created_at: string;
+      /**
+         * Id of the user who set this value, if known.
+         * @nullable
+         */
+      readonly created_by_id: number | null;
+    }
+
+    export interface CustomPropertyValueWrite {
+      /** UUID of the custom property definition whose value to set for this account. */
+      definition: string;
+      /** Value to store, matching the definition's type: a number for number/currency/percent, a boolean for boolean, an ISO-8601 string for date/datetime, or text for text properties. */
+      value: string | number | boolean;
+    }
+
     export interface CustomerJourney {
       readonly id: string;
       insight: number;
@@ -26280,6 +26308,90 @@ export namespace Schemas {
       Low: 'low',
     } as const;
 
+    /**
+     * The resolved person behind one side of a link, with a curated set of properties that mirror
+     * the match signals (geo, device, campaign) so a reviewer can judge whether the link is plausible.
+     */
+    export interface IdentityMatchingPerson {
+      /** Distinct ID this person was resolved from. */
+      distinct_id: string;
+      /**
+         * When this person was first seen — person created_at (UTC).
+         * @nullable
+         */
+      first_seen: string | null;
+      /**
+         * When this person was last seen, when tracked — person last_seen_at (UTC).
+         * @nullable
+         */
+      last_seen: string | null;
+      /**
+         * Person's email, when set.
+         * @nullable
+         */
+      email: string | null;
+      /**
+         * Person's name property, when set.
+         * @nullable
+         */
+      name: string | null;
+      /**
+         * GeoIP city ($geoip_city_name).
+         * @nullable
+         */
+      city: string | null;
+      /**
+         * GeoIP country code ($geoip_country_code).
+         * @nullable
+         */
+      country: string | null;
+      /**
+         * Browser ($browser).
+         * @nullable
+         */
+      browser: string | null;
+      /**
+         * Operating system ($os).
+         * @nullable
+         */
+      os: string | null;
+      /**
+         * Device type, e.g. Desktop or Mobile ($device_type).
+         * @nullable
+         */
+      device_type: string | null;
+      /**
+         * Browser timezone ($timezone).
+         * @nullable
+         */
+      timezone: string | null;
+      /**
+         * Initial campaign source ($initial_utm_source).
+         * @nullable
+         */
+      utm_source: string | null;
+      /**
+         * Initial campaign medium ($initial_utm_medium).
+         * @nullable
+         */
+      utm_medium: string | null;
+      /**
+         * Initial campaign name ($initial_utm_campaign).
+         * @nullable
+         */
+      utm_campaign: string | null;
+      /**
+         * Initial referring domain ($initial_referring_domain).
+         * @nullable
+         */
+      referring_domain: string | null;
+      /**
+         * Initial Google click ID ($initial_gclid); present when the person arrived via a paid Google ad.
+         * @nullable
+         */
+      gclid: string | null;
+    }
+
     export interface IdentityMatchingLink {
       /** Identity matching run that produced this link. */
       job_id: string;
@@ -26327,6 +26439,10 @@ export namespace Schemas {
       orphan_paid_touch: boolean;
       /** The matched person already had a paid click ID inside the window. */
       anchor_paid_touch: boolean;
+      /** Resolved person behind the anonymous distinct ID; null when no profile exists for it. */
+      orphan_person: IdentityMatchingPerson | null;
+      /** Resolved identified person behind the matched person key; null when no profile exists for it. */
+      anchor_person: IdentityMatchingPerson | null;
     }
 
     export interface IdentityMatchingLinksResponse {
@@ -52301,6 +52417,14 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Sort by creation date or author. Defaults to '-created_at'.
+     */
+    ordering?: string;
+    /**
+     * Full-text search across notebook title and content.
+     */
+    search?: string;
     };
 
     export type EnvironmentsAlertsListParams = {
@@ -57094,6 +57218,14 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Sort by creation date or author. Defaults to '-created_at'.
+     */
+    ordering?: string;
+    /**
+     * Full-text search across notebook title and content.
+     */
+    search?: string;
     };
 
     export type ActionsListParams = {
