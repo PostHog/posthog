@@ -1,7 +1,7 @@
 import dataclasses
 from collections.abc import Iterator
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -73,7 +73,14 @@ def _fetch_page(session: requests.Session, url: str, logger: FilteringBoundLogge
 
     if not response.ok:
         logger.error("GIPHY API error", status=response.status_code, body=response.text)
-        response.raise_for_status()
+        # raise_for_status() would embed the full request URL — including the api_key
+        # query param — in the exception, which surfaces in the schema's latest_error.
+        # Rebuild the error from the path only so the key never leaks.
+        safe = urlsplit(response.url)
+        raise requests.HTTPError(
+            f"{response.status_code} Client Error: {response.reason} for url: {safe.scheme}://{safe.netloc}{safe.path}",
+            response=response,
+        )
 
     return response.json()
 

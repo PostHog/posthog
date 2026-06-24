@@ -4,6 +4,7 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from unittest.mock import MagicMock
 
+import requests
 from parameterized import parameterized
 
 from posthog.temporal.data_imports.sources.giphy import giphy
@@ -11,6 +12,7 @@ from posthog.temporal.data_imports.sources.giphy.giphy import (
     PAGE_SIZE,
     GiphyResumeConfig,
     _build_url,
+    _fetch_page,
     _normalize_items,
     get_rows,
     giphy_source,
@@ -227,6 +229,28 @@ class TestGiphySourceResponse:
             resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
         )
         assert response.sort_mode == "asc"
+
+
+class TestFetchPageErrorHandling:
+    def test_client_error_does_not_leak_api_key(self) -> None:
+        # The api_key rides in the query string, so raise_for_status() would put it in
+        # the exception message, which lands in the schema's latest_error.
+        api_key = "super-secret-key"
+        response = MagicMock()
+        response.status_code = 400
+        response.ok = False
+        response.reason = "Bad Request"
+        response.text = "invalid request"
+        response.url = f"https://api.giphy.com/v1/gifs/search?api_key={api_key}&q=cats"
+
+        session = MagicMock()
+        session.get.return_value = response
+
+        with pytest.raises(requests.HTTPError) as exc_info:
+            _fetch_page(session, response.url, MagicMock())
+
+        assert api_key not in str(exc_info.value)
+        assert "api.giphy.com/v1/gifs/search" in str(exc_info.value)
 
 
 class TestValidateCredentials:
