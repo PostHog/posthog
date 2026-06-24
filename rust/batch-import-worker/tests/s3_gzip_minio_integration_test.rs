@@ -116,7 +116,7 @@ async fn test_s3_gzip_minio_integration() {
     };
 
     let source = s3_config
-        .create_gzip_source(&secrets)
+        .create_gzip_source(&secrets, std::env::temp_dir())
         .await
         .expect("create gzip source");
     source.prepare_for_job().await.expect("prepare for job");

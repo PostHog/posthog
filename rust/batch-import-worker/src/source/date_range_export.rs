@@ -1,12 +1,10 @@
-use super::DataSource;
-use crate::error::{RateLimitedError, ToUserError};
-use crate::extractor::{ExtractedPartData, PartExtractor};
+use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
+
 use anyhow::{Context, Error};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use reqwest::header::HeaderMap;
 use reqwest::{Client, Error as ReqwestError};
-use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 use tempfile::TempDir;
 use tokio::{
     fs::File,
@@ -14,6 +12,10 @@ use tokio::{
     sync::Mutex,
 };
 use tracing::{debug, info, warn};
+
+use super::DataSource;
+use crate::error::{RateLimitedError, ToUserError};
+use crate::extractor::{ExtractedPartData, PartExtractor};
 
 // Extract a user friendly error message
 // from status code of request to the export source endpoint
@@ -77,6 +79,7 @@ pub struct DateRangeExportSourceBuilder {
     end: DateTime<Utc>,
     interval_duration: i64,
     extractor: Arc<dyn PartExtractor>,
+    staging_dir: PathBuf,
 
     // Optional with defaults
     start_qp: String,
@@ -96,6 +99,7 @@ impl DateRangeExportSourceBuilder {
         end: DateTime<Utc>,
         interval_duration: i64,
         extractor: Arc<dyn PartExtractor>,
+        staging_dir: PathBuf,
     ) -> Self {
         Self {
             base_url,
@@ -103,6 +107,7 @@ impl DateRangeExportSourceBuilder {
             end,
             interval_duration,
             extractor,
+            staging_dir,
             start_qp: "start".to_string(),
             end_qp: "end".to_string(),
             timeout: Duration::from_secs(30),
@@ -180,6 +185,7 @@ impl DateRangeExportSourceBuilder {
             retries: self.retries,
             retry_delay: self.retry_delay,
             extractor: self.extractor,
+            staging_dir: self.staging_dir,
             temp_dir: Arc::new(Mutex::new(None)),
             prepared_keys: Arc::new(Mutex::new(HashMap::new())),
         })
@@ -198,6 +204,7 @@ pub struct DateRangeExportSource {
     pub extractor: Arc<dyn PartExtractor>,
     pub start_qp: String,
     pub end_qp: String,
+    staging_dir: PathBuf,
     temp_dir: Arc<Mutex<Option<TempDir>>>,
     prepared_keys: Arc<Mutex<HashMap<String, ExtractedPartData>>>,
     auth_config: AuthConfig,
@@ -225,8 +232,16 @@ impl DateRangeExportSource {
         end: DateTime<Utc>,
         interval_duration: i64,
         extractor: Arc<dyn PartExtractor>,
+        staging_dir: PathBuf,
     ) -> DateRangeExportSourceBuilder {
-        DateRangeExportSourceBuilder::new(base_url, start, end, interval_duration, extractor)
+        DateRangeExportSourceBuilder::new(
+            base_url,
+            start,
+            end,
+            interval_duration,
+            extractor,
+            staging_dir,
+        )
     }
 
     fn interval_key((start, end): (DateTime<Utc>, DateTime<Utc>)) -> String {
@@ -556,14 +571,16 @@ impl DataSource for DateRangeExportSource {
         }
     }
 
-    // The lifecycle of this temp dir matches the lifecycle of the job
-    // It should be cleaned up when the job completes, fails, panics, etc.
-    // This ensures that files are cleaned up on a per job basis, but does not clean up
-    // .raw and .data files that are created for each key that we process per job
-    // We need to make sure to properly manage the clean up of those files as well
     async fn prepare_for_job(&self) -> Result<(), Error> {
-        let temp_dir =
-            tempfile::tempdir().with_context(|| "Failed to create temp directory for job")?;
+        let temp_dir = tempfile::Builder::new()
+            .prefix("job-")
+            .tempdir_in(&self.staging_dir)
+            .with_context(|| {
+                format!(
+                    "Failed to create temp directory in staging dir: {}",
+                    self.staging_dir.display()
+                )
+            })?;
         debug!("Created temp directory for job: {:?}", temp_dir.path());
 
         {
@@ -575,8 +592,6 @@ impl DataSource for DateRangeExportSource {
     }
 
     async fn cleanup_after_job(&self) -> Result<(), Error> {
-        // Best-effort:clear in-memory references and drop the job-scoped temp dir.
-        // TempDir drop removes the directory recursively; per-file deletes are redundant and noisy.
         {
             let mut prepared_keys = self.prepared_keys.lock().await;
             prepared_keys.clear();
@@ -584,8 +599,12 @@ impl DataSource for DateRangeExportSource {
         {
             let mut temp_dir_guard = self.temp_dir.lock().await;
             if let Some(temp_dir) = temp_dir_guard.take() {
-                drop(temp_dir);
-                debug!("Cleaned up temp directory");
+                let path = temp_dir.path().to_path_buf();
+                if let Err(e) = temp_dir.close() {
+                    warn!("Failed to remove temp directory {}: {e}", path.display());
+                } else {
+                    debug!("Cleaned up temp directory: {}", path.display());
+                }
             }
         }
         debug!("Job cleanup complete");
@@ -681,6 +700,7 @@ mod tests {
             end,
             interval_duration,
             Arc::new(MockExtractor),
+            std::env::temp_dir(),
         )
         .with_auth(AuthConfig::None)
         .with_date_format("%Y-%m-%dT%H:%M:%SZ".to_string())
@@ -818,6 +838,7 @@ mod tests {
             end,
             3600,
             Arc::new(MockExtractor),
+            std::env::temp_dir(),
         )
         .with_auth(AuthConfig::ApiKey {
             header_name: "X-API-Key".to_string(),
@@ -854,6 +875,7 @@ mod tests {
             end,
             3600,
             Arc::new(MockExtractor),
+            std::env::temp_dir(),
         )
         .with_auth(AuthConfig::BearerToken {
             token: "test-token".to_string(),
@@ -995,6 +1017,7 @@ mod tests {
             end,
             3600,
             Arc::new(MockExtractor),
+            std::env::temp_dir(),
         )
         .with_auth(AuthConfig::None)
         .with_date_format("%Y-%m-%dT%H:%M:%SZ".to_string())
@@ -1160,6 +1183,7 @@ mod tests {
             Utc.with_ymd_and_hms(2023, 1, 1, 1, 0, 0).unwrap(),
             3600,
             Arc::new(MockExtractor),
+            std::env::temp_dir(),
         )
         .build()
         .unwrap();
@@ -1258,6 +1282,7 @@ mod tests {
             end,
             86400, // 1 day intervals - also used to adjust end date for inclusive APIs
             Arc::new(MockExtractor),
+            std::env::temp_dir(),
         )
         .with_query_params("from_date".to_string(), "to_date".to_string())
         .with_date_format("%Y-%m-%d".to_string())
