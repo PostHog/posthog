@@ -253,6 +253,62 @@ describe('janitor HTTP', () => {
         expect((res.body.results as Array<{ id: string }>).map((s) => s.id)).toEqual([uuidFor('s-pct')])
     })
 
+    it('GET /sessions returns the summary fields and search matches the summary text', async () => {
+        const { queue, app } = mk()
+        await queue.enqueue({
+            ...session('s-sum'),
+            application_id: uuidFor('app-sum'),
+            state: 'completed',
+            conversation: [{ role: 'user', content: 'how do I rotate the api key?', timestamp: 1 }],
+        })
+        await queue.setSummary(uuidFor('s-sum'), {
+            summary: 'User asked how to rotate the key; the agent walked through it.',
+            topic: 'key rotation',
+            outcome: 'resolved',
+        })
+        const res = await request(app)
+            .get('/sessions')
+            .query({ application_id: uuidFor('app-sum') })
+        expect(res.body.results[0]).toMatchObject({
+            summary_topic: 'key rotation',
+            summary_outcome: 'resolved',
+        })
+        expect(res.body.results[0].summary).toContain('walked through')
+        // "walked through" is only in the summary, not the transcript digest —
+        // proves search now matches the summary column too.
+        const bySummary = await request(app)
+            .get('/sessions')
+            .query({ application_id: uuidFor('app-sum'), search: 'walked through' })
+        expect((bySummary.body.results as Array<{ id: string }>).map((s) => s.id)).toEqual([uuidFor('s-sum')])
+    })
+
+    it('listTerminalUnsummarized returns only terminal sessions still missing a summary', async () => {
+        const { queue } = mk()
+        await queue.enqueue({
+            ...session('u-pending'),
+            application_id: uuidFor('app-u'),
+            state: 'completed',
+            conversation: [{ role: 'user', content: 'hello there', timestamp: 1 }],
+        })
+        await queue.enqueue({
+            ...session('u-done'),
+            application_id: uuidFor('app-u'),
+            state: 'failed',
+            conversation: [{ role: 'user', content: 'bye now', timestamp: 1 }],
+        })
+        await queue.setSummary(uuidFor('u-done'), { summary: 'x', topic: 'y', outcome: 'other' })
+        await queue.enqueue({
+            ...session('u-live'),
+            application_id: uuidFor('app-u'),
+            state: 'running',
+            conversation: [{ role: 'user', content: 'still going', timestamp: 1 }],
+        })
+        const ids = (await queue.listTerminalUnsummarized(50)).map((s) => s.id)
+        expect(ids).toContain(uuidFor('u-pending'))
+        expect(ids).not.toContain(uuidFor('u-done')) // already summarized
+        expect(ids).not.toContain(uuidFor('u-live')) // not terminal
+    })
+
     it('GET /sessions summaries derive preview from search_text + usage_total off the persisted columns', async () => {
         const { queue, app } = mk()
         await queue.enqueue({

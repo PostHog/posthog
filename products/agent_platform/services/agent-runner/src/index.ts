@@ -306,6 +306,16 @@ async function main(): Promise<void> {
                       apiKey: config.posthogAiGatewayKey!,
                   })
             : undefined,
+        // Cheap fixed model for post-session summaries (gateway path only). Built
+        // once, shared across sessions — independent of each agent's spec.model.
+        summaryModel:
+            config.useAiGateway && config.posthogAiGatewayKey
+                ? posthogAiGatewayModel({
+                      specModel: config.summaryModel,
+                      baseUrl: config.aiGatewayUrl,
+                      apiKey: config.posthogAiGatewayKey,
+                  })
+                : undefined,
         // Per-session bearer for pi-ai's `streamSimple` (no client-level default).
         // Gateway path → the static phs_ (cost bills to the team that owns it);
         // direct path → boot-time provider key (ANTHROPIC_API_KEY / OPENAI / etc).

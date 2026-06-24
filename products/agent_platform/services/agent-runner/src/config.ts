@@ -90,6 +90,12 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
         .describe(
             'Static ai-gateway bearer — a `phs_` project secret key with the `llm_gateway:read` scope. On the gateway path it authenticates every model + usage call (required there); on the direct path it falls through as the first-priority provider apiKey. Dev defaults to the deterministic local phs_ that bin/setup-gateway-e2e provisions.'
         ),
+    summaryModel: z
+        .string()
+        .default('anthropic/claude-haiku-4-5')
+        .describe(
+            "Cheap model used for the post-session LLM summary (canonical `<provider>/<model>`). Deliberately NOT the agent's own model — summaries are low-stakes and high-volume, so they run on a fixed cheap SKU regardless of what the agent uses."
+        ),
     anthropicApiKey: z.string().optional().describe('Anthropic API key. Second-priority for pi-ai default apiKey.'),
     openaiApiKey: z.string().optional().describe('OpenAI API key. Third-priority for pi-ai default apiKey.'),
     modelApiKey: z.string().optional().describe('Catch-all model API key. Last-priority for pi-ai default apiKey.'),
@@ -256,6 +262,7 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentRunnerConfig>(PLATFORM_ENV_KEY_MAP, {
     AGENT_USE_AI_GATEWAY: 'useAiGateway',
     POSTHOG_AI_GATEWAY_URL: 'aiGatewayUrl',
     POSTHOG_AI_GATEWAY_KEY: 'posthogAiGatewayKey',
+    AGENT_SUMMARY_MODEL: 'summaryModel',
     ANTHROPIC_API_KEY: 'anthropicApiKey',
     OPENAI_API_KEY: 'openaiApiKey',
     MODEL_API_KEY: 'modelApiKey',

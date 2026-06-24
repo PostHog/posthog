@@ -19,6 +19,7 @@ import {
     SessionUsageTotal,
 } from '../spec/spec'
 import { buildSearchText, SEARCH_TEXT_MAX } from '../spec/summarize-conversation'
+import { SessionSummaryResult } from '../spec/summarize-session'
 import {
     AggregateStats,
     DecideElevationInput,
@@ -41,6 +42,7 @@ const SELECT_COLS = `id, application_id, revision_id, team_id, external_key,
 const SUMMARY_COLS = `id, application_id, revision_id, team_id, external_key,
                       idempotency_key, trigger_metadata, state, principal,
                       usage_total, retry_count, is_preview, turn_count, search_text,
+                      summary, summary_topic, summary_outcome,
                       created_at, updated_at`
 
 export class PgSessionQueue implements SessionQueue {
@@ -501,6 +503,32 @@ export class PgSessionQueue implements SessionQueue {
         return (r.rowCount ?? 0) > 0
     }
 
+    async setSummary(sessionId: string, result: SessionSummaryResult): Promise<void> {
+        await this.pool.query(
+            `UPDATE agent_session
+             SET summary = $2, summary_topic = $3, summary_outcome = $4, summary_generated_at = NOW()
+             WHERE id = $1`,
+            [sessionId, result.summary, result.topic, result.outcome]
+        )
+    }
+
+    async listTerminalUnsummarized(limit: number): Promise<AgentSession[]> {
+        // Terminal (not queued/running), has digest text worth summarizing, and
+        // not yet summarized. Newest first so a capped backfill does the most
+        // recently active agents first.
+        const r = await this.pool.query<DbRow>(
+            `SELECT ${SELECT_COLS}
+             FROM agent_session
+             WHERE state NOT IN ('queued', 'running')
+               AND summary_generated_at IS NULL
+               AND COALESCE(search_text, '') <> ''
+             ORDER BY created_at DESC
+             LIMIT $1`,
+            [Math.max(1, Math.min(limit, 1000))]
+        )
+        return r.rows.map(rowToSession)
+    }
+
     async listIdleCompleted(floorMaxAgeMs: number, limit = 200): Promise<AgentSession[]> {
         const r = await this.pool.query<DbRow>(
             `SELECT ${SELECT_COLS}
@@ -677,7 +705,9 @@ function buildSessionFilter(
         const term = `%${opts.search.trim().replace(/[\\%_]/g, '\\$&')}%`
         params.push(term)
         const idx = params.length
-        where.push(`(id::text ILIKE $${idx} OR external_key ILIKE $${idx} OR search_text ILIKE $${idx})`)
+        where.push(
+            `(id::text ILIKE $${idx} OR external_key ILIKE $${idx} OR search_text ILIKE $${idx} OR summary ILIKE $${idx} OR summary_topic ILIKE $${idx})`
+        )
     }
     return { where, params }
 }
@@ -734,6 +764,9 @@ interface SummaryDbRow {
     is_preview: boolean
     turn_count: number | null
     search_text: string | null
+    summary: string | null
+    summary_topic: string | null
+    summary_outcome: string | null
     created_at: Date
     updated_at: Date
 }
@@ -757,6 +790,9 @@ function rowToSummary(row: SummaryDbRow): SessionSummary {
         is_preview: row.is_preview === true,
         turns: row.turn_count ?? 0,
         search_text: row.search_text ?? null,
+        summary: row.summary ?? null,
+        summary_topic: row.summary_topic ?? null,
+        summary_outcome: row.summary_outcome ?? null,
         created_at: row.created_at.toISOString(),
         updated_at: row.updated_at.toISOString(),
     }

@@ -14,6 +14,7 @@
 export * from './spec/spec'
 export * from './spec/slack-manifest'
 export * from './spec/summarize-conversation'
+export * from './spec/summarize-session'
 export * from './spec/tool'
 export * from './spec/framework-preamble'
 export * from './spec/system-prompt'

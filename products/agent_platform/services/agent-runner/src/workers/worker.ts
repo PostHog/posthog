@@ -52,6 +52,7 @@ import {
 
 import { runSession } from '../loop/driver'
 import { McpTransportFactory, openMcpClients } from '../loop/mcp-clients'
+import { generateSessionSummary } from '../loop/summarize-session'
 import * as metrics from '../metrics'
 import { resolveModelCached } from '../models/pi-client'
 
@@ -71,6 +72,12 @@ export interface WorkerDeps {
      * Override for custom-endpoint models (ai-gateway) or test faux models.
      */
     resolveModel?: (specModel: string) => Model<string>
+    /**
+     * Cheap, fixed model for the post-session summary (NOT the agent's own
+     * model — summaries are high-volume + low-stakes). When omitted, the
+     * terminal summary step is skipped.
+     */
+    summaryModel?: Model<string>
     /**
      * Per-session API key resolver. The resolved key is passed to the driver's
      * loop config; defaults to no key. On the ai-gateway path this returns
@@ -600,6 +607,23 @@ export class Worker {
             metrics.sessionOutcomes.labels({ outcome: outcome.state }).inc()
             metrics.sessionDuration.observe((Date.now() - runStartedAt) / 1000)
             metrics.sessionTurns.observe(outcome.turns)
+            // Best-effort LLM summary of the finished session (list / search /
+            // usage overview), on a cheap fixed model — not the agent's. Its own
+            // try/catch — a summary failure must never change the session
+            // outcome. Skips re-queued (suspended) sessions.
+            if (newState !== 'queued' && this.deps.summaryModel) {
+                try {
+                    const summary = await generateSessionSummary(this.deps.summaryModel, session.conversation, {
+                        apiKey,
+                        signal: this.shutdownController.signal,
+                    })
+                    if (summary) {
+                        await this.deps.queue.setSummary(session.id, summary)
+                    }
+                } catch (summaryErr) {
+                    sLog.warn({ err: (summaryErr as Error)?.message }, 'session.summary.failed')
+                }
+            }
         } catch (err) {
             // Pre-runSession failures (revision load, secrets, sandbox acquire,
             // MCP open) skip the driver's bus / log / conversation hooks. Without

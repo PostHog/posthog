@@ -20,7 +20,8 @@
         "test": "vitest run",
         "start": "tsx src/index.ts",
         "start:dev": "tsx watch src/index.ts",
-        "gateway:smoke": "tsx bin/gateway-smoke.ts"
+        "gateway:smoke": "tsx bin/gateway-smoke.ts",
+        "backfill-summaries": "tsx bin/backfill-summaries.ts"
     },
     "dependencies": {
         "@aws-sdk/client-s3": "^3.723.0",

@@ -195,6 +195,13 @@ class AgentSession(ProductTeamModel, UUIDModel):
     # truncated user+assistant text digest; turn_count is len(conversation).
     search_text = models.TextField(null=True, blank=True)
     turn_count = models.IntegerField(default=0, db_default=0)
+    # LLM-generated, written once a session is terminal (runner-inline). Null =
+    # not yet summarized (the work-queue marker for the backfill). topic +
+    # outcome are short labels for grouping ("how is this agent used").
+    summary = models.TextField(null=True, blank=True)
+    summary_topic = models.TextField(null=True, blank=True)
+    summary_outcome = models.TextField(null=True, blank=True)
+    summary_generated_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_default=Now())
     updated_at = models.DateTimeField(auto_now=True, db_default=Now())
 

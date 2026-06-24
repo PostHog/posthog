@@ -13,6 +13,7 @@ import {
     SessionPrincipal,
     SessionUsageTotal,
 } from '../spec/spec'
+import { SessionSummaryResult } from '../spec/summarize-session'
 
 /** Input to the atomic elevation-decision transition (`decideElevationRequest`). */
 export interface DecideElevationInput {
@@ -95,6 +96,9 @@ export interface SessionSummary {
     is_preview: boolean
     turns: number
     search_text: string | null
+    summary: string | null
+    summary_topic: string | null
+    summary_outcome: string | null
     created_at: string
     updated_at: string
 }
@@ -226,6 +230,18 @@ export interface SessionQueue extends SessionInputsStore {
         turnCount: number,
         opts?: { dryRun?: boolean }
     ): Promise<boolean>
+    /**
+     * Persist the LLM session summary (+ topic / outcome) and stamp
+     * `summary_generated_at`. Does NOT bump `updated_at` — generated post-hoc,
+     * not session activity.
+     */
+    setSummary(sessionId: string, result: SessionSummaryResult): Promise<void>
+    /**
+     * Terminal sessions still missing a summary, newest first — the work list
+     * for the summary backfill. `conversation` is included so the caller can
+     * build the digest without a second read.
+     */
+    listTerminalUnsummarized(limit: number): Promise<AgentSession[]>
     /**
      * Roll up summary stats for an agent — drives the agent-detail
      * overview tiles. `since` filters cost + sessions count to a
