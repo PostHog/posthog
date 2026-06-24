@@ -336,6 +336,14 @@ snapshots:
         hash: v1.k794b7964.1edeb2b451c40f4668794b3f0b2ce26310d8de3d86251268e05e29907aefa32f.MQyuYmfzDfAt5PomF5hX-5T6Y8SbwHU1u5WNAZ-sCp8
     components-date-picker--past-only--light:
         hash: v1.k794b7964.55110c91efc330aafd9b3e13aca56ce6f318ab8705b467a4dd17ff8c0d3bcc5c.osuoC2s8h8s0ulbWzM5oSXRHH0B5jQ1uMGoOHoTqSVM
+    components-date-picker--quill-empty--dark:
+        hash: v1.k794b7964.44cfdb6fe956961256a9825c7d7a5cf0c596e937ecfb9994a4e133037ec8d76e.L_ZWqAvhq1iodO1C3KlnycjGH2PFxkGruf577T5Gb9Y
+    components-date-picker--quill-empty--light:
+        hash: v1.k794b7964.d40c13438b057467aa3719c70f62f7f0114635a397b394207833d764431b447a.xVNP5qzKlFD1WLEU_INK1YNK6oiuRQsrZvGNTHfXHKU
+    components-date-picker--quill-with-value--dark:
+        hash: v1.k794b7964.a386afa786ebee7c4470eed750332a620a2002e551a9d1e041af9fa60e1da86c.fNRNWhtJ5aB4iz6iDr19zk9ebcKADccxnYpLFNVY6hU
+    components-date-picker--quill-with-value--light:
+        hash: v1.k794b7964.0786709c470949e8a5dc67bcc19bf9d477336b1bdb122ea1a25bbd4470fa4ec5.XRrbm84hpIwAY_xUGHDELuwXK3N3GLyXPR2uWTIfXHA
     components-date-picker--with-time--dark:
         hash: v1.k794b7964.65c714e51e6bcbb96db62c5287c287106aabc63fc6e2ea9576eeb641956c4463.zD6m1LyQaP5xoQeZEWw-WpPwIojsj6JWX9c4-S3Dl_4
     components-date-picker--with-time--light:
