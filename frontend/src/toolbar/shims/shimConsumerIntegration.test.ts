@@ -36,6 +36,14 @@ describe('shim consumer integration', () => {
     })
 
     describe('hedgehogModeLogic with shims', () => {
+        // MSW installs a never-resolving global.fetch in a beforeAll and never restores it per test,
+        // so a test that swaps global.fetch must put it back or the swap leaks into later tests.
+        let restoreFetch: (() => void) | undefined
+        afterEach(() => {
+            restoreFetch?.()
+            restoreFetch = undefined
+        })
+
         it('mounts without error and has shimmed defaults', async () => {
             const { hedgehogModeLogic } = await import('~/lib/components/HedgehogMode/hedgehogModeLogic')
             const logic = hedgehogModeLogic.build()
@@ -58,7 +66,11 @@ describe('shim consumer integration', () => {
             // The Toolbar OAuth token is scoped to `user:read` but not `user:write`, so the real
             // backend 403s the PATCH while the GET still succeeds. toolbarFetch turns any 403 into a
             // session reset, which used to log the user out of the Toolbar whenever hedgehog mode
-            // moved the hedgehog around. The MSW harness owns global.fetch, so reassign it here.
+            // moved the hedgehog around. Swap in our own mock and let afterEach restore the original.
+            const originalFetch = global.fetch
+            restoreFetch = () => {
+                global.fetch = originalFetch
+            }
             const fetchMock = jest.fn((_url: string, options?: RequestInit) =>
                 Promise.resolve({
                     ok: options?.method !== 'PATCH',
