@@ -257,7 +257,12 @@ class Integration(models.Model):
     @property
     def display_name(self) -> str:
         if self.kind in OauthIntegration.supported_kinds:
-            oauth_config = OauthIntegration.oauth_config_for_kind(self.kind)
+            try:
+                oauth_config = OauthIntegration.oauth_config_for_kind(self.kind)
+            except NotImplementedError:
+                # display_name only needs the static name_path, not the app credentials.
+                # When the OAuth app isn't configured on this instance, fall back to the ID.
+                return f"ID: {self.integration_id}"
             return dot_get(self.config, oauth_config.name_path, self.integration_id)
         if self.kind in GoogleCloudIntegration.supported_kinds:
             return self.integration_id or "unknown ID"

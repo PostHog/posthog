@@ -148,6 +148,15 @@ class TestOauthIntegrationModel(BaseTest):
         with pytest.raises(NotImplementedError):
             OauthIntegration.authorize_url("salesforce", token="state_token", next="/projects/test")
 
+    @override_settings(LINEAR_APP_CLIENT_ID=None, LINEAR_APP_CLIENT_SECRET=None)
+    def test_display_name_falls_back_when_oauth_app_not_configured(self):
+        # display_name only needs the static name_path, not the app credentials, so it must not
+        # crash when the OAuth app is unconfigured on this instance (e.g. Linear without secrets).
+        integration = Integration.objects.create(
+            team=self.team, kind="linear", integration_id="acme", config={}, sensitive_config={}
+        )
+        assert integration.display_name == "ID: acme"
+
     def test_authorize_url(self):
         with self.settings(**self.mock_settings):
             url = OauthIntegration.authorize_url("salesforce", token="state_token", next="/projects/test")
