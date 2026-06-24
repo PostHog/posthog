@@ -148,9 +148,12 @@ def get_hog_function_templates() -> requests.Response:
     )
 
 
-def create_batch_hog_flow_job_invocation(team_id: int, hog_flow_id: UUIDT, batch_job_id: UUIDT) -> requests.Response:
+def create_batch_hog_flow_job_invocation(
+    team_id: int, hog_flow_id: UUIDT, batch_job_id: UUIDT, max_audience_size: int | None = None
+) -> requests.Response:
     return internal_requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/batch_invocations/{batch_job_id}",
+        json={"max_audience_size": max_audience_size},
         headers=get_internal_api_headers(),
     )
 

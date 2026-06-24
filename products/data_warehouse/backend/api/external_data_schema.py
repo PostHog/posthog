@@ -432,17 +432,23 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     def get_table(self, schema: ExternalDataSchema) -> Optional[dict]:
         from products.data_warehouse.backend.api.table import SimpleTableSerializer
 
-        hogql_context = self.context.get("database", None)
-        if not hogql_context:
-            hogql_context = Database.create_for(
-                team_id=self.context["team_id"],
-                user=cast(User, self.context["request"].user),
-            )
-
         if schema.table and schema.table.deleted:
             return None
 
-        return SimpleTableSerializer(schema.table, context={"database": hogql_context}).data or None
+        # Serializing table columns requires the full HogQL Database, which is expensive to build.
+        # Callers that don't need columns (e.g. the source list) set include_columns=False so we skip it.
+        include_columns = self.context.get("include_columns", True)
+        table_context: dict[str, Any] = {"include_columns": include_columns, "team_id": self.context.get("team_id")}
+        if include_columns:
+            hogql_context = self.context.get("database", None)
+            if not hogql_context:
+                hogql_context = Database.create_for(
+                    team_id=self.context["team_id"],
+                    user=cast(User, self.context["request"].user),
+                )
+            table_context["database"] = hogql_context
+
+        return SimpleTableSerializer(schema.table, context=table_context).data or None
 
     def to_representation(self, instance: ExternalDataSchema) -> dict:
         ret = super().to_representation(instance)
@@ -1115,11 +1121,14 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             # Always force a full re-snapshot on re-enable: while removed from the
             # publication the replication slot kept advancing, so any changes made
             # during that window are permanently lost regardless of how short it was.
+            # reset_pipeline wipes the warehouse table first — otherwise the snapshot
+            # merges current rows over the stale pre-disable ones and never drops deletes.
             if should_sync is True and not newly_set_to_cdc:
                 # Mutate in memory only — the locked terminal save in `update()` (which calls this)
                 # persists both fields, merging cdc_mode onto the freshly-read config so a concurrent
                 # CDC extract activity's writes survive. A separate save here would clobber them.
                 instance.sync_type_config["cdc_mode"] = "snapshot"
+                instance.sync_type_config["reset_pipeline"] = True
                 instance.initial_sync_complete = False
 
         # Remove table from capture set when toggling sync off

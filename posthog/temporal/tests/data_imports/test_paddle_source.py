@@ -184,7 +184,7 @@ def test_paddle_request_fails_fast(mock_request):
 
     from posthog.temporal.data_imports.sources.paddle.paddle import _get_paddle_session, paddle_request
 
-    session = _get_paddle_session()
+    session = _get_paddle_session("fake")
 
     response = paddle_request(
         session,
