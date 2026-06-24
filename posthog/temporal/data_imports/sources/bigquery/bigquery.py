@@ -294,7 +294,11 @@ def _detect_dataset_region(config: BigQuerySourceConfig) -> str | None:
         try:
             dataset_ref = bq.dataset(_resolve_dataset_id(config), project=_resolve_query_project(config))
             return bq.get_dataset(dataset_ref).location
-        except Exception:
+        except Exception as e:
+            # Best-effort: fall back to the default location so `get_columns` still surfaces the
+            # actionable not-found error. Log rather than capture, to keep the fallback visible
+            # without spamming error tracking.
+            structlog.get_logger().warning("Failed to auto-detect BigQuery dataset region", exc_info=e)
             return None
 
 

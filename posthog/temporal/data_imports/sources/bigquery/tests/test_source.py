@@ -622,6 +622,8 @@ def test_connect_auto_detects_dataset_region_when_unset():
         with BigQueryImplementation().connect(_make_config()) as conn:
             assert conn is fake_bq
 
+    # The region must come from an actual dataset-location lookup, not a hardcoded default.
+    fake_bq.get_dataset.assert_called_once()
     # The last client built is the one discovery queries run on; its location is positional arg 1.
     assert mock_client.call_args_list[-1][0][1] == "europe-west1"
 
