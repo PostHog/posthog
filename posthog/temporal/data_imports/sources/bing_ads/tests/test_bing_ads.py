@@ -6,10 +6,11 @@ from unittest.mock import MagicMock, Mock, patch
 
 from parameterized import parameterized
 
-from posthog.temporal.data_imports.sources.bing_ads.bing_ads import bing_ads_source
+from posthog.temporal.data_imports.sources.bing_ads.bing_ads import BING_ADS_REPORT_RETENTION, bing_ads_source
 from posthog.temporal.data_imports.sources.bing_ads.schemas import BingAdsResource
 from posthog.temporal.data_imports.sources.bing_ads.utils import (
     BingAdsResumeConfig,
+    download_and_extract_report_csv,
     fetch_data_in_yearly_chunks,
     parse_csv_to_dicts,
 )
@@ -179,6 +180,55 @@ class TestBingAdsHelperFunctions:
             BingAdsResumeConfig(next_start_date="2024-01-02", end_date=end_date.isoformat())
         )
 
+    def test_fetch_data_in_yearly_chunks_skips_out_of_retention_chunk(self):
+        # A chunk rejected with InvalidCustomDateRangeEnd (older than Bing's 36-month retention) is
+        # skipped and its checkpoint advanced, so the sync keeps the in-retention chunks instead of
+        # aborting. Any other error stays fatal — see test_fetch_data_in_yearly_chunks_failure_fails_sync.
+        mock_client = Mock()
+        mock_client.get_data_by_resource.side_effect = [
+            Exception(
+                "Failed to generate campaign_performance_report report: WebFault: Server raised fault: "
+                "'Invalid client data...' (InvalidCustomDateRangeEnd: The specified report time contains "
+                "an invalid custom date range end.)"
+            ),
+            iter([[{"year": "2024"}]]),
+            iter([[{"year": "2025"}]]),
+        ]
+
+        start_date = dt.date(2023, 1, 1)
+        end_date = dt.date(2025, 6, 30)
+
+        manager = _mock_resumable_manager()
+        result = list(
+            fetch_data_in_yearly_chunks(
+                client=mock_client,
+                resource=BingAdsResource.CAMPAIGN_PERFORMANCE_REPORT,
+                account_id=12345,
+                start_date=start_date,
+                end_date=end_date,
+                resumable_source_manager=manager,
+            )
+        )
+
+        assert result == [[{"year": "2024"}], [{"year": "2025"}]]
+        # The skipped chunk still advances the checkpoint, so all three chunks are accounted for
+        assert manager.save_state.call_count == 3
+
+    def test_download_and_extract_report_csv_no_file_returns_empty(self):
+        # Bing returns no file (download_file -> None) when a report has zero rows for the range;
+        # treat it as an empty report instead of crashing on Path(None).
+        manager = Mock()
+        manager.download_file.return_value = None
+
+        result = download_and_extract_report_csv(
+            reporting_service_manager=manager,
+            report_request=Mock(),
+            report_type="CampaignPerformanceReportRequest",
+            account_id=12345,
+        )
+
+        assert result == ""
+
     def test_fetch_data_in_yearly_chunks_resumes_from_saved_state(self):
         """When resume state exists, the loop starts at the saved chunk boundary and does not re-fetch earlier chunks."""
         mock_client = Mock()
@@ -326,6 +376,35 @@ class TestBingAdsSource:
         call_args = mock_fetch_chunks.call_args
         assert call_args.kwargs["start_date"] <= dt.date.today()
         assert call_args.kwargs["resumable_source_manager"] is manager
+
+    @patch("posthog.temporal.data_imports.sources.bing_ads.bing_ads.fetch_data_in_yearly_chunks")
+    @patch("posthog.temporal.data_imports.sources.bing_ads.bing_ads.BingAdsClient")
+    @patch("posthog.temporal.data_imports.sources.bing_ads.bing_ads.integrations")
+    def test_bing_ads_source_first_sync_caps_lookback_to_retention(
+        self, mock_integrations, mock_client_class, mock_fetch_chunks
+    ):
+        # On the first sync (no prior incremental value) the lookback is capped to Bing's 36-month
+        # retention window rather than reaching years back for data Bing no longer retains.
+        mock_integrations.BING_ADS_DEVELOPER_TOKEN = "test_dev_token"
+        mock_client_class.return_value = Mock()
+        mock_fetch_chunks.return_value = iter([[{"CampaignId": "123"}]])
+
+        result = bing_ads_source(
+            account_id=self.account_id,
+            resource_name="campaign_performance_report",
+            access_token=self.access_token,
+            refresh_token=self.refresh_token,
+            resumable_source_manager=_mock_resumable_manager(),
+            should_use_incremental_field=True,
+            incremental_field="TimePeriod",
+            incremental_field_type=IncrementalFieldType.Date,
+            db_incremental_field_last_value=None,
+        )
+        items = result.items()
+        assert isinstance(items, Iterable)
+        list(items)
+
+        assert mock_fetch_chunks.call_args.kwargs["start_date"] == dt.date.today() - BING_ADS_REPORT_RETENTION
 
     @patch("posthog.temporal.data_imports.sources.bing_ads.bing_ads.integrations")
     def test_bing_ads_source_missing_developer_token(self, mock_integrations):

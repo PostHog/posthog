@@ -60,6 +60,17 @@ interface AnalyticsEventBase {
     is_error?: boolean
     /** Free-form failure detail; only set when `is_error` is true. */
     error?: string
+    /**
+     * `true` when emitted from a preview-mode session
+     * (`agent_session.is_preview = true`). Stamped onto every `$ai_*` event
+     * as `$agent_is_preview` so PostHog's LLM Analytics dashboards can
+     * filter author-iteration noise out of production observability — the
+     * preview run still emits events (so the author can inspect their own
+     * generations), but it's marked for downstream filtering. Optional so
+     * tests + the analytics-sink unit tests can omit it; missing reads as
+     * "not preview" via a truthy check.
+     */
+    is_preview?: boolean
 }
 
 export interface AnalyticsGenerationEvent extends AnalyticsEventBase {
@@ -79,7 +90,11 @@ export interface AnalyticsGenerationEvent extends AnalyticsEventBase {
     total_tokens?: number
     /** Wall-clock duration of the pi-ai call, milliseconds. */
     latency_ms: number
-    /** Total cost in USD as reported by pi-ai. Suppressed when the gateway path is in use (see useGatewayCost). */
+    /**
+     * Total cost in USD. No longer set by the runner — the gateway emits cost on
+     * the gateway path, and ingestion prices direct-path events from the
+     * catalog. pi-ai's estimate is never used. Kept on the shape for consumers.
+     */
     cost_usd?: number
     /** pi-ai stopReason — `stop`, `length`, `toolUse`, `error`, `aborted`. */
     stop_reason?: string
@@ -185,6 +200,13 @@ export function buildAnalyticsProperties(event: AnalyticsEvent): Record<string, 
         if (event.error) {
             base.$ai_error = event.error
         }
+    }
+    if (event.is_preview) {
+        // Preview-mode marker. PostHog's LLM Analytics dashboards filter on
+        // this so author iteration doesn't skew production observability.
+        // Emitted only when true (absent ≡ live), keeping the property bag
+        // tight and the dashboard default uncluttered.
+        base.$agent_is_preview = true
     }
     if (event.kind === 'generation') {
         base.$ai_model = event.model

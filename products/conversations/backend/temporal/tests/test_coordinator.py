@@ -13,7 +13,7 @@ from products.conversations.backend.temporal.coordinator import (
     EligibleTicket,
     SupportReplyCoordinatorWorkflow,
     _collect_eligible,
-    collect_eligible_tickets_activity,
+    support_collect_eligible_tickets_activity,
 )
 
 COORD_MODULE = "products.conversations.backend.temporal.coordinator"
@@ -174,7 +174,7 @@ class TestCoordinatorWorkflow:
                 env.client,
                 task_queue="test-queue",
                 workflows=[SupportReplyCoordinatorWorkflow],
-                activities=[collect_eligible_tickets_activity],
+                activities=[support_collect_eligible_tickets_activity],
             ):
                 result = await env.client.execute_workflow(
                     SupportReplyCoordinatorWorkflow.run,
@@ -203,7 +203,7 @@ class TestCoordinatorWorkflow:
                 env.client,
                 task_queue="test-queue",
                 workflows=[SupportReplyCoordinatorWorkflow, _StubChildWorkflow],
-                activities=[collect_eligible_tickets_activity],
+                activities=[support_collect_eligible_tickets_activity],
             ):
                 result = await env.client.execute_workflow(
                     SupportReplyCoordinatorWorkflow.run,
@@ -234,7 +234,7 @@ class TestCoordinatorWorkflow:
                 env.client,
                 task_queue="test-queue",
                 workflows=[SupportReplyCoordinatorWorkflow, _StubChildWorkflow],
-                activities=[collect_eligible_tickets_activity],
+                activities=[support_collect_eligible_tickets_activity],
             ):
                 result = await env.client.execute_workflow(
                     SupportReplyCoordinatorWorkflow.run,

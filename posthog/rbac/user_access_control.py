@@ -94,6 +94,7 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "account": "customer_analytics",
     "customer_journey": "customer_analytics",
     "experiment_saved_metric": "experiment",
+    "experiment_holdout": "experiment",
     "dashboard_template": "dashboard",
     # Marketing analytics doesn't have its own RBAC resource yet — inherit from
     # web_analytics so the existing per-team controls actually gate it (matches
@@ -297,6 +298,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "session_recording_playlist"
     if name == "experimentsavedmetric":
         return "experiment_saved_metric"
+    if name == "experimentholdout":
+        return "experiment_holdout"
     if name == "endpointversion":
         return "endpoint"
     if name == "externaldatasource":
@@ -999,8 +1002,8 @@ class UserAccessControl:
         "none"), built from the single preload via the canonical object resolver.
 
         Consumed by HogQL object-level access control (schema filtering / printer guard) and by
-        the query cache fingerprint. Empty for org admins (they bypass object AC) and when there
-        is no team / EE. FF-agnostic: callers decide whether to enforce it.
+        the query cache fingerprint. Empty for org admins (they bypass object AC) and when there is
+        no team / EE / entitlement.
         """
         if not EE_AVAILABLE or not self._team or self.is_organization_admin:
             return {}
