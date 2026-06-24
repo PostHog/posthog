@@ -271,6 +271,8 @@ jobs:
             # Internal API auth needs a non-empty INTERNAL_API_SECRET when DEBUG/TEST are off, and
             # this job boots the app prod-like. The dev value is fine for CI.
             INTERNAL_API_SECRET: 'posthog123'
+            PERSONHOG_ADDR: 'localhost:50052'
+            POSTHOG_PERSONS_DB_NAME: 'posthog_persons'
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -522,6 +524,13 @@ jobs:
                       cat /tmp/rust-flags.log || true
                       exit 1
                   fi
+
+            - name: Start personhog services
+              shell: bash
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml
+                  COMPOSE_PROFILES: ingestion
+              run: bin/ci-wait-for-docker launch personhog-replica personhog-router
 
             - name: Seed test data
               run: python manage.py generate_demo_data --n-clusters 10 --days-past 7 --days-future 0 --skip-materialization --skip-flag-sync --skip-user-product-list
