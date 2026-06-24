@@ -187,6 +187,35 @@ class TestUserAuthSessionAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 200, response.content)
 
+    def test_step_up_required_blocks_sensitive_action(self):
+        other = self._other_session()
+        session = self.client.session
+        session["step_up_required"] = True
+        session.save()
+
+        response = self.client.delete(self._revoke_url(other))
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["code"], "sensitive_action_required_reauth")
+        self.assertTrue(Session.objects.filter(session_key=other.session_key).exists())
+
+    def test_step_up_does_not_block_reads(self):
+        self._other_session()
+        session = self.client.session
+        session["step_up_required"] = True
+        session.save()
+
+        self.assertEqual(self.client.get("/api/users/@me/login_sessions/").status_code, 200)
+
+    def test_last_reauth_at_refreshes_window(self):
+        other = self._other_session()
+        self._make_session_stale()
+        session = self.client.session
+        session["last_reauth_at"] = time.time()
+        session.save()
+
+        self.assertIn(self.client.delete(self._revoke_url(other)).status_code, (200, 204))
+
     def test_actions_are_self_only_even_for_staff(self):
         self.user.is_staff = True
         self.user.save()
