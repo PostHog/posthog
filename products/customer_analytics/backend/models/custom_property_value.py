@@ -10,7 +10,10 @@ ACTIVE_VALUE_CONSTRAINT_NAME = "unique_active_custom_property_value"
 
 
 class CustomPropertyValue(TeamScopedRootMixin, UUIDModel, CreatedMetaFields):
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+    )
     definition = models.ForeignKey(
         "customer_analytics.CustomPropertyDefinition", on_delete=models.CASCADE, related_name="values"
     )
