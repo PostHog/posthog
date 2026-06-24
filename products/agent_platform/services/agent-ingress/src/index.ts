@@ -24,7 +24,10 @@ import {
     installProcessHandlers,
     isDev,
     PgCredentialBroker,
+    PgIdentityCredentialStore,
+    PgIdentityLinkStateStore,
     PgIdentityStore,
+    PgApprovalStore,
     PgRevisionStore,
     PgSessionQueue,
     RedisSessionEventBus,
@@ -126,6 +129,8 @@ async function main(): Promise<void> {
         revisions: new PgRevisionStore(agentDb),
         queue: new PgSessionQueue(agentDb),
         identities: new PgIdentityStore(agentDb),
+        // Backs the Slack principal-decision handler (decide + wake).
+        approvals: new PgApprovalStore(agentDb),
         bus,
         routingMode: config.routingMode,
         domainSuffix: config.domainSuffix,
@@ -135,6 +140,12 @@ async function main(): Promise<void> {
         internalSigningKey: config.internalSigningKey,
         authProvider,
         credentialBroker,
+        // Identity linking: the OAuth callback route consumes a link-state row,
+        // rebuilds the provider from the app's spec + decrypted env, and persists.
+        identityCredentials: new PgIdentityCredentialStore(agentDb, { encryptionSaltKeys: config.encryptionSaltKeys }),
+        identityLinks: new PgIdentityLinkStateStore(agentDb),
+        envEncryption: encryption,
+        posthogApiBaseUrl: config.posthogApiBaseUrl,
         http,
     })
     app.listen(config.port, () => {

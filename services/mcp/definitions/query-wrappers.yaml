@@ -248,3 +248,22 @@ wrappers:
         exclude_properties:
             - response
             - modifiers
+
+    query-funnel-actors:
+        schema_ref: AssistantFunnelsActorsQuery
+        enabled: true
+        scopes:
+            - query:read
+            - person:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List persons who converted or dropped off at a funnel step
+        description_file: ./prompts/query-funnel-actors.md
+        system_prompt_hint: List persons who converted through or dropped off at a given funnel step
+        ui_resource_uri: ui://posthog/insight-actors.html
+        use_optimized_output: true
+        exclude_properties:
+            - response
+            - modifiers

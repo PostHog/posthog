@@ -5,9 +5,10 @@ import type { HttpFetcher, ToolContext } from '@posthog/agent-shared'
 import { makeCtx } from '../test-helpers'
 import { posthogQueryV1 } from './posthog-query.v1'
 
-/** A posthog_api bearer, as the ingress verifier writes for `posthog`-auth sessions. */
-const posthogCredentials: ToolContext['credentials'] = {
-    resolve: async (target) => (target === 'posthog_api' ? { kind: 'posthog_bearer', token: 'tok' } : null),
+/** Pre-resolved posthog identity, as the dispatch wrapper threads in for a tool
+ *  declaring a posthog `requires.provider`. */
+const posthogIdentity: ToolContext['resolvedIdentities'] = {
+    posthog: { credential: { kind: 'posthog_bearer', token: 'tok' }, allowedHosts: ['localhost:8010'] },
 }
 
 function fetchReturning(payload: unknown): { http: HttpFetcher; calls: Array<{ url: string; body: unknown }> } {
@@ -35,7 +36,7 @@ describe('@posthog/query', () => {
         })
         const logs: Array<{ msg: string; meta?: Record<string, unknown> }> = []
         const ctx = makeCtx({
-            credentials: posthogCredentials,
+            resolvedIdentities: posthogIdentity,
             http,
             log: (_level, msg, meta) => logs.push({ msg, meta }),
         })
@@ -57,14 +58,19 @@ describe('@posthog/query', () => {
 
     it('targets whatever project_id the agent passes (no principal coupling)', async () => {
         const { http, calls } = fetchReturning({ results: [], columns: [] })
-        const ctx = makeCtx({ credentials: posthogCredentials, http })
+        const ctx = makeCtx({ resolvedIdentities: posthogIdentity, http })
         await posthogQueryV1.run({ project_id: 42, query: 'select 1' }, ctx)
         expect(calls[0].url).toBe('http://localhost:8010/api/projects/42/query/')
     })
 
-    it('surfaces a missing posthog credential', async () => {
+    it('surfaces an unavailable posthog identity', async () => {
         const { http } = fetchReturning({ results: [], columns: [] })
-        const ctx = makeCtx({ credentials: { resolve: async () => null }, http })
+        const ctx = makeCtx({
+            identity: {
+                resolve: async () => ({ kind: 'unavailable', provider: 'posthog', reason: 'principal_not_linkable' }),
+            },
+            http,
+        })
         await expect(posthogQueryV1.run({ project_id: 1, query: 'select 1' }, ctx)).rejects.toThrow(
             /posthog_credentials_unavailable/
         )

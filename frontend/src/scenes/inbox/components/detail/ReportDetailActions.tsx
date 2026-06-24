@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
+import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport, SignalReportStatus } from '../../types'
 import { useReportArchive } from '../cards/useReportArchive'
@@ -43,6 +44,7 @@ function canCreateImplementationPr(report: SignalReport): boolean {
 export function ReportDetailActions({ report }: { report: SignalReport }): JSX.Element {
     const { isCreatingPr } = useValues(inboxTaskKickoffLogic)
     const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
+    const { reportArchived } = useActions(inboxBulkActionsLogic)
     const { activeTab } = useValues(inboxSceneLogic)
     const [isRestoring, setIsRestoring] = useState(false)
 
@@ -56,8 +58,12 @@ export function ReportDetailActions({ report }: { report: SignalReport }): JSX.E
         cardTitle: report.title ?? 'Untitled report',
         report,
         surface: 'detail_pane',
-        // Back to the list once archived – the suppressed report drops out on the list's refetch.
-        onArchived: () => router.actions.push(urls.inbox(activeTab)),
+        // Once the suppress persists, broadcast so every mounted list reconciles against the server
+        // (the report leaves Reports/Pull requests and joins Archived), then return to the list.
+        onArchived: () => {
+            reportArchived()
+            router.actions.push(urls.inbox(activeTab))
+        },
     })
 
     const onRestoreClick = async (): Promise<void> => {

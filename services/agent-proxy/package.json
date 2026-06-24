@@ -1,0 +1,34 @@
+{
+    "name": "@posthog/agent-proxy",
+    "version": "1.0.0",
+    "description": "PostHog agent-proxy SSE streaming service",
+    "license": "MIT",
+    "author": "PostHog Inc.",
+    "type": "module",
+    "scripts": {
+        "build": "tsx scripts/build-agent-proxy.ts",
+        "dev": "tsx scripts/dev-agent-proxy.ts | pino-pretty --colorize --ignore pid,hostname --messageKey event --translateTime SYS:HH:MM:ss.l",
+        "test": "vitest",
+        "typecheck": "tsc --noEmit",
+        "format": "oxlint --fix --fix-suggestions --fix-dangerously --quiet && oxfmt \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\""
+    },
+    "dependencies": {
+        "@hono/node-server": "^2.0.2",
+        "esbuild": "^0.25.11",
+        "hono": "^4.12.18",
+        "ioredis": "^4.28.5",
+        "jose": "^6.0.10",
+        "pino": "^8.6.0",
+        "prom-client": "^14.2.0"
+    },
+    "devDependencies": {
+        "@types/node": "^22.17.2",
+        "oxfmt": "catalog:",
+        "oxlint": "^1.8.0",
+        "pino-pretty": "^9.1.0",
+        "tsx": "^4.20.5",
+        "typescript": "catalog:",
+        "vite-tsconfig-paths": "^5.1.4",
+        "vitest": "^3.2.4"
+    }
+}

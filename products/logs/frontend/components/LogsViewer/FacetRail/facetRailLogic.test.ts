@@ -1,9 +1,15 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
+import { UniversalFiltersGroup } from '~/types'
 
 import { logsViewerFiltersLogic } from '../Filters/logsViewerFiltersLogic'
 import { facetRailLogic } from './facetRailLogic'
+import { FacetSource, resourceAttributeValues } from './facets'
+
+const LEVEL_SOURCE: FacetSource = { type: 'column', column: 'severity_text', filterKey: 'severityLevels' }
+const SERVICE_SOURCE: FacetSource = { type: 'column', column: 'service_name', filterKey: 'serviceNames' }
+const NAMESPACE_SOURCE: FacetSource = { type: 'resourceAttribute', key: 'k8s.namespace.name' }
 
 describe('facetRailLogic', () => {
     let filtersLogic: ReturnType<typeof logsViewerFiltersLogic.build>
@@ -24,19 +30,13 @@ describe('facetRailLogic', () => {
 
     describe('severity level toggling', () => {
         it('adds, accumulates (OR), and removes levels on the shared filters logic', async () => {
-            await expectLogic(logic, () =>
-                logic.actions.toggleFacetValue('severityLevels', 'error')
-            ).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.toggleFacetValue(LEVEL_SOURCE, 'error')).toFinishAllListeners()
             expect(filtersLogic.values.severityLevels).toEqual(['error'])
 
-            await expectLogic(logic, () =>
-                logic.actions.toggleFacetValue('severityLevels', 'warn')
-            ).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.toggleFacetValue(LEVEL_SOURCE, 'warn')).toFinishAllListeners()
             expect(filtersLogic.values.severityLevels).toEqual(['error', 'warn'])
 
-            await expectLogic(logic, () =>
-                logic.actions.toggleFacetValue('severityLevels', 'error')
-            ).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.toggleFacetValue(LEVEL_SOURCE, 'error')).toFinishAllListeners()
             expect(filtersLogic.values.severityLevels).toEqual(['warn'])
         })
 
@@ -44,12 +44,12 @@ describe('facetRailLogic', () => {
             'toggling %s on then off round-trips to empty',
             async (level) => {
                 await expectLogic(logic, () =>
-                    logic.actions.toggleFacetValue('severityLevels', level)
+                    logic.actions.toggleFacetValue(LEVEL_SOURCE, level)
                 ).toFinishAllListeners()
                 expect(filtersLogic.values.severityLevels).toEqual([level])
 
                 await expectLogic(logic, () =>
-                    logic.actions.toggleFacetValue('severityLevels', level)
+                    logic.actions.toggleFacetValue(LEVEL_SOURCE, level)
                 ).toFinishAllListeners()
                 expect(filtersLogic.values.severityLevels).toEqual([])
             }
@@ -72,10 +72,10 @@ describe('facetRailLogic', () => {
 
     describe('service name toggling', () => {
         it('adds then removes a service on the shared filters logic', async () => {
-            await expectLogic(logic, () => logic.actions.toggleFacetValue('serviceNames', 'api')).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.toggleFacetValue(SERVICE_SOURCE, 'api')).toFinishAllListeners()
             expect(filtersLogic.values.serviceNames).toEqual(['api'])
 
-            await expectLogic(logic, () => logic.actions.toggleFacetValue('serviceNames', 'api')).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.toggleFacetValue(SERVICE_SOURCE, 'api')).toFinishAllListeners()
             expect(filtersLogic.values.serviceNames).toEqual([])
         })
     })
@@ -85,10 +85,43 @@ describe('facetRailLogic', () => {
             filtersLogic.actions.setSeverityLevels(['info'])
             await expectLogic(filtersLogic).toFinishAllListeners()
 
-            await expectLogic(logic, () =>
-                logic.actions.toggleFacetValue('severityLevels', 'error')
-            ).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.toggleFacetValue(LEVEL_SOURCE, 'error')).toFinishAllListeners()
             expect(filtersLogic.values.severityLevels).toEqual(['info', 'error'])
+        })
+    })
+
+    describe('resource attribute toggling', () => {
+        const read = (): string[] => resourceAttributeValues(filtersLogic.values.filterGroup, 'k8s.namespace.name')
+
+        it('adds, accumulates (OR), and removes values as a log_resource_attribute filter in the group', async () => {
+            await expectLogic(logic, () =>
+                logic.actions.toggleFacetValue(NAMESPACE_SOURCE, 'argocd')
+            ).toFinishAllListeners()
+            expect(read()).toEqual(['argocd'])
+
+            await expectLogic(logic, () =>
+                logic.actions.toggleFacetValue(NAMESPACE_SOURCE, 'kube-system')
+            ).toFinishAllListeners()
+            expect(read()).toEqual(['argocd', 'kube-system'])
+
+            await expectLogic(logic, () =>
+                logic.actions.toggleFacetValue(NAMESPACE_SOURCE, 'argocd')
+            ).toFinishAllListeners()
+            expect(read()).toEqual(['kube-system'])
+        })
+
+        it('removing the last value drops the filter from the group entirely', async () => {
+            await expectLogic(logic, () =>
+                logic.actions.toggleFacetValue(NAMESPACE_SOURCE, 'argocd')
+            ).toFinishAllListeners()
+            expect(read()).toEqual(['argocd'])
+
+            await expectLogic(logic, () =>
+                logic.actions.toggleFacetValue(NAMESPACE_SOURCE, 'argocd')
+            ).toFinishAllListeners()
+            expect(read()).toEqual([])
+            // the single inner group holds no filters once the last value is removed
+            expect((filtersLogic.values.filterGroup.values[0] as UniversalFiltersGroup).values).toEqual([])
         })
     })
 })
