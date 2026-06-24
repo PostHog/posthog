@@ -8,7 +8,6 @@ import { TaskRunStatus } from 'products/tasks/frontend/types'
 
 import { inboxReportDetailLogic, ReportTaskEntry } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
-import { OpenTaskButton } from './AgentRunDetail'
 import { RightColumnSection } from './DetailSection'
 import { TaskRunStatusDot } from './taskRunDisplay'
 
@@ -83,13 +82,15 @@ function TaskRow({
             </button>
 
             {expanded ? (
-                <div className="mt-1.5 mb-1 ml-1.5 flex flex-col gap-2">
-                    <div className="flex justify-end">
-                        <OpenTaskButton taskId={task.id} runStatus={task.latest_run?.status} />
-                    </div>
+                <div className="mt-1.5 mb-1 ml-1.5">
                     {runId ? (
-                        <div className="h-[420px] overflow-hidden rounded border border-primary bg-surface-primary">
-                            <SandboxRunViewer taskId={task.id} runId={runId} replayOnly={replayOnly} />
+                        <div className="h-[420px] overflow-y-auto rounded border border-primary bg-surface-primary">
+                            <SandboxRunViewer
+                                taskId={task.id}
+                                runId={runId}
+                                replayOnly={replayOnly}
+                                className="px-3 py-2"
+                            />
                         </div>
                     ) : (
                         <div className="rounded border border-primary bg-surface-primary px-3 py-2.5 text-xs text-secondary leading-snug">
