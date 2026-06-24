@@ -115,6 +115,8 @@ export const subscriptionNotificationLogic = kea<subscriptionNotificationLogicTy
                         types: ['internal_destination'],
                         filter_groups: [{ events: [{ id: SUBSCRIPTION_DELIVERED_EVENT_ID, type: 'events' }] }],
                         full: true,
+                        // Bound the team-wide fetch; teams won't realistically exceed this many delivery destinations.
+                        limit: 100,
                     })
                     return response.results.filter((hf) => firesForSubscription(hf, props.subscriptionId as number))
                 },

@@ -772,8 +772,7 @@ function EditSubscriptionForm({
                             <div>
                                 <LemonLabel className="mb-2">Connected automations</LemonLabel>
                                 <p className="text-xs text-muted-alt mb-2">
-                                    Trigger other tools (Slack, Microsoft Teams, Discord, a webhook) when this report is
-                                    delivered.
+                                    Trigger other tools (Slack, Discord, a webhook) when this report is delivered.
                                 </p>
                                 <InlineSubscriptionNotifications subscriptionId={id === 'new' ? undefined : id} />
                             </div>

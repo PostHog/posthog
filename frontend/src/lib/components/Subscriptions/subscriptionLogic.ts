@@ -201,12 +201,16 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 actions.loadSubscriptionSuccess(updatedSub)
                 actions.loadSummaryQuota()
 
-                // Second sequential call: now that the subscription has an id, create any destinations
-                // queued inline in the Connected automations section, scoped to this subscription. No-ops
-                // when nothing was queued (e.g. the section is flag-off or untouched).
-                await subscriptionNotificationLogic({
-                    subscriptionId: props.id === 'new' ? undefined : props.id,
-                }).asyncActions.createPendingHogFunctions(updatedSub.id, updatedSub.title ?? undefined)
+                // Deferred create: the subscription must have an id before we can pin destinations to it.
+                // The subscription is already persisted, so a failure here is a client-side bug, not a save
+                // failure — isolate it so the user still sees the success toast (mirrors the alerts flow).
+                try {
+                    await subscriptionNotificationLogic({
+                        subscriptionId: props.id === 'new' ? undefined : props.id,
+                    }).asyncActions.createPendingHogFunctions(updatedSub.id, updatedSub.title ?? undefined)
+                } catch (e) {
+                    posthog.captureException(e)
+                }
 
                 lemonToast.success(`Subscription saved.`)
 

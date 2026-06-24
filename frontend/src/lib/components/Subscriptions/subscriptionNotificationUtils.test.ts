@@ -1,6 +1,7 @@
 import { HogFunctionType } from '~/types'
 
 import {
+    PendingSubscriptionNotification,
     SUBSCRIPTION_DELIVERED_EVENT_ID,
     SUBSCRIPTION_NOTIFICATION_TYPE_DISCORD,
     SUBSCRIPTION_NOTIFICATION_TYPE_SLACK,
@@ -49,26 +50,66 @@ describe('subscriptionNotificationUtils', () => {
     })
 
     describe('buildSubscriptionHogFunctionPayload', () => {
-        it('builds a Slack destination pinned to the subscription with channel + workspace', () => {
-            const payload = buildSubscriptionHogFunctionPayload(42, 'Weekly report', {
+        it.each([
+            [
+                'Slack',
+                {
+                    type: SUBSCRIPTION_NOTIFICATION_TYPE_SLACK,
+                    slackWorkspaceId: 7,
+                    slackChannelId: 'C123',
+                    slackChannelName: 'general',
+                },
+                'template-slack',
+            ],
+            [
+                'Slack without a channel name',
+                { type: SUBSCRIPTION_NOTIFICATION_TYPE_SLACK, slackWorkspaceId: 7, slackChannelId: 'C123' },
+                'template-slack',
+            ],
+            [
+                'webhook',
+                { type: SUBSCRIPTION_NOTIFICATION_TYPE_WEBHOOK, webhookUrl: 'https://example.com/hook' },
+                'template-webhook',
+            ],
+            [
+                'Discord',
+                { type: SUBSCRIPTION_NOTIFICATION_TYPE_DISCORD, webhookUrl: 'https://discord.com/api/webhooks/x' },
+                'template-discord',
+            ],
+        ])('builds a %s destination pinned to the subscription', (_label, notification, templateId) => {
+            const payload = buildSubscriptionHogFunctionPayload(
+                42,
+                'Weekly report',
+                notification as PendingSubscriptionNotification
+            )
+            expect(payload.template_id).toBe(templateId)
+            expect(payload.filters).toEqual(buildSubscriptionFilterConfig(42))
+        })
+
+        it('carries channel + workspace for Slack and falls back to #channel without a channel name', () => {
+            const named = buildSubscriptionHogFunctionPayload(42, 'R', {
                 type: SUBSCRIPTION_NOTIFICATION_TYPE_SLACK,
                 slackWorkspaceId: 7,
                 slackChannelId: 'C123',
                 slackChannelName: 'general',
             })
-            expect(payload.template_id).toBe('template-slack')
-            expect(payload.filters).toEqual(buildSubscriptionFilterConfig(42))
-            expect(payload.inputs?.channel).toEqual({ value: 'C123' })
-            expect(payload.inputs?.slack_workspace).toEqual({ value: 7 })
-            expect(payload.name).toContain('Weekly report')
+            expect(named.inputs?.channel).toEqual({ value: 'C123' })
+            expect(named.inputs?.slack_workspace).toEqual({ value: 7 })
+            expect(named.name).toContain('#general')
+
+            const unnamed = buildSubscriptionHogFunctionPayload(42, 'R', {
+                type: SUBSCRIPTION_NOTIFICATION_TYPE_SLACK,
+                slackWorkspaceId: 7,
+                slackChannelId: 'C123',
+            })
+            expect(unnamed.name).toContain('#channel')
         })
 
-        it('builds a webhook destination carrying the event properties', () => {
+        it('carries the url and event-property body for a webhook', () => {
             const payload = buildSubscriptionHogFunctionPayload(42, undefined, {
                 type: SUBSCRIPTION_NOTIFICATION_TYPE_WEBHOOK,
                 webhookUrl: 'https://example.com/hook',
             })
-            expect(payload.template_id).toBe('template-webhook')
             expect(payload.inputs?.url).toEqual({ value: 'https://example.com/hook' })
             expect(payload.inputs?.body?.value).toMatchObject({
                 subscription_name: '{event.properties.subscription_name}',
@@ -76,12 +117,11 @@ describe('subscriptionNotificationUtils', () => {
             })
         })
 
-        it('builds a Discord destination from a webhook url', () => {
+        it('carries the webhook url for Discord', () => {
             const payload = buildSubscriptionHogFunctionPayload(42, 'R', {
                 type: SUBSCRIPTION_NOTIFICATION_TYPE_DISCORD,
                 webhookUrl: 'https://discord.com/api/webhooks/x',
             })
-            expect(payload.template_id).toBe('template-discord')
             expect(payload.inputs?.webhookUrl).toEqual({ value: 'https://discord.com/api/webhooks/x' })
         })
     })
