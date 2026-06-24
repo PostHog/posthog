@@ -73,7 +73,8 @@ export function TaskTracker({ taskId }: TaskTrackerProps): JSX.Element {
         <SceneContent className="h-full">
             <AllowTrainingCallout featureName="Tasks" />
             <div className="flex flex-1 min-h-0 gap-4">
-                <div className="w-80 shrink-0 flex flex-col min-h-0 border-r border-primary">
+                {/* `-ml-4` pulls the rail flush with the scene's left edge, past the scene padding. */}
+                <div className="w-72 shrink-0 -ml-4 flex flex-col min-h-0 border-r border-primary">
                     <TasksListColumn selectedTaskId={selectedTaskId} />
                 </div>
                 <div className="flex-1 min-w-0 flex flex-col min-h-0 overflow-hidden">{rightPane}</div>

@@ -3,17 +3,27 @@ import { router } from 'kea-router'
 
 import { IconArchive } from '@posthog/icons'
 
-import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuGroup, DropdownMenuItem } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { LinkListItem } from 'lib/ui/LinkListItem/LinkListItem'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { urls } from 'scenes/urls'
 
 import { tasksLogic } from '../logics/tasksLogic'
 import { Task, TaskRunStatus } from '../types'
 
 const IN_PROGRESS_STATUSES = new Set<TaskRunStatus>([TaskRunStatus.QUEUED, TaskRunStatus.IN_PROGRESS])
+
+// Compact "time ago" using a single largest unit, e.g. 18m, 1h, 7d.
+function compactTimeAgo(iso: string): string {
+    const seconds = dayjs().diff(dayjs(iso), 'second')
+    if (seconds < 60) {
+        return 'now'
+    }
+    return humanFriendlyDuration(seconds, { maxUnits: 1 })
+}
 
 export function TaskListItem({ task, isActive }: { task: Task; isActive: boolean }): JSX.Element {
     const { deleteTask } = useActions(tasksLogic)
@@ -48,7 +58,7 @@ export function TaskListItem({ task, isActive }: { task: Task; isActive: boolean
                     <LinkListItem.Content
                         title={displayTitle}
                         isLoading={isInProgress}
-                        meta={<TZLabel time={startedAt} />}
+                        meta={compactTimeAgo(startedAt)}
                     />
                 </Link>
                 <LinkListItem.Trigger />

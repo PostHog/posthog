@@ -37,14 +37,14 @@ export function TasksListColumn({ selectedTaskId, isMobile = false }: TasksListC
                             <IconPlusSmall className="size-4" />
                         </Link>
                     </div>
-                    <LemonDivider className="m-0 shrink-0" />
+                    <LemonDivider className="mt-0 mb-2 shrink-0" />
                 </>
             )}
 
             <ScrollableShadows
                 direction="vertical"
                 className="flex flex-col flex-1 min-h-0 overflow-hidden"
-                innerClassName="flex flex-col gap-px px-1 pb-4"
+                innerClassName="flex flex-col gap-1 px-1 pb-4"
                 styledScrollbars
             >
                 {isMobile && (
