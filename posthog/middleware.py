@@ -70,7 +70,12 @@ logger = structlog.get_logger(__name__)
 # A finished request that grew the worker's RSS by at least this many MiB is logged as
 # `request_memory_growth`. Tunable via env so the threshold can be tightened/relaxed in
 # prod without a deploy. Set to 0 to log every request's growth (noisy — debugging only).
-REQUEST_RSS_GROWTH_LOG_MB = float(os.getenv("WEB_REQUEST_RSS_GROWTH_LOG_MB", "100"))
+# Parsed defensively: a malformed value must never crash the module at import (which would
+# take the worker down before it serves a request) — fall back to the default instead.
+try:
+    REQUEST_RSS_GROWTH_LOG_MB = float(os.getenv("WEB_REQUEST_RSS_GROWTH_LOG_MB", "100"))
+except ValueError:
+    REQUEST_RSS_GROWTH_LOG_MB = 100.0
 
 
 def current_rss_mb() -> float | None:
@@ -80,9 +85,10 @@ def current_rss_mb() -> float | None:
     try:
         with open("/proc/self/statm") as statm:
             resident_pages = int(statm.read().split()[1])
+        page_size = os.sysconf("SC_PAGE_SIZE")
     except (OSError, ValueError, IndexError):
         return None
-    return resident_pages * os.sysconf("SC_PAGE_SIZE") / (1024 * 1024)
+    return resident_pages * page_size / (1024 * 1024)
 
 
 ALWAYS_ALLOWED_ENDPOINTS = [

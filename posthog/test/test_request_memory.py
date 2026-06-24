@@ -1,6 +1,11 @@
+import sys
+
+import pytest
+
 from posthog.middleware import current_rss_mb
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="requires /proc (Linux only)")
 def test_current_rss_mb_returns_positive_on_linux():
     # On the Linux CI runners /proc/self/statm exists, so this returns the live RSS.
     rss = current_rss_mb()
