@@ -312,10 +312,10 @@ def _sanitize_query_for_cohort(query_dict: dict) -> dict:
             query_dict["select"] = ["actor"]
 
         source = query_dict.get("source")
-        if source:
+        if isinstance(source, dict):
             # Modal search while inspecting insight actors is UI-only.
             query_dict.pop("search", None)
-            if isinstance(source, dict) and source.get("includeRecordings"):
+            if source.get("includeRecordings"):
                 source["includeRecordings"] = False
 
     return query_dict
