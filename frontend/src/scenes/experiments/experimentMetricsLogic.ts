@@ -40,7 +40,7 @@ export interface ExperimentMetricsLogicProps {
 }
 
 const RECALCULATION_POLL_INTERVAL_MS = 2000
-const RECALCULATION_STALE_AFTER_HOURS = 24
+const RECALCULATION_STALE_AFTER_HOURS = 12
 const MAX_POLL_RETRIES = 5
 
 export const RECALCULATION_STATUSES = {

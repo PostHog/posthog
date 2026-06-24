@@ -52,7 +52,7 @@ const completedRecalculation = {
     status: 'completed',
     completed_metrics: 2,
     started_at: new Date().toISOString(),
-    // Fresh by default (within the 24h window) so tests using this fixture don't auto-trigger.
+    // Fresh by default (within the 12h window) so tests using this fixture don't auto-trigger.
     completed_at: new Date().toISOString(),
     query_to: '2026-06-10T00:05:00Z',
     results: [
@@ -61,7 +61,7 @@ const completedRecalculation = {
     ],
 }
 
-// completed_at far in the past → older than the 24h staleness threshold.
+// completed_at far in the past, older than the 12h staleness threshold.
 const staleCompletedRecalculation = {
     ...completedRecalculation,
     completed_at: '2020-01-01T00:00:00Z',
@@ -383,7 +383,7 @@ describe('experimentMetricsLogic', () => {
             expect(capturedBody).toEqual({ trigger: 'cold_run' })
         })
 
-        it('auto-triggers a stale_refresh recalculation when the latest completed run is stale (>24h)', async () => {
+        it('auto-triggers a stale_refresh recalculation when the latest completed run is stale (>12h)', async () => {
             let capturedBody: any
             useMocks({
                 get: {
