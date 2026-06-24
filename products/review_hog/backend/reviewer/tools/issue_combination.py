@@ -13,6 +13,8 @@ def combine_issues(review_dir: Path) -> None:
     all_issues: list[Issue] = []
     # Process each pass to collect issues
     for pass_number in range(1, passes_count + 1):
+        # The lens that produced this pass's issues (passes 1..3 map to PassType members in order)
+        lens_name = list(PassType)[pass_number - 1].value
         # Directory paths for this pass
         pass_results_dir = review_dir / f"pass{pass_number}_results"
         # Find all chunk summary files for this pass
@@ -29,7 +31,9 @@ def combine_issues(review_dir: Path) -> None:
                     issues_review = IssuesReview.model_validate_json(f.read())
             except Exception as e:
                 raise Exception(f"Failed to load issues review from {summary_file}: {e}") from e
-            # Combine issues
+            # Stamp the originating lens on each issue, then combine
+            for issue in issues_review.issues:
+                issue.source_lens = lens_name
             all_issues += issues_review.issues
             logger.info(
                 f"Added {len(issues_review.issues)} issues from chunk {chunk_index} to the combined list of issues"

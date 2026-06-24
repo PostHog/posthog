@@ -7,6 +7,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_combination import IssueCombination
 from products.review_hog.backend.reviewer.models.issue_deduplicator import IssueDeduplication
+from products.review_hog.backend.reviewer.models.issues_review import Issue, LineRange
 from products.review_hog.backend.reviewer.sandbox.executor import run_sandbox_review
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,49 @@ def load_previous_issues(review_dir: Path) -> list[PRComment]:
         logger.info("No pr_comments.jsonl file found, proceeding without previous issues")
 
     return previous_issues
+
+
+def _ranges_overlap(a: list[LineRange], b: list[LineRange]) -> bool:
+    """True if any line range in a overlaps any line range in b."""
+    for ra in a:
+        a_end = ra.end or ra.start
+        for rb in b:
+            b_end = rb.end or rb.start
+            if ra.start <= b_end and rb.start <= a_end:
+                return True
+    return False
+
+
+def _comment_line(comment: PRComment) -> tuple[str, int] | None:
+    """The (file, line) a prior review comment sits on, or None if it has no resolvable line."""
+    line = comment.line if comment.line is not None else comment.start_line
+    return (comment.path, line) if line is not None else None
+
+
+def _select_dedup_candidates(
+    issues: list[Issue], prior_comment_lines: list[tuple[str, int]]
+) -> tuple[list[Issue], list[Issue]]:
+    """Split issues into (dedup candidates, definitely-unique) by deterministic position.
+
+    Only an issue that shares a file and overlapping lines with another issue — or with a prior
+    review comment — can be a duplicate, so the rest skip the LLM dedupe entirely. This keeps the
+    single dedupe call small as the number of lenses grows, and never drops a positionally isolated
+    finding. Whether two positionally-colliding issues are *actually* duplicates is still left to
+    the content-aware LLM.
+    """
+    candidates: list[Issue] = []
+    unique: list[Issue] = []
+    for i, issue in enumerate(issues):
+        collides_with_issue = any(
+            i != j and issue.file == other.file and _ranges_overlap(issue.lines, other.lines)
+            for j, other in enumerate(issues)
+        )
+        collides_with_comment = any(
+            path == issue.file and any(r.start <= line <= (r.end or r.start) for r in issue.lines)
+            for path, line in prior_comment_lines
+        )
+        (candidates if collides_with_issue or collides_with_comment else unique).append(issue)
+    return candidates, unique
 
 
 async def deduplicate_issues(
@@ -87,10 +131,26 @@ async def deduplicate_issues(
     # Load previous issues from PR comments
     previous_issues = load_previous_issues(review_dir)
 
-    logger.info(f"Starting deduplication of {len(issues_found.issues)} issues...")
+    # Deterministic pre-filter: only issues that positionally collide with another issue or a prior
+    # comment can be duplicates — the rest survive without an LLM call, keeping the dedupe call small.
+    prior_comment_lines = [pos for c in previous_issues if (pos := _comment_line(c)) is not None]
+    candidates, unique = _select_dedup_candidates(issues_found.issues, prior_comment_lines)
+    logger.info(
+        f"Deduplication: {len(candidates)} positional candidate(s); "
+        f"{len(unique)} issue(s) kept without an LLM call (no positional overlap)"
+    )
 
-    # Prepare issues data for the prompt
-    issues_json = json.dumps([issue.model_dump(mode="json") for issue in issues_found.issues], indent=2)
+    if not candidates:
+        empty_deduplication = IssueDeduplication(duplicates=[])
+        with deduplicator_file.open("w") as f:
+            f.write(empty_deduplication.model_dump_json(indent=2))
+        with final_issues_file.open("w") as f:
+            f.write(IssueCombination(issues=issues_found.issues).model_dump_json(indent=2))
+        logger.info("No positional duplicate candidates; kept all issues")
+        return
+
+    # Prepare issues data for the prompt (only the positional candidates)
+    issues_json = json.dumps([issue.model_dump(mode="json") for issue in candidates], indent=2)
 
     # Prepare previous issues for the prompt
     previous_issues_json = json.dumps([comment.model_dump(mode="json") for comment in previous_issues], indent=2)
@@ -126,9 +186,9 @@ async def deduplicate_issues(
     with deduplicator_file.open() as f:
         deduplication_result = IssueDeduplication.model_validate_json(f.read())
 
-    # Create the list of duplicates
-    duplicate_ids = [dup.id for dup in deduplication_result.duplicates]
-    deduplicated_issues = [issue for issue in issues_found.issues if issue.id not in duplicate_ids]
+    # `unique` issues always survive; only positional candidates can be dropped by the LLM.
+    duplicate_ids = {dup.id for dup in deduplication_result.duplicates}
+    deduplicated_issues = unique + [issue for issue in candidates if issue.id not in duplicate_ids]
 
     # Save final issues as IssueCombination (replaces the original issues_found.json)
     final_issue_combination = IssueCombination(issues=deduplicated_issues)

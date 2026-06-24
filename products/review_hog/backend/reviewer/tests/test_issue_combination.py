@@ -66,6 +66,9 @@ class TestCombineIssues:
         assert combined_data["issues"][1]["id"] == "1-2"
         assert combined_data["issues"][0]["title"] == "SQL Injection vulnerability"
         assert combined_data["issues"][1]["title"] == "Missing error handling"
+        # Pass 1 issues are stamped with the first lens
+        assert combined_data["issues"][0]["source_lens"] == "Logic & Correctness"
+        assert combined_data["issues"][1]["source_lens"] == "Logic & Correctness"
 
     def test_combine_issues_multiple_passes(self, temp_review_dir: Path) -> None:
         """Test combining issues from multiple passes."""
@@ -114,6 +117,12 @@ class TestCombineIssues:
         expected_ids = {f"{p}-{c}" for p in range(1, 4) for c in range(1, 3)}
         actual_ids = {issue["id"] for issue in combined_data["issues"]}
         assert actual_ids == expected_ids
+
+        # Each issue is stamped with the lens matching the pass directory it came from
+        lens_by_pass = {1: "Logic & Correctness", 2: "Contracts & Security", 3: "Performance & Reliability"}
+        for issue in combined_data["issues"]:
+            pass_num = int(issue["id"].split("-")[0])
+            assert issue["source_lens"] == lens_by_pass[pass_num]
 
     def test_combine_issues_no_issues(self, temp_review_dir: Path) -> None:
         """Test combining when there are no issues."""

@@ -49,6 +49,10 @@ class Issue(BaseModel):
         ),
         default=False,
     )
+    source_lens: str | None = Field(
+        description="Which review lens produced this issue; set by the pipeline, not the model",
+        default=None,
+    )
 
 
 class IssuesReview(BaseModel):
@@ -58,16 +62,8 @@ class IssuesReview(BaseModel):
 
 
 class PassType(Enum):
-    """Enum for pass types with associated names."""
+    """Enum for the review lenses, each run independently and in parallel per chunk."""
 
     LOGIC_CORRECTNESS = "Logic & Correctness"
     CONTRACTS_SECURITY = "Contracts & Security"
     PERFORMANCE_RELIABILITY = "Performance & Reliability"
-
-
-class PassContext(BaseModel):
-    """Context from a completed review pass."""
-
-    pass_number: int = Field(description="Pass number")
-    pass_type: PassType = Field(description="Type of the review pass")
-    issues: list[Issue] = Field(default_factory=list, description="Issues found in this pass")

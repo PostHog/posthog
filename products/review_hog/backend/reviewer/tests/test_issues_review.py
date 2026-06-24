@@ -9,19 +9,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from jinja2 import Environment
 
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
-from products.review_hog.backend.reviewer.models.issues_review import (
-    Issue,
-    IssuePriority,
-    IssuesReview,
-    LineRange,
-    PassContext,
-    PassType,
-)
+from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview, LineRange
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
 from products.review_hog.backend.reviewer.tests.conftest import create_mock_run_sandbox_review
 from products.review_hog.backend.reviewer.tools.issues_review import (
     generate_prompts,
-    load_previous_pass_results,
     process_chunk,
     review_chunks,
     review_chunks_pass,
@@ -39,105 +31,6 @@ def mock_run_claude_code_issues_review_failure() -> Callable[..., Coroutine[Any,
     return mock_func
 
 
-@pytest.fixture
-def pass1_context(sample_issues_review_simple: IssuesReview) -> PassContext:
-    """Create a PassContext for pass 1."""
-    return PassContext(
-        pass_number=1,
-        pass_type=PassType.LOGIC_CORRECTNESS,
-        issues=sample_issues_review_simple.issues,
-    )
-
-
-@pytest.fixture
-def pass2_context() -> PassContext:
-    """Create a PassContext for pass 2."""
-    return PassContext(
-        pass_number=2,
-        pass_type=PassType.CONTRACTS_SECURITY,
-        issues=[
-            Issue(
-                id="2-1",
-                title="Missing input validation",
-                file="src/api/endpoint.py",
-                lines=[LineRange(start=100, end=105)],
-                issue="No validation on user input",
-                suggestion="Add input validation",
-                priority=IssuePriority.SHOULD_FIX,
-            )
-        ],
-    )
-
-
-class TestLoadPreviousPassResults:
-    """Test load_previous_pass_results function."""
-
-    def test_load_previous_pass_results_no_previous(self, temp_review_dir: Path) -> None:
-        """Test loading when no previous passes exist (first pass)."""
-        results = load_previous_pass_results(review_dir=temp_review_dir, current_pass=1, chunks_count=2)
-        assert results == []
-
-    def test_load_previous_pass_results_single_pass(
-        self, temp_review_dir: Path, sample_issues_review_simple: IssuesReview
-    ) -> None:
-        """Test loading results from a single previous pass."""
-        # Create pass1 results
-        pass1_dir = temp_review_dir / "pass1_results"
-        pass1_dir.mkdir()
-
-        # Write chunk summaries
-        for chunk_id in [1, 2]:
-            chunk_file = pass1_dir / f"chunk-{chunk_id}-issues-review.json"
-            chunk_file.write_text(sample_issues_review_simple.model_dump_json())
-
-        # Load for pass 2
-        results = load_previous_pass_results(review_dir=temp_review_dir, current_pass=2, chunks_count=2)
-
-        assert len(results) == 1
-        assert results[0].pass_number == 1
-        assert results[0].pass_type == PassType.LOGIC_CORRECTNESS
-        # Count must_fix issues (1 issue per chunk)
-        must_fix_count = sum(1 for issue in results[0].issues if issue.priority == IssuePriority.MUST_FIX)
-        assert must_fix_count == 2
-
-    def test_load_previous_pass_results_multiple_passes(
-        self, temp_review_dir: Path, sample_issues_review_simple: IssuesReview
-    ) -> None:
-        """Test loading results from multiple previous passes."""
-        # Create pass1 and pass2 results
-        for pass_num in [1, 2]:
-            pass_dir = temp_review_dir / f"pass{pass_num}_results"
-            pass_dir.mkdir()
-
-            for chunk_id in [1, 2]:
-                chunk_file = pass_dir / f"chunk-{chunk_id}-issues-review.json"
-                chunk_file.write_text(sample_issues_review_simple.model_dump_json())
-
-        # Load for pass 3
-        results = load_previous_pass_results(review_dir=temp_review_dir, current_pass=3, chunks_count=2)
-
-        assert len(results) == 2
-        assert results[0].pass_number == 1
-        assert results[0].pass_type == PassType.LOGIC_CORRECTNESS
-        assert results[1].pass_number == 2
-        assert results[1].pass_type == PassType.CONTRACTS_SECURITY
-
-    def test_load_previous_pass_results_missing_file(
-        self, temp_review_dir: Path, sample_issues_review_simple: IssuesReview
-    ) -> None:
-        """Test error when a chunk summary file is missing."""
-        # Create pass1 results with only one chunk
-        pass1_dir = temp_review_dir / "pass1_results"
-        pass1_dir.mkdir()
-
-        chunk_file = pass1_dir / "chunk-1-issues-review.json"
-        chunk_file.write_text(sample_issues_review_simple.model_dump_json())
-
-        # Should raise error for missing chunk 2
-        with pytest.raises(FileNotFoundError, match="Summary file not found for chunk 2"):
-            load_previous_pass_results(review_dir=temp_review_dir, current_pass=2, chunks_count=2)
-
-
 class TestGeneratePrompts:
     """Test generate_prompts function."""
 
@@ -150,7 +43,6 @@ class TestGeneratePrompts:
         pr_files: list[PRFile],
         temp_review_dir: Path,
     ) -> None:
-        """Test prompt generation for pass 1."""
         prompt_paths = await generate_prompts(
             chunks_list=expected_chunks,
             pr_metadata=pr_metadata,
@@ -158,7 +50,6 @@ class TestGeneratePrompts:
             pr_files=pr_files,
             review_dir=temp_review_dir,
             pass_number=1,
-            previous_passes_context=[],
         )
 
         assert len(prompt_paths) == len(expected_chunks.chunks)
@@ -173,34 +64,6 @@ class TestGeneratePrompts:
             assert "Pass 1: Logic & Correctness Focus" in content
             assert '"IssuesReview"' in content  # Schema included
             assert pr_metadata.title in content
-
-    @pytest.mark.asyncio
-    async def test_generate_prompts_with_previous_context(
-        self,
-        expected_chunks: ChunksList,
-        pr_metadata: PRMetadata,
-        pr_comments: list[PRComment],
-        pr_files: list[PRFile],
-        temp_review_dir: Path,
-        pass1_context: PassContext,
-    ) -> None:
-        """Test prompt generation with previous pass context."""
-        prompt_paths = await generate_prompts(
-            chunks_list=expected_chunks,
-            pr_metadata=pr_metadata,
-            pr_comments=pr_comments,
-            pr_files=pr_files,
-            review_dir=temp_review_dir,
-            pass_number=2,
-            previous_passes_context=[pass1_context],
-        )
-
-        assert len(prompt_paths) == len(expected_chunks.chunks)
-
-        # Verify previous context is included
-        content = prompt_paths[0].read_text()
-        assert "LOGIC_CORRECTNESS" in content or "Logic & Correctness" in content
-        assert "SQL Injection vulnerability" in content  # Issue from pass1
 
     @pytest.mark.asyncio
     async def test_generate_prompts_skip_existing(
@@ -225,7 +88,6 @@ class TestGeneratePrompts:
             pr_files=pr_files,
             review_dir=temp_review_dir,
             pass_number=1,
-            previous_passes_context=[],
         )
 
         # Should still return path but not overwrite
@@ -262,7 +124,6 @@ class TestGeneratePrompts:
                     pr_files=pr_files,
                     review_dir=temp_review_dir,
                     pass_number=1,
-                    previous_passes_context=[],
                 )
 
 
@@ -288,6 +149,7 @@ class TestProcessChunk:
         ):
             result = await process_chunk(
                 chunk_id=1,
+                pass_number=1,
                 prompt_path=prompt_path,
                 output_path=output_path,
                 branch="test-branch",
@@ -305,6 +167,30 @@ class TestProcessChunk:
         assert must_fix_count == 1
 
     @pytest.mark.asyncio
+    async def test_process_chunk_passes_step_name(
+        self,
+        temp_review_dir: Path,
+        sample_issues_review_simple: IssuesReview,
+    ) -> None:
+        """The sandbox step name encodes both the pass and the chunk."""
+        prompt_path = temp_review_dir / "chunk-7-code-prompt.md"
+        prompt_path.write_text("Test prompt content")
+        output_path = temp_review_dir / "chunk-7-issues-review.json"
+
+        mock_sandbox = AsyncMock(side_effect=create_mock_run_sandbox_review(sample_issues_review_simple))
+        with patch("products.review_hog.backend.reviewer.tools.issues_review.run_sandbox_review", mock_sandbox):
+            await process_chunk(
+                chunk_id=7,
+                pass_number=2,
+                prompt_path=prompt_path,
+                output_path=output_path,
+                branch="test-branch",
+                repository="test/repo",
+            )
+
+        assert mock_sandbox.call_args.kwargs["step_name"] == "issues-review-p2-c7"
+
+    @pytest.mark.asyncio
     async def test_process_chunk_missing_prompt(self, temp_review_dir: Path) -> None:
         """Test error when prompt file is missing."""
         prompt_path = temp_review_dir / "nonexistent-prompt.md"
@@ -313,6 +199,7 @@ class TestProcessChunk:
         with pytest.raises(FileNotFoundError, match="Prompt file not found"):
             await process_chunk(
                 chunk_id=1,
+                pass_number=1,
                 prompt_path=prompt_path,
                 output_path=output_path,
                 branch="test-branch",
@@ -337,6 +224,7 @@ class TestProcessChunk:
         ):
             result = await process_chunk(
                 chunk_id=1,
+                pass_number=1,
                 prompt_path=prompt_path,
                 output_path=output_path,
                 branch="test-branch",
@@ -376,7 +264,6 @@ class TestReviewChunksPass:
                 branch="test-branch",
                 repository="test/repo",
                 pass_number=1,
-                previous_passes_context=[],
             )
 
         # Verify directories created
@@ -419,7 +306,6 @@ class TestReviewChunksPass:
                 branch="test-branch",
                 repository="test/repo",
                 pass_number=1,
-                previous_passes_context=[],
             )
 
         # Should not call run_sandbox_review for chunk 1
@@ -451,49 +337,14 @@ class TestReviewChunksPass:
                 branch="test-branch",
                 repository="test/repo",
                 pass_number=99,
-                previous_passes_context=[],
             )
-
-    @pytest.mark.asyncio
-    async def test_review_chunks_pass_with_context(
-        self,
-        expected_chunks: ChunksList,
-        pr_metadata: PRMetadata,
-        pr_comments: list[PRComment],
-        pr_files: list[PRFile],
-        temp_review_dir: Path,
-        pass1_context: PassContext,
-        sample_issues_review_simple: IssuesReview,
-    ) -> None:
-        """Test pass 2 with previous pass context."""
-        single_chunk = ChunksList(chunks=[expected_chunks.chunks[0]])
-
-        with patch(
-            "products.review_hog.backend.reviewer.tools.issues_review.run_sandbox_review",
-            create_mock_run_sandbox_review(sample_issues_review_simple),
-        ):
-            await review_chunks_pass(
-                chunks_data=single_chunk,
-                pr_metadata=pr_metadata,
-                pr_comments=pr_comments,
-                pr_files=pr_files,
-                review_dir=temp_review_dir,
-                branch="test-branch",
-                repository="test/repo",
-                pass_number=2,
-                previous_passes_context=[pass1_context],
-            )
-
-        # Verify pass 2 results
-        result_file = temp_review_dir / "pass2_results" / "chunk-1-issues-review.json"
-        assert result_file.exists()
 
 
 class TestReviewChunks:
     """Test review_chunks main function."""
 
     @pytest.mark.asyncio
-    async def test_review_chunks_all_passes(
+    async def test_review_chunks_runs_all_lenses(
         self,
         expected_chunks: ChunksList,
         pr_metadata: PRMetadata,
@@ -502,7 +353,7 @@ class TestReviewChunks:
         temp_review_dir: Path,
         sample_issues_review_simple: IssuesReview,
     ) -> None:
-        """Test running all three passes."""
+        """All three lenses run (concurrently, order-independent) and each writes its results."""
         single_chunk = ChunksList(chunks=[expected_chunks.chunks[0]])
 
         with patch(
@@ -519,14 +370,14 @@ class TestReviewChunks:
                 repository="test/repo",
             )
 
-        # Verify all passes completed
+        # Every lens produced results — order is not guaranteed since they run concurrently
         for pass_num in [1, 2, 3]:
             assert (temp_review_dir / f"pass{pass_num}_results").exists()
             result_file = temp_review_dir / f"pass{pass_num}_results" / "chunk-1-issues-review.json"
             assert result_file.exists()
 
     @pytest.mark.asyncio
-    async def test_review_chunks_pass_failure_stops_execution(
+    async def test_review_chunks_invokes_each_pass_once(
         self,
         expected_chunks: ChunksList,
         pr_metadata: PRMetadata,
@@ -534,7 +385,41 @@ class TestReviewChunks:
         pr_files: list[PRFile],
         temp_review_dir: Path,
     ) -> None:
-        """Test that failure in one pass stops execution."""
+        """review_chunks fans out to exactly the three lenses, regardless of completion order."""
+        single_chunk = ChunksList(chunks=[expected_chunks.chunks[0]])
+
+        seen_passes: list[int] = []
+
+        async def fake_pass(**kwargs: Any) -> None:
+            seen_passes.append(kwargs["pass_number"])
+
+        with patch(
+            "products.review_hog.backend.reviewer.tools.issues_review.review_chunks_pass",
+            side_effect=fake_pass,
+        ) as mock_pass:
+            await review_chunks(
+                chunks_data=single_chunk,
+                pr_metadata=pr_metadata,
+                pr_comments=pr_comments,
+                pr_files=pr_files,
+                review_dir=temp_review_dir,
+                branch="test-branch",
+                repository="test/repo",
+            )
+
+        assert mock_pass.call_count == 3
+        assert sorted(seen_passes) == [1, 2, 3]
+
+    @pytest.mark.asyncio
+    async def test_review_chunks_pass_failure_propagates(
+        self,
+        expected_chunks: ChunksList,
+        pr_metadata: PRMetadata,
+        pr_comments: list[PRComment],
+        pr_files: list[PRFile],
+        temp_review_dir: Path,
+    ) -> None:
+        """A failure in any lens surfaces from review_chunks."""
         with patch("products.review_hog.backend.reviewer.tools.issues_review.generate_prompts") as mock_prompts:
             mock_prompts.side_effect = FileNotFoundError("Template error")
 
@@ -549,10 +434,6 @@ class TestReviewChunks:
                     repository="test/repo",
                 )
 
-            # Only pass 1 directory should be created
-            assert not (temp_review_dir / "pass2_results").exists()
-            assert not (temp_review_dir / "pass3_results").exists()
-
 
 class TestEndToEnd:
     """End-to-end test for complete review flow."""
@@ -566,68 +447,56 @@ class TestEndToEnd:
         pr_files: list[PRFile],
         temp_review_dir: Path,
     ) -> None:
-        """Test complete multi-pass review flow end-to-end."""
-        # Create mock reviews for each pass with different issues
-        pass1_review = IssuesReview(
-            issues=[
-                Issue(
-                    id="1-1",
-                    title="Logic error in config parsing",
-                    file="src/core/config.py",
-                    lines=[LineRange(start=10, end=15)],
-                    issue="Incorrect parsing logic",
-                    suggestion="Fix parsing algorithm",
-                    priority=IssuePriority.MUST_FIX,
-                )
-            ],
-        )
-
-        pass2_review = IssuesReview(
-            issues=[
-                Issue(
-                    id="1-1",
-                    title="Potential security issue",
-                    file="src/core/config.py",
-                    lines=[LineRange(start=20, end=25)],
-                    issue="Sensitive data in logs",
-                    suggestion="Sanitize log output",
-                    priority=IssuePriority.SHOULD_FIX,
-                )
-            ],
-        )
-
-        pass3_review = IssuesReview(
-            issues=[
-                Issue(
-                    id="1-1",
-                    title="Performance optimization",
-                    file="src/core/config.py",
-                    lines=[LineRange(start=30, end=35)],
-                    issue="Inefficient config loading",
-                    suggestion="Cache configuration",
-                    priority=IssuePriority.CONSIDER,
-                )
-            ],
-        )
-
-        reviews_by_pass = {1: pass1_review, 2: pass2_review, 3: pass3_review}
+        """Each lens runs against every chunk and writes a valid result, with its own prompts."""
+        # Distinct priority per pass so we can assert the right lens wrote each file
+        reviews_by_pass = {
+            1: IssuesReview(
+                issues=[
+                    Issue(
+                        id="1-1",
+                        title="Logic error in config parsing",
+                        file="src/core/config.py",
+                        lines=[LineRange(start=10, end=15)],
+                        issue="Incorrect parsing logic",
+                        suggestion="Fix parsing algorithm",
+                        priority=IssuePriority.MUST_FIX,
+                    )
+                ],
+            ),
+            2: IssuesReview(
+                issues=[
+                    Issue(
+                        id="1-1",
+                        title="Potential security issue",
+                        file="src/core/config.py",
+                        lines=[LineRange(start=20, end=25)],
+                        issue="Sensitive data in logs",
+                        suggestion="Sanitize log output",
+                        priority=IssuePriority.SHOULD_FIX,
+                    )
+                ],
+            ),
+            3: IssuesReview(
+                issues=[
+                    Issue(
+                        id="1-1",
+                        title="Performance optimization",
+                        file="src/core/config.py",
+                        lines=[LineRange(start=30, end=35)],
+                        issue="Inefficient config loading",
+                        suggestion="Cache configuration",
+                        priority=IssuePriority.CONSIDER,
+                    )
+                ],
+            ),
+        }
 
         async def mock_run_sandbox(**kwargs: Any) -> bool:
-            """Mock that returns different reviews based on pass number in prompt."""
-            output_path = kwargs["output_path"]
-            prompt = kwargs["prompt"]
-
-            output_path_str = str(output_path)
-
-            # Determine pass number from output path or prompt content
-            pass_num = 1
-            if "pass2" in output_path_str or "Pass 2:" in prompt or "PASS_NUMBER=2" in prompt:
-                pass_num = 2
-            elif "pass3" in output_path_str or "Pass 3:" in prompt or "PASS_NUMBER=3" in prompt:
-                pass_num = 3
-
+            """Return a different review per lens, keyed off the pass-tagged step name."""
+            step_name = kwargs["step_name"]
+            pass_num = 2 if "-p2-" in step_name else 3 if "-p3-" in step_name else 1
             review = reviews_by_pass[pass_num]
-            Path(output_path_str).write_text(review.model_dump_json(indent=2))
+            Path(kwargs["output_path"]).write_text(review.model_dump_json(indent=2))
             return True
 
         with patch(
@@ -644,7 +513,11 @@ class TestEndToEnd:
                 repository="test/repo",
             )
 
-        # Verify all passes completed with correct data
+        priority_by_pass = {
+            1: IssuePriority.MUST_FIX,
+            2: IssuePriority.SHOULD_FIX,
+            3: IssuePriority.CONSIDER,
+        }
         for pass_num in [1, 2, 3]:
             # Check directories
             assert (temp_review_dir / f"pass{pass_num}_results").exists()
@@ -656,41 +529,16 @@ class TestEndToEnd:
             assert (validation_dir / "summaries").exists()
             assert (validation_dir / "combined").exists()
 
-            # Check all chunks have results
+            # Check all chunks have results and carry the priority that lens emits
             for chunk in expected_chunks.chunks:
                 result_file = temp_review_dir / f"pass{pass_num}_results" / f"chunk-{chunk.chunk_id}-issues-review.json"
                 assert result_file.exists()
-
-                # Verify content matches expected pass
                 review = IssuesReview.model_validate_json(result_file.read_text())
-                # Check that the review has issues
-                assert review.issues is not None
+                assert any(issue.priority == priority_by_pass[pass_num] for issue in review.issues)
 
-                # Verify issue types by pass
-                if pass_num == 1:
-                    assert any(issue.priority == IssuePriority.MUST_FIX for issue in review.issues)
-                elif pass_num == 2:
-                    assert any(issue.priority == IssuePriority.SHOULD_FIX for issue in review.issues)
-                elif pass_num == 3:
-                    assert any(issue.priority == IssuePriority.CONSIDER for issue in review.issues)
-
-            # Check prompts were generated
+            # Check prompts were generated for each chunk
             for chunk in expected_chunks.chunks:
                 prompt_file = temp_review_dir / f"pass{pass_num}_prompts" / f"chunk-{chunk.chunk_id}-code-prompt.md"
                 assert prompt_file.exists()
-
-                # Verify prompt contains correct pass info
                 content = prompt_file.read_text()
                 assert f"Pass {pass_num}" in content or f"PASS_NUMBER={pass_num}" in content
-
-                # Verify previous context included for pass 2 and 3
-                if pass_num > 1:
-                    assert "previous_passes_context" in content or "PREVIOUS_PASSES_CONTEXT" in content
-
-        # Verify context accumulation (pass 3 should have context from pass 1 and 2)
-        last_prompt = temp_review_dir / "pass3_prompts" / "chunk-1-code-prompt.md"
-        content = last_prompt.read_text()
-
-        # Should contain references to issues from previous passes
-        assert "Logic error" in content or "logic_correctness" in content.lower()
-        assert "security" in content.lower()

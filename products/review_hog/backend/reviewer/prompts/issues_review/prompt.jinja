@@ -3,7 +3,7 @@
 <pr_chunk_analysis_instructions>
 You are helping me review a specific chunk of a pull request submitted by another developer. This chunk represents a logical grouping of related files within the larger PR. Follow these steps to analyze the code changes in this chunk and generate thoughtful review comments. Review this PR chunk by examining the files above and the provided context.
 
-Each chunk is reviewed in multiple passes to better investigate the codebase and find issues. You are now conducting pass {{ PASS_NUMBER }}: {{ PASS_TYPE }}. This is a focused review pass with specific objectives defined in `pass_specific_*` blocks. Each pass builds on the previous one to provide comprehensive coverage without redundancy.
+Each chunk is reviewed by several independent specialist lenses. You are conducting lens {{ PASS_NUMBER }}: {{ PASS_NAME }}, a focused review with specific objectives defined in the `pass_specific_*` blocks. Lenses run in parallel and do not see each other's findings — overlap between lenses is resolved later by a separate deduplication step, so report every issue your lens finds without worrying about what other lenses might report.
 </pr_chunk_analysis_instructions>
 
 <pr_current_chunk_context>
@@ -35,26 +35,6 @@ The following analysis was performed on this chunk to understand its architectur
 <pr_file_changes_for_chunk>
 {{PR_FILE_CHANGES|safe}}
 </pr_file_changes_for_chunk>
-
-{% if PREVIOUS_PASSES_CONTEXT %}
-<previous_passes_context>
-## Issues Found in Previous Passes for This Chunk
-
-```
-{{ PREVIOUS_PASSES_CONTEXT | safe }}
-```
-
-### Duplicate Detection Guidelines
-- Before reporting any issue, check if it was already found in previous passes
-- An issue is considered a duplicate if it has:
-  - Same file + overlapping line ranges
-  - Similar issue description or root cause
-- If you find a related issue from a previous pass:
-  - Don't report it again as a new issue
-  - You may reference it if your current pass adds significant new context
-  - Focus on aspects specific to your current pass's objectives
-</previous_passes_context>
-{% endif %}
 
 <claude_code_instructions>
 ## Instructions for Claude Code
@@ -130,8 +110,7 @@ Only after thorough investigation and understanding:
   - Test files often have different patterns and conventions than production code
   - Focus your issue detection only on non-test files
   - However, you may still reference test files for context when validating issues in non-test files
-- **Pass-Specific Focus**: Concentrate on issues relevant to {{ PASS_TYPE }}
-- **Previous Pass Awareness**: Check previous pass results before reporting issues
+- **Lens-Specific Focus**: Concentrate on issues relevant to {{ PASS_NAME }}
 - Identify what the code is trying to accomplish within the chunk's context
 - Look for potential issues or improvements in non-test files only
 - Before adding any issue to your findings check that issue hasn't already been mentioned in Step 3.
@@ -191,13 +170,9 @@ Example validations:
 - Before suggesting a refactor pattern, verify how it's used elsewhere in the project
 - Before flagging missing error handling, check if it's handled by a parent caller
 
-## Step 8: Cross-Reference with Existing Comments{% if PREVIOUS_PASSES_CONTEXT %} and Previous Passes{% endif %}
+## Step 8: Cross-Reference with Existing Comments
 For each finding from Step 6:
 - Double-check against your Step 3 list of already-identified issues to avoid including issues that were already discussed.
-{% if PREVIOUS_PASSES_CONTEXT %}
-- Also check against issues found in previous passes (from Step 1)
-- Apply duplicate detection rules from the previous_passes_context section
-{% endif %}
 - If yes → Move to "Previously Mentioned" section
 - If related to existing discussion on this chunk → Plan how to add value
 - If new → Keep in main review
@@ -247,7 +222,6 @@ IMPORTANT:
 - Include all required fields as specified in the schema
 - Provide detailed, actionable feedback for each issue
 - Ensure file paths are properly formatted
-- Set `detected_in_pass` field to {{ PASS_NUMBER }} for all issues
 - Return ONLY the final JSON output (without any additional text or markdown formatting)
 </output_format>
 

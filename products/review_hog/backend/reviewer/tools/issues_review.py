@@ -7,7 +7,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from products.review_hog.backend.reviewer.models.chunk_analysis import ChunkAnalysis
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
-from products.review_hog.backend.reviewer.models.issues_review import IssuesReview, PassContext, PassType
+from products.review_hog.backend.reviewer.models.issues_review import IssuesReview, PassType
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
 from products.review_hog.backend.reviewer.sandbox.code_context import prepare_code_context
 from products.review_hog.backend.reviewer.sandbox.executor import run_sandbox_review
@@ -31,27 +31,27 @@ async def review_chunks(
     branch: str,
     repository: str,
 ) -> None:
-    passes_count = len(PASS_ENUM_MAP)
-    for i in range(passes_count):
-        pass_number = i + 1
-        logger.info(f"Starting Pass {pass_number}: {PASS_ENUM_MAP[pass_number]}")
-        previous_passes_context = load_previous_pass_results(
-            review_dir=review_dir,
-            current_pass=pass_number,
-            chunks_count=len(chunks_data.chunks),
+    """Run all review lenses concurrently per chunk.
+
+    Each (lens × chunk) review is independent — no cross-lens context; overlap between lenses is
+    resolved downstream by the deduplication step, so every lens can run in parallel.
+    """
+    await asyncio.gather(
+        *(
+            review_chunks_pass(
+                chunks_data=chunks_data,
+                pr_metadata=pr_metadata,
+                pr_comments=pr_comments,
+                pr_files=pr_files,
+                review_dir=review_dir,
+                branch=branch,
+                repository=repository,
+                pass_number=pass_number,
+            )
+            for pass_number in PASS_ENUM_MAP
         )
-        await review_chunks_pass(
-            chunks_data=chunks_data,
-            pr_metadata=pr_metadata,
-            pr_comments=pr_comments,
-            pr_files=pr_files,
-            review_dir=review_dir,
-            branch=branch,
-            repository=repository,
-            pass_number=pass_number,
-            previous_passes_context=previous_passes_context,
-        )
-    logger.info("All review passes completed successfully!")
+    )
+    logger.info("All review lenses completed successfully!")
 
 
 async def review_chunks_pass(
@@ -63,9 +63,8 @@ async def review_chunks_pass(
     branch: str,
     repository: str,
     pass_number: int,
-    previous_passes_context: list[PassContext],
 ) -> None:
-    """Execute a single review pass for all chunks."""
+    """Execute a single review lens across all chunks (chunks run concurrently)."""
     pr_id = str(pr_metadata.number)
     # Validate pass number
     if pass_number not in PASS_ENUM_MAP:
@@ -91,7 +90,6 @@ async def review_chunks_pass(
             pr_files=pr_files,
             review_dir=review_dir,
             pass_number=pass_number,
-            previous_passes_context=previous_passes_context,
         )
         logger.info(f"Generated {len(prompt_paths)} prompts for Pass {pass_number}")
     except Exception as e:
@@ -113,6 +111,7 @@ async def review_chunks_pass(
         # Create task for this chunk
         task = process_chunk(
             chunk_id=chunk_id,
+            pass_number=pass_number,
             prompt_path=prompt_path,
             output_path=results_dir / f"chunk-{chunk_id}-issues-review.json",
             branch=branch,
@@ -135,35 +134,6 @@ async def review_chunks_pass(
     logger.info("All chunks processed successfully!")
 
 
-def load_previous_pass_results(review_dir: Path, current_pass: int, chunks_count: int) -> list[PassContext]:
-    """Load results from previous passes for context."""
-    previous_passes = []
-    # Load results from all previous passes
-    for pass_num in range(1, current_pass):
-        # Construct the path to the previous pass results
-        chunks_results_dir = review_dir / f"pass{pass_num}_results"
-        pass_issues = []
-        # Collect results per chunk
-        for chunk_id in range(1, chunks_count + 1):
-            chunk_summary_file = chunks_results_dir / f"chunk-{chunk_id}-issues-review.json"
-            if not chunk_summary_file.exists():
-                raise FileNotFoundError(
-                    f"Summary file not found for chunk {chunk_id} in pass {pass_num}: {chunk_summary_file}"
-                )
-            with chunk_summary_file.open() as f:
-                issues_review = IssuesReview.model_validate_json(f.read())
-            # Combine issues from all chunks
-            pass_issues.extend(issues_review.issues)
-        # Create pass context
-        pass_context = PassContext(
-            pass_number=pass_num,
-            pass_type=PASS_ENUM_MAP[pass_num],
-            issues=pass_issues,
-        )
-        previous_passes.append(pass_context)
-    return previous_passes
-
-
 async def generate_prompts(
     chunks_list: ChunksList,
     pr_metadata: PRMetadata,
@@ -171,9 +141,8 @@ async def generate_prompts(
     pr_files: list[PRFile],
     review_dir: Path,
     pass_number: int,
-    previous_passes_context: list[PassContext],
 ) -> list[Path]:
-    """Generate prompts for all chunks in a pass."""
+    """Generate prompts for all chunks in a lens."""
     pass_type = PASS_ENUM_MAP[pass_number]
     # Setup Jinja environment - use relative path from pr_reviewer directory
     prompts_dir = Path(__file__).parent.parent / "prompts" / "issues_review"
@@ -249,11 +218,6 @@ async def generate_prompts(
             PASS_NUMBER=pass_number,
             PASS_NAME=pass_type.value,
             PASS_SPECIFIC_CONTENT=pass_specific_content,
-            PREVIOUS_PASSES_CONTEXT=(
-                json.dumps([c.model_dump(mode="json") for c in previous_passes_context])
-                if previous_passes_context
-                else None
-            ),
         )
         # Save rendered file
         with prompt_file.open("w") as f:
@@ -265,6 +229,7 @@ async def generate_prompts(
 
 async def process_chunk(
     chunk_id: int,
+    pass_number: int,
     prompt_path: Path,
     output_path: Path,
     branch: str,
@@ -283,7 +248,6 @@ async def process_chunk(
         "- Identifying real issues that impact code quality, security, or performance\n"
         "- Providing specific, actionable suggestions for each issue\n"
         "- Categorizing issues by priority (must_fix, should_fix, consider)\n"
-        "- Understanding the context and avoiding duplicate issues from previous passes\n"
         "- Following the specific output format requirements for IssuesReview\n"
         "IMPORTANT: Return ONLY valid JSON output without any markdown formatting or explanatory text."
     )
@@ -295,7 +259,7 @@ async def process_chunk(
             repository=repository,
             output_path=str(output_path),
             model_to_validate=IssuesReview,
-            step_name=f"issues-review-{chunk_id}",
+            step_name=f"issues-review-p{pass_number}-c{chunk_id}",
         )
         if not success:
             logger.error(f"Failed to review chunk {chunk_id} using sandbox")

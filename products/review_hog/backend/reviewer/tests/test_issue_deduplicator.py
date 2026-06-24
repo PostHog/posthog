@@ -9,7 +9,23 @@ from products.review_hog.backend.reviewer.models.issue_combination import IssueC
 from products.review_hog.backend.reviewer.models.issue_deduplicator import DuplicateIssue, IssueDeduplication
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.tests.conftest import create_mock_run_sandbox_review
-from products.review_hog.backend.reviewer.tools.issue_deduplicator import deduplicate_issues
+from products.review_hog.backend.reviewer.tools.issue_deduplicator import (
+    _comment_line,
+    _select_dedup_candidates,
+    deduplicate_issues,
+)
+
+
+def _issue(issue_id: str, file: str, start: int, end: int) -> Issue:
+    return Issue(
+        id=issue_id,
+        title=f"Issue {issue_id}",
+        file=file,
+        lines=[LineRange(start=start, end=end)],
+        issue="problem",
+        suggestion="fix",
+        priority=IssuePriority.SHOULD_FIX,
+    )
 
 
 class TestIssueDeduplicator:
@@ -425,3 +441,132 @@ class TestIssueDeduplicator:
         assert captured_prompt is not None
         assert "<previous_issues>" in captured_prompt
         assert "<previous_issues>\n[]" in captured_prompt
+
+    @pytest.mark.asyncio
+    async def test_deduplicate_skips_llm_when_no_positional_collision(
+        self,
+        tmp_path: Path,
+        pr_metadata: PRMetadata,
+    ) -> None:
+        """When no two issues share a file + overlapping lines, the LLM dedupe is skipped entirely."""
+        review_dir = tmp_path / "review"
+        review_dir.mkdir()
+
+        # Three issues, all in different files/lines — nothing collides
+        isolated_issues = [
+            _issue("1-1", "src/a.py", 10, 20),
+            _issue("1-2", "src/b.py", 30, 40),
+            _issue("1-3", "src/c.py", 50, 60),
+        ]
+        with (review_dir / "issues_cleaned.json").open("w") as f:
+            f.write(IssueCombination(issues=isolated_issues).model_dump_json())
+
+        with patch("products.review_hog.backend.reviewer.tools.issue_deduplicator.run_sandbox_review") as mock_sandbox:
+            await deduplicate_issues(
+                pr_metadata=pr_metadata,
+                review_dir=review_dir,
+                branch="test-branch",
+                repository="test/repo",
+            )
+
+            # No candidates -> the LLM dedupe is never invoked
+            mock_sandbox.assert_not_called()
+
+        # deduplicator.json records no duplicates
+        with (review_dir / "deduplicator.json").open() as f:
+            result = IssueDeduplication.model_validate_json(f.read())
+        assert result.duplicates == []
+
+        # All issues are kept
+        with (review_dir / "issues_found.json").open() as f:
+            final = IssueCombination.model_validate_json(f.read())
+        assert {issue.id for issue in final.issues} == {"1-1", "1-2", "1-3"}
+
+    @pytest.mark.asyncio
+    async def test_deduplicate_keeps_isolated_issue_alongside_llm_dedupe(
+        self,
+        tmp_path: Path,
+        pr_metadata: PRMetadata,
+    ) -> None:
+        """Positionally-isolated issues survive even though only colliding candidates reach the LLM."""
+        review_dir = tmp_path / "review"
+        review_dir.mkdir()
+
+        # 1-1 and 2-1 collide (same file + lines); 1-2 is isolated
+        issues = [
+            _issue("1-1", "src/auth.py", 45, 50),
+            _issue("2-1", "src/auth.py", 45, 50),
+            _issue("1-2", "src/other.py", 10, 12),
+        ]
+        with (review_dir / "issues_cleaned.json").open("w") as f:
+            f.write(IssueCombination(issues=issues).model_dump_json())
+
+        captured_prompt: str | None = None
+
+        async def capture_and_mark_dup(**kwargs: Any) -> bool:
+            nonlocal captured_prompt
+            captured_prompt = kwargs["prompt"]
+            Path(kwargs["output_path"]).write_text(
+                IssueDeduplication(duplicates=[DuplicateIssue(id="2-1")]).model_dump_json()
+            )
+            return True
+
+        with patch(
+            "products.review_hog.backend.reviewer.tools.issue_deduplicator.run_sandbox_review",
+            capture_and_mark_dup,
+        ):
+            await deduplicate_issues(
+                pr_metadata=pr_metadata,
+                review_dir=review_dir,
+                branch="test-branch",
+                repository="test/repo",
+            )
+
+        # Only the colliding candidates were sent to the LLM, not the isolated issue
+        assert captured_prompt is not None
+        assert '"id": "1-1"' in captured_prompt
+        assert '"id": "2-1"' in captured_prompt
+        assert '"id": "1-2"' not in captured_prompt
+
+        # Survivors: the isolated issue plus the kept candidate; the duplicate is gone
+        with (review_dir / "issues_found.json").open() as f:
+            final = IssueCombination.model_validate_json(f.read())
+        assert {issue.id for issue in final.issues} == {"1-1", "1-2"}
+
+    def test_select_dedup_candidates_partitions_by_position(self) -> None:
+        issues = [
+            _issue("1-1", "src/auth.py", 45, 50),  # collides with 2-1
+            _issue("2-1", "src/auth.py", 48, 55),  # overlaps 1-1
+            _issue("1-2", "src/config.py", 23, 25),  # isolated
+        ]
+
+        candidates, unique = _select_dedup_candidates(issues, prior_comment_lines=[])
+
+        assert {c.id for c in candidates} == {"1-1", "2-1"}
+        assert {u.id for u in unique} == {"1-2"}
+
+    def test_select_dedup_candidates_collision_with_prior_comment(self) -> None:
+        # The lone issue collides with a prior review comment sitting inside its line range
+        issues = [_issue("1-1", "src/auth.py", 45, 50)]
+
+        candidates, unique = _select_dedup_candidates(issues, prior_comment_lines=[("src/auth.py", 47)])
+
+        assert {c.id for c in candidates} == {"1-1"}
+        assert unique == []
+
+    def test_comment_line_resolves_position_or_none(self) -> None:
+        def _comment(line: int | None, start_line: int | None) -> PRComment:
+            return PRComment(
+                path="src/auth.py",
+                line=line,
+                start_line=start_line,
+                body="x",
+                diff_hunk="",
+                user="greptile-apps[bot]",
+                created_at="2024-01-01",
+            )
+
+        assert _comment_line(_comment(line=47, start_line=None)) == ("src/auth.py", 47)
+        # Falls back to start_line when line is absent (must only read fields PRComment actually has)
+        assert _comment_line(_comment(line=None, start_line=42)) == ("src/auth.py", 42)
+        assert _comment_line(_comment(line=None, start_line=None)) is None

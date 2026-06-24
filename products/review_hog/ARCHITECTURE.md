@@ -80,6 +80,16 @@ re-pointed accordingly:
 
 ### ⏭️ What's next — Stage 2 (START HERE on "continue")
 
+> **✅ Landed so far (subset of Stage 2):** the review now runs the **three lenses in parallel** per chunk
+> with **no cross-lens context** (`review_chunks` → `asyncio.gather` over `(lens × chunk)`;
+> `load_previous_pass_results` / `PassContext` / the `PREVIOUS_PASSES_CONTEXT` prompt block are **deleted**);
+> the **dedupe** is hardened with a deterministic positional pre-filter (`_select_dedup_candidates` — only
+> file+line colliders reach the LLM, and a zero-candidate run skips the LLM call); and each issue carries a
+> **`source_lens`** attribution (stamped by `combine_issues`). **Still TODO in Stage 2:** conditional chunking
+> (the chunk gate), the per-chunk batched validator, and explicit `--team-id`/`--user-id`/`--repository`
+> config. _(The `MultiTurnSession.start(model=)` migration below is also still pending — the executor remains
+> on `start_raw`.)_
+
 > **Goal (agreed with the maintainer):** restructure the review into **parallel, isolated specialist
 > reviewers** — for every `(chunk × specialty)` spawn its own **single-turn** sandbox session via the
 > `MultiTurnSession` API — plus **conditional chunking**, a **per-chunk batched validator**, and **explicit
@@ -182,12 +192,14 @@ flowchart TD
     FETCH --> SCHEMA["2. Generate JSON schemas from Pydantic models"]
     SCHEMA --> CHUNK{{"3. Chunk PR (sandbox)"}}
     CHUNK --> ANALYZE{{"4. Per-chunk analysis (sandbox, parallel)"}}
-    ANALYZE --> P1{{"5a. Pass 1 — Logic & Correctness"}}
-    P1 -->|pass 1 context| P2{{"5b. Pass 2 — Contracts & Security"}}
-    P2 -->|pass 1+2 context| P3{{"5c. Pass 3 — Performance & Reliability"}}
-    P3 --> COMBINE["6. Combine issues (local)"]
+    ANALYZE --> L1{{"5a. Lens — Logic & Correctness"}}
+    ANALYZE --> L2{{"5b. Lens — Contracts & Security"}}
+    ANALYZE --> L3{{"5c. Lens — Performance & Reliability"}}
+    L1 --> COMBINE["6. Combine issues (local, stamps source_lens)"]
+    L2 --> COMBINE
+    L3 --> COMBINE
     COMBINE --> CLEAN["7. Scope clean (local)"]
-    CLEAN --> DEDUP{{"8. Deduplicate (sandbox)"}}
+    CLEAN --> DEDUP{{"8. Deduplicate (pre-filter + sandbox)"}}
     DEDUP --> VALIDATE{{"9. Per-issue validation (sandbox)"}}
     VALIDATE --> MD["10. Build review_report.md (local)"]
     MD --> PUBLISH["11. Publish PR review (GitHub API)"]
@@ -211,23 +223,28 @@ pr_metadata.head_branch` is threaded into every sandbox step so the agent review
 6. **Per-chunk analysis** — `analyze_chunks` (1 sandbox call per chunk, **parallel** via `asyncio.gather`)
    writes a `goal` narrative per chunk to `chunk-{id}-analysis.json` (`ChunkAnalysis`). Informational, not
    issue-finding. On partial failure it logs and returns (does not raise).
-7. **Multi-pass issue review** — `review_chunks` runs **3 sequential passes**, each chunk parallel within a
-   pass. Each pass focuses on a different concern and is fed the prior passes' findings:
-   - **Pass 1 — Logic & Correctness** (`PassType.LOGIC_CORRECTNESS`)
-   - **Pass 2 — Contracts & Security** (`PassType.CONTRACTS_SECURITY`)
-   - **Pass 3 — Performance & Reliability** (`PassType.PERFORMANCE_RELIABILITY`)
+7. **Parallel lens review** — `review_chunks` runs **three independent specialist lenses concurrently** per
+   chunk (`asyncio.gather` over `(lens × chunk)`, bounded by the global semaphore). Each lens covers a
+   different concern and runs with **no cross-lens context** — overlap is left to the dedupe step (10):
+   - **Logic & Correctness** (`PassType.LOGIC_CORRECTNESS`)
+   - **Contracts & Security** (`PassType.CONTRACTS_SECURITY`)
+   - **Performance & Reliability** (`PassType.PERFORMANCE_RELIABILITY`)
 
-   Each pass×chunk is one sandbox call validating `IssuesReview`. Context flows forward via
-   `load_previous_pass_results` → `PREVIOUS_PASSES_CONTEXT`, and each chunk's `ChunkAnalysis.goal` is
-   injected as `CHUNK_ANALYSIS_CONTEXT`. The prompt also instructs cross-pass duplicate avoidance. Output:
-   `pass{N}_results/chunk-{id}-issues-review.json`.
+   Each lens×chunk is one sandbox call validating `IssuesReview` (step name `issues-review-p{lens}-c{chunk}`),
+   with the chunk's `ChunkAnalysis.goal` injected as `CHUNK_ANALYSIS_CONTEXT`. Output:
+   `pass{N}_results/chunk-{id}-issues-review.json` (the `pass{N}` dirs are retained as the per-lens location).
 
-8. **Combine** — `combine_issues` (local) flattens every pass×chunk `Issue` into `issues_found_raw.json`.
+8. **Combine** — `combine_issues` (local) flattens every lens×chunk `Issue` into `issues_found_raw.json`,
+   stamping each issue's `source_lens` (which lens produced it).
 9. **Scope clean** — `clean_issues` (local) drops issues whose file/lines don't overlap the PR diff. Writes
    `issues_cleaned.json` + `issues_outside_scope.json`.
-10. **Deduplicate** — `deduplicate_issues` (1 sandbox call, `IssueDeduplication`) removes cross-pass/chunk
-    duplicates **and** issues already raised by a competing bot's prior comments (currently hardcoded to
-    `greptile-apps[bot]`). Survivors → `issues_found.json` (the canonical post-dedup set).
+10. **Deduplicate** — `deduplicate_issues` first runs a **deterministic positional pre-filter**
+    (`_select_dedup_candidates`): only issues sharing a file + overlapping lines with another issue or a
+    prior bot comment can be duplicates, so positionally-isolated issues survive **without** an LLM call
+    (and if there are no candidates the sandbox call is skipped entirely). The colliding candidates go to the
+    single sandbox dedupe call (`IssueDeduplication`), which also drops issues already raised by a competing
+    bot's prior comments (hardcoded `greptile-apps[bot]`). Survivors = unique + LLM-kept candidates →
+    `issues_found.json` (the canonical post-dedup set).
 11. **Validate** — `validate_issues` (1 sandbox call per issue) asks the agent whether each surviving issue
     is real, writing `…/validation/summaries/chunk-{c}-issue-{i}-validation-summary.json` (`IssueValidation`,
     `is_valid` + `category`).
@@ -309,16 +326,16 @@ All Pydantic. `models/__init__.py` is the authoritative registry that generates 
 `schema.json` files from `Model.model_json_schema()` — **`schema.json` files are generated artifacts; edit
 the model and regenerate, never hand-edit.**
 
-| Model                                                                                 | File                                    | Schema-backed?                    | Role                                                 |
-| ------------------------------------------------------------------------------------- | --------------------------------------- | --------------------------------- | ---------------------------------------------------- |
-| `ChunksList` / `Chunk` / `FileInfo`                                                   | `models/split_pr_into_chunks.py`        | ✅ chunking                       | PR → reviewable chunks (`chunk_type`, `key_changes`) |
-| `ChunkAnalysis` / `ChunkMeta`                                                         | `models/chunk_analysis.py`              | ✅ chunk_analysis                 | per-chunk `goal` narrative                           |
-| `Issue` / `IssuesReview` / `LineRange` / `IssuePriority` / `PassType` / `PassContext` | `models/issues_review.py`               | ✅ issues_review (`IssuesReview`) | **`Issue` is the shared currency** of stages 7–12    |
-| `IssueDeduplication` / `DuplicateIssue`                                               | `models/issue_deduplicator.py`          | ✅ issue_deduplicator             | ids of issues to drop                                |
-| `IssueValidation`                                                                     | `models/issue_validation.py`            | ✅ issue_validation               | `is_valid` + `category` per issue                    |
-| `IssueCombination`                                                                    | `models/issue_combination.py`           | — internal                        | flat merged issue list                               |
-| `ValidationMarkdownReport*`                                                           | `models/prepare_validation_markdown.py` | — internal                        | report tree (Chunk × Analysis × Issue × Validation)  |
-| `PRMetadata` / `PRComment` / `PRFile` / `PRFileUpdate`                                | `models/github_meta.py`                 | — internal                        | raw GitHub ingestion                                 |
+| Model                                                                 | File                                    | Schema-backed?                    | Role                                                                                               |
+| --------------------------------------------------------------------- | --------------------------------------- | --------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `ChunksList` / `Chunk` / `FileInfo`                                   | `models/split_pr_into_chunks.py`        | ✅ chunking                       | PR → reviewable chunks (`chunk_type`, `key_changes`)                                               |
+| `ChunkAnalysis` / `ChunkMeta`                                         | `models/chunk_analysis.py`              | ✅ chunk_analysis                 | per-chunk `goal` narrative                                                                         |
+| `Issue` / `IssuesReview` / `LineRange` / `IssuePriority` / `PassType` | `models/issues_review.py`               | ✅ issues_review (`IssuesReview`) | **`Issue` is the shared currency** of stages 7–12; `Issue.source_lens` records which lens found it |
+| `IssueDeduplication` / `DuplicateIssue`                               | `models/issue_deduplicator.py`          | ✅ issue_deduplicator             | ids of issues to drop                                                                              |
+| `IssueValidation`                                                     | `models/issue_validation.py`            | ✅ issue_validation               | `is_valid` + `category` per issue                                                                  |
+| `IssueCombination`                                                    | `models/issue_combination.py`           | — internal                        | flat merged issue list                                                                             |
+| `ValidationMarkdownReport*`                                           | `models/prepare_validation_markdown.py` | — internal                        | report tree (Chunk × Analysis × Issue × Validation)                                                |
+| `PRMetadata` / `PRComment` / `PRFile` / `PRFileUpdate`                | `models/github_meta.py`                 | — internal                        | raw GitHub ingestion                                                                               |
 
 `Issue.id` encodes provenance as `"{pass_number}-{chunk_id}-{issue_number}"` and is parsed back throughout
 the pipeline to route validations and group the report. `IssuePriority` is `MUST_FIX` / `SHOULD_FIX` /
@@ -409,9 +426,9 @@ Found during the Stage 1 analysis; **documented, not fixed** (most are Stage 2+ 
 - **Inconsistent failure handling** — chunk analysis (step 6) and issue review (step 7) log and `return` on
   partial chunk failure (pipeline silently proceeds with incomplete results), whereas chunking and dedup
   raise `RuntimeError`.
-- **Prompt/schema mismatches** — the `Issue` field is misspelled `is_directy_related_to_changes` (in both
-  the model and the generated schema); the issues_review prompt instructs setting a `detected_in_pass` field
-  that doesn't exist in the `Issue` model/schema.
+- **Prompt/schema mismatch** — the `Issue` field is still misspelled `is_directy_related_to_changes` (in
+  both the model and the generated schema). _(The stale `detected_in_pass` prompt instruction was removed
+  with the parallel-lens change.)_
 - **Diff-parser gap** — `parse_patch` only emits `addition`/`deletion`/`context`, never `modification`, yet
   `issue_cleaner._build_modified_files_map` looks for `modification` ranges (dead branch; only `addition`
   ranges are ever used for scope).
