@@ -1435,6 +1435,22 @@ class TestEarlyAccessFeatureResourceAccessControl(APIBaseTest):
     def _create_feature(self) -> EarlyAccessFeature:
         return EarlyAccessFeature.objects.create(team=self.team, name="Example feature", stage="concept")
 
+    def _create_feature_with_flag(self) -> EarlyAccessFeature:
+        # Flag created by the admin so the member is not the flag creator (creators get manager).
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="eaf-linked-flag",
+            name="EAF linked flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 0}]},
+        )
+        return EarlyAccessFeature.objects.create(
+            team=self.team, name="Linked feature", stage="concept", feature_flag=flag
+        )
+
+    def _restrict_feature_flag_access(self, access_level: str) -> None:
+        AccessControl.objects.create(resource="feature_flag", team=self.team, access_level=access_level)
+
     @parameterized.expand([("none", status.HTTP_403_FORBIDDEN), ("viewer", status.HTTP_200_OK)])
     def test_list_access_by_resource_level(self, access_level: str, expected_status: int) -> None:
         self._set_resource_level(access_level)
@@ -1522,5 +1538,47 @@ class TestEarlyAccessFeatureResourceAccessControl(APIBaseTest):
         response = self.client.put(
             f"/api/projects/{self.team.id}/early_access_feature/{feature.id}/access_controls",
             {"access_level": "viewer"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+    def test_eaf_editor_without_feature_flag_access_cannot_create_flag(self) -> None:
+        # early_access_feature editor must not bypass feature_flag access control when creating a flag.
+        self._set_resource_level("editor")
+        self._restrict_feature_flag_access("viewer")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            {"name": "Bypass attempt", "stage": "concept"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
+
+    def test_eaf_editor_without_feature_flag_access_cannot_activate_stage(self) -> None:
+        # Promoting to an active stage mutates the linked flag, so it requires feature_flag editor.
+        feature = self._create_feature_with_flag()
+        self._set_resource_level("editor")
+        self._restrict_feature_flag_access("viewer")
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature.id}",
+            {"stage": "beta"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
+
+    def test_eaf_editor_without_feature_flag_access_cannot_delete_with_linked_flag(self) -> None:
+        # Deleting clears the linked flag's enrollment, so it requires feature_flag editor.
+        feature = self._create_feature_with_flag()
+        self._set_resource_level("editor")
+        self._restrict_feature_flag_access("viewer")
+        response = self.client.delete(f"/api/projects/{self.team.id}/early_access_feature/{feature.id}")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_eaf_editor_with_feature_flag_access_can_activate_stage(self) -> None:
+        # With the default feature_flag editor access, the linked-flag write is allowed.
+        feature = self._create_feature_with_flag()
+        self._set_resource_level("editor")
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature.id}",
+            {"stage": "beta"},
+            format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())

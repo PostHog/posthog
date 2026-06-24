@@ -7,6 +7,7 @@ from django.views.decorators.csrf import csrf_exempt
 import structlog
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers, status, viewsets
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -18,7 +19,7 @@ from posthog.exceptions import generate_exception_response
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlSerializerMixin
 from posthog.tasks.early_access_feature import send_events_for_early_access_feature_stage_change
 from posthog.utils_cors import cors_response
 
@@ -38,6 +39,28 @@ def _set_enrollment_filters(existing: dict, *, enrolled: bool | None, **override
     filters = {**existing, "feature_enrollment": enrolled, **overrides}
     filters.pop("super_groups", None)
     return filters
+
+
+def assert_feature_flag_rbac_access(
+    user_access_control: UserAccessControl | None,
+    *,
+    feature_flag: FeatureFlag | None = None,
+) -> None:
+    """Early access feature writes create or mutate a linked feature flag through the FeatureFlag
+    serializer directly, bypassing the FeatureFlag viewset's RBAC gate. Enforce the same feature_flag
+    access control here so early_access_feature editor access can't be used to write feature flags a
+    user otherwise couldn't. Pass ``feature_flag`` to check editing that object; omit it to check
+    creating a new flag (resource level). Fails open when access controls aren't enabled — the checks
+    resolve to the default editor level."""
+    if user_access_control is None:
+        return
+    has_access = (
+        user_access_control.check_access_level_for_object(feature_flag, "editor")
+        if feature_flag is not None
+        else user_access_control.check_access_level_for_resource("feature_flag", "editor")
+    )
+    if not has_access:
+        raise PermissionDenied("You don't have sufficient permissions to modify the linked feature flag.")
 
 
 class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
@@ -137,6 +160,7 @@ class EarlyAccessFeatureSerializer(UserAccessControlSerializerMixin, serializers
                     team_id=instance.team_id,
                     feature_flag_id=related_feature_flag.id,
                 )
+                assert_feature_flag_rbac_access(self.user_access_control, feature_flag=related_feature_flag)
                 serialized_data_filters = _set_enrollment_filters(
                     related_feature_flag.filters,
                     enrolled=None,
@@ -161,6 +185,7 @@ class EarlyAccessFeatureSerializer(UserAccessControlSerializerMixin, serializers
                     team_id=instance.team_id,
                     feature_flag_id=related_feature_flag.id,
                 )
+                assert_feature_flag_rbac_access(self.user_access_control, feature_flag=related_feature_flag)
                 serialized_data_filters = _set_enrollment_filters(related_feature_flag.filters, enrolled=True)
 
                 serializer = FeatureFlagSerializer(
@@ -181,6 +206,7 @@ class EarlyAccessFeatureSerializer(UserAccessControlSerializerMixin, serializers
                     team_id=instance.team_id,
                     feature_flag_id=related_feature_flag.id,
                 )
+                assert_feature_flag_rbac_access(self.user_access_control, feature_flag=related_feature_flag)
                 related_feature_flag.filters = _set_enrollment_filters(related_feature_flag.filters, enrolled=None)
                 related_feature_flag.save()
 
@@ -292,6 +318,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
                     team_id=self.context["team_id"],
                     feature_flag_id=feature_flag.id,
                 )
+                assert_feature_flag_rbac_access(self.user_access_control, feature_flag=feature_flag)
                 serialized_data_filters = _set_enrollment_filters(feature_flag.filters, enrolled=True)
 
                 serializer = FeatureFlagSerializer(
@@ -310,6 +337,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
                 resource_scope="early_access_feature:write",
                 team_id=self.context["team_id"],
             )
+            assert_feature_flag_rbac_access(self.user_access_control)
             feature_flag_key = slugify(validated_data["name"])
 
             filters: dict[str, Any] = {
@@ -359,6 +387,7 @@ class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 feature_flag_id=related_feature_flag.id,
                 resource_scope="early_access_feature:write",
             )
+            assert_feature_flag_rbac_access(self.user_access_control, feature_flag=related_feature_flag)
             related_feature_flag.filters = _set_enrollment_filters(related_feature_flag.filters, enrolled=None)
             related_feature_flag.save()
 
