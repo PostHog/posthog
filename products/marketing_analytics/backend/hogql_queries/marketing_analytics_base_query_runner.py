@@ -570,6 +570,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         """
         valid_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3] = []
         warnings: list[str] = []
+        seen_names: set[str] = set()
 
         for goal in conversion_goals:
             goal_name = getattr(goal, "conversion_goal_name", "Unknown")
@@ -620,9 +621,40 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                     )
                     continue
 
+            # Names become SQL column aliases downstream, so a duplicate would collide
+            # ("Cannot redefine an alias"). Keep the first, skip the rest with a warning.
+            if goal_name in seen_names:
+                logger.warning(
+                    "filtering_out_duplicate_named_conversion_goal",
+                    goal_name=goal_name,
+                )
+                warnings.append(f"Conversion goal '{goal_name}' skipped: duplicate name")
+                continue
+            seen_names.add(goal_name)
+
             valid_goals.append(goal)
 
         return valid_goals, warnings
+
+    def _get_filtered_select_columns(self, query: ast.SelectQuery) -> list[ast.Expr]:
+        """Filter a query's SELECT to the columns requested in self.query.select, in order."""
+        if not self.query.select:
+            return query.select if query.select else []
+
+        column_mapping: dict[str, ast.Expr] = {}
+        for col in query.select:
+            key = col.alias if isinstance(col, ast.Alias) else str(col)
+            column_mapping[key] = col
+
+        # Skip duplicates so a repeated request (e.g. two conversion goals sharing a
+        # name) can't emit the same alias twice and trip "Cannot redefine an alias".
+        filtered_select: list[ast.Expr] = []
+        seen: set[str] = set()
+        for requested_col in self.query.select:
+            if requested_col in column_mapping and requested_col not in seen:
+                filtered_select.append(column_mapping[requested_col])
+                seen.add(requested_col)
+        return filtered_select
 
     def _create_conversion_goal_processors(
         self, conversion_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]
