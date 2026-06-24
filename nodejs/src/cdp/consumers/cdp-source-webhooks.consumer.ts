@@ -117,9 +117,11 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
     /**
      * Per-team daily-rotating salt to inject as the `salt` global before running source-webhook Hog.
      * Forward-derivable, irreversible (built on a random daily salt that's discarded after its TTL).
-     * Never throws and never hangs the request — on error, timeout, or invalid date it falls back to an
-     * empty salt (a metered, weaker-privacy degradation). A consuming template must always also mix a
-     * high-entropy per-client component (IP/host/UA) so an empty-salt window can't collapse identities.
+     * Never throws and never hangs the request — on error, timeout, or invalid date it returns the empty
+     * string. A successful salt is always a non-empty base64 hash, so `''` is an unambiguous "unavailable"
+     * sentinel: a consuming template should fail the request (5xx) on empty salt so the sender retries,
+     * rather than emit a reversible, un-salted id. Failures are metered (`sourceWebhookSaltFallbackCounter`)
+     * and logged at error level — a non-empty rate means the (cookieless) Redis is unhealthy.
      */
     private async getTeamDailySalt(teamId: number): Promise<string> {
         // UTC calendar day — matches the Vercel template's `day` (formatDateTime(now(), '%Y-%m-%d')).
@@ -144,7 +146,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
             }
         } catch (error) {
             reason = 'redis_error'
-            logger.warn('Failed to fetch daily rotating salt for source webhook', { teamId, error })
+            logger.error('Failed to fetch daily rotating salt for source webhook', { teamId, error })
         }
         sourceWebhookSaltFallbackCounter.labels({ reason }).inc()
         return ''
