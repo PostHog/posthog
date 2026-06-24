@@ -3,11 +3,14 @@ import { delay, HttpResponse } from 'msw'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
-import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
 import { OriginProduct, Task, TaskRun, TaskRunEnvironment, TaskRunStatus } from './types'
+
+const taskTrackerUrl = (): string => '/tasks'
+const taskNewUrl = (): string => '/tasks/new'
+const taskDetailUrl = (taskId: string): string => `/tasks/${taskId}`
 
 const CREATED_BY: Task['created_by'] = {
     id: 1,
@@ -114,7 +117,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2024-01-15T12:00:00',
         featureFlags: [FEATURE_FLAGS.TASKS],
-        pageUrl: urls.taskTracker(),
+        pageUrl: taskTrackerUrl(),
     },
 }
 export default meta
@@ -127,14 +130,14 @@ export const ListWithComposer: Story = {}
 // New-task route — same two columns, composer is the focused right pane.
 export const NewTask: Story = {
     parameters: {
-        pageUrl: urls.taskNew(),
+        pageUrl: taskNewUrl(),
     },
 }
 
 // A task is selected: the row is highlighted and its detail fills the right column.
 export const TaskSelected: Story = {
     parameters: {
-        pageUrl: urls.taskDetail('task-3'),
+        pageUrl: taskDetailUrl('task-3'),
     },
 }
 
@@ -169,26 +172,30 @@ export const Empty: Story = {
 
 // Below `lg` (1024px) the scene collapses to a single column; 568px lands in the mobile branch.
 const MOBILE_VIEWPORT = { width: 568, height: 812 }
+const MOBILE_PARAMETERS = {
+    viewport: {
+        defaultViewport: 'mobile2',
+    },
+    testOptions: { viewport: MOBILE_VIEWPORT },
+}
 
 // Mobile: the list fills the screen and scrolls with the page, with a floating "New task" button.
 export const MobileList: Story = {
-    parameters: {
-        testOptions: { viewport: MOBILE_VIEWPORT },
-    },
+    parameters: MOBILE_PARAMETERS,
 }
 
 // Mobile: the new-task composer is the single full-screen column.
 export const MobileNewTask: Story = {
     parameters: {
-        pageUrl: urls.taskNew(),
-        testOptions: { viewport: MOBILE_VIEWPORT },
+        ...MOBILE_PARAMETERS,
+        pageUrl: taskNewUrl(),
     },
 }
 
 // Mobile: a selected task's detail fills the screen (its back button returns to the list).
 export const MobileTaskSelected: Story = {
     parameters: {
-        pageUrl: urls.taskDetail('task-3'),
-        testOptions: { viewport: MOBILE_VIEWPORT },
+        ...MOBILE_PARAMETERS,
+        pageUrl: taskDetailUrl('task-3'),
     },
 }

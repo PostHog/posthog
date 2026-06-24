@@ -2,7 +2,9 @@ import { AllowTrainingCallout } from 'lib/components/AllowTrainingCallout/AllowT
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
+import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -47,6 +49,14 @@ export function TaskTracker({ taskId }: TaskTrackerProps): JSX.Element {
         if (taskId === 'new') {
             return (
                 <SceneContent className="h-full">
+                    <SceneBreadcrumbBackButton
+                        forceBackTo={{
+                            key: 'tasks',
+                            name: 'Tasks',
+                            path: urls.taskTracker(),
+                        }}
+                        className="ml-10 w-fit"
+                    />
                     <AllowTrainingCallout featureName="Tasks" />
                     <div className="flex flex-1 min-h-0 flex-col overflow-hidden">
                         <TaskComposer />

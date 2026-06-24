@@ -8,7 +8,6 @@ import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuGroup, DropdownMenuItem } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { LinkListItem } from 'lib/ui/LinkListItem/LinkListItem'
-import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { urls } from 'scenes/urls'
 
@@ -26,15 +25,7 @@ function compactTimeAgo(iso: string): string {
     return humanFriendlyDuration(seconds, { maxUnits: 1 })
 }
 
-export function TaskListItem({
-    task,
-    isActive,
-    isMobile = false,
-}: {
-    task: Task
-    isActive: boolean
-    isMobile?: boolean
-}): JSX.Element {
+export function TaskListItem({ task, isActive }: { task: Task; isActive: boolean }): JSX.Element {
     const { deleteTask } = useActions(tasksLogic)
 
     const displayTitle = task.title || task.slug
@@ -59,7 +50,7 @@ export function TaskListItem({
                         active: isActive,
                         fullWidth: true,
                         // Taller tap target on mobile (min-height wins over the base menu-item height).
-                        className: cn('group', isMobile && 'px-0'),
+                        className: 'group',
                         menuItem: true,
                     }}
                     tooltip={displayTitle}

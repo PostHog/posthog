@@ -32,9 +32,7 @@ export function TasksListColumn({ selectedTaskId, isMobile = false }: TasksListC
                 <p className="text-sm mb-0">No tasks yet</p>
             </div>
         ) : (
-            tasks.map((task) => (
-                <TaskListItem key={task.id} task={task} isActive={task.id === selectedTaskId} isMobile={isMobile} />
-            ))
+            tasks.map((task) => <TaskListItem key={task.id} task={task} isActive={task.id === selectedTaskId} />)
         )
 
     if (isMobile) {
@@ -70,11 +68,11 @@ export function TasksListColumn({ selectedTaskId, isMobile = false }: TasksListC
                     <IconPlusSmall className="size-4" />
                 </Link>
             </div>
-            <LemonDivider className="mt-0 mb-2 shrink-0" />
+            <LemonDivider className="m-0 shrink-0" />
 
             <ScrollableShadows
                 direction="vertical"
-                className="flex flex-col flex-1 min-h-0 overflow-hidden"
+                className="flex flex-col flex-1 min-h-0 overflow-hidden pt-2"
                 innerClassName="pr-2"
                 // Row gap + trailing space live on the content, not the scroll viewport: a single
                 // Content child means a gap on the viewport is a no-op, and Chrome drops a scroll
