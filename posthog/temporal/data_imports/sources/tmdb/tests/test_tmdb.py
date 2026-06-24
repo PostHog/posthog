@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 import pytest
@@ -17,19 +18,16 @@ from posthog.temporal.data_imports.sources.tmdb.tmdb import (
 )
 
 
-def _make_response(status_code: int, body: Any) -> mock.MagicMock:
-    response = mock.MagicMock(spec=requests.Response)
+def _make_response(status_code: int, body: Any) -> requests.Response:
+    # A real Response so .json(), .ok, and .raise_for_status() behave exactly like production.
+    response = requests.Response()
     response.status_code = status_code
-    response.ok = 200 <= status_code < 400
-    response.json.return_value = body
-    response.text = str(body)
-    response.raise_for_status.side_effect = (
-        requests.HTTPError(f"{status_code} Client Error") if not response.ok else None
-    )
+    response.url = "https://api.themoviedb.org/3/x"
+    response._content = json.dumps(body).encode()
     return response
 
 
-def _fake_session(responses: list[mock.MagicMock]) -> mock.MagicMock:
+def _fake_session(responses: list[requests.Response]) -> mock.MagicMock:
     session = mock.MagicMock()
     session.get.side_effect = responses
     return session
@@ -137,14 +135,26 @@ class TestRetry:
     @pytest.mark.parametrize("status", [429, 500, 503])
     def test_retryable_statuses_raise_retryable_error(self, status: int) -> None:
         session = _fake_session([_make_response(status, {})])
-        # Call the undecorated function directly to assert the classification without backoff sleeps.
+        # Call the undecorated fetch directly to assert the classification without backoff sleeps.
         with pytest.raises(tmdb_module.TMDbRetryableError):
-            tmdb_module._fetch.__wrapped__(session, "https://api.themoviedb.org/3/x", mock.MagicMock())
+            tmdb_module._do_fetch(session, "https://api.themoviedb.org/3/x", mock.MagicMock())
 
     def test_client_error_raises_for_status(self) -> None:
         session = _fake_session([_make_response(404, {})])
         with pytest.raises(requests.HTTPError):
-            tmdb_module._fetch.__wrapped__(session, "https://api.themoviedb.org/3/x", mock.MagicMock())
+            tmdb_module._do_fetch(session, "https://api.themoviedb.org/3/x", mock.MagicMock())
+
+    def test_error_message_scrubs_api_key_from_url(self) -> None:
+        # The api_key rides in the query string; a 4xx must not leak it into the propagated error.
+        response = _make_response(401, {"status_code": 7})
+        response.url = "https://api.themoviedb.org/3/configuration?api_key=supersecret&page=1"
+        session = _fake_session([response])
+        with pytest.raises(requests.HTTPError) as exc:
+            tmdb_module._do_fetch(session, "x", mock.MagicMock())
+        message = str(exc.value)
+        assert "supersecret" not in message
+        # Base host/path is preserved so get_non_retryable_errors() can still match on it.
+        assert "https://api.themoviedb.org/3/configuration" in message
 
 
 class TestValidateCredentials:

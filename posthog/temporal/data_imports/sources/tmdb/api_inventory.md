@@ -23,24 +23,24 @@ scope for this connector.
 
 ## Endpoints
 
-| Schema            | Path                       | Shape                  | Primary key   |
-| ----------------- | -------------------------- | ---------------------- | ------------- |
-| movie_popular     | /movie/popular             | paginated `results`    | id            |
-| movie_top_rated   | /movie/top_rated           | paginated `results`    | id            |
-| movie_now_playing | /movie/now_playing         | paginated `results`    | id            |
-| movie_upcoming    | /movie/upcoming            | paginated `results`    | id            |
-| tv_popular        | /tv/popular                | paginated `results`    | id            |
-| tv_top_rated      | /tv/top_rated              | paginated `results`    | id            |
-| tv_on_the_air     | /tv/on_the_air             | paginated `results`    | id            |
-| tv_airing_today   | /tv/airing_today           | paginated `results`    | id            |
-| person_popular    | /person/popular            | paginated `results`    | id            |
-| trending_movies   | /trending/movie/day        | paginated `results`    | id            |
-| trending_tv       | /trending/tv/day           | paginated `results`    | id            |
-| trending_people   | /trending/person/day       | paginated `results`    | id            |
-| movie_genres      | /genre/movie/list          | single, `genres`       | id            |
-| tv_genres         | /genre/tv/list             | single, `genres`       | id            |
-| languages         | /configuration/languages   | single, bare list      | iso_639_1     |
-| countries         | /configuration/countries   | single, bare list      | iso_3166_1    |
+| Schema            | Path                     | Shape               | Primary key |
+| ----------------- | ------------------------ | ------------------- | ----------- |
+| movie_popular     | /movie/popular           | paginated `results` | id          |
+| movie_top_rated   | /movie/top_rated         | paginated `results` | id          |
+| movie_now_playing | /movie/now_playing       | paginated `results` | id          |
+| movie_upcoming    | /movie/upcoming          | paginated `results` | id          |
+| tv_popular        | /tv/popular              | paginated `results` | id          |
+| tv_top_rated      | /tv/top_rated            | paginated `results` | id          |
+| tv_on_the_air     | /tv/on_the_air           | paginated `results` | id          |
+| tv_airing_today   | /tv/airing_today         | paginated `results` | id          |
+| person_popular    | /person/popular          | paginated `results` | id          |
+| trending_movies   | /trending/movie/day      | paginated `results` | id          |
+| trending_tv       | /trending/tv/day         | paginated `results` | id          |
+| trending_people   | /trending/person/day     | paginated `results` | id          |
+| movie_genres      | /genre/movie/list        | single, `genres`    | id          |
+| tv_genres         | /genre/tv/list           | single, `genres`    | id          |
+| languages         | /configuration/languages | single, bare list   | iso_639_1   |
+| countries         | /configuration/countries | single, bare list   | iso_3166_1  |
 
 ## Rate limiting
 

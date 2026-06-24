@@ -2,7 +2,7 @@ import time
 import dataclasses
 from collections.abc import Iterator
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -47,13 +47,16 @@ def _build_url(path: str, api_key: str, page: int | None = None) -> str:
     return f"{TMDB_BASE_URL}{path}?{urlencode(params)}"
 
 
-@retry(
-    retry=retry_if_exception_type((TMDbRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-    stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
-    reraise=True,
-)
-def _fetch(session: requests.Session, url: str, logger: FilteringBoundLogger) -> dict | list:
+def _scrub_url(url: str | None) -> str:
+    # The api_key rides in the query string, so strip the query before the URL reaches any error
+    # message or log line — otherwise a non-2xx response would leak the credential into job errors.
+    if not url:
+        return TMDB_BASE_URL
+    parts = urlsplit(url)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+
+
+def _do_fetch(session: requests.Session, url: str, logger: FilteringBoundLogger) -> dict | list:
     response = session.get(url, headers=_get_headers(), timeout=60)
 
     # 429 carries a Retry-After header; tenacity's backoff handles the wait deterministically.
@@ -62,9 +65,25 @@ def _fetch(session: requests.Session, url: str, logger: FilteringBoundLogger) ->
 
     if not response.ok:
         logger.error(f"TMDB API error: status={response.status_code}, body={response.text}")
-        response.raise_for_status()
+        # Raise with the api_key scrubbed from the URL rather than calling raise_for_status(), whose
+        # message embeds the full credential-bearing URL. The base host stays intact so
+        # `get_non_retryable_errors()` can still match on it.
+        raise requests.HTTPError(
+            f"{response.status_code} Client Error: {response.reason} for url: {_scrub_url(response.url)}",
+            response=response,
+        )
 
     return response.json()
+
+
+# Wrap the bare fetch in tenacity retries. Kept as a separate assignment (rather than a decorator) so
+# tests can exercise the status-code classification in `_do_fetch` without driving the backoff loop.
+_fetch = retry(
+    retry=retry_if_exception_type((TMDbRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential_jitter(initial=1, max=30),
+    reraise=True,
+)(_do_fetch)
 
 
 def validate_credentials(api_key: str) -> bool:
