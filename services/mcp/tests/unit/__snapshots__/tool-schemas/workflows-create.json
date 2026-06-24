@@ -1,5 +1,6 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Full workflow spec: the complete action/edge graph plus trigger, conversion, masking, and variables.\n\nReturned by retrieve/create/update. The list view uses HogFlowMinimalSerializer instead.",
     "properties": {
         "actions": {
             "description": "Ordered action nodes. Exactly one type='trigger' required. Typically one type='exit' too.",
