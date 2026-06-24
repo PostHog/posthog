@@ -1,5 +1,7 @@
 import { connect, kea, path, selectors } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getCurrencySymbol } from 'lib/utils/currency'
 import { isNotNil } from 'lib/utils/guards'
 import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS, QueryTile, TileId, loadPriorityMap } from 'scenes/web-analytics/common'
@@ -84,6 +86,8 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
             ],
             marketingAnalyticsTableLogic,
             ['query', 'defaultColumns'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
     })),
     selectors({
@@ -128,6 +132,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 s.tileColumnSelection,
                 s.baseCurrency,
                 s.integrationFilter,
+                s.featureFlags,
             ],
             (
                 compareFilter: CompareFilter | null,
@@ -136,7 +141,8 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                 chartDisplayType: ChartDisplayType,
                 tileColumnSelection: validColumnsForTiles,
                 baseCurrency: CurrencyCode,
-                integrationFilter: IntegrationFilter
+                integrationFilter: IntegrationFilter,
+                featureFlags: FeatureFlagsSet
             ): QueryTile => {
                 const tileColumnSelectionName = tileColumnSelection?.split('_').join(' ')
                 const hasSources = createMarketingDataWarehouseNodes.length > 0
@@ -147,11 +153,14 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                         : false
                 const { symbol: currencySymbol, isPrefix: currencyIsPrefix } = getCurrencySymbol(baseCurrency)
 
-                // Read costs from the native precompute table via a DataWarehouseNode series — TrendsQuery
-                // then gives us compare, per-source breakdown and currency formatting for free, while the
-                // read stays off S3. `grain = 'campaign'` avoids double-counting the ad-group/ad grains;
-                // `expires_at > today()` keeps only fresh rows. The table exposes a virtual `timestamp`
-                // (cost_date as DateTime) so a DataWarehouseNode can target it.
+                // Gated behind the same flag as the backend cost precompute read-side: when off, the tile
+                // keeps reading the S3-backed cost adapters (createMarketingDataWarehouseNodes) so the
+                // precompute table can roll out independently. When on, read the native precompute table
+                // via a single DataWarehouseNode — TrendsQuery then gives us compare, per-source breakdown
+                // and currency formatting for free while the read stays off S3. `grain = 'campaign'` avoids
+                // double-counting the ad-group/ad grains; `expires_at > today()` keeps only fresh rows. The
+                // table exposes a virtual `timestamp` (cost_date as DateTime) so a DataWarehouseNode can target it.
+                const costsPrecomputeEnabled = !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_COSTS_PRECOMPUTATION]
                 const selectedSourceIds = integrationFilter.integrationSourceIds || []
                 const sourceClause =
                     selectedSourceIds.length > 0
@@ -182,20 +191,25 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                     hideTooltipOnScroll: true,
                     source: {
                         kind: NodeKind.TrendsQuery,
-                        series: hasSources
-                            ? [costSeriesNode]
-                            : [
+                        series: !hasSources
+                            ? [
                                   {
                                       kind: NodeKind.EventsNode,
                                       event: 'no_sources_configured',
                                       custom_name: 'No marketing sources configured',
                                       math: BaseMathType.TotalCount,
                                   },
-                              ],
+                              ]
+                            : costsPrecomputeEnabled
+                              ? [costSeriesNode]
+                              : createMarketingDataWarehouseNodes,
                         compareFilter: compareFilter || undefined,
-                        breakdownFilter: hasSources
-                            ? { breakdowns: [{ type: 'data_warehouse', property: 'source_name' }] }
-                            : undefined,
+                        // The precompute path reads a single node, so split by source here; the S3 adapters
+                        // are already per-source series and need no breakdown.
+                        breakdownFilter:
+                            costsPrecomputeEnabled && hasSources
+                                ? { breakdowns: [{ type: 'data_warehouse', property: 'source_name' }] }
+                                : undefined,
                         interval: dateFilter.interval,
                         dateRange: { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo },
                         trendsFilter: {
