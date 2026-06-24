@@ -3,6 +3,7 @@ from datetime import timedelta
 
 from freezegun import freeze_time
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -446,6 +447,29 @@ class TestOAuthModels(TestCase):
                 organization=self.organization,
                 algorithm="RS256",
             )
+
+    def test_valid_allowed_origins_accepted(self):
+        app = self._make_app(
+            "Allowed Origins App",
+            "allowed_origins_client",
+            allowed_origins="https://app.example.com https://www.example.com",
+        )
+        self.assertIn("app.example.com", app.allowed_origins)
+
+    @parameterized.expand(
+        [
+            ("non-https scheme", "http://app.example.com"),
+            ("origin with path", "https://app.example.com/callback"),
+        ]
+    )
+    def test_invalid_allowed_origins_rejected(self, _name, allowed_origins):
+        with self.assertRaises(ValidationError):
+            self._make_app("Bad Origin App", "bad_origin_client", allowed_origins=allowed_origins)
+
+    def test_rs256_without_private_key_rejected(self):
+        with override_settings(OAUTH2_PROVIDER={**settings.OAUTH2_PROVIDER, "OIDC_RSA_PRIVATE_KEY": ""}):
+            with self.assertRaises(ValidationError):
+                self._make_app("No Key App", "no_key_client")
 
     def test_invalid_redirect_uri_no_host(self):
         with self.assertRaises(ValidationError):
