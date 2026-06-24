@@ -2,7 +2,7 @@ from typing import Any
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, PropertyMock, patch
 
 from django.test import override_settings
 
@@ -1382,6 +1382,78 @@ class TestDashboardWidgetsBatchUpdate(APIBaseTest):
         for call in mock_report_user_action.call_args_list:
             assert call[0][1] != "dashboard tile added"
             assert call[0][1] != "dashboard widget added"
+
+    @override_settings(IN_UNIT_TESTING=True)
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_update_fires_widget_updated_event(self, mock_report_user_action) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 5})
+        tile = dashboard_json["tiles"][0]
+        mock_report_user_action.reset_mock()
+
+        response = self._batch_update(dashboard_id, [{"tile_id": tile["id"], "name": "Renamed"}])
+        assert response.status_code == status.HTTP_200_OK
+
+        updated_events = [
+            call for call in mock_report_user_action.call_args_list if call[0][1] == "dashboard widget updated"
+        ]
+        assert len(updated_events) == 1
+        properties = updated_events[0][0][2]
+        assert properties["tile_id"] == tile["id"]
+        assert properties["fields_changed"] == ["name"]
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_denies_without_edit_permission(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 5})
+        tile = dashboard_json["tiles"][0]
+
+        with patch(
+            "posthog.user_permissions.UserDashboardPermissions.can_edit",
+            new_callable=PropertyMock,
+            return_value=False,
+        ):
+            response = self._batch_update(dashboard_id, [{"tile_id": tile["id"], "config": {"limit": 9}}])
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_rejects_update_on_deleted_dashboard(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 5})
+        tile = dashboard_json["tiles"][0]
+        Dashboard.objects.filter(id=dashboard_id).update(deleted=True)
+
+        response = self._batch_update(dashboard_id, [{"tile_id": tile["id"], "config": {"limit": 9}}])
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_denies_without_product_access(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        _, dashboard_json = self.dashboard_api.create_widget_tile(dashboard_id, config={"limit": 10})
+        tile = dashboard_json["tiles"][0]
+
+        real_check = UserAccessControl.check_access_level_for_resource
+
+        def deny_error_tracking_only(
+            user_access_control: UserAccessControl,
+            resource: APIScopeObject,
+            required_level: AccessControlLevel = "viewer",
+        ) -> bool:
+            if resource == "error_tracking":
+                return False
+            return real_check(user_access_control, resource, required_level)
+
+        with patch.object(
+            UserAccessControl,
+            "check_access_level_for_resource",
+            autospec=True,
+            side_effect=deny_error_tracking_only,
+        ):
+            response = self._batch_update(dashboard_id, [{"tile_id": tile["id"], "config": {"limit": 12}}])
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "You do not have access to error tracking."
 
 
 class TestDashboardWidgetOpenApiSchema(APIBaseTest):
