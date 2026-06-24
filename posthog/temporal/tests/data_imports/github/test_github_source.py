@@ -8,15 +8,21 @@ from unittest import mock
 
 import requests
 from parameterized import parameterized
+from tenacity import Future, RetryCallState
 
+from posthog.models.integration import GitHubRateLimitError
 from posthog.temporal.data_imports.sources.generated_configs import GithubAuthMethodConfig, GithubSourceConfig
 from posthog.temporal.data_imports.sources.github.github import (
+    GITHUB_MAX_RETRY_AFTER_SECONDS,
     GithubResumeConfig,
+    GithubRetryableError,
     _build_initial_params,
     _build_initial_url,
+    _fetch_page,
     _flatten_commit,
     _flatten_stargazer,
     _format_incremental_value,
+    _github_retry_wait,
     _is_empty_repository_response,
     _is_issue_not_pr,
     _is_older_than_cutoff,
@@ -1479,3 +1485,103 @@ class TestGithubWebhookSource:
 
         assert info.exists is True
         assert info.url == webhook_url
+
+
+# A response that raise_if_github_rate_limited classifies as rate limited: 429 is
+# rate limited regardless of body, 403 only when the body mentions a rate limit.
+# headers carry x-ratelimit-reset / retry-after for the wait.
+def _rate_limited_response(status: int, body_text: str, headers: dict[str, str]) -> mock.Mock:
+    resp = mock.Mock()
+    resp.status_code = status
+    resp.text = body_text
+    resp.headers = headers
+    return resp
+
+
+def _retry_state_with_exception(exc: BaseException) -> RetryCallState:
+    state = RetryCallState(retry_object=mock.Mock(), fn=None, args=(), kwargs={})
+    state.attempt_number = 1
+    state.outcome = Future.construct(1, exc, has_exception=True)
+    return state
+
+
+# _github_retry_wait must honor GitHub's advertised rate-limit reset (capped) and
+# fall back to plain backoff for transient errors that carry no reset.
+class TestGithubRetryWait:
+    def test_honors_retry_after_with_jitter(self) -> None:
+        wait = _github_retry_wait(_retry_state_with_exception(GitHubRateLimitError("rl", retry_after=60)))
+        # The honored reset plus up to a second of jitter — not the short backoff.
+        assert 60.0 <= wait <= 61.0
+
+    def test_caps_oversized_retry_after(self) -> None:
+        # A misreported reset header must not stall a worker past the cap.
+        wait = _github_retry_wait(_retry_state_with_exception(GitHubRateLimitError("rl", retry_after=99999)))
+        assert GITHUB_MAX_RETRY_AFTER_SECONDS <= wait <= GITHUB_MAX_RETRY_AFTER_SECONDS + 1.0
+
+    @parameterized.expand(
+        [
+            # Rate limit with no parseable reset -> falls back to backoff, not a 0s spin.
+            ("rate_limit_without_reset", GitHubRateLimitError("rl", retry_after=None)),
+            # Transient server / connection blips never carry a reset.
+            ("retryable_error", GithubRetryableError("boom")),
+            ("connection_error", requests.ConnectionError("boom")),
+        ]
+    )
+    def test_falls_back_to_backoff(self, _name: str, exc: BaseException) -> None:
+        wait = _github_retry_wait(_retry_state_with_exception(exc))
+        # wait_exponential_jitter(initial=1, max=30) stays well under the rate-limit cap.
+        assert 0.0 <= wait <= 31.0
+
+
+# _fetch_page must retry GitHub rate limits (honoring the reset) instead of treating
+# the 403 as fatal, while a genuine permission 403 stays fatal.
+class TestFetchPageRateLimit:
+    @parameterized.expand(
+        [
+            # Secondary limit: 429 regardless of body.
+            ("secondary_429", 429, "Too Many Requests"),
+            # Primary limit: 403 whose body names a rate limit.
+            ("primary_403", 403, "API rate limit exceeded for installation"),
+        ]
+    )
+    def test_rate_limited_response_is_retried_then_reraised(self, _name: str, status: int, body_text: str) -> None:
+        resp = _rate_limited_response(status, body_text, {"retry-after": "1"})
+
+        with (
+            mock.patch("time.sleep"),
+            mock.patch("posthog.temporal.data_imports.sources.github.github.make_tracked_session") as mock_get,
+        ):
+            mock_get.return_value.get.return_value = resp
+            with pytest.raises(GitHubRateLimitError):
+                _fetch_page("https://api.github.com/x", {}, mock.Mock())
+
+        # stop_after_attempt(5): the rate limit is retried, not treated as fatal on first hit.
+        assert mock_get.return_value.get.call_count == 5
+
+    def test_recovers_when_rate_limit_clears(self) -> None:
+        rate_limited = _rate_limited_response(429, "Too Many Requests", {"retry-after": "1"})
+        ok = _make_response(status=200, body=[{"id": 1}])
+
+        with (
+            mock.patch("time.sleep"),
+            mock.patch("posthog.temporal.data_imports.sources.github.github.make_tracked_session") as mock_get,
+        ):
+            mock_get.return_value.get.side_effect = [rate_limited, ok]
+            response = _fetch_page("https://api.github.com/x", {}, mock.Mock())
+
+        assert response is ok
+        assert mock_get.return_value.get.call_count == 2
+
+    def test_permission_403_is_fatal_not_retried(self) -> None:
+        # A 403 with no rate-limit body is a real permission error: surface it
+        # immediately rather than burning retries on something that won't clear.
+        resp = _make_response(status=403, body={"message": "Resource not accessible by integration"})
+        resp.text = '{"message": "Resource not accessible by integration"}'
+        resp.raise_for_status.side_effect = requests.HTTPError("403 Client Error", response=resp)
+
+        with mock.patch("posthog.temporal.data_imports.sources.github.github.make_tracked_session") as mock_get:
+            mock_get.return_value.get.return_value = resp
+            with pytest.raises(requests.HTTPError):
+                _fetch_page("https://api.github.com/x", {}, mock.Mock())
+
+        assert mock_get.return_value.get.call_count == 1
