@@ -184,6 +184,7 @@ describe('DatePicker', () => {
             expect(within(container).getByRole('button', { name: /January 15, 2023/ }).textContent).toBe(
                 'January 15, 2023 09:30'
             )
+            expect(mockQuillPanelProps.showTime).toBe(true)
         })
 
         it('forwards maxDate to the Quill panel so future dates can be selected', async () => {
