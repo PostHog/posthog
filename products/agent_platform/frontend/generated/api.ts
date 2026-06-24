@@ -12,16 +12,11 @@ import type {
     AgentAggregateStatsApi,
     AgentApplicationApi,
     AgentApplicationApprovalsListResponseApi,
-    AgentApplicationPreviewTokenResponseApi,
     AgentApplicationSessionLogsResponseApi,
     AgentApplicationSessionsListResponseApi,
     AgentApplicationSessionsRetrieveResponseApi,
     AgentApplicationsApprovalsListParams,
     AgentApplicationsListParams,
-    AgentApplicationsPreviewProxyGetParams,
-    AgentApplicationsPreviewProxyParams,
-    AgentApplicationsPreviewTokenMintParams,
-    AgentApplicationsPreviewTokenParams,
     AgentApplicationsRevisionsListParams,
     AgentApplicationsSessionLogsParams,
     AgentApplicationsSessionsListParams,
@@ -63,7 +58,6 @@ import type {
     PatchedAgentApplicationApi,
     PatchedAgentMemoryUpdateRequestApi,
     PatchedAgentRevisionApi,
-    PreviewProxyInvokeRequestApi,
     SetEnvKeyRequestApi,
     SetEnvRequestApi,
     WriteAgentMdRequestApi,
@@ -1654,190 +1648,6 @@ export const agentApplicationsApprovalsDecide = async (
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
             body: JSON.stringify(decideApprovalRequestApi),
-        }
-    )
-}
-
-export const getAgentApplicationsPreviewProxyGetUrl = (
-    projectId: string,
-    id: string,
-    rest: string,
-    params: AgentApplicationsPreviewProxyGetParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/agent_applications/${id}/preview-proxy/${rest}/?${stringifiedParams}`
-        : `/api/projects/${projectId}/agent_applications/${id}/preview-proxy/${rest}/`
-}
-
-/**
- * GET passthrough for the preview-proxy — used for `/listen` SSE.
- */
-export const agentApplicationsPreviewProxyGet = async (
-    projectId: string,
-    id: string,
-    rest: string,
-    params: AgentApplicationsPreviewProxyGetParams,
-    options?: RequestInit
-): Promise<AgentApplicationApi> => {
-    return apiMutator<AgentApplicationApi>(getAgentApplicationsPreviewProxyGetUrl(projectId, id, rest, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getAgentApplicationsPreviewProxyUrl = (
-    projectId: string,
-    id: string,
-    rest: string,
-    params: AgentApplicationsPreviewProxyParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/agent_applications/${id}/preview-proxy/${rest}/?${stringifiedParams}`
-        : `/api/projects/${projectId}/agent_applications/${id}/preview-proxy/${rest}/`
-}
-
-/**
- * Authoring-side proxy for invoking a *draft* (or any non-live) revision.
- *
- * Closes the anonymous-draft-invoke gap: the public ingress URL refuses
- * non-live invokes that don't carry the `x-agent-preview-secret` header;
- * this proxy attaches it after authenticating the Django caller.
- *
- * URL: `/api/projects/<team>/agent_applications/<app>/preview-proxy/<rest>`
- * Auth: standard PAT / session — `agents:write` scope (POST run/send/cancel
- * is a mutating invoke; the read-only `listen` GET is `agents:read`).
- */
-export const agentApplicationsPreviewProxy = async (
-    projectId: string,
-    id: string,
-    rest: string,
-    params: AgentApplicationsPreviewProxyParams,
-    previewProxyInvokeRequestApi?: PreviewProxyInvokeRequestApi,
-    options?: RequestInit
-): Promise<string> => {
-    return apiMutator<string>(getAgentApplicationsPreviewProxyUrl(projectId, id, rest, params), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(previewProxyInvokeRequestApi),
-    })
-}
-
-export const getAgentApplicationsPreviewTokenUrl = (
-    projectId: string,
-    id: string,
-    params: AgentApplicationsPreviewTokenParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/agent_applications/${id}/preview-token/?${stringifiedParams}`
-        : `/api/projects/${projectId}/agent_applications/${id}/preview-token/`
-}
-
-/**
- * GET sibling of `preview_token_mint`. Same body and response
- * shape — exists because `EventSource` can't set headers, so SSE
- * callers fetch the token via GET and then attach `?preview_token=`
- * to the ingress URL. Behind the same URL (`url_path="preview-token"`)
- * thanks to DRF's `@<action>.mapping.get`; DRF resolves it to a
- * distinct `view.action`, but it is in `scope_object_write_actions`
- * alongside the POST sibling — both return a usable credential, so
- * both require `agents:write`.
- */
-export const agentApplicationsPreviewToken = async (
-    projectId: string,
-    id: string,
-    params: AgentApplicationsPreviewTokenParams,
-    options?: RequestInit
-): Promise<AgentApplicationPreviewTokenResponseApi> => {
-    return apiMutator<AgentApplicationPreviewTokenResponseApi>(
-        getAgentApplicationsPreviewTokenUrl(projectId, id, params),
-        {
-            ...options,
-            method: 'GET',
-        }
-    )
-}
-
-export const getAgentApplicationsPreviewTokenMintUrl = (
-    projectId: string,
-    id: string,
-    params: AgentApplicationsPreviewTokenMintParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/agent_applications/${id}/preview-token/?${stringifiedParams}`
-        : `/api/projects/${projectId}/agent_applications/${id}/preview-token/`
-}
-
-/**
- * Mint a short-lived JWT for talking to a non-live revision
- * directly via the public ingress URL. The caller attaches it as
- * the `x-agent-preview-token` header (or `?preview_token=` query
- * param for `EventSource`). See `_mint_preview_jwt` for the
- * payload + claim binding.
- *
- * The response also includes `endpoints`, `auth`, and
- * `preview_proxy` blocks so the caller can wire a preview
- * invocation without grepping the agent-ingress source for which
- * path each trigger exposes or which header name carries the
- * token. This is the "self-describing" half of preview-mode —
- * every piece of info you need to hit ingress is in one response.
- *
- * POST is the canonical verb — minting credentials for downstream
- * `run`/`send`/`cancel` is a write-class capability. A GET sibling
- * exists at the same URL for `EventSource` callers (which can't set
- * headers); it is also write-scoped, since it returns the same token.
- */
-export const agentApplicationsPreviewTokenMint = async (
-    projectId: string,
-    id: string,
-    params: AgentApplicationsPreviewTokenMintParams,
-    options?: RequestInit
-): Promise<AgentApplicationPreviewTokenResponseApi> => {
-    return apiMutator<AgentApplicationPreviewTokenResponseApi>(
-        getAgentApplicationsPreviewTokenMintUrl(projectId, id, params),
-        {
-            ...options,
-            method: 'POST',
         }
     )
 }

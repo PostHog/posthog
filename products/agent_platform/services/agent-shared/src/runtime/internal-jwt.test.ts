@@ -18,20 +18,6 @@ describe('internal-jwt', () => {
         expect(payload.aud).toBe('agent-janitor.rpc')
     })
 
-    it('rejects a token minted for a different audience (cross-service replay)', async () => {
-        const token = await mintInternalJwt({
-            audience: INTERNAL_JWT_AUDIENCE.INGRESS_PREVIEW,
-            signingKey: SIGNING_KEY,
-        })
-        await expect(
-            verifyInternalJwt({
-                token,
-                audience: INTERNAL_JWT_AUDIENCE.JANITOR_RPC,
-                signingKey: SIGNING_KEY,
-            })
-        ).rejects.toBeInstanceOf(InternalJwtVerifyError)
-    })
-
     it('rejects a token signed with a different key', async () => {
         const token = await mintInternalJwt({
             audience: INTERNAL_JWT_AUDIENCE.JANITOR_RPC,

@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 35 enabled ops
+ * PostHog API - MCP 34 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -2156,51 +2156,6 @@ export const AgentApplicationsDestroyParams = /* @__PURE__ */ zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
 })
-
-/**
- * Authoring-side proxy for invoking a *draft* (or any non-live) revision.
- *
- * Closes the anonymous-draft-invoke gap: the public ingress URL refuses
- * non-live invokes that don't carry the `x-agent-preview-secret` header;
- * this proxy attaches it after authenticating the Django caller.
- *
- * URL: `/api/projects/<team>/agent_applications/<app>/preview-proxy/<rest>`
- * Auth: standard PAT / session — `agents:write` scope (POST run/send/cancel
- * is a mutating invoke; the read-only `listen` GET is `agents:read`).
- */
-export const AgentApplicationsPreviewProxyParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this agent application.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-    rest: zod.string().describe('Ingress sub-path under the agent slug. One of: `run`, `send`, `cancel`, `listen`.'),
-})
-
-export const AgentApplicationsPreviewProxyQueryParams = /* @__PURE__ */ zod.object({
-    format: zod.enum(['json', 'sse']).optional(),
-    revision_id: zod.string().describe('Target draft revision. Must belong to this application and not be live.'),
-})
-
-export const AgentApplicationsPreviewProxyBody = /* @__PURE__ */ zod
-    .object({
-        message: zod
-            .string()
-            .optional()
-            .describe(
-                'User message to deliver to the agent. Required for `run` (starts the session) and `send` (appends to it); ignored for `cancel` / `listen`.'
-            ),
-        session_id: zod
-            .string()
-            .optional()
-            .describe(
-                'Target session id for `send` — the running session to append the message to. Omit for `run` (a fresh session is created).'
-            ),
-    })
-    .describe(
-        'Body forwarded verbatim to the agent ingress for a *preview* invoke of a\nnon-live revision. The meaningful shape depends on the `rest` path segment:\n\n- `run` — `{ message }`: the user message that starts a new session.\n- `send` — `{ session_id, message }`: append a message to a running session.\n- `cancel` / `listen` — no body.\n\nDocuments `message` / `session_id` so the generated MCP tool exposes them;\nany extra keys are still forwarded as-is to ingress.'
-    )
 
 /**
  * List sessions for this application, newest first. Strips the

@@ -118,12 +118,6 @@ export interface BuildAppOpts {
      */
     approvals?: ApprovalStore
     /**
-     * Shared HMAC signing key with Django for the preview-proxy gate on
-     * non-live revision invokes (aud = `agent-ingress.preview`). When
-     * unset, the gate is bypassed (dev / harness).
-     */
-    internalSigningKey?: string
-    /**
      * Per-session credential broker. Ingress writes user auth materials
      * (OAuth bearer, PAT, JWT) here at /run + /send; the runner reads
      * via `ToolContext.credentials.resolve(target)`. Required — prod wires
@@ -245,7 +239,6 @@ export function buildApp(opts: BuildAppOpts): Express {
         mode: opts.routingMode,
         domainSuffix: opts.domainSuffix,
         pathPrefix: opts.pathPrefix,
-        internalSigningKey: opts.internalSigningKey,
     })
     app.use(
         express.json({

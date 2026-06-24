@@ -87,16 +87,6 @@ export interface EnqueueInput {
      * for audit. Defaults to false (owner-only, the fail-closed behaviour).
      */
     bypassOwnerAcl?: boolean
-    /**
-     * True when the request that produced this enqueue carried a valid
-     * `aud=agent-ingress.preview` JWT (or arrived via the Django-side
-     * preview-proxy, which mints one server-side). Stamps the same value onto
-     * `agent_session.is_preview`. Triggers decide this based on the verified
-     * audience of the inbound token — never on a client-asserted query param.
-     * Defaults to false so the live-ingress path stays the no-extra-thought
-     * default.
-     */
-    isPreview?: boolean
 }
 
 export type EnqueueOutcome =
@@ -139,17 +129,7 @@ async function enqueueOrResumeInner(deps: EnqueueDeps, input: EnqueueInput): Pro
         }
     }
     if (input.externalKey) {
-        // Scope the lookup to the request's preview/live boundary so a
-        // preview-authenticated request can't resume a live session (or vice
-        // versa). Without this, the runner would read `is_preview = false` off
-        // the live row even though the resuming request was preview-authed,
-        // and live secrets + un-suppressed external writes would fire under
-        // preview auth. Different draft revisions are also isolated — same
-        // external_key + two drafts gets two distinct sessions.
-        const existing = await deps.queue.findByExternalKey(input.application.id, input.externalKey, {
-            isPreview: input.isPreview === true,
-            revisionId: input.revision.id,
-        })
+        const existing = await deps.queue.findByExternalKey(input.application.id, input.externalKey)
         if (existing && existing.state !== 'closed' && existing.state !== 'failed') {
             const incoming = input.principal ?? null
             const check = input.bypassOwnerAcl ? ({ kind: 'allowed' } as const) : requireAclAccess(existing, incoming)
@@ -196,7 +176,6 @@ async function enqueueOrResumeInner(deps: EnqueueDeps, input: EnqueueInput): Pro
         usage_total: { ...EMPTY_USAGE_TOTAL },
         acl: [],
         pending_elevation_requests: [],
-        is_preview: input.isPreview === true,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
     }

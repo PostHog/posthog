@@ -4,9 +4,7 @@
  * Live invokes never carry revision info; the resolver looks up the
  * application's `live_revision_id`.
  *
- * Non-live ("preview") invokes carry the revision-id-hex as part of the URL
- * (NOT as a query param or header — those were dropped in favor of a single
- * URL-only contract):
+ * Non-live invokes carry the revision-id-hex as part of the URL:
  *
  *   - "domain" (prod): `<rev-hex-prefix>.<slug>.agents.posthog.com`
  *     For example `019e6f25.weekly-digest.agents.posthog.com`.
@@ -14,48 +12,16 @@
  *     For example `/agents/weekly-digest-019e6f25/run`.
  *
  * The prefix can be 8–32 hex chars (no dashes). 32 = the full UUID with
- * dashes stripped, which is what the Django preview-proxy uses for
- * unambiguous addressing. 8 is the ergonomic short form for human-shared
- * URLs.
+ * dashes stripped; 8 is the ergonomic short form for human-shared URLs.
  */
 
-import {
-    AgentApplication,
-    AgentRevision,
-    INTERNAL_JWT_AUDIENCE,
-    InternalJwtVerifyError,
-    RevisionStore,
-    verifyInternalJwt,
-} from '@posthog/agent-shared'
+import { AgentApplication, AgentRevision, RevisionStore } from '@posthog/agent-shared'
 
 export type RoutingMode = 'domain' | 'path'
 
 export interface ResolvedAgent {
     application: AgentApplication
     revision: AgentRevision
-    /**
-     * True when the resolved revision is NOT the application's
-     * `live_revision_id` — i.e. the request reached us through the preview
-     * path (Django preview-proxy or a direct ingress call carrying a valid
-     * `aud=agent-ingress.preview` JWT). `assertPreviewGate` has already run
-     * by the time this is set on a non-live resolution, so the field
-     * doubles as "request was authenticated for preview." Triggers forward
-     * it to `enqueueOrResume` as `isPreview` so it lands on
-     * `agent_session.is_preview` and the runner's output adapters can
-     * noop external publishes for the session.
-     */
-    isPreview: boolean
-    /**
-     * Unix-seconds expiry of the preview JWT that authorized this
-     * resolution, or null on live requests / dev paths without a signing
-     * key. The chat `/listen` SSE handler schedules a
-     * `preview_token_required` event at this timestamp so a long-lived
-     * stream (15-min TTL token, multi-hour author session) closes with a
-     * specific auth-recovery signal the UI can act on, instead of an
-     * opaque connection drop. Only populated for preview resolutions —
-     * live revisions have nothing to expire.
-     */
-    previewJwtExp: number | null
 }
 
 /**
@@ -75,19 +41,6 @@ export class AmbiguousRevisionError extends Error {
     }
 }
 
-/**
- * Thrown when a non-live revision is invoked without a valid preview JWT.
- * Django mints the token on each proxy call (short-lived, bound to the
- * (application, revision) it's invoking). Captured tokens expire in seconds
- * and can't be replayed against a different draft.
- */
-export class MissingPreviewSecretError extends Error {
-    constructor(readonly reason: string = 'missing_or_invalid_preview_token') {
-        super(`non-live revision invoke requires a valid preview token (${reason})`)
-        this.name = 'MissingPreviewSecretError'
-    }
-}
-
 export interface ResolverOpts {
     revisions: RevisionStore
     mode: RoutingMode
@@ -95,28 +48,12 @@ export interface ResolverOpts {
     domainSuffix?: string
     /** For path mode: the prefix that precedes the slug (e.g. "/agents"). */
     pathPrefix?: string
-    /**
-     * Shared HMAC signing key for cross-service JWTs (the same value Django
-     * + the janitor read from `AGENT_INTERNAL_SIGNING_KEY`). Django mints
-     * a short-lived JWT (aud = `agent-ingress.preview`, claims `{ app, rev }`);
-     * the caller forwards it as either the `x-agent-preview-token` header
-     * (POST/DELETE + the server-side preview-proxy) or the `?preview_token=`
-     * query parameter (browser `EventSource` for `/listen`, since
-     * EventSource can't set headers). The resolver verifies signature +
-     * aud + exp + claim-binding on non-live resolutions. Leave undefined
-     * to bypass the gate (dev / harness path).
-     */
-    internalSigningKey?: string
 }
 
 export class RevisionResolver {
     constructor(private readonly opts: ResolverOpts) {}
 
-    async resolveFromHostAndPath(
-        host: string | undefined,
-        path: string,
-        opts?: { providedToken?: string }
-    ): Promise<ResolvedAgent | null> {
+    async resolveFromHostAndPath(host: string | undefined, path: string): Promise<ResolvedAgent | null> {
         let rawSlug: string | null = null
         if (this.opts.mode === 'domain' && host) {
             rawSlug = this.extractSlugFromHost(host)
@@ -126,23 +63,11 @@ export class RevisionResolver {
         if (!rawSlug) {
             return null
         }
-        return this.resolveBySlug(rawSlug, opts)
+        return this.resolveBySlug(rawSlug)
     }
 
-    async resolveBySlug(rawSlug: string, opts?: { providedToken?: string }): Promise<ResolvedAgent | null> {
-        const resolved = await this.resolveBySlugInner(rawSlug)
-        if (!resolved) {
-            return null
-        }
-        const gateResult = await this.assertPreviewGate(resolved, opts?.providedToken)
-        // `assertPreviewGate` either short-circuited on the live revision or
-        // verified a valid preview JWT for a non-live one. Either way, the
-        // revision-id comparison is now the authoritative preview signal.
-        return {
-            ...resolved,
-            isPreview: resolved.revision.id !== resolved.application.live_revision_id,
-            previewJwtExp: gateResult.exp,
-        }
+    async resolveBySlug(rawSlug: string): Promise<ResolvedAgent | null> {
+        return this.resolveBySlugInner(rawSlug)
     }
 
     /**
@@ -150,9 +75,6 @@ export class RevisionResolver {
      * the suffix selects a non-live revision via prefix-match; otherwise we
      * resolve to `application.live_revision`.
      */
-    // Inner resolver returns the pair before preview classification — the
-    // caller (`resolveBySlug`) stamps `isPreview` after `assertPreviewGate`
-    // so we only set the flag once we know the request was authorized.
     private async resolveBySlugInner(
         rawSlug: string
     ): Promise<{ application: AgentApplication; revision: AgentRevision } | null> {
@@ -197,56 +119,6 @@ export class RevisionResolver {
             return null
         }
         return { application, revision }
-    }
-
-    /**
-     * Refuse non-live invokes unless the request carries a valid preview JWT
-     * signed with the internal signing key. Token must (a) verify against
-     * the HMAC, (b) carry the `agent-ingress.preview` audience, (c) not be
-     * expired, and (d) carry `app` + `rev` claims that match the resolved
-     * revision. The check is bypassed when `internalSigningKey` isn't
-     * configured (dev / harness path).
-     */
-    // Returns the JWT's `exp` claim (unix seconds) when a preview token was
-    // validated, or `{exp: null}` when the request was live / the signing key
-    // isn't configured. Callers attach `exp` to `ResolvedAgent.previewJwtExp`
-    // for SSE expiry scheduling.
-    private async assertPreviewGate(
-        resolved: { application: AgentApplication; revision: AgentRevision },
-        providedToken: string | undefined
-    ): Promise<{ exp: number | null }> {
-        if (!this.opts.internalSigningKey) {
-            return { exp: null }
-        }
-        if (resolved.revision.id === resolved.application.live_revision_id) {
-            return { exp: null }
-        }
-        if (!providedToken) {
-            throw new MissingPreviewSecretError('missing_token')
-        }
-        let payload: Record<string, unknown>
-        try {
-            payload = await verifyInternalJwt({
-                token: providedToken,
-                audience: INTERNAL_JWT_AUDIENCE.INGRESS_PREVIEW,
-                signingKey: this.opts.internalSigningKey,
-            })
-        } catch (e) {
-            throw new MissingPreviewSecretError(`token_verify_failed: ${(e as InternalJwtVerifyError).reason}`)
-        }
-        if (payload.app !== resolved.application.id) {
-            throw new MissingPreviewSecretError('app_claim_mismatch')
-        }
-        if (payload.rev !== resolved.revision.id) {
-            throw new MissingPreviewSecretError('rev_claim_mismatch')
-        }
-        // `verifyInternalJwt` is jose-backed and rejects expired tokens before
-        // returning, so `exp` here is always in the future. A missing `exp`
-        // claim would be a verifier contract violation, but if it happens we
-        // return null and skip the scheduled expiry event (live-style stream
-        // behavior) rather than crash the request.
-        const exp = typeof payload.exp === 'number' ? payload.exp : null
-        return { exp }
     }
 
     /**

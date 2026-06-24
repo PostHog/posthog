@@ -57,9 +57,9 @@ async function main(): Promise<void> {
     const agentDb = createAgentPool(config.agentDbUrl)
 
     // REDIS_URL (cross-host /listen bus), HTTPS_PROXY (smokescreen — Slack
-    // bot-token calls), and AGENT_INTERNAL_SIGNING_KEY (preview-token gate +
-    // posthog_internal mode) are all required in prod and enforced at config-load
-    // (config.ts: dev defaults, fail closed in prod) — no boot guards needed here.
+    // bot-token calls), and AGENT_INTERNAL_SIGNING_KEY (posthog_internal auth
+    // mode) are all required in prod and enforced at config-load (config.ts:
+    // dev defaults, fail closed in prod) — no boot guards needed here.
     const bus = new RedisSessionEventBus({ url: config.redisUrl })
     await bus.connect()
 
@@ -137,7 +137,6 @@ async function main(): Promise<void> {
         pathPrefix: config.pathPrefix,
         publicBaseUrl: config.publicUrl,
         slackSigningSecretResolver: secretResolver,
-        internalSigningKey: config.internalSigningKey,
         authProvider,
         credentialBroker,
         // Identity linking: the OAuth callback route consumes a link-state row,

@@ -79,7 +79,6 @@ function session(label: string): AgentSession {
         usage_total: { ...EMPTY_USAGE_TOTAL },
         acl: [],
         pending_elevation_requests: [],
-        is_preview: false,
         created_at: '2026-05-27',
         updated_at: '2026-05-27',
     }
@@ -578,16 +577,6 @@ describe('janitor HTTP', () => {
             .get('/sessions/00000000-0000-4000-8000-00000000ddff')
             .set('x-internal-secret', 'topsecret')
         expect(rawSecret.status).toBe(401)
-
-        // Token minted for a different audience must be rejected.
-        const wrongAud = await mintInternalJwt({
-            audience: INTERNAL_JWT_AUDIENCE.INGRESS_PREVIEW,
-            signingKey,
-        })
-        const wrongAudRes = await request(app)
-            .get('/sessions/00000000-0000-4000-8000-00000000ddff')
-            .set('x-internal-secret', wrongAud)
-        expect(wrongAudRes.status).toBe(401)
 
         // Right audience, wrong signing key.
         const wrongKey = await mintInternalJwt({

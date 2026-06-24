@@ -8,9 +8,6 @@ import {
     AgentApplicationsListQueryParams,
     AgentApplicationsPartialUpdateBody,
     AgentApplicationsPartialUpdateParams,
-    AgentApplicationsPreviewProxyBody,
-    AgentApplicationsPreviewProxyParams,
-    AgentApplicationsPreviewProxyQueryParams,
     AgentApplicationsRetrieveParams,
     AgentApplicationsRevisionsAgentMdUpdateBody,
     AgentApplicationsRevisionsAgentMdUpdateParams,
@@ -203,34 +200,6 @@ const agentApplicationsPartialUpdate = (): ToolBase<
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.id))}/`,
             body,
-        })
-        return result
-    },
-})
-
-const AgentApplicationsPreviewProxySchema = AgentApplicationsPreviewProxyParams.omit({ project_id: true })
-    .extend(AgentApplicationsPreviewProxyQueryParams.omit({ format: true }).shape)
-    .extend(AgentApplicationsPreviewProxyBody.shape)
-
-const agentApplicationsPreviewProxy = (): ToolBase<typeof AgentApplicationsPreviewProxySchema, unknown> => ({
-    name: 'agent-applications-preview-proxy',
-    schema: AgentApplicationsPreviewProxySchema,
-    handler: async (context: Context, params: z.infer<typeof AgentApplicationsPreviewProxySchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.message !== undefined) {
-            body['message'] = params.message
-        }
-        if (params.session_id !== undefined) {
-            body['session_id'] = params.session_id
-        }
-        const result = await context.api.request<unknown>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/${encodeURIComponent(String(params.id))}/preview-proxy/${encodeURIComponent(String(params.rest))}/`,
-            body,
-            query: {
-                revision_id: params.revision_id,
-            },
         })
         return result
     },
@@ -885,7 +854,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'agent-applications-env-keys-list': agentApplicationsEnvKeysList,
     'agent-applications-list': agentApplicationsList,
     'agent-applications-partial-update': agentApplicationsPartialUpdate,
-    'agent-applications-preview-proxy': agentApplicationsPreviewProxy,
     'agent-applications-retrieve': agentApplicationsRetrieve,
     'agent-applications-revisions-agent-md-update': agentApplicationsRevisionsAgentMdUpdate,
     'agent-applications-revisions-archive-create': agentApplicationsRevisionsArchiveCreate,

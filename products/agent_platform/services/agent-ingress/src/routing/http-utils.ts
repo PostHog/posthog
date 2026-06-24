@@ -25,11 +25,11 @@ import { AmbiguousRevisionError } from './resolver'
 
 /**
  * Query params that carry a secret and must never reach the access log.
- * PATs ride in `?token=` and preview JWTs in `?preview_token=` for browser
- * `EventSource` callers (the EventSource API can't set request headers), so
- * the value lands in `originalUrl` — redact it before logging.
+ * PATs ride in `?token=` for browser `EventSource` callers (the EventSource
+ * API can't set request headers), so the value lands in `originalUrl` —
+ * redact it before logging.
  */
-const REDACT_QUERY_PARAMS = ['token', 'preview_token']
+const REDACT_QUERY_PARAMS = ['token']
 
 /**
  * Return `rawUrl` with the values of any sensitive query params masked. Keeps

@@ -14,12 +14,11 @@ JWT_ALGORITHM = "HS256"
 
 
 class AgentInternalAudience(Enum):
-    """`aud` scopes a token to one receiving service, so a token minted for the
-    janitor can't be replayed against the ingress. Mirror these in
+    """`aud` scopes a token to one receiving service, so a token minted for one
+    service can't be replayed against another. Mirror these in
     services/agent-shared/src/runtime/internal-jwt.ts — add to both sides.
     """
 
-    INGRESS_PREVIEW = "agent-ingress.preview"
     JANITOR_RPC = "agent-janitor.rpc"
 
 

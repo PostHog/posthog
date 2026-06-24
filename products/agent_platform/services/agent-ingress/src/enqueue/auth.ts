@@ -120,8 +120,7 @@ export const PUBLIC_ONLY_AUTH_PROVIDER: AuthProvider = {
  *
  * The query fallback exists for browser `EventSource` (GET /listen SSE):
  * the EventSource API can't set request headers, so the bearer has to ride
- * in the URL — the same constraint that drives the `?preview_token=` fallback
- * in resolve.ts. The header always wins; tokens in URLs land in access logs,
+ * in the URL. The header always wins; tokens in URLs land in access logs,
  * so non-SSE clients should keep using the header.
  */
 export function readBearer(req: Request): string | null {

@@ -2356,33 +2356,3 @@ export const AgentApplicationsApprovalsDecideBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Body shape for POST \/agent_applications\/<id>\/approvals\/<approval_id>\/decide\/.')
-
-/**
- * Authoring-side proxy for invoking a *draft* (or any non-live) revision.
- *
- * Closes the anonymous-draft-invoke gap: the public ingress URL refuses
- * non-live invokes that don't carry the `x-agent-preview-secret` header;
- * this proxy attaches it after authenticating the Django caller.
- *
- * URL: `/api/projects/<team>/agent_applications/<app>/preview-proxy/<rest>`
- * Auth: standard PAT / session — `agents:write` scope (POST run/send/cancel
- * is a mutating invoke; the read-only `listen` GET is `agents:read`).
- */
-export const AgentApplicationsPreviewProxyBody = /* @__PURE__ */ zod
-    .object({
-        message: zod
-            .string()
-            .optional()
-            .describe(
-                'User message to deliver to the agent. Required for `run` (starts the session) and `send` (appends to it); ignored for `cancel` \/ `listen`.'
-            ),
-        session_id: zod
-            .string()
-            .optional()
-            .describe(
-                'Target session id for `send` — the running session to append the message to. Omit for `run` (a fresh session is created).'
-            ),
-    })
-    .describe(
-        'Body forwarded verbatim to the agent ingress for a \*preview\* invoke of a\nnon-live revision. The meaningful shape depends on the `rest` path segment:\n\n- `run` — `{ message }`: the user message that starts a new session.\n- `send` — `{ session_id, message }`: append a message to a running session.\n- `cancel` \/ `listen` — no body.\n\nDocuments `message` \/ `session_id` so the generated MCP tool exposes them;\nany extra keys are still forwarded as-is to ingress.'
-    )

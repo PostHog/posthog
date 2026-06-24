@@ -61,7 +61,7 @@ export const AgentIngressConfigSchema = PlatformConfigSchema.extend({
         .default('/agents')
         .describe('URL prefix in path mode (default `/agents`). Slug comes immediately after.'),
     internalSigningKey: requiredInProd(DEV_INTERNAL_SIGNING_KEY, 'AGENT_INTERNAL_SIGNING_KEY').describe(
-        "HMAC signing key shared with Django and the janitor (must match Django's `AGENT_INTERNAL_SIGNING_KEY`). Backs the x-agent-preview-token gate (aud = agent-ingress.preview) and the posthog_internal auth mode. Required in prod, dev default for local running."
+        "HMAC signing key shared with Django and the janitor (must match Django's `AGENT_INTERNAL_SIGNING_KEY`). Backs the posthog_internal auth mode. Required in prod, dev default for local running."
     ),
     publicUrl: z
         .string()

@@ -21,7 +21,7 @@ describe('loadAgentIngressConfig', () => {
         expect(cfg.port).toBe(3030) // dev default (vitest runs NODE_ENV=test)
         expect(cfg.routingMode).toBe('path')
         expect(cfg.pathPrefix).toBe('/agents')
-        // Dev default — backs the preview-token gate + posthog_internal mode locally.
+        // Dev default — backs the posthog_internal mode locally.
         expect(cfg.internalSigningKey).toBe('dev-internal-signing-key-do-not-use-in-prod')
         expect(cfg.publicUrl).toBeUndefined()
         expect(cfg.logLevel).toBe('info')

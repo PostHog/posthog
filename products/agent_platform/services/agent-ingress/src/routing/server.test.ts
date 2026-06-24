@@ -797,7 +797,6 @@ describe('ingress HTTP server (path mode)', () => {
             proposed_args: { x: 1 },
             assistant_message: { role: 'assistant', content: [{ type: 'text', text: '' }], timestamp: Date.now() },
             approver_scope: { type: opts.type, allow_edit: false },
-            is_preview: false,
             expires_at: new Date(Date.now() + 60_000).toISOString(),
         })
         return id

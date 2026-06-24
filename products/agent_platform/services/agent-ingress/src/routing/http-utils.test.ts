@@ -192,16 +192,14 @@ describe('requestLogger', () => {
         expect(lastRequestLine(records)!.level).toBe('debug')
     })
 
-    it('redacts token / preview_token query params from the logged url', async () => {
+    it('redacts token query params from the logged url', async () => {
         const { records, log } = fakeLogger()
-        await request(appWith(log)).get('/ok?session_id=s1&token=phx_secret&preview_token=jwt.secret.val')
+        await request(appWith(log)).get('/ok?session_id=s1&token=phx_secret')
         await tick()
         const line = lastRequestLine(records)!
         const url = line.obj.url as string
         expect(url).not.toContain('phx_secret')
-        expect(url).not.toContain('jwt.secret.val')
         expect(url).toContain('token=REDACTED')
-        expect(url).toContain('preview_token=REDACTED')
         // Non-sensitive params are preserved.
         expect(url).toContain('session_id=s1')
         // request_start (debug) is redacted too.
@@ -218,12 +216,10 @@ describe('redactUrl', () => {
         expect(redactUrl(input)).toBe(expected)
     })
 
-    it('masks token and preview_token values, preserving other params', () => {
-        const out = redactUrl('/listen?token=abc&session_id=s1&preview_token=xyz')
+    it('masks token values, preserving other params', () => {
+        const out = redactUrl('/listen?token=abc&session_id=s1')
         expect(out).toContain('token=REDACTED')
-        expect(out).toContain('preview_token=REDACTED')
         expect(out).toContain('session_id=s1')
         expect(out).not.toContain('abc')
-        expect(out).not.toContain('xyz')
     })
 })

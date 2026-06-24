@@ -7591,8 +7591,6 @@ export namespace Schemas {
       team_id: number;
       /** Revision the gated call was proposed against. */
       revision_id: string;
-      /** Mirrors the owning session's `is_preview`. True when the request originated from a draft revision running in preview mode — render a preview badge in the approvals queue so reviewers can tell author-iteration approvals apart from production traffic. */
-      is_preview: boolean;
       /** Turn number within the session that emitted the call. */
       turn: number;
       /** pi-ai ToolCall.id from the original assistant message; matched into the synthetic tool_result. */
@@ -7648,21 +7646,6 @@ export namespace Schemas {
     export interface AgentApplicationApprovalsListResponse {
       /** Approval requests for this application, newest first. */
       results: AgentApprovalRequest[];
-    }
-
-    export interface AgentApplicationPreviewTokenResponse {
-      /** HS256 JWT bound to (app, rev) with a short TTL. Attach as the `x-agent-preview-token` header (POST/DELETE) or `preview_token` query param (GET, including EventSource) when calling ingress directly. */
-      token: string;
-      /** Token TTL in seconds from issue. Clients should refresh before this elapses. */
-      expires_in: number;
-      /** Slug to use in the ingress URL — `<application_slug>-<revision_uuid_hex>`. Identifies the exact revision, placed in the host (domain mode) or path (path mode) routing prefix. */
-      ingress_slug: string;
-      /** Per-trigger ingress URLs the caller can hit directly, derived from the revision's `spec.triggers[]`. Shape: `{<trigger_type>: {<route_name>: <absolute_url>}}`. Only includes triggers the spec actually declares. Empty when no public agent-ingress URL is configured for the active routing mode. */
-      endpoints: unknown;
-      /** How to attach credentials to those endpoints: preview-token header/query names, the per-trigger accepted auth modes (`trigger_modes`), and a note about the live vs preview-mode gate split. Lets the caller wire auth without grepping the ingress source. */
-      auth: unknown;
-      /** Server-side alternative — `/api/projects/<team>/agent_applications/<slug>/preview-proxy/<path>` mints the JWT for you. Strips caller Authorization, so it works for public-auth agents; agents with required auth need the direct endpoints above. */
-      preview_proxy: unknown;
     }
 
     export interface LogEntry {
@@ -7770,8 +7753,6 @@ export namespace Schemas {
          */
       preview: string | null;
       retry_count: number;
-      /** True when the session ran against a draft revision in preview mode. Output adapters (Slack writes, failure notifier) no-op; `$ai_*` analytics events are tagged with `$agent_is_preview: true`. Surface a preview badge on the row so authors can distinguish iteration from live traffic. */
-      is_preview: boolean;
       created_at: string;
       updated_at: string;
     }
@@ -7885,8 +7866,6 @@ export namespace Schemas {
       pending_inputs: AgentConversationMessage[];
       /** Times the janitor has re-queued this session after a stuck-running detection. */
       retry_count: number;
-      /** True when the session ran against a draft revision in preview mode. Output adapters (Slack writes, failure notifier) no-op; `$ai_*` analytics events are tagged with `$agent_is_preview: true`. Surface a preview badge on session detail so authors can distinguish iteration from live traffic. */
-      is_preview: boolean;
       created_at: string;
       updated_at: string;
       /** True when `?last_n=` was supplied AND the full conversation exceeded it. */
@@ -7960,8 +7939,6 @@ export namespace Schemas {
          * @nullable
          */
       preview: string | null;
-      /** True when the session ran against a draft revision in preview mode. Output adapters (Slack writes, failure notifier) no-op; `$ai_*` analytics events are tagged with `$agent_is_preview: true`. Render a preview badge on the row so author iteration is distinguishable from live traffic. */
-      is_preview: boolean;
       created_at: string;
       updated_at: string;
     }
@@ -41608,24 +41585,6 @@ export namespace Schemas {
     }
 
     /**
-     * Body forwarded verbatim to the agent ingress for a *preview* invoke of a
-     * non-live revision. The meaningful shape depends on the `rest` path segment:
-     *
-     * - `run` — `{ message }`: the user message that starts a new session.
-     * - `send` — `{ session_id, message }`: append a message to a running session.
-     * - `cancel` / `listen` — no body.
-     *
-     * Documents `message` / `session_id` so the generated MCP tool exposes them;
-     * any extra keys are still forwarded as-is to ingress.
-     */
-    export interface PreviewProxyInvokeRequest {
-      /** User message to deliver to the agent. Required for `run` (starts the session) and `send` (appends to it); ignored for `cancel` / `listen`. */
-      message?: string;
-      /** Target session id for `send` — the running session to append the message to. Omit for `run` (a fresh session is created). */
-      session_id?: string;
-    }
-
-    /**
      * Mapping from event name to the team-configured primary property for that event. Names without a configured primary property are omitted; callers should fall back to the core taxonomy defaults for those.
      */
     export type PrimaryPropertiesResponsePrimaryProperties = {[key: string]: string};
@@ -57746,52 +57705,6 @@ export namespace Schemas {
      * Filter by approval state. Comma-separated list accepted. Valid values: queued, approving, dispatched, dispatched_failed, rejected, expired. Defaults to all states.
      */
     state?: string;
-    };
-
-    export type AgentApplicationsPreviewProxyGetParams = {
-    format?: AgentApplicationsPreviewProxyGetFormat;
-    /**
-     * Target draft revision. Must belong to this application and not be live.
-     */
-    revision_id: string;
-    };
-
-    export type AgentApplicationsPreviewProxyGetFormat = typeof AgentApplicationsPreviewProxyGetFormat[keyof typeof AgentApplicationsPreviewProxyGetFormat];
-
-
-    export const AgentApplicationsPreviewProxyGetFormat = {
-      Json: 'json',
-      Sse: 'sse',
-    } as const;
-
-    export type AgentApplicationsPreviewProxyParams = {
-    format?: AgentApplicationsPreviewProxyFormat;
-    /**
-     * Target draft revision. Must belong to this application and not be live.
-     */
-    revision_id: string;
-    };
-
-    export type AgentApplicationsPreviewProxyFormat = typeof AgentApplicationsPreviewProxyFormat[keyof typeof AgentApplicationsPreviewProxyFormat];
-
-
-    export const AgentApplicationsPreviewProxyFormat = {
-      Json: 'json',
-      Sse: 'sse',
-    } as const;
-
-    export type AgentApplicationsPreviewTokenParams = {
-    /**
-     * Target draft revision. Must belong to this application and not be live.
-     */
-    revision_id: string;
-    };
-
-    export type AgentApplicationsPreviewTokenMintParams = {
-    /**
-     * Target draft revision. Must belong to this application and not be live.
-     */
-    revision_id: string;
     };
 
     export type AgentApplicationsSessionsListParams = {

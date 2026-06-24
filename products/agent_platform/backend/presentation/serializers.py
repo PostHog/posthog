@@ -450,27 +450,3 @@ class DecideApprovalRequestSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Free-form approver note. Surfaces in the session's synthetic tool_result so the model can communicate the reason back to the user.",
     )
-
-
-class PreviewProxyInvokeRequestSerializer(serializers.Serializer):
-    """Body forwarded verbatim to the agent ingress for a *preview* invoke of a
-    non-live revision. The meaningful shape depends on the `rest` path segment:
-
-    - `run` — `{ message }`: the user message that starts a new session.
-    - `send` — `{ session_id, message }`: append a message to a running session.
-    - `cancel` / `listen` — no body.
-
-    Documents `message` / `session_id` so the generated MCP tool exposes them;
-    any extra keys are still forwarded as-is to ingress.
-    """
-
-    message = serializers.CharField(
-        required=False,
-        allow_blank=True,
-        trim_whitespace=False,
-        help_text="User message to deliver to the agent. Required for `run` (starts the session) and `send` (appends to it); ignored for `cancel` / `listen`.",
-    )
-    session_id = serializers.CharField(
-        required=False,
-        help_text="Target session id for `send` — the running session to append the message to. Omit for `run` (a fresh session is created).",
-    )
