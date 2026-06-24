@@ -1092,6 +1092,82 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
         assert second_callback.status_code == status.HTTP_400_BAD_REQUEST
 
 
+class TestMCPAuthorizePosthogCodeResponse(APIBaseTest):
+    def _create_template(self) -> MCPServerTemplate:
+        return MCPServerTemplate.objects.create(
+            name="Test Template",
+            url="https://mcp.test.example.com/mcp",
+            auth_type="oauth",
+            is_active=True,
+            oauth_metadata={
+                "authorization_endpoint": "https://auth.test.example.com/authorize",
+                "token_endpoint": "https://auth.test.example.com/token",
+            },
+            oauth_credentials={"client_id": "test-client-id"},
+        )
+
+    @ALLOW_URL
+    @patch("products.mcp_store.backend.presentation.views.discover_oauth_metadata")
+    def test_authorize_returns_redirect_url_for_custom_installation(self, mock_discover, _allow):
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            url="https://mcp.example.com",
+            display_name="Test",
+            auth_type="oauth",
+            oauth_issuer_url="https://auth.example.com",
+            oauth_metadata={
+                "authorization_endpoint": "https://auth.example.com/authorize",
+                "token_endpoint": "https://auth.example.com/token",
+            },
+            sensitive_configuration={"dcr_client_id": "existing-client-id", "dcr_is_user_provided": False},
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/mcp_server_installations/authorize/",
+            {
+                "installation_id": str(installation.id),
+                "install_source": "posthog-code",
+                "posthog_code_callback_url": "posthog-code://oauth/callback",
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert "Location" not in response
+        redirect_url = response.json()["redirect_url"]
+        assert urlparse(redirect_url).netloc == "auth.example.com"
+        mock_discover.assert_not_called()
+        params = parse_qs(urlparse(redirect_url).query)
+        assert params["client_id"][0] == "existing-client-id"
+
+    @ALLOW_URL
+    def test_authorize_returns_redirect_url_for_template_installation(self, _allow):
+        template = self._create_template()
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            template=template,
+            url=template.url,
+            auth_type="oauth",
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/mcp_server_installations/authorize/",
+            {
+                "installation_id": str(installation.id),
+                "install_source": "posthog-code",
+                "posthog_code_callback_url": "posthog-code://oauth/callback",
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert "Location" not in response
+        redirect_url = response.json()["redirect_url"]
+        assert urlparse(redirect_url).netloc == "auth.test.example.com"
+        params = parse_qs(urlparse(redirect_url).query)
+        assert params["client_id"][0] == "test-client-id"
+
+
 class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def _template(self, **overrides) -> MCPServerTemplate:
         import uuid as _uuid

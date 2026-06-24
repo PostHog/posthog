@@ -130,6 +130,15 @@ def _get_oauth_redirect_uri() -> str:
     return f"{settings.SITE_URL}/api/mcp_store/oauth_redirect/"
 
 
+def _oauth_authorize_response(authorize_url: str, install_source: str) -> HttpResponse:
+    if install_source == "posthog-code":
+        return Response({"redirect_url": authorize_url}, status=status.HTTP_200_OK)
+
+    response = HttpResponse(status=302)
+    response["Location"] = authorize_url
+    return response
+
+
 def _template_uses_dcr(template: MCPServerTemplate) -> bool:
     """Is this template configured for per-user Dynamic Client Registration?
 
@@ -1053,9 +1062,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             team=self.team,
         )
 
-        response = HttpResponse(status=302)
-        response["Location"] = authorize_url
-        return response
+        return _oauth_authorize_response(authorize_url, install_source)
 
     def _authorize_for_installation(
         self,
@@ -1121,9 +1128,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         except OAuthAuthorizeURLError:
             return Response({"detail": "Authorization endpoint must use HTTPS"}, status=status.HTTP_400_BAD_REQUEST)
 
-        response = HttpResponse(status=302)
-        response["Location"] = authorize_url
-        return response
+        return _oauth_authorize_response(authorize_url, install_source)
 
     @extend_schema(responses={200: OpenApiResponse(response=MCPServerInstallationToolSerializer(many=True))})
     @action(detail=True, methods=["get"], url_path="tools")
