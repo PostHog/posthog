@@ -95,10 +95,7 @@ Create a free API key (v3 auth) in your [TMDB account settings](https://www.them
     def validate_credentials(
         self, config: TMDbSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        if validate_tmdb_credentials(config.api_key):
-            return True, None
-
-        return False, "Invalid TMDB API key"
+        return validate_tmdb_credentials(config.api_key)
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from posthog.temporal.data_imports.sources.tmdb.canonical_descriptions import CANONICAL_DESCRIPTIONS

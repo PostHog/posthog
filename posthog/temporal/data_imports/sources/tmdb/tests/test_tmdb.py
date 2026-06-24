@@ -158,17 +158,36 @@ class TestRetry:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize("status, expected", [(200, True), (401, False), (404, False), (500, False)])
-    def test_validate_credentials(self, status: int, expected: bool) -> None:
+    def test_valid_key_returns_no_message(self) -> None:
+        session = _fake_session([_make_response(200, {})])
+        with mock.patch.object(tmdb_module, "make_tracked_session", return_value=session):
+            assert validate_credentials("k") == (True, None)
+
+    def test_401_reports_invalid_key(self) -> None:
+        session = _fake_session([_make_response(401, {})])
+        with mock.patch.object(tmdb_module, "make_tracked_session", return_value=session):
+            is_valid, message = validate_credentials("k")
+        assert is_valid is False
+        assert message == "Invalid TMDB API key"
+
+    @pytest.mark.parametrize("status", [404, 429, 500, 503])
+    def test_non_401_failure_does_not_claim_invalid_key(self, status: int) -> None:
+        # A transient/service-side failure must not be reported as an invalid credential.
         session = _fake_session([_make_response(status, {})])
         with mock.patch.object(tmdb_module, "make_tracked_session", return_value=session):
-            assert validate_credentials("k") is expected
+            is_valid, message = validate_credentials("k")
+        assert is_valid is False
+        assert message is not None
+        assert message != "Invalid TMDB API key"
 
-    def test_validate_credentials_swallows_exceptions(self) -> None:
+    def test_network_error_does_not_claim_invalid_key(self) -> None:
         session = mock.MagicMock()
         session.get.side_effect = requests.ConnectionError("boom")
         with mock.patch.object(tmdb_module, "make_tracked_session", return_value=session):
-            assert validate_credentials("k") is False
+            is_valid, message = validate_credentials("k")
+        assert is_valid is False
+        assert message is not None
+        assert message != "Invalid TMDB API key"
 
 
 class TestTMDbSource:

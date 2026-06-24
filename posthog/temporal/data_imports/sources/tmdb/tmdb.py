@@ -86,14 +86,25 @@ _fetch = retry(
 )(_do_fetch)
 
 
-def validate_credentials(api_key: str) -> bool:
-    # /configuration is a cheap call that 200s for any valid key and 401s for an invalid one.
+def validate_credentials(api_key: str) -> tuple[bool, str | None]:
+    # /configuration is a cheap call that 200s for any valid key and 401s for an invalid one. Only a
+    # 401 means the key is wrong — a transient failure (5xx, network error, timeout) must not be
+    # reported as an invalid key, or a user with a perfectly valid key during a brief TMDB outage
+    # would be told to regenerate it.
     url = _build_url("/configuration", api_key)
     try:
         response = make_tracked_session(redact_values=(api_key,)).get(url, headers=_get_headers(), timeout=10)
-        return response.status_code == 200
     except Exception:
-        return False
+        return False, "Could not reach TMDB to validate your API key. Check your connection and try again."
+
+    if response.status_code == 200:
+        return True, None
+    if response.status_code == 401:
+        return False, "Invalid TMDB API key"
+    return (
+        False,
+        f"TMDB returned an unexpected response (status {response.status_code}) while validating your API key. Please try again.",
+    )
 
 
 def _extract_rows(data: dict | list, config: TMDbEndpointConfig) -> list[dict]:

@@ -78,24 +78,21 @@ class TestTMDbSource:
         assert not any(key in unrelated_error for key in non_retryable)
 
     @pytest.mark.parametrize(
-        "valid, expected_valid, expected_message",
+        "validate_result",
         [
-            (True, True, None),
-            (False, False, "Invalid TMDB API key"),
+            (True, None),
+            (False, "Invalid TMDB API key"),
+            (False, "Could not reach TMDB to validate your API key. Check your connection and try again."),
         ],
     )
     @mock.patch("posthog.temporal.data_imports.sources.tmdb.source.validate_tmdb_credentials")
-    def test_validate_credentials(
+    def test_validate_credentials_passes_result_through(
         self,
         mock_validate: mock.MagicMock,
-        valid: bool,
-        expected_valid: bool,
-        expected_message: str | None,
+        validate_result: tuple[bool, str | None],
     ) -> None:
-        mock_validate.return_value = valid
-        is_valid, message = self.source.validate_credentials(self.config, self.team_id)
-        assert is_valid is expected_valid
-        assert message == expected_message
+        mock_validate.return_value = validate_result
+        assert self.source.validate_credentials(self.config, self.team_id) == validate_result
         mock_validate.assert_called_once_with("tmdb-key")
 
     def test_get_resumable_source_manager_binds_resume_config(self) -> None:
