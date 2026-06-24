@@ -10,15 +10,15 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_SAMPLE_INTERVAL_SECONDS = 30.0
 
-# Per-worker RSS, scraped via bin/unit_metrics.py's MultiProcessCollector. `liveall`
-# exposes one series per live worker pid, so a single worker climbing toward the cgroup
-# limit is visible rather than hidden inside an aggregate. A worker hard-killed by the OOM
-# reaper cannot call `mark_process_dead`, so its pid series can linger until the pod
-# recycles — the `worker_memory` log line below is the per-worker forensic backstop.
+# Web-worker RSS, scraped via bin/unit_metrics.py's MultiProcessCollector. `livemax`
+# reports the maximum across live workers as a single series, so the worker nearest the
+# cgroup limit is visible without the per-pid cardinality — and stale-series-on-recycle,
+# since a request-limited or OOM-killed worker never calls `mark_process_dead` — that
+# `liveall` would accumulate. Per-worker detail lives in the `worker_memory` log line.
 WORKER_RSS_MB = Gauge(
     "posthog_web_worker_rss_mb",
-    "Resident set size of a web worker process, in MiB.",
-    multiprocess_mode="liveall",
+    "Maximum resident set size across live web worker processes, in MiB.",
+    multiprocess_mode="livemax",
 )
 
 _sampler_started_pid: int | None = None
