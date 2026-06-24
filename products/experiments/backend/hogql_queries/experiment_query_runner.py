@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime, timedelta
 from functools import cached_property
 from typing import Optional
@@ -426,6 +427,9 @@ class ExperimentQueryRunner(QueryRunner):
         tag_queries(
             product=Product.EXPERIMENTS,
             experiment_query_surface="metric",
+            # Generated before _get_experiment_query() runs the precompute builds, so those build
+            # sub-queries inherit this id via the tag context and can be grouped under this read.
+            experiment_query_group_id=uuid.uuid4(),
             experiment_id=self.experiment.id,
             experiment_name=self.experiment.name,
             experiment_feature_flag_key=self.feature_flag_key,
@@ -434,6 +438,8 @@ class ExperimentQueryRunner(QueryRunner):
             experiment_metric_name=metric_name,
             experiment_metric_type=self.metric.metric_type,
         )
+        if isinstance(self.metric, ExperimentFunnelMetric):
+            tag_queries(experiment_funnel_order_type=self.metric.funnel_order_type or "ordered")
 
         experiment_query_ast = self._get_experiment_query()
 
@@ -772,6 +778,8 @@ class ExperimentQueryRunner(QueryRunner):
         tag_queries(
             product=Product.EXPERIMENTS,
             experiment_query_surface="actors",
+            # No sub-queries here, but tag for a consistent group id per top-level query.
+            experiment_query_group_id=uuid.uuid4(),
             experiment_exposures_path="direct_scan",
             experiment_metric_events_path="not_applicable",
             experiment_id=self.experiment.id,

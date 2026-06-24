@@ -79,6 +79,7 @@ function session(label: string): AgentSession {
         usage_total: { ...EMPTY_USAGE_TOTAL },
         acl: [],
         pending_elevation_requests: [],
+        is_preview: false,
         created_at: '2026-05-27',
         updated_at: '2026-05-27',
     }
@@ -191,6 +192,49 @@ describe('janitor HTTP', () => {
         expect((recent.body.results as Array<{ id: string }>).map((s) => s.id).sort()).toEqual(
             [uuidFor('done-r1'), uuidFor('fail-r1')].sort()
         )
+    })
+
+    it('GET /sessions?search matches external_key case-insensitively, not the transcript', async () => {
+        const { queue, app } = mk()
+        await queue.enqueue({
+            ...session('s-deploy'),
+            application_id: uuidFor('app-1'),
+            external_key: 'slack:CWIDGET',
+            conversation: [{ role: 'user', content: 'can you deploy the gadget service?', timestamp: 1 }],
+        })
+        await queue.enqueue({
+            ...session('s-unrelated'),
+            application_id: uuidFor('app-1'),
+            external_key: 'slack:C999',
+            conversation: [{ role: 'user', content: 'mentions WIDGET in the transcript only', timestamp: 1 }],
+        })
+        // external_key match, case-insensitive.
+        const byKey = await request(app)
+            .get('/sessions')
+            .query({ application_id: uuidFor('app-1'), search: 'widget' })
+        expect((byKey.body.results as Array<{ id: string }>).map((s) => s.id)).toEqual([uuidFor('s-deploy')])
+        expect(byKey.body.count).toBe(1)
+        // id match.
+        const byId = await request(app)
+            .get('/sessions')
+            .query({ application_id: uuidFor('app-1'), search: uuidFor('s-unrelated') })
+        expect((byId.body.results as Array<{ id: string }>).map((s) => s.id)).toEqual([uuidFor('s-unrelated')])
+        // No match → empty, not an error.
+        const none = await request(app)
+            .get('/sessions')
+            .query({ application_id: uuidFor('app-1'), search: 'zzz-nope' })
+        expect(none.body.results).toHaveLength(0)
+        expect(none.body.count).toBe(0)
+    })
+
+    it('GET /sessions?search treats LIKE metacharacters literally', async () => {
+        const { queue, app } = mk()
+        await queue.enqueue({ ...session('s-pct'), application_id: uuidFor('app-1'), external_key: 'batch-50%-run' })
+        await queue.enqueue({ ...session('s-plain'), application_id: uuidFor('app-1'), external_key: 'batch-50-run' })
+        const res = await request(app)
+            .get('/sessions')
+            .query({ application_id: uuidFor('app-1'), search: '50%' })
+        expect((res.body.results as Array<{ id: string }>).map((s) => s.id)).toEqual([uuidFor('s-pct')])
     })
 
     it('GET /sessions summaries include preview + usage_total off the persisted column', async () => {
@@ -325,7 +369,9 @@ describe('janitor HTTP', () => {
         expect(real.body).toMatchObject({ scanned: 1, updated: 1, dry_run: false })
         const after = (await queue.get(uuidFor('s-backfill')))!
         expect(after.usage_total.tokens_in).toBe(7)
-        expect(after.usage_total.cost_total).toBeCloseTo(0.015, 10)
+        // Cost is owned by the gateway's settled figure, never recomputed from pi-ai's
+        // conversation estimates — so the backfill rewrites tokens but leaves cost at zero.
+        expect(after.usage_total.cost_total).toBe(0)
 
         // Second run finds nothing to update.
         const repeat = await request(app)

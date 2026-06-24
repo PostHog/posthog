@@ -256,6 +256,27 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return None
 
     @property
+    def partition_count_override(self) -> int | None:
+        # Operator-pinned partition_count set via the admin repartition action. Unlike
+        # `partition_count` (which is auto-detected and wiped on every reset), this key
+        # survives `update_sync_type_config_for_reset_pipeline` so the operator's choice
+        # wins the reset resync that the repartition triggers. It is consumed (popped) by
+        # `set_partitioning_enabled` once applied, so a later reset re-detects.
+        if self.sync_type_config:
+            return self.sync_type_config.get("partition_count_override", None)
+
+        return None
+
+    @property
+    def partition_size_override(self) -> int | None:
+        # Operator-pinned partition_size for numerical mode. Same one-shot semantics as
+        # `partition_count_override`.
+        if self.sync_type_config:
+            return self.sync_type_config.get("partition_size_override", None)
+
+        return None
+
+    @property
     def partition_mode(self) -> PartitionMode | None:
         if self.sync_type_config:
             return self.sync_type_config.get("partition_mode", None)
@@ -332,6 +353,12 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config["partitioning_keys"] = partitioning_keys
         self.sync_type_config["partition_mode"] = partition_mode
         self.sync_type_config["partition_format"] = partition_format
+        # Consume any operator-pinned overrides: they've now been baked into the effective
+        # settings above, so drop them. This makes the pin one-shot — a later reset falls
+        # back to auto-detection instead of re-applying a stale pin (re-pin via the admin
+        # repartition action if needed).
+        self.sync_type_config.pop("partition_count_override", None)
+        self.sync_type_config.pop("partition_size_override", None)
         self.save()
 
     def stage_incremental_field_value(self, run_uuid: str, last_value: Any, earliest_value: Any = None) -> None:
@@ -403,6 +430,9 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config.pop("xmin_num_wraparound", None)
         # We don't reset partition_format
         # We don't reset chunk_size_override
+        # We intentionally don't reset partition_count_override / partition_size_override:
+        # an operator pins those via the admin repartition action precisely so they survive
+        # this reset and win the resync it triggers. They're consumed in set_partitioning_enabled.
 
         self.initial_sync_complete = False
 

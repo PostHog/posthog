@@ -270,6 +270,44 @@ def test_reset_pipeline_clears_xmin_state() -> None:
     assert schema.initial_sync_complete is False
 
 
+def test_reset_pipeline_preserves_partition_overrides_but_clears_auto_detected() -> None:
+    # The operator pins a count via the admin repartition action; it must survive the reset
+    # that repartition bundles, while the auto-detected partition_count is wiped so it gets
+    # re-derived (and then loses to the override) on the resync.
+    schema = ExternalDataSchema(
+        sync_type_config={
+            "partition_count": 72,
+            "partition_count_override": 10,
+            "partition_size_override": 5,
+            "partitioning_enabled": True,
+            "partition_mode": "md5",
+        }
+    )
+    with patch.object(schema, "save"):
+        schema.update_sync_type_config_for_reset_pipeline()
+    assert "partition_count" not in schema.sync_type_config
+    assert "partitioning_enabled" not in schema.sync_type_config
+    assert schema.partition_count_override == 10
+    assert schema.partition_size_override == 5
+
+
+def test_set_partitioning_enabled_consumes_partition_overrides() -> None:
+    # Once the override is baked into the effective settings, it's a one-shot pin: drop it so
+    # a later reset re-detects instead of re-applying a stale value.
+    schema = ExternalDataSchema(sync_type_config={"partition_count_override": 10, "partition_size_override": 5})
+    with patch.object(schema, "save"):
+        schema.set_partitioning_enabled(
+            partitioning_keys=["id"],
+            partition_count=10,
+            partition_size=None,
+            partition_mode="md5",
+            partition_format=None,
+        )
+    assert schema.partition_count == 10
+    assert schema.partition_count_override is None
+    assert schema.partition_size_override is None
+
+
 def test_process_incremental_value_xid_returns_value_as_is() -> None:
     assert process_incremental_value(4294967396, IncrementalFieldType.XID) == 4294967396
     assert process_incremental_value(None, IncrementalFieldType.XID) is None

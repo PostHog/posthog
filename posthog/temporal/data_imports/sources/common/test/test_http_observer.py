@@ -325,6 +325,16 @@ def test_sample_capture_called_with_context_and_response(job_ctx):
     assert kwargs["ctx"].team_id == 99
 
 
+def test_sample_capture_skipped_when_capture_disabled(job_ctx):
+    request = _make_request()
+    response = _make_response(status_code=200)
+
+    with patch("posthog.temporal.data_imports.sources.common.http.observer.maybe_capture") as capture:
+        record_request(request, response, started_at_monotonic=time.monotonic(), capture=False)
+
+    capture.assert_not_called()
+
+
 def test_observer_swallows_sampling_failures(job_ctx):
     """Sampling exception must not leak."""
     request = _make_request()

@@ -11,6 +11,9 @@ import {
 import { Pool } from 'pg'
 
 import {
+    type AnalyticsEvent,
+    type AnalyticsGenerationEvent,
+    type AnalyticsSink,
     AgentRevision,
     type ApprovalRequest,
     type ApprovalStore,
@@ -91,6 +94,7 @@ function makeSession(over: Partial<AgentSession> = {}): AgentSession {
         retry_count: 0,
         acl: [],
         pending_elevation_requests: [],
+        is_preview: false,
         usage_total: { ...EMPTY_USAGE_TOTAL },
         created_at: '2026-05-29',
         updated_at: '2026-05-29',
@@ -632,25 +636,35 @@ describe('driver runSession', () => {
      * cost fetch. Uses a recording `streamFn` injected via deps so we can
      * inspect the headers pi-ai would see, and a fake GatewayClient so we
      * can drive cost merge without hitting a real /v1/usage. The behaviour
-     * here is load-bearing for the ai-gateway path — without the per-turn
-     * `request_id` stamp + Idempotency-Key, the gateway can't dedupe pi-ai
-     * retries onto a single billed row, and without the post-turn
-     * `getUsage` merge `usage_total.cost_total` stays zero forever.
+     * here is load-bearing for the ai-gateway path: the Idempotency-Key lets
+     * the gateway collapse pi-ai retries onto one billed row, and the post-turn
+     * `getUsage` keyed by the gateway's OWN response id is the sole source of
+     * `usage_total.cost_total` — key it wrong and cost stays zero forever.
      */
     describe('gateway metadata + post-turn settled cost', () => {
-        // Build a streamFn that just delegates to `streamSimple` but records
-        // every call's options.headers in the provided array.
+        // Build a streamFn that delegates to `streamSimple` but records every
+        // call's options.headers. When `gatewayRequestId` is given it first
+        // fires `onResponse` with that id in the (lowercased) `x-request-id`
+        // header — the faux provider returns no response headers, so this
+        // simulates the gateway stamping its server-minted settlement id.
         function recordingStreamFn(
-            calls: Array<{ headers: Record<string, string> | undefined }>
+            calls: Array<{ headers: Record<string, string> | undefined }>,
+            gatewayRequestId?: string
         ): Parameters<typeof runSession>[2]['streamFn'] {
-            return (model, ctx, opts) => {
+            return async (model, ctx, opts) => {
                 calls.push({ headers: opts?.headers as Record<string, string> | undefined })
+                if (gatewayRequestId) {
+                    await opts?.onResponse?.({ status: 200, headers: { 'x-request-id': gatewayRequestId } }, model)
+                }
                 return streamSimple(model, ctx, opts)
             }
         }
 
-        it('stamps Idempotency-Key + X-Request-Id per turn and merges settled cost', async () => {
+        it('keys settled cost by the gateway response id, not the Idempotency-Key', async () => {
             const calls: Array<{ headers: Record<string, string> | undefined }> = []
+            // The gateway mints this server-side and returns it in X-Request-ID;
+            // the runner must fetch usage by THIS id, never its own outbound key.
+            const GW_ID = 'a1b2c3d4e5f600112233445566778899'
             const getUsage = vi.fn(async (requestId: string) => ({
                 request_id: requestId,
                 team_id: 1,
@@ -660,29 +674,28 @@ describe('driver runSession', () => {
             const session = makeSession()
             const out = await run(makeRev(), session, {
                 script: [stop('hi back')],
-                streamFn: recordingStreamFn(calls),
+                streamFn: recordingStreamFn(calls, GW_ID),
                 gatewayHeaders: { 'X-PostHog-Distinct-Id': 'team:1:agent:app', 'X-PostHog-Trace-Id': TEST_SESSION_ID },
                 gatewayUsage: { client: { getUsage } as never, phc: 'phc_test' },
-                useGatewayCost: true,
+                gatewayEmitsGenerations: true,
             })
             expect(out.state).toBe('completed')
-            // One outbound call, headers carry the static gateway headers
-            // PLUS the per-turn id matching the `agent:<session>:<turn>` shape.
+            // One outbound call carrying the static gateway headers + the per-turn
+            // Idempotency-Key. X-Request-Id is NOT sent (the gateway ignores any
+            // inbound value and mints its own).
             expect(calls).toHaveLength(1)
             expect(calls[0].headers).toMatchObject({
                 'X-PostHog-Distinct-Id': 'team:1:agent:app',
                 'X-PostHog-Trace-Id': TEST_SESSION_ID,
             })
-            // The id carries the `agent:<session>:<turn>:<nonce>` shape;
-            // Idempotency-Key and X-Request-Id are the same id, and the nonce
-            // makes each call unique (see the resume regression test below).
-            const reqId = calls[0].headers?.['Idempotency-Key']
-            expect(reqId).toMatch(new RegExp(`^agent:${TEST_SESSION_ID}:1:[0-9a-f-]{36}$`))
-            expect(calls[0].headers?.['X-Request-Id']).toBe(reqId)
-            // getUsage was called for that exact request id; the returned
-            // cost landed in usage_total.
+            const idempotencyKey = calls[0].headers?.['Idempotency-Key']
+            expect(idempotencyKey).toMatch(new RegExp(`^agent:${TEST_SESSION_ID}:1:[0-9a-f-]{36}$`))
+            expect(calls[0].headers ?? {}).not.toHaveProperty('X-Request-Id')
+            // getUsage was keyed by the GATEWAY id from the response header, not
+            // our Idempotency-Key (the old bug); the cost merged into usage_total.
             expect(getUsage).toHaveBeenCalledTimes(1)
-            expect(getUsage).toHaveBeenCalledWith(reqId, { phc: 'phc_test' })
+            expect(getUsage).toHaveBeenCalledWith(GW_ID, { phc: 'phc_test' })
+            expect(getUsage).not.toHaveBeenCalledWith(idempotencyKey, { phc: 'phc_test' })
             expect(session.usage_total.cost_total).toBeCloseTo(0.42, 5)
         })
 
@@ -719,9 +732,35 @@ describe('driver runSession', () => {
         it('survives a getUsage NaN/failure without polluting cost_total', async () => {
             const calls: Array<{ headers: Record<string, string> | undefined }> = []
             const getUsage = vi.fn(async () => ({
-                request_id: `agent:${TEST_SESSION_ID}:1`,
+                request_id: 'gw-nan',
                 team_id: 1,
                 cost_usd: 'not-a-number',
+                settled_at: new Date().toISOString(),
+            }))
+            const session = makeSession()
+            const out = await run(makeRev(), session, {
+                script: [stop('hi back')],
+                // Simulate the gateway returning an id so the cost fetch is reached.
+                streamFn: recordingStreamFn(calls, 'gw-nan'),
+                gatewayHeaders: {},
+                gatewayUsage: { client: { getUsage } as never, phc: 'phc_test' },
+                gatewayEmitsGenerations: true,
+            })
+            expect(out.state).toBe('completed')
+            expect(getUsage).toHaveBeenCalledWith('gw-nan', { phc: 'phc_test' })
+            expect(session.usage_total.cost_total).toBe(0)
+        })
+
+        it('fails open when the gateway returns no X-Request-ID: no getUsage, cost stays 0', async () => {
+            // No gateway id → recordingStreamFn lets the faux provider fire
+            // onResponse with empty headers (the gateway-misroute / header-strip
+            // case). turnRequestIds never gets an id, so the cost fetch is
+            // skipped cleanly instead of 404'ing on a bogus key.
+            const calls: Array<{ headers: Record<string, string> | undefined }> = []
+            const getUsage = vi.fn(async () => ({
+                request_id: 'unused',
+                team_id: 1,
+                cost_usd: '9.99',
                 settled_at: new Date().toISOString(),
             }))
             const session = makeSession()
@@ -730,9 +769,10 @@ describe('driver runSession', () => {
                 streamFn: recordingStreamFn(calls),
                 gatewayHeaders: {},
                 gatewayUsage: { client: { getUsage } as never, phc: 'phc_test' },
-                useGatewayCost: true,
+                gatewayEmitsGenerations: true,
             })
             expect(out.state).toBe('completed')
+            expect(getUsage).not.toHaveBeenCalled()
             expect(session.usage_total.cost_total).toBe(0)
         })
 
@@ -746,6 +786,43 @@ describe('driver runSession', () => {
             // No Idempotency-Key / X-Request-Id injected when no gateway path.
             expect(calls[0].headers ?? {}).not.toHaveProperty('Idempotency-Key')
             expect(calls[0].headers ?? {}).not.toHaveProperty('X-Request-Id')
+        })
+    })
+
+    /**
+     * Generation-event emission splits by path: on the gateway path the gateway
+     * emits the cost-bearing `$ai_generation`, so the runner must NOT emit its
+     * own (double-counting); off the gateway path it emits one, without cost
+     * (pi-ai's estimate is never used — ingestion prices it from the catalog).
+     * Spans/trace are runner-only and emitted on both paths.
+     */
+    describe('analytics generation emission', () => {
+        function recordingSink(events: AnalyticsEvent[]): AnalyticsSink {
+            return { write: async (batch) => void events.push(...batch) }
+        }
+
+        it('suppresses the runner $ai_generation on the gateway path; still emits the trace', async () => {
+            const events: AnalyticsEvent[] = []
+            const out = await run(makeRev(), makeSession(), {
+                script: [stop('hi back')],
+                analytics: recordingSink(events),
+                gatewayEmitsGenerations: true,
+            })
+            expect(out.state).toBe('completed')
+            expect(events.filter((e) => e.kind === 'generation')).toHaveLength(0)
+            expect(events.some((e) => e.kind === 'trace')).toBe(true)
+        })
+
+        it('emits one $ai_generation without cost on the direct path', async () => {
+            const events: AnalyticsEvent[] = []
+            const out = await run(makeRev(), makeSession(), {
+                script: [stop('hi back')],
+                analytics: recordingSink(events),
+            })
+            expect(out.state).toBe('completed')
+            const gens = events.filter((e): e is AnalyticsGenerationEvent => e.kind === 'generation')
+            expect(gens).toHaveLength(1)
+            expect(gens[0].cost_usd).toBeUndefined()
         })
     })
 
