@@ -18,6 +18,7 @@ import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisForma
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { formatEventName } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
@@ -150,6 +151,11 @@ export function TrendsBarChart({
         [stackBreakdowns, breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
     )
 
+    const humanizedResults = useMemo(
+        () => (indexedResults ?? []).map((r) => ({ ...r, label: formatEventName(r.label) ?? r.label })),
+        [indexedResults]
+    )
+
     const { series, labels, displayLabels } = useMemo(() => {
         if (isAggregated) {
             return buildTrendsBarAggregatedSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
@@ -160,7 +166,7 @@ export function TrendsBarChart({
                 getDisplayLabel: getAggregatedDisplayLabel,
             })
         }
-        const timeSeries = buildTrendsBarTimeSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
+        const timeSeries = buildTrendsBarTimeSeries<IndexedTrendResult, TrendsSeriesMeta>(humanizedResults, {
             getColor: getTrendsColor,
             // With the quill legend on, hidden series stay listed (dimmed) and are excluded via
             // config.legend.hiddenKeys instead of being dropped here, so the legend can restore them.
@@ -176,6 +182,7 @@ export function TrendsBarChart({
     }, [
         isAggregated,
         indexedResults,
+        humanizedResults,
         getTrendsColor,
         getTrendsHidden,
         currentPeriodResult?.labels,

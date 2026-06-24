@@ -11,6 +11,7 @@ import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisForma
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { formatEventName } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
@@ -191,9 +192,14 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         ]
     )
 
+    const humanizedResults = useMemo(
+        () => (indexedResults ?? []).map((r) => ({ ...r, label: formatEventName(r.label) ?? r.label })),
+        [indexedResults]
+    )
+
     const series = useMemo(
         () =>
-            buildTrendsSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
+            buildTrendsSeries<IndexedTrendResult, TrendsSeriesMeta>(humanizedResults, {
                 isArea: display === ChartDisplayType.ActionsAreaGraph,
                 showMultipleYAxes: showMultipleYAxes ?? undefined,
                 incompletenessOffsetFromEnd,
@@ -205,7 +211,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                 buildMeta: buildTrendsSeriesMeta,
             }),
         [
-            indexedResults,
+            humanizedResults,
             display,
             showMultipleYAxes,
             incompletenessOffsetFromEnd,
@@ -219,7 +225,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
     const config = useMemo(
         () =>
             buildTrendsLineTimeSeriesConfig<IndexedTrendResult>({
-                results: indexedResults ?? [],
+                results: humanizedResults,
                 trendsFilter,
                 baseCurrency,
                 isPercentStackView,
@@ -245,7 +251,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                 legend: legendConfig,
             }),
         [
-            indexedResults,
+            humanizedResults,
             trendsFilter,
             baseCurrency,
             isPercentStackView,
