@@ -131,6 +131,7 @@ the row lists both.
 | launchdarkly      | HTTP                        | requests                                                        | ✅                          |
 | kustomer          | HTTP                        | requests                                                        | ✅                          |
 | lattice           | HTTP                        | requests                                                        | ✅                          |
+| lemlist           | HTTP                        | requests                                                        | ✅                          |
 | lightspeed_retail | HTTP                        | requests                                                        | ✅                          |
 | linear            | HTTP                        | requests                                                        | ✅                          |
 | lever             | HTTP                        | requests                                                        | ✅                          |
@@ -477,7 +478,6 @@ doesn't conflict with concurrent PRs.
 - kyve
 - leadfeeder
 - leexi
-- lemlist
 - less_annoying_crm
 - lever
 - lightfield
