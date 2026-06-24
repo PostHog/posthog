@@ -39,6 +39,7 @@ export function QueryPerformance(): JSX.Element {
         visibleSlowestQueries,
         slowestQueriesLoading,
         showSubQueries,
+        allQueriesHiddenAsSubQueries,
         hoursBack,
         teamIdFilter,
         experimentIdFilter,
@@ -326,7 +327,11 @@ export function QueryPerformance(): JSX.Element {
                                     columns={slowestQueryColumns}
                                     dataSource={visibleSlowestQueries}
                                     loading={slowestQueriesLoading}
-                                    emptyState="No queries found in this time range"
+                                    emptyState={
+                                        allQueriesHiddenAsSubQueries
+                                            ? 'All queries in this range are sub-queries — enable "Show sub-queries" to view them'
+                                            : 'No queries found in this time range'
+                                    }
                                     pagination={{ pageSize: 20 }}
                                     className="overflow-visible! flex-none!"
                                     expandable={{

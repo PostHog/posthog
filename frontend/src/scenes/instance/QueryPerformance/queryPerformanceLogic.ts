@@ -132,6 +132,13 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
                     ? slowestQueries
                     : slowestQueries.filter((query) => query.experiment_query_surface !== 'precompute_build'),
         ],
+        // True when the visible table is empty only because every returned row is a hidden sub-query,
+        // so the empty state can say so instead of claiming there are no queries in the range.
+        allQueriesHiddenAsSubQueries: [
+            (s) => [s.slowestQueries, s.visibleSlowestQueries],
+            (slowestQueries, visibleSlowestQueries): boolean =>
+                slowestQueries.length > 0 && visibleSlowestQueries.length === 0,
+        ],
     }),
     listeners(({ actions }) => ({
         setSearch: async (_, breakpoint) => {
