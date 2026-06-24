@@ -41,16 +41,24 @@ export const SqlPieGraph = ({
     const total = useMemo(() => slices.reduce((sum, slice) => sum + slice.value, 0), [slices])
 
     const showLegend = chartSettings.showLegend ?? false
-    const showPieTotal = chartSettings.showPieTotal ?? true
+    const showPieTotal = chartSettings.pie?.showTotal ?? true
+    const sliceContent = chartSettings.pie?.sliceContent ?? 'labels'
+    const asPercent = (chartSettings.pie?.valueDisplay ?? 'absolute') === 'percentage'
 
-    const valueFormatter = useCallback(
+    const absoluteFormatter = useCallback(
         (value: number) => String(formatDataWithSettings(value, formattingSettings) ?? value),
         [formattingSettings]
     )
 
+    // `isPercent` makes the chart render on-slice values and tooltips as a share of the total; the
+    // total below the chart and the absolute legend line keep using the raw value formatter.
     const pieConfig: PieChartConfig = useMemo(
-        () => ({ showValueOnSlice: chartSettings.showValuesOnSeries ?? true }),
-        [chartSettings.showValuesOnSeries]
+        () => ({
+            showLabelOnSlice: sliceContent === 'labels',
+            showValueOnSlice: sliceContent === 'values',
+            isPercent: asPercent,
+        }),
+        [sliceContent, asPercent]
     )
 
     const renderTooltip = useCallback(
@@ -65,13 +73,13 @@ export const SqlPieGraph = ({
                         <TooltipSwatch color={entry.color} />
                         <span className="font-semibold">{entry.series.label}</span>
                         <strong className="ml-auto">
-                            {formatPieSliceCount(entry.value, total, formattingSettings)}
+                            {formatPieSliceCount(entry.value, total, formattingSettings, asPercent)}
                         </strong>
                     </div>
                 </TooltipSurface>
             )
         },
-        [total, formattingSettings]
+        [total, formattingSettings, asPercent]
     )
 
     if (!slices.length) {
@@ -88,7 +96,7 @@ export const SqlPieGraph = ({
             theme={theme}
             config={pieConfig}
             tooltip={renderTooltip}
-            valueFormatter={valueFormatter}
+            valueFormatter={absoluteFormatter}
             dataAttr="sql-pie-chart"
             onError={handleChartError}
         />
@@ -96,7 +104,7 @@ export const SqlPieGraph = ({
 
     const totalDisplay = showPieTotal ? (
         <div className="pt-4 text-center shrink-0">
-            <div className="text-5xl font-bold">{valueFormatter(total)}</div>
+            <div className="text-5xl font-bold">{absoluteFormatter(total)}</div>
         </div>
     ) : null
 
@@ -113,8 +121,12 @@ export const SqlPieGraph = ({
                                 <span className="truncate">{slice.label}</span>
                             </div>
                             <div className="text-right shrink-0">
-                                <div className="font-semibold">{valueFormatter(slice.value)}</div>
-                                <div className="text-xs text-secondary">{percent}%</div>
+                                <div className="font-semibold">
+                                    {asPercent ? `${percent}%` : absoluteFormatter(slice.value)}
+                                </div>
+                                <div className="text-xs text-secondary">
+                                    {asPercent ? absoluteFormatter(slice.value) : `${percent}%`}
+                                </div>
                             </div>
                         </div>
                     )

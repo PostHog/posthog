@@ -345,6 +345,13 @@ const mergeChartSettings = (state: ChartSettings, settings: ChartSettings): Char
                       ...settings.heatmap,
                   }
                 : undefined,
+        pie:
+            state.pie || settings.pie
+                ? {
+                      ...state.pie,
+                      ...settings.pie,
+                  }
+                : undefined,
         leftYAxisSettings:
             state.leftYAxisSettings || settings.leftYAxisSettings
                 ? {

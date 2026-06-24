@@ -48,26 +48,56 @@ const baseProps = (chartSettings: ChartSettings, data: (number | null)[]): LineG
     chartSettings,
 })
 
-// On-slice value labels are static overlay nodes (not pointer-driven), so they steer clear of the
-// quill PieChart's flaky hover/click interaction tests.
-function sliceLabels(): string[] {
-    return Array.from(document.querySelectorAll('[data-attr="hog-chart-pie-slice-label"]')).map((el) => el.textContent!)
+// On-slice labels are static overlay nodes (not pointer-driven), so they steer clear of the
+// quill PieChart's flaky hover/click interaction tests. Each slice renders one <div> per line
+// (label and/or value), so we read the lines per slice rather than the concatenated text.
+function sliceLabelLines(): string[][] {
+    return Array.from(document.querySelectorAll('[data-attr="hog-chart-pie-slice-label"]')).map((el) =>
+        Array.from(el.querySelectorAll('div')).map((line) => line.textContent!)
+    )
+}
+
+async function waitForSlices(): Promise<void> {
+    await screen.findByRole('img', { name: /pie chart with/i }, { timeout: 5000 })
+    await waitFor(() => expect(sliceLabelLines().length).toBeGreaterThan(0), { timeout: 5000 })
 }
 
 describe('SqlPieGraph', () => {
-    it('renders a value label per positive slice and the aggregation total', async () => {
-        render(<SqlPieGraph {...baseProps({ showPieTotal: true }, [40, 30, 20, 10])} />)
+    it('shows slice labels by default plus the aggregation total', async () => {
+        render(<SqlPieGraph {...baseProps({ pie: { showTotal: true } }, [40, 30, 20, 10])} />)
 
-        await screen.findByRole('img', { name: /pie chart with/i }, { timeout: 5000 })
-        await waitFor(
-            () => {
-                expect(sliceLabels().length).toBeGreaterThan(0)
-            },
-            { timeout: 5000 }
+        await waitForSlices()
+
+        expect(sliceLabelLines()).toEqual([['alpha'], ['beta'], ['gamma'], ['delta']])
+        expect(screen.getByText('100')).toBeInTheDocument()
+    })
+
+    it('shows slice values when slice content is values', async () => {
+        render(<SqlPieGraph {...baseProps({ pie: { sliceContent: 'values' } }, [40, 30, 20, 10])} />)
+
+        await waitForSlices()
+
+        expect(sliceLabelLines()).toEqual([['40'], ['30'], ['20'], ['10']])
+    })
+
+    it('shows slice values as shares of the total when displaying percentages', async () => {
+        render(
+            <SqlPieGraph
+                {...baseProps({ pie: { sliceContent: 'values', valueDisplay: 'percentage' } }, [40, 30, 20, 10])}
+            />
         )
 
-        expect([...sliceLabels()].sort()).toEqual(['10', '20', '30', '40'])
-        expect(screen.getByText('100')).toBeInTheDocument()
+        await waitForSlices()
+
+        expect(sliceLabelLines()).toEqual([['40%'], ['30%'], ['20%'], ['10%']])
+    })
+
+    it('renders nothing on slices when slice content is none', async () => {
+        render(<SqlPieGraph {...baseProps({ pie: { sliceContent: 'none' } }, [40, 30, 20, 10])} />)
+
+        await screen.findByRole('img', { name: /pie chart with/i }, { timeout: 5000 })
+
+        expect(sliceLabelLines()).toEqual([])
     })
 
     it('renders the side legend with per-slice values and shares', () => {

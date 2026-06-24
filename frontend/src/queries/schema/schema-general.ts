@@ -1183,6 +1183,16 @@ export interface HeatmapSettings {
     sortOrder?: HeatmapSortOrder
 }
 
+export interface PieChartSettings {
+    /** What to render on each slice. Defaults to labels. */
+    sliceContent?: 'labels' | 'values' | 'none'
+    /** Whether slice values show as absolute amounts or shares of the total. Only applies when
+     *  `sliceContent` is `values`. */
+    valueDisplay?: 'absolute' | 'percentage'
+    /** Whether to show the aggregation total below the chart. Defaults to on. */
+    showTotal?: boolean
+}
+
 export interface YAxisSettings {
     label?: string
     scale?: 'linear' | 'logarithmic'
@@ -1210,9 +1220,9 @@ export interface ChartSettings {
     showLegend?: boolean
     showValuesOnSeries?: boolean
     showTotalRow?: boolean
-    showPieTotal?: boolean
     showNullsAsZero?: boolean
     heatmap?: HeatmapSettings
+    pie?: PieChartSettings
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: Record<string, ResultCustomizationByValue>
 }
