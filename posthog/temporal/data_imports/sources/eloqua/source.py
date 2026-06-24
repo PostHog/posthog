@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,8 @@ class EloquaSource(SimpleSource[EloquaSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.ELOQUA,
+            category=DataWarehouseSourceCategory.MARKETING___EMAIL,
+            keywords=["oracle eloqua"],
             label="Oracle Eloqua",
             iconPath="/static/services/eloqua.png",
             fields=cast(list[FieldType], []),

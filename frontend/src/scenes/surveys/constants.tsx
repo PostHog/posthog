@@ -1,7 +1,7 @@
 import { IconComment } from '@posthog/icons'
 
 import { IconAreaChart, IconGridView, IconLink, IconListView } from 'lib/lemon-ui/icons'
-import { allOperatorsMapping } from 'lib/utils'
+import { allOperatorsMapping } from 'lib/utils/operators'
 
 import {
     AccessControlLevel,
@@ -660,6 +660,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
             ...defaultSurveyAppearance,
             displayThankYouMessage: true,
             thankYouMessageHeader: 'Thanks — we will be in touch shortly!',
+            allowGoBack: true,
         },
         description: 'Recruit research participants via a shareable link.',
         tagType: 'completion',
@@ -719,6 +720,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
             ...defaultSurveyAppearance,
             displayThankYouMessage: true,
             thankYouMessageHeader: 'Thanks for sharing your perspective!',
+            allowGoBack: true,
         },
         description: 'Go deep on segmentation, satisfaction, and roadmap signal.',
         tagType: 'primary',

@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -10,6 +11,7 @@ from posthog.schema import (
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -30,6 +32,11 @@ class SalesLoftSource(ResumableSource[SalesLoftSourceConfig, SalesloftResumeConf
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SALESLOFT
 
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.salesloft.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url": "Your Salesloft API key is invalid or expired. Please generate a new key and reconnect.",
@@ -40,6 +47,7 @@ class SalesLoftSource(ResumableSource[SalesLoftSourceConfig, SalesloftResumeConf
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SALES_LOFT,
+            category=DataWarehouseSourceCategory.SALES,
             label="Salesloft",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Salesloft API key to pull your Salesloft data into the PostHog Data warehouse.

@@ -275,6 +275,12 @@ impl PersonHogService for MockPersonHogService {
     ) -> Result<Response<DeletePersonsBatchForTeamResponse>, Status> {
         Err(Status::unimplemented(""))
     }
+    async fn delete_personless_distinct_ids_batch_for_team(
+        &self,
+        _: Request<DeletePersonlessDistinctIdsBatchForTeamRequest>,
+    ) -> Result<Response<DeletePersonlessDistinctIdsBatchForTeamResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
     async fn get_group_type_mapping_by_dashboard_id(
         &self,
         _: Request<GetGroupTypeMappingByDashboardIdRequest>,
@@ -321,6 +327,24 @@ impl PersonHogService for MockPersonHogService {
         &self,
         _: Request<DeleteGroupTypeMappingsBatchForTeamRequest>,
     ) -> Result<Response<DeleteGroupTypeMappingsBatchForTeamResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
+    async fn split_person(
+        &self,
+        _: Request<SplitPersonRequest>,
+    ) -> Result<Response<SplitPersonResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
+    async fn set_person_distinct_id_version_floor(
+        &self,
+        _: Request<SetPersonDistinctIdVersionFloorRequest>,
+    ) -> Result<Response<SetPersonDistinctIdVersionFloorResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
+    async fn set_person_version_floor(
+        &self,
+        _: Request<SetPersonVersionFloorRequest>,
+    ) -> Result<Response<SetPersonVersionFloorResponse>, Status> {
         Err(Status::unimplemented(""))
     }
 }

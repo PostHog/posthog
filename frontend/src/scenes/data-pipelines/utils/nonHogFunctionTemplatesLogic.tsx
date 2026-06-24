@@ -25,7 +25,7 @@ type SourceDisplayStatus = {
     descriptionEl: string | JSX.Element
 }
 
-function getSourceDisplayStatus(unreleased: boolean, featureFlag: boolean | undefined): SourceDisplayStatus {
+export function getSourceDisplayStatus(unreleased: boolean, featureFlag: boolean | undefined): SourceDisplayStatus {
     const unreleasedDescriptionEl = 'Get notified when this source is available to connect'
     const releasedDescriptionEl = (
         <>

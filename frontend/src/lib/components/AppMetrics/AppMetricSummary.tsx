@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 
 import { LemonLabel, LemonSkeleton, SpinnerOverlay } from '@posthog/lemon-ui'
 
-import { formatPercentageDiff, humanFriendlyNumber } from 'lib/utils'
+import { formatPercentageDiff, humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
 import { AxisSeries } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'

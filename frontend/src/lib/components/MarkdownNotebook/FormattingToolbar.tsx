@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from 'react'
 
-import { IconCode, IconCopy, IconQuote, IconSparkles } from '@posthog/icons'
+import { IconCode, IconComment, IconCopy, IconQuote, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { IconBold, IconItalic, IconLink } from 'lib/lemon-ui/icons'
@@ -44,6 +44,8 @@ export function FormattingToolbar({
     setBlockStyle,
     copySelection,
     askAIAboutSelection,
+    isAskAIDisabled,
+    startInlineCommentAtSelection,
     lockPosition,
 }: {
     selectedBlockStyle: TextBlockStyle | null
@@ -58,6 +60,8 @@ export function FormattingToolbar({
     setBlockStyle: (style: TextBlockStyle) => void
     copySelection: () => void
     askAIAboutSelection?: () => void
+    isAskAIDisabled?: boolean
+    startInlineCommentAtSelection?: () => void
     lockPosition: () => void
 }): JSX.Element {
     const [isLinkEditorOpen, setIsLinkEditorOpen] = useState(initialLinkEditorOpen)
@@ -243,12 +247,23 @@ export function FormattingToolbar({
                     />
                 </>
             ) : null}
+            {showInlineActions && startInlineCommentAtSelection ? (
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconComment />}
+                    tooltip="Comment"
+                    aria-label="Comment on selection"
+                    onClick={startInlineCommentAtSelection}
+                />
+            ) : null}
             {showInlineActions && askAIAboutSelection ? (
                 <LemonButton
                     size="xsmall"
                     icon={<IconSparkles />}
                     tooltip="Ask AI"
                     aria-label="Ask AI"
+                    disabled={isAskAIDisabled}
+                    disabledReason={isAskAIDisabled ? 'Ask AI is already active' : undefined}
                     onClick={askAIAboutSelection}
                 />
             ) : null}

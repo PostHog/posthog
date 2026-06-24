@@ -6,15 +6,19 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiError, getCookie } from 'lib/api'
 import { globalSetupLogic } from 'lib/components/ProductSetup'
-import { fromParamsGivenUrl, isKeyOf } from 'lib/utils'
+import { isKeyOf } from 'lib/utils/guards'
+import { fromParamsGivenUrl } from 'lib/utils/url'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { EmailIntegrationDomainGroupedType, IntegrationKind, IntegrationType } from '~/types'
 
-import { integrationsGithubReposRetrieve } from 'products/integrations/frontend/generated/api'
-import type { GitHubRepoApi } from 'products/integrations/frontend/generated/api.schemas'
+import {
+    integrationsGithubReposRetrieve,
+    integrationsRequestAccessCreate,
+} from 'products/integrations/frontend/generated/api'
+import type { GitHubRepoApi, IntegrationKindEnumApi } from 'products/integrations/frontend/generated/api.schemas'
 import { ChannelType } from 'products/workflows/frontend/Channels/MessageChannels'
 
 import type { integrationsLogicType } from './integrationsLogicType'
@@ -57,6 +61,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
             hasMore,
         }),
         loadGitHubRepositoriesPageFailure: (integrationId: number) => ({ integrationId }),
+        setAccessRequestReason: (reason: string) => ({ reason }),
     }),
     reducers({
         newIntegrationModalKind: [
@@ -110,6 +115,20 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 loadGitHubRepositoriesPageFailure: () => false,
             },
         ],
+        requestedAccessKinds: [
+            [] as IntegrationKind[],
+            {
+                requestIntegrationAccessSuccess: (state, { accessRequest }) =>
+                    accessRequest && !state.includes(accessRequest) ? [...state, accessRequest] : state,
+            },
+        ],
+        accessRequestReason: [
+            '',
+            {
+                setAccessRequestReason: (_, { reason }) => reason,
+                requestIntegrationAccessSuccess: () => '',
+            },
+        ],
     }),
     loaders(({ values }) => ({
         integrations: [
@@ -156,6 +175,24 @@ export const integrationsLogic = kea<integrationsLogicType>([
                         return [...(values.integrations ?? []), responseWithIcon]
                     } catch (e) {
                         lemonToast.error('Failed to upload Google Cloud key.')
+                        throw e
+                    }
+                },
+            },
+        ],
+        accessRequest: [
+            null as IntegrationKind | null,
+            {
+                requestIntegrationAccess: async ({ kind }: { kind: IntegrationKind }) => {
+                    try {
+                        await integrationsRequestAccessCreate(String(values.currentProjectId), {
+                            kind: kind as IntegrationKindEnumApi,
+                            reason: values.accessRequestReason.trim(),
+                        })
+                        lemonToast.success('Request sent! Your project admins have been notified.')
+                        return kind
+                    } catch (e) {
+                        toastApiError(e)
                         throw e
                     }
                 },

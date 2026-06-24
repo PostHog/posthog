@@ -5,8 +5,10 @@ from urllib.parse import urlparse
 from django.conf import settings
 from django.contrib.auth.signals import user_logged_out
 from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
 from django.db import models, transaction
+from django.db.models import Q
 from django.dispatch import receiver
 from django.utils import timezone
 
@@ -20,6 +22,7 @@ from oauth2_provider.models import (
 )
 
 from posthog.helpers.encrypted_fields import EncryptedCharField
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDT, generate_random_token, hash_key_value, mask_key_value
 
 if TYPE_CHECKING:
@@ -51,7 +54,7 @@ def is_loopback_host(hostname: str | None) -> bool:
     return False
 
 
-class OAuthApplication(AbstractApplication):
+class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore[django-manager-missing]
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
     # NOTE: By default an application should be linked to the organization that created it.
@@ -106,8 +109,38 @@ class OAuthApplication(AbstractApplication):
         db_default=[],
         blank=True,
         null=False,
-        help_text=("Scope ceiling — strings tokens issued for this app may carry. Empty list means no per-app cap."),
+        help_text=(
+            "Required scope ceiling — strings tokens issued for this app may carry, all required and "
+            "locked on the consent screen. Empty list means a broad/deferred request (the user picks freely)."
+        ),
     )
+
+    optional_scopes: ArrayField = ArrayField(
+        models.CharField(max_length=100),
+        default=list,
+        db_default=[],
+        blank=True,
+        null=False,
+        help_text=(
+            "Additive declinable scopes layered on top of the required `scopes` base — the user may "
+            "decline these at consent. Requires a non-empty `scopes` (an app with optional extras must "
+            "have a required base)."
+        ),
+    )
+
+    @property
+    def ceiling_scopes(self) -> list[str]:
+        """The full grantable set: `scopes` plus `optional_scopes`, deduplicated."""
+        return list(dict.fromkeys([*self.scopes, *self.optional_scopes]))
+
+    @property
+    def required_scopes(self) -> list[str]:
+        # Everything in the explicit ceiling is required and locked at consent; optional_scopes
+        # are additive declinable extras. An empty `scopes` is a broad/deferred request
+        # (MCP / `*` / empty) so nothing is required and the user picks freely. Self-registered
+        # (DCR / CIMD) ceilings are already filtered to grantable scopes and shown as locked rows
+        # the user can decline by cancelling, so they carry the same required floor as any other app.
+        return list(self.scopes)
 
     # Generation marker for app-wide session revocation. A refresh presenting a token issued
     # before this timestamp is rejected at mint time, so a refresh racing revoke_application_sessions
@@ -254,6 +287,24 @@ class OAuthApplication(AbstractApplication):
     def clean(self):
         super().clean()
 
+        if self.optional_scopes:
+            if not self.scopes:
+                raise ValidationError(
+                    {"optional_scopes": "Declaring optional scopes requires a non-empty required set in `scopes`."}
+                )
+            for field, values in (("scopes", self.scopes), ("optional_scopes", self.optional_scopes)):
+                non_resource = [scope for scope in values if ":" not in scope]
+                if non_resource:
+                    # `*` or identity scopes in a required set either brick /authorize
+                    # (explicit ceilings reject `*`) or 400 every consent the client
+                    # didn't request them on, with no UI recourse.
+                    raise ValidationError(
+                        {
+                            field: f"With optional scopes declared, every entry must be a resource scope "
+                            f"(object:action); invalid: {', '.join(non_resource)}"
+                        }
+                    )
+
         for uri in self.redirect_uris.split(" "):
             if not uri:
                 continue
@@ -315,6 +366,19 @@ class OAuthAccessToken(AbstractAccessToken):
         verbose_name = "OAuth Access Token"
         verbose_name_plural = "OAuth Access Tokens"
         swappable = "OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL"
+        indexes = [
+            # The gateway credential cache scans for tokens holding a given scope via a
+            # whitespace-bounded regex on the space-separated `scope` text. A trigram GIN
+            # index lets that parameterized `~*` use an index scan; partial on
+            # application_id IS NOT NULL (which every such scan already filters on) keeps
+            # it to app tokens. See posthog/storage/gateway_credential_cache.py.
+            GinIndex(
+                fields=["scope"],
+                name="oauthaccesstoken_scope_trgm",
+                opclasses=["gin_trgm_ops"],
+                condition=Q(application__isnull=False),
+            ),
+        ]
 
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 

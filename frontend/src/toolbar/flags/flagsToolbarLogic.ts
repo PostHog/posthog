@@ -1,12 +1,12 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { encodeParams } from 'kea-router'
 import type { PostHog } from 'posthog-js'
 
 import { createFuse } from 'lib/utils/fuseSearch'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
-import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import { toolbarApi } from '~/toolbar/toolbarApi'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { CombinedFeatureFlagAndValueType } from '~/types'
@@ -63,18 +63,16 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
             [] as CombinedFeatureFlagAndValueType[],
             {
                 getUserFlags: async (_, breakpoint) => {
-                    const params = {
-                        groups: getGroups(values.posthog),
-                    }
-                    const response = await toolbarFetch(
-                        `/api/projects/@current/feature_flags/my_flags${encodeParams(params, '?')}`
+                    const result = await toolbarApi.featureFlags.myFlags(
+                        { groups: getGroups(values.posthog) },
+                        { context: 'load_user_flags' }
                     )
 
                     breakpoint()
-                    if (!response.ok) {
-                        return []
+                    if (!result.ok) {
+                        return values.userFlags
                     }
-                    return await response.json()
+                    return result.data
                 },
             },
         ],
@@ -301,17 +299,16 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                 }
             },
             loadFlagsForDistinctId: async ({ distinctId }, breakpoint) => {
-                const params = { distinct_id: distinctId }
-                const response = await toolbarFetch(
-                    `/api/projects/@current/feature_flags/evaluation_reasons${encodeParams(params, '?')}`
-                )
+                const result = await toolbarApi.featureFlags.evaluationReasons<EvaluationReasonsResponse>(distinctId, {
+                    context: 'load_flags_for_distinct_id',
+                })
                 breakpoint()
 
-                if (!response.ok) {
+                if (!result.ok) {
                     return
                 }
 
-                const data: EvaluationReasonsResponse = await response.json()
+                const data = result.data
                 const flagValues: Record<string, string | boolean> = {}
                 for (const [key, entry] of Object.entries(data)) {
                     flagValues[key] = entry.value

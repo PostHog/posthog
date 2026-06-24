@@ -15,8 +15,8 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
-import { humanizeBytes } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { humanizeBytes } from 'lib/utils/numbers'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
@@ -411,7 +411,30 @@ export function DebugCHQueries({ insightId, experimentId }: DebugCHQueriesProps)
                                                     <span>{item.logComment.experiment_metric_name}</span>
                                                 </LemonTag>
                                             ) : null}
-                                            {typeof item.logComment.experiment_execution_path === 'string' ? (
+                                            {item.logComment.experiment_query_surface === 'precompute_build' ? (
+                                                <LemonTag type="warning" className="inline-block">
+                                                    build
+                                                    {typeof item.logComment.experiment_precompute_table === 'string'
+                                                        ? `: ${item.logComment.experiment_precompute_table}`
+                                                        : ''}
+                                                </LemonTag>
+                                            ) : null}
+                                            {/* Falls back to the deprecated experiment_execution_path for old rows. */}
+                                            {typeof item.logComment.experiment_exposures_path === 'string' ? (
+                                                <LemonTag
+                                                    type={
+                                                        item.logComment.experiment_exposures_path === 'precomputed'
+                                                            ? 'success'
+                                                            : 'default'
+                                                    }
+                                                    className="inline-block"
+                                                >
+                                                    exposures:{' '}
+                                                    {item.logComment.experiment_exposures_path === 'precomputed'
+                                                        ? 'precomputed'
+                                                        : 'direct'}
+                                                </LemonTag>
+                                            ) : typeof item.logComment.experiment_execution_path === 'string' ? (
                                                 <LemonTag
                                                     type={
                                                         item.logComment.experiment_execution_path === 'precomputed'
@@ -420,7 +443,26 @@ export function DebugCHQueries({ insightId, experimentId }: DebugCHQueriesProps)
                                                     }
                                                     className="inline-block"
                                                 >
-                                                    {item.logComment.experiment_execution_path}
+                                                    exposures:{' '}
+                                                    {item.logComment.experiment_execution_path === 'precomputed'
+                                                        ? 'precomputed'
+                                                        : 'direct'}
+                                                </LemonTag>
+                                            ) : null}
+                                            {typeof item.logComment.experiment_metric_events_path === 'string' &&
+                                            item.logComment.experiment_metric_events_path !== 'not_applicable' ? (
+                                                <LemonTag
+                                                    type={
+                                                        item.logComment.experiment_metric_events_path === 'precomputed'
+                                                            ? 'success'
+                                                            : 'default'
+                                                    }
+                                                    className="inline-block"
+                                                >
+                                                    events:{' '}
+                                                    {item.logComment.experiment_metric_events_path === 'precomputed'
+                                                        ? 'precomputed'
+                                                        : 'direct'}
                                                 </LemonTag>
                                             ) : null}
                                         </div>

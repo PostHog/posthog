@@ -1,6 +1,7 @@
 from django.conf import settings
 
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
+from posthog.clickhouse.client.connection import ClickHouseUser, get_clickhouse_creds
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import (
@@ -205,8 +206,7 @@ def PERSONS_DISTINCT_ID_TABLE_SQL(on_cluster=True):
 
 # :KLUDGE: We default is_deleted to 0 for backwards compatibility for when we drop `is_deleted` from message schema.
 #    Can't make DEFAULT if(_sign==-1, 1, 0) because Cyclic aliases error.
-KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = (
-    lambda on_cluster=True: """
+KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL = lambda on_cluster=True: """
 CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 (
     distinct_id VARCHAR,
@@ -216,10 +216,9 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     is_deleted Nullable(Int8)
 ) ENGINE = {engine}
 """.format(
-        table_name="kafka_" + PERSONS_DISTINCT_ID_TABLE,
-        on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
-        engine=kafka_engine(KAFKA_PERSON_UNIQUE_ID),
-    )
+    table_name="kafka_" + PERSONS_DISTINCT_ID_TABLE,
+    on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
+    engine=kafka_engine(KAFKA_PERSON_UNIQUE_ID),
 )
 
 
@@ -415,8 +414,8 @@ def PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL(on_cluster=True):
     )
 
 
-KAFKA_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL = (
-    lambda on_cluster=True: PERSON_DISTINCT_ID_OVERRIDES_TABLE_BASE_SQL.format(
+KAFKA_PERSON_DISTINCT_ID_OVERRIDES_TABLE_SQL = lambda on_cluster=True: (
+    PERSON_DISTINCT_ID_OVERRIDES_TABLE_BASE_SQL.format(
         table_name=KAFKA_PERSON_DISTINCT_ID_OVERRIDES_TABLE,
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=kafka_engine(KAFKA_PERSON_DISTINCT_ID, group="clickhouse-person-distinct-id-overrides"),
@@ -675,8 +674,8 @@ ORDER BY actor_value DESC, actor_id DESC /* Also sorting by ID for determinism *
 {offset}
 """
 
-COMMENT_DISTINCT_ID_COLUMN_SQL = (
-    lambda: "ALTER TABLE person_distinct_id COMMENT COLUMN distinct_id 'skip_0003_fill_person_distinct_id2'"
+COMMENT_DISTINCT_ID_COLUMN_SQL = lambda: (
+    "ALTER TABLE person_distinct_id COMMENT COLUMN distinct_id 'skip_0003_fill_person_distinct_id2'"
 )
 
 
@@ -743,6 +742,7 @@ def CREATE_PERSON_DISTINCT_ID_OVERRIDES_DICTIONARY():
     This must be a function to ensure CLICKHOUSE_DATABASE is evaluated at runtime,
     not at module import time (which causes issues in E2E tests where env vars aren't loaded yet).
     """
+    clickhouse_user, clickhouse_password = get_clickhouse_creds(ClickHouseUser.DICT_READER)
     return """
 CREATE OR REPLACE DICTIONARY {database}.person_distinct_id_overrides_dict ON CLUSTER {cluster} (
     `team_id` Int64, -- team_id could be made hierarchical to save some space.
@@ -752,7 +752,7 @@ CREATE OR REPLACE DICTIONARY {database}.person_distinct_id_overrides_dict ON CLU
 PRIMARY KEY team_id, distinct_id
 -- For our own sanity, we explicitly write out the group by query.
 SOURCE(CLICKHOUSE(
-    query 'SELECT team_id, distinct_id, argMax(person_id, version) AS person_id FROM {database}.person_distinct_id_overrides GROUP BY team_id, distinct_id'
+    query 'SELECT team_id, distinct_id, argMax(person_id, version) AS person_id FROM {database}.person_distinct_id_overrides GROUP BY team_id, distinct_id' USER '{clickhouse_user}' PASSWORD '{clickhouse_password}'
 ))
 LAYOUT(complex_key_hashed())
 -- ClickHouse will choose a time uniformly within 1 to 5 hours to reload the dictionary (update if necessary to meet SLAs).
@@ -760,4 +760,6 @@ LIFETIME(MIN 3600 MAX 18000)
 """.format(
         cluster=settings.CLICKHOUSE_CLUSTER,
         database=settings.CLICKHOUSE_DATABASE,
+        clickhouse_user=clickhouse_user,
+        clickhouse_password=clickhouse_password,
     )

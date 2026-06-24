@@ -22,6 +22,15 @@ pub const POSTHOG_REQUEST_ID: &str = "PostHog-Request-Id";
 pub const POSTHOG_REQUEST_TIMESTAMP: &str = "PostHog-Request-Timestamp";
 
 // ---------------------------------------------------------------------------
+// Supported content encodings
+// ---------------------------------------------------------------------------
+
+/// Allowlist of content encodings the capture endpoint will decompress.
+/// Lives at the v1 level (not in analytics/) so request-context decoding is
+/// CaptureMode-agnostic.
+pub const SUPPORTED_ENCODINGS: &[&str] = &["gzip", "deflate", "br", "zstd"];
+
+// ---------------------------------------------------------------------------
 // Required request headers
 // ---------------------------------------------------------------------------
 
@@ -52,6 +61,9 @@ pub(super) const CAPTURE_V1_WARNING_METRIC: &str = "capture_v1_analytics_warning
 /// Counter name for body-read timeouts during payload extraction.
 pub(super) const CAPTURE_V1_BODY_READ_TIMEOUT: &str = "capture_v1_body_read_timeout_total";
 
+/// Counter for streaming decompression failures (label: encoding).
+pub(super) const CAPTURE_V1_DECOMPRESSION_ERRORS: &str = "capture_v1_decompression_errors_total";
+
 /// Histogram of events per request batch. The `_batch_size` suffix picks up
 /// the shared BATCH_SIZES buckets configured in prometheus.rs.
 pub(super) const CAPTURE_V1_EVENT_BATCH_SIZE: &str = "capture_v1_event_batch_size";
@@ -64,6 +76,19 @@ pub(super) const CAPTURE_V1_PAYLOAD_SIZE: &str = "capture_v1_payload_size_bytes"
 /// PostHog-Request-Timestamp header vs. server receive time. Buckets
 /// configured in prometheus.rs (CLOCK_SKEW_SECONDS).
 pub(super) const CAPTURE_V1_CLOCK_SKEW_SECONDS: &str = "capture_v1_clock_skew_seconds";
+
+/// Histogram of batch serialize wall-time (label: batch_size bucket). Sink- and
+/// product-agnostic by design — faceting comes from the per-mode service
+/// deployment (capture-analytics / capture-replay / capture-ai).
+pub(super) const CAPTURE_V1_SERIALIZE_DURATION_SECONDS: &str =
+    "capture_v1_serialize_duration_seconds";
+
+/// Counter of events that failed to serialize (non-panic, fatal/non-retriable).
+pub(super) const CAPTURE_V1_SERIALIZE_FAILED_TOTAL: &str = "capture_v1_serialize_failed_total";
+
+/// Counter of events whose serialization panicked. The panic is isolated per
+/// event (caught), so the rest of the batch still serializes and publishes.
+pub(super) const CAPTURE_V1_SERIALIZE_PANIC_TOTAL: &str = "capture_v1_serialize_panic_total";
 
 // ---------------------------------------------------------------------------
 // Fallback values

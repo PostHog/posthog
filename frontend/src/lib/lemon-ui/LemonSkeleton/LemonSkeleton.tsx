@@ -2,7 +2,7 @@ import './LemonSkeleton.scss'
 
 import { useCancelAnimationsOnUnmount } from 'lib/hooks/useCancelAnimationsOnUnmount'
 import { LemonButtonProps } from 'lib/lemon-ui/LemonButton'
-import { range } from 'lib/utils'
+import { range } from 'lib/utils/arrays'
 import { cn } from 'lib/utils/css-classes'
 
 export interface LemonSkeletonProps {

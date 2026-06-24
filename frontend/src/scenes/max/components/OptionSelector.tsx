@@ -176,7 +176,7 @@ export function OptionSelector({
                             autoFocus={true}
                         />
                     ) : (
-                        <span className="my-1.5">Explain what you'd like instead..</span>
+                        <span className="my-1.5">Explain what you'd like instead.</span>
                     )}
                 </label>
             )}

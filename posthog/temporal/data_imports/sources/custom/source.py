@@ -1,6 +1,7 @@
 import copy
 import json
 import graphlib
+from datetime import date
 from typing import Any, Literal, NamedTuple, Optional, cast
 from urllib.parse import urlparse
 
@@ -11,6 +12,7 @@ from requests import Response
 from urllib3.util.retry import Retry
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -252,12 +254,60 @@ def _validate_resource_graph(manifest: dict[str, Any]) -> dict[str, Optional[Res
     return resolved
 
 
+def _validate_incremental_configs(manifest: dict[str, Any]) -> None:
+    """Reject incremental config values that would deterministically crash at sync time.
+
+    The structural schema doesn't model ``endpoint.incremental``, so a hand-authored
+    non-string ``datetime_format`` would otherwise only surface mid-sync, and only
+    from the second sync onward (formatting needs a stored watermark).
+    """
+    for resource in manifest.get("resources") or []:
+        if not isinstance(resource, dict):
+            continue
+        endpoint = resource.get("endpoint")
+        incremental = endpoint.get("incremental") if isinstance(endpoint, dict) else None
+        if not isinstance(incremental, dict):
+            continue
+        datetime_format = incremental.get("datetime_format")
+        if datetime_format is not None and not isinstance(datetime_format, str):
+            raise ManifestValidationError(
+                f"Resource {resource.get('name')!r}: endpoint.incremental.datetime_format must be a string "
+                'strftime pattern (e.g. "%Y-%m-%dT%H:%M:%SZ")'
+            )
+
+
+# Plain-English replacements for the pydantic constraint messages users hit most
+# when hand-authoring a manifest; an unmapped error keeps pydantic's own wording.
+_VALIDATION_MESSAGE_OVERRIDES = {
+    "string_too_short": "must not be empty",
+}
+
+
+def _render_error_location(loc: tuple[Any, ...]) -> str:
+    """Render a pydantic ``loc`` tuple as a path that mirrors the manifest JSON,
+    e.g. ``("resources", 0, "endpoint", "path")`` -> ``resources[0].endpoint.path``."""
+    rendered = ""
+    for part in loc:
+        if isinstance(part, int):
+            rendered += f"[{part}]"
+        elif rendered:
+            rendered += f".{part}"
+        else:
+            rendered = str(part)
+    return rendered
+
+
 def _format_validation_errors(exc: ValidationError) -> str:
-    """Render Pydantic's validation errors as a single user-facing string."""
+    """Render Pydantic's validation errors as a single user-facing string.
+
+    Pydantic's positional loc tuples and raw constraint wording ("String should
+    have at least 1 character") read like internals to someone editing manifest
+    JSON, so mirror the JSON path and swap the common messages for plainer English.
+    """
     messages: list[str] = []
     for error in exc.errors():
-        location = ".".join(str(part) for part in error["loc"])
-        message = error["msg"].removeprefix("Value error, ")
+        location = _render_error_location(error["loc"])
+        message = _VALIDATION_MESSAGE_OVERRIDES.get(error["type"], error["msg"].removeprefix("Value error, "))
         messages.append(f"{location}: {message}" if location else message)
     return "; ".join(messages)
 
@@ -457,6 +507,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CUSTOM,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Custom REST source",
             releaseStatus=ReleaseStatus.ALPHA,
             caption=(
@@ -512,6 +563,10 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         return {
             "401 Client Error": "The upstream API rejected the request with HTTP 401. Check that the configured auth credentials are correct.",
             "403 Client Error": "The upstream API rejected the request with HTTP 403. The configured credentials may lack the required permissions.",
+            # A schema points to a resource the manifest no longer defines (renamed or removed
+            # in an edit while the table's sync stayed scheduled). Permanent until the config is
+            # fixed — match the stable suffix, not the variable resource name in the message.
+            "not found in config": "A table in this sync points to a resource that no longer exists in the source's manifest. Re-add the resource to the manifest, or remove the table from the sync, then try again.",
         }
 
     def _assemble_manifest(self, config: CustomSourceConfig) -> dict[str, Any]:
@@ -548,6 +603,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # preferable to carrying a permanent leniency mode. The returned
             # map feeds the probe's child filter below.
             resolved = _validate_resource_graph(manifest)
+            _validate_incremental_configs(manifest)
         except ManifestValidationError as exc:
             return False, str(exc)
 
@@ -626,11 +682,14 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # surfaces on the first sync instead.
             try:
                 if response.status_code in (401, 403):
-                    return False, (
+                    message = (
                         f"Resource {resource['name']!r}: the upstream API rejected the request with "
-                        f"HTTP {response.status_code} from {url} — check the configured auth credentials: "
-                        f"{_read_capped_text(response)}"
+                        f"HTTP {response.status_code} from {url} — check the configured auth credentials."
                     )
+                    snippet = _read_capped_text(response)
+                    if snippet:
+                        message += f" The upstream responded: {snippet}"
+                    return False, message
             finally:
                 response.close()
 
@@ -682,6 +741,11 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             ]
             engine_manifest = cast(RESTAPIConfig, {**manifest, "resources": engine_resources})
 
+            # The engine serializes a datetime watermark via str() (space-separated),
+            # which strict APIs reject — format it to the declared wire format first.
+            last_value = inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None
+            last_value = _format_incremental_cursor(last_value, chosen)
+
             # Inside the try block: the engine raises deterministic ValueErrors at
             # build time for config problems the create-time checks can't see
             # (e.g. `include_from_parent` on a resource with no resolve param).
@@ -689,9 +753,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                 engine_manifest,
                 team_id=inputs.team_id,
                 job_id=inputs.job_id,
-                db_incremental_field_last_value=(
-                    inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None
-                ),
+                db_incremental_field_last_value=last_value,
             )
         except ValueError as exc:
             # A malformed manifest, a missing resource, or a broken parent
@@ -757,14 +819,24 @@ def _read_capped_text(response: Response) -> str:
 
     ``decode_content=False`` is deliberate: it reads exactly ``PROBE_ERROR_SNIPPET_BYTES``
     raw bytes and never inflates a ``Content-Encoding: gzip`` body, so a decompression
-    bomb can't expand a tiny read into megabytes. The snippet is only a human-readable
-    diagnostic — a (rare) compressed error body just shows as bytes.
+    bomb can't expand a tiny read into megabytes. The flip side is that a compressed or
+    otherwise non-text body would decode to binary garbage, so it is omitted from the
+    snippet rather than echoed into a user-facing error.
     """
+    # ``identity`` means "no transformation", so its body is plain bytes worth surfacing;
+    # any other encoding (gzip, br, …) would decode to garbage, so omit the snippet.
+    if response.headers.get("Content-Encoding", "").lower() not in ("", "identity"):
+        return ""
     try:
         raw = response.raw.read(PROBE_ERROR_SNIPPET_BYTES, decode_content=False)
     except Exception:
         return ""
-    return raw.decode("utf-8", errors="replace")
+    text = raw.decode("utf-8", errors="replace")
+    # A replacement char means the bytes weren't valid UTF-8 — a binary or still-encoded
+    # body — so drop it rather than surface garbage to the user.
+    if "�" in text:
+        return ""
+    return text.strip()
 
 
 def _static_probe_params(params: Any) -> dict[str, Any]:
@@ -820,11 +892,36 @@ def _incremental_field_type(raw: Any) -> IncrementalFieldType:
 
 
 # Keys the Custom source understands on ``endpoint.incremental`` that the generic
-# REST engine's ``Incremental(**config)`` constructor does NOT accept. They inform
-# how the cursor is typed (see ``_incremental_field_type``) but must be removed
-# before the engine builds its incremental tracker, or it raises an unexpected
-# keyword-argument error at sync setup.
-_ENGINE_UNSUPPORTED_INCREMENTAL_KEYS = frozenset({"cursor_type"})
+# REST engine's ``Incremental(**config)`` constructor does NOT accept. They must be
+# removed before the engine builds its incremental tracker, or it raises an
+# unexpected keyword-argument error at sync setup.
+_ENGINE_UNSUPPORTED_INCREMENTAL_KEYS = frozenset({"cursor_type", "datetime_format"})
+
+
+def _format_incremental_cursor(value: Any, chosen: dict[str, Any]) -> Any:
+    """Render a datetime/date high-watermark as a string for the REST engine.
+
+    The engine binds the watermark via ``str()``, whose space-separated datetime
+    rendering strict APIs (e.g. Typeform) reject. The resource's
+    ``endpoint.incremental.datetime_format`` strftime pattern controls the wire
+    format, defaulting to ISO-8601; non-datetime cursors pass through untouched.
+
+    A non-string ``datetime_format`` raises ``ManifestValidationError`` (non-retryable)
+    instead of strftime's ``TypeError``, which Temporal would retry — a backstop for
+    manifests stored before ``_validate_incremental_configs`` existed.
+    """
+    # `datetime` is a subclass of `date`, so this matches both.
+    if not isinstance(value, date):
+        return value
+    endpoint = chosen.get("endpoint")
+    incremental = endpoint.get("incremental") if isinstance(endpoint, dict) else None
+    datetime_format = incremental.get("datetime_format") if isinstance(incremental, dict) else None
+    if datetime_format is not None and not isinstance(datetime_format, str):
+        raise ManifestValidationError(
+            f"Resource {chosen.get('name')!r}: endpoint.incremental.datetime_format must be a string "
+            'strftime pattern (e.g. "%Y-%m-%dT%H:%M:%SZ")'
+        )
+    return value.strftime(datetime_format) if datetime_format else value.isoformat()
 
 
 def _strip_engine_unsupported_incremental_keys(resource: dict[str, Any]) -> dict[str, Any]:

@@ -12,6 +12,7 @@ import climberHog1 from 'public/hedgehog/climber-hog-01.png'
 import climberHog2 from 'public/hedgehog/climber-hog-02.png'
 import deskHog from 'public/hedgehog/desk-hog.png'
 import detectiveHog from 'public/hedgehog/detective-hog.png'
+import disguiseHog from 'public/hedgehog/disguise-hog.png'
 import experimentsHog from 'public/hedgehog/experiments-hog.png'
 import explorerHog from 'public/hedgehog/explorer-hog.png'
 import featureFlagHog from 'public/hedgehog/feature-flag-hog.png'
@@ -211,3 +212,8 @@ export const DeskHog = React.forwardRef<HTMLImageElement, HedgehogProps>(functio
 export const GraphsHog = React.forwardRef<HTMLImageElement, HedgehogProps>(function GraphsHog(props, ref): JSX.Element {
     return <RectangularHedgehog src={graphsHog} {...props} ref={ref} />
 })
+export const DisguiseHog = React.forwardRef<HTMLImageElement, HedgehogProps>(
+    function DisguiseHog(props, ref): JSX.Element {
+        return <RectangularHedgehog src={disguiseHog} {...props} ref={ref} />
+    }
+)

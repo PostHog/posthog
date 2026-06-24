@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 
 import { Tooltip } from '@posthog/lemon-ui'
 
-import sankey, { sankeyLeft, sankeyLinkHorizontal } from 'lib/d3/sankey'
+import sankey, { sankeyLeft, sankeyLinkHorizontal } from '~/vendor/d3/sankey'
 
 import type { MCPIntentClusterJourneyApi, MCPIntentClusterJourneyPathApi } from '../generated/api.schemas'
 

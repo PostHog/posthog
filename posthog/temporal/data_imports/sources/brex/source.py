@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -16,6 +17,7 @@ from posthog.temporal.data_imports.sources.brex.brex import (
 )
 from posthog.temporal.data_imports.sources.brex.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -30,6 +32,11 @@ class BrexSource(ResumableSource[BrexSourceConfig, BrexResumeConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.BREX
 
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.brex.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url: https://api.brex.com": "Brex authentication failed. Your API user token is invalid or has expired — Brex tokens expire after 90 days without API activity. Please generate a new token in your Brex dashboard and reconnect.",
@@ -40,6 +47,7 @@ class BrexSource(ResumableSource[BrexSourceConfig, BrexResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.BREX,
+            category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Brex",
             caption="""Enter your Brex API user token to pull your Brex data into the PostHog Data warehouse.
 

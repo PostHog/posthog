@@ -255,6 +255,16 @@
             <a href="{{ temporal_ui_host }}/namespaces/{{ temporal_namespace }}/schedules/{{ original.id }}"
                target="_blank">View schedule in Temporal</a>
         </div>
+        {% if cdc_extraction_schedule_id %}
+        <div class="form-row" style="padding: 10px;">
+            <a href="{{ temporal_ui_host }}/namespaces/{{ temporal_namespace }}/schedules/{{ cdc_extraction_schedule_id }}"
+               target="_blank">View CDC extraction schedule in Temporal</a>
+            <p class="help">
+                For CDC schemas, the per-schema schedule above is paused once streaming starts.
+                This source-level schedule is what drives the actual change capture.
+            </p>
+        </div>
+        {% endif %}
     </fieldset>
 
     <fieldset class="module aligned">

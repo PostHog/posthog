@@ -209,6 +209,8 @@ class TestHogQLTypeSystem:
         self._assert_first_column_type("SELECT accurateCastOrNull('1', 'Int64')", ast.IntegerType(nullable=True))
         self._assert_first_column_type("SELECT accurateCast('2024-01-01', 'Date')", ast.DateType(nullable=False))
         self._assert_first_column_type("SELECT accurateCast('1', 'Nullable(Int64)')", ast.IntegerType(nullable=True))
+        # toBool renders as accurateCastOrNull, so it can be NULL on parse failure even for non-null input
+        self._assert_first_column_type("SELECT toBool(event) FROM events", ast.BooleanType(nullable=True))
         self._assert_first_column_type("SELECT reinterpretAsUInt64('12345678')", ast.IntegerType(nullable=False))
         self._assert_first_column_type("SELECT reinterpretAsFloat64('12345678')", ast.FloatType(nullable=False))
         self._assert_first_column_type("SELECT reinterpretAsUUID('1234567890123456')", ast.UUIDType(nullable=False))

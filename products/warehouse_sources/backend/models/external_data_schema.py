@@ -36,6 +36,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         APPEND = "append", "append"
         WEBHOOK = "webhook", "webhook"
         CDC = "cdc", "cdc"
+        XMIN = "xmin", "xmin"
 
     class SyncFrequency(models.TextChoices):
         DAILY = "day", "Daily"
@@ -51,14 +52,24 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     latest_error = models.TextField(
         null=True, blank=True, help_text="The latest error that occurred when syncing this schema."
     )
+    last_error_notified_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When this schema's failure was last included in a failure digest email.",
+    )
     status = models.CharField(max_length=400, null=True, blank=True)
     last_synced_at = models.DateTimeField(null=True, blank=True)
     sync_type = models.CharField(max_length=128, choices=SyncType, null=True, blank=True)
-    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None }
+    # { "incremental_field": string, "incremental_field_type": string, "incremental_field_last_value": any, "incremental_field_earliest_value": any, "incremental_field_lookback_seconds": int | None, "reset_pipeline": bool, "partitioning_enabled": bool, "partition_count": int, "partition_size": int, "partition_mode": str, "partitioning_keys": list[str], "chunk_size_override": int | None, "primary_key_columns": list[str] | None, "xmin_last_value": int, "xmin_ceiling": int, "xmin_num_wraparound": int }
     sync_type_config = models.JSONField(
         default=dict,
         blank=True,
     )
+    # Normalized leaf subdir under the source's S3 folder that Delta data is written to (the actual
+    # folder name, e.g. `my_table`, not `My Table`). Pins legacy rows (renamed to qualified form
+    # during multi-schema migration) to their original path. Empty for rows written before this
+    # column existed — readers fall back to the legacy JSON key, then the normalized schema `name`.
+    s3_folder_name = models.CharField(max_length=400, null=True, blank=True)
     # Deprecated in favour of `sync_frequency_interval`
     sync_frequency = deprecate_field(
         models.CharField(max_length=128, choices=SyncFrequency, default=SyncFrequency.DAILY, blank=True)
@@ -70,11 +81,32 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     # null = sync all columns (default). Non-empty list = exact column projection.
     # PK + active incremental field are always retained server-side regardless of this list.
     enabled_columns = models.JSONField(null=True, blank=True, default=None)
+    # null (default) = sync all rows. List of {column, operator, value} predicates ANDed onto the WHERE clause.
+    row_filters = models.JSONField(null=True, blank=True, default=None)
 
     __repr__ = sane_repr("name")
 
     class Meta:
         db_table = "posthog_externaldataschema"
+
+    def save(self, *args: Any, skip_activity_log: bool = False, **kwargs: Any) -> None:
+        # Populate the S3 folder on first write so the column is always authoritative for new rows.
+        # Legacy/qualified rows set it explicitly before renaming (see `_qualify_legacy_row`); this
+        # only fills it when empty, so an existing folder is never overwritten by a later rename.
+        if not self.s3_folder_name and self.name and self.name.strip():
+            self.s3_folder_name = NamingConvention.normalize_identifier(self.resolved_s3_folder_name or self.name)
+            update_fields = kwargs.get("update_fields")
+            if update_fields is not None:
+                kwargs["update_fields"] = {*update_fields, "s3_folder_name"}
+
+        if skip_activity_log:
+            # Internal pipeline-driven bookkeeping saves (sync_type_config / xmin state) don't need
+            # an audit trail. Bypass ModelActivityMixin.save() so we skip its extra _get_before_update
+            # SELECT — that read needs a fresh pooler connection and raises OperationalError when the
+            # transaction pooler has dropped the connection mid-sync, failing the import activity.
+            super(ModelActivityMixin, self).save(*args, **kwargs)
+        else:
+            super().save(*args, **kwargs)
 
     def folder_path(self) -> str:
         return f"team_{self.team_id}_{self.source.source_type}_{str(self.id)}".lower().replace("-", "_")
@@ -100,6 +132,28 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return self.sync_type == self.SyncType.CDC
 
     @property
+    def is_xmin(self):
+        return self.sync_type == self.SyncType.XMIN
+
+    @property
+    def xmin_last_value(self) -> int | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("xmin_last_value", None)
+        return None
+
+    @property
+    def xmin_ceiling(self) -> int | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("xmin_ceiling", None)
+        return None
+
+    @property
+    def xmin_num_wraparound(self) -> int | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("xmin_num_wraparound", None)
+        return None
+
+    @property
     def cdc_mode(self) -> Literal["snapshot", "streaming"] | None:
         if self.sync_type_config:
             return self.sync_type_config.get("cdc_mode")
@@ -120,6 +174,13 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     @property
     def should_use_incremental_field(self):
         return self.is_incremental or self.is_append or self.is_webhook
+
+    @property
+    def table_row_count_is_cumulative(self) -> bool:
+        # These sync types append/merge into the warehouse table across runs, so its true size is the
+        # full table count — not the latest run's row_count, which is only that run's delta. Full refresh
+        # replaces the whole table, so there the run's row_count already equals the table size.
+        return self.should_use_incremental_field or self.is_cdc or self.is_xmin
 
     @property
     def incremental_field(self) -> str | None:
@@ -146,6 +207,13 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     def incremental_field_earliest_value(self) -> IncrementalFieldValue:
         if self.sync_type_config:
             return self.sync_type_config.get("incremental_field_earliest_value", None)
+
+        return None
+
+    @property
+    def incremental_field_lookback_seconds(self) -> int | None:
+        if self.sync_type_config:
+            return self.sync_type_config.get("incremental_field_lookback_seconds", None)
 
         return None
 
@@ -232,9 +300,13 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return None
 
     @property
-    def dwh_storage_key(self) -> str | None:
-        if self.sync_type_config:
-            return self.sync_type_config.get("dwh_storage_key")
+    def resolved_s3_folder_name(self) -> str | None:
+        # JSON fallback covers rows written by old workers before the column rollout.
+        if self.s3_folder_name:
+            return self.s3_folder_name
+        legacy_key = (self.sync_type_config or {}).get("dwh_storage_key")
+        if isinstance(legacy_key, str) and legacy_key:
+            return legacy_key
         return None
 
     @property
@@ -262,22 +334,79 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config["partition_format"] = partition_format
         self.save()
 
+    def stage_incremental_field_value(self, run_uuid: str, last_value: Any, earliest_value: Any = None) -> None:
+        existing = self.sync_type_config.get("incremental_staged", {})
+        if existing.get("run_uuid") == run_uuid:
+            staged = existing
+        else:
+            staged = {"run_uuid": run_uuid}
+        if last_value is not None:
+            staged["last_value"] = self._serialize_incremental_value(last_value)
+        if earliest_value is not None:
+            staged["earliest_value"] = self._serialize_incremental_value(earliest_value)
+        self.sync_type_config["incremental_staged"] = staged
+        self.save()
+
+    def promote_staged_incremental_values(self, run_uuid: str) -> bool:
+        staged = self.sync_type_config.get("incremental_staged")
+        if not staged or staged.get("run_uuid") != run_uuid:
+            return False
+        if "last_value" in staged:
+            self.sync_type_config["incremental_field_last_value"] = staged["last_value"]
+        if "earliest_value" in staged:
+            self.sync_type_config["incremental_field_earliest_value"] = staged["earliest_value"]
+        self.sync_type_config.pop("incremental_staged", None)
+        self.save()
+        return True
+
+    def _serialize_incremental_value(self, value: Any) -> Any:
+        incremental_field_type = self.sync_type_config.get("incremental_field_type")
+        if "numpy" in sys.modules:
+            import numpy  # noqa: PLC0415
+
+            value = value.item() if isinstance(value, numpy.generic) else value
+        if value is None:
+            return None
+        if (
+            incremental_field_type == IncrementalFieldType.Integer
+            or incremental_field_type == IncrementalFieldType.Numeric
+        ):
+            if isinstance(value, int | float):
+                return value
+            elif isinstance(value, datetime):
+                return value.isoformat()
+            else:
+                return int(value)
+        elif (
+            incremental_field_type == IncrementalFieldType.DateTime
+            or incremental_field_type == IncrementalFieldType.Timestamp
+        ):
+            if isinstance(value, datetime):
+                return value.isoformat()
+            else:
+                return str(value)
+        return str(value)
+
     def update_sync_type_config_for_reset_pipeline(self) -> None:
         self.sync_type_config.pop("reset_pipeline", None)
         self.sync_type_config.pop("incremental_field_last_value", None)
         self.sync_type_config.pop("incremental_field_earliest_value", None)
+        self.sync_type_config.pop("incremental_staged", None)
         self.sync_type_config.pop("partitioning_enabled", None)
         self.sync_type_config.pop("partition_size", None)
         self.sync_type_config.pop("partition_count", None)
         self.sync_type_config.pop("partitioning_keys", None)
         self.sync_type_config.pop("partition_mode", None)
         self.sync_type_config.pop("backfilled_partition_format", None)
+        self.sync_type_config.pop("xmin_last_value", None)
+        self.sync_type_config.pop("xmin_ceiling", None)
+        self.sync_type_config.pop("xmin_num_wraparound", None)
         # We don't reset partition_format
         # We don't reset chunk_size_override
 
         self.initial_sync_complete = False
 
-        self.save()
+        self.save(skip_activity_log=True)
 
     def update_incremental_field_value(
         self, last_value: Any, save: bool = True, type: Literal["last"] | Literal["earliest"] = "last"
@@ -326,7 +455,17 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             raise ValueError(f"Unsupported type for update_incremental_field_value: {type}")
 
         if save:
-            self.save()
+            self.save(skip_activity_log=True)
+
+    def update_xmin_state(self, ceiling_xid: int, ceiling_xid8: int, num_wraparound: int, save: bool = True) -> None:
+        # Call at job completion, not per-batch: a mid-run crash then re-reads the window
+        # instead of skipping it.
+        self.sync_type_config["xmin_last_value"] = ceiling_xid
+        self.sync_type_config["xmin_ceiling"] = ceiling_xid8
+        self.sync_type_config["xmin_num_wraparound"] = num_wraparound
+
+        if save:
+            self.save(skip_activity_log=True)
 
     def soft_delete(self):
         self.deleted = True
@@ -359,7 +498,11 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
     if value is None or value == "None" or field_type is None:
         return None
 
-    if field_type == IncrementalFieldType.Integer or field_type == IncrementalFieldType.Numeric:
+    if (
+        field_type == IncrementalFieldType.Integer
+        or field_type == IncrementalFieldType.Numeric
+        or field_type == IncrementalFieldType.XID
+    ):
         return value
 
     if field_type == IncrementalFieldType.DateTime or field_type == IncrementalFieldType.Timestamp:
@@ -379,6 +522,25 @@ def process_incremental_value(value: Any | None, field_type: IncrementalFieldTyp
 
     if field_type == IncrementalFieldType.ObjectID:
         return str(value)
+
+
+def apply_incremental_lookback(
+    value: Any, field_type: IncrementalFieldType | None, lookback_seconds: int | None
+) -> Any:
+    """Shift a processed incremental watermark back by `lookback_seconds` for the source query only.
+
+    Used to re-read a rolling overlap window each incremental run so late or backdated rows (whose
+    incremental field lands at or below the stored watermark) are picked up. The persisted watermark
+    is never mutated — this only adjusts the value bound into the source's WHERE clause. Timestamp/date
+    fields only; for `Date` a sub-day lookback rounds down to whole days.
+    """
+    if value is None or not isinstance(lookback_seconds, int) or lookback_seconds <= 0:
+        return value
+
+    if field_type in (IncrementalFieldType.DateTime, IncrementalFieldType.Timestamp, IncrementalFieldType.Date):
+        return value - timedelta(seconds=lookback_seconds)
+
+    return value
 
 
 @database_sync_to_async

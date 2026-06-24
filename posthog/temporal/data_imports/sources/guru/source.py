@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -10,6 +11,7 @@ from posthog.schema import (
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -30,6 +32,13 @@ class GuruSource(ResumableSource[GuruSourceConfig, GuruResumeConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.GURU
 
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.guru.canonical_descriptions import (  # noqa: PLC0415
+            CANONICAL_DESCRIPTIONS,
+        )
+
+        return CANONICAL_DESCRIPTIONS
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url: https://api.getguru.com": "Guru authentication failed. Please check your username and API token.",
@@ -40,6 +49,7 @@ class GuruSource(ResumableSource[GuruSourceConfig, GuruResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.GURU,
+            category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Guru",
             caption="""Enter your Guru API credentials to pull your Guru knowledge base data into the PostHog Data warehouse.
 

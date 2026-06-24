@@ -33,9 +33,9 @@ const meta: Meta = {
                         detail: 'Not found.',
                     },
                 ],
-                '/api/projects/:team_id/feature_flags/:flagId/': (req) => [
+                '/api/projects/:team_id/feature_flags/:flagId/': ({ params }) => [
                     200,
-                    featureFlags.results.find((r) => r.id === Number(req.params['flagId'])),
+                    featureFlags.results.find((r) => r.id === Number(params['flagId'])),
                 ],
                 '/api/projects/:team_id/feature_flags/:flagId/status': () => [
                     200,
@@ -47,6 +47,7 @@ const meta: Meta = {
                 '/api/environments/:team_id/default_evaluation_contexts/': {
                     default_evaluation_contexts: [],
                     available_contexts: [],
+                    hidden_contexts: [],
                     enabled: false,
                 },
             },

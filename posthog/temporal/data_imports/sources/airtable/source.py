@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -38,6 +39,7 @@ class AirtableSource(SimpleSource[AirtableSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.AIRTABLE,
+            category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Airtable",
             caption="""Enter your Airtable personal access token to pull your Airtable bases into the PostHog Data warehouse.
 

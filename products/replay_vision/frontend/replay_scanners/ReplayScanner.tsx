@@ -1,11 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { dayjs } from 'lib/dayjs'
-import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -18,9 +17,11 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { QUOTA_WARN_THRESHOLD } from '../utils/quotaProjection'
+import { ObservationSearchMaxChat } from './components/ObservationSearchMaxChat'
 import { ScannerConfigReadonly } from './components/ScannerConfigReadonly'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerOverview } from './components/ScannerOverview'
+import { ScannerRunTab } from './components/ScannerRunTab'
 import { SummarizerMaxChat } from './components/SummarizerMaxChat'
 import { replayScannerLogic } from './replayScannerLogic'
 import { replayScannerSceneLogic } from './replayScannerSceneLogic'
@@ -32,33 +33,13 @@ export const scene: SceneExport = {
 }
 
 export function ReplayScannerSceneComponent(): JSX.Element {
-    const { scannerId } = useValues(replayScannerSceneLogic)
+    const { scannerId, activeTab } = useValues(replayScannerSceneLogic)
+    const { setActiveTab } = useActions(replayScannerSceneLogic)
 
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, replayScannerSceneLogic)
 
-    const { scanner, scannerLoading, togglingEnabled } = useValues(scannerLogic)
-    const { toggleEnabled } = useActions(scannerLogic)
-
-    const handleToggleEnabledClick = (): void => {
-        if (!scanner) {
-            return
-        }
-        LemonDialog.open({
-            title: scanner.enabled ? 'Disable scanner?' : 'Enable scanner?',
-            description: scanner.enabled
-                ? 'This will stop the scanner from analyzing new session recordings. Are you sure?'
-                : 'The scanner will begin analyzing new session recordings that match its triggers',
-            primaryButton: {
-                children: scanner.enabled ? 'Disable' : 'Enable',
-                status: scanner.enabled ? 'danger' : 'default',
-                onClick: () => toggleEnabled(),
-            },
-            secondaryButton: {
-                children: 'Cancel',
-            },
-        })
-    }
+    const { scanner, scannerLoading } = useValues(scannerLogic)
 
     if (scannerLoading || !scanner) {
         return (
@@ -76,7 +57,6 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                 resourceType={{ type: 'replay_vision' }}
                 actions={
                     <>
-                        <ReplayVisionFeedbackButton />
                         <AccessControlAction
                             resourceType={AccessControlResourceType.SessionRecording}
                             minAccessLevel={AccessControlLevel.Editor}
@@ -91,46 +71,44 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                                 Edit scanner
                             </LemonButton>
                         </AccessControlAction>
+                        <ReplayVisionFeedbackButton />
                     </>
                 }
             />
 
             <QuotaBanner />
 
-            <div className="w-full max-w-xs">
-                <AccessControlAction
-                    resourceType={AccessControlResourceType.SessionRecording}
-                    minAccessLevel={AccessControlLevel.Editor}
-                >
-                    <LemonSwitch
-                        checked={scanner.enabled}
-                        onChange={handleToggleEnabledClick}
-                        loading={togglingEnabled}
-                        label="Enable scanner"
-                        bordered
-                        fullWidth
-                        data-attr="vision-scanner-toggle-enabled"
-                        data-ph-capture-attribute-scanner-type={scanner.scanner_type}
-                    />
-                </AccessControlAction>
-            </div>
-
-            <ScannerOverview scannerId={scannerId} />
-
-            <div className="flex flex-col gap-2">
-                <LemonCollapse
-                    panels={[
-                        {
-                            key: 'configuration',
-                            header: 'Configuration',
-                            content: <ScannerConfigReadonly scanner={scanner} />,
-                            dataAttr: 'vision-scanner-config-expand',
-                        },
-                    ]}
-                />
-                <SummarizerMaxChat scannerId={scannerId} />
-                <ScannerObservationsTable scannerId={scannerId} />
-            </div>
+            <LemonTabs
+                activeKey={activeTab}
+                onChange={setActiveTab}
+                data-attr="vision-scanner-tabs"
+                tabs={[
+                    {
+                        key: 'observations',
+                        label: 'Observations',
+                        content: (
+                            <div className="flex flex-col gap-6">
+                                <ScannerOverview scannerId={scannerId} />
+                                <div className="flex flex-col gap-2">
+                                    <SummarizerMaxChat scannerId={scannerId} />
+                                    <ObservationSearchMaxChat scannerId={scannerId} />
+                                    <ScannerObservationsTable scannerId={scannerId} />
+                                </div>
+                            </div>
+                        ),
+                    },
+                    {
+                        key: 'on-demand',
+                        label: 'On-demand',
+                        content: <ScannerRunTab scannerId={scannerId} />,
+                    },
+                    {
+                        key: 'configuration',
+                        label: 'Configuration',
+                        content: <ScannerConfigReadonly scanner={scanner} />,
+                    },
+                ]}
+            />
         </SceneContent>
     )
 }

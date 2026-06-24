@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -18,6 +19,7 @@ from posthog.temporal.data_imports.sources.ashby.ashby import (
 )
 from posthog.temporal.data_imports.sources.ashby.settings import ASHBY_ENDPOINTS, ENDPOINTS
 from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -36,6 +38,7 @@ class AshbySource(ResumableSource[AshbySourceConfig, AshbyResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.ASHBY,
+            category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Ashby",
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Ashby API key to pull your Ashby (ATS) data into the PostHog Data warehouse.
@@ -59,6 +62,11 @@ You can create an API key under **Admin → API Keys** in Ashby. Grant read perm
                 ],
             ),
         )
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.ashby.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
 
     def get_schemas(
         self,

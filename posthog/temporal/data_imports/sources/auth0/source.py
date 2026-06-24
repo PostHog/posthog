@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class Auth0Source(SimpleSource[Auth0SourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.AUTH0,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Auth0",
             iconPath="/static/services/auth0.png",
             fields=cast(list[FieldType], []),

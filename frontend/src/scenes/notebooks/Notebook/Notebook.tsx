@@ -29,6 +29,7 @@ import { NotebookColumnRight } from './NotebookColumnRight'
 import { NotebookConflictWarning } from './NotebookConflictWarning'
 import { NotebookHistoryWarning } from './NotebookHistory'
 import { NotebookLoadingState } from './NotebookLoadingState'
+import { NotebookMergeConflictDetails } from './NotebookMergeConflictDetails'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 import { openUpgradeToMarkdownNotebookDialog } from './notebookUpgradeDialog'
 
@@ -37,6 +38,8 @@ export type NotebookProps = NotebookLogicProps & {
     initialContent?: JSONContent
     editable?: boolean
     className?: string
+    markdownSourceOpen?: boolean
+    onMarkdownSourceOpenChange?: (isOpen: boolean) => void
 }
 
 export function Notebook({
@@ -49,6 +52,8 @@ export function Notebook({
     cachedInsightsByShortId,
     cachedInlineQueryResultsByNodeId,
     className,
+    markdownSourceOpen,
+    onMarkdownSourceOpenChange,
 }: NotebookProps): JSX.Element {
     const logicProps: NotebookLogicProps = {
         shortId,
@@ -67,6 +72,7 @@ export function Notebook({
         isTemplate,
         notebookMissing,
         content,
+        comments,
     } = useValues(logic)
     const { duplicateNotebook, loadNotebook, setEditable, setLocalContent, setContainerSize } = useActions(logic)
     const { isExpanded } = useValues(notebookSettingsLogic)
@@ -112,7 +118,7 @@ export function Notebook({
     const isMarkdownNotebook = isMarkdownNotebookContent(content)
     const canUpgradeToMarkdownNotebooks = !!featureFlags[FEATURE_FLAGS.MARKDOWN_NOTEBOOKS]
     const upgradeToMarkdownNotebook = (): void => {
-        openUpgradeToMarkdownNotebookDialog({ content, setLocalContent })
+        openUpgradeToMarkdownNotebookDialog({ content, comments, setLocalContent })
     }
 
     return (
@@ -127,7 +133,8 @@ export function Notebook({
                 <div
                     className={clsx(
                         'Notebook',
-                        !isExpanded && 'Notebook--compact',
+                        // Markdown notebooks have no width toggle — they always fill the content width.
+                        !isExpanded && !isMarkdownNotebook && 'Notebook--compact',
                         mode && `Notebook--${mode}`,
                         size === 'small' && `Notebook--single-column`,
                         isEditable && 'Notebook--editable',
@@ -150,6 +157,7 @@ export function Notebook({
                     )}
                     <NotebookHistoryWarning />
                     <NotebookCollabConflictModal />
+                    <NotebookMergeConflictDetails />
                     {shortId === SCRATCHPAD_NOTEBOOK.short_id ? (
                         <LemonBanner
                             type="info"
@@ -173,8 +181,17 @@ export function Notebook({
                     ) : null}
 
                     <div className="Notebook_content">
-                        <NotebookColumnLeft />
-                        <ErrorBoundary>{isMarkdownNotebook ? <MarkdownNotebookV2 /> : <Editor />}</ErrorBoundary>
+                        {isMarkdownNotebook ? null : <NotebookColumnLeft />}
+                        <ErrorBoundary>
+                            {isMarkdownNotebook ? (
+                                <MarkdownNotebookV2
+                                    debugOpen={markdownSourceOpen}
+                                    onDebugOpenChange={onMarkdownSourceOpenChange}
+                                />
+                            ) : (
+                                <Editor />
+                            )}
+                        </ErrorBoundary>
                         <NotebookColumnRight />
                     </div>
                 </div>

@@ -5,7 +5,7 @@ import uuid
 import posixpath
 from collections.abc import Callable
 from contextlib import suppress
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from ipaddress import ip_address, ip_network
 from typing import Optional, cast
 from urllib.parse import urlencode
@@ -17,13 +17,16 @@ from django.core.exceptions import MiddlewareNotUsed
 from django.db import connection
 from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.http.response import HttpResponseRedirectBase
 from django.middleware.csrf import CsrfViewMiddleware
 from django.shortcuts import redirect
-from django.urls import resolve
+from django.urls import Resolver404, resolve
 from django.utils.cache import add_never_cache_headers
 from django.utils.deprecation import MiddlewareMixin
+from django.utils.http import http_date, url_has_allowed_host_and_scheme
 
 import structlog
+import posthoganalytics
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from opentelemetry import trace
@@ -547,6 +550,101 @@ class ShortCircuitMiddleware:
     def __call__(self, request: HttpRequest):
         response: HttpResponse = self.get_response(request)
         return response
+
+
+class HttpResponseTemporaryRedirectPreserveMethod(HttpResponseRedirectBase):
+    status_code = 307
+
+
+class EnvironmentsRedirectMiddleware:
+    """Redirects /api/environments/* to the equivalent /api/projects/* path.
+
+    /api/projects/ is a backwards-compatible superset of /api/environments/ (a Project
+    and its primary Team share the same numeric id, so the id segment — including
+    @current — carries over unchanged). Uses 307 so clients re-send the original method
+    and body; a 301/302 would let clients downgrade writes to GET and drop the body.
+
+    Only paths whose rewritten /api/projects/* form resolves to a registered route are
+    redirected — the few environment-only routes with no projects counterpart yet (see
+    test_environments_redirect.KNOWN_ENVIRONMENT_ONLY_RESOURCES) pass through untouched,
+    so a redirect can never land on a 404.
+
+    Gated by the `api-environments-redirect` feature flag, evaluated locally per request
+    (no network call, no flag events) — turning the flag off disables the redirect
+    instantly without a deploy or restart. If the flag can't be evaluated (missing,
+    local evaluation unavailable, SDK disabled) the redirect stays OFF. Whether or not
+    the redirect is enabled, redirectable /api/environments/* responses carry
+    `Deprecation`, `Sunset`, and `Link` headers announcing the successor path to
+    integrators.
+    """
+
+    ENVIRONMENTS_PREFIX = "/api/environments"
+    PROJECTS_PREFIX = "/api/projects"
+    FEATURE_FLAG_KEY = "api-environments-redirect"
+    FEATURE_FLAG_DISTINCT_ID = "environments_api_redirect"
+
+    def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        path = request.path
+        if path != self.ENVIRONMENTS_PREFIX and not path.startswith(self.ENVIRONMENTS_PREFIX + "/"):
+            return self.get_response(request)
+
+        target_path = self.PROJECTS_PREFIX + path[len(self.ENVIRONMENTS_PREFIX) :]
+        if not self._projects_route_exists(target_path):
+            return self.get_response(request)
+
+        query_string = request.META.get("QUERY_STRING", "")
+        location = f"{target_path}?{query_string}" if query_string else target_path
+
+        response: HttpResponse
+        if self._redirect_enabled():
+            response = HttpResponseTemporaryRedirectPreserveMethod(location)
+        else:
+            response = self.get_response(request)
+
+        response["Deprecation"] = "true"
+        response["Link"] = f'<{location}>; rel="successor-version"'
+        sunset = self._sunset_http_date()
+        if sunset:
+            response["Sunset"] = sunset
+        return response
+
+    @classmethod
+    def _redirect_enabled(cls) -> bool:
+        # only_evaluate_locally keeps this off the network on every request; a constant
+        # distinct id makes the flag an instance-wide on/off switch (roll out 0% or 100%).
+        return bool(
+            posthoganalytics.feature_enabled(
+                cls.FEATURE_FLAG_KEY,
+                cls.FEATURE_FLAG_DISTINCT_ID,
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+        )
+
+    @staticmethod
+    def _projects_route_exists(target_path: str) -> bool:
+        # urls.py ends with catch-all routes (api_not_found, SPA fallback), so resolve()
+        # matches any path — require the match to be an actual /api/projects route.
+        try:
+            match = resolve(target_path)
+        except Resolver404:
+            return False
+        return match.route.replace("^", "").startswith("api/projects")
+
+    @staticmethod
+    def _sunset_http_date() -> Optional[str]:
+        if not settings.API_ENVIRONMENTS_SUNSET_DATE:
+            return None
+        try:
+            sunset_at = datetime.fromisoformat(settings.API_ENVIRONMENTS_SUNSET_DATE)
+        except ValueError:
+            return None
+        if sunset_at.tzinfo is None:
+            sunset_at = sunset_at.replace(tzinfo=UTC)
+        return http_date(sunset_at.timestamp())
 
 
 def per_request_logging_context_middleware(
@@ -1344,12 +1442,18 @@ class ImpersonationBlockedPathsMiddleware:
 
 def impersonated_session_logout(request: HttpRequest) -> HttpResponse:
     """
-    Log out of an impersonated session and redirect back to the
+    Log out of an impersonated session. Redirects to a safe `next` target when
+    provided (e.g. `/` to return to the PostHog app), otherwise back to the
     impersonated user's admin change page.
     """
+    next_url = request.GET.get("next")
+    safe_next = (
+        next_url if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}) else None
+    )
+
     if not is_impersonated_session(request):
-        return redirect("/admin/")
+        return redirect(safe_next or "/admin/")
 
     impersonated_user_pk = request.user.pk
     restore_original_login(request)
-    return redirect(f"/admin/posthog/user/{impersonated_user_pk}/change/")
+    return redirect(safe_next or f"/admin/posthog/user/{impersonated_user_pk}/change/")

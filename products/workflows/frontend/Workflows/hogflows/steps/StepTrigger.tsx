@@ -36,9 +36,9 @@ import { IconAdsClick } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { humanFriendlyNumber } from 'lib/utils'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 import { createFuse } from 'lib/utils/fuseSearch'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from 'scenes/feature-flags/cohortPickerProps'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter/TestAccountFilter'
 
@@ -51,7 +51,7 @@ import { workflowLogic } from '../../workflowLogic'
 import { HogFlowEventFilters, WORKFLOW_OPERATOR_ALLOWLIST } from '../filters/HogFlowFilters'
 import { getRegisteredTriggerTypes } from '../registry/triggers/triggerTypeRegistry'
 import { HogFlowAction } from '../types'
-import { batchTriggerLogic, BLAST_RADIUS_LIMIT } from './batchTriggerLogic'
+import { batchTriggerLogic } from './batchTriggerLogic'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 import { RecurringSchedulePicker } from './components/RecurringSchedulePicker'
 import { ScheduleStatusBadge } from './components/ScheduleStatusBadge'
@@ -264,11 +264,6 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                 description: 'Trigger your workflow to run for each person in an audience you define.',
                 value: 'batch',
                 icon: <IconPeople />,
-                tag: (
-                    <LemonTag type="completion" className="ml-1">
-                        Beta
-                    </LemonTag>
-                ),
             },
             ...getRegisteredTriggerTypes()
                 .filter((t) => !t.featureFlag || featureFlags[t.featureFlag])
@@ -284,6 +279,10 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
     }, [type, featureFlags])
 
     const selectedItem = allTriggerItems.find((item) => item.value === displayType)
+
+    // Registered trigger types (e.g. data warehouse) can own non-event configs, so resolve the
+    // matching definition regardless of config.type and render its ConfigComponent below.
+    const registeredMatch = getRegisteredTriggerTypes().find((t) => t.matchConfig?.(node.data.config))
 
     const handleSelect = (value: string): void => {
         const registered = getRegisteredTriggerTypes().find((t) => t.value === value)
@@ -336,14 +335,10 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                 </LemonField.Pure>
                 {type === 'schedule' && <ScheduleStatusBadge />}
             </div>
-            {node.data.config.type === 'event' ? (
-                (() => {
-                    const match = getRegisteredTriggerTypes().find((t) => t.matchConfig?.(node.data.config))
-                    if (match?.ConfigComponent) {
-                        return <match.ConfigComponent node={node} />
-                    }
-                    return <StepTriggerConfigurationEvents action={node.data} config={node.data.config} />
-                })()
+            {registeredMatch?.ConfigComponent ? (
+                <registeredMatch.ConfigComponent node={node} />
+            ) : node.data.config.type === 'event' ? (
+                <StepTriggerConfigurationEvents action={node.data} config={node.data.config} />
             ) : node.data.config.type === 'webhook' ? (
                 <StepTriggerConfigurationWebhook action={node.data} config={node.data.config} />
             ) : node.data.config.type === 'manual' ? (
@@ -526,19 +521,19 @@ function StepTriggerAffectedUsers({ actionId, filters }: { actionId: string; fil
         return null
     }
 
-    const { affected, total } = blastRadius
+    const { affected, total, limit } = blastRadius
 
     if (affected != null && total != null) {
-        const exceeded = affected > BLAST_RADIUS_LIMIT
+        const exceeded = limit != null && affected > limit
         return (
             <div className="text-muted">
                 <div className={exceeded ? 'text-danger font-semibold' : 'text-muted'}>
                     approximately {humanFriendlyNumber(affected)} of {humanFriendlyNumber(total)} persons.
                 </div>
-                {exceeded && (
+                {exceeded && limit != null && (
                     <div className="text-danger text-xs">
-                        Batch size exceeds the limit of {humanFriendlyNumber(BLAST_RADIUS_LIMIT)} users. Add filters to
-                        narrow your audience. This limit will be loosened in the future.
+                        Batch size exceeds the limit of {humanFriendlyNumber(limit)} users. Add filters to narrow your
+                        audience. This limit will be loosened in the future.
                     </div>
                 )}
             </div>
@@ -594,7 +589,6 @@ function StepTriggerConfigurationBatch({
                     taxonomicGroupTypes={[
                         TaxonomicFilterGroupType.PersonProperties,
                         TaxonomicFilterGroupType.Cohorts,
-                        TaxonomicFilterGroupType.FeatureFlags,
                         TaxonomicFilterGroupType.Metadata,
                     ]}
                     taxonomicFilterOptionsFromProp={{

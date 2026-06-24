@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class SapErpSource(SimpleSource[SapErpSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SAP_ERP,
+            category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="SAP ERP",
             iconPath="/static/services/sap_erp.png",
             fields=cast(list[FieldType], []),

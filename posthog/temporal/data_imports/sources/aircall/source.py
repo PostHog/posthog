@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -16,6 +17,7 @@ from posthog.temporal.data_imports.sources.aircall.aircall import (
 )
 from posthog.temporal.data_imports.sources.aircall.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -40,6 +42,7 @@ class AircallSource(ResumableSource[AircallSourceConfig, AircallResumeConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.AIRCALL,
+            category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Aircall",
             caption="""Enter your Aircall API credentials to pull your Aircall data into the PostHog Data warehouse.
 
@@ -69,6 +72,11 @@ You can create an API key (API ID + API token) in your [Aircall dashboard](https
                 ],
             ),
         )
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.aircall.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
 
     def get_schemas(
         self,

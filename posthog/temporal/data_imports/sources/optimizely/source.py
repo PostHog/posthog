@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -10,6 +11,7 @@ from posthog.schema import (
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import OptimizelySourceConfig
@@ -28,6 +30,11 @@ class OptimizelySource(SimpleSource[OptimizelySourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.OPTIMIZELY
 
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.optimizely.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url: https://api.optimizely.com": "Optimizely authentication failed. Please check your personal access token.",
@@ -37,6 +44,7 @@ class OptimizelySource(SimpleSource[OptimizelySourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.OPTIMIZELY,
+            category=DataWarehouseSourceCategory.ANALYTICS,
             label="Optimizely",
             caption="""Enter your Optimizely personal access token to pull your experimentation data into the PostHog Data warehouse.
 

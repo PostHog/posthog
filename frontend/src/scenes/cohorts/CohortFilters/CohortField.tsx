@@ -2,7 +2,7 @@ import './CohortField.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useId, useRef } from 'react'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
@@ -14,7 +14,7 @@ import { dayjs } from 'lib/dayjs'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { formatDate } from 'lib/utils'
+import { formatDate } from 'lib/utils/datetime'
 import { cohortFieldLogic } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import {
     CohortEventFiltersFieldProps,
@@ -38,13 +38,9 @@ import {
     PropertyType,
 } from '~/types'
 
-let uniqueMemoizedIndex = 0
-
 const useCohortFieldLogic = (props: CohortFieldBaseProps): { logic: ReturnType<typeof cohortFieldLogic.build> } => {
-    const cohortFilterLogicKey = useMemo(
-        () => props.cohortFilterLogicKey || `cohort-filter-${uniqueMemoizedIndex++}`,
-        [props.cohortFilterLogicKey]
-    )
+    const generatedKey = useId()
+    const cohortFilterLogicKey = props.cohortFilterLogicKey || `cohort-filter-${generatedKey}`
     return {
         logic: cohortFieldLogic({ ...props, cohortFilterLogicKey }),
     }

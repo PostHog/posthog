@@ -15,6 +15,7 @@ from bson import Binary, DatetimeMS, ObjectId
 from bson.codec_options import DatetimeConversion
 from pymongo import MongoClient
 from pymongo.collection import Collection
+from pymongo.errors import PyMongoError
 from pymongo.server_description import ServerDescription
 from structlog.types import FilteringBoundLogger
 
@@ -470,7 +471,16 @@ def _get_rows_to_sync(collection: Collection, query: dict[str, Any], logger: Fil
         rows_to_sync = collection.count_documents(query)
         logger.debug(f"_get_rows_to_sync: rows_to_sync={rows_to_sync}")
         return rows_to_sync
+    except PyMongoError as e:
+        # rows_to_sync is only a progress estimate, so a failed count degrades to 0
+        # rather than failing the sync. Connectivity/auth failures here are expected
+        # operational errors — the real data read fails and is classified by
+        # get_non_retryable_errors — so log and move on instead of flooding error
+        # tracking with non-actionable noise.
+        logger.warning(f"_get_rows_to_sync: could not count documents ({e}). Using 0 as rows to sync")
+        return 0
     except Exception as e:
+        # Unexpected, non-PyMongo error — surface it so genuine bugs aren't hidden.
         logger.debug(f"_get_rows_to_sync: Error: {e}. Using 0 as rows to sync", exc_info=e)
         capture_exception(e)
         return 0

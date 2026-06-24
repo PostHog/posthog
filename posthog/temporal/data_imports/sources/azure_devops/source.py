@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
     SourceConfig,
@@ -16,6 +17,7 @@ from posthog.temporal.data_imports.sources.azure_devops.azure_devops import (
 )
 from posthog.temporal.data_imports.sources.azure_devops.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -36,6 +38,11 @@ class AzureDevOpsSource(ResumableSource[AzureDevOpsSourceConfig, AzureDevOpsResu
         # organization must force re-entry of the token.
         return ["organization"]
 
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.azure_devops.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "the personal access token is invalid or expired": "Azure DevOps authentication failed. Please check your personal access token (it may have expired).",
@@ -48,6 +55,7 @@ class AzureDevOpsSource(ResumableSource[AzureDevOpsSourceConfig, AzureDevOpsResu
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.AZURE_DEV_OPS,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Azure DevOps",
             caption="""Enter your Azure DevOps credentials to pull your project, build, and work item data into the PostHog Data warehouse.
 
