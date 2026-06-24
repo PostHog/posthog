@@ -2,11 +2,14 @@ import time
 import asyncio
 import threading
 import contextvars
+from typing import cast
 
 import pytest
 from unittest.mock import AsyncMock
 
+from posthog.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
 from posthog.temporal.data_imports.pipelines.pipeline.pipeline import PipelineNonDLT, async_iterate
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 
 _probe: contextvars.ContextVar[str | None] = contextvars.ContextVar("probe", default=None)
 
@@ -105,8 +108,8 @@ async def test_run_cleanup_failure_does_not_mask_import_error(monkeypatch):
     pipeline = PipelineNonDLT.__new__(PipelineNonDLT)
     pipeline._logger = AsyncMock()
     pipeline._resumable_source_manager = None
-    pipeline._cdp_producer = object()
-    pipeline._resource = object()
+    pipeline._cdp_producer = cast(CDPProducer, object())  # unused: the patched clear-chunks ignores it
+    pipeline._resource = cast(SourceResponse, object())
     pipeline._delta_table_helper = AsyncMock()
     pipeline._delta_table_helper.get_delta_table.side_effect = OSError("object storage unavailable")
 
