@@ -20,7 +20,7 @@ interface TileOption {
     description: string
     icon: JSX.Element
     preview: JSX.Element
-    tag?: 'beta'
+    tag?: 'new' | 'beta'
     'data-attr': string
 }
 
@@ -225,7 +225,7 @@ export function AddTilePickerModal(): JSX.Element | null {
                 : 'Drop in a ready-made widget from across PostHog. Enable it from feature previews first.',
             icon: <IconGridMasonry />,
             preview: <WidgetPreview />,
-            tag: dashboardWidgetsEnabled ? undefined : 'beta',
+            tag: dashboardWidgetsEnabled ? 'new' : 'beta',
             'data-attr': 'dashboard-picker-widget',
         },
     ]
@@ -263,9 +263,9 @@ export function AddTilePickerModal(): JSX.Element | null {
                         <div className="flex items-center gap-2">
                             <span className="text-lg text-accent">{option.icon}</span>
                             <span className="font-semibold text-primary">{option.label}</span>
-                            {option.tag === 'beta' && (
-                                <LemonTag type="warning" size="small">
-                                    Beta
+                            {option.tag && (
+                                <LemonTag type={option.tag === 'new' ? 'success' : 'warning'} size="small">
+                                    {option.tag === 'new' ? 'New' : 'Beta'}
                                 </LemonTag>
                             )}
                         </div>
