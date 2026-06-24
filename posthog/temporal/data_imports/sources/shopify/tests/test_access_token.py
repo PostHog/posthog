@@ -102,6 +102,17 @@ def test_get_access_token_retries_connection_broken_then_succeeds(_mock_sleep):
     assert post.call_count == 2
 
 
+@mock.patch("tenacity.nap.time.sleep")
+def test_get_access_token_reraises_after_exhausting_retries(_mock_sleep):
+    # When the connection breaks on every attempt, the retry must stop after the attempt cap
+    # and reraise the underlying error rather than swallowing it.
+    post = mock.MagicMock(side_effect=ChunkedEncodingError("Connection broken: IncompleteRead(0 bytes read)"))
+    with _patched_token_post(post):
+        with pytest.raises(ChunkedEncodingError):
+            _get_shopify_access_token("store", "client-id", "client-secret")
+    assert post.call_count == 5
+
+
 @pytest.mark.parametrize(
     "error_message",
     [
