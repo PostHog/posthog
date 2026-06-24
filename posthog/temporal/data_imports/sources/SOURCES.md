@@ -126,6 +126,7 @@ the row lists both.
 | linkedin_ads      | HTTP (vendor SDK, RESTli)   | linkedin-api (RestliClient)                                     | ⚠️                          |
 | mailchimp         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | mailerlite        | HTTP                        | requests                                                        | ✅                          |
+| mailersend        | HTTP                        | requests                                                        | ✅                          |
 | mailgun           | HTTP                        | requests                                                        | ✅                          |
 | mailjet           | HTTP                        | requests                                                        | ✅                          |
 | matomo            | HTTP                        | requests                                                        | ✅                          |
@@ -468,7 +469,6 @@ doesn't conflict with concurrent PRs.
 - lokalise
 - looker
 - luma
-- mailersend
 - mailosaur
 - mailtrap
 - mantle
