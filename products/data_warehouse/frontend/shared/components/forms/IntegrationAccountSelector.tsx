@@ -7,6 +7,7 @@ import { LemonInput, LemonTag } from '@posthog/lemon-ui'
 import { integrationAccountsLogic } from 'lib/integrations/integrationAccountsLogic'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import { InputSuggestion, InputWithSuggestionsDropdown } from './InputWithSuggestionsDropdown'
 
@@ -20,6 +21,8 @@ export interface IntegrationAccountSelectorProps {
     /** Data warehouse source type used to route the generic accounts endpoint, e.g. "BingAds". */
     sourceType: string
     placeholder?: string
+    /** Optional format guidance rendered under the field label. */
+    caption?: string
 }
 
 /** Generic account/resource picker for OAuth ad sources: a dropdown of the connected integration's
@@ -57,9 +60,18 @@ function IntegrationAccountSelectorInner({
     return <AccountTextField {...props} />
 }
 
-function AccountTextField({ fieldName, fieldLabel, placeholder }: IntegrationAccountSelectorProps): JSX.Element {
+function captionHelp(caption?: string): JSX.Element | undefined {
+    return caption ? <LemonMarkdown className="text-xs">{caption}</LemonMarkdown> : undefined
+}
+
+function AccountTextField({
+    fieldName,
+    fieldLabel,
+    placeholder,
+    caption,
+}: IntegrationAccountSelectorProps): JSX.Element {
     return (
-        <LemonField name={fieldName} label={fieldLabel}>
+        <LemonField name={fieldName} label={fieldLabel} help={captionHelp(caption)}>
             {({ value, onChange }) => (
                 <LemonInput
                     className="ph-ignore-input"
@@ -91,6 +103,7 @@ function IntegrationAccountFieldWithDropdown({
     fieldName,
     fieldLabel,
     placeholder,
+    caption,
 }: IntegrationAccountSelectorProps & { integrationId: number }): JSX.Element {
     const { accounts, accountsLoading, accountsError } = useValues(
         integrationAccountsLogic({ id: integrationId, sourceType })
@@ -132,7 +145,7 @@ function IntegrationAccountFieldWithDropdown({
     }, [accounts])
 
     return (
-        <LemonField name={fieldName} label={fieldLabel}>
+        <LemonField name={fieldName} label={fieldLabel} help={captionHelp(caption)}>
             {({ value, onChange }) => {
                 const accountValues = accounts.map((account) => account.value)
                 const savedValueMissing =

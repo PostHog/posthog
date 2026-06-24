@@ -2733,6 +2733,7 @@ class SourceFieldOauthAccountSelectConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    caption: str | None = None
     integrationField: str = Field(
         ...,
         description=("Name of the OAuth integration id field this account selector reads from."),

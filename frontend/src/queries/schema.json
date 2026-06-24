@@ -41332,6 +41332,9 @@
         "SourceFieldOauthAccountSelectConfig": {
             "additionalProperties": false,
             "properties": {
+                "caption": {
+                    "type": "string"
+                },
                 "integrationField": {
                     "description": "Name of the OAuth integration id field this account selector reads from.",
                     "type": "string"

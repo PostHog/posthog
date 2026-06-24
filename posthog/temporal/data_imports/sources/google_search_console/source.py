@@ -247,6 +247,10 @@ class GoogleSearchConsoleSource(
                         integrationField="google_search_console_integration_id",
                         integrationKind="google-search-console",
                         placeholder="https://example.com/ or sc-domain:example.com",
+                        caption=(
+                            "The exact verified property URL as it appears in Google Search Console. "
+                            "Use the trailing slash for URL prefix properties or the `sc-domain:` prefix for domain properties."
+                        ),
                         required=True,
                     ),
                 ],

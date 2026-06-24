@@ -6178,6 +6178,7 @@ export interface SourceFieldOauthAccountSelectConfig {
     /** Integration kind to validate and route the account fetch through. */
     integrationKind: string
     placeholder?: string
+    caption?: string
     required?: boolean
 }
 

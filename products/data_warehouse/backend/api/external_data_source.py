@@ -1500,12 +1500,11 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             # ValueError from an internal bug) stays uncaught and becomes a 500 so monitors see it.
             raise ValidationError(str(e))
 
-        response_data = {
-            "accounts": IntegrationAccountSerializer(
-                [dataclasses.asdict(account) for account in accounts], many=True
-            ).data
-        }
-        cache.set(cache_key, response_data, 60)
+        response_data = {"accounts": IntegrationAccountSerializer(accounts, many=True).data}
+        # Don't cache an empty result: a transient provider hiccup that returns [] without raising would
+        # otherwise poison the picker for 60s for every admin on the team.
+        if accounts:
+            cache.set(cache_key, response_data, 60)
         return Response(response_data)
 
     def _create_external_data_source(
