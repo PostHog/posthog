@@ -18,6 +18,7 @@ LOCATION_MODULES = [
     "growth",
     "ingestion",
     "logs",
+    "marketing_analytics",
     "posthog_ai",
     "revenue_analytics",
     "shared",

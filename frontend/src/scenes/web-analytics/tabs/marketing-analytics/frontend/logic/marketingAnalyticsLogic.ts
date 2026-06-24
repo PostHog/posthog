@@ -66,6 +66,7 @@ export type NativeSourceHierarchyStatus = {
 export enum MarketingAnalyticsTab {
     DASHBOARD = 'dashboard',
     INTEGRATION_HEALTH = 'integration-health',
+    MIX_MODEL = 'mix-model',
 }
 
 const EXTENDED_DRILL_DOWN_LEVELS = new Set<MarketingAnalyticsDrillDownLevel>([

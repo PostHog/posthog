@@ -78,3 +78,21 @@ if TEST or DEBUG:
     )
 else:
     IDENTITY_MATCHING_S3_ENDPOINT = os.getenv("IDENTITY_MATCHING_S3_ENDPOINT", "") or None
+
+# Marketing mix modeling scratch storage (products/marketing_analytics `mmm_job`). Same shape as
+# IDENTITY_MATCHING_S3_* above: the Dagster job writes per-run Parquet objects via ClickHouse
+# `INSERT INTO FUNCTION s3(...)` and the read API globs them back with `s3(...)`, so only the
+# ClickHouse cluster needs bucket access — neither the Dagster process nor the web process touches
+# boto3. Retention is the bucket lifecycle policy's job (no MergeTree TTL). Prod bucket names are
+# infra-provided via env and never committed; local/dev/test reuse the object-storage service.
+MARKETING_MMM_S3_BUCKET = os.getenv("MARKETING_MMM_S3_BUCKET") or OBJECT_STORAGE_BUCKET
+MARKETING_MMM_S3_PREFIX = os.getenv("MARKETING_MMM_S3_PREFIX", "marketing_mmm")
+MARKETING_MMM_S3_REGION = os.getenv("MARKETING_MMM_S3_REGION") or OBJECT_STORAGE_REGION
+# Empty on prod → the ClickHouse cluster authenticates to the bucket via its attached IAM role.
+# Local/dev/test → ride OBJECT_STORAGE_ENDPOINT (the cluster-reachable, S3-compatible host, e.g.
+# `objectstorage:19000`); identity matching proves the cluster can reach it. Don't hardcode a MinIO
+# endpoint here so the backend stays swappable as MinIO is retired in favor of SeaweedFS.
+if TEST or DEBUG:
+    MARKETING_MMM_S3_ENDPOINT: Optional[str] = os.getenv("MARKETING_MMM_S3_ENDPOINT") or OBJECT_STORAGE_ENDPOINT or None
+else:
+    MARKETING_MMM_S3_ENDPOINT = os.getenv("MARKETING_MMM_S3_ENDPOINT", "") or None

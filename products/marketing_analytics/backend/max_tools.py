@@ -4,6 +4,7 @@ The LangChain surface (args schema, descriptions, context, access checks) lives
 here; the business logic lives in `services/`.
 """
 
+import uuid
 from dataclasses import asdict
 from datetime import datetime
 from textwrap import dedent
@@ -24,6 +25,14 @@ from posthog.security.llm_prompt_sanitization import GENERIC_VALUE_MAX_LEN, sani
 from posthog.sync import database_sync_to_async
 from posthog.utils import relative_date_parse
 
+from products.marketing_analytics.backend.mmm_storage import (
+    ALL_RUNS,
+    MMM_ROI,
+    MMM_ROI_STRUCTURE,
+    MMM_RUN_META,
+    MMM_RUN_META_STRUCTURE,
+    read_dataset,
+)
 from products.marketing_analytics.backend.services.conversion_goals_inspector import (
     explain_conversion_goal,
     list_conversion_goals,
@@ -796,4 +805,119 @@ def _format_utm_mapping_suggestions_for_llm(response) -> str:
         lines.append("## Notes")
         for note in response.notes:
             lines.append(f"- {note}")
+    return "\n".join(lines)
+
+
+# ---------- Tool: marketing_mmm_summary (staff-only POC) ----------
+
+
+class MarketingMmmSummaryArgs(BaseModel):
+    job_id: str | None = Field(
+        default=None, description="Optional marketing mix modeling run ID; defaults to the latest run."
+    )
+
+
+class MarketingMmmSummaryTool(MaxTool):
+    name: str = "marketing_mmm_summary"
+    description: str = dedent("""
+        Summarize the latest marketing mix modeling (MMM) run for this project: per-channel ROI and the advisory budget reallocation (which channels to shift weekly spend from and to, to equalize marginal ROI).
+
+        Read-only and ADVISORY — nothing is applied automatically. Returns an empty summary if no MMM run exists yet. MMM is a staff-only proof of concept.
+    """).strip()
+    context_prompt_template: str = MARKETING_CONTEXT_PROMPT
+    args_schema: type[BaseModel] = MarketingMmmSummaryArgs
+
+    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
+        return _marketing_resource()
+
+    async def _arun_impl(self, job_id: str | None = None) -> tuple[str, dict[str, Any]]:
+        # Staff is the server-side boundary for MMM (every DRF action enforces it); the frontend
+        # `useMaxTool` staff gate is UI-only, so enforce it here too before reading any data.
+        if not getattr(self._user, "is_staff", False):
+            return "Marketing mix modeling is a staff-only proof of concept and is not available for this user.", {}
+        data = await database_sync_to_async(_load_mmm_run_summary, thread_sensitive=False)(self._team.pk, job_id)
+        return _format_mmm_summary_for_llm(data), data
+
+
+def _load_mmm_run_summary(team_id: int, job_id: str | None) -> dict[str, Any]:
+    # Ignore a malformed job_id (the LLM populates it) and fall back to the latest run, rather than
+    # letting it reach the s3() SQL — _validate_job_id at the storage chokepoint would otherwise raise.
+    resolved = job_id
+    if resolved:
+        try:
+            resolved = str(uuid.UUID(str(resolved)))
+        except (ValueError, AttributeError, TypeError):
+            resolved = None
+    if not resolved:
+        latest = read_dataset(
+            team_id,
+            ALL_RUNS,
+            MMM_RUN_META,
+            MMM_RUN_META_STRUCTURE,
+            columns=["job_id"],
+            where="ORDER BY computed_at DESC LIMIT 1",
+        )
+        resolved = str(latest[0][0]) if latest else None
+    if not resolved:
+        return {"run": None, "roi": []}
+
+    meta = read_dataset(
+        team_id,
+        resolved,
+        MMM_RUN_META,
+        MMM_RUN_META_STRUCTURE,
+        columns=["job_id", "status", "outcome_ref", "r_squared", "mape", "total_budget"],
+    )
+    roi = read_dataset(
+        team_id,
+        resolved,
+        MMM_ROI,
+        MMM_ROI_STRUCTURE,
+        columns=["channel", "roi", "marginal_roi", "current_spend", "recommended_spend", "calibrated"],
+        where="ORDER BY channel",
+    )
+    run = None
+    if meta:
+        run = dict(zip(["job_id", "status", "outcome_ref", "r_squared", "mape", "total_budget"], meta[0]))
+        run["job_id"] = str(run["job_id"])
+    roi_rows = [
+        dict(zip(["channel", "roi", "marginal_roi", "current_spend", "recommended_spend", "calibrated"], r))
+        for r in roi
+    ]
+    return {"run": run, "roi": roi_rows}
+
+
+def _format_mmm_summary_for_llm(data: dict[str, Any]) -> str:
+    run = data.get("run")
+    if not run:
+        return "No marketing mix model has been computed for this project yet."
+    lines = [f"# MMM run for goal '{run.get('outcome_ref')}'"]
+    if run.get("status") and run["status"] != "ok":
+        lines.append(
+            f"⚠️ This run's status is '{run['status']}' — some results are placeholder or unreliable. "
+            "Do NOT present its ROI or budget advice as authoritative; tell the user the run is degraded."
+        )
+    lines += [
+        f"Fit: R²={float(run.get('r_squared', 0.0)):.3f}, MAPE={float(run.get('mape', 0.0)):.3f}. "
+        f"Total spend over window: {float(run.get('total_budget', 0.0)):,.0f}.",
+        "",
+        "## Per-channel ROI and recommended weekly spend (advisory only)",
+    ]
+    shifts: list[str] = []
+    for row in data.get("roi", []):
+        delta = float(row["recommended_spend"]) - float(row["current_spend"])
+        calibrated = " [calibrated]" if row.get("calibrated") else ""
+        lines.append(
+            f"- **{row['channel']}**{calibrated}: ROI {float(row['roi']):.2f}, marginal ROI "
+            f"{float(row['marginal_roi']):.2f}; current {float(row['current_spend']):,.0f}/wk → "
+            f"recommended {float(row['recommended_spend']):,.0f}/wk"
+        )
+        if abs(delta) >= 1:
+            shifts.append(f"{'increase' if delta > 0 else 'decrease'} {row['channel']} by {abs(delta):,.0f}/wk")
+    if shifts:
+        lines += [
+            "",
+            "## Advisory reallocation",
+            "Shift weekly spend to equalize marginal ROI: " + "; ".join(shifts) + ".",
+        ]
     return "\n".join(lines)

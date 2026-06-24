@@ -525,6 +525,7 @@ export type AssistantTool =
     | 'marketing_audit_utm'
     | 'marketing_suggest_conversion_goals'
     | 'marketing_suggest_utm_mappings'
+    | 'marketing_mmm_summary'
     | 'summarize_replay_vision_summaries'
     | 'draft_replay_vision_scanner_prompt'
     | 'search_replay_vision_observations'

@@ -196,6 +196,45 @@ def validate_campaign_field_preferences(preferences: dict) -> None:
             )
 
 
+def _is_number(value) -> bool:
+    """A real number, excluding bool (which is an int subclass)."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def validate_mmm_channel_calibrations(calibrations: dict) -> None:
+    """Validate MMM channel calibrations: dict of channel -> lift-test prior config.
+
+    Shape: {
+        "google": {"lift_pct": 12.5, "ci_low": 8.0, "ci_high": 17.0,
+                   "source": "manual" | "experiment", "experiment_id": "<id>" | null}
+    }
+    """
+    if not isinstance(calibrations, dict):
+        raise ValidationError("mmm_channel_calibrations must be a dictionary")
+
+    valid_sources = ["manual", "experiment"]
+    for channel, config in calibrations.items():
+        if not isinstance(channel, str):
+            raise ValidationError(f"Calibration channel '{channel}' must be a string")
+        if not isinstance(config, dict):
+            raise ValidationError(f"Calibration for channel '{channel}' must be a dictionary")
+
+        if not _is_number(config.get("lift_pct")):
+            raise ValidationError(f"Calibration lift_pct for '{channel}' must be a number")
+        for bound in ("ci_low", "ci_high"):
+            if not _is_number(config.get(bound)):
+                raise ValidationError(f"Calibration {bound} for '{channel}' must be a number")
+        if config["ci_low"] > config["ci_high"]:
+            raise ValidationError(f"Calibration ci_low must be <= ci_high for '{channel}'")
+
+        source = config.get("source", "manual")
+        if source not in valid_sources:
+            raise ValidationError(f"Calibration source for '{channel}' must be one of {valid_sources}")
+        experiment_id = config.get("experiment_id")
+        if experiment_id is not None and not isinstance(experiment_id, str):
+            raise ValidationError(f"Calibration experiment_id for '{channel}' must be a string or null")
+
+
 def validate_conversion_goals(conversion_goals: list) -> None:
     """Validate conversion goals structure: list of dicts with name, event, and properties."""
     if not isinstance(conversion_goals, list):
@@ -326,6 +365,17 @@ class TeamMarketingAnalyticsConfig(models.Model):
         "project",
         "admin",
     )
+    _mmm_channel_calibrations = field_access_control(
+        models.JSONField(
+            default=dict,
+            db_column="mmm_channel_calibrations",
+            null=False,
+            blank=True,
+            help_text="Marketing mix modeling lift-test calibrations per channel: {channel: {lift_pct, ci_low, ci_high, source, experiment_id}}. Used to derive Bayesian priors for the MMM fit.",
+        ),
+        "project",
+        "admin",
+    )
 
     def clean(self):
         """Validate model fields"""
@@ -415,6 +465,19 @@ class TeamMarketingAnalyticsConfig(models.Model):
             self._campaign_field_preferences = value
         except ValidationError as e:
             raise ValidationError(f"Invalid campaign field preferences: {str(e)}")
+
+    @property
+    def mmm_channel_calibrations(self) -> dict[str, dict]:
+        return self._mmm_channel_calibrations or {}
+
+    @mmm_channel_calibrations.setter
+    def mmm_channel_calibrations(self, value: dict) -> None:
+        value = value or {}
+        try:
+            validate_mmm_channel_calibrations(value)
+            self._mmm_channel_calibrations = value
+        except ValidationError as e:
+            raise ValidationError(f"Invalid MMM channel calibrations: {str(e)}")
 
     def update_source_mapping(self, source_id: str, field_mapping: dict) -> None:
         """Update or add a single source mapping while preserving existing sources."""

@@ -285,6 +285,15 @@ sentiment = [
 hogql-parser-parity = [
     "shrinkray==26.4.14.0",
 ]
+# Marketing mix modeling (products/marketing_analytics `mmm_job`). PyMC-based Bayesian MMM. These are
+# HEAVY — pytensor compiles C at install/runtime — so this group must be installed ONLY in the
+# Dagster image, never on the core / web / celery import path (the job imports pymc_marketing inside
+# the op, so the dep never loads on the code-location import path either). Exact versions are
+# finalized by MMM-0b (the pymc-marketing spike): confirm the pins below install and that a toy MMM
+# samples in minutes with bounded draws/chains before shipping Phase 2.
+mmm = [
+    "pymc-marketing==0.13.1",
+]
 
 [tool.uv]
 required-version = ">=0.10.2"

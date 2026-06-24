@@ -20,6 +20,7 @@ from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.team.team import DEFAULT_CURRENCY
 
+from products.marketing_analytics.backend.api_mmm import MmmActionsMixin
 from products.marketing_analytics.backend.hogql_queries.adapters.base import ExternalConfig, QueryContext
 from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
 from products.marketing_analytics.backend.hogql_queries.adapters.self_managed import SelfManagedAdapter
@@ -466,7 +467,7 @@ class MarketingDiagnosticResponseSerializer(serializers.Serializer):
     )
 
 
-class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
+class MarketingAnalyticsViewSet(MmmActionsMixin, TeamAndOrgViewSetMixin, GenericViewSet):
     # `marketing_analytics` is gated by the API scope of the same name and inherits
     # RBAC from `web_analytics` (see RESOURCE_INHERITANCE_MAP). Custom @action methods
     # below are not standard CRUD names, so each declares its own `required_scopes`;

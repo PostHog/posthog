@@ -12,7 +12,9 @@ import { useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 import { QueryTile } from 'scenes/web-analytics/common'
+import { MixModelTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/MixModelTab/MixModelTab'
 import { NonIntegratedConversionsTable } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/NonIntegratedConversionsTable'
 import { UtmAuditTab } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/UtmAuditTab/UtmAuditTab'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
@@ -178,38 +180,55 @@ const MarketingAnalyticsContent = (): JSX.Element => {
     const { setActiveTab } = useActions(marketingAnalyticsLogic)
 
     const showIntegrationHealth = !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_UTM_AUDIT]
+    const showMixModel = !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_MMM]
+
+    const dashboard = (
+        <>
+            <MarketingAnalyticsFilters tabs={<></>} />
+            <MarketingAnalyticsDashboard />
+        </>
+    )
+
+    if (!showIntegrationHealth && !showMixModel) {
+        return dashboard
+    }
+
+    const tabs = [
+        {
+            key: MarketingAnalyticsTab.DASHBOARD,
+            label: 'Dashboard',
+            content: dashboard,
+        },
+        ...(showIntegrationHealth
+            ? [
+                  {
+                      key: MarketingAnalyticsTab.INTEGRATION_HEALTH,
+                      label: 'Integration health',
+                      content: <UtmAuditTab />,
+                  },
+              ]
+            : []),
+        ...(showMixModel
+            ? [
+                  {
+                      key: MarketingAnalyticsTab.MIX_MODEL,
+                      label: 'Mix model',
+                      content: <MixModelTab />,
+                  },
+              ]
+            : []),
+    ]
+
+    // A persisted / deep-linked tab (e.g. ?tab=mix-model) may point at a tab whose flag is now off —
+    // fall back to Dashboard so LemonTabs never renders a blank body for a missing tab.
+    const activeKey = tabs.some((tab) => tab.key === activeTab) ? activeTab : MarketingAnalyticsTab.DASHBOARD
 
     return (
-        <>
-            {showIntegrationHealth ? (
-                <LemonTabs
-                    activeKey={activeTab}
-                    onChange={(key) => setActiveTab(key as MarketingAnalyticsTab)}
-                    tabs={[
-                        {
-                            key: MarketingAnalyticsTab.DASHBOARD,
-                            label: 'Dashboard',
-                            content: (
-                                <>
-                                    <MarketingAnalyticsFilters tabs={<></>} />
-                                    <MarketingAnalyticsDashboard />
-                                </>
-                            ),
-                        },
-                        {
-                            key: MarketingAnalyticsTab.INTEGRATION_HEALTH,
-                            label: 'Integration health',
-                            content: <UtmAuditTab />,
-                        },
-                    ]}
-                />
-            ) : (
-                <>
-                    <MarketingAnalyticsFilters tabs={<></>} />
-                    <MarketingAnalyticsDashboard />
-                </>
-            )}
-        </>
+        <LemonTabs
+            activeKey={activeKey}
+            onChange={(key) => setActiveTab(key as MarketingAnalyticsTab)}
+            tabs={tabs}
+        />
     )
 }
 
@@ -218,13 +237,18 @@ const TAB_DESCRIPTIONS: Record<string, string> = {
         'Analyze your marketing performance across integrations: spend, impressions, conversions, ROAS, and more metrics.',
     [MarketingAnalyticsTab.INTEGRATION_HEALTH]:
         'Check that your ad platform campaigns are properly linked to UTM tracking in PostHog.',
+    [MarketingAnalyticsTab.MIX_MODEL]:
+        "Estimate each channel's incremental contribution and ROI with a Bayesian marketing mix model. Staff-only while in development; advisory only.",
 }
 
 const MarketingAnalyticsAIToolWrapper = ({ children }: { children: React.ReactNode }): JSX.Element => {
     const { dateFilter, integrationFilter, compareFilter } = useValues(marketingAnalyticsLogic)
     const { conversion_goals, marketingAnalyticsConfig } = useValues(marketingAnalyticsSettingsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { user } = useValues(userLogic)
     const aiEnabled = !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_AI]
+    // Mix model is staff-only while in development; only expose its Max tool when both gates are on.
+    const mmmToolEnabled = aiEnabled && !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_MMM] && !!user?.is_staff
 
     // Shared context for every Marketing analytics Max tool — consumed by
     // MARKETING_CONTEXT_PROMPT in products/marketing_analytics/backend/max_tools.py.
@@ -245,6 +269,7 @@ const MarketingAnalyticsAIToolWrapper = ({ children }: { children: React.ReactNo
     useMaxTool({ identifier: 'marketing_audit_utm', context: maxContext, active: aiEnabled })
     useMaxTool({ identifier: 'marketing_suggest_conversion_goals', context: maxContext, active: aiEnabled })
     useMaxTool({ identifier: 'marketing_suggest_utm_mappings', context: maxContext, active: aiEnabled })
+    useMaxTool({ identifier: 'marketing_mmm_summary', context: maxContext, active: mmmToolEnabled })
 
     return (
         <MaxTool
