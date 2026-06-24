@@ -151,6 +151,7 @@ export interface RoleLookupResponseApi {
 /**
  * * `anthropic` - Anthropic
  * * `apns` - Apple Push
+ * * `aws-s3` - Aws S3
  * * `azure-blob` - Azure Blob
  * * `bing-ads` - Bing Ads
  * * `clickup` - Clickup
@@ -178,6 +179,7 @@ export interface RoleLookupResponseApi {
  * * `pinterest-ads` - Pinterest Ads
  * * `postgresql` - Postgresql
  * * `reddit-ads` - Reddit Ads
+ * * `s3-compatible` - S3 Compatible
  * * `salesforce` - Salesforce
  * * `slack` - Slack
  * * `slack-posthog-code` - Slack Posthog Code
@@ -192,6 +194,7 @@ export type IntegrationKindEnumApi = (typeof IntegrationKindEnumApi)[keyof typeo
 export const IntegrationKindEnumApi = {
     Anthropic: 'anthropic',
     Apns: 'apns',
+    AwsS3: 'aws-s3',
     AzureBlob: 'azure-blob',
     BingAds: 'bing-ads',
     Clickup: 'clickup',
@@ -219,6 +222,7 @@ export const IntegrationKindEnumApi = {
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',
     RedditAds: 'reddit-ads',
+    S3Compatible: 's3-compatible',
     Salesforce: 'salesforce',
     Slack: 'slack',
     SlackPosthogCode: 'slack-posthog-code',
@@ -352,6 +356,7 @@ export interface IntegrationAccessRequestApi {
      *
      * * `anthropic` - Anthropic
      * * `apns` - Apple Push
+     * * `aws-s3` - Aws S3
      * * `azure-blob` - Azure Blob
      * * `bing-ads` - Bing Ads
      * * `clickup` - Clickup
@@ -379,6 +384,7 @@ export interface IntegrationAccessRequestApi {
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
      * * `reddit-ads` - Reddit Ads
+     * * `s3-compatible` - S3 Compatible
      * * `salesforce` - Salesforce
      * * `slack` - Slack
      * * `slack-posthog-code` - Slack Posthog Code
@@ -438,6 +444,7 @@ export type IntegrationsListParams = {
     /**
      * * `anthropic` - Anthropic
      * * `apns` - Apple Push
+     * * `aws-s3` - Aws S3
      * * `azure-blob` - Azure Blob
      * * `bing-ads` - Bing Ads
      * * `clickup` - Clickup
@@ -465,6 +472,7 @@ export type IntegrationsListParams = {
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
      * * `reddit-ads` - Reddit Ads
+     * * `s3-compatible` - S3 Compatible
      * * `salesforce` - Salesforce
      * * `slack` - Slack
      * * `slack-posthog-code` - Slack Posthog Code
@@ -490,6 +498,7 @@ export type IntegrationsListKind = (typeof IntegrationsListKind)[keyof typeof In
 export const IntegrationsListKind = {
     Anthropic: 'anthropic',
     Apns: 'apns',
+    AwsS3: 'aws-s3',
     AzureBlob: 'azure-blob',
     BingAds: 'bing-ads',
     Clickup: 'clickup',
@@ -517,6 +526,7 @@ export const IntegrationsListKind = {
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',
     RedditAds: 'reddit-ads',
+    S3Compatible: 's3-compatible',
     Salesforce: 'salesforce',
     Slack: 'slack',
     SlackPosthogCode: 'slack-posthog-code',

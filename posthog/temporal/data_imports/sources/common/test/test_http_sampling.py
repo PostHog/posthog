@@ -397,6 +397,7 @@ def test_sample_payload_preserves_json_body_keys():
         "X-API-Key",
         "x-sn-apikey",
         "x-auth-token",
+        "X-Metabase-Session",
         "Cookie",
         "Set-Cookie",
         "Proxy-Authorization",

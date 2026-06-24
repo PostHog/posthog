@@ -1,11 +1,12 @@
 from collections.abc import Iterable
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from typing import Any, Optional, cast
 
 from requests import Request, Response
 from requests.exceptions import RequestException
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
+from posthog.temporal.data_imports.sources.common.datetime_utils import coerce_datetime_to_utc
 from posthog.temporal.data_imports.sources.common.http import make_tracked_session
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resource
 from posthog.temporal.data_imports.sources.common.rest_source.fanout import build_dependent_resource
@@ -37,20 +38,8 @@ def _validated_api_base_url(api_base_url: str | None) -> str:
     return normalized_url
 
 
-def _coerce_datetime_to_utc(value: Any) -> datetime | None:
-    if isinstance(value, date) and not isinstance(value, datetime):
-        value = datetime.combine(value, datetime.min.time())
-
-    if not isinstance(value, datetime):
-        return None
-
-    if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
-    return value.astimezone(UTC)
-
-
 def _start_param_for_typeform(value: Any) -> str:
-    normalized_value = _coerce_datetime_to_utc(value)
+    normalized_value = coerce_datetime_to_utc(value)
     if normalized_value is None:
         return str(value)
 

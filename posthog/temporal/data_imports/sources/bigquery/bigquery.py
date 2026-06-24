@@ -274,6 +274,34 @@ def bigquery_storage_read_client(
         transport.close()
 
 
+def _detect_dataset_region(config: BigQuerySourceConfig) -> str | None:
+    """Resolve the dataset's BigQuery location for schema-discovery queries.
+
+    Credentials validate with a region-agnostic table listing, but a query job created
+    without an explicit location defaults to the US multi-region — so a dataset that lives
+    in another region passes validation yet fails discovery with "... was not found in
+    location US". `get_dataset` is region-agnostic, so read the dataset's real location and
+    pin discovery to it. Returns None on any failure, leaving the original behaviour intact.
+    """
+    with bigquery_client(
+        _resolve_project_id(config),
+        None,
+        config.key_file.private_key,
+        config.key_file.private_key_id,
+        config.key_file.client_email,
+        config.key_file.token_uri,
+    ) as bq:
+        try:
+            dataset_ref = bq.dataset(_resolve_dataset_id(config), project=_resolve_query_project(config))
+            return bq.get_dataset(dataset_ref).location
+        except Exception as e:
+            # Best-effort: fall back to the default location so `get_columns` still surfaces the
+            # actionable not-found error. Log rather than capture, to keep the fallback visible
+            # without spamming error tracking.
+            structlog.get_logger().warning("Failed to auto-detect BigQuery dataset region", exc_info=e)
+            return None
+
+
 def delete_table(
     table_id: str,
     project_id: str,
@@ -694,7 +722,10 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
 
     @contextmanager
     def connect(self, config: BigQuerySourceConfig) -> Iterator[bigquery.Client]:
-        region = _resolve_region(config)
+        # Without a custom region the client is built with `location=None`, so discovery
+        # query jobs default to the US multi-region and miss datasets in other regions.
+        # Auto-detect the dataset's location so discovery runs where the data lives.
+        region = _resolve_region(config) or _detect_dataset_region(config)
         with bigquery_client(
             _resolve_project_id(config),
             region,
