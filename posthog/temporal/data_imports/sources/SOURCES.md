@@ -155,6 +155,7 @@ the row lists both.
 | optimizely        | HTTP                        | requests                                                        | ✅                          |
 | pagerduty         | HTTP                        | requests                                                        | ✅                          |
 | pandadoc          | HTTP                        | requests                                                        | ✅                          |
+| paystack          | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | pendo             | HTTP                        | requests                                                        | ✅                          |
 | personio          | HTTP                        | requests                                                        | ✅                          |
 | pingdom           | HTTP                        | requests                                                        | ✅                          |
@@ -546,7 +547,6 @@ doesn't conflict with concurrent PRs.
 - payfit
 - paylocity
 - paypal
-- paystack
 - pendo
 - pennylane
 - perigon
