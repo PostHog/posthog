@@ -26,6 +26,7 @@ import { urls } from 'scenes/urls'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { dashboardsModel, nameCompareFunction } from '~/models/dashboardsModel'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -52,6 +53,10 @@ interface DashboardsTableProps {
     // Tree arm: when provided, render a Folder column resolving each dashboard's folder. Passed in (rather
     // than computed here) so it reads the same FileSystem source as the tree's scoping and stays in sync.
     folderForDashboard?: (dashboard: DashboardBasicType) => string
+    // Tree arm: resolves a dashboard's FileSystem entry for "Move to another folder". The sidebar-backed
+    // itemsByRef only holds lazily-loaded folders, so it's missing for most dashboards (the Move action then
+    // never appears). The tree arm passes its complete entryByRef so every dashboard is movable.
+    dashboardFsEntry?: (dashboard: DashboardBasicType) => FileSystemEntry | undefined
 }
 
 export function DashboardsTable({
@@ -60,6 +65,7 @@ export function DashboardsTable({
     extraActions,
     hideActions,
     folderForDashboard,
+    dashboardFsEntry,
 }: DashboardsTableProps): JSX.Element {
     const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
     const { tableSortingChanged } = useActions(dashboardsLogic)
@@ -152,7 +158,11 @@ export function DashboardsTable({
             ? {}
             : {
                   width: 0,
-                  render: function RenderActions(_, { id, name, user_access_level }: DashboardType) {
+                  render: function RenderActions(_, dashboard: DashboardType) {
+                      const { id, name, user_access_level } = dashboard
+                      // Prefer the complete entry source (tree arm passes its entryByRef) so every dashboard
+                      // is movable; fall back to the sidebar's lazily-loaded itemsByRef when not provided.
+                      const moveEntry = dashboardFsEntry?.(dashboard) ?? itemsByRef[`dashboard::${id}`]
                       return (
                           <More
                               overlay={
@@ -200,17 +210,14 @@ export function DashboardsTable({
                                           Duplicate
                                       </LemonButton>
 
-                                      {itemsByRef[`dashboard::${id}`] && (
+                                      {moveEntry && (
                                           <AccessControlAction
                                               resourceType={AccessControlResourceType.Dashboard}
                                               minAccessLevel={AccessControlLevel.Editor}
                                               userAccessLevel={user_access_level}
                                           >
                                               <LemonButton
-                                                  onClick={() => {
-                                                      const entry = itemsByRef[`dashboard::${id}`]
-                                                      openMoveToModal([entry as any])
-                                                  }}
+                                                  onClick={() => openMoveToModal([moveEntry as any])}
                                                   fullWidth
                                                   data-attr="dashboard-move-to-folder"
                                               >

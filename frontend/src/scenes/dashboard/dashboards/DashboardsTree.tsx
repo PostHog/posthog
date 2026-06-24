@@ -169,6 +169,7 @@ export function DashboardsTree(): JSX.Element {
                     dashboards={currentSubtreeDashboards}
                     dashboardsLoading={dashboardsLoading}
                     folderForDashboard={folderForDashboard}
+                    dashboardFsEntry={(dashboard) => entryByRef[String(dashboard.id)]}
                 />
             </div>
         </div>
