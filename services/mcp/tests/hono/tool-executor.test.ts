@@ -82,25 +82,28 @@ describe('ToolExecutor', () => {
             expect(result.content[0].text).toContain('Missing tool name')
         })
 
-        it('returns error when tool does not exist', async () => {
+        it.each([
+            {
+                name: 'plain not-found message off single-exec',
+                useSingleExec: false,
+                toolName: 'nonexistent-tool',
+                expected: ['nonexistent-tool', 'not found'],
+            },
+            {
+                name: 'routes to the exec gateway on single-exec connections',
+                useSingleExec: true,
+                toolName: 'workflows-create',
+                expected: ['exec', 'search workflows-create', 'call workflows-create'],
+            },
+        ])('returns error for an unknown tool: $name', async ({ useSingleExec, toolName, expected }) => {
             const result = (await executor.handleToolCall(
-                { name: 'nonexistent-tool', arguments: {} },
-                makeState([])
+                { name: toolName, arguments: {} },
+                makeState([], { useSingleExec })
             )) as any
             expect(result.isError).toBe(true)
-            expect(result.content[0].text).toContain('nonexistent-tool')
-            expect(result.content[0].text).toContain('not found')
-        })
-
-        it('routes a bare tool name to the exec gateway on single-exec connections', async () => {
-            const result = (await executor.handleToolCall(
-                { name: 'workflows-create', arguments: {} },
-                makeState([], { useSingleExec: true })
-            )) as any
-            expect(result.isError).toBe(true)
-            expect(result.content[0].text).toContain('exec')
-            expect(result.content[0].text).toContain('search workflows-create')
-            expect(result.content[0].text).toContain('call workflows-create')
+            for (const fragment of expected) {
+                expect(result.content[0].text).toContain(fragment)
+            }
         })
 
         it('rejects tools not in the per-request filtered set', async () => {
