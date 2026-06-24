@@ -26,7 +26,12 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         name: Determine need to run storybook checks
-        if: github.event_name != 'merge_group'
+        # Skip when an unrelated label is added/removed (e.g. stamphog) — only
+        # `run-ci-frontend` should re-trigger this workflow via label events.
+        if: >-
+            github.event_name != 'merge_group'
+            && (github.event.action != 'labeled' && github.event.action != 'unlabeled'
+                || github.event.label.name == 'run-ci-frontend')
         # Set job outputs to values from filter step
         outputs:
             # With dorny's default predicate-quantifier (some), '!path' matches

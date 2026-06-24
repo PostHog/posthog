@@ -16,9 +16,14 @@ jobs:
         timeout-minutes: 45
         name: AI evals / ${{ matrix.group }}
         runs-on: ubuntu-latest
-        # Skipping on forks as Braintrust credentials are not available there
+        # Skipping on forks as Braintrust credentials are not available there.
+        # Also skip when an unrelated label is added/removed — only `evals-ready`
+        # should re-trigger this workflow via label events.
         if: |
-            github.repository == 'PostHog/posthog' && contains(github.event.pull_request.labels.*.name, 'evals-ready')
+            github.repository == 'PostHog/posthog'
+            && contains(github.event.pull_request.labels.*.name, 'evals-ready')
+            && (github.event.action != 'labeled' && github.event.action != 'unlabeled'
+                || github.event.label.name == 'evals-ready')
 
         strategy:
             fail-fast: false

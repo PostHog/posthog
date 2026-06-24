@@ -29,7 +29,9 @@ jobs:
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: github.event_name == 'pull_request'
+        # Skip when an unrelated label is added/removed (e.g. stamphog) — only
+        # `hobby-preview` should re-trigger this workflow via label events.
+        if: github.event_name == 'pull_request' && (github.event.action != 'labeled' && github.event.action != 'unlabeled' || github.event.label.name == 'hobby-preview')
         name: Determine need to run hobby checks
         outputs:
             should_run: ${{ steps.filter.outputs.hobby == 'true' || steps.check-label.outputs.has_label == 'true' }}

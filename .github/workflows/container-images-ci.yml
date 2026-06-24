@@ -19,7 +19,12 @@ jobs:
         # Runs on merge_group too so the lint job below (a required check) can consume
         # its changed-Dockerfile list there. should_build is ignored on merge_group —
         # posthog_build forces a build regardless via its own `if`.
-        if: github.repository == 'PostHog/posthog'
+        # Skip when an unrelated label is added/removed — only `hobby-preview`
+        # should re-trigger this workflow via label events.
+        if: >-
+            github.repository == 'PostHog/posthog'
+            && (github.event.action != 'labeled' && github.event.action != 'unlabeled'
+                || github.event.label.name == 'hobby-preview')
         name: Determine need to run Docker checks
         permissions:
             contents: read

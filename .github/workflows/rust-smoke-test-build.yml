@@ -37,9 +37,12 @@ jobs:
         name: authorize smoke test
         runs-on: ubuntu-latest
         timeout-minutes: 5
+        # Skip when an unrelated label is added — only `smoke_test` (or
+        # `smoke_test:*`) should re-trigger this workflow via label events.
         if: |
             github.event_name == 'workflow_dispatch' ||
             (github.event.pull_request.head.repo.full_name == github.repository &&
+             (github.event.action != 'labeled' || startsWith(github.event.label.name, 'smoke_test')) &&
              contains(toJson(github.event.pull_request.labels.*.name), 'smoke_test'))
         permissions: {}
         steps:

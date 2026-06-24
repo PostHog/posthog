@@ -74,6 +74,11 @@ jobs:
         runs-on: depot-ubuntu-latest
         timeout-minutes: 5
         name: Determine need to run backend and migration checks
+        # Skip when an unrelated label is added/removed (e.g. stamphog) — only
+        # `run-ci-backend` should re-trigger this workflow via label events.
+        if: >-
+            github.event.action != 'labeled' && github.event.action != 'unlabeled'
+            || github.event.label.name == 'run-ci-backend'
         # Set job outputs to values from filter step
         outputs:
             backend: ${{ steps.filter.outputs.backend || 'true' }}

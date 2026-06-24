@@ -30,6 +30,11 @@ jobs:
         runs-on: ubuntu-latest
         timeout-minutes: 5
         name: Determine need to run frontend checks
+        # Skip when an unrelated label is added/removed (e.g. stamphog) — only
+        # `run-ci-frontend` should re-trigger this workflow via label events.
+        if: >-
+            github.event.action != 'labeled' && github.event.action != 'unlabeled'
+            || github.event.label.name == 'run-ci-frontend'
         # Skip when a bot's push adds only snapshot baselines — Visual Review auto-commits
         # frontend/snapshots.yml after human review and CI approval, so re-running the suite
         # on that commit is pure waste. The detect step keys off the push delta (this push's
