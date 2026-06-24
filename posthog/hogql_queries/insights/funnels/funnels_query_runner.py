@@ -11,6 +11,7 @@ import posthoganalytics
 
 from posthog.schema import (
     CachedFunnelsQueryResponse,
+    Compare,
     DateRange,
     FunnelsQuery,
     FunnelsQueryResponse,
@@ -114,6 +115,13 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         return self.funnel_class.get_query()
 
     def to_actors_query(self) -> ast.SelectQuery:
+        # A persons modal opened from a 'previous' compare bar must return actors from the shifted
+        # window only; every other case uses the source's own (current) date range.
+        actors_query = self.context.actorsQuery
+        if actors_query is not None and actors_query.compare == Compare.PREVIOUS:
+            previous_context = self._previous_period_context()
+            previous_context.actorsQuery = actors_query
+            return self._actor_class_for_context(previous_context).actor_query()
         return self.funnel_actor_class.actor_query()
 
     def _calculate(self):
@@ -428,7 +436,11 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         )
 
     def _build_previous_funnel(self):
-        """Construct a funnel (matching the current viz mode) pinned to the previous-period range.
+        """Construct a funnel (matching the current viz mode) pinned to the previous-period range."""
+        return self._funnel_class_for_context(self._previous_period_context())
+
+    def _previous_period_context(self) -> FunnelQueryContext:
+        """A query context pinned to the previous-period range.
 
         The previous query is a clone of `self.query` with its `dateRange` swapped for the
         shifted range and `compareFilter` cleared (to prevent infinite recursion if the cloned
@@ -446,14 +458,13 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
                 "compareFilter": None,
             }
         )
-        previous_context = FunnelQueryContext(
+        return FunnelQueryContext(
             query=previous_query,
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
         )
-        return self._funnel_class_for_context(previous_context)
 
     def _funnel_class_for_context(self, context: FunnelQueryContext):
         funnelVizType = context.funnelsFilter.funnelVizType
@@ -461,6 +472,12 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
             return FunnelTrendsUDF(context=context, just_summarize=self.just_summarize)
         elif funnelVizType == FunnelVizType.TIME_TO_CONVERT:
             return FunnelTimeToConvertUDF(context=context)
+        return FunnelUDF(context=context)
+
+    def _actor_class_for_context(self, context: FunnelQueryContext):
+        # Actors for TIME_TO_CONVERT come from the plain step funnel (FunnelUDF), not the histogram class.
+        if context.funnelsFilter.funnelVizType == FunnelVizType.TRENDS:
+            return FunnelTrendsUDF(context=context)
         return FunnelUDF(context=context)
 
     def _is_compare_active(self) -> bool:
@@ -509,10 +526,7 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
 
     @cached_property
     def funnel_actor_class(self):
-        if self.context.funnelsFilter.funnelVizType == FunnelVizType.TRENDS:
-            return FunnelTrendsUDF(context=self.context)
-
-        return FunnelUDF(context=self.context)
+        return self._actor_class_for_context(self.context)
 
     @property
     def exact_timerange(self):
