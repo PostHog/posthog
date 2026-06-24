@@ -1,9 +1,9 @@
 """Apply persons SQL migrations.
 
-Reads SQL migration files from rust/persons_migrations/ and executes them
-against the specified database. Supports both hobby deploys (default DB,
-skipping partitioning migrations) and local dev / production (separate
-persons DB with all migrations applied).
+Reads SQL migration files from rust/persons_migrations/ and executes them against the
+persons database identified by PERSONS_DB_WRITER_URL. Hobby deploys keep persons in the
+main database and skip the partitioning migrations (via --hobby); local dev and
+production apply all migrations.
 
 Tracks applied migrations in a _persons_migrations_applied table so each
 migration is only executed once. Also bridges the sqlx _sqlx_migrations
@@ -82,9 +82,11 @@ def _ensure_database_exists(persons_url: str) -> None:
     DATABASE. Used for local dev bootstrap.
     """
     params = conninfo_to_dict(persons_url)
-    target_db = params.get("dbname")
-    if not target_db:
+    dbname = params.get("dbname")
+    if not dbname:
         raise RuntimeError("Persons database URL has no database name; cannot ensure it exists.")
+    # conninfo_to_dict types values as ``str | int``; identifiers must be ``str``.
+    target_db = str(dbname)
 
     try:
         with psycopg.connect(persons_url, dbname="postgres", autocommit=True) as conn:
@@ -99,7 +101,7 @@ def _ensure_database_exists(persons_url: str) -> None:
                     cur.execute(
                         sql.SQL("GRANT ALL PRIVILEGES ON DATABASE {} TO {}").format(
                             sql.Identifier(target_db),
-                            sql.Identifier(owner),
+                            sql.Identifier(str(owner)),
                         )
                     )
     except psycopg.OperationalError as exc:
