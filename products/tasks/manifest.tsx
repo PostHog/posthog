@@ -14,12 +14,6 @@ export const manifest: ProductManifest = {
             description: 'Tasks are work that agents can do for you, like creating a pull request or fixing an issue.',
             iconType: 'task',
         },
-        TaskDetail: {
-            name: 'Task',
-            import: () => import('./frontend/TaskDetailScene'),
-            projectBased: true,
-            activityScope: 'TaskDetail',
-        },
         // Hidden internal debug scene. No nav entry — reachable only by typing the URL.
         SlackTaskContext: {
             name: 'Slack task context',
@@ -29,13 +23,16 @@ export const manifest: ProductManifest = {
     },
     routes: {
         '/tasks': ['TaskTracker', 'taskTracker'],
-        '/tasks/:taskId': ['TaskDetail', 'taskDetail'],
+        // The detail and composer both render inside the TaskTracker scene; the `taskId` param
+        // (a UUID, or the reserved value `new`) selects what the right column shows.
+        '/tasks/:taskId': ['TaskTracker', 'taskDetail'],
         '/slack-task-context': ['SlackTaskContext', 'slackTaskContext'],
     },
     redirects: {},
     urls: {
         taskTracker: (): string => '/tasks',
         taskDetail: (taskId: string | number): string => `/tasks/${taskId}`,
+        taskNew: (): string => '/tasks/new',
         slackTaskContext: (): string => '/slack-task-context',
     },
     fileSystemTypes: {

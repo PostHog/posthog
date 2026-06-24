@@ -1,45 +1,37 @@
-import equal from 'fast-deep-equal'
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
-import { actionToUrl, router, urlToAction } from 'kea-router'
-import { subscriptions } from 'kea-subscriptions'
+import { actions, connect, events, kea, listeners, path, reducers } from 'kea'
+import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { Params } from 'scenes/sceneTypes'
-import { userLogic } from 'scenes/userLogic'
 
 import type { RepositoryConfig } from '../components/RepositorySelector'
-import { OriginProduct, TaskListParams, TaskRunStatus, TaskUpsertProps } from '../types'
+import { OriginProduct, TaskUpsertProps } from '../types'
 import { tasksLogic } from './tasksLogic'
 import type { taskTrackerSceneLogicType } from './taskTrackerSceneLogicType'
-
-const DEFAULT_SEARCH_QUERY = ''
-const DEFAULT_REPOSITORY = 'all'
-const DEFAULT_STATUS: 'all' | TaskRunStatus = 'all'
-const SEARCH_DEBOUNCE_MS = 300
 
 export type TaskCreateForm = {
     description: string
     repositoryConfig: RepositoryConfig
 }
 
+const EMPTY_TASK_FORM: TaskCreateForm = {
+    description: '',
+    repositoryConfig: {
+        integrationId: undefined,
+        repository: undefined,
+    },
+}
+
 export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
     path(['products', 'tasks', 'frontend', 'taskTrackerSceneLogic']),
 
     connect(() => ({
-        values: [router, ['location'], userLogic, ['user'], tasksLogic, ['tasks', 'repositories']],
+        values: [tasksLogic, ['tasks', 'repositories']],
         actions: [tasksLogic, ['loadTasks', 'loadRepositories', 'deleteTask']],
     })),
 
     actions({
-        setSearchQuery: (searchQuery: string) => ({ searchQuery }),
-        setRepository: (repository: string) => ({ repository }),
-        setStatus: (status: 'all' | TaskRunStatus) => ({ status }),
-        setCreatedBy: (createdBy: number | null) => ({ createdBy }),
-        setShowInternal: (showInternal: boolean) => ({ showInternal }),
-        openCreateModal: true,
-        closeCreateModal: true,
         setNewTaskData: (data: Partial<TaskCreateForm>) => ({ data }),
         resetNewTaskData: true,
         submitNewTask: true,
@@ -48,67 +40,11 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
     }),
 
     reducers({
-        searchQuery: [
-            DEFAULT_SEARCH_QUERY as string,
-            {
-                setSearchQuery: (_, { searchQuery }) => searchQuery,
-            },
-        ],
-        repository: [
-            DEFAULT_REPOSITORY as string,
-            {
-                setRepository: (_, { repository }) => repository,
-            },
-        ],
-        status: [
-            DEFAULT_STATUS as 'all' | TaskRunStatus,
-            {
-                setStatus: (_, { status }) => status,
-            },
-        ],
-        createdBy: [
-            null as number | null,
-            {
-                setCreatedBy: (_, { createdBy }) => createdBy,
-            },
-        ],
-        createdByInitialized: [
-            false,
-            {
-                setCreatedBy: () => true,
-                loadTasks: () => true,
-            },
-        ],
-        showInternal: [
-            false,
-            {
-                setShowInternal: (_, { showInternal }) => showInternal,
-            },
-        ],
-        isCreateModalOpen: [
-            false,
-            {
-                openCreateModal: () => true,
-                closeCreateModal: () => false,
-            },
-        ],
         newTaskData: [
-            {
-                description: '',
-                repositoryConfig: {
-                    integrationId: undefined,
-                    repository: undefined,
-                },
-            } as TaskCreateForm,
+            EMPTY_TASK_FORM,
             {
                 setNewTaskData: (state, { data }) => ({ ...state, ...data }),
-                resetNewTaskData: () => ({
-                    description: '',
-                    repositoryConfig: {
-                        integrationId: undefined,
-                        repository: undefined,
-                    },
-                }),
+                resetNewTaskData: () => EMPTY_TASK_FORM,
             },
         ],
         isSubmittingTask: [
@@ -121,61 +57,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         ],
     }),
 
-    selectors({
-        isStaff: [(s) => [s.user], (user): boolean => user?.is_staff ?? false],
-        // All filters are pushed down to the backend via `loadTasks(listParams)` so results are
-        // not limited by list pagination. The scene renders `tasks` (the loader output) directly.
-        listParams: [
-            (s) => [s.searchQuery, s.repository, s.status, s.createdBy, s.showInternal, s.isStaff],
-            (searchQuery, repository, status, createdBy, showInternal, isStaff): TaskListParams => {
-                const params: TaskListParams = {}
-                if (searchQuery.trim()) {
-                    params.search = searchQuery.trim()
-                }
-                if (repository && repository !== 'all') {
-                    params.repository = repository
-                }
-                if (status !== 'all') {
-                    params.status = status
-                }
-                if (createdBy !== null) {
-                    params.created_by = createdBy
-                }
-                if (showInternal && isStaff) {
-                    params.internal = true
-                }
-                return params
-            },
-        ],
-    }),
-
-    listeners(({ actions, values, cache }) => ({
-        setSearchQuery: () => {
-            cache.listLoadRequested = true
-            // Debounce search keystrokes to avoid a request per character.
-            if (cache.searchDebounce) {
-                clearTimeout(cache.searchDebounce)
-            }
-            cache.searchDebounce = setTimeout(() => {
-                actions.loadTasks(values.listParams)
-            }, SEARCH_DEBOUNCE_MS)
-        },
-        setRepository: () => {
-            cache.listLoadRequested = true
-            actions.loadTasks(values.listParams)
-        },
-        setStatus: () => {
-            cache.listLoadRequested = true
-            actions.loadTasks(values.listParams)
-        },
-        setCreatedBy: () => {
-            cache.listLoadRequested = true
-            actions.loadTasks(values.listParams)
-        },
-        setShowInternal: () => {
-            cache.listLoadRequested = true
-            actions.loadTasks(values.listParams)
-        },
+    listeners(({ actions, values }) => ({
         submitNewTask: async () => {
             const { description, repositoryConfig } = values.newTaskData
 
@@ -209,8 +91,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
 
                 actions.submitNewTaskSuccess()
                 actions.resetNewTaskData()
-                actions.closeCreateModal()
-                actions.loadTasks(values.listParams)
+                actions.loadTasks()
                 actions.loadRepositories()
             } catch (error) {
                 lemonToast.error('Failed to create task')
@@ -219,98 +100,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         },
     })),
 
-    urlToAction(({ actions, values }) => {
-        const urlToAction = (_: any, params: Params): void => {
-            if (params.searchQuery && !equal(params.searchQuery, values.searchQuery)) {
-                actions.setSearchQuery(params.searchQuery)
-            }
-            if (params.repository !== undefined && !equal(params.repository, values.repository)) {
-                actions.setRepository(params.repository)
-            }
-            if (params.status && !equal(params.status, values.status)) {
-                actions.setStatus(params.status)
-            }
-            if (params.createdBy !== undefined) {
-                const createdByValue = params.createdBy ? parseInt(params.createdBy) : null
-                if (!equal(createdByValue, values.createdBy)) {
-                    actions.setCreatedBy(createdByValue)
-                }
-            }
-            if (params.showInternal !== undefined) {
-                const showInternalValue = params.showInternal === 'true' || params.showInternal === true
-                if (!equal(showInternalValue, values.showInternal)) {
-                    actions.setShowInternal(showInternalValue)
-                }
-            }
-        }
-        return {
-            '/tasks': urlToAction,
-        }
-    }),
-
-    actionToUrl(({ values }) => {
-        const buildURL = (): [
-            string,
-            Params,
-            Record<string, any>,
-            {
-                replace: boolean
-            },
-        ] => {
-            const params: Params = {}
-
-            if (values.searchQuery !== DEFAULT_SEARCH_QUERY) {
-                params.searchQuery = values.searchQuery
-            }
-            if (values.repository !== DEFAULT_REPOSITORY) {
-                params.repository = values.repository
-            }
-            if (values.status !== DEFAULT_STATUS) {
-                params.status = values.status
-            }
-            if (values.createdBy !== null) {
-                params.createdBy = values.createdBy.toString()
-            }
-            if (values.showInternal) {
-                params.showInternal = 'true'
-            }
-
-            return ['/tasks', params, {}, { replace: false }]
-        }
-
-        return {
-            setSearchQuery: () => buildURL(),
-            setRepository: () => buildURL(),
-            setStatus: () => buildURL(),
-            setCreatedBy: () => buildURL(),
-            setShowInternal: () => buildURL(),
-        }
-    }),
-
-    subscriptions(({ actions, values }) => ({
-        user: (user) => {
-            if (user?.id && !values.createdByInitialized) {
-                actions.setCreatedBy(user.id)
-            }
-        },
-    })),
-
-    events(({ actions, values, cache }) => ({
+    events(({ actions }) => ({
         afterMount: () => {
+            actions.loadTasks()
             actions.loadRepositories()
-            // `urlToAction` may dispatch filter setters synchronously on mount, and the
-            // `user` subscription may dispatch `setCreatedBy` to set the default filter.
-            // Each of those listeners triggers `loadTasks` and sets `cache.listLoadRequested`,
-            // so we only need to fire here when nothing else did.
-            if (!cache.listLoadRequested) {
-                actions.loadTasks(values.listParams)
-            }
-        },
-        beforeUnmount: () => {
-            if (cache.searchDebounce) {
-                clearTimeout(cache.searchDebounce)
-            }
-            cache.listLoadRequested = false
         },
     })),
 ])
