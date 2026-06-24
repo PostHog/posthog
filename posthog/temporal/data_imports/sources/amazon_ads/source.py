@@ -18,6 +18,7 @@ from posthog.temporal.data_imports.sources.amazon_ads.amazon_ads import (
 )
 from posthog.temporal.data_imports.sources.amazon_ads.settings import ENDPOINTS
 from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
+from posthog.temporal.data_imports.sources.common.canonical_descriptions import CanonicalDescriptions
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import AmazonAdsSourceConfig
@@ -91,6 +92,11 @@ You need a Login with Amazon (LWA) application with Advertising API access: ente
                 ],
             ),
         )
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from posthog.temporal.data_imports.sources.amazon_ads.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
 
     def get_schemas(
         self,
