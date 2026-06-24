@@ -141,11 +141,6 @@ export const DisplayTab = (): JSX.Element => {
                                                     updateChartSettings({ pie: { valueDisplay: value } })
                                                 }
                                                 options={PIE_VALUE_DISPLAY_OPTIONS}
-                                                disabledReason={
-                                                    (chartSettings.pie?.sliceContent ?? 'labels') !== 'values'
-                                                        ? 'Only applies when slices show values'
-                                                        : undefined
-                                                }
                                                 fullWidth
                                             />
                                         </div>
