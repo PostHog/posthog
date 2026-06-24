@@ -178,9 +178,7 @@ class Command(BaseCommand):
                 total_weight=float(signal_count),
             )
             report.save(update_fields=report.transition_to(SignalReport.Status.CANDIDATE))
-            report.save(
-                update_fields=report.transition_to(SignalReport.Status.IN_PROGRESS, signals_at_run_increment=3)
-            )
+            report.save(update_fields=report.transition_to(SignalReport.Status.IN_PROGRESS, signals_at_run_increment=3))
 
         # The persist path only writes `new_artefacts`; fixtures captured mid-run keep content in
         # `old_artefacts`, so coalesce everything into `new_artefacts` to guarantee the judgments /
