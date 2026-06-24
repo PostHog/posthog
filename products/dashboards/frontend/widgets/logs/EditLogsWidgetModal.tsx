@@ -34,8 +34,16 @@ function EditLogsWidgetModalContents(): JSX.Element {
         onClose,
         defaultTitle,
     } = useValues(editLogsWidgetModalLogic)
-    const { setLimit, setWrapLines, setTimezone, setDateFrom, setTileName, setTileDescription, clearFieldError, submit } =
-        useActions(editLogsWidgetModalLogic)
+    const {
+        setLimit,
+        setWrapLines,
+        setTimezone,
+        setDateFrom,
+        setTileName,
+        setTileDescription,
+        clearFieldError,
+        submit,
+    } = useActions(editLogsWidgetModalLogic)
 
     return (
         <LemonModal

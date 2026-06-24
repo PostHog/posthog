@@ -1,7 +1,6 @@
 import { combineUrl } from 'kea-router'
 
 import { DetectiveHog } from 'lib/components/hedgehogs'
-
 import { urls } from 'scenes/urls'
 
 import {
@@ -12,8 +11,8 @@ import {
     WidgetListCount,
 } from '../../components/WidgetCard'
 import type { DashboardWidgetComponentProps } from '../registry'
-import { LogsWidgetRow, LogsWidgetRowSkeleton, type LogsWidgetLogLine } from './LogsWidgetRow'
 import { parseLogsWidgetConfig } from './logsWidgetConfigValidation'
+import { LogsWidgetRow, LogsWidgetRowSkeleton, type LogsWidgetLogLine } from './LogsWidgetRow'
 
 export type LogsWidgetResult = {
     results?: LogsWidgetLogLine[]

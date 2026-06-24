@@ -1016,9 +1016,9 @@
                                         ]
                                     },
                                     "limit": {
-                                        "default": 10,
+                                        "default": 50,
                                         "description": "Maximum number of log lines to return.",
-                                        "maximum": 25,
+                                        "maximum": 100,
                                         "minimum": 1,
                                         "type": "number"
                                     },
@@ -1027,6 +1027,17 @@
                                         "description": "Sort by newest (latest) or oldest (earliest) first.",
                                         "enum": ["latest", "earliest"],
                                         "type": "string"
+                                    },
+                                    "savedViewId": {
+                                        "anyOf": [
+                                            {
+                                                "type": "string"
+                                            },
+                                            {
+                                                "type": "null"
+                                            }
+                                        ],
+                                        "description": "short_id of a saved logs view to use as the source. When set, the saved view owns the date range, severity, service, and property filters; only orderBy and limit still apply."
                                     },
                                     "serviceNames": {
                                         "description": "Only show logs from these services. Empty shows all services.",
@@ -1042,6 +1053,17 @@
                                             "type": "string"
                                         },
                                         "type": "array"
+                                    },
+                                    "timezone": {
+                                        "default": "UTC",
+                                        "description": "Render log timestamps in UTC or in each viewer's local timezone.",
+                                        "enum": ["UTC", "local"],
+                                        "type": "string"
+                                    },
+                                    "wrapLines": {
+                                        "default": false,
+                                        "description": "Wrap long log lines instead of truncating them to a single row.",
+                                        "type": "boolean"
                                     }
                                 },
                                 "type": "object"
