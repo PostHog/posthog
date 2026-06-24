@@ -591,10 +591,6 @@ function normalizeTableRow(row: string[] | undefined, columnCount: number): stri
 
 function getSerializableAttrs(attrs: Record<string, unknown> | undefined): NotebookComponentProps {
     return Object.entries(attrs ?? {}).reduce<NotebookComponentProps>((props, [key, value]) => {
-        // Clean rather than reject: a V1 query attr is a QuerySchema with optional fields left as
-        // nested `undefined`, which the isNotebookPropValue guard rejects outright — dropping the
-        // whole `query` prop and producing an empty Query node. JSON-roundtrip the value to strip
-        // nested undefined first, matching how the AI-artifact path builds query props.
         const serializableValue = toSerializablePropValue(reviveJsonEncodedAttr(value))
         if (serializableValue !== undefined) {
             props[key] = serializableValue
