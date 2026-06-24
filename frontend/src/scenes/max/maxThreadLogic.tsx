@@ -1266,18 +1266,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             if (values.conversationId !== values.activeThreadKey) {
                 return
             }
-            // Ignore a duplicate ask that arrives while an identical one is still generating.
-            // A user send only ever fires askMax once; a second ask with the same content while
-            // a stream is in flight comes from a re-issued auto-send (the thread logic remounts as
-            // the conversation id resolves from its frontend uuid, re-running effects keyed on the
-            // askMax action). Without this it appends another provisional human bubble for the same
-            // message, duplicating it in the thread.
-            if (addToThread && typeof prompt === 'string' && values.threadLoading) {
-                const lastHumanMessage = [...values.threadRaw].reverse().find(isHumanMessage)
-                if (lastHumanMessage?.content === prompt) {
-                    return
-                }
-            }
             // A sent message consumes any sandbox pre-warm: the warm Run is the in-progress run the
             // sandbox routing follows up on, so cancel pending timers and clear the flag WITHOUT
             // issuing a release/DELETE.
