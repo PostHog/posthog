@@ -5493,3 +5493,149 @@ class TestGetRowsInitialConnectRetry:
         finally:
             with django_connection.cursor() as dj_cursor:
                 dj_cursor.execute(f"DROP TABLE IF EXISTS {table_name}")
+
+
+class TestPartitionIterationConnectRetry:
+    # Regression: the windowed / per-partition read paths opened each window's (or partition's)
+    # connection with a bare get_connection(), so a transient drop while establishing it — the
+    # observed "OperationalError: the connection is lost" raised by the setup commit() inside
+    # get_connection — escaped and failed the whole activity, even though every other read path
+    # already recovers in-process via _connect_with_dropped_retry. Wrapping the per-window connect
+    # in the same helper makes a transient drop retry instead of aborting.
+
+    class _BenignSetupCursor:
+        # psycopg.Cursor(connection) inside get_connection, used only to SET statement_timeout.
+        def execute(self, *args, **kwargs):
+            return None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class _WindowCursor:
+        # Named server-side cursor opened by iterate_date_windows; yields one batch then drains.
+        def __init__(self, rows):
+            id_col, val_col = mock.Mock(), mock.Mock()
+            id_col.name, val_col.name = "id", "val"
+            self.description = [id_col, val_col]
+            self._rows = rows
+
+        def execute(self, *args, **kwargs):
+            return None
+
+        def fetchmany(self, n):
+            batch, self._rows = self._rows[:n], self._rows[n:]
+            return batch
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class _WindowConnection:
+        def __init__(self, *, commit_error=None, rows=None):
+            self.autocommit = False
+            self.closed = False
+            self.broken = False
+            self.adapters = mock.Mock()
+            self._commit_error = commit_error
+            self._rows = rows or []
+
+        def cursor(self, *args, **kwargs):
+            if "name" in kwargs:
+                return TestPartitionIterationConnectRetry._WindowCursor(list(self._rows))
+            # Unnamed setup cursor (metadata probes are patched out) stays benign.
+            return mock.MagicMock()
+
+        def commit(self):
+            # Reproduces the production failure: a freshly opened socket dies before the setup
+            # commit, so psycopg raises "the connection is lost" from inside get_connection.
+            if self._commit_error is not None:
+                raise self._commit_error
+
+        def close(self):
+            self.closed = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def test_window_connect_retries_transient_drop_in_process(self):
+        @contextmanager
+        def fake_tunnel():
+            yield ("localhost", 5432)
+
+        fake_table = mock.Mock()
+        fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64()), pa.field("val", pa.int64())])
+        fake_table.type = "table"
+        fake_table.columns = []
+        fake_table.__contains__ = mock.Mock(return_value=False)
+
+        connect_calls = {"n": 0}
+
+        def connect_side_effect(*args, **kwargs):
+            connect_calls["n"] += 1
+            if connect_calls["n"] == 1:
+                # Setup connection (metadata probes are patched out).
+                return TestPartitionIterationConnectRetry._WindowConnection()
+            if connect_calls["n"] == 2:
+                # First window connect: the setup commit() inside get_connection drops.
+                return TestPartitionIterationConnectRetry._WindowConnection(
+                    commit_error=psycopg.OperationalError("the connection is lost")
+                )
+            # The retried window connect succeeds and serves the rows.
+            return TestPartitionIterationConnectRetry._WindowConnection(rows=[(1, 10), (2, 20), (3, 30)])
+
+        child = ChildPartition(
+            oid=1,
+            schema="public",
+            name="events_p1",
+            partbound="FOR VALUES FROM (0) TO (100)",
+        )
+
+        module = "posthog.temporal.data_imports.sources.postgres.postgres"
+        with (
+            patch(f"{module}.psycopg.connect", side_effect=connect_side_effect) as connect_mock,
+            patch(
+                f"{module}.psycopg.Cursor",
+                side_effect=lambda _conn: TestPartitionIterationConnectRetry._BenignSetupCursor(),
+            ),
+            patch(f"{module}._get_table", return_value=fake_table),
+            patch(f"{module}._is_read_replica", return_value=False),
+            patch(f"{module}._get_primary_keys", return_value=["id"]),
+            patch(f"{module}._is_partitioned_table", return_value=True),
+            patch(f"{module}.list_child_partitions", return_value=[child]),
+            # None -> use_per_partition_chunking stays False, so the windowed path is taken.
+            patch(f"{module}.get_partition_strategy", return_value=None),
+            patch(f"{module}._get_table_chunk_size", return_value=1000),
+            patch(f"{module}._get_rows_to_sync", return_value=10),
+            patch(f"{module}._role_subject_to_rls", return_value=False),
+            patch(f"{module}._get_partition_settings", return_value=None),
+            patch(f"{module}.time.sleep"),
+        ):
+            response = postgres_source(
+                tunnel=lambda: fake_tunnel(),
+                user="u",
+                password="p",
+                database="db",
+                sslmode="prefer",
+                schema="public",
+                table_names=["events"],
+                should_use_incremental_field=True,
+                logger=structlog.get_logger(),
+                incremental_field="id",
+                incremental_field_type=IncrementalFieldType.Integer,
+                db_incremental_field_last_value=0,
+                team_id=1,
+            )
+            # Before the fix the window-connect drop escaped iterate_date_windows and raised here.
+            tables = list(cast(Iterable[Any], response.items()))
+
+        # 1 setup + 2 window connects (1 dropped commit + 1 success).
+        assert connect_mock.call_count == 3
+        assert sum(table.num_rows for table in tables) == 3

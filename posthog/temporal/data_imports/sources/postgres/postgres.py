@@ -2968,6 +2968,16 @@ def postgres_source(
 
                 _safe_close_connection(connection)
 
+            def connect_for_partition_iteration() -> psycopg.Connection:
+                # Each window/partition opens its own connection. A transient drop on that connect —
+                # idle cull, failover, an SSL EOF, or a freshly opened socket dying before the setup
+                # commit ("the connection is lost") — is the same recoverable class the initial
+                # server-cursor connect and the offset-chunking bootstrap already retry in-process.
+                # Retry it here too so a blip resumes the next window/partition instead of escaping
+                # and failing the whole activity. Only the connect is retried; a drop mid-fetch still
+                # propagates, so a partially read window/partition is never re-yielded.
+                return _connect_with_dropped_retry(get_connection, logger)
+
             if use_per_partition_chunking and incremental_field is not None and incremental_field_type is not None:
 
                 def _build_per_partition_query(child_schema: str, child_name: str) -> sql.Composed:
@@ -2984,7 +2994,7 @@ def postgres_source(
                     )
 
                 yield from iterate_partitions(
-                    get_connection=get_connection,
+                    get_connection=connect_for_partition_iteration,
                     build_partition_query=_build_per_partition_query,
                     schema=schema,
                     table_name=table_name,
@@ -3016,7 +3026,7 @@ def postgres_source(
                     )
 
                 yield from iterate_date_windows(
-                    get_connection=get_connection,
+                    get_connection=connect_for_partition_iteration,
                     build_windowed_query=_build_windowed_query,
                     schema=schema,
                     table_name=table_name,
