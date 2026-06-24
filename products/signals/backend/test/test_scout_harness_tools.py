@@ -321,6 +321,9 @@ class TestRemember(BaseTest):
         assert row.content == "ignore /favicon 404s"
         assert row.created_by_run_id is None
         assert entry.key == "known-noise"
+        # No run → no scout attribution to surface.
+        assert entry.created_by_skill is None
+        assert entry.created_by_run_url is None
 
     def test_idempotent_upsert_on_team_key(self) -> None:
         first = remember(team_id=self.team.id, key="k", content="v1")
@@ -366,6 +369,15 @@ class TestRemember(BaseTest):
             run_id=str(run.id),
         )
         assert entry.created_by_run_id == str(run.id)
+
+    def test_surfaces_creating_scout_and_run_url(self) -> None:
+        run = _create_run(self.team)
+        entry = remember(team_id=self.team.id, key="attributed", content="x", run_id=str(run.id))
+
+        assert entry.created_by_skill == "signals-scout-errors"
+        assert (
+            entry.created_by_run_url == f"/project/{self.team.id}/tasks/{run.task_run.task_id}?runId={run.task_run_id}"
+        )
 
 
 class TestForget(BaseTest):

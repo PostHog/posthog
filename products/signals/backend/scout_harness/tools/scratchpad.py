@@ -17,6 +17,7 @@ from typing import Any
 from django.db import IntegrityError, transaction
 
 from products.signals.backend.models import SignalScratchpad
+from products.signals.backend.scout_harness.tools.runs import _build_task_url
 
 # Defensive cap on search results.
 DEFAULT_SCRATCHPAD_SEARCH_LIMIT = 20
@@ -42,6 +43,9 @@ class ScratchpadEntry:
     created_at: str | None = None
     updated_at: str | None = None
     created_by_run_id: str | None = None
+    # Identity + deep-link of the scout run that created the entry, resolved from `created_by_run`.
+    created_by_skill: str | None = None
+    created_by_run_url: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -70,7 +74,9 @@ def search_scratchpad(
       (a preview). Ignored when `keys_only=True`, which already drops the body.
     """
     clamped_limit = _clamp_search_limit(limit)
-    qs = SignalScratchpad.objects.filter(team_id=team_id)
+    # Join the creating run (and its task_run) so per-row skill/url resolution in `_to_entry`
+    # stays a single query rather than an N+1 across the result window.
+    qs = SignalScratchpad.objects.filter(team_id=team_id).select_related("created_by_run", "created_by_run__task_run")
     if text:
         from django.db.models import Q
 
@@ -157,12 +163,23 @@ def _to_entry(
     # Django's FK descriptor exposes both `created_by_run` (object) and `created_by_run_id`
     # (the raw FK column). `getattr` keeps Pyright happy without a join.
     run_pk = getattr(row, "created_by_run_id", None)
+    # Resolve the creating scout's identity + a deep-link to its run. `search_scratchpad` joins
+    # both via select_related, so this is a no-N+1 read on the list path; the single-row write
+    # path lazy-loads, which is fine. A human-authored entry (no run) leaves these null.
+    run = row.created_by_run if run_pk else None
+    task_run = getattr(run, "task_run", None) if run is not None else None
     return ScratchpadEntry(
         key=row.key,
         content=_project_content(row.content, keys_only=keys_only, content_max_chars=content_max_chars),
         created_at=row.created_at.isoformat() if row.created_at else None,
         updated_at=row.updated_at.isoformat() if row.updated_at else None,
         created_by_run_id=str(run_pk) if run_pk else None,
+        created_by_skill=run.skill_name if run is not None else None,
+        created_by_run_url=_build_task_url(
+            team_id=row.team_id,
+            task_id=str(task_run.task_id) if task_run is not None else None,
+            task_run_id=str(task_run.id) if task_run is not None else None,
+        ),
     )
 
 
