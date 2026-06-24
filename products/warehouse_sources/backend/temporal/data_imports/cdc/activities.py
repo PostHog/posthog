@@ -88,8 +88,10 @@ CDC_MAX_EXTRACTION_ATTEMPTS = 3
 # re-decodes from the slot start on every retry. The slot advances after each pass, so the next
 # peek resumes where this one stopped.
 CDC_MAX_CHANGES_PER_READ = 100_000
-# Ceiling for the adaptive growth that lets a single transaction larger than one page complete.
-CDC_MAX_CHANGES_LIMIT_CAP = 1_600_000
+# Ceiling for the adaptive growth below. The decoder's MAX_TX_BUFFER_EVENTS (500k) is the real
+# bound on an oversized single transaction — it trips before the window doubles far past it — so
+# this only needs a little headroom above that guard.
+CDC_MAX_CHANGES_LIMIT_CAP = 800_000
 # Stop starting new peeks past this wall-clock so the final flush + slot advance fit inside the
 # activity's 2h start-to-close timeout (see CDCExtractionWorkflow). The remainder is picked up on
 # the next scheduled run.
@@ -954,10 +956,13 @@ class CDCExtractActivity:
                 return
 
             # Full page: drain the buffered (committed) events and advance the slot past every
-            # transaction this pass committed so the next peek resumes cleanly. A full page that
-            # advanced nothing means one transaction larger than the page that hasn't committed
-            # within it — grow the window so it can complete next pass; the decoder's
-            # MAX_TX_BUFFER_EVENTS guard fails it instead of looping if it is genuinely unbounded.
+            # transaction this pass committed so the next peek resumes cleanly.
+            #
+            # A full page that advanced nothing is a defensive guard, not a live path:
+            # pg_logical_slot_peek_binary_changes only returns fully-committed transactions, so a
+            # page that returns rows always commits something and advances. Were that ever to not
+            # hold, grow the window so an oversized single transaction can complete in one peek (or
+            # trip the decoder's MAX_TX_BUFFER_EVENTS guard) instead of re-peeking the same page.
             if not self._drain_and_advance_page():
                 limit = min(limit * 2, CDC_MAX_CHANGES_LIMIT_CAP)
 
