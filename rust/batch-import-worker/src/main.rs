@@ -75,7 +75,8 @@ pub async fn main() -> Result<(), Error> {
     {
         let staging_dir = staging_dir.clone();
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(60));
+            let start = tokio::time::Instant::now() + Duration::from_secs(60);
+            let mut interval = tokio::time::interval_at(start, Duration::from_secs(60));
             loop {
                 interval.tick().await;
                 let bytes = staging::staging_dir_bytes(&staging_dir).await;

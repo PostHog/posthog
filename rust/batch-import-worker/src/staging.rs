@@ -36,6 +36,11 @@ pub async fn sweep_staging_dir(path: &Path) -> Result<u64, Error> {
         };
 
         let entry_path = entry.path();
+        let name = entry.file_name();
+        if !name.to_string_lossy().starts_with("job-") {
+            continue;
+        }
+
         let is_dir = match entry.file_type().await {
             Ok(ft) => ft.is_dir(),
             Err(e) => {
@@ -86,10 +91,18 @@ pub async fn staging_dir_bytes(path: &Path) -> u64 {
 async fn compute_dir_size(path: &Path) -> Result<u64, std::io::Error> {
     let mut total: u64 = 0;
     let mut entries = tokio::fs::read_dir(path).await?;
-    while let Some(entry) = entries.next_entry().await? {
-        let ft = entry.file_type().await?;
-        if ft.is_dir() {
-            total += Box::pin(compute_dir_size(&entry.path())).await?;
+    loop {
+        let entry = match entries.next_entry().await {
+            Ok(Some(e)) => e,
+            Ok(None) => break,
+            Err(_) => continue,
+        };
+        let is_dir = match entry.file_type().await {
+            Ok(ft) => ft.is_dir(),
+            Err(_) => continue,
+        };
+        if is_dir {
+            total += Box::pin(compute_dir_size(&entry.path())).await.unwrap_or(0);
         } else {
             total += entry.metadata().await.map(|m| m.len()).unwrap_or(0);
         }
@@ -108,8 +121,8 @@ mod tests {
         let staging = root.path().join("staging");
         ensure_staging_dir(&staging).await.unwrap();
 
-        // Simulate leaked temp dirs from crashed pods
-        let leaked_dir = staging.join(".tmpABCDEF");
+        // Simulate leaked temp dirs from crashed pods (job- prefix)
+        let leaked_dir = staging.join("job-ABCDEF");
         tokio::fs::create_dir(&leaked_dir).await.unwrap();
         tokio::fs::write(leaked_dir.join("key.raw"), b"raw data")
             .await
@@ -118,16 +131,22 @@ mod tests {
             .await
             .unwrap();
 
-        let leaked_dir2 = staging.join(".tmpGHIJKL");
+        let leaked_dir2 = staging.join("job-GHIJKL");
         tokio::fs::create_dir(&leaked_dir2).await.unwrap();
 
-        // Sweep should remove both
+        // Non-job entry should be left alone
+        let other = staging.join("something-else");
+        tokio::fs::create_dir(&other).await.unwrap();
+
         let removed = sweep_staging_dir(&staging).await.unwrap();
         assert_eq!(removed, 2);
 
-        // Staging dir itself should still exist but be empty
+        // Staging dir should still contain the non-job entry
         assert!(staging.exists());
+        assert!(other.exists());
         let mut entries = tokio::fs::read_dir(&staging).await.unwrap();
+        let remaining = entries.next_entry().await.unwrap().unwrap();
+        assert_eq!(remaining.file_name(), "something-else");
         assert!(entries.next_entry().await.unwrap().is_none());
     }
 
