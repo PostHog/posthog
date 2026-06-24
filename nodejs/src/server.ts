@@ -96,6 +96,7 @@ export class PluginServer implements NodeServer {
             capabilities.cdpCyclotronWorkerHogFlow ||
             capabilities.cdpCyclotronWorkerHogFlowLegacyPg ||
             capabilities.cdpCyclotronWorkerEmail ||
+            capabilities.cdpCyclotronWorkerEmailLegacyPg ||
             capabilities.cdpPrecalculatedFilters ||
             capabilities.cdpCohortMembership ||
             capabilities.cdpBatchHogFlow ||
@@ -273,6 +274,17 @@ export class PluginServer implements NodeServer {
             serviceLoaders.push(async () => {
                 const legacyQueue = new CyclotronJobQueuePostgres(this.config.CONSUMER_BATCH_SIZE, this.config)
                 const worker = new CdpCyclotronWorkerHogFlow(this.config, cdpDeps!, legacyQueue)
+                await worker.start()
+                return worker.service
+            })
+        }
+
+        // Transitional drain for email jobs stranded on the legacy V1 queue — the email worker
+        // run against V1, sending inline. Delete once V1 'email' throughput is ~0.
+        if (capabilities.cdpCyclotronWorkerEmailLegacyPg) {
+            serviceLoaders.push(async () => {
+                const legacyQueue = new CyclotronJobQueuePostgres(this.config.CONSUMER_BATCH_SIZE, this.config)
+                const worker = new CdpCyclotronWorkerEmail(this.config, cdpDeps!, legacyQueue)
                 await worker.start()
                 return worker.service
             })
