@@ -229,6 +229,8 @@ export const tasksCreateBodyTitleMax = 255
 
 export const tasksCreateBodyRepositoryMax = 255
 
+export const tasksCreateBodyBranchMax = 255
+
 export const TasksCreateBody = /* @__PURE__ */ zod
     .object({
         title: zod
@@ -290,6 +292,13 @@ export const TasksCreateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
+        branch: zod
+            .string()
+            .max(tasksCreateBodyBranchMax)
+            .nullish()
+            .describe(
+                'Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.'
+            ),
     })
     .describe(
         'Request body for creating or updating a task.\n\nField required\/default semantics match the ``Task`` model. The view passes\n``validated_data`` (integration\/report PK fields already resolved to instances) to the\nfacade ``create_task`` \/ ``update_task`` functions.'
@@ -301,6 +310,8 @@ export const TasksCreateBody = /* @__PURE__ */ zod
 export const tasksUpdateBodyTitleMax = 255
 
 export const tasksUpdateBodyRepositoryMax = 255
+
+export const tasksUpdateBodyBranchMax = 255
 
 export const TasksUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -363,6 +374,13 @@ export const TasksUpdateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
+        branch: zod
+            .string()
+            .max(tasksUpdateBodyBranchMax)
+            .nullish()
+            .describe(
+                'Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.'
+            ),
     })
     .describe(
         'Request body for creating or updating a task.\n\nField required\/default semantics match the ``Task`` model. The view passes\n``validated_data`` (integration\/report PK fields already resolved to instances) to the\nfacade ``create_task`` \/ ``update_task`` functions.'
@@ -374,6 +392,8 @@ export const TasksUpdateBody = /* @__PURE__ */ zod
 export const tasksPartialUpdateBodyTitleMax = 255
 
 export const tasksPartialUpdateBodyRepositoryMax = 255
+
+export const tasksPartialUpdateBodyBranchMax = 255
 
 export const TasksPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -436,6 +456,13 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe('Custom prompt for CI fixes. If blank, a default prompt will be used.'),
+        branch: zod
+            .string()
+            .max(tasksPartialUpdateBodyBranchMax)
+            .nullish()
+            .describe(
+                'Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.'
+            ),
     })
     .describe(
         'Request body for creating or updating a task.\n\nField required\/default semantics match the ``Task`` model. The view passes\n``validated_data`` (integration\/report PK fields already resolved to instances) to the\nfacade ``create_task`` \/ ``update_task`` functions.'
@@ -1164,3 +1191,30 @@ export const TasksSummariesCreateBody = /* @__PURE__ */ zod.object({
             'Task IDs to fetch summaries for (max 5000). Response is paginated; follow the `next` cursor to retrieve all results.'
         ),
 })
+
+/**
+ * Warm a full idling Run for a Code-app cloud task while the user composes: boot a sandbox, clone the repo, check out the branch, and start the agent, then idle awaiting the first message. On submit the normal create+run path transparently reuses and activates this Run; abandoned warms are reaped by the Run's inactivity timeout. Best-effort: returns an empty body when the feature flag is off, the warm pool is full, or the GitHub integration doesn't belong to the team.
+ * @summary Warm a task sandbox
+ */
+export const tasksWarmCreateBodyRepositoryMax = 255
+
+export const tasksWarmCreateBodyBranchMax = 255
+
+export const TasksWarmCreateBody = /* @__PURE__ */ zod
+    .object({
+        repository: zod
+            .string()
+            .max(tasksWarmCreateBodyRepositoryMax)
+            .describe('Target GitHub repository to clone, in `organization\/repo` format (e.g. `posthog\/posthog`).'),
+        github_integration: zod.number().describe("Primary key of the team's GitHub integration to clone with."),
+        branch: zod
+            .string()
+            .max(tasksWarmCreateBodyBranchMax)
+            .nullish()
+            .describe(
+                "Branch to check out in the warm sandbox. Defaults to the repository's default branch when omitted."
+            ),
+    })
+    .describe(
+        "Request body for warming a full idling Run while composing a Code-app cloud task.\n\nCollection-level: no task exists yet at typing time. The warmer births a draft Task and an\ninteractive Run that boots, clones, checks out `branch`, and starts the agent, then idles awaiting\nthe first message. `github_integration` is a plain integration PK (an integer); the view re-scopes\nit to the caller's team before use."
+    )

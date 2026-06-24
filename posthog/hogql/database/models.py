@@ -41,6 +41,9 @@ def _slim_pickle_setstate(model: BaseModel, state: dict[Any, Any]) -> None:
 
 class FieldOrTable(BaseModel):
     hidden: bool = False
+    # Optional human/agent-facing description of this table or column. Surfaced through the
+    # `system.information_schema` tables so agents can discover and disambiguate the schema.
+    description: Optional[str] = None
 
     def __getstate__(self) -> dict[Any, Any]:
         return _slim_pickle_getstate(self)

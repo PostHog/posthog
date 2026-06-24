@@ -10044,6 +10044,39 @@ export const UsersIntegrationsGithubStartCreateBody = /* @__PURE__ */ zod.object
 })
 
 /**
+ * Mint a Sign-in-with-Slack invite URL initiated from settings, without
+ * Slack-DM context. The returned URL takes the user through PostHog login
+ * (already satisfied here), then to Slack OAuth, then back to our callback
+ * which writes the ``UserIntegration`` row.
+ *
+ * Without body params, falls back to the user's ``current_team`` and that
+ * team's first Slack ``Integration`` — works when there's exactly one
+ * linkable workspace. With ``team_id`` + ``slack_team_id``, links against
+ * the exact pair (what the frontend uses when a picker is shown).
+ *
+ * Refuses if the target team has no matching Slack workspace, if the
+ * feature flag is off for the workspace, or if the user is already linked
+ * to it.
+ * @summary Start Slack identity link from settings
+ */
+export const UsersIntegrationsSlackStartCreateBody = /* @__PURE__ */ zod
+    .object({
+        team_id: zod
+            .number()
+            .nullish()
+            .describe("Optional team\/project id to link against; defaults to the user's current team."),
+        slack_team_id: zod
+            .string()
+            .nullish()
+            .describe(
+                'Specific Slack workspace id to link against, scoped to the team. Disambiguates when one team has multiple Slack integrations (rare).'
+            ),
+    })
+    .describe(
+        "Settings-initiated link can target a specific PostHog team + Slack workspace.\n\nBoth are optional — when omitted we fall back to the user's ``current_team``\nand that team's first Slack ``Integration`` (mirrors ``github_start`` for\nthe simple case). The frontend passes both explicitly once it has the\nlinkable-workspace list and the user has picked a workspace."
+    )
+
+/**
  * Mark the current user as having exited onboarding with a non-delegated reason.
  * Idempotent: the skip timestamp is only set on the first successful call.
  *
