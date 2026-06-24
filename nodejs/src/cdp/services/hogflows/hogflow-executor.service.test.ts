@@ -867,6 +867,7 @@ describe('Hogflow Executor', () => {
                 // property path never matches. The matcher flags the run via conversionMatched.
                 hogFlow.conversion = {
                     filters: [],
+                    bytecode: [],
                     window_minutes: null,
                     events: [{ filters: { bytecode: ['_H', 1, 29] } }],
                 }
