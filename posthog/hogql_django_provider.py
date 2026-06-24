@@ -298,7 +298,7 @@ class DjangoDataProvider:
 
     def action_expr(self, action_id: int, events_alias: Optional[str] = None) -> Optional["ast.Expr"]:
         # Deferred import: property.py itself imports this module for its boundary shims.
-        from posthog.hogql.property import action_to_expr  # noqa: PLC0415
+        from posthog.hogql.property import steps_to_expr_core  # noqa: PLC0415
 
         row = self._action_rows.get(action_id)
         if row is None:
@@ -306,7 +306,9 @@ class DjangoDataProvider:
             if row is None:
                 return None
             self._action_rows[action_id] = row
-        return action_to_expr(row, events_alias=events_alias)
+        # Resolve the action's steps through this provider — not action_to_expr, which would rebuild a
+        # second DjangoDataProvider from row.team. We are already the provider, scoped to row's project.
+        return steps_to_expr_core(row.steps, self, events_alias=events_alias)
 
     def insight_variables(self, variable_ids: list[str]) -> list[InsightVariableInfo]:
         rows = InsightVariable.objects.filter(team_id=self.team.id, id__in=variable_ids).all()
