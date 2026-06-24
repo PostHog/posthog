@@ -3,7 +3,8 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
 
-import { tasksRunsCommandCreate } from 'products/tasks/frontend/generated/api'
+import { tasksRunCreate, tasksRunsCommandCreate } from 'products/tasks/frontend/generated/api'
+import type { TaskRunResumeRequestSchemaApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { isTerminalRunStatus, sandboxStreamLogic } from './sandboxStreamLogic'
 import type { taskRunInteractionLogicType } from './taskRunInteractionLogicType'
@@ -11,6 +12,9 @@ import type { taskRunInteractionLogicType } from './taskRunInteractionLogicType'
 export interface TaskRunInteractionLogicProps {
     taskId: string
     runId: string
+    /** Called with the new run's id after a terminal-run send starts a fresh run, so the surface can
+     * re-point selection to it (the run lifecycle / selection is a tasks-scene concern, injected here). */
+    onRunStarted?: (runId: string) => void
 }
 
 /** A follow-up message staged in the "Up next" buffer while the agent is mid-turn. */
@@ -54,9 +58,12 @@ export const taskRunInteractionLogic = kea<taskRunInteractionLogicType>([
     actions({
         setDraft: (draft: string) => ({ draft }),
         clearDraft: true,
-        // Single entry point the composer's `onSubmit` calls — decides send-now vs enqueue.
+        // Single entry point the composer's `onSubmit` calls — decides send-now vs enqueue vs new-run.
         submit: true,
         setSending: (sending: boolean) => ({ sending }),
+        // Start a fresh run on the task, seeded with this message and chained from the finished run.
+        startNewRun: (content: string) => ({ content }),
+        setStartingRun: (starting: boolean) => ({ starting }),
         // Internal: POST one `user_message` now. `source` says where the content lives so a successful send
         // clears the right place and a failed send preserves it for retry ('draft' → composer, 'queue' →
         // the staged buffer combined into this send).
@@ -83,6 +90,12 @@ export const taskRunInteractionLogic = kea<taskRunInteractionLogicType>([
                 setSending: (_, { sending }) => sending,
             },
         ],
+        startingRun: [
+            false,
+            {
+                setStartingRun: (_, { starting }) => starting,
+            },
+        ],
         queuedMessages: [
             [] as QueuedMessage[],
             {
@@ -103,13 +116,24 @@ export const taskRunInteractionLogic = kea<taskRunInteractionLogicType>([
             (s) => [s.sending, s.isTerminal, s.currentProjectId],
             (sending, isTerminal, currentProjectId): boolean => !sending && !isTerminal && currentProjectId != null,
         ],
+        // In-flight indicator for the composer's send button — a live send or a new-run start.
+        isSubmitting: [(s) => [s.sending, s.startingRun], (sending, startingRun): boolean => sending || startingRun],
         queueFull: [(s) => [s.queuedMessages], (queuedMessages): boolean => queuedMessages.length >= QUEUE_LIMIT],
     }),
 
     listeners(({ actions, values, props, cache }) => ({
         submit: () => {
             const content = values.draft.trim()
-            if (!content || values.queueFull || values.isTerminal) {
+            if (!content) {
+                return
+            }
+            // A finished run can't take a follow-up signal — send starts a fresh run instead, seeded with
+            // this message and chained from the run just viewed.
+            if (values.isTerminal) {
+                actions.startNewRun(content)
+                return
+            }
+            if (values.queueFull) {
                 return
             }
             // While the agent is working — or there are already staged messages — hold this one in the
@@ -167,6 +191,31 @@ export const taskRunInteractionLogic = kea<taskRunInteractionLogicType>([
         // The agent finished a turn — drain any staged follow-ups.
         markTurnComplete: () => {
             actions.flushQueue()
+        },
+
+        startNewRun: async ({ content }) => {
+            if (values.startingRun || !content.trim() || values.currentProjectId == null) {
+                return
+            }
+            actions.setStartingRun(true)
+            try {
+                // Same endpoint as the "Run again" button, but seeded with the user's message and chained
+                // from the finished run so the new run continues the thread. The response carries the new
+                // run id as `latest_run`; the consumer-provided `onRunStarted` re-points selection to it.
+                const resumeRequest: TaskRunResumeRequestSchemaApi = {
+                    resume_from_run_id: props.runId,
+                    pending_user_message: content,
+                }
+                const result = await tasksRunCreate(String(values.currentProjectId), props.taskId, resumeRequest)
+                actions.clearDraft()
+                if (result.latest_run) {
+                    props.onRunStarted?.(result.latest_run)
+                }
+            } catch {
+                lemonToast.error('Failed to start a new run. Please try again.')
+            } finally {
+                actions.setStartingRun(false)
+            }
         },
     })),
 ])

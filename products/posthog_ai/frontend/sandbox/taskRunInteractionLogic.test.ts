@@ -5,7 +5,7 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { initKeaTests } from '~/test/init'
 
-import { tasksRunsCommandCreate } from 'products/tasks/frontend/generated/api'
+import { tasksRunCreate, tasksRunsCommandCreate } from 'products/tasks/frontend/generated/api'
 
 import { sandboxStreamLogic } from './sandboxStreamLogic'
 import { taskRunInteractionLogic } from './taskRunInteractionLogic'
@@ -70,6 +70,7 @@ jest.mock('scenes/projectLogic', () => {
 
 jest.mock('products/tasks/frontend/generated/api', () => ({
     tasksRunsCommandCreate: jest.fn(),
+    tasksRunCreate: jest.fn(),
 }))
 
 jest.mock('lib/lemon-ui/LemonToast', () => ({
@@ -83,6 +84,7 @@ describe('taskRunInteractionLogic', () => {
 
     const TASK_ID = 'task-1'
     const RUN_ID = 'run-1'
+    const onRunStarted = jest.fn()
 
     // `setStubStatus` / `setStubThinking` exist only on the jest-mocked stub, not the real logic type.
     const setStatus = (status: string | null): void =>
@@ -100,12 +102,13 @@ describe('taskRunInteractionLogic', () => {
     beforeEach(() => {
         jest.clearAllMocks()
         ;(tasksRunsCommandCreate as jest.Mock).mockResolvedValue({})
+        ;(tasksRunCreate as jest.Mock).mockResolvedValue({ latest_run: 'run-2' })
         initKeaTests()
         project = projectLogic()
         project.mount()
         stream = sandboxStreamLogic({ streamKey: RUN_ID })
         stream.mount()
-        logic = taskRunInteractionLogic({ taskId: TASK_ID, runId: RUN_ID })
+        logic = taskRunInteractionLogic({ taskId: TASK_ID, runId: RUN_ID, onRunStarted })
         logic.mount()
     })
 
@@ -188,17 +191,37 @@ describe('taskRunInteractionLogic', () => {
         expect(logic.values.sending).toBe(false)
     })
 
-    it('does not stage or send for a terminal run', async () => {
+    it('starts a fresh run seeded with the message when the run is terminal', async () => {
         setStatus('completed')
-        logic.actions.setDraft('too late')
+        logic.actions.setDraft('continue from here')
 
         await expectLogic(logic, () => {
             logic.actions.submit()
         }).toFinishAllListeners()
 
+        // No live-run signal for a finished run — it resumes into a new run instead.
         expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
+        expect(tasksRunCreate).toHaveBeenCalledWith('997', TASK_ID, {
+            resume_from_run_id: RUN_ID,
+            pending_user_message: 'continue from here',
+        })
+        expect(onRunStarted).toHaveBeenCalledWith('run-2')
         expect(logic.values.queuedMessages).toEqual([])
-        expect(logic.values.canSend).toBe(false)
+        expect(logic.values.draft).toBe('')
+    })
+
+    it('keeps the draft and toasts when starting a new run fails', async () => {
+        ;(tasksRunCreate as jest.Mock).mockRejectedValue(new Error('boom'))
+        setStatus('completed')
+        logic.actions.setDraft('continue from here')
+
+        await expectLogic(logic, () => {
+            logic.actions.submit()
+        }).toFinishAllListeners()
+
+        expect(lemonToast.error).toHaveBeenCalled()
+        expect(onRunStarted).not.toHaveBeenCalled()
+        expect(logic.values.draft).toBe('continue from here')
     })
 
     it('no-ops on submit with an empty draft', async () => {

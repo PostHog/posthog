@@ -148,10 +148,11 @@ function SandboxRunViewerContent({
     const showApproval = isLive && !!pendingPermissionRequest && !isTerminalRunStatus(currentRunStatus)
     const isQuestion = !!pendingPermissionRequest?.questions && pendingPermissionRequest.questions.length > 0
     const hasComposer = isLive && !!onComposerSubmit && onComposerChange !== undefined && composerValue !== undefined
-    const showComposer =
-        hasComposer &&
-        !pendingPermissionRequest &&
-        (currentRunStatus === 'queued' || currentRunStatus === 'in_progress')
+    // The composer shows for any settled run status — active runs take a follow-up, terminal runs start a
+    // fresh run from the typed message. It's hidden only during the `null` bootstrap window and while a
+    // permission/question prompt is pending.
+    const isRunTerminal = isTerminalRunStatus(currentRunStatus)
+    const showComposer = hasComposer && !pendingPermissionRequest && currentRunStatus !== null
 
     const thread = showSpinner ? (
         <div className="flex justify-center py-8">
@@ -205,7 +206,10 @@ function SandboxRunViewerContent({
                         <Composer.Frame>
                             <Composer.Field>
                                 <Composer.Placeholder>
-                                    {composerPlaceholder ?? 'Send a follow-up message…'}
+                                    {composerPlaceholder ??
+                                        (isRunTerminal
+                                            ? 'Send a message to start a new run…'
+                                            : 'Send a follow-up message…')}
                                 </Composer.Placeholder>
                                 <Composer.Textarea data-attr="sandbox-composer-input" submitShortcut="cmd-enter" />
                             </Composer.Field>
