@@ -67,9 +67,29 @@ function nextJobsPollDelay(softFailureCount: number): number {
     return exponential * (0.5 + Math.random() * 0.5)
 }
 
+// Fields the schema-update endpoint accepts. The backend treats any field present in the
+// request as an intentional write, so we only ever send the ones the user actually changed —
+// sending an unchanged field (e.g. enabled_columns: null) clobbers the persisted value.
+const SCHEMA_PAYLOAD_FIELDS = [
+    'should_sync',
+    'sync_type',
+    'incremental_field',
+    'incremental_field_type',
+    'incremental_field_lookback_seconds',
+    'sync_frequency',
+    'sync_time_of_day',
+    'cdc_table_mode',
+    'enabled_columns',
+] as const
+
+type SchemaPayloadField = (typeof SCHEMA_PAYLOAD_FIELDS)[number]
+
 interface PendingSchemaUpdate {
     revision: number
     schema: ExternalDataSourceSchema
+    // Which payload fields changed relative to the last server-confirmed state, accumulated
+    // across coalesced edits to the same schema before a flush.
+    changedFields: Set<SchemaPayloadField>
 }
 
 interface SchemaUpdateCache {
@@ -123,33 +143,41 @@ function applySchemasToSource(
     )
 }
 
+// Build the PATCH body from only the fields that changed, always including `id`. Nullable fields
+// are normalized to `null` so an explicit clear is sent, but a field the user never touched is
+// omitted entirely — the backend leaves it untouched.
 function buildSchemaUpdatePayload(
-    schema: ExternalDataSourceSchema
-): Pick<
-    ExternalDataSourceSchema,
-    | 'id'
-    | 'should_sync'
-    | 'sync_type'
-    | 'incremental_field'
-    | 'incremental_field_type'
-    | 'incremental_field_lookback_seconds'
-    | 'sync_frequency'
-    | 'sync_time_of_day'
-    | 'cdc_table_mode'
-    | 'enabled_columns'
-> {
-    return {
-        id: schema.id,
-        should_sync: schema.should_sync,
-        sync_type: schema.sync_type,
-        incremental_field: schema.incremental_field,
-        incremental_field_type: schema.incremental_field_type,
-        incremental_field_lookback_seconds: schema.incremental_field_lookback_seconds ?? null,
-        sync_frequency: schema.sync_frequency,
-        sync_time_of_day: schema.sync_time_of_day,
-        cdc_table_mode: schema.cdc_table_mode,
-        enabled_columns: schema.enabled_columns ?? null,
+    schema: ExternalDataSourceSchema,
+    changedFields: Set<SchemaPayloadField>
+): Partial<ExternalDataSourceSchema> & Pick<ExternalDataSourceSchema, 'id'> {
+    const payload: Partial<ExternalDataSourceSchema> & Pick<ExternalDataSourceSchema, 'id'> = { id: schema.id }
+    // Indexing payload by a union-typed key isn't expressible to TS; assign through an indexable view.
+    const assign = payload as Record<SchemaPayloadField, unknown>
+
+    for (const field of changedFields) {
+        assign[field] =
+            field === 'enabled_columns' || field === 'incremental_field_lookback_seconds'
+                ? (schema[field] ?? null)
+                : schema[field]
     }
+
+    return payload
+}
+
+// Fields that differ between the new schema and the last server-confirmed schema. With no known
+// baseline (source not loaded yet) every field counts as changed, matching the old full-payload
+// behavior so the edit still persists.
+function diffSchemaPayloadFields(
+    nextSchema: ExternalDataSourceSchema,
+    baselineSchema: ExternalDataSourceSchema | undefined
+): Set<SchemaPayloadField> {
+    const changed = new Set<SchemaPayloadField>()
+    for (const field of SCHEMA_PAYLOAD_FIELDS) {
+        if (!baselineSchema || !objectsEqual(nextSchema[field], baselineSchema[field])) {
+            changed.add(field)
+        }
+    }
+    return changed
 }
 
 function getSchemaUpdateCache(cache: SchemaUpdateCache): Required<SchemaUpdateCache> {
@@ -703,7 +731,9 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                     try {
                         const updatedSchemas = await api.externalDataSources.bulkUpdateSchemas(
                             values.sourceId,
-                            batchSchemaUpdates.map(({ schema }) => buildSchemaUpdatePayload(schema))
+                            batchSchemaUpdates.map(({ schema, changedFields }) =>
+                                buildSchemaUpdatePayload(schema, changedFields)
+                            )
                         )
 
                         for (const pendingUpdate of batchSchemaUpdates) {
@@ -756,7 +786,17 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 const nextRevision = (schemaUpdateCache.schemaUpdateRevisions[schema.id] ?? 0) + 1
 
                 schemaUpdateCache.schemaUpdateRevisions[schema.id] = nextRevision
-                schemaUpdateCache.pendingSchemaUpdates[schema.id] = { schema, revision: nextRevision }
+
+                // Diff against the current source schema (already reflects any in-flight optimistic
+                // state) to find what this edit changed, then merge with fields a not-yet-flushed
+                // pending edit changed so coalesced edits send the union — not just the latest one.
+                const baselineSchema = values.source?.schemas.find((item) => item.id === schema.id)
+                const changedFields = diffSchemaPayloadFields(schema, baselineSchema)
+                for (const field of schemaUpdateCache.pendingSchemaUpdates[schema.id]?.changedFields ?? []) {
+                    changedFields.add(field)
+                }
+
+                schemaUpdateCache.pendingSchemaUpdates[schema.id] = { schema, revision: nextRevision, changedFields }
 
                 const optimisticSource = applyPendingSchemaUpdatesToSource(
                     values.source,

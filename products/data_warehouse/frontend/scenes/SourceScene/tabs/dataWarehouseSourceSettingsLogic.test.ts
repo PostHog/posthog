@@ -128,6 +128,36 @@ describe('sourceSettingsLogic', () => {
         expect(logic.values.source?.schemas[0].should_sync).toBe(false)
     })
 
+    it('bulk frequency edit sends only the changed field and preserves untouched ones', async () => {
+        // The schema has a column selection the user never touched in this edit. The bulk PATCH must
+        // carry only { id, sync_frequency } — sending enabled_columns (even unchanged) makes the
+        // backend reproject and wipe the selection.
+        jest.spyOn(api.externalDataSources, 'get').mockResolvedValue(
+            makeSource([makeSchema({ sync_type: 'full_refresh', enabled_columns: ['id', 'name'] })])
+        )
+        const bulkUpdateSchemasSpy = jest
+            .spyOn(api.externalDataSources, 'bulkUpdateSchemas')
+            // Mirror the real backend: merge the partial payload onto the stored schema, return full rows.
+            .mockImplementation(async (_id, schemas) =>
+                schemas.map((partial) => ({ ...makeSchema({ enabled_columns: ['id', 'name'] }), ...partial }))
+            )
+
+        logic = sourceSettingsLogic({ id: 'source-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        jest.useFakeTimers()
+
+        logic.actions.bulkSetFrequency(logic.values.source!.schemas, '24hour')
+        await jest.advanceTimersByTimeAsync(500)
+
+        expect(bulkUpdateSchemasSpy).toHaveBeenCalledTimes(1)
+        expect(bulkUpdateSchemasSpy).toHaveBeenLastCalledWith('source-1', [
+            { id: 'schema-1', sync_frequency: '24hour' },
+        ])
+        expect(logic.values.source?.schemas[0].sync_frequency).toBe('24hour')
+        expect(logic.values.source?.schemas[0].enabled_columns).toEqual(['id', 'name'])
+    })
+
     it('keys the logic by source id', () => {
         expect(sourceSettingsLogic({ id: 'source-1' }).key).toEqual('source-1')
     })
