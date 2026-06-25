@@ -303,6 +303,24 @@ class TestVitallySourceGetSchemas:
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.list_custom_object_definitions"
     )
+    def test_credential_free_placeholder_config_skips_discovery(self, mock_list, mock_capture):
+        # The public documentation catalog calls get_schemas with a placeholder config whose
+        # `region` is an empty string, not a VitallyRegionConfig. Discovery must be skipped rather
+        # than crash on `config.region.selection` and spam error tracking.
+        source = VitallySource()
+
+        schemas = source.get_schemas(source._placeholder_config(), team_id=0)
+
+        mock_list.assert_not_called()
+        mock_capture.assert_not_called()
+        names = {s.name for s in schemas}
+        assert {"Accounts", "Conversations", "Custom_Objects", "Messages"} <= names
+        assert not any(s.name.startswith(CUSTOM_OBJECT_SCHEMA_PREFIX) for s in schemas)
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.capture_exception")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.vitally.source.list_custom_object_definitions"
+    )
     def test_static_schemas_survive_discovery_failure(self, mock_list, mock_capture):
         mock_list.side_effect = RuntimeError("Vitally API unavailable")
 
