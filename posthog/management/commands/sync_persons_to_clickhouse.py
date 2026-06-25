@@ -1,3 +1,10 @@
+"""Reconcile a team's person, distinct-id, and group rows from Postgres to ClickHouse.
+
+LOCAL/DEV USE ONLY for now: this loads the whole team's rows into memory (no batching), so it
+is not safe to run against large production teams. It exists to seed local ClickHouse from the
+local persons database (e.g. via the generate_persons command).
+"""
+
 import json
 import logging
 from typing import Literal, cast
@@ -22,6 +29,9 @@ class Command(BaseCommand):
         Lookup from Postgres and with a lower version in ClickHouse will be updated.
         Note higher versions in ClickHouse will be ignored.
         Recommended: run first without `--live-run` and first for person table, then distinct_id table
+
+        Local/dev use only for now: this materializes the whole team in memory and is not safe
+        for large production teams.
         """
 
     def add_arguments(self, parser):
