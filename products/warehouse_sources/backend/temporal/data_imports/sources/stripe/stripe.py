@@ -70,6 +70,29 @@ def _is_retryable_connection_reset(error: stripe_lib.APIConnectionError) -> bool
     return isinstance(error.__cause__, requests.exceptions.ChunkedEncodingError)
 
 
+def _is_truncated_stripe_list_response(body: Any) -> bool:
+    """True when ``body`` is a Stripe ``list`` response cut off before its closing brace.
+
+    A complete Stripe JSON response always ends in ``}``. A list body that opens but never closes
+    is a mid-stream truncation — a proxy or connection drop that still returned a 2xx with a
+    short body. Stripe only notices while decoding it (in ``_interpret_response``, after the SDK's
+    network-retry loop), where it raises ``APIError: Invalid response body from API`` straight out
+    of ``get_rows``/``auto_paging_iter`` and fails the whole import.
+
+    Scoped to list responses — every bulk read we make is an idempotent ``.list()`` call — so the
+    retry never re-issues a non-idempotent webhook write, whose responses are single objects.
+    """
+    if isinstance(body, bytes):
+        stripped = body.strip()
+        head = stripped[:64]
+        return stripped.startswith(b"{") and b'"object"' in head and b'"list"' in head and not stripped.endswith(b"}")
+    if isinstance(body, str):
+        stripped = body.strip()
+        head = stripped[:64]
+        return stripped.startswith("{") and '"object"' in head and '"list"' in head and not stripped.endswith("}")
+    return False
+
+
 class _RateLimitRetryingRequestsClient(RequestsClient):
     """Stripe's SDK retries 409/5xx (and whatever ``Stripe-Should-Retry`` advises) but never
     retries 429s on its own — ``_should_retry`` excludes them. A rate limit during a large sync,
@@ -78,9 +101,11 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
 
     Opt 429 into the SDK's existing ``Retry-After``-aware exponential backoff so transient rate
     limits are absorbed in-process (bounded by ``max_network_retries``) instead of crashing the
-    run. We also retry a connection reset that drops the response mid-body — the SDK declines it
-    (see ``_is_retryable_connection_reset``). Our Stripe reads are list/GET calls, so retrying them
-    is idempotent."""
+    run. We also retry a connection reset that drops the response mid-body (the SDK declines it,
+    see ``_is_retryable_connection_reset``) and a 2xx whose list body was truncated mid-stream —
+    Stripe surfaces the latter as a JSON decode failure (``Invalid response body from API``) only
+    after the SDK's retry loop, too late for it to recover on its own. Our Stripe reads are
+    list/GET calls, so retrying them is idempotent."""
 
     def _should_retry(
         self,
@@ -91,21 +116,26 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
     ) -> bool:
         if super()._should_retry(response, api_connection_error, num_retries, max_network_retries):
             return True
-        # The base logic already enforced the retry budget and declined; the only retryable cases
-        # it leaves on the table are a 429 (the SDK omits it) and a connection reset mid-response
-        # body, both safe to retry on our idempotent list/GET calls.
+        # The base logic already enforced the retry budget and declined; the cases it leaves on the
+        # table are a 429 (the SDK omits it), a 2xx with a truncated list body (the SDK only fails
+        # on it later, while parsing), and a connection reset that drops the response mid-body —
+        # all safe to retry on our idempotent list/GET calls.
         if num_retries >= (max_network_retries or 0):
             return False
-        if response is not None:
-            return response[1] == 429
-        return api_connection_error is not None and _is_retryable_connection_reset(api_connection_error)
+        if response is None:
+            return api_connection_error is not None and _is_retryable_connection_reset(api_connection_error)
+        body, status_code, _ = response
+        if status_code == 429:
+            return True
+        return 200 <= status_code < 300 and _is_truncated_stripe_list_response(body)
 
 
 def _tracked_stripe_http_client() -> RequestsClient:
     """Wrap a tracked `requests.Session` in Stripe's `RequestsClient` so every
     Stripe SDK call participates in our HTTP logging, metrics, and sample capture.
 
-    Uses a subclass that additionally retries 429 rate limits via the SDK's built-in backoff."""
+    Uses a subclass that additionally retries 429 rate limits and truncated list responses via the
+    SDK's built-in backoff."""
     return _RateLimitRetryingRequestsClient(session=make_tracked_session())
 
 
