@@ -141,7 +141,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
         person = get_person_by_distinct_id(self.team.pk, "id1")
         assert person is not None
-        query = EventsQuery(kind="EventsQuery", select=["*"], personId=str(person.pk), orderBy=[])  # type: ignore
+        query = EventsQuery(kind="EventsQuery", select=["*"], personId=str(person.pk), orderBy=[])
 
         # matching team
         query_ast = EventsQueryRunner(query=query, team=self.team).to_query()
