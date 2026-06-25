@@ -80,6 +80,7 @@ _PERSONS_DB_DIRECT_TEST_PATHS = (
     "sync_person_distinct_ids",
     "backfill_group_type_created_at",
     "test_person_schema",
+    "test_person_override_model",
     "dags/tests/test_detach_distinct_id",
     "dags/tests/test_person_property_reconciliation",
     "management/commands/test/test_background_delete_model",

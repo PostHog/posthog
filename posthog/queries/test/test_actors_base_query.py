@@ -8,7 +8,6 @@ from posthog.test.base import (
     snapshot_postgres_queries,
 )
 
-from posthog.models import Group
 from posthog.models.person.util import get_persons_by_uuids
 from posthog.queries.actor_base_query import (
     get_groups,
@@ -146,7 +145,7 @@ class TestActorsBaseQuery(ClickhouseTestMixin, APIBaseTest):
             version=1,
         )
 
-        groups = Group.objects.filter(group_key__in=["company_a", "company_b"])
+        groups, _ = get_groups(self.team.pk, 1, ["company_a", "company_b"])
         value_per_actor_id = {
             "company_a": 500.0,
             "company_b": 300.0,

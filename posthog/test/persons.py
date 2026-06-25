@@ -432,9 +432,18 @@ def update_group(group: Group) -> None:
 
 
 def create_group_type_mapping(*, team: Team | None = None, **kwargs: Any) -> GroupTypeMapping:
-    """Create a group type mapping in the personhog fake (no persons DB write)."""
+    """Create a group type mapping for tests.
+
+    Fake active: seed the personhog fake only (no persons DB write).  Fake off
+    (excluded layer tests): write a real persons-DB row so code that reads the
+    persons DB directly sees it.
+    """
     if team is not None:
         kwargs["team"] = team
+
+    if not persons_orm_blocked():
+        return GroupTypeMapping.objects.create(**kwargs)
+
     mapping = GroupTypeMapping(**kwargs)
     mapping.id = _next_synthetic_pk()
     if mapping.created_at is None:

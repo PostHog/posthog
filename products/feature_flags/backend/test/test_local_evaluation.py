@@ -343,7 +343,6 @@ class TestUpdateFlagCachesGroupMappingGuards(BaseTest):
     @patch("products.feature_flags.backend.local_evaluation.HYPERCACHE_GROUP_MAPPING_EMPTIED_COUNTER")
     def test_writes_when_genuinely_empty(self, mock_emptied_counter):
         # A team that truly has no group types must still rebuild normally
-        GroupTypeMapping.objects.filter(team_id=self.team.id).delete()
         fake = get_active_fake()
         fake._group_type_mappings_by_project.pop(self.team.project_id, None)
         fake._group_type_mappings_by_team.pop(self.team.id, None)
