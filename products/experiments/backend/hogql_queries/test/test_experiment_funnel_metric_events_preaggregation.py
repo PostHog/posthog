@@ -150,10 +150,40 @@ class TestExperimentFunnelMetricEventsPreaggregation(ExperimentQueryRunnerBaseTe
             start_date=datetime(2024, 1, 1),
             end_date=None,
         )
+        # create_experiment defaults end_date when None is passed, so clear it after creation.
+        experiment.end_date = None
+        experiment.save(update_fields=["end_date"])
         metric = ExperimentFunnelMetric(series=[EventsNode(event="purchase")])
 
         first_as_of = datetime(2024, 1, 5, 12, 0, tzinfo=UTC)
         second_as_of = datetime(2024, 1, 5, 12, 30, tzinfo=UTC)
+
+        first_result = self._build_runner(experiment, metric, as_of=first_as_of)._ensure_metric_events_precomputed(
+            self._build_lazy_computation_builder(experiment, feature_flag, metric, as_of=first_as_of)
+        )
+        second_result = self._build_runner(experiment, metric, as_of=second_as_of)._ensure_metric_events_precomputed(
+            self._build_lazy_computation_builder(experiment, feature_flag, metric, as_of=second_as_of)
+        )
+
+        assert first_result.ready is True
+        assert second_result.ready is True
+        assert first_result.job_ids == second_result.job_ids
+        assert mock_sync_execute.call_count == len(first_result.job_ids)
+
+    @patch("products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute")
+    def test_metric_events_precomputation_for_stopped_experiment_uses_end_date(self, mock_sync_execute):
+        feature_flag = self.create_feature_flag(key="stopped-metric-events-hash")
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 5),
+        )
+        metric = ExperimentFunnelMetric(series=[EventsNode(event="purchase")])
+
+        # This is the stopped-experiment complement to the moving-as_of sentinel case above. Both calls
+        # resolve to end_date before hashing, so they should reuse the same precomputation jobs.
+        first_as_of = datetime(2024, 1, 6, 12, 0, tzinfo=UTC)
+        second_as_of = datetime(2024, 1, 7, 12, 0, tzinfo=UTC)
 
         first_result = self._build_runner(experiment, metric, as_of=first_as_of)._ensure_metric_events_precomputed(
             self._build_lazy_computation_builder(experiment, feature_flag, metric, as_of=first_as_of)
