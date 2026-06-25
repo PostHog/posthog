@@ -56,14 +56,14 @@ def _with_auth(spec: dict) -> dict:
         (
             "with_chat_trigger",
             {
-                "model": "x",
+                "model": "test/x",
                 "triggers": [{"type": "chat", "config": {}}],
             },
         ),
         (
             "kitchen_sink",
             {
-                "model": "x",
+                "model": "test/x",
                 "triggers": [
                     {"type": "chat", "config": {}},
                     {"type": "webhook", "config": {"path": "/hook"}},
@@ -80,14 +80,14 @@ def _with_auth(spec: dict) -> dict:
         (
             "slack_omits_mention_only",
             {
-                "model": "x",
+                "model": "test/x",
                 "triggers": [{"type": "slack", "config": {"trusted_workspaces": "*"}}],
             },
         ),
         (
             "cron_omits_timezone",
             {
-                "model": "x",
+                "model": "test/x",
                 "triggers": [
                     {"type": "cron", "config": {"name": "hourly", "schedule": "0 * * * *", "prompt": "run it"}}
                 ],
@@ -96,7 +96,7 @@ def _with_auth(spec: dict) -> dict:
         (
             "mcp_omits_config",
             {
-                "model": "x",
+                "model": "test/x",
                 "triggers": [{"type": "mcp", "config": {}}],
             },
         ),
@@ -105,7 +105,7 @@ def _with_auth(spec: dict) -> dict:
         (
             "external_mcp_unique_tools",
             {
-                "model": "x",
+                "model": "test/x",
                 "mcps": [
                     {
                         "id": "linear",
@@ -121,7 +121,7 @@ def _with_auth(spec: dict) -> dict:
         (
             "external_mcp_byo_headers_with_secret",
             {
-                "model": "x",
+                "model": "test/x",
                 "secrets": ["GITHUB_TOKEN"],
                 "mcps": [
                     {
@@ -143,7 +143,7 @@ def _with_auth(spec: dict) -> dict:
         (
             "skill_from_template",
             {
-                "model": "x",
+                "model": "test/x",
                 "skills": [
                     {
                         "id": "research",
@@ -158,7 +158,7 @@ def _with_auth(spec: dict) -> dict:
         (
             "custom_template_tool",
             {
-                "model": "x",
+                "model": "test/x",
                 "tools": [
                     {
                         "kind": "custom_template",
@@ -172,27 +172,34 @@ def _with_auth(spec: dict) -> dict:
         # max_output_tokens is optional; runner picks a reasoning-aware default.
         (
             "limits_max_output_tokens",
-            {"model": "x", "limits": {"max_output_tokens": 16384}},
+            {"model": "test/x", "limits": {"max_output_tokens": 16384}},
         ),
         # Bare-string secrets keep parsing (back-compat path); the runtime
         # http-request refuses to substitute them, but the spec itself is
         # still valid.
         (
             "secrets_bare_string",
-            {"model": "x", "secrets": ["GITHUB_TOKEN"]},
+            {"model": "test/x", "secrets": ["GITHUB_TOKEN"]},
         ),
         # Object-form secret with allowed_hosts — the egress-binding shape.
         (
             "secrets_with_allowed_hosts",
-            {"model": "x", "secrets": [{"name": "GH_PAT", "allowed_hosts": ["api.github.com"]}]},
+            {"model": "test/x", "secrets": [{"name": "GH_PAT", "allowed_hosts": ["api.github.com"]}]},
         ),
         # Mixed bare + object forms in the same spec — common during migration.
         (
             "secrets_mixed_forms",
             {
-                "model": "x",
+                "model": "test/x",
                 "secrets": ["LEGACY", {"name": "GH_PAT", "allowed_hosts": ["api.github.com", "*.github.com"]}],
             },
+        ),
+        # identity_providers: the per-asker `principal` binding is accepted (the
+        # only one implemented at runtime). `client_id` is backend-injected on
+        # promote, so authors may omit it.
+        (
+            "identity_provider_principal_binding",
+            {"model": "test/x", "identity_providers": [{"kind": "posthog", "binding": "principal"}]},
         ),
     ],
 )
@@ -209,30 +216,36 @@ def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
         # `model` must be a non-empty string. zod uses min(1); JSON Schema
         # mirrors that via minLength.
         ("empty_model", {"model": ""}, "model"),
+        # `model` must match `<provider>/<model-id>`; the runtime resolver
+        # demands the prefix and would otherwise crash sessions at first
+        # turn against any spec that slipped through with a bare id.
+        ("bare_model_id", {"model": "claude-haiku-4-5"}, "model"),
+        ("uppercase_provider", {"model": "Anthropic/claude-haiku-4-5"}, "model"),
+        ("missing_model_id", {"model": "anthropic/"}, "model"),
         # `triggers` must be an array if present, not a string.
-        ("triggers_wrong_type", {"model": "x", "triggers": "all"}, "triggers"),
+        ("triggers_wrong_type", {"model": "test/x", "triggers": "all"}, "triggers"),
         # Discriminated union: an unknown trigger type doesn't match any of
         # the chat/slack/webhook/cron/mcp variants.
         (
             "unknown_trigger_type",
-            {"model": "x", "triggers": [{"type": "carrier_pigeon", "config": {}}]},
+            {"model": "test/x", "triggers": [{"type": "carrier_pigeon", "config": {}}]},
             "triggers",
         ),
         # Top-level `additionalProperties: false` should reject extra keys —
         # exactly the `name` / `description` case I tripped earlier.
-        ("extra_top_level_key", {"model": "x", "description": "agent"}, "description"),
+        ("extra_top_level_key", {"model": "test/x", "description": "agent"}, "description"),
         # Non-defaulted nested fields must still be rejected when missing —
         # the relaxation only removes required-with-defaults, not all required.
         # jsonschema's `oneOf` error doesn't surface which arm failed for what
         # reason; we just assert the trigger element itself is flagged.
         (
             "slack_missing_trusted_workspaces",
-            {"model": "x", "triggers": [{"type": "slack", "config": {"mention_only": False}}]},
+            {"model": "test/x", "triggers": [{"type": "slack", "config": {"mention_only": False}}]},
             "triggers.0",
         ),
         (
             "cron_missing_schedule",
-            {"model": "x", "triggers": [{"type": "cron", "config": {"timezone": "UTC"}}]},
+            {"model": "test/x", "triggers": [{"type": "cron", "config": {"timezone": "UTC"}}]},
             "triggers.0",
         ),
         # Duplicate tool names in `mcps[].external.tools[]` — JSON Schema can't
@@ -241,7 +254,7 @@ def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
         (
             "external_mcp_duplicate_tool_strings",
             {
-                "model": "x",
+                "model": "test/x",
                 "mcps": [
                     {
                         "id": "linear",
@@ -257,7 +270,7 @@ def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
         (
             "external_mcp_duplicate_tool_string_and_object",
             {
-                "model": "x",
+                "model": "test/x",
                 "mcps": [
                     {
                         "id": "linear",
@@ -274,12 +287,12 @@ def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
         # spec never reaches the DB in the first place.
         (
             "cron_missing_prompt",
-            {"model": "x", "triggers": [{"type": "cron", "config": {"name": "sweep", "schedule": "0 9 * * *"}}]},
+            {"model": "test/x", "triggers": [{"type": "cron", "config": {"name": "sweep", "schedule": "0 9 * * *"}}]},
             "triggers.0",
         ),
         (
             "cron_missing_name",
-            {"model": "x", "triggers": [{"type": "cron", "config": {"schedule": "0 9 * * *", "prompt": "go"}}]},
+            {"model": "test/x", "triggers": [{"type": "cron", "config": {"schedule": "0 9 * * *", "prompt": "go"}}]},
             "triggers.0",
         ),
         # spec.secrets[] object form must declare allowed_hosts. An object
@@ -288,7 +301,7 @@ def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
         # explicit way to say that.
         (
             "secrets_object_missing_allowed_hosts",
-            {"model": "x", "secrets": [{"name": "GH_PAT"}]},
+            {"model": "test/x", "secrets": [{"name": "GH_PAT"}]},
             "secrets",
         ),
         # An empty allowed_hosts means "bound to nothing" — not what an
@@ -296,8 +309,16 @@ def test_validate_spec_accepts_valid_payloads(name: str, spec: dict) -> None:
         # bare-string form.
         (
             "secrets_empty_allowed_hosts",
-            {"model": "x", "secrets": [{"name": "GH_PAT", "allowed_hosts": []}]},
+            {"model": "test/x", "secrets": [{"name": "GH_PAT", "allowed_hosts": []}]},
             "secrets",
+        ),
+        # identity_providers: the `agent` binding (one app-scoped credential
+        # shared by every asker) isn't implemented at runtime yet, so the schema
+        # rejects it until it lands — kept in lockstep with the zod enum.
+        (
+            "identity_provider_agent_binding_rejected",
+            {"model": "test/x", "identity_providers": [{"kind": "posthog", "binding": "agent"}]},
+            "identity_providers",
         ),
     ],
 )
@@ -308,7 +329,7 @@ def test_validate_spec_rejects_invalid_payloads(name: str, spec: dict, expected_
 
 
 _SLACK_SPEC = {
-    "model": "x",
+    "model": "test/x",
     "triggers": [{"type": "slack", "config": {"trusted_workspaces": "*"}}],
 }
 
@@ -336,7 +357,7 @@ def test_missing_required_secrets_for_slack_trigger(name: str, env: dict, expect
 
 
 def test_missing_required_secrets_skips_triggers_without_requirements() -> None:
-    spec = {"model": "x", "triggers": [{"type": "chat", "config": {}}]}
+    spec = {"model": "test/x", "triggers": [{"type": "chat", "config": {}}]}
     assert missing_required_secrets(spec, {}) == []
 
 

@@ -137,3 +137,85 @@ class TestGetSlackEmailForUser:
         # log filter for "needs reconnect" cleanly excludes them.
         assert all("'error_code': None" in r.message for r in failed)
         assert all("'token_broken': False" in r.message for r in failed)
+
+
+class TestAuthStateSideEffects:
+    """The resolver pre-filter (``load_integrations``) consumes the cached
+    verdict that these calls write. Success path → ``ok=true``; auth-class
+    error → ``ok=false``; transient/non-auth error → no write so a Slack
+    outage doesn't brick the workspace."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_cache(self):
+        from django.core.cache import cache
+
+        cache.clear()
+        yield
+        cache.clear()
+
+    @patch("posthog.models.integration.WebClient")
+    def test_success_does_not_touch_auth_state(self, mock_webclient_class, integration):
+        # The positive cache verdict is owned by the resolver's eager
+        # ``auth.test`` layer. A successful ``users.info`` can hit the DB cache
+        # (``SlackUserProfileCache``) without touching Slack at all, so it
+        # proves nothing about the live token — letting it refresh the cache
+        # would defeat the negative-cache mechanism the PR exists to provide.
+        from products.slack_app.backend.services.slack_auth import get_cached_auth_state
+
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        mock_client.users_info.return_value = _make_slack_response(
+            {"ok": True, "user": {"id": "U1", "profile": {"email": "dev@example.com"}}}
+        )
+
+        get_slack_email_for_user(integration, "U1")
+
+        assert get_cached_auth_state(integration.id) is None
+
+    @pytest.mark.parametrize(
+        "error_code",
+        ["token_revoked", "invalid_auth", "not_authed", "account_inactive", "token_expired"],
+    )
+    @patch("posthog.models.integration.WebClient")
+    def test_auth_class_error_writes_broken_state(self, mock_webclient_class, integration, error_code):
+        from products.slack_app.backend.services.slack_auth import get_cached_auth_state
+
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        mock_client.users_info.side_effect = _slack_api_error(error_code)
+
+        get_slack_email_for_user(integration, "U1")
+
+        state = get_cached_auth_state(integration.id)
+        assert state is not None
+        assert state.ok is False
+        assert state.error_code == error_code
+
+    @patch("posthog.models.integration.WebClient")
+    def test_non_auth_slack_error_does_not_touch_cache(self, mock_webclient_class, integration):
+        # ``user_not_found`` says nothing about token validity, so leaving the
+        # cache untouched keeps the resolver from demoting a healthy install
+        # based on an unrelated mention failing.
+        from products.slack_app.backend.services.slack_auth import get_cached_auth_state
+
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        mock_client.users_info.side_effect = _slack_api_error("user_not_found")
+
+        get_slack_email_for_user(integration, "U1")
+
+        assert get_cached_auth_state(integration.id) is None
+
+    @patch("posthog.models.integration.WebClient")
+    def test_transient_exception_does_not_touch_cache(self, mock_webclient_class, integration):
+        # Network blips and Slack 5xx must not brick the workspace by writing
+        # a negative verdict for the full TTL.
+        from products.slack_app.backend.services.slack_auth import get_cached_auth_state
+
+        mock_client = MagicMock()
+        mock_webclient_class.return_value = mock_client
+        mock_client.users_info.side_effect = RuntimeError("boom")
+
+        get_slack_email_for_user(integration, "U1")
+
+        assert get_cached_auth_state(integration.id) is None

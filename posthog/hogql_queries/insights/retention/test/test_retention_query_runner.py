@@ -3665,13 +3665,91 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             ),
         )
 
-    def test_dwh_variant_pushes_sampling_into_event_subqueries(self):
-        # The variant wraps a UNION ALL in a JoinExpr; SAMPLE on that wrapper never reaches the inner
-        # events scans, so it must be pushed into each FROM events arm where ClickHouse can apply it.
+    def test_dwh_variant_events_only_is_single_events_scan(self):
+        # Events-only series read the same `events` source on both arms, so the variant must
+        # collapse to one FROM events scan rather than a two-arm UNION ALL.
+        query = RetentionQuery(
+            dateRange={"date_to": _date(10, hour=6)},
+            retentionFilter={"totalIntervals": 11},
+        )
+        runner = RetentionQueryRunner(team=self.team, query=query)
+
+        with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=True):
+            base_query = RetentionFixedIntervalBaseQueryBuilder(runner).build()
+
+        assert base_query.select_from is not None
+        self.assertNotIsInstance(base_query.select_from.table, ast.SelectSetQuery)
+        assert isinstance(base_query.select_from.table, ast.Field)
+        self.assertEqual(base_query.select_from.table.chain, ["events"])
+
+    def test_dwh_variant_events_only_sampling_lands_on_single_scan(self):
+        # No UNION wrapper to push into: sampling must land directly on the single FROM events scan,
+        # exactly as the legacy path samples it.
         query = RetentionQuery(
             dateRange={"date_to": _date(10, hour=6)},
             samplingFactor=0.5,
             retentionFilter={"totalIntervals": 11},
+        )
+        runner = RetentionQueryRunner(team=self.team, query=query)
+
+        with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=True):
+            base_query = RetentionFixedIntervalBaseQueryBuilder(runner).build()
+
+        assert base_query.select_from is not None
+        assert isinstance(base_query.select_from.table, ast.Field)
+        self.assertEqual(base_query.select_from.table.chain, ["events"])
+        sample = base_query.select_from.sample
+        assert isinstance(sample, ast.SampleExpr)
+        self.assertEqual(sample.sample_value.left.value, 0.5)
+
+    def test_dwh_variant_multi_source_stays_union(self):
+        # Two different data-warehouse tables are genuinely separate sources and cannot collapse to a
+        # single scan, so the variant must keep the two-pass UNION ALL.
+        def dwh_entity(table: str, ts: str) -> dict:
+            return {
+                "id": table,
+                "name": table,
+                "type": "data_warehouse",
+                "table_name": table,
+                "aggregation_target_field": "person_id",
+                "timestamp_field": ts,
+            }
+
+        query = RetentionQuery(
+            dateRange={"date_to": _date(10, hour=6)},
+            retentionFilter={
+                "totalIntervals": 11,
+                "targetEntity": dwh_entity("warehouse_signups", "signed_up_at"),
+                "returningEntity": dwh_entity("warehouse_renewals", "renewed_at"),
+            },
+        )
+        runner = RetentionQueryRunner(team=self.team, query=query)
+
+        with patch(RETENTION_BASE_QUERY_VARIANT_PATCH_PATH, return_value=True):
+            base_query = RetentionFixedIntervalBaseQueryBuilder(runner).build()
+
+        assert base_query.select_from is not None
+        self.assertIsInstance(base_query.select_from.table, ast.SelectSetQuery)
+
+    def test_dwh_variant_pushes_sampling_into_event_subqueries(self):
+        # Multi-source (events start, data-warehouse return) keeps the two-pass UNION ALL. SAMPLE on the
+        # wrapper never reaches the inner scans, so it must be pushed into the events arm — and only that
+        # arm, since the data-warehouse table is skipped by apply_sampling.
+        query = RetentionQuery(
+            dateRange={"date_to": _date(10, hour=6)},
+            samplingFactor=0.5,
+            retentionFilter={
+                "totalIntervals": 11,
+                "targetEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                "returningEntity": {
+                    "id": "warehouse_renewals",
+                    "name": "warehouse_renewals",
+                    "type": "data_warehouse",
+                    "table_name": "warehouse_renewals",
+                    "aggregation_target_field": "person_id",
+                    "timestamp_field": "renewed_at",
+                },
+            },
         )
         runner = RetentionQueryRunner(team=self.team, query=query)
 
@@ -3691,12 +3769,24 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
             and isinstance(arm.select_from.table, ast.Field)
             and arm.select_from.table.chain == ["events"]
         ]
-        self.assertEqual(len(event_arms), 2)
-        for arm in event_arms:
-            assert arm.select_from is not None
-            sample = arm.select_from.sample
-            assert isinstance(sample, ast.SampleExpr)
-            self.assertEqual(sample.sample_value.left.value, 0.5)
+        self.assertEqual(len(event_arms), 1)
+        arm = event_arms[0]
+        assert arm.select_from is not None
+        sample = arm.select_from.sample
+        assert isinstance(sample, ast.SampleExpr)
+        self.assertEqual(sample.sample_value.left.value, 0.5)
+
+        dwh_arms = [
+            arm
+            for arm in union.select_queries()
+            if isinstance(arm, ast.SelectQuery)
+            and arm.select_from is not None
+            and isinstance(arm.select_from.table, ast.Field)
+            and arm.select_from.table.chain == ["warehouse_renewals"]
+        ]
+        self.assertEqual(len(dwh_arms), 1)
+        assert dwh_arms[0].select_from is not None
+        self.assertIsNone(dwh_arms[0].select_from.sample)
 
     def _create_sampling_parity_fixtures(self):
         for i in range(20):
@@ -3829,6 +3919,115 @@ class TestRetention(RetentionBaseQueryVariantComparisonMixin, ClickhouseTestMixi
                 ]
             ),
         )
+
+    def test_dwh_variant_breakdown_event_property_per_value_parity(self):
+        # Tracer bullet: the variant must mirror the legacy per-value cohort semantics
+        # for event-property breakdowns. person1 starts "clothing" then returns with a
+        # mismatched "electronics" purchase, which must not retain within the clothing
+        # bucket — identically on both the legacy and the DWH-variant paths.
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(0), {"category": "clothing", "$event_type": "signup"}),
+                ("person2", _date(0), {"category": "electronics", "$event_type": "signup"}),
+            ],
+            event="signup",
+        )
+        _create_events(
+            self.team,
+            [
+                ("person1", _date(1), {"category": "clothing", "$event_type": "purchase"}),
+                ("person1", _date(2), {"category": "electronics", "$event_type": "purchase"}),
+                ("person2", _date(1), {"category": "electronics", "$event_type": "purchase"}),
+            ],
+            event="purchase",
+        )
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(5, hour=0)},
+                "retentionFilter": {
+                    "totalIntervals": 6,
+                    "period": "Day",
+                    "targetEntity": {"id": "signup", "type": "events"},
+                    "returningEntity": {"id": "purchase", "type": "events"},
+                },
+                "breakdownFilter": {"breakdowns": [{"property": "category", "type": "event"}]},
+            }
+        )
+
+        # Clothing cohort retains person1 on day 1 (matching purchase) but not day 2
+        # (the electronics purchase belongs to a different bucket).
+        clothing = pluck([c for c in result if c.get("breakdown_value") == "clothing"], "values", "count")
+        self.assertEqual(clothing[0][:3], [1, 1, 0])
+
+    def test_dwh_variant_breakdown_first_ever_parity(self):
+        # First-ever buckets each actor by the breakdown value on their absolute-first
+        # start event (argMinIf). old_user's first app_opened predates the flag, so they
+        # belong only to the empty bucket — never the later "control" one — on both paths.
+        _create_person(team_id=self.team.pk, distinct_ids=["old_user"])
+        _create_person(team_id=self.team.pk, distinct_ids=["new_user"])
+
+        _create_events(self.team, [("old_user", _date(0))], "app_opened")
+        _create_events(self.team, [("old_user", _date(2), {"$feature/x": "control"})], "app_opened")
+        _create_events(self.team, [("old_user", _date(3), {"$feature/x": "control"})], "insight_viewed")
+        _create_events(self.team, [("new_user", _date(2), {"$feature/x": "variant"})], "app_opened")
+        _create_events(self.team, [("new_user", _date(3), {"$feature/x": "variant"})], "insight_viewed")
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": _date(0), "date_to": _date(4)},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 4,
+                    "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
+                    "targetEntity": {"id": "app_opened", "name": "app_opened", "type": TREND_FILTER_TYPE_EVENTS},
+                    "returningEntity": {"id": "insight_viewed", "name": "insight_viewed", "type": "events"},
+                },
+                "breakdownFilter": {"breakdown": "$feature/x", "breakdown_type": "event"},
+            }
+        )
+        # old_user anchors on their flag-less first event, so "control" never appears.
+        self.assertNotIn("control", {c.get("breakdown_value") for c in result})
+
+    def test_dwh_variant_breakdown_cohort_union_of_unions_parity(self):
+        # Cohort breakdown composes as a UNION ALL of per-cohort base queries. Each per-cohort base
+        # query is events-only, so under the variant it collapses to a single events scan (not a
+        # nested UNION). Both paths must agree on the result.
+        _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+        _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            name="c1",
+            groups=[{"properties": [{"key": "name", "value": "p1", "type": "person"}]}],
+        )
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            name="c2",
+            groups=[{"properties": [{"key": "name", "value": "p2", "type": "person"}]}],
+        )
+        cohort1.calculate_people_ch(pending_version=0)
+        cohort2.calculate_people_ch(pending_version=0)
+
+        _create_events(
+            self.team,
+            [("p1", _date(0)), ("p1", _date(1)), ("p2", _date(0)), ("p2", _date(2))],
+        )
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_to": _date(4, hour=0)},
+                "retentionFilter": {"totalIntervals": 5, "period": "Day"},
+                "breakdownFilter": {"breakdown_type": "cohort", "breakdown": [cohort1.pk, cohort2.pk]},
+            }
+        )
+        self.assertEqual({c.get("breakdown_value") for c in result}, {str(cohort1.pk), str(cohort2.pk)})
 
     @override_settings(IN_UNIT_TESTING=True)
     def test_retention_with_breakdown_with_data_warehouse_person_properties(self):

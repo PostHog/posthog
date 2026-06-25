@@ -25,19 +25,6 @@ except ImportError:
 class TestAIObservabilityAccessControl(APIBaseTest):
     def setUp(self):
         super().setUp()
-        self.feature_flag_patcher = patch(
-            "products.ai_observability.backend.api.score_definitions.posthoganalytics.feature_enabled",
-            return_value=True,
-        )
-        self.feature_flag_patcher.start()
-        self.addCleanup(self.feature_flag_patcher.stop)
-        self.trace_review_feature_flag_patcher = patch(
-            "products.ai_observability.backend.api.trace_reviews.posthoganalytics.feature_enabled",
-            return_value=True,
-        )
-        self.trace_review_feature_flag_patcher.start()
-        self.addCleanup(self.trace_review_feature_flag_patcher.stop)
-
         self.organization.available_product_features = [
             {
                 "key": AvailableFeature.ACCESS_CONTROL,
@@ -49,6 +36,17 @@ class TestAIObservabilityAccessControl(APIBaseTest):
             },
         ]
         self.organization.save()
+
+        self.score_definitions_flag_patcher = patch(
+            "products.ai_observability.backend.api.score_definitions.feature_enabled_or_false", return_value=True
+        )
+        self.trace_reviews_flag_patcher = patch(
+            "products.ai_observability.backend.api.trace_reviews.feature_enabled_or_false", return_value=True
+        )
+        self.score_definitions_flag_patcher.start()
+        self.trace_reviews_flag_patcher.start()
+        self.addCleanup(self.score_definitions_flag_patcher.stop)
+        self.addCleanup(self.trace_reviews_flag_patcher.stop)
 
         AccessControl.objects.create(
             team=self.team,
