@@ -3584,7 +3584,7 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
         "tax_exempt": "none",
         "address": None,
         "invoice_prefix": "0759376C",
-        "balance": 0,
+        "balance": -1000,
         "currency": None,
         "livemode": False,
         "invoice_settings": '{"custom_fields":null,"default_payment_method":null,"footer":null,"rendering_options":null}',

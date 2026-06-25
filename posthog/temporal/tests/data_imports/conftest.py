@@ -408,7 +408,7 @@ def stripe_customer():
                     "id": "cus_NffrFeUfNV2Hib",
                     "object": "customer",
                     "address": null,
-                    "balance": 0,
+                    "balance": -1000,
                     "created": 1680893993,
                     "currency": null,
                     "default_source": null,
