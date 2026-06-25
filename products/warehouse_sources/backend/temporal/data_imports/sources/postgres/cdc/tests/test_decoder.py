@@ -1,6 +1,7 @@
 import struct
 from datetime import UTC, datetime
 
+import pyarrow as pa
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.decoder import (
@@ -249,6 +250,35 @@ class TestPgOutputDecoder:
         assert events[0].columns["id"] == 1
         assert events[0].columns["name"] is None
         assert events[0].columns["email"] == "test@example.com"
+
+    def test_event_carries_column_arrow_types(self):
+        # Events expose the Arrow type per column from the relation OIDs, so the batcher
+        # can type a column the same way even in a micro-batch where it's all-null.
+        decoder = self._setup_decoder_with_relation(
+            columns=[
+                ("id", _OID_INT8, -1),
+                ("seats", _OID_INT4, -1),
+                ("price", _OID_FLOAT8, -1),
+                ("active", _OID_BOOL, -1),
+                ("payload", _OID_JSONB, -1),
+                ("name", _OID_TEXT, -1),
+            ]
+        )
+
+        decoder.decode_message(_make_begin(), "0/100")
+        decoder.decode_message(
+            _make_insert(1, [("t", "1"), ("t", "5"), ("t", "9.5"), ("t", "t"), ("t", "{}"), ("t", "x")]), "0/150"
+        )
+        events = decoder.decode_message(_make_commit(), "0/200")
+
+        assert events[0].column_types == {
+            "id": pa.int64(),
+            "seats": pa.int64(),
+            "price": pa.float64(),
+            "active": pa.bool_(),
+            "payload": pa.string(),
+            "name": pa.string(),
+        }
 
     def test_unchanged_toast_column(self):
         decoder = self._setup_decoder_with_relation(columns=[("id", _OID_INT4, -1), ("big_text", _OID_TEXT, -1)])

@@ -336,6 +336,10 @@ def _events_to_table(events: list[ChangeEvent]) -> pa.Table:
             all_columns[col_name] = None
     column_names = list(all_columns.keys())
 
+    # Authoritative Arrow type per column from the source schema (same for every event
+    # of a relation). Lets all-null micro-batches keep the column's real type.
+    column_types = next((e.column_types for e in events if e.column_types), None) or {}
+
     # Build column arrays
     source_data: dict[str, list] = {col: [] for col in column_names}
     cdc_ops: list[str] = []
@@ -362,12 +366,18 @@ def _events_to_table(events: list[ChangeEvent]) -> pa.Table:
     arrays: list[pa.Array] = []
     fields: list[pa.Field] = []
     for col_name in column_names:
-        try:
-            arr = pa.array(source_data[col_name])
-        except (pa.ArrowInvalid, pa.ArrowTypeError):
-            arr = pa.array([str(v) if v is not None else None for v in source_data[col_name]], type=pa.string())
-        if arr.type == pa.null():
-            arr = arr.cast(pa.string())
+        target_type = column_types.get(col_name)
+        if target_type is not None:
+            # _safe_pa_array falls back to inference, then string, if the values
+            # don't fit the declared type (e.g. a mid-WAL type change).
+            arr = _safe_pa_array(source_data[col_name], target_type)
+        else:
+            try:
+                arr = pa.array(source_data[col_name])
+            except (pa.ArrowInvalid, pa.ArrowTypeError):
+                arr = pa.array([str(v) if v is not None else None for v in source_data[col_name]], type=pa.string())
+            if arr.type == pa.null():
+                arr = arr.cast(pa.string())
         arrays.append(arr)
         fields.append(pa.field(col_name, arr.type))
 
