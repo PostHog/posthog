@@ -4312,6 +4312,46 @@ snapshots:
         hash: v1.k794b7964.adb3678ff40e8c2e4994ff26d079adb6be3d4c2f5775ea7789e79c6f5590da36.8AD0kOjHRUenn8Rfj-d6hlGsA0LxdZxKjvyCR4RKgmo
     posthog-3000-keyboard-shortcut--within-tooltip--light:
         hash: v1.k794b7964.83e30bce6eaf10ec2744cc16017cf71eeaffe0073f6bb86576a79030dde457b7.yEG2vJ43kwDAw3CfEjf2gQQJghMVMNmPDPXHnHp1TCg
+    products-posthog-ai-composer--default--dark:
+        hash: v1.k794b7964.31c024cc65743b20a76c2b03033bd4ad65fa137cf9e320f3037313905dbae212.Fdh8IsBHGzGigcejkmaY7rpiZZPfPGfI2CLskSAimvs
+    products-posthog-ai-composer--default--light:
+        hash: v1.k794b7964.0371f5ea5a14c84a8c0187900d23e28d957cefa33b1621b40ee445709099f41b.1yBsKGrmBrC6jS6fQ-ypXmiVhbFHjVb2Ja-n4J_5c9I
+    products-posthog-ai-composer--disabled--dark:
+        hash: v1.k794b7964.31c024cc65743b20a76c2b03033bd4ad65fa137cf9e320f3037313905dbae212.AJ-0DT6cRklR7ZZF5OzbYiCScBeOAKlVXunqfcxK82g
+    products-posthog-ai-composer--disabled--light:
+        hash: v1.k794b7964.0371f5ea5a14c84a8c0187900d23e28d957cefa33b1621b40ee445709099f41b.Q2r74gPninxNB4OnyxuwWQAN56tCq47qvcsiH1kk0yE
+    products-posthog-ai-composer--filled--dark:
+        hash: v1.k794b7964.e558effc1076de991c2d318bf69284ef6214984f9d997a5e33acdf41f450e8c9.62gwuizcqFa1YionZgj975v4gY7ACtXKfbt0-Do4V38
+    products-posthog-ai-composer--filled--light:
+        hash: v1.k794b7964.283356fd2e2853f0f914818ba50b27f74b28a2e83c830e8448f03a84c5625fb3.k9juWD41diCzQ-6ZRGvPAfiBAcWLzAMtV_eGOGxg7eU
+    products-posthog-ai-composer--follow-up--dark:
+        hash: v1.k794b7964.1576bc91c8068e6fb97a90cf40a82764ce789ec043fab7a680b4b3fca85827c2.l0axJvDqB5F7RB469DNg5E6fSdaQYnuuR6yjYY7vNro
+    products-posthog-ai-composer--follow-up--light:
+        hash: v1.k794b7964.47d1d49bb637bf02e2752ac3733d98784e9b3784a17367f3bcc6c6f671e6681b.dn_zPz5goSG5JcBkXp4x_59M_riKFjmva5Psco23oXo
+    products-posthog-ai-composer--sticky--dark:
+        hash: v1.k794b7964.82189c7eaa68a322167827e5fc88860d7e7da6ad75ccd8f2de4282218eedf127.4em2irQ84IgjnHRntaLlhjwouZDfgBfbyISCT7NbiF8
+    products-posthog-ai-composer--sticky--light:
+        hash: v1.k794b7964.1c7c39cad1e3581036f6b3ac5deee40b85bb336e6073ee4a52b1aa5136bc4fb7.5Gan-N28a2OElwScG4oTdLXCdbkLBE8_jJezFq3CrJo
+    products-posthog-ai-composer--with-footer--dark:
+        hash: v1.k794b7964.2e7714e7374f33427c893da6d3a1dbcb4aad48e348371b8b47339d26cda42886.cj22bY5VG6QK_wmKotRb6yYIiHlbdECQSOW6377fW-Y
+    products-posthog-ai-composer--with-footer--light:
+        hash: v1.k794b7964.a93dbdd90f6b020b5db36445cf6602896a1202e7b70967c87361fea2a22467ba.rZ-jPXNPLZG9ihNMvwFQx6uRlWiQMXdX_Cc5G2h6Pb8
+    products-posthog-ai-composer--with-up-next-queue--dark:
+        hash: v1.k794b7964.cd2aa250cb0392babd2d101fa53e63e99dd856116a7c95868a0ca224d9bd6711.04JeZhFKzyJ8K8usH1z3pNSFpbC5tElncTKSqpaUztc
+    products-posthog-ai-composer--with-up-next-queue--light:
+        hash: v1.k794b7964.be10c29dca25fe125d4f04a5a8df8727812636d608a923cc7f76e844e5b36c44.takLdpH-VIpnX3KpQETWZGziuOQDg4Yy3ZV3mwTz-OE
+    products-posthog-ai-queuedmessagelist--empty--dark:
+        hash: v1.k794b7964.4313fbb59e762d6fc4a87fed828bb6c814697c489997e23111f95df3d84be347.VRvN01m1Gf36IcNO8lzu8q3mqxKWwSRROgPqtbxMiSU
+    products-posthog-ai-queuedmessagelist--empty--light:
+        hash: v1.k794b7964.8ff99b0d11642dd53f5f0f70fc69106ee0e0158728fd6a73cf8699c4d68f8186.BQuDnKXQn4DwravdDwbmq3GC_BR06D3nntvW0bDvyzE
+    products-posthog-ai-queuedmessagelist--multiple--dark:
+        hash: v1.k794b7964.9ff0899b9a1563aa162851b530342f34588eccdcf9c1df47d4a9e31dd3507a60.pg3-1N2nigYi2NC1Fu6sB2OygQIZLx-hTkKKeqHutMY
+    products-posthog-ai-queuedmessagelist--multiple--light:
+        hash: v1.k794b7964.e09799b4e7552fc9539ec21f3552aa4c41d1b331b79e368cca91e8a75d5fea82.l19d_esENqAj3kf85pKCqu__bpDTQlrY6PDOyJCSDzA
+    products-posthog-ai-queuedmessagelist--single--dark:
+        hash: v1.k794b7964.2c8b08cca3b552e3ee3670eb19b017cd9b760982dff9128cde00bb8ae9029b8b.0_A_iSZDzamyJr0nr6qMXHrLFSVxf2C2WO2ZfzGkjnA
+    products-posthog-ai-queuedmessagelist--single--light:
+        hash: v1.k794b7964.80c03908f588a87222265093441fb1a923d47c312fdc4936d9396b1759a44232.-zIaOwO0H_QNqp98fu2Of3ZE-TL8tCQdVLfWQoun2ws
     products-workflows-customerioimportmodal--all-steps-completed--dark:
         hash: v1.k794b7964.679720cf72d72cd35bb4c4a2e86094627df27ff2798b4244c5d29a6a767f3861.AvZ-0V3qNglzE2ZWUOcEjHFnSe9Qs68t-u03-ytn7VI
     products-workflows-customerioimportmodal--all-steps-completed--light:
