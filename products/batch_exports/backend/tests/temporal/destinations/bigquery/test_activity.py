@@ -93,7 +93,7 @@ async def _run_activity(
 
     assert insert_inputs.batch_export_id is not None
     # we first need to run the insert_into_internal_stage_activity so that we have data to export
-    stage_folder = await activity_environment.run(
+    stage_result = await activity_environment.run(
         insert_into_internal_stage_activity,
         BatchExportInsertIntoInternalStageInputs(
             team_id=insert_inputs.team_id,
@@ -109,7 +109,8 @@ async def _run_activity(
             destination_default_fields=bigquery_default_fields(),
         ),
     )
-    insert_inputs.stage_folder = stage_folder
+    insert_inputs.stage_folder = stage_result.stage_folder
+    insert_inputs.records_total = stage_result.records_total
     result = await activity_environment.run(insert_into_bigquery_activity_from_stage, insert_inputs)
 
     await assert_clickhouse_records_in_bigquery(

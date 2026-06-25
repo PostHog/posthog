@@ -3,7 +3,8 @@ import { Counter, Histogram } from 'prom-client'
 
 import { ExecResult } from '@posthog/hogvm'
 
-import { HogFlow } from '../../schema/hogflow'
+import { HogFlow } from '~/cdp/schema/hogflow'
+
 import { RawClickHouseEvent } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'

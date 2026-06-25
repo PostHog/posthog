@@ -1,7 +1,8 @@
 import { get } from 'lodash'
 import { DateTime } from 'luxon'
 
-import { HogFlow, HogFlowAction } from '../../../schema/hogflow'
+import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
+
 import { logger } from '../../../utils/logger'
 import { UUIDT } from '../../../utils/utils'
 import {
@@ -71,6 +72,7 @@ export function createHogFlowInvocation(
         functionId: hogFlow.id, // TODO: Include version?
         hogFlow,
         person: globals.person, // This is outside of state as we don't persist it
+        groups: globals.groups, // Same as person: in-memory only (test path); real execution re-resolves on dequeue
         filterGlobals,
         queue: 'hogflow',
         queuePriority: 1,

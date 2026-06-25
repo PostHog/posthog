@@ -244,12 +244,12 @@ tools:
             `source_product` to a `source_type` and an `enabled` flag. Valid `source_product` values: session_replay,
             llm_analytics, github, linear, zendesk, conversations, error_tracking, pganalyze, signals_scout, logs. Valid
             `source_type` values: session_analysis_cluster, evaluation, issue, ticket, issue_created, issue_reopened,
-            issue_spiking, cross_source_issue, alert_state_change. To turn the Signals scout source on for a project,
-            create `source_product=signals_scout`, `source_type=cross_source_issue`, `enabled=true` — this is the
-            team-level source gate that scout emit also requires (the per-scout `emit` flag is set separately via
-            `signals-scout-config-update`). There is at most one config per (source_product, source_type) per project;
-            if one already exists, update it instead. Enabling the session_analysis_cluster source requires the
-            organization to have approved AI data processing.
+            issue_spiking, cross_source_issue, alert_state_change. The Signals scout source is ON BY DEFAULT — scout
+            findings reach the inbox with no config row needed. The only reason to create a
+            `source_product=signals_scout`, `source_type=cross_source_issue` row is to OPT OUT: create it with
+            `enabled=false` (the per-scout `emit` flag is set separately via `signals-scout-config-update`). There is at
+            most one config per (source_product, source_type) per project; if one already exists, update it instead.
+            Enabling the session_analysis_cluster source requires the organization to have approved AI data processing.
     inbox-source-configs-destroy:
         operation: signals_source_configs_destroy
         enabled: false
@@ -540,9 +540,11 @@ tools:
         title: Search the scout scratchpad
         description: >
             Return `SignalScratchpad` entries for this project, newest first. Pass `text` for a case-insensitive
-            substring match on the entry's `content` and `key`. Pass `keys_only=true` to scan which memories exist
+            substring match on the entry's `content` and `key`. Pass `date_from` / `date_to` (ISO-8601, inclusive lower
+            / exclusive upper bound on `updated_at`) to scope to a window — set `date_to` to the `updated_at` of the
+            oldest entry from the prior page to walk past the cap. Pass `keys_only=true` to scan which memories exist
             without pulling their (potentially large) bodies, or `content_max_chars` to cap each `content` to a preview
-            — both keep a wide orientation/dedupe scan from returning every entry's full prose. Results capped at 100.
+            — both keep a wide orientation/dedupe scan from returning every entry's full prose. Results capped at 500.
     users-signal-autonomy-create:
         operation: users_signal_autonomy_create
         enabled: false

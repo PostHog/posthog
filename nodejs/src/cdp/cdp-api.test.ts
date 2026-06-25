@@ -7,9 +7,9 @@ import supertest from 'supertest'
 import express from 'ultimate-express'
 
 import { setupExpressApp } from '~/api/router'
+import { HogFlow } from '~/cdp/schema/hogflow'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
-import { HogFlow } from '~/schema/hogflow'
 
 import { createCdpConsumerDeps } from '../../tests/helpers/cdp'
 import { forSnapshot } from '../../tests/helpers/snapshots'

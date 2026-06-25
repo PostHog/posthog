@@ -114,9 +114,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(EvaluationReport.objects.count(), 0)
 
     def test_can_create_sentiment_evaluation_without_default_report(self):
-        with patch(
-            "products.ai_observability.backend.feature_flags.posthoganalytics.feature_enabled", return_value=True
-        ):
+        with patch("products.ai_observability.backend.feature_flags.feature_enabled_or_false", return_value=True):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/evaluations/",
                 {
@@ -139,9 +137,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(EvaluationReport.objects.filter(evaluation=evaluation).count(), 0)
 
     def test_create_sentiment_evaluation_requires_feature_flag(self):
-        with patch(
-            "products.ai_observability.backend.feature_flags.posthoganalytics.feature_enabled", return_value=False
-        ):
+        with patch("products.ai_observability.backend.feature_flags.feature_enabled_or_false", return_value=False):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/evaluations/",
                 {
@@ -172,9 +168,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
             created_by=self.user,
         )
 
-        with patch(
-            "products.ai_observability.backend.feature_flags.posthoganalytics.feature_enabled", return_value=False
-        ):
+        with patch("products.ai_observability.backend.feature_flags.feature_enabled_or_false", return_value=False):
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/evaluations/{evaluation.id}/",
                 {"enabled": True},
@@ -198,9 +192,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
             created_by=self.user,
         )
 
-        with patch(
-            "products.ai_observability.backend.feature_flags.posthoganalytics.feature_enabled", return_value=False
-        ):
+        with patch("products.ai_observability.backend.feature_flags.feature_enabled_or_false", return_value=False):
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/evaluations/{evaluation.id}/",
                 {
@@ -218,9 +210,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
         self.assertEqual(evaluation.name, "Updated Sentiment Evaluation")
 
     def test_sentiment_evaluation_rejects_model_configuration(self):
-        with patch(
-            "products.ai_observability.backend.feature_flags.posthoganalytics.feature_enabled", return_value=True
-        ):
+        with patch("products.ai_observability.backend.feature_flags.feature_enabled_or_false", return_value=True):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/evaluations/",
                 {
@@ -252,9 +242,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
     def test_rejects_unsupported_evaluation_output_type_combinations(
         self, _name, evaluation_type, output_type, evaluation_config, output_config
     ):
-        with patch(
-            "products.ai_observability.backend.feature_flags.posthoganalytics.feature_enabled", return_value=True
-        ):
+        with patch("products.ai_observability.backend.feature_flags.feature_enabled_or_false", return_value=True):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/evaluations/",
                 {

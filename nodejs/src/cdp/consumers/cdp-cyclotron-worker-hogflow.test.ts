@@ -2,8 +2,8 @@ import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 
 import { DateTime } from 'luxon'
 
+import { HogFlow } from '~/cdp/schema/hogflow'
 import { InternalPersonWithDistinctId, PersonReadRepository } from '~/common/persons/repositories/person-repository'
-import { HogFlow } from '~/schema/hogflow'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { PostgresUse } from '~/utils/db/postgres'

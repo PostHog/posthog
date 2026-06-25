@@ -1,20 +1,35 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useState } from 'react'
+import { type MouseEvent, useState } from 'react'
 
-import { IconArchive, IconPullRequest, IconUndo } from '@posthog/icons'
-import { LemonButton, lemonToast } from '@posthog/lemon-ui'
+import { IconArchive, IconMessage, IconPullRequest, IconUndo } from '@posthog/icons'
+import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
-import { captureInboxReportAction } from '../../inboxAnalytics'
+import { captureInboxReportAction, captureInboxReportFeedback } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport, SignalReportStatus } from '../../types'
 import { useReportArchive } from '../cards/useReportArchive'
+import { openFeedbackReportDialog } from '../shell/FeedbackReportDialog'
+
+/**
+ * One detail-pane action, rendered either inline as a `LemonButton` (wide layouts) or as a
+ * `LemonMenu` item (the "…" overflow on narrow layouts). Keeping actions as data lets both
+ * surfaces share a single source of truth instead of duplicating the button JSX.
+ */
+export interface ReportDetailAction {
+    key: string
+    label: string
+    icon: JSX.Element
+    onClick: (event: MouseEvent) => void
+    loading?: boolean
+    tooltip?: string
+}
 
 /**
  * Should the Create PR action be offered? Mirrors desktop `canCreateImplementationPr` /
@@ -37,11 +52,11 @@ function canCreateImplementationPr(report: SignalReport): boolean {
 }
 
 /**
- * Detail-pane actions: Archive (suppress the report out of the inbox, then return to the list)
- * and Create PR (opens an implementation task and navigates to it). Task creation/navigation is
- * owned by `inboxTaskKickoffLogic`; archiving reuses the shared `useReportArchive` dialog flow.
+ * Detail-pane actions as data: Feedback (always), Archive/Restore, and Create PR. Task
+ * creation/navigation is owned by `inboxTaskKickoffLogic`; archiving reuses the shared
+ * `useReportArchive` dialog flow. Callers render these inline or inside a menu.
  */
-export function ReportDetailActions({ report }: { report: SignalReport }): JSX.Element {
+export function useReportDetailActions(report: SignalReport): ReportDetailAction[] {
     const { isCreatingPr } = useValues(inboxTaskKickoffLogic)
     const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
     const { reportArchived } = useActions(inboxBulkActionsLogic)
@@ -93,55 +108,68 @@ export function ReportDetailActions({ report }: { report: SignalReport }): JSX.E
         }
     }
 
-    // A resolved report is terminal – its PR already merged, so no detail actions apply.
+    // Feedback is always available – it never changes the report's state, just records what the
+    // user thinks of it (and its PR), so it stays even for resolved/archived reports.
+    const feedback: ReportDetailAction = {
+        key: 'feedback',
+        label: 'Feedback',
+        icon: <IconMessage />,
+        tooltip: 'Tell us how useful this report was',
+        onClick: () =>
+            openFeedbackReportDialog({
+                reportTitle: report.title ?? 'Untitled report',
+                onConfirm: ({ sentiment, note }) => {
+                    captureInboxReportFeedback({ report, sentiment, note, surface: 'detail_pane' })
+                    lemonToast.success('Thanks for the feedback')
+                },
+            }),
+    }
+
+    // A resolved report is terminal – its PR already merged, so only feedback applies.
     if (isResolved) {
-        return <></>
+        return [feedback]
     }
 
     // An already-archived report offers Restore instead of Archive (and no Create PR).
     if (isArchived) {
-        return (
-            <LemonButton
-                type="secondary"
-                size="small"
-                icon={<IconUndo />}
-                loading={isRestoring}
-                tooltip="Restore this report to your inbox"
-                onClick={() => void onRestoreClick()}
-            >
-                Restore
-            </LemonButton>
-        )
+        return [
+            feedback,
+            {
+                key: 'restore',
+                label: 'Restore',
+                icon: <IconUndo />,
+                loading: isRestoring,
+                tooltip: 'Restore this report to your inbox',
+                onClick: () => void onRestoreClick(),
+            },
+        ]
     }
 
-    return (
-        <>
-            <LemonButton
-                type="secondary"
-                size="small"
-                icon={<IconArchive />}
-                loading={isArchiving}
-                tooltip="Archive this report out of your inbox"
-                onClick={onArchiveClick}
-            >
-                Archive
-            </LemonButton>
+    const actions: ReportDetailAction[] = [
+        feedback,
+        {
+            key: 'archive',
+            label: 'Archive',
+            icon: <IconArchive />,
+            loading: isArchiving,
+            tooltip: 'Archive this report out of your inbox',
+            onClick: onArchiveClick,
+        },
+    ]
 
-            {showCreatePr && (
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    icon={<IconPullRequest />}
-                    loading={isCreatingPr}
-                    tooltip="Have Self-driving open a pull request for this report"
-                    onClick={() => {
-                        captureInboxReportAction({ report, actionType: 'create_pr', surface: 'detail_pane' })
-                        createPrFromReport(report)
-                    }}
-                >
-                    Create PR
-                </LemonButton>
-            )}
-        </>
-    )
+    if (showCreatePr) {
+        actions.push({
+            key: 'create-pr',
+            label: 'Create PR',
+            icon: <IconPullRequest />,
+            loading: isCreatingPr,
+            tooltip: 'Have Self-driving open a pull request for this report',
+            onClick: () => {
+                captureInboxReportAction({ report, actionType: 'create_pr', surface: 'detail_pane' })
+                createPrFromReport(report)
+            },
+        })
+    }
+
+    return actions
 }

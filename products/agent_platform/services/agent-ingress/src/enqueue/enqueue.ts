@@ -129,7 +129,12 @@ async function enqueueOrResumeInner(deps: EnqueueDeps, input: EnqueueInput): Pro
         }
     }
     if (input.externalKey) {
-        const existing = await deps.queue.findByExternalKey(input.application.id, input.externalKey)
+        // Scope the lookup to the resolved revision so a request routed to one
+        // revision can't resume a session created on another. A draft-preview
+        // request resumes only the draft it targeted (never the live session
+        // under a shared external_key), and two draft revisions previewed under
+        // the same external_key stay isolated.
+        const existing = await deps.queue.findByExternalKey(input.application.id, input.externalKey, input.revision.id)
         if (existing && existing.state !== 'closed' && existing.state !== 'failed') {
             const incoming = input.principal ?? null
             const check = input.bypassOwnerAcl ? ({ kind: 'allowed' } as const) : requireAclAccess(existing, incoming)

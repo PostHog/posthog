@@ -5,7 +5,7 @@ import { FixtureHogFlowBuilder, SimpleHogFlowRepresentation } from '~/cdp/_tests
 import { createHogExecutionGlobals, insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
 import { compileHog } from '~/cdp/templates/compiler'
 import { template as posthogCaptureTemplate } from '~/cdp/templates/_destinations/posthog_capture/posthog-capture.template'
-import { HogFlow } from '~/schema/hogflow'
+import { HogFlow } from '~/cdp/schema/hogflow'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { fetch } from '~/utils/request'
@@ -1471,6 +1471,48 @@ describe('Hogflow Executor', () => {
                 overrideMe: 'customValue',
                 extra: 'shouldBeIncluded',
             })
+        })
+    })
+
+    describe('group propagation', () => {
+        it('carries groups from globals onto the invocation', () => {
+            const hogFlow: HogFlow = new FixtureHogFlowBuilder()
+                .withWorkflow({
+                    actions: {
+                        trigger: { type: 'trigger', config: { type: 'event', filters: {} } },
+                        exit: { type: 'exit', config: {} },
+                    },
+                    edges: [{ from: 'trigger', to: 'exit', type: 'continue' }],
+                })
+                .build()
+
+            const groups = {
+                organization: {
+                    id: 'acme-123',
+                    type: 'organization',
+                    index: 0,
+                    url: '',
+                    properties: {},
+                },
+            }
+            const globals = {
+                event: {
+                    event: 'test',
+                    properties: {},
+                    url: '',
+                    distinct_id: '',
+                    timestamp: '',
+                    uuid: '',
+                    elements_chain: '',
+                },
+                project: { id: 1, name: 'Test Project', url: '' },
+                person: { id: 'person_id', name: 'John Doe', properties: {}, url: '' },
+                groups,
+            }
+
+            const invocation = createHogFlowInvocation(globals, hogFlow, {} as any)
+
+            expect(invocation.groups).toEqual(groups)
         })
     })
 

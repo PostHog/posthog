@@ -143,6 +143,7 @@ const ListSessionsQuerySchema = z.object({
     agent_user_id: z.string().optional(),
     created_after: z.string().optional(),
     created_before: z.string().optional(),
+    search: z.string().optional(),
 })
 
 const GetSessionQuerySchema = z.object({
@@ -401,6 +402,7 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 agentUserId: q.agent_user_id,
                 createdAfter: q.created_after,
                 createdBefore: q.created_before,
+                search: q.search,
             }
             const [sessions, count] = await Promise.all([
                 opts.queue.listByApplication(q.application_id, { ...filter, limit: q.limit, offset: q.offset }),
@@ -500,12 +502,9 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
             // recent turns. usage_total comes off the row regardless so cost
             // reporting stays accurate.
             if (q.last_n !== undefined && q.last_n < s.conversation.length) {
-                const trimmed: AgentSession = {
+                res.json({
                     ...s,
                     conversation: s.conversation.slice(-q.last_n),
-                }
-                res.json({
-                    ...trimmed,
                     conversation_total_turns: s.conversation.length,
                     conversation_trimmed: true,
                 })

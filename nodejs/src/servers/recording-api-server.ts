@@ -1,17 +1,21 @@
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import {
+    getDefaultSessionRecordingApiConfig,
+    getDefaultSessionRecordingConfig,
+} from '~/ingestion/pipelines/sessionreplay/config'
+import {
     KafkaSessionreplayProducerEnvConfig,
     getDefaultKafkaSessionreplayProducerEnvConfig,
 } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
-import { createProducerRegistry } from '~/recording-api/outputs/producer-registry'
-import { createOutputsRegistry } from '~/recording-api/outputs/registry'
-import { RecordingApi } from '~/recording-api/recording-api'
+import { createProducerRegistry } from '~/session-replay/recording-api/outputs/producer-registry'
+import { createOutputsRegistry } from '~/session-replay/recording-api/outputs/registry'
+import { RecordingApi } from '~/session-replay/recording-api/recording-api'
 import {
     RecordingApiConfig,
     RecordingApiOutputsConfig,
     type RecordingApiProducerName,
     getDefaultRecordingApiOutputsConfig,
-} from '~/recording-api/types'
+} from '~/session-replay/recording-api/types'
 
 import { CommonConfig } from '../common/config'
 import { defaultConfig, overrideConfigWithEnv } from '../config/config'
@@ -41,6 +45,8 @@ export class RecordingApiServer implements NodeServer {
     constructor(config: Partial<RecordingApiServerConfig> = {}) {
         this.config = {
             ...defaultConfig,
+            ...overrideConfigWithEnv(getDefaultSessionRecordingConfig()),
+            ...overrideConfigWithEnv(getDefaultSessionRecordingApiConfig()),
             ...overrideConfigWithEnv(getDefaultKafkaSessionreplayProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultRecordingApiOutputsConfig()),
             ...config,

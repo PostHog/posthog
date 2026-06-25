@@ -9,7 +9,7 @@ import orjson
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
-from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
+from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 
 if TYPE_CHECKING:
     from posthog.hogql.constants import LimitContext
@@ -130,7 +130,7 @@ def load_generation_sentiment_evaluations_for_traces(
         )
 
     query = parse_select(_SENTIMENT_EVALUATIONS_SQL)
-    result = execute_with_ai_events_fallback(
+    result = query_ai_events(
         query=query,
         placeholders={
             "trace_ids": ast.Tuple(exprs=[ast.Constant(value=trace_id) for trace_id in unique_trace_ids]),
@@ -145,6 +145,7 @@ def load_generation_sentiment_evaluations_for_traces(
         },
         team=team,
         query_type=query_type,
+        fall_back_to_events=True,
         timings=timings,
         modifiers=modifiers,
         limit_context=limit_context,
@@ -185,7 +186,7 @@ def load_trace_sentiment_evaluations(
         return {}
 
     query = parse_select(_TRACE_SENTIMENT_EVALUATIONS_SQL)
-    result = execute_with_ai_events_fallback(
+    result = query_ai_events(
         query=query,
         placeholders={
             "trace_ids": ast.Tuple(exprs=[ast.Constant(value=trace_id) for trace_id in unique_trace_ids]),
@@ -193,6 +194,7 @@ def load_trace_sentiment_evaluations(
         },
         team=team,
         query_type=query_type,
+        fall_back_to_events=True,
         timings=timings,
         modifiers=modifiers,
         limit_context=limit_context,

@@ -1,11 +1,11 @@
 import { BindLogic } from 'kea'
 import { useActions, useValues } from 'kea'
 
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { Scene } from 'scenes/sceneTypes'
 
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
@@ -28,7 +28,7 @@ export const MarketingAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.
                 top={tabs}
                 left={
                     <div className="flex items-center gap-4">
-                        <AppShortcut
+                        <Shortcut
                             name="MarketingAnalyticsRefresh"
                             keybind={[keyBinds.refresh]}
                             intent="Refresh data"
@@ -36,13 +36,13 @@ export const MarketingAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.
                             scope={Scene.MarketingAnalytics}
                         >
                             <ReloadAll />
-                        </AppShortcut>
+                        </Shortcut>
                         <ConversionGoalFilterButton />
                     </div>
                 }
                 right={
                     <>
-                        <AppShortcut
+                        <Shortcut
                             name="MarketingAnalyticsAddIntegration"
                             keybind={[keyBinds.new]}
                             intent="Add integration"
@@ -50,7 +50,7 @@ export const MarketingAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.
                             scope={Scene.MarketingAnalytics}
                         >
                             <AddIntegrationButton />
-                        </AppShortcut>
+                        </Shortcut>
                         <IntegrationFilter />
                         <DateFilter
                             allowTimePrecision

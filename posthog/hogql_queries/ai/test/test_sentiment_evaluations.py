@@ -32,7 +32,7 @@ def test_load_trace_sentiment_evaluations_aggregates_generation_tuples() -> None
         ]
     )
 
-    with patch("posthog.hogql_queries.ai.sentiment_evaluations.execute_with_ai_events_fallback", return_value=result):
+    with patch("posthog.hogql_queries.ai.sentiment_evaluations.query_ai_events", return_value=result):
         sentiment_by_trace_id = load_trace_sentiment_evaluations(
             team=cast(Team, SimpleNamespace(id=1)),
             trace_ids=["trace-1"],
