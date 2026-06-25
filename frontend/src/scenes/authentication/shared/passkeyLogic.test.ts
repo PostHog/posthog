@@ -11,23 +11,22 @@ jest.mock('@simplewebauthn/browser', () => ({
     browserSupportsWebAuthnAutofill: jest.fn(),
 }))
 
-const SAFARI_UA =
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15'
-const CHROME_UA =
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
+// isWebKitBrowser() reads navigator.vendor: "Apple Computer, Inc." on WebKit, "Google Inc." on Chromium.
+const WEBKIT_VENDOR = 'Apple Computer, Inc.'
+const CHROMIUM_VENDOR = 'Google Inc.'
 
-function setUserAgent(userAgent: string): void {
-    Object.defineProperty(window.navigator, 'userAgent', { value: userAgent, configurable: true })
+function setVendor(vendor: string): void {
+    Object.defineProperty(window.navigator, 'vendor', { value: vendor, configurable: true })
 }
 
 describe('passkeyLogic', () => {
     describe('startConditionalPasskeyLogin (WebKit-only passkey autofill)', () => {
         let logic: ReturnType<typeof passkeyLogic.build>
         let beginHandler: jest.Mock
-        const originalUserAgent = window.navigator.userAgent
+        const originalVendor = window.navigator.vendor
 
         beforeEach(() => {
-            setUserAgent(SAFARI_UA)
+            setVendor(WEBKIT_VENDOR)
             ;(browserSupportsWebAuthnAutofill as jest.Mock).mockResolvedValue(true)
             // Settle the ceremony as a cancellation so it resolves without a page reload.
             ;(startAuthentication as jest.Mock).mockRejectedValue(
@@ -54,7 +53,7 @@ describe('passkeyLogic', () => {
 
         afterEach(() => {
             logic.unmount()
-            setUserAgent(originalUserAgent)
+            setVendor(originalVendor)
             jest.clearAllMocks()
         })
 
@@ -70,7 +69,7 @@ describe('passkeyLogic', () => {
         })
 
         it('does nothing on a non-WebKit browser (those use the auto-modal instead)', async () => {
-            setUserAgent(CHROME_UA)
+            setVendor(CHROMIUM_VENDOR)
 
             logic.actions.startConditionalPasskeyLogin()
             await expectLogic(logic).toFinishAllListeners()

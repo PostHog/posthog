@@ -12,13 +12,12 @@ import { initKeaTests } from '~/test/init'
 
 jest.mock('@simplewebauthn/browser', () => ({ startAuthentication: jest.fn() }))
 
-const CHROME_UA =
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
-const SAFARI_UA =
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.6 Safari/605.1.15'
+// isWebKitBrowser() reads navigator.vendor: "Apple Computer, Inc." on WebKit, "Google Inc." on Chromium.
+const WEBKIT_VENDOR = 'Apple Computer, Inc.'
+const CHROMIUM_VENDOR = 'Google Inc.'
 
-function setUserAgent(userAgent: string): void {
-    Object.defineProperty(window.navigator, 'userAgent', { value: userAgent, configurable: true })
+function setVendor(vendor: string): void {
+    Object.defineProperty(window.navigator, 'vendor', { value: vendor, configurable: true })
 }
 
 describe('loginLogic', () => {
@@ -80,10 +79,10 @@ describe('loginLogic', () => {
     describe('passkey auto-trigger after precheck', () => {
         let logic: ReturnType<typeof loginLogic.build>
         let beginHandler: jest.Mock
-        const originalUserAgent = window.navigator.userAgent
+        const originalVendor = window.navigator.vendor
 
         beforeEach(() => {
-            setUserAgent(CHROME_UA)
+            setVendor(CHROMIUM_VENDOR)
             // Treat the ceremony as a user cancellation so it resolves without a page reload.
             ;(startAuthentication as jest.Mock).mockRejectedValue(
                 Object.assign(new Error('cancelled'), { name: 'AbortError' })
@@ -118,7 +117,7 @@ describe('loginLogic', () => {
         afterEach(() => {
             passkeyLogic().unmount()
             logic.unmount()
-            setUserAgent(originalUserAgent)
+            setVendor(originalVendor)
             jest.clearAllMocks()
         })
 
@@ -131,8 +130,8 @@ describe('loginLogic', () => {
             expect(beginHandler).toHaveBeenCalledTimes(1)
         })
 
-        it('does not auto-trigger the passkey ceremony on WebKit (Safari)', async () => {
-            setUserAgent(SAFARI_UA)
+        it('does not auto-trigger the passkey modal on WebKit (Safari)', async () => {
+            setVendor(WEBKIT_VENDOR)
             logic.actions.precheck({ email: 'user@example.com' })
             await expectLogic(logic).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
             expect(beginHandler).not.toHaveBeenCalled()
@@ -142,10 +141,10 @@ describe('loginLogic', () => {
     describe('precheck dedupe', () => {
         let logic: ReturnType<typeof loginLogic.build>
         let precheckHandler: jest.Mock
-        const originalUserAgent = window.navigator.userAgent
+        const originalVendor = window.navigator.vendor
 
         beforeEach(() => {
-            setUserAgent(SAFARI_UA) // skip passkey ceremony, isolate precheck
+            setVendor(WEBKIT_VENDOR) // skip passkey ceremony, isolate precheck
             precheckHandler = jest.fn(() => [200, { saml_available: false }])
             useMocks({ post: { '/api/login/precheck': precheckHandler } })
             initKeaTests()
@@ -156,7 +155,7 @@ describe('loginLogic', () => {
 
         afterEach(() => {
             logic.unmount()
-            setUserAgent(originalUserAgent)
+            setVendor(originalVendor)
             jest.clearAllMocks()
         })
 
