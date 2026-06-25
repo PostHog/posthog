@@ -452,12 +452,16 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             settings=HogQLQuerySettings(join_algorithm=JOIN_ALGOS),
         )
 
-    def _extract_total_median_conversion_time(self, results) -> Optional[float]:
+    def _extract_total_median_conversion_time(self, results, columns) -> Optional[float]:
         # Identical across every output row (windowed over all breakdowns); read it off the first row.
-        # Column order: step counts, averages, medians, total_median, row_number, final_prop.
-        if not results:
+        # Looked up by column name so it's robust to changes in the outer SELECT's column order.
+        if not results or not columns:
             return None
-        return results[0][-3]
+        try:
+            index = columns.index("total_median_conversion_time")
+        except ValueError:
+            return None
+        return results[0][index]
 
     def _format_single_funnel(self, results, with_breakdown=False):
         max_steps = self.context.max_steps

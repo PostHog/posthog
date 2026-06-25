@@ -17,7 +17,7 @@ import { getFunnelDatasetKey, getFunnelResultCustomizationColorToken } from 'sce
 import { Noun, groupsModel } from '~/models/groupsModel'
 import { seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { FunnelExclusionSteps, InsightQueryNode } from '~/queries/schema/schema-general'
-import { FunnelsFilter, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { FunnelsFilter, FunnelsQuery, FunnelsQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isWebOverviewQuery, isWebStatsTableQuery } from '~/queries/utils'
 import {
     FlattenedFunnelStepByBreakdown,
@@ -687,7 +687,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 return {
                     // The median of the total funnel time isn't the sum of per-step medians, so it's
                     // computed breakdown-agnostically on the backend and carried as a top-level field.
-                    medianTime: (insightData as any)?.total_median_conversion_time ?? 0,
+                    medianTime: (insightData as Partial<FunnelsQueryResponse>).total_median_conversion_time ?? 0,
                     stepRate: fromStep.count === 0 ? 0 : toStep.count / fromStep.count,
                     totalRate: steps[0].count === 0 ? 0 : steps[steps.length - 1].count / steps[0].count,
                 }
