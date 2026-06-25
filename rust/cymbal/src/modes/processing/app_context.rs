@@ -205,16 +205,10 @@ async fn build_rate_limiter(
         return Ok(None);
     }
 
-    // Dedicated connection to the rate-limiter Redis. Falls back to the
-    // issue-buckets Redis when no URL is set (handy for local dev).
-    let url = if config.error_tracking_rate_limiter_redis_url.is_empty() {
-        config.issue_buckets_redis_url.clone()
-    } else {
-        config.error_tracking_rate_limiter_redis_url.clone()
-    };
-
+    // Dedicated connection to the rate-limiter Redis. Defaults to localhost,
+    // which is shared with the issue-buckets Redis in local dev.
     let client = RedisClient::with_config(
-        url,
+        config.error_tracking_rate_limiter_redis_url.clone(),
         common_redis::CompressionConfig::disabled(),
         common_redis::RedisValueFormat::Utf8,
         if config.redis_response_timeout_ms == 0 {
