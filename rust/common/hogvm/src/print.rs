@@ -105,6 +105,18 @@ fn format_literal(
             }
             Ok(format!("[{}]", parts.join(", ")))
         }
+        HogLiteral::Tuple(arr) => {
+            let mut parts = Vec::with_capacity(arr.len());
+            for elem in arr {
+                parts.push(print_hog_value(heap, elem, marked, depth + 1)?);
+            }
+            // The reference disambiguates 0/1-element tuples as `tuple(...)`; 2+ print as `(a, b)`.
+            if arr.len() < 2 {
+                Ok(format!("tuple({})", parts.join(", ")))
+            } else {
+                Ok(format!("({})", parts.join(", ")))
+            }
+        }
         HogLiteral::Object(obj) => {
             // Hog temporals are duck-typed objects; the reference prints them as DateTime(...)/Date(...).
             if let Some(temporal) = format_temporal(heap, obj)? {

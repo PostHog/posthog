@@ -65,6 +65,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                     HogLiteral::Boolean(_) => Ok(HogLiteral::String("boolean".to_string()).into()),
                     HogLiteral::String(_) => Ok(HogLiteral::String("string".to_string()).into()),
                     HogLiteral::Array(_) => Ok(HogLiteral::String("array".to_string()).into()),
+                    HogLiteral::Tuple(_) => Ok(HogLiteral::String("tuple".to_string()).into()),
                     HogLiteral::Object(_) => Ok(HogLiteral::String("object".to_string()).into()),
                     HogLiteral::Callable(_) => {
                         Ok(HogLiteral::String("function".to_string()).into())
@@ -91,7 +92,10 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 assert_argc(&args, 1, "values")?;
                 let arg = args[0].deref(&vm.heap)?;
                 match arg {
-                    HogLiteral::Array(_) => Ok(arg.clone().into()),
+                    // Arrays and tuples both yield a plain array of their elements (reference: [...obj]).
+                    HogLiteral::Array(a) | HogLiteral::Tuple(a) => {
+                        Ok(HogLiteral::Array(a.clone()).into())
+                    }
                     HogLiteral::Object(obj) => {
                         Ok(HogLiteral::Array(obj.values().cloned().collect()).into())
                     }
@@ -102,12 +106,20 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             }),
         ),
         (
+            "tuple",
+            // `tuple(a, b, c)` constructs a tuple from its arguments (reference: args.slice() tagged
+            // __isHogTuple). Any arity is allowed, including zero.
+            native_func(|_vm, args| Ok(HogLiteral::Tuple(args).into())),
+        ),
+        (
             "length",
             native_func(|vm, args| {
                 assert_argc(&args, 1, "length")?;
                 let arg = args[0].deref(&vm.heap)?;
                 match arg {
-                    HogLiteral::Array(arr) => Ok(HogLiteral::Number(arr.len().into()).into()),
+                    HogLiteral::Array(arr) | HogLiteral::Tuple(arr) => {
+                        Ok(HogLiteral::Number(arr.len().into()).into())
+                    }
                     HogLiteral::Object(obj) => Ok(HogLiteral::Number(obj.len().into()).into()),
                     HogLiteral::String(str) => Ok(HogLiteral::Number(str.len().into()).into()),
                     _ => Err(VmError::NativeCallFailed(
@@ -302,16 +314,8 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             "notEmpty",
             native_func(|vm, args| {
                 assert_argc(&args, 1, "notEmpty")?;
-                let val = &args[0];
-                match val.deref(&vm.heap)? {
-                    HogLiteral::Array(a) => Ok(HogLiteral::Boolean(!a.is_empty()).into()),
-                    HogLiteral::String(s) => Ok(HogLiteral::Boolean(!s.is_empty()).into()),
-                    HogLiteral::Object(o) => Ok(HogLiteral::Boolean(!o.is_empty()).into()),
-                    _ => Err(VmError::NativeCallFailed(format!(
-                        "{} not supported by notEmpty",
-                        val.type_name()
-                    ))),
-                }
+                // The reference defines notEmpty as the exact negation of empty.
+                Ok(HogLiteral::Boolean(!is_hog_empty(args[0].deref(&vm.heap)?)).into())
             }),
         ),
         (
@@ -622,17 +626,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
             "empty",
             native_func(|vm, args| {
                 assert_argc(&args, 1, "empty")?;
-                // Numbers and booleans are never "empty" (matching the reference); otherwise empty
-                // means falsy: "" / [] / {} / null.
-                let result = match args[0].deref(&vm.heap)? {
-                    HogLiteral::Number(_) | HogLiteral::Boolean(_) => false,
-                    HogLiteral::Null => true,
-                    HogLiteral::String(s) => s.is_empty(),
-                    HogLiteral::Array(a) => a.is_empty(),
-                    HogLiteral::Object(o) => o.is_empty(),
-                    _ => false,
-                };
-                Ok(HogLiteral::Boolean(result).into())
+                Ok(HogLiteral::Boolean(is_hog_empty(args[0].deref(&vm.heap)?)).into())
             }),
         ),
         (
@@ -645,7 +639,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                     )
                     .into()),
                     // Arrays/tuples -> 0-based index list, matching the reference.
-                    HogLiteral::Array(a) => Ok(HogLiteral::Array(
+                    HogLiteral::Array(a) | HogLiteral::Tuple(a) => Ok(HogLiteral::Array(
                         (0..a.len())
                             .map(|i| HogLiteral::Number(Num::Integer(i as i64)).into())
                             .collect(),
@@ -1597,7 +1591,8 @@ fn json_stringify(
             n.to_integer().to_string()
         }),
         HogLiteral::String(s) => escape(s),
-        HogLiteral::Array(arr) => {
+        // Tuples serialize as JSON arrays, same as arrays.
+        HogLiteral::Array(arr) | HogLiteral::Tuple(arr) => {
             let mut parts = Vec::with_capacity(arr.len());
             for v in arr {
                 parts.push(json_stringify(heap, v, marked, depth + 1)?);
@@ -2332,6 +2327,19 @@ fn arg_string_or(
             HogLiteral::Null => Ok(default.to_string()),
             _ => to_string(&vm.heap, v, 0),
         },
+    }
+}
+
+// `empty` semantics (and `notEmpty` is its negation): numbers/booleans are never empty; null and
+// empty "" / [] / () / {} are empty. Matches the reference STL.empty.
+fn is_hog_empty(lit: &HogLiteral) -> bool {
+    match lit {
+        HogLiteral::Number(_) | HogLiteral::Boolean(_) => false,
+        HogLiteral::Null => true,
+        HogLiteral::String(s) => s.is_empty(),
+        HogLiteral::Array(a) | HogLiteral::Tuple(a) => a.is_empty(),
+        HogLiteral::Object(o) => o.is_empty(),
+        _ => false,
     }
 }
 

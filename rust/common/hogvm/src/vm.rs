@@ -415,17 +415,16 @@ impl<'a> HogVM<'a> {
                 self.push_stack(ptr)?;
             }
             Operation::Tuple => {
-                // The compiler has special case handling for tuples, but the typescript VM doesn't, so neither do we,
-                // this is effectively Array
+                // A tuple behaves like an array but prints as `(a, b)` and has typeof "tuple", so it
+                // gets its own literal variant rather than reusing Array.
                 let element_count: usize = self.next()?;
                 let mut elements = Vec::with_capacity(element_count);
                 for _ in 0..element_count {
                     elements.push(self.pop_stack()?);
                 }
-                // We've walked back down the stack, but the compiler expects the "tuple" to be in pushed order
+                // We've walked back down the stack, but the compiler expects the tuple in pushed order
                 elements.reverse();
-                let tuple = HogLiteral::Array(elements);
-                // See above
+                let tuple = HogLiteral::Tuple(elements);
                 let ptr = self.heap.emplace(tuple)?;
                 self.push_stack(ptr)?;
             }
@@ -967,7 +966,7 @@ impl<'a> HogVM<'a> {
             HogLiteral::Boolean(b) => Ok(JsonValue::Bool(*b)),
             HogLiteral::Number(n) => Ok(JsonValue::Number(n.clone().try_into()?)),
             HogLiteral::String(s) => Ok(JsonValue::String(s.clone())),
-            HogLiteral::Array(arr) => {
+            HogLiteral::Array(arr) | HogLiteral::Tuple(arr) => {
                 let mut json_arr = Vec::new();
                 for elem in arr {
                     json_arr.push(self.hog_to_json_impl(elem, depth + 1)?);

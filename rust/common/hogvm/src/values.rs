@@ -55,6 +55,10 @@ pub enum HogLiteral {
     Boolean(bool),
     String(String),
     Array(Vec<HogValue>),
+    // A tuple is an array that prints as `(a, b)` and whose `typeof` is "tuple"; for every other
+    // operation it behaves exactly like an array (the reference duck-types it as an array with an
+    // `__isHogTuple` marker). Kept as a distinct variant so those two behaviors can diverge.
+    Tuple(Vec<HogValue>),
     // Insertion-ordered (IndexMap, not HashMap) to match the reference VMs: object literals,
     // `keys()`/`values()`, JSON serialization, and `print` all preserve the order keys were added.
     Object(IndexMap<String, HogValue>),
@@ -118,7 +122,7 @@ impl HogValue {
                 };
                 found.get_nested(&chain[1..], heap)
             }
-            HogLiteral::Array(vals) => {
+            HogLiteral::Array(vals) | HogLiteral::Tuple(vals) => {
                 let index: &Num = chain[0].deref(heap)?.try_as()?;
                 if index.is_float() {
                     return Err(VmError::InvalidIndex);
@@ -169,7 +173,7 @@ impl HogValue {
                 let needle: &str = needle.try_as()?;
                 Ok(s.contains(needle).into())
             }
-            HogLiteral::Array(vals) => {
+            HogLiteral::Array(vals) | HogLiteral::Tuple(vals) => {
                 for val in vals.iter() {
                     if *val.equals(other, heap)?.try_as::<bool>()? {
                         return Ok(true.into());
@@ -203,6 +207,7 @@ impl HogLiteral {
             HogLiteral::Number(_) => "Number",
             HogLiteral::Boolean(_) => "Boolean",
             HogLiteral::Array(_) => "Array",
+            HogLiteral::Tuple(_) => "Tuple",
             HogLiteral::Object(_) => "Object",
             HogLiteral::Null => "Null",
             HogLiteral::Callable(_) => "Callable",
@@ -219,7 +224,7 @@ impl HogLiteral {
             HogLiteral::String(s) => s.len(),
             HogLiteral::Number(_) => std::mem::size_of::<f64>(),
             HogLiteral::Boolean(_) => std::mem::size_of::<bool>(),
-            HogLiteral::Array(a) => a.iter().map(|v| v.size()).sum(),
+            HogLiteral::Array(a) | HogLiteral::Tuple(a) => a.iter().map(|v| v.size()).sum(),
             HogLiteral::Object(o) => o.iter().map(|(k, v)| k.len() + v.size()).sum(),
             HogLiteral::Null => std::mem::size_of::<()>(),
             HogLiteral::Callable(_) => std::mem::size_of::<Callable>(),

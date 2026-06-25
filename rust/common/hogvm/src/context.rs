@@ -213,18 +213,29 @@ fn walk_emplacing(vm: &mut HogVM, value: HogValue) -> Result<HogValue, VmError> 
         }
     };
 
+    // Arrays and tuples emplace identically; only the rebuilt variant differs (tuples must stay
+    // tuples so they keep their `(a, b)` printing and "tuple" typeof through the heap).
+    let is_tuple = matches!(literal, HogLiteral::Tuple(_));
+
     match literal {
-        HogLiteral::Array(arr) => {
+        HogLiteral::Array(arr) | HogLiteral::Tuple(arr) => {
+            let rebuild = |v: Vec<HogValue>| {
+                if is_tuple {
+                    HogLiteral::Tuple(v)
+                } else {
+                    HogLiteral::Array(v)
+                }
+            };
             // Fast path: when every element is a plain (non-container, non-reference) literal there
             // is nothing to emplace, so skip the per-element walk + re-collect entirely. Native STL
             // results are overwhelmingly flat numeric/string arrays, and this walk was the single
             // hottest function in the interpreter (~25% of instructions) before this guard.
             let emplaced_arr = if arr.iter().all(is_flat_literal) {
-                HogLiteral::Array(arr)
+                rebuild(arr)
             } else {
                 let walked: Result<Vec<HogValue>, _> =
                     arr.into_iter().map(|i| walk_emplacing(vm, i)).collect();
-                HogLiteral::Array(walked?)
+                rebuild(walked?)
             };
 
             if let Some(ptr) = existing_location {
