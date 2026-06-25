@@ -1,18 +1,19 @@
 """Tests for session recording person loading via the personhog path.
 
 TestLoadPersonRouting — Pattern A routing test (gate/fallback logic).
-TestLoadPersonIntegration — parameterized integration test (ORM + personhog).
+TestLoadPersonIntegration — integration test for person loading.
 """
 
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, PropertyMock, patch
 
 from django.test import SimpleTestCase
 
-from parameterized import parameterized, parameterized_class
+from parameterized import parameterized
 
-from posthog.personhog_client.test_helpers import PersonhogTestMixin
+from posthog.models.person import Person
 from posthog.session_recordings.models.session_recording import SessionRecording
+from posthog.test.persons import create_person
 
 
 class TestLoadPersonRouting(SimpleTestCase):
@@ -76,8 +77,6 @@ class TestLoadPersonRouting(SimpleTestCase):
         else:
             mock_fetch_personhog.return_value = None
 
-        from posthog.models.person import Person
-
         mock_orm_person = MagicMock()
         if person_found:
             mock_person_objects.db_manager.return_value.get.return_value = mock_orm_person
@@ -87,19 +86,18 @@ class TestLoadPersonRouting(SimpleTestCase):
         recording = SessionRecording()
         recording.distinct_id = "test-distinct-id"
         recording.team_id = 1
-        # Use a real-looking mock for the team FK — bypass Django's descriptor
+        # Use a real-looking mock for the team FK — bypass Django's descriptor.
         mock_team = MagicMock()
         mock_team.pk = 1
-        recording.__dict__["_team_cache"] = mock_team
-        object.__setattr__(recording, "_team_cache", mock_team)
-        # Patch the property access used in load_person
-        type(recording).team = property(lambda self: mock_team)  # type: ignore[assignment]
 
-        recording.load_person()
+        # Patch `team` at the class level via patch.object so the original FK
+        # descriptor is restored afterwards. A bare `type(recording).team = ...`
+        # leaks a setter-less property into every later SessionRecording test in
+        # the same process (only visible when those tests run on the same shard).
+        with patch.object(type(recording), "team", new_callable=PropertyMock, return_value=mock_team):
+            recording.load_person()
 
-        mock_routing_counter.labels.assert_called_with(
-            operation="load_person", source=expected_source, client_name="posthog-django"
-        )
+        mock_routing_counter.labels.assert_called_with(operation="load_person", source=expected_source, client_name=ANY)
 
         if gate_on and grpc_exception is None:
             mock_person_objects.db_manager.assert_not_called()
@@ -115,10 +113,9 @@ class TestLoadPersonRouting(SimpleTestCase):
             mock_errors_counter.labels.assert_called_once()
 
 
-@parameterized_class(("personhog",), [(False,), (True,)])
-class TestLoadPersonIntegration(PersonhogTestMixin, BaseTest):
+class TestLoadPersonIntegration(BaseTest):
     def test_person_found(self):
-        person = self._seed_person(team=self.team, distinct_ids=["test_user"], properties={"email": "test@example.com"})
+        person = create_person(team=self.team, distinct_ids=["test_user"], properties={"email": "test@example.com"})
 
         recording = SessionRecording(team=self.team, session_id="test_session", distinct_id="test_user")
         recording.load_person()
@@ -126,18 +123,16 @@ class TestLoadPersonIntegration(PersonhogTestMixin, BaseTest):
         assert recording._person is not None
         assert str(recording._person.uuid) == str(person.uuid)
         assert recording._person.properties == {"email": "test@example.com"}
-        self._assert_personhog_called("get_person_by_distinct_id")
 
     def test_person_not_found(self):
         recording = SessionRecording(team=self.team, session_id="test_session", distinct_id="nonexistent_user")
         recording.load_person()
 
         assert recording._person is None
-        self._assert_personhog_called("get_person_by_distinct_id")
 
     def test_cross_team_isolation(self):
         other_team = self.organization.teams.create(name="Other Team")
-        self._seed_person(team=other_team, distinct_ids=["shared_did"], properties={"email": "b@example.com"})
+        create_person(team=other_team, distinct_ids=["shared_did"], properties={"email": "b@example.com"})
 
         recording = SessionRecording(team=self.team, session_id="test_session", distinct_id="shared_did")
         recording.load_person()

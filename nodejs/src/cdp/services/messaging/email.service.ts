@@ -1,22 +1,72 @@
 import { MessageHeader, SESv2Client, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-sesv2'
+import { DateTime } from 'luxon'
 import { SendMailOptions } from 'nodemailer'
+import { Counter } from 'prom-client'
 
+import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, IntegrationType } from '~/cdp/types'
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
-import { CyclotronInvocationQueueParametersEmailType } from '~/schema/cyclotron'
 
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { RecipientManagerRecipient } from '../managers/recipients-manager.service'
-import { addTrackingToEmail } from './email-tracking.service'
+import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
+import { addTrackingToEmail, resolveEmailEngagementDistinctId } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
-import {
-    TRACKING_CODE_HEADER_NAME,
-    generateEmailTrackingCode,
-    generateShortEmailTrackingCode,
-} from './helpers/tracking-code'
+import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { RecipientTokensService } from './recipient-tokens.service'
+
+const sesThrottleResponsesTotal = new Counter({
+    name: 'cdp_ses_throttle_responses_total',
+    help: 'SES API responses classified as throttle/rate-limit. Sustained nonzero rate means the local bucket is set too high vs. the SES quota.',
+    labelNames: ['error_code'],
+})
+
+/**
+ * SES error codes that signal a transient rate-limit shape — safe to retry
+ * shortly after. `TooManyRequestsException` is the SES-v2-specific class;
+ * `ThrottlingException` is a generic AWS SDK error code that can surface
+ * from the underlying transport layer for the same condition (not exported
+ * as a class for sesv2, so we match by `name`).
+ *
+ * `SendingPausedException` is *not* on this list — it signals a reputation
+ * or account-state problem that won't recover in seconds. Retrying within
+ * 500ms just burns reschedules; the job hard-fails instead, surfaces via
+ * `email_failed`, and the underlying SES config needs operator attention.
+ */
+const SES_THROTTLE_ERROR_NAMES = ['TooManyRequestsException', 'ThrottlingException'] as const
+type SesThrottleErrorName = (typeof SES_THROTTLE_ERROR_NAMES)[number]
+
+function isSesThrottleError(error: unknown): error is Error & { name: SesThrottleErrorName } {
+    return error instanceof Error && (SES_THROTTLE_ERROR_NAMES as readonly string[]).includes(error.name)
+}
+
+/**
+ * Tagged error signalling that SES rejected the send for a transient,
+ * rate-limit-shaped reason. The caller schedules a retry instead of failing
+ * the job. Carries the SES error name for metrics and the retry delay we
+ * pick locally (SES doesn't return a Retry-After header).
+ */
+export class SESThrottleError extends Error {
+    public readonly errorCode: SesThrottleErrorName
+    public readonly retryAfterMs: number
+
+    constructor(errorCode: SesThrottleErrorName, retryAfterMs: number, message: string) {
+        super(message)
+        this.name = 'SESThrottleError'
+        this.errorCode = errorCode
+        this.retryAfterMs = retryAfterMs
+    }
+}
+
+function pickThrottleRetryDelayMs(): number {
+    // Constant 500–1000ms jitter is plenty: the local Valkey bucket already
+    // gates re-dequeue at the configured refill rate, so a quick retry will
+    // simply re-claim a token if SES capacity has refreshed. Exponential
+    // backoff isn't needed at this layer.
+    return 500 + Math.floor(Math.random() * 500)
+}
 
 export interface EmailServiceConfig {
     sesAccessKeyId: string
@@ -55,8 +105,10 @@ export class EmailService {
     constructor(
         private sesConfig: EmailServiceConfig,
         private integrationManager: IntegrationManagerService,
+        private teamWorkflowsConfigService: TeamWorkflowsConfigService,
         encryptionSaltKeys: string,
-        siteUrl: string
+        siteUrl: string,
+        private trackingCodeSigner: EmailTrackingCodeSigner
     ) {
         this.sesV2Client = this.sesConfig.sesRegion
             ? new SESv2Client({
@@ -90,6 +142,7 @@ export class EmailService {
         const integration = await this.integrationManager.get(params.from.integrationId)
 
         let success: boolean = false
+        let throttled: boolean = false
 
         try {
             // Wrong-team references deliberately read as not-found so an ID's existence on another team can't be probed
@@ -121,9 +174,27 @@ export class EmailService {
             addLog('info', `Email sent to ${params.to.email}`)
             success = true
         } catch (error) {
-            addLog('error', error.message)
-            result.error = error.message
-            result.finished = true
+            if (error instanceof SESThrottleError) {
+                // Treat as a transient delivery delay — reschedule rather than fail
+                // the job. Our local bucket is the primary throttle; this path
+                // catches the cases where SES disagrees with our estimate.
+                throttled = true
+                result.finished = false
+                result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: error.retryAfterMs })
+                addLog('warn', `SES rate-limited (${error.errorCode}); rescheduling email in ${error.retryAfterMs}ms`)
+            } else {
+                addLog('error', error.message)
+                result.error = error.message
+                result.finished = true
+            }
+        }
+
+        if (throttled) {
+            // On throttle, skip both the VM-state push and the business-metric
+            // emit. The eventual successful retry will produce `email_sent` and
+            // push the success bit to the VM stack — pushing them now would
+            // double-count and lie about the send outcome.
+            return result
         }
 
         // Push the response to the VM stack if running inline (not from the email queue)
@@ -141,6 +212,26 @@ export class EmailService {
                 metric_kind: 'email',
                 metric_name: success ? 'email_sent' : 'email_failed',
                 count: 1,
+            })
+        }
+
+        const distinctId = resolveEmailEngagementDistinctId(invocation)
+        if (
+            distinctId &&
+            !isTest &&
+            (await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(invocation.teamId))
+        ) {
+            result.capturedPostHogEvents.push({
+                team_id: invocation.teamId,
+                timestamp: new Date().toISOString(),
+                distinct_id: distinctId,
+                event: success ? '$workflows_email_sent' : '$workflows_email_failed',
+                properties: {
+                    $workflow_id: invocation.functionId,
+                    $workflow_action_id: invocation.state.actionId,
+                    $email_to: params.to.email,
+                    $email_subject: params.subject,
+                },
             })
         }
 
@@ -172,7 +263,9 @@ export class EmailService {
             to: params.to.name ? `"${params.to.name}" <${params.to.email}>` : params.to.email,
             subject: sanitizeEmailSubject(params.subject),
             text: params.text,
-            ...(params.html ? { html: addTrackingToEmail(params.html, result.invocation, isTest) } : {}),
+            ...(params.html
+                ? { html: addTrackingToEmail(params.html, result.invocation, this.trackingCodeSigner, isTest) }
+                : {}),
         }
 
         const ccAddresses = parseAddressList(params.cc)
@@ -203,17 +296,18 @@ export class EmailService {
         if (!this.sesV2Client) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
         }
-        const trackingCode = generateEmailTrackingCode(result.invocation, isTest)
-        // Short carrier (unsigned) for the SES EmailTag — guaranteed under the 256-char tag-value
-        // limit. Legacy backwards-compat carrier only; the full signed code (with isTest) rides in
-        // the header below, which the webhook reads first.
-        const shortTrackingCode = generateShortEmailTrackingCode(result.invocation)
+        const distinctId = resolveEmailEngagementDistinctId(result.invocation)
+        // Full signed code (with distinct_id + isTest) rides in the header; the short unsigned
+        // carrier (no distinct_id/isTest) goes in the SES EmailTag, guaranteed under the 256-char
+        // tag-value limit. The webhook reads the header first and only falls back to the tag.
+        const trackingCode = this.trackingCodeSigner.generate({ ...result.invocation, distinctId }, isTest)
+        const shortTrackingCode = this.trackingCodeSigner.generateShort(result.invocation)
 
         const htmlBody = params.html
             ? {
                   Html: {
                       Data: maybeAddPreheaderToEmail(
-                          addTrackingToEmail(params.html, result.invocation, isTest),
+                          addTrackingToEmail(params.html, result.invocation, this.trackingCodeSigner, isTest),
                           params.preheader
                       ),
                       Charset: 'UTF-8',
@@ -249,9 +343,9 @@ export class EmailService {
         }
 
         // Authoritative tracking-code carrier: a custom MIME header. Header values aren't
-        // 256-char-bounded the way SES tag values are, so they fit the signed code. The
-        // configuration set's event destination needs `IncludeOriginalHeaders: true` for the
-        // webhook to surface this header.
+        // 256-char-bounded the way SES tag values are, so they safely carry the signed code
+        // (with distinct_id). The configuration set's event destination needs
+        // `IncludeOriginalHeaders: true` for the webhook to surface this header.
         const trackingHeader: MessageHeader = { Name: TRACKING_CODE_HEADER_NAME, Value: trackingCode }
 
         const isTransactionalEmail = result.invocation.hogFunction?.metadata?.message_category_type === 'transactional'
@@ -285,6 +379,10 @@ export class EmailService {
                 throw new Error('No messageId returned from SES')
             }
         } catch (error: unknown) {
+            if (isSesThrottleError(error)) {
+                sesThrottleResponsesTotal.inc({ error_code: error.name })
+                throw new SESThrottleError(error.name, pickThrottleRetryDelayMs(), error.message)
+            }
             const message = error instanceof Error ? error.message : String(error)
             throw new Error(`Failed to send email via SES: ${message}`)
         }

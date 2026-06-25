@@ -1,5 +1,5 @@
-import { EventHeaders, Team } from '../../../types'
-import { OkResultWithContext } from '../../pipelines/pipeline.interface'
+import { OkResultWithContext } from '~/ingestion/framework/pipeline.interface'
+import { EventHeaders, Team } from '~/types'
 
 /**
  * Helper for `filterMap` after team resolution: lifts the resolved team from

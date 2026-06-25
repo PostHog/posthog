@@ -130,9 +130,11 @@ LOGS_ALERTING_TASK_QUEUE = _set_temporal_task_queue("logs-alerting-task-queue")
 RASTERIZATION_TASK_QUEUE = "rasterization-task-queue"  # Not collapsed in dev — separate Node.js worker process
 
 # Error tracking
-ERROR_TRACKING_AUTO_MERGE_FINGERPRINT_TEAM_IDS: list[int] = [
-    int(team_id) for team_id in get_list(os.getenv("ERROR_TRACKING_AUTO_MERGE_FINGERPRINT_TEAM_IDS", "")) if team_id
-]
+# Global on/off switch for auto-merging close fingerprints into their nearest issue.
+# Off by default; enabled per-deployment (e.g. EU).
+ERROR_TRACKING_AUTO_MERGE_ENABLED: bool = get_from_env(
+    "ERROR_TRACKING_AUTO_MERGE_ENABLED", False, type_cast=str_to_bool
+)
 
 # Signals inbox notification: how long to wait for an auto-started implementation PR before
 # notifying anyway, and how often to poll for it.

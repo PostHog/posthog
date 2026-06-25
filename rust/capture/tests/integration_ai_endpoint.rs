@@ -195,6 +195,7 @@ fn setup_ai_test_router() -> Router {
         None,                             // overflow_limiter
         None,                             // replay_overflow_limiter
         None,                             // v1_sink_router
+        8,                                // capture_v1_scatter_gather_min_batch
     )
 }
 
@@ -1656,6 +1657,7 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         None,                             // overflow_limiter
         None,                             // replay_overflow_limiter
         None,                             // v1_sink_router
+        8,                                // capture_v1_scatter_gather_min_batch
     );
 
     (router, sink_clone)
@@ -2569,6 +2571,7 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         None,                             // overflow_limiter
         None,                             // replay_overflow_limiter
         None,                             // v1_sink_router
+        8,                                // capture_v1_scatter_gather_min_batch
     );
 
     (router, sink_clone)
@@ -2777,6 +2780,7 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         None,                             // overflow_limiter
         None,                             // replay_overflow_limiter
         None,                             // v1_sink_router
+        8,                                // capture_v1_scatter_gather_min_batch
     );
 
     (router, sink_clone)
@@ -2930,6 +2934,7 @@ fn setup_ai_test_router_with_overflow_limiter(
         Some(overflow_limiter), // overflow_limiter
         None,                   // replay_overflow_limiter
         None,                   // v1_sink_router
+        8,                      // capture_v1_scatter_gather_min_batch
     );
 
     (router, sink_clone)

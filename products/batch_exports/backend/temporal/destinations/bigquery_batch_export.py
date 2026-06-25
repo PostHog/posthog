@@ -1479,6 +1479,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                         consumer=consumer,
                         transformer=transformer,
                         json_columns=(),
+                        records_total=inputs.records_total,
                     )
 
                 else:

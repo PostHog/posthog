@@ -5,11 +5,20 @@ allowed to import. Internal modules (query runners) stay behind this seam
 so import-linter's strict-mode contract holds.
 """
 
+import datetime as dt
 from typing import Any
 
 from posthog.models import Team
 
-from products.metrics.backend.facade.contracts import MetricPoint, MetricQueryClause, MetricQueryRequest, MetricSeries
+from products.metrics.backend.anomaly import characterize_anomaly as _characterize_anomaly
+from products.metrics.backend.facade.contracts import (
+    MetricAnomalyReport,
+    MetricFilter,
+    MetricPoint,
+    MetricQueryClause,
+    MetricQueryRequest,
+    MetricSeries,
+)
 from products.metrics.backend.facade.enums import MetricAggregation
 from products.metrics.backend.formula import evaluate, parse_formula
 from products.metrics.backend.has_metrics_query_runner import team_has_metrics as _team_has_metrics
@@ -48,17 +57,20 @@ def _assemble_series(
         key = tuple(sorted(row["labels"].items()))
         by_labels.setdefault(key, {})[row["time"]] = row["value"]
 
-    series = [
+    # Rank and truncate on the sparse values BEFORE zero-filling, so a
+    # high-cardinality group-by never materializes label_sets x grid points
+    # only to throw most of them away. Zero-filled points contribute nothing
+    # to the magnitude, so the ranking is identical either way.
+    ranked = sorted(by_labels.items(), key=lambda item: (-sum(abs(v) for v in item[1].values()), item[0]))
+    return [
         MetricSeries(
             labels=dict(key),
             points=tuple(MetricPoint(time=time, value=values.get(time, 0.0)) for time in grid),
             metric_name=metric_name,
             clause=clause_name,
         )
-        for key, values in by_labels.items()
+        for key, values in ranked[:MAX_SERIES_PER_CLAUSE]
     ]
-    series.sort(key=lambda s: (-sum(abs(p.value) for p in s.points), tuple(sorted(s.labels.items()))))
-    return series[:MAX_SERIES_PER_CLAUSE]
 
 
 def _resolve_runner_aggregation(clause: MetricQueryClause) -> str:
@@ -183,3 +195,41 @@ def list_metric_names(
     """
     runner = MetricNamesQueryRunner(team=team, search=search, limit=limit)
     return runner.run()
+
+
+def characterize_metric_anomaly(
+    *,
+    team: Team,
+    metric_name: str,
+    anomaly_from: dt.datetime,
+    anomaly_to: dt.datetime,
+    baseline_from: dt.datetime | None = None,
+    baseline_to: dt.datetime | None = None,
+    aggregation: str | None = None,
+    quantile: float | None = None,
+    filters: tuple[MetricFilter, ...] = (),
+    candidate_keys: tuple[str, ...] | None = None,
+) -> MetricAnomalyReport:
+    """Characterize how a metric behaves in an anomaly window vs a baseline:
+    summary statistics, change magnitude/direction, the onset bucket, and
+    the label values that moved the most (drilling into up to four candidate
+    keys, auto-discovered from the metric's attributes when not given).
+
+    The baseline defaults to the window of equal length immediately before
+    `anomaly_from`. `aggregation` defaults by the metric's OTel type
+    (counter -> rate, gauge -> avg, histogram -> histogram_quantile 0.95).
+    Raises `ValueError` for invalid windows/aggregations — the presentation
+    layer surfaces these as 400s.
+    """
+    return _characterize_anomaly(
+        team=team,
+        metric_name=metric_name,
+        anomaly_from=anomaly_from,
+        anomaly_to=anomaly_to,
+        baseline_from=baseline_from,
+        baseline_to=baseline_to,
+        aggregation=aggregation,
+        quantile=quantile,
+        filters=filters,
+        candidate_keys=candidate_keys,
+    )

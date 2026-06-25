@@ -15,14 +15,15 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-01-28', // To stabilize relative dates
         pageUrl: urls.annotations(),
+        testOptions: { viewport: { width: 1300, height: 2000 } },
     },
     decorators: [
         mswDecorator({
             get: {
                 '/api/projects/:team_id/annotations/': annotations,
-                '/api/projects/:team_id/annotations/:annotationId/': (req) => [
+                '/api/projects/:team_id/annotations/:annotationId/': ({ params }) => [
                     200,
-                    annotations.results.find((r) => r.id === Number(req.params['annotationId'])),
+                    annotations.results.find((r) => r.id === Number(params['annotationId'])),
                 ],
             },
         }),

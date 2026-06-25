@@ -29,7 +29,18 @@ FIXTURE_DIR = Path(__file__).parent
 
 # Only the fields the curated query builders in backend/logic/views read.
 PR_FIELDS = ("id", "number", "title", "state", "draft", "created_at", "updated_at", "merged_at", "closed_at")
-RUN_FIELDS = ("id", "name", "head_sha", "status", "conclusion", "created_at", "run_started_at", "updated_at")
+RUN_FIELDS = (
+    "id",
+    "name",
+    "head_sha",
+    "head_branch",
+    "status",
+    "conclusion",
+    "created_at",
+    "run_started_at",
+    "updated_at",
+    "run_attempt",
+)
 
 
 def log(message: str) -> None:
@@ -58,6 +69,8 @@ def trim_pr(pr: dict[str, Any]) -> dict[str, Any]:
 def trim_run(run: dict[str, Any]) -> dict[str, Any]:
     trimmed: dict[str, Any] = {field: run[field] for field in RUN_FIELDS}
     trimmed["repository"] = {"full_name": run["repository"]["full_name"]}
+    # The PR-list push / re-run rollup attributes runs to a PR via this association.
+    trimmed["pull_requests"] = [{"number": pr["number"]} for pr in (run.get("pull_requests") or [])]
     return trimmed
 
 

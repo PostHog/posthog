@@ -266,7 +266,12 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     match self.peek() {
                         TokenKind::LParen => depth += 1,
                         TokenKind::RParen => depth -= 1,
-                        TokenKind::Eof => break,
+                        // EOF with the `(` still open is an unterminated clause —
+                        // cpp rejects ("mismatched input '<EOF>'"). This fires when
+                        // a `#`-comment inside the parens (`interpolate ( # 6 )`)
+                        // swallows the closing `)` to end-of-line; break-ing here
+                        // would silently accept it.
+                        TokenKind::Eof => return Err(self.err("unterminated INTERPOLATE clause")),
                         _ => {}
                     }
                     self.bump()?;
@@ -492,11 +497,16 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             // 1` -> `[Field(distinct)]` + ORDER BY). FROM is the exception:
             // `SELECT DISTINCT FROM x` keeps DISTINCT a modifier and rejects via
             // the FROM-implicit-alias footgun, matching cpp.
+            // `distinct()` (empty parens) is the zero-arg call `Call(distinct,
+            // [])`, not the modifier — cpp can't read DISTINCT as the modifier
+            // with only `()` (no column) after, so it backs off to a function
+            // call. `distinct(x)` stays the modifier on `(x)`; only empty `()`.
             let distinct_is_column = matches!(
                 self.peek(),
                 TokenKind::Comma | TokenKind::Eof | TokenKind::RParen | TokenKind::Semicolon
             ) || (self.peek_is_clause_terminator()
-                && self.peek() != TokenKind::Keyword(Kw::From));
+                && self.peek() != TokenKind::Keyword(Kw::From))
+                || (self.peek() == TokenKind::LParen && self.peek_next() == TokenKind::RParen);
             if distinct_is_column {
                 self.restore(cp_after_select)?;
             } else {
@@ -1696,7 +1706,9 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     // deliberate footgun-catcher — cpp's visitor rejects
                     // it. (`from AS x` is fine; the `AS` form folds into
                     // the expr above and never reaches here.)
-                    if is_bare_from_field(&self.emit, &expr) {
+                    if is_bare_from_field(&self.emit, &expr)
+                        && !self.suppress_unvisited_clause_checks
+                    {
                         return Err(self.err("Cannot use \"from\" before an implicit alias"));
                     }
                     // cpp's `ColumnExprAlias` ctx for the implicit-alias

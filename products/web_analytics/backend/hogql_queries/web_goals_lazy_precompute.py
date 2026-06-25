@@ -37,7 +37,6 @@ from products.actions.backend.models.action import Action
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
-    ensure_precomputed,
 )
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
     LAZY_TTL_SECONDS,
@@ -49,6 +48,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     host_filter_expr,
     log_eligibility_outcome,
     test_account_filter_expr,
+    web_ensure_precomputed,
 )
 
 if TYPE_CHECKING:
@@ -287,7 +287,7 @@ def ensure_web_goals_precomputed(
     placeholders: dict[str, ast.Expr] = {
         "events_session_id": _events_session_id_expr(runner),
         "action_or_expr": _action_or_expr(actions),
-        "user_filter": host_filter_expr(runner.query.properties or []),
+        "user_filter": host_filter_expr(runner.query.properties or [], team=runner.team),
         "test_account_filter": test_account_filter_expr(
             test_account_filters=runner._test_account_filters, team=runner.team
         ),
@@ -297,7 +297,7 @@ def ensure_web_goals_precomputed(
         placeholders[f"action_{n}_expr"] = action_to_expr(action)
         placeholders[f"action_{n}_id"] = ast.Constant(value=int(action.id))
 
-    return ensure_precomputed(
+    return web_ensure_precomputed(
         team=runner.team,
         insert_query=_build_insert_query(actions),
         time_range_start=time_range_start,
@@ -306,6 +306,7 @@ def ensure_web_goals_precomputed(
         table=LazyComputationTable.WEB_GOALS_PREAGGREGATED,
         placeholders=placeholders,
         query_type="web_goals_lazy_insert",
+        spill_to_disk=True,  # per-action GROUP BY over a sessions join; can build a large hash table
     )
 
 

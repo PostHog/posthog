@@ -3,15 +3,29 @@
 import os
 from pathlib import Path
 
+
+def _positive_int_env(name: str, default: int) -> int:
+    try:
+        value = int(os.environ.get(name, default))
+    except ValueError:
+        return default
+    return max(1, value)
+
+
 # Model
 MODEL_NAME = "cardiffnlp/twitter-roberta-base-sentiment-latest"
 MODEL_MAX_TOKENS = 512  # context window for the cardiffnlp model
 LABELS = ["negative", "neutral", "positive"]
 ONNX_CACHE_DIR = Path(os.environ.get("POSTHOG_SENTIMENT_MODEL_CACHE", "/tmp/posthog-sentiment-onnx-cache"))
+ONNX_INTRA_OP_NUM_THREADS = _positive_int_env("POSTHOG_SENTIMENT_ONNX_INTRA_OP_NUM_THREADS", 1)
+ONNX_INTER_OP_NUM_THREADS = _positive_int_env("POSTHOG_SENTIMENT_ONNX_INTER_OP_NUM_THREADS", 1)
 
 # Extraction bounds
 MAX_USER_MESSAGES = 50
 MAX_MESSAGE_CHARS = 2000
+SENTIMENT_EVAL_MAX_USER_MESSAGES = 1
+SENTIMENT_EVAL_MAX_MESSAGE_CHARS = 1000
+SENTIMENT_EVAL_MESSAGE_HEAD_CHARS = 300
 
 # Batch classification
 CLASSIFY_BATCH_SIZE = 32  # texts per ONNX forward pass
@@ -41,10 +55,10 @@ BATCH_MAX_GENERATION_IDS = 5  # keep small to avoid upstream request timeouts
 # and a size filter to skip accumulated conversation histories — the same
 # user messages appear in earlier, smaller generations so we lose nothing.
 #
-# Reads from `posthog.ai_events` so post-strip rows still expose the heavy
-# `input` column (it's stripped from `events.properties.$ai_input` after
-# the cutover). `execute_with_ai_events_fallback` rewrites this back to
-# `events.properties.$ai_*` for the shared-table fallback.
+# Reads from `posthog.ai_events`, where the heavy `input` column lives as a
+# native column (it is not stored on `events.properties.$ai_input`).
+# `query_ai_events` rewrites this back to `events.properties.$ai_*` for the
+# retention-window fallback.
 GENERATIONS_QUERY = """
     SELECT uuid, ai_input, trace_id
     FROM (

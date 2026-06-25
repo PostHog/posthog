@@ -56,6 +56,7 @@ import {
 } from '../utils/collapsedContainsRow'
 import { promoteMatchingBy } from '../utils/promoteProperties'
 import { MenuFilterHeader } from './Header'
+import { MatchedValueBadge } from './MatchedValueBadge'
 import { PreviewPane } from './PreviewPane'
 import { CommitFn, CommitSelectionContext, DrillCategory, MenuFilterEntry, TAXONOMIC_FILTER_SURFACE } from './types'
 import { VerificationBadge } from './VerificationBadge'
@@ -366,7 +367,10 @@ export function MenuFilterCombobox({
                         // branch). The legacy list reaches the same filter via the QuickFilterItem
                         // `eventName` path instead — see `buildUrlContainsShortcut`.
                         // `isContainsShortcut` tags it for commit telemetry + the lead-first ordering.
-                        item: { name: trimmedQuery, isContainsShortcut: true } as unknown as TaxonomicDefinitionTypes,
+                        item: {
+                            name: trimmedQuery,
+                            isContainsShortcut: true,
+                        } as unknown as TaxonomicDefinitionTypes,
                         group,
                         name: label,
                         friendlyLabel: label,
@@ -1144,7 +1148,9 @@ function AutocompleteLemonInput({
                     className: _baseClassName,
                     onKeyDown: baseOnKeyDown,
                     ...baseInputAttrs
-                } = autoProps as React.InputHTMLAttributes<HTMLInputElement> & { ref?: React.Ref<HTMLInputElement> }
+                } = autoProps as React.InputHTMLAttributes<HTMLInputElement> & {
+                    ref?: React.Ref<HTMLInputElement>
+                }
                 const setRef = (el: HTMLInputElement | null): void => {
                     if (typeof ref === 'function') {
                         ref(el)
@@ -1212,17 +1218,29 @@ interface RowProps {
  * the friendly label; everything else uses the entry name and has no
  * distinct raw value to show.
  */
-function resolveRowCells(entry: MenuFilterEntry): { name: string; value?: string; category: string } {
+function resolveRowCells(entry: MenuFilterEntry): {
+    name: string
+    value?: string
+    category: string
+} {
     if (entry.recentLabel) {
         return { name: entry.recentLabel, category: entry.group.name }
     }
     const friendly = entry.friendlyLabel
     const pathTail = parseUrlPathTail(entry.name)
     if (pathTail !== null) {
-        return { name: pathTail, value: entry.name, category: entry.group.name }
+        return {
+            name: pathTail,
+            value: entry.name,
+            category: entry.group.name,
+        }
     }
     if (friendly && friendly.length > 0 && friendly !== entry.name) {
-        return { name: friendly, value: entry.name, category: entry.group.name }
+        return {
+            name: friendly,
+            value: entry.name,
+            category: entry.group.name,
+        }
     }
     return { name: entry.name, category: entry.group.name }
 }
@@ -1271,6 +1289,7 @@ function Row({ entry, showCategory, recency, opensSubmenu, selectedRowId, onSele
                 )}
                 {showCategory && <MenuLabel className="text-tertiary/50 text-xxs p-0 mt-1">{category}</MenuLabel>}
             </div>
+            <MatchedValueBadge entry={entry} />
             {recency && (
                 <Badge variant="default" className="gap-1 shrink-0">
                     {recency === 'recent' ? <IconClock className="size-3" /> : <IconPinFilled className="size-3" />}

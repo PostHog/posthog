@@ -1,8 +1,11 @@
 import React, { useMemo } from 'react'
 
+import { ChartLegend } from '../../components/Legend/ChartLegend'
+import { useChartLegend } from '../../components/Legend/useChartLegend'
 import type {
     BarChartConfig,
     BarFillStyle,
+    ChartLegendConfig,
     ChartTheme,
     PointClickData,
     Series,
@@ -48,6 +51,8 @@ export interface TimeSeriesBarChartConfig {
     fillStyle?: BarFillStyle
     /** Ease the hover highlight in over this many ms (`true` = default duration). Omit to snap. */
     animateHover?: boolean | number
+    /** Built-in legend with click-to-toggle series visibility. Hidden by default. */
+    legend?: ChartLegendConfig
 }
 
 export interface TimeSeriesBarChartProps<Meta = unknown> {
@@ -89,12 +94,15 @@ export function TimeSeriesBarChart<Meta = unknown>({
         divergingStack,
         fillStyle,
         animateHover,
+        legend,
     } = config ?? {}
     const xTickFormatter = useXTickFormatter(xAxis, labels)
     const yTickFormatter = useYTickFormatter(yAxis)
 
+    const { visibleSeries, legendProps } = useChartLegend(series, theme, legend)
+
     const valueLabelsConfig = resolveValueLabelsConfig(valueLabels)
-    const seriesAfterValueLabels = useSeriesWithValueLabelAllowlist(series, valueLabelsConfig?.seriesKeys)
+    const seriesAfterValueLabels = useSeriesWithValueLabelAllowlist(visibleSeries, valueLabelsConfig?.seriesKeys)
 
     const valueLabelFormatter = valueLabelsConfig ? (valueLabelsConfig.formatter ?? yTickFormatter) : undefined
 
@@ -134,20 +142,22 @@ export function TimeSeriesBarChart<Meta = unknown>({
     }
 
     return (
-        <BarChart
-            series={seriesAfterValueLabels}
-            labels={labels}
-            config={barChartConfig}
-            theme={theme}
-            tooltip={tooltip}
-            onPointClick={onPointClick}
-            className={className}
-            dataAttr={dataAttr}
-            onError={onError}
-        >
-            {referenceLines.length > 0 && <ReferenceLines lines={referenceLines} />}
-            {valueLabelsConfig && <ValueLabels valueFormatter={valueLabelFormatter} />}
-            {children}
-        </BarChart>
+        <ChartLegend {...legendProps} legendDataAttr="hog-chart-timeseries-bar-legend">
+            <BarChart
+                series={seriesAfterValueLabels}
+                labels={labels}
+                config={barChartConfig}
+                theme={theme}
+                tooltip={tooltip}
+                onPointClick={onPointClick}
+                className={className}
+                dataAttr={dataAttr}
+                onError={onError}
+            >
+                {referenceLines.length > 0 && <ReferenceLines lines={referenceLines} />}
+                {valueLabelsConfig && <ValueLabels valueFormatter={valueLabelFormatter} />}
+                {children}
+            </BarChart>
+        </ChartLegend>
     )
 }

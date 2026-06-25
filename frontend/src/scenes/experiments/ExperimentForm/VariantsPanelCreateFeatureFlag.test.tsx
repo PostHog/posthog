@@ -47,8 +47,8 @@ describe('VariantsPanelCreateFeatureFlag', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team_id/feature_flags/': (req) => {
-                    const url = new URL(req.url)
+                '/api/projects/:team_id/feature_flags/': ({ request }) => {
+                    const url = new URL(request.url)
                     const search = url.searchParams.get('search')
 
                     // Return existing key if searching for it

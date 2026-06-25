@@ -64,6 +64,28 @@ describe('alertUtils', () => {
                 expectedTemplateId: 'template-webhook',
                 expectedInputKeys: ['url', 'body'],
             },
+            {
+                name: 'discord notification',
+                notification: {
+                    type: 'discord' as const,
+                    webhookUrl: 'https://discord.com/api/webhooks/123/abc',
+                },
+                alertName: 'Spike detector',
+                expectedName: 'Spike detector: Discord',
+                expectedTemplateId: 'template-discord',
+                expectedInputKeys: ['content', 'webhookUrl'],
+            },
+            {
+                name: 'microsoft teams notification',
+                notification: {
+                    type: 'microsoft_teams' as const,
+                    webhookUrl: 'https://example.webhook.office.com/webhookb2/abc',
+                },
+                alertName: 'Spike detector',
+                expectedName: 'Spike detector: Microsoft Teams',
+                expectedTemplateId: 'template-microsoft-teams',
+                expectedInputKeys: ['text', 'webhookUrl'],
+            },
         ])(
             'builds correct payload for $name',
             ({ notification, alertName, expectedName, expectedTemplateId, expectedInputKeys }) => {
@@ -91,6 +113,34 @@ describe('alertUtils', () => {
 
             expect(result.inputs?.slack_workspace).toEqual({ value: 42 })
             expect(result.inputs?.channel).toEqual({ value: 'C12345' })
+        })
+
+        it('sets correct discord input values', () => {
+            const notification: PendingAlertNotification = {
+                type: 'discord',
+                webhookUrl: 'https://discord.com/api/webhooks/123/abc',
+            }
+
+            const result = buildHogFunctionPayload('alert-789', 'My alert', notification)
+
+            expect(result.inputs?.webhookUrl).toEqual({ value: 'https://discord.com/api/webhooks/123/abc' })
+            expect(result.inputs?.content).toEqual({
+                value: expect.stringContaining('{event.properties.alert_name}'),
+            })
+        })
+
+        it('sets correct microsoft teams input values', () => {
+            const notification: PendingAlertNotification = {
+                type: 'microsoft_teams',
+                webhookUrl: 'https://example.webhook.office.com/webhookb2/abc',
+            }
+
+            const result = buildHogFunctionPayload('alert-789', 'My alert', notification)
+
+            expect(result.inputs?.webhookUrl).toEqual({ value: 'https://example.webhook.office.com/webhookb2/abc' })
+            expect(result.inputs?.text).toEqual({
+                value: expect.stringContaining('{event.properties.alert_name}'),
+            })
         })
 
         it('sets correct webhook input values', () => {

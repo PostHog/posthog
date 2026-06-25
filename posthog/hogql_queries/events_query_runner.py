@@ -31,8 +31,9 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, get_query_r
 from posthog.hogql_queries.utils.person_display_name import person_display_name_property_exprs
 from posthog.models import Person, PropertyDefinition
 from posthog.models.element import chain_to_elements
-from posthog.models.person.person import get_distinct_ids_for_subquery
+from posthog.models.person.person import MAX_LIMIT_DISTINCT_IDS, get_distinct_ids_for_subquery
 from posthog.models.person.util import get_person_by_pk_or_uuid, get_persons_mapped_by_distinct_id
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.utils import relative_date_parse
 
 from products.actions.backend.models.action import Action, ActionStepJSON
@@ -273,8 +274,10 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                         ]
                         where_exprs.append(steps_to_expr(steps, self.team))
                 if self.query.personId:
-                    with self.timings.measure("person_id"):
-                        person: Person | None = get_person_by_pk_or_uuid(self.team.pk, self.query.personId)
+                    with self.timings.measure("person_id"), personhog_caller_tag("persons/events-query"):
+                        person: Person | None = get_person_by_pk_or_uuid(
+                            self.team.pk, self.query.personId, distinct_id_limit=MAX_LIMIT_DISTINCT_IDS
+                        )
                         where_exprs.append(
                             ast.CompareOperation(
                                 left=ast.Call(name="cityHash64", args=[ast.Field(chain=["distinct_id"])]),
@@ -477,9 +480,10 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
 
                 distinct_to_person: dict[str, Person] = {}
                 batch_size = 1000
-                for i in range(0, len(distinct_ids), batch_size):
-                    batch_distinct_ids = distinct_ids[i : i + batch_size]
-                    distinct_to_person.update(get_persons_mapped_by_distinct_id(self.team.pk, batch_distinct_ids))
+                with personhog_caller_tag("persons/events-person-column"):
+                    for i in range(0, len(distinct_ids), batch_size):
+                        batch_distinct_ids = distinct_ids[i : i + batch_size]
+                        distinct_to_person.update(get_persons_mapped_by_distinct_id(self.team.pk, batch_distinct_ids))
 
                 # Load restricted person properties to strip from the side-channel result
                 from products.access_control.backend.property_access_control import (
