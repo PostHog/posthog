@@ -8,7 +8,6 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.contrib.auth import logout
-from django.contrib.sessions.backends.db import SessionStore
 from django.core.signing import TimestampSigner
 from django.http import HttpRequest
 from django.test import RequestFactory
@@ -21,6 +20,7 @@ from posthog.api.oauth.views import _impersonation_ai_processing_block, _imperso
 from posthog.middleware import IMPERSONATION_READ_ONLY_SESSION_KEY
 from posthog.models import OAuthApplication, Organization, OrganizationMembership, Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken
+from posthog.session.backend import SessionStore
 
 
 class TestImpersonationOAuthRevocation(BaseTest):

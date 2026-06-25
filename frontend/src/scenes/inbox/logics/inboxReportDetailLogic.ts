@@ -108,6 +108,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         searchAvailableReviewers: (query: string) => ({ query }),
         // Which linked task's run log the detail view shows; null falls back to `primaryTask`.
         setSelectedTaskId: (taskId: string | null) => ({ taskId }),
+        // Inline-expand a linked task's run log within the report detail's Runs section.
+        toggleExpandedTask: (taskId: string) => ({ taskId }),
     }),
 
     loaders(({ props, values }) => ({
@@ -222,6 +224,16 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             {
                 setSelectedTaskId: (_, { taskId }) => taskId,
                 setReport: () => null,
+            },
+        ],
+        // Linked tasks whose run log is expanded inline in the Runs section. Reset when the report
+        // changes so a freshly opened report starts with everything collapsed.
+        expandedTaskIds: [
+            [] as string[],
+            {
+                toggleExpandedTask: (state, { taskId }) =>
+                    state.includes(taskId) ? state.filter((id) => id !== taskId) : [...state, taskId],
+                setReport: () => [],
             },
         ],
     }),

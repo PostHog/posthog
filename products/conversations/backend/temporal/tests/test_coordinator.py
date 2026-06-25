@@ -13,7 +13,7 @@ from products.conversations.backend.temporal.coordinator import (
     EligibleTicket,
     SupportReplyCoordinatorWorkflow,
     _collect_eligible,
-    collect_eligible_tickets_activity,
+    support_collect_eligible_tickets_activity,
 )
 
 COORD_MODULE = "products.conversations.backend.temporal.coordinator"
@@ -38,6 +38,8 @@ def _make_ticket(
     has_ready_sources: bool = True,
     has_ai_note: bool = False,
     has_team_reply: bool = False,
+    channel_source: str = "widget",
+    ai_resolution_channels: list[str] | None = None,
 ):
     ticket_id = ticket_id or str(uuid.uuid4())
     org = MagicMock()
@@ -45,10 +47,14 @@ def _make_ticket(
     team = MagicMock()
     team.id = team_id
     team.organization = org
-    team.conversations_settings = {"ai_suggestions_enabled": ai_suggestions_enabled}
+    settings: dict = {"ai_suggestions_enabled": ai_suggestions_enabled}
+    if ai_resolution_channels is not None:
+        settings["ai_resolution_channels"] = ai_resolution_channels
+    team.conversations_settings = settings
     ticket = MagicMock()
     ticket.id = uuid.UUID(ticket_id)
     ticket.team = team
+    ticket.channel_source = channel_source
     return ticket, ticket_id, team
 
 
@@ -62,6 +68,7 @@ class TestCollectEligible:
             ("has_ai_note", {"has_ai_note": True}),
             ("has_team_reply", {"has_team_reply": True}),
             ("rollout_off", {"rollout": False}),
+            ("channel_not_allowed", {"ai_resolution_channels": ["email"], "channel_source": "widget"}),
         ]
     )
     # Force the BK-readiness gate on (production default MIN_READY_BK_SOURCES=0 skips it) so the
@@ -94,6 +101,8 @@ class TestCollectEligible:
             ai_suggestions_enabled=ai_suggestions_enabled,
             ai_data_processing_approved=ai_data_processing_approved,
             has_ready_sources=has_ready,
+            channel_source=overrides.get("channel_source", "widget"),
+            ai_resolution_channels=overrides.get("ai_resolution_channels"),
         )
 
         mock_master_flag.return_value = master_flag
@@ -137,6 +146,38 @@ class TestCollectEligible:
         assert result[0].team_id == team.id
         assert result[0].ticket_id == ticket_id
 
+    @parameterized.expand(
+        [
+            ("channel_in_allowed_list", ["widget"], "widget"),
+            ("null_allows_all", None, "slack"),
+        ]
+    )
+    @patch(f"{COORD_MODULE}._is_rollout_enabled", return_value=True)
+    @patch(f"{COORD_MODULE}.has_ready_sources", return_value=True)
+    @patch(f"{COORD_MODULE}.Comment")
+    @patch(f"{COORD_MODULE}.Ticket")
+    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
+    def test_channel_gate_passes(
+        self,
+        _name,
+        ai_resolution_channels,
+        channel_source,
+        mock_master_flag,
+        mock_ticket_model,
+        mock_comment_model,
+        mock_has_ready,
+        mock_rollout,
+    ):
+        ticket, ticket_id, team = _make_ticket(
+            channel_source=channel_source,
+            ai_resolution_channels=ai_resolution_channels,
+        )
+        mock_ticket_model.objects.filter.return_value.select_related.return_value = [ticket]
+        mock_comment_model.objects.filter.return_value.values_list.return_value = []
+
+        result = _collect_eligible()
+        assert len(result) == 1
+
     @patch(f"{COORD_MODULE}._is_rollout_enabled", return_value=True)
     @patch(f"{COORD_MODULE}.has_ready_sources", return_value=True)
     @patch(f"{COORD_MODULE}.Comment")
@@ -174,7 +215,7 @@ class TestCoordinatorWorkflow:
                 env.client,
                 task_queue="test-queue",
                 workflows=[SupportReplyCoordinatorWorkflow],
-                activities=[collect_eligible_tickets_activity],
+                activities=[support_collect_eligible_tickets_activity],
             ):
                 result = await env.client.execute_workflow(
                     SupportReplyCoordinatorWorkflow.run,
@@ -203,7 +244,7 @@ class TestCoordinatorWorkflow:
                 env.client,
                 task_queue="test-queue",
                 workflows=[SupportReplyCoordinatorWorkflow, _StubChildWorkflow],
-                activities=[collect_eligible_tickets_activity],
+                activities=[support_collect_eligible_tickets_activity],
             ):
                 result = await env.client.execute_workflow(
                     SupportReplyCoordinatorWorkflow.run,
@@ -234,7 +275,7 @@ class TestCoordinatorWorkflow:
                 env.client,
                 task_queue="test-queue",
                 workflows=[SupportReplyCoordinatorWorkflow, _StubChildWorkflow],
-                activities=[collect_eligible_tickets_activity],
+                activities=[support_collect_eligible_tickets_activity],
             ):
                 result = await env.client.execute_workflow(
                     SupportReplyCoordinatorWorkflow.run,

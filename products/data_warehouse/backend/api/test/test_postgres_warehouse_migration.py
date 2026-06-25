@@ -13,11 +13,10 @@ from unittest.mock import Mock, patch
 
 from rest_framework import status
 
-from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 
 
 class TestPostgresWarehouseMigration(APIBaseTest):
@@ -298,7 +297,9 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         # would otherwise reanchor those rows to "public" (the static fallback) and orphan their
         # existing Delta data. Pin metadata to the OLD schema before saving the cleared config so
         # the rename helper can match correctly.
-        from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
+        from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+            PostgresSourceConfig,
+        )
 
         source_mock = mock_get_source.return_value
         parsed_config = Mock(spec=PostgresSourceConfig)
@@ -379,7 +380,9 @@ class TestPostgresWarehouseMigration(APIBaseTest):
         # as a separate row. When the user clears the schema, the legacy unqualified row gets
         # renamed to that qualified form — the orphan duplicate must be soft-deleted so the legacy
         # row (with the actual Delta data) is canonical.
-        from posthog.temporal.data_imports.sources.generated_configs import PostgresSourceConfig
+        from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
+            PostgresSourceConfig,
+        )
 
         source_mock = mock_get_source.return_value
         parsed_config = Mock(spec=PostgresSourceConfig)

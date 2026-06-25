@@ -18,11 +18,11 @@ Functions that bridge to those heavy surfaces import them lazily inside the func
 import logging
 from collections.abc import Iterable, Sequence
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from django.db import transaction
-from django.db.models import CharField, Count, Exists, F, Min, OuterRef, Q, Subquery
+from django.db.models import CharField, Count, F, Min, OuterRef, Q, QuerySet, Subquery
 from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone as django_timezone
 
@@ -168,9 +168,9 @@ __all__ = [
     "start_task_run",
     "task_accessible_for_run_view",
     "task_exists",
+    "task_ids_with_pr_url_subquery",
     "task_run_has_slack_mapping",
     "task_run_is_terminal",
-    "task_run_pr_url_exists_subquery",
     "task_visible",
     "update_sandbox_environment",
     "update_task",
@@ -180,6 +180,7 @@ __all__ = [
     "upsert_internal_sandbox_env",
     "validate_set_output",
     "validate_task_run_artifact_ids",
+    "warm_task_sandbox",
 ]
 
 
@@ -457,23 +458,29 @@ def get_latest_pr_url_by_task(task_ids: Iterable[str | UUID]) -> dict[str, str]:
     return {str(row["task_id"]): row["output_pr_url_text"] for row in rows if row["output_pr_url_text"]}
 
 
-def task_run_pr_url_exists_subquery(*conditions: Q, **task_run_filter) -> Exists:
-    """``Exists`` over runs matching the supplied correlation that produced a non-empty output.pr_url.
+def task_ids_with_pr_url_subquery(team_id: int) -> QuerySet[TaskRun, Any]:
+    """A ``values('task_id')`` queryset of ``team_id``'s tasks that produced a non-empty ``output.pr_url``.
 
-    The caller supplies the report→run correlation as keyword lookups (e.g.
-    ``task__signal_report_tasks__report_id=OuterRef("id")``) and/or positional ``Q`` objects (e.g.
-    an ``OR`` of two ``task_id__in`` subqueries the caller builds). Returns a query expression to
-    embed in the caller's queryset — no ORM instances cross the boundary, and the tasks facade
-    stays free of the caller's domain.
+    For embedding in a caller's ``task_id__in=...`` lookup so the report→PR correlation can be
+    *decorrelated*: instead of a per-report ``Exists`` over runs, the caller drives off this small,
+    index-backed set (served by the partial ``task_run_output_pr_url_idx``) and joins outward to its
+    own report-association tables. Returns a query expression — no ORM instances cross the boundary.
+
+    Scoped to ``team_id`` so the set stays bounded to the request's tenant rather than scanning every
+    team's PR-bearing runs — associated runs are always same-team, so this drops no valid matches.
     """
-    return Exists(
-        TaskRun.objects.filter(*conditions, output__pr_url__isnull=False, **task_run_filter).exclude(output__pr_url="")
+    return (
+        TaskRun.objects.filter(team_id=team_id, output__pr_url__isnull=False)
+        .exclude(output__pr_url="")
+        .values("task_id")
     )
 
 
 def latest_task_run_pr_url_subquery(*conditions: Q, **task_run_filter) -> Subquery:
     """``Subquery`` of the latest non-empty output.pr_url for runs matching the supplied correlation
-    (keyword lookups and/or positional ``Q`` objects — see ``task_run_pr_url_exists_subquery``)."""
+    (keyword lookups and/or positional ``Q`` objects). Returns a query expression to embed in the
+    caller's queryset — no ORM instances cross the boundary, and the tasks facade stays free of the
+    caller's domain."""
     return Subquery(
         TaskRun.objects.filter(*conditions, output__pr_url__isnull=False, **task_run_filter)
         .exclude(output__pr_url="")
@@ -2575,9 +2582,28 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
     validated_data = dict(validated_data)
     validated_data["team"] = team
     validated_data.setdefault("origin_product", Task.OriginProduct.USER_CREATED)
+    warm_branch_provided = "branch" in validated_data
+    warm_branch = validated_data.pop("branch", None)
 
     if user_id is not None:
         validated_data["created_by"] = User.objects.get(id=user_id)
+
+    if (
+        warm_branch_provided
+        and validated_data["origin_product"] == Task.OriginProduct.USER_CREATED
+        and validated_data.get("repository")
+        and user_id is not None
+    ):
+        warm_run = _find_idling_warm_run(team_id, user_id, repository=validated_data["repository"], branch=warm_branch)
+        if warm_run is not None:
+            warm_task = warm_run.task
+            message = (validated_data.get("description") or "").strip()
+            if message and not (warm_task.title or "").strip():
+                warm_task.title = generate_task_title(message)
+                warm_task.title_manually_set = False
+                warm_task.save(update_fields=["title", "title_manually_set", "updated_at"])
+            _activate_warm_run(warm_run, warm_task, team_id, message=message or None, artifact_ids=[])
+            return _task_detail_to_dto(_task_detail_queryset().get(pk=warm_task.pk))
 
     # Only IMPLEMENTATION is accepted; pop it so it isn't forwarded to the model. The link itself
     # is recorded by record_implementation_task below.
@@ -2639,6 +2665,7 @@ def update_task(
     validated_data.pop("signal_report", None)
     validated_data.pop("signal_report_task_relationship", None)
     validated_data.pop("origin_product", None)
+    validated_data.pop("branch", None)
     if "title" in validated_data and "title_manually_set" not in validated_data:
         validated_data["title_manually_set"] = True
     if "archived" in validated_data and validated_data["archived"] != task.archived:
@@ -2792,6 +2819,152 @@ def finalize_task_staged_artifacts(
     return contracts.StagedArtifactFinalizeResult(artifacts=finalized)
 
 
+def resolve_team_github_integration_id(team_id: int, github_integration_id: int) -> int | None:
+    """Return the integration id only if it is a GitHub integration owned by this team.
+
+    Re-scoping guard for the collection-level warm endpoint, which accepts a bare PK with
+    no serializer team context. Returns ``None`` for any id that doesn't belong to the team —
+    the caller treats that as "skip warming" (the submit later falls through to a cold create+run).
+    """
+    exists = Integration.objects.filter(id=github_integration_id, team_id=team_id, kind="github").exists()
+    return github_integration_id if exists else None
+
+
+def _find_idling_warm_run(
+    team_id: int, user_id: int | None, *, repository: str | None, branch: str | None
+) -> TaskRun | None:
+    """Most-recent idling pre-warmed Run matching this user's cloud composing selection, or ``None``.
+
+    A warm Run is a non-terminal ``USER_CREATED`` Run for the same repo+branch still awaiting its
+    first user message (the ``await_user_message`` state marker). This is the backend's single source
+    of truth for the warm pool: it dedupes warm provisioning (so a repeated ``warm`` call reuses the
+    live Run instead of spawning a second) and lets the normal create+run path transparently reuse a
+    warm Run on submit. Team + user scoped; branch compared as ``None``-normalized exact match.
+
+    Runs on a hot path (warm fires on every typing debounce), so every predicate is pushed into the
+    query — ``await_user_message`` is JSON-queryable (see ``SandboxWarmer.at_capacity``) — and only the
+    single most-recent match is fetched.
+    """
+    if user_id is None or not repository:
+        return None
+    return (
+        TaskRun.objects.filter(  # nosemgrep: idor-lookup-without-team — team_id filter applied via the task FK below
+            task__team_id=team_id,
+            task__created_by_id=user_id,
+            task__origin_product=Task.OriginProduct.USER_CREATED,
+            task__repository__iexact=repository,
+            task__deleted=False,
+            state__await_user_message=True,
+            branch=branch or None,
+        )
+        .exclude(status__in=_TERMINAL_TASK_RUN_STATUSES)
+        .select_related("task")
+        .order_by("-created_at")
+        .first()
+    )
+
+
+def _idling_warm_run_for_task(task: Task) -> TaskRun | None:
+    """The task's latest run iff it is an idling pre-warmed Run (non-terminal, awaiting first message)."""
+    run = task.latest_run
+    if run is None or run.is_terminal:
+        return None
+    if not (run.state or {}).get("await_user_message"):
+        return None
+    return run
+
+
+def _activate_warm_run(run: TaskRun, task: Task, team_id: int, *, message: str | None, artifact_ids: list[str]) -> None:
+    """Activate an idling warm Run: set the draft Task's description (when empty), forward the first
+    message to the already-running agent, and drop the ``await_user_message`` marker so the Run leaves
+    the warm pool. Mirrors ``message_routing._handle_first_message``; no fresh agent start."""
+    from products.tasks.backend.metrics import (  # noqa: PLC0415 — keep prometheus deps off the api import path
+        observe_prewarmed_activated,
+    )
+
+    if message and not (task.description or "").strip():
+        task.description = message
+        task.save(update_fields=["description", "updated_at"])
+    signal_task_run_user_message(run.id, task.id, team_id, content=message, artifact_ids=artifact_ids)
+    TaskRun.update_state_atomic(run.id, remove_keys=["await_user_message"])
+    # Only count activations of Runs that actually carry the prewarmed marker, so the activation
+    # numerator stays consistent with the workflow_start{prewarmed="true"} denominator — otherwise
+    # warm Runs provisioned before this ships (await_user_message set, prewarmed absent) would push
+    # the hit rate above 1 during the deploy transition.
+    if (run.state or {}).get("prewarmed"):
+        observe_prewarmed_activated(run)
+
+
+def warm_task_sandbox(
+    team_id: int,
+    user_id: int,
+    *,
+    repository: str,
+    github_integration_id: int,
+    branch: str | None,
+) -> contracts.WarmTaskDTO | None:
+    """Warm a full idling Run for a Code-app cloud task while the user composes.
+
+    Births a draft Task (``USER_CREATED``), then ``SandboxWarmer.warm()`` provisions an interactive
+    Run that boots + clones + checks out ``branch`` + starts the agent, then idles awaiting the first
+    ``user_message``. The Run is dispatched with ``create_pr=True`` so that, once activated on submit,
+    it completes autonomously and opens a PR like a normal Code-app cloud task.
+
+    Best-effort: returns ``None`` (not an HTTP error) when warming is gated — over quota
+    (``QuotaLimitExceeded``), product not enabled (``PermissionDenied``), or the warm pool is full
+    (``Throttled``). The caller treats ``None`` as "no warm run; fall through to a cold create+run".
+
+    ``github_integration_id`` must already be re-scoped to ``team_id`` by the caller
+    (see :func:`resolve_team_github_integration_id`).
+    """
+    from rest_framework.exceptions import (  # noqa: PLC0415 — keep DRF exception types off the api import path
+        PermissionDenied,
+        Throttled,
+    )
+
+    from posthog.exceptions import QuotaLimitExceeded  # noqa: PLC0415 — keep billing deps off the api import path
+    from posthog.models import Team  # noqa: PLC0415
+
+    from products.tasks.backend.logic.services.warm import (
+        SandboxWarmer,  # noqa: PLC0415 — keep warming deps off the api import path
+    )
+
+    existing = _find_idling_warm_run(team_id, user_id, repository=repository, branch=branch)
+    if existing is not None:
+        return contracts.WarmTaskDTO(task_id=existing.task_id, run_id=existing.id)
+
+    team = Team.objects.get(id=team_id)
+    github_integration = Integration.objects.filter(id=github_integration_id, team_id=team_id, kind="github").first()
+    if github_integration is None:
+        return None
+
+    task = Task.create_without_run(
+        team=team,
+        title="",
+        description="",
+        origin_product=Task.OriginProduct.USER_CREATED,
+        user_id=user_id,
+        repository=repository,
+    )
+    assert task.created_by is not None  # create_without_run always sets created_by from user_id
+
+    try:
+        result = SandboxWarmer(task, user=task.created_by).warm(
+            mode="interactive",
+            extra_state={
+                "branch": branch,
+                "initial_permission_mode": "default",
+                "use_modal_network_allowlist": False,
+            },
+            create_pr=True,
+        )
+    except (Throttled, PermissionDenied, QuotaLimitExceeded):
+        task.soft_delete()
+        return None
+
+    return contracts.WarmTaskDTO(task_id=task.id, run_id=result.run.id)
+
+
 # --- Task run (the ``run`` action) ---
 
 
@@ -2828,6 +3001,21 @@ def run_task(
     branch = validated_data.get("branch")
     resume_from_run_id = validated_data.get("resume_from_run_id")
     pending_user_message = validated_data.get("pending_user_message")
+
+    if not resume_from_run_id:
+        warm_run = _idling_warm_run_for_task(task)
+        # Only activate when the requested branch matches the branch the warm Run was provisioned on —
+        # otherwise the run would work the wrong branch in the warm sandbox. On mismatch, fall through
+        # to the cold path so a fresh run is created for the requested branch.
+        if warm_run is not None and (branch or None) == (warm_run.branch or None):
+            _activate_warm_run(
+                warm_run,
+                task,
+                team_id,
+                message=pending_user_message or (task.description or None),
+                artifact_ids=validated_data.get("pending_user_artifact_ids") or [],
+            )
+            return contracts.TaskRunResult(task=get_task_detail(task.id, team_id, user_id))
     pending_user_artifact_ids = validated_data.get("pending_user_artifact_ids") or []
     sandbox_environment_id = validated_data.get("sandbox_environment_id")
     sandbox_environment_id_supplied_by_user = sandbox_environment_id is not None

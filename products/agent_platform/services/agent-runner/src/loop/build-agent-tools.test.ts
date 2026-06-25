@@ -56,7 +56,7 @@ function makeRev(
         state: 'live',
         bundle_uri: 's3://',
         bundle_sha256: null,
-        spec: AgentSpecSchema.parse({ model: 'x', tools: toolRefs, skills, mcps }),
+        spec: AgentSpecSchema.parse({ model: 'test/x', tools: toolRefs, skills, mcps }),
         encrypted_env: null,
     }
 }
@@ -215,6 +215,28 @@ describe('buildAgentTools', () => {
         )
         const built = await buildAgentTools(rev, makeDeps(rev))
         expect(built.tools.map((t) => t.label)).toContain('@posthog/identity-connect')
+    })
+
+    describe('@posthog/web-search gating', () => {
+        const rev = makeRev([{ kind: 'native', id: '@posthog/web-search' }])
+
+        it('drops the tool when no providers are configured', async () => {
+            const built = await buildAgentTools(rev, makeDeps(rev))
+            expect(built.tools.map((t) => t.label)).not.toContain('@posthog/web-search')
+        })
+
+        it('drops the tool when the provider chain is empty', async () => {
+            const built = await buildAgentTools(rev, makeDeps(rev, { webSearchProviders: [] }))
+            expect(built.tools.map((t) => t.label)).not.toContain('@posthog/web-search')
+        })
+
+        it('includes the tool when at least one provider is configured', async () => {
+            const built = await buildAgentTools(
+                rev,
+                makeDeps(rev, { webSearchProviders: [{ name: 'exa', search: async () => [] }] })
+            )
+            expect(built.tools.map((t) => t.label)).toContain('@posthog/web-search')
+        })
     })
 
     it('maps provider-safe names back to original ids', async () => {

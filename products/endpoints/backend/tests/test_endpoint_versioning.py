@@ -345,7 +345,7 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         from unittest.mock import patch
 
         from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-        from products.warehouse_sources.backend.models.table import DataWarehouseTable
+        from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
         initial_query = {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 10"}
 
@@ -699,7 +699,7 @@ class TestEndpointVersioning(ClickhouseTestMixin, APIBaseTest):
         from datetime import timedelta
 
         from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-        from products.warehouse_sources.backend.models.table import DataWarehouseTable
+        from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
         # Create endpoint with v1
         initial_query = {"kind": "HogQLQuery", "query": "SELECT 1"}

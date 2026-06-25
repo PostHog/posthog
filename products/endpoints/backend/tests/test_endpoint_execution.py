@@ -15,7 +15,7 @@ from products.data_modeling.backend.models.datawarehouse_saved_query import Data
 from products.endpoints.backend.services.execution import EndpointExecutionService
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 from products.product_analytics.backend.models.insight_variable import InsightVariable
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
 class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):

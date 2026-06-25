@@ -1,4 +1,5 @@
 from .automation import RunTaskAutomationWorkflow, run_task_automation_activity
+from .code_workstreams.activities.discover_branch_prs import discover_branch_prs
 from .code_workstreams.activities.list_active_teams import list_active_code_teams
 from .code_workstreams.activities.load_pr_urls import load_team_pr_urls
 from .code_workstreams.activities.poll_pull_requests import poll_team_pull_requests
@@ -82,6 +83,7 @@ ACTIVITIES = [
     snapshot_cleanup_sandbox,
     list_active_code_teams,
     load_team_pr_urls,
+    discover_branch_prs,
     poll_team_pull_requests,
     rebuild_team_workstreams,
 ]
