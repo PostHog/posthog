@@ -554,12 +554,12 @@
         "feature": "data_warehouse",
         "summary": "Preview sample rows for a Custom REST source resource",
         "title": "Preview rows for a Custom REST source resource",
-        "required_scopes": ["external_data_source:read"],
+        "required_scopes": ["external_data_source:write"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
-            "readOnlyHint": true
+            "readOnlyHint": false
         }
     },
     "external-data-sync-logs": {
