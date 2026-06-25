@@ -208,6 +208,7 @@ function bareTriggerMetadata(trigger: ElevationTrigger | undefined): TriggerMeta
     if (trigger === 'mcp') {
         return { kind: 'mcp' }
     }
+    // chat + undefined fall through here; slack/cron always pass full metadata.
     return { kind: 'chat' }
 }
 

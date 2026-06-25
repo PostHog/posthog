@@ -102,6 +102,10 @@ describe('supported_client_tools: capability-gated exposure', () => {
         unsub()
 
         expect(seen).not.toContain('focus')
+        // Undeclared tool is silently skipped, not a session failure: the model
+        // gets an unknown-tool error result and continues to its next turn.
+        const session = await c.queue.get(sessionId)
+        expect(session!.state).toBe('completed')
     })
 
     it('fails session open when a required client tool is not declared', async () => {
