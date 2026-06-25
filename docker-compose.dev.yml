@@ -688,8 +688,10 @@ services:
             - ./otel-collector-config.dev.yaml:/etc/otel-collector-config.yaml
         environment:
             # Used by otel-collector-config.dev.yaml to scope container log
-            # collection to this compose project only.
-            COMPOSE_PROJECT: posthog
+            # collection to this compose project only. Reads the active compose
+            # project so per-worktree namespacing (COMPOSE_PROJECT_NAME) still
+            # matches; defaults to posthog for bare `docker compose` outside direnv.
+            COMPOSE_PROJECT: '${COMPOSE_PROJECT_NAME:-posthog}'
         extra_hosts:
             - 'host.docker.internal:host-gateway'
         depends_on:
