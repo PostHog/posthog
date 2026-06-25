@@ -9228,6 +9228,18 @@ export namespace Schemas {
       value: string;
     }
 
+    /**
+     * * `log` - log
+     * * `resource` - resource
+     */
+    export type AttributeTypeEnum = typeof AttributeTypeEnum[keyof typeof AttributeTypeEnum];
+
+
+    export const AttributeTypeEnum = {
+      Log: 'log',
+      Resource: 'resource',
+    } as const;
+
     export interface UnmatchedUtmSample {
       /** A raw utm_source value that doesn't match the integration exactly */
       raw_value: string;
@@ -13996,6 +14008,19 @@ export namespace Schemas {
       target_display_name: string;
       /** canonical or team_custom */
       source: string;
+    }
+
+    export interface CustomFacet {
+      /**
+         * Attribute key to facet on, e.g. 'k8s.namespace.name' or 'http.status_code'.
+         * @maxLength 200
+         */
+      key: string;
+      /** Where the key lives: "resource" for resource attributes, "log" for log attributes.
+       *
+       * * `log` - log
+       * * `resource` - resource */
+      attribute_type: AttributeTypeEnum;
     }
 
     /**

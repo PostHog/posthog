@@ -980,6 +980,30 @@ export interface _LogsCountRangesResponseApi {
     interval: string
 }
 
+/**
+ * * `log` - log
+ * * `resource` - resource
+ */
+export type AttributeTypeEnumApi = (typeof AttributeTypeEnumApi)[keyof typeof AttributeTypeEnumApi]
+
+export const AttributeTypeEnumApi = {
+    Log: 'log',
+    Resource: 'resource',
+} as const
+
+export interface CustomFacetApi {
+    /**
+     * Attribute key to facet on, e.g. 'k8s.namespace.name' or 'http.status_code'.
+     * @maxLength 200
+     */
+    key: string
+    /** Where the key lives: "resource" for resource attributes, "log" for log attributes.
+     *
+     * * `log` - log
+     * * `resource` - resource */
+    attribute_type: AttributeTypeEnumApi
+}
+
 export interface ExplainRequestApi {
     /** UUID of the log entry to explain */
     uuid: string

@@ -586,6 +586,26 @@ export const LogsCountRangesCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * The requesting user's custom facets for the current project — the facets they pinned into the
+ * rail's Custom group. Stored as a single (team, user) row; the whole set is replaced on write.
+ */
+export const logsCustomFacetsCreateBodyKeyMax = 200
+
+export const LogsCustomFacetsCreateBodyItem = /* @__PURE__ */ zod.object({
+    key: zod
+        .string()
+        .max(logsCustomFacetsCreateBodyKeyMax)
+        .describe("Attribute key to facet on, e.g. 'k8s.namespace.name' or 'http.status_code'."),
+    attribute_type: zod
+        .enum(['log', 'resource'])
+        .describe('\* `log` - log\n\* `resource` - resource')
+        .describe(
+            'Where the key lives: \"resource\" for resource attributes, \"log\" for log attributes.\n\n\* `log` - log\n\* `resource` - resource'
+        ),
+})
+export const LogsCustomFacetsCreateBody = /* @__PURE__ */ zod.array(LogsCustomFacetsCreateBodyItem)
+
+/**
  * Explain a log entry using AI.
  *
  * POST /api/environments/:id/logs/explainLogWithAI/

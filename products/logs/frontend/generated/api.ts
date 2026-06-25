@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    CustomFacetApi,
     ExplainRequestApi,
     LogsAlertConfigurationApi,
     LogsAlertCreateDestinationApi,
@@ -344,6 +345,42 @@ export const logsCountRangesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_logsCountRangesRequestApi),
+    })
+}
+
+export const getLogsCustomFacetsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/custom_facets/`
+}
+
+/**
+ * The requesting user's custom facets for the current project — the facets they pinned into the
+ * rail's Custom group. Stored as a single (team, user) row; the whole set is replaced on write.
+ */
+export const logsCustomFacetsList = async (projectId: string, options?: RequestInit): Promise<CustomFacetApi[]> => {
+    return apiMutator<CustomFacetApi[]>(getLogsCustomFacetsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLogsCustomFacetsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/custom_facets/`
+}
+
+/**
+ * The requesting user's custom facets for the current project — the facets they pinned into the
+ * rail's Custom group. Stored as a single (team, user) row; the whole set is replaced on write.
+ */
+export const logsCustomFacetsCreate = async (
+    projectId: string,
+    customFacetApi: CustomFacetApi[],
+    options?: RequestInit
+): Promise<CustomFacetApi[]> => {
+    return apiMutator<CustomFacetApi[]>(getLogsCustomFacetsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(customFacetApi),
     })
 }
 
