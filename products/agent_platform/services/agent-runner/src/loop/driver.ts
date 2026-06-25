@@ -81,6 +81,7 @@ import {
     TabularStore,
     ToolContext,
     toolSpanId,
+    readSessionClientKind,
     WebSearchProvider,
 } from '@posthog/agent-shared'
 
@@ -156,6 +157,12 @@ export interface RunSessionDeps {
      * security hole). No mock variant. */
     approvals: ApprovalStore
     buildApprovalUrl?: (requestId: string) => string
+    /**
+     * Builds the connect URL relayed for an interactive `connect_mcp` call on a
+     * non-PostHog-Code surface (Slack/MCP), where the punch-out form can't
+     * render. Same deep-link scheme as `buildApprovalUrl`. Reads the tool args.
+     */
+    buildMcpConnectUrl?: (args: Record<string, unknown>) => string
     /**
      * S3-backed memory store. Threaded into `AgentToolDeps` → `ToolContext`
      * so native `@posthog/memory-*` tools work; absent → memory tools return
@@ -458,6 +465,8 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             mcpClients: deps.mcpClients,
             http: deps.http,
             posthogApiBaseUrl: deps.posthogApiBaseUrl,
+            clientKind: readSessionClientKind(session.trigger_metadata),
+            buildMcpConnectUrl: deps.buildMcpConnectUrl,
         }
         const { tools, nameToId } = await buildAgentTools(rev, toolDeps)
 

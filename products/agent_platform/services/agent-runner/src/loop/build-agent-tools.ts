@@ -41,6 +41,8 @@ import {
     MemoryStore,
     TabularStore,
     Sandbox,
+    type ClientKind,
+    CLIENT_KIND_POSTHOG_CODE,
     ToolContext,
     WebSearchProvider,
 } from '@posthog/agent-shared'
@@ -176,6 +178,19 @@ export interface AgentToolDeps {
      * against. Forwarded straight onto `ToolContext.posthogApiBaseUrl`.
      */
     posthogApiBaseUrl: string
+    /**
+     * The connecting client's kind (`readSessionClientKind`). Only PostHog Code
+     * can render interactive client-tool punch-outs (forms); other surfaces
+     * (Slack/MCP) get a URL relay instead. Absent → treated as non-PostHog-Code.
+     */
+    clientKind?: ClientKind | null
+    /**
+     * Builds the connect URL relayed for `connect_mcp` on non-PostHog-Code
+     * surfaces (the same deep-link scheme as `buildApprovalUrl`). Reads the
+     * tool args (`agent_slug`/`name`/`url`). Absent → no relay (the call would
+     * park, same as before).
+     */
+    buildMcpConnectUrl?: (args: Record<string, unknown>) => string
 }
 
 export interface BuiltAgentTools {
@@ -465,6 +480,28 @@ function makeClientTool(
                 throw new Error(`client tool ${spec.id} dispatcher not wired on this driver`)
             }
             if (spec.interactive) {
+                // Interactive punch-outs need a rich client (PostHog Code) to
+                // render the form; on other surfaces (Slack/MCP) nothing receives
+                // the client_tool_call and the session would park forever. For
+                // connect_mcp, hand back a connect URL the user can open instead
+                // — the same relay shape approvals use for non-PostHog-Code
+                // clients. Returns immediately (not parked).
+                if (
+                    spec.id === 'connect_mcp' &&
+                    deps.clientKind !== CLIENT_KIND_POSTHOG_CODE &&
+                    deps.buildMcpConnectUrl
+                ) {
+                    const connectUrl = deps.buildMcpConnectUrl(args as Record<string, unknown>)
+                    const relay = {
+                        unsupported_client: true,
+                        connect_url: connectUrl,
+                        message: `This client can't render the connect form. Ask the user to open ${connectUrl} to connect the MCP server, then continue.`,
+                    }
+                    return {
+                        content: [{ type: 'text', text: JSON.stringify(relay) }],
+                        details: { output: relay },
+                    }
+                }
                 if (!deps.emitClientToolCall) {
                     throw new Error(`client tool ${spec.id} interactive emit not wired on this driver`)
                 }
