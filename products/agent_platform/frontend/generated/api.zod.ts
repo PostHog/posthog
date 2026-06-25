@@ -105,6 +105,8 @@ export const AgentMemoryUpdateFileBody = /* @__PURE__ */ zod
  *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
  */
 export const agentApplicationsRevisionsCreateBodyBundleUriDefault = ``
+
+export const agentApplicationsRevisionsCreateBodySpecModelRegExp = new RegExp('^[a-z0-9_-]+\/[a-zA-Z0-9._:-]+$')
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
 export const agentApplicationsRevisionsCreateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
@@ -166,7 +168,6 @@ export const agentApplicationsRevisionsCreateBodySpecMcpsDefault = []
 export const agentApplicationsRevisionsCreateBodySpecSkillsItemVersionMin = 0
 
 export const agentApplicationsRevisionsCreateBodySpecSkillsDefault = []
-export const agentApplicationsRevisionsCreateBodySpecIntegrationsDefault = []
 export const agentApplicationsRevisionsCreateBodySpecIdentityProvidersItemOneIdDefault = `posthog`
 
 export const agentApplicationsRevisionsCreateBodySpecIdentityProvidersItemOneBindingDefault = `principal`
@@ -226,7 +227,7 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
         ),
     spec: zod
         .object({
-            model: zod.string().min(1),
+            model: zod.string().min(1).regex(agentApplicationsRevisionsCreateBodySpecModelRegExp),
             triggers: zod
                 .array(
                     zod.union([
@@ -532,7 +533,6 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                         url: zod.url(),
                         auth: zod
                             .object({
-                                integration: zod.string().optional(),
                                 provider: zod.string().optional(),
                             })
                             .optional(),
@@ -598,7 +598,6 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
                     })
                 )
                 .default(agentApplicationsRevisionsCreateBodySpecSkillsDefault),
-            integrations: zod.array(zod.string()).default(agentApplicationsRevisionsCreateBodySpecIntegrationsDefault),
             identity_providers: zod
                 .array(
                     zod.union([
@@ -724,6 +723,8 @@ export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
  * ready/live the spec is frozen — change requires a new revision.
  */
 export const agentApplicationsRevisionsUpdateBodyBundleUriDefault = ``
+
+export const agentApplicationsRevisionsUpdateBodySpecModelRegExp = new RegExp('^[a-z0-9_-]+\/[a-zA-Z0-9._:-]+$')
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
 export const agentApplicationsRevisionsUpdateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
@@ -785,7 +786,6 @@ export const agentApplicationsRevisionsUpdateBodySpecMcpsDefault = []
 export const agentApplicationsRevisionsUpdateBodySpecSkillsItemVersionMin = 0
 
 export const agentApplicationsRevisionsUpdateBodySpecSkillsDefault = []
-export const agentApplicationsRevisionsUpdateBodySpecIntegrationsDefault = []
 export const agentApplicationsRevisionsUpdateBodySpecIdentityProvidersItemOneIdDefault = `posthog`
 
 export const agentApplicationsRevisionsUpdateBodySpecIdentityProvidersItemOneBindingDefault = `principal`
@@ -845,7 +845,7 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
         ),
     spec: zod
         .object({
-            model: zod.string().min(1),
+            model: zod.string().min(1).regex(agentApplicationsRevisionsUpdateBodySpecModelRegExp),
             triggers: zod
                 .array(
                     zod.union([
@@ -1151,7 +1151,6 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
                         url: zod.url(),
                         auth: zod
                             .object({
-                                integration: zod.string().optional(),
                                 provider: zod.string().optional(),
                             })
                             .optional(),
@@ -1217,7 +1216,6 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
                     })
                 )
                 .default(agentApplicationsRevisionsUpdateBodySpecSkillsDefault),
-            integrations: zod.array(zod.string()).default(agentApplicationsRevisionsUpdateBodySpecIntegrationsDefault),
             identity_providers: zod
                 .array(
                     zod.union([
@@ -1366,6 +1364,8 @@ export const AgentApplicationsRevisionsUpdateBody = /* @__PURE__ */ zod.object({
  *         PUT    .../revisions/<id>/bundle/          bulk push (replace|merge)
  */
 export const agentApplicationsRevisionsPartialUpdateBodyBundleUriDefault = ``
+
+export const agentApplicationsRevisionsPartialUpdateBodySpecModelRegExp = new RegExp('^[a-z0-9_-]+\/[a-zA-Z0-9._:-]+$')
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigMentionOnlyDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAutoResumeThreadsDefault = false
 export const agentApplicationsRevisionsPartialUpdateBodySpecTriggersItemOneConfigAllowWorkspaceParticipantsDefault = false
@@ -1427,7 +1427,6 @@ export const agentApplicationsRevisionsPartialUpdateBodySpecMcpsDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecSkillsItemVersionMin = 0
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecSkillsDefault = []
-export const agentApplicationsRevisionsPartialUpdateBodySpecIntegrationsDefault = []
 export const agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersItemOneIdDefault = `posthog`
 
 export const agentApplicationsRevisionsPartialUpdateBodySpecIdentityProvidersItemOneBindingDefault = `principal`
@@ -1487,7 +1486,7 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
         ),
     spec: zod
         .object({
-            model: zod.string().min(1),
+            model: zod.string().min(1).regex(agentApplicationsRevisionsPartialUpdateBodySpecModelRegExp),
             triggers: zod
                 .array(
                     zod.union([
@@ -1809,7 +1808,6 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                         url: zod.url(),
                         auth: zod
                             .object({
-                                integration: zod.string().optional(),
                                 provider: zod.string().optional(),
                             })
                             .optional(),
@@ -1875,9 +1873,6 @@ export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.o
                     })
                 )
                 .default(agentApplicationsRevisionsPartialUpdateBodySpecSkillsDefault),
-            integrations: zod
-                .array(zod.string())
-                .default(agentApplicationsRevisionsPartialUpdateBodySpecIntegrationsDefault),
             identity_providers: zod
                 .array(
                     zod.union([

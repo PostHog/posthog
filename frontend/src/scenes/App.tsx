@@ -11,6 +11,7 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { autofillReleaseLogic } from 'lib/memory/autofillReleaseLogic'
 import { OAuthCallback } from 'lib/oauth/OAuthCallback'
 import { oauthLogic } from 'lib/oauth/oauthLogic'
+import { retryImport } from 'lib/utils/retryImport'
 import { appLogic } from 'scenes/appLogic'
 import { appScenes } from 'scenes/appScenes'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -21,7 +22,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { ChunkLoadErrorBoundary } from './ChunkLoadErrorBoundary'
 
-const AuthenticatedShell = React.lazy(() => import('./AuthenticatedShell'))
+const AuthenticatedShell = React.lazy(() => retryImport(() => import('./AuthenticatedShell')))
 
 window.process = MOCK_NODE_PROCESS
 
@@ -56,6 +57,17 @@ export function App(): JSX.Element | null {
     // Unconditional so /oauth/callback's urlToAction is registered before routing. Inert in prod
     // (OAuth UI gated on preflight.is_debug); no timers/listeners, so cheap to always mount.
     useMountedLogic(oauthLogic)
+
+    // Mount the support-hash router (handles #panel=support) on every page, lazily so it stays out
+    // of App's import graph — a static import drags supportLogic/sceneLogic/organizationLogic into
+    // root init and triggers a circular-import TDZ. Its urlToAction fires on the current URL on mount.
+    useEffect(() => {
+        let unmount: (() => void) | undefined
+        void import('lib/components/Support/supportRouterLogic').then(({ supportRouterLogic }) => {
+            unmount = supportRouterLogic.mount()
+        })
+        return () => unmount?.()
+    }, [])
 
     useThemedHtml()
 

@@ -92,7 +92,15 @@ MEASURE_CONTENT_WIDTH_JS = f"""
                 return replayElement.offsetWidth;
             }}
 
-            // Check for left-to-right funnel (FunnelBarVertical)
+            // Left-to-right funnel (FunnelStepsBarChart, quill-charts). The bars + legend carry an
+            // explicit pixel width on this element, while every ancestor stretches to fill the wide
+            // export viewport — so measure this element directly rather than the stretched wrapper.
+            const funnelStepsCanvas = document.querySelector('[data-attr="funnel-steps-bar-chart-canvas"]');
+            if (funnelStepsCanvas) {{
+                return Math.ceil(funnelStepsCanvas.getBoundingClientRect().width) + {CONTENT_PADDING};
+            }}
+
+            // Legacy left-to-right funnel (FunnelBarVertical, table-based)
             // Top-to-bottom funnels use FunnelBarHorizontal and don't need width expansion
             const funnelElement = document.querySelector('.FunnelBarVertical');
             if (funnelElement) {{

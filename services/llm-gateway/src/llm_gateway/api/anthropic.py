@@ -36,6 +36,7 @@ from llm_gateway.config import get_settings
 from llm_gateway.dependencies import AnthropicCircuitBreakerDep, RateLimitedUser
 from llm_gateway.metrics.prometheus import (
     ANTHROPIC_CIRCUIT_BREAKER_BYPASSED,
+    BEDROCK_COUNT_TOKENS_ERRORS,
     BEDROCK_FALLBACK_FAILURE,
     BEDROCK_FALLBACK_SUCCESS,
     BEDROCK_FALLBACK_TRIGGERED,
@@ -573,6 +574,7 @@ async def _bedrock_count_tokens_impl(
             bedrock_model,
             bedrock_region_name,
             settings.request_timeout,
+            product=product,
         )
         return {"input_tokens": input_tokens}
     except Exception as e:
@@ -585,6 +587,11 @@ async def _bedrock_count_tokens_impl(
             product=product,
             **_bedrock_runtime_exception_log_fields(e),
         )
+        BEDROCK_COUNT_TOKENS_ERRORS.labels(
+            transport="runtime",
+            error_type=type(e).__name__,
+            product=product,
+        ).inc()
         logger.info("Attempting bedrock-mantle count_tokens fallback", model=bedrock_model, product=product)
         try:
             input_tokens = await count_tokens_with_bedrock_mantle(
@@ -605,6 +612,11 @@ async def _bedrock_count_tokens_impl(
                 **_exception_log_fields(mantle_exc, prefix="mantle"),
                 **_bedrock_runtime_exception_log_fields(e),
             )
+            BEDROCK_COUNT_TOKENS_ERRORS.labels(
+                transport="mantle",
+                error_type=error_type_name,
+                product=product,
+            ).inc()
             raise HTTPException(
                 status_code=502,
                 detail={

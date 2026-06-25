@@ -18,7 +18,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 
-from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
+from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.hogql_queries.ai.utils import merge_heavy_properties
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -70,11 +70,12 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
         super().__init__(*args, **kwargs)
 
     def _calculate(self):
-        query_result = execute_with_ai_events_fallback(
+        query_result = query_ai_events(
             query=self._build_query(),
             placeholders={"filter_conditions": self._get_where_clause()},
             team=self.team,
             query_type=NodeKind.TRACE_QUERY,
+            fall_back_to_events=True,
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,

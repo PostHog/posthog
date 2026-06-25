@@ -51,7 +51,7 @@ describe('stickinessChartTransforms', () => {
 
             expect(series).toMatchObject({
                 key: '0',
-                label: '$pageview',
+                label: 'Pageview',
                 data: [50, 30, 15, 5],
                 color: RED,
                 yAxisId: DEFAULT_Y_AXIS_ID,
@@ -59,6 +59,13 @@ describe('stickinessChartTransforms', () => {
             expect(series.stroke).toBeUndefined()
             expect(series.fill).toBeUndefined()
             expect(series.visibility).toBeUndefined()
+        })
+
+        it('humanizes built-in event labels, leaving custom events untouched', () => {
+            const core = buildStickinessMainSeries(makeResult({ label: '$pageview' }), 0, { getColor: () => RED })
+            const custom = buildStickinessMainSeries(makeResult({ label: 'Napped' }), 0, { getColor: () => RED })
+            expect(core.label).toBe('Pageview')
+            expect(custom.label).toBe('Napped')
         })
 
         it.each([

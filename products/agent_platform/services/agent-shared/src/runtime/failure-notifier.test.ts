@@ -28,7 +28,7 @@ const REV: AgentRevision = {
     state: 'live',
     bundle_uri: 's3://x/',
     bundle_sha256: null,
-    spec: { model: 'claude-sonnet-4-6' } as unknown as AgentRevision['spec'],
+    spec: { model: 'anthropic/claude-sonnet-4-6' } as unknown as AgentRevision['spec'],
     encrypted_env: null,
 }
 
@@ -49,6 +49,7 @@ function makeSession(triggerMetadata: Record<string, unknown> | null): AgentSess
         usage_total: { input_tokens: 0, output_tokens: 0, cost_total: 0 },
         acl: [],
         pending_elevation_requests: [],
+        is_preview: false,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
     } as unknown as AgentSession

@@ -21,6 +21,7 @@ import type { MemoryStore } from '../memory/store'
 import type { TabularStore } from '../memory/tabular-store'
 import type { Credential } from '../runtime/credential-broker'
 import type { HttpFetcher } from '../runtime/http-client'
+import type { WebSearchProvider } from '../runtime/web-search'
 
 export type { Static, TSchema }
 
@@ -53,8 +54,6 @@ export interface ToolContext {
     /** The agent (application) running this session — the memory scope key. */
     applicationId: string
     sessionId: string
-    /** Resolved integration tokens, keyed by integration id ("slack:T01..."). */
-    integrations: Record<string, IntegrationCredentials>
     /** Fetch resolved secret value for a name from spec.secrets. */
     secret(name: string): string | undefined
     /**
@@ -64,9 +63,7 @@ export interface ToolContext {
      *     UNBOUND — `@posthog/http-request` refuses substitution).
      *   - `undefined` when the name isn't declared in `spec.secrets[]` at all.
      *
-     * Fail-closed by design: the bare-string `null` return is the same shape
-     * as `mcp-clients.ts` refusing an `auth.integration` ref when its host
-     * validator isn't wired. Authors who want to call out to a service with
+     * Fail-closed by design: an author who wants to call out to a service with
      * a secret MUST pin that secret to the destination host(s) — a prompt-
      * injected `${TOKEN}` against an attacker URL then refuses before fetch
      * rather than leaking the credential.
@@ -150,13 +147,25 @@ export interface ToolContext {
      * reads inside tool code.
      */
     posthogApiBaseUrl: string
-}
-
-export interface IntegrationCredentials {
-    kind: string
-    access_token: string
-    refresh_token?: string
-    metadata?: Record<string, unknown>
+    /**
+     * Ordered web-search provider chain for `@posthog/web-search` (primary
+     * first, configured fallbacks next). Built from `AGENT_WEB_SEARCH_*`
+     * config at runner boot and injected here. Empty / absent → the tool is
+     * gated out of the session surface in `buildAgentTools`, so a session
+     * never sees a tool that just throws `web_search_not_configured`.
+     */
+    webSearchProviders?: readonly WebSearchProvider[]
+    /**
+     * Mirrors `agent_session.is_preview` for the currently-executing session.
+     * Tools that publish externally (Slack post / update / react, webhook
+     * delivery, anything else with a real-world side effect) MUST short-
+     * circuit via `isPreviewSideEffect(...)` from this package when this is
+     * true. Read-only tools (slack read-channel / read-thread, query tools)
+     * are unaffected. The runner stamps the same flag from
+     * `session.is_preview`; tests can construct a context with `isPreview:
+     * true` to exercise the noop branch.
+     */
+    isPreview: boolean
 }
 
 /** Outcome of `ctx.identity.resolve`: a usable credential, a link to send, or no-go.
@@ -193,6 +202,30 @@ export function defineNativeTool<TArgsSchema extends TSchema, TReturnSchema exte
         },
         run: def.run,
     }
+}
+
+/**
+ * Author-iteration guard for write-side native tools. Tools that publish
+ * externally (`@posthog/slack-post-message`, future webhook-publish tools,
+ * etc.) call this at the top of `run` to log a structured skip event when
+ * the session is in preview mode. The tool then returns a shape-valid
+ * synthetic response so the model's next turn sees a "successful" call and
+ * keeps reasoning naturally — the preview UX is "the agent acts like the
+ * side effect happened" while the platform keeps a `tool_preview_skipped`
+ * log entry for the author to inspect.
+ *
+ * Read-only tools (slack read-channel / read-thread, query tools, etc.) do
+ * NOT use this — reads have no external side effect, and treating them as
+ * such would defeat the author's ability to verify their agent's read paths.
+ *
+ * Returns true when the side effect should be suppressed.
+ */
+export function isPreviewSideEffect(ctx: ToolContext, toolId: string, args: Record<string, unknown>): boolean {
+    if (!ctx.isPreview) {
+        return false
+    }
+    ctx.log('info', 'tool_preview_skipped', { tool: toolId, args })
+    return true
 }
 
 /** Re-export TypeBox `Type` so tool authors have one import. */

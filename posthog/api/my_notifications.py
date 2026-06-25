@@ -18,7 +18,7 @@ from posthog.models.comment import Comment
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.notebooks.backend.models import Notebook
+from products.notebooks.backend.facade import api as notebooks
 from products.product_analytics.backend.models.insight import Insight
 
 
@@ -77,11 +77,7 @@ class MyNotificationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     created_by=user, team__project_id=self.team.project_id
                 ).values_list("id", flat=True)
             )
-            my_notebooks = list(
-                Notebook.objects.filter(created_by=user, team__project_id=self.team.project_id).values_list(
-                    "short_id", flat=True
-                )
-            )
+            my_notebooks = notebooks.get_notebook_short_ids_for_creator(self.team.project_id, user.id)
             my_comments = list(
                 Comment.objects.filter(created_by=user, team__project_id=self.team.project_id).values_list(
                     "id", flat=True
