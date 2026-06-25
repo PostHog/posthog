@@ -17,8 +17,9 @@ import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { FunnelsActorsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { BreakdownKeyType, FunnelStepWithConversionMetrics } from '~/types'
+
+import { buildFunnelTrendsActorsQuery } from './funnelTrendsTableUtils'
 
 /** Runtime shape of a `funnelDataLogic.indexedSteps` row when the funnel is in trends mode. */
 type FunnelTrendSeries = {
@@ -94,14 +95,12 @@ export function FunnelTrendsTable(): JSX.Element | null {
                 {breakdownLabel ? <> • {breakdownLabel}</> : null}
             </>
         )
-        const query: FunnelsActorsQuery = {
-            kind: NodeKind.FunnelsActorsQuery,
+        const query = buildFunnelTrendsActorsQuery({
             source: querySource!,
-            funnelTrendsDropOff: false,
-            includeRecordings: true,
-            funnelTrendsEntrancePeriodStart: dayjs(day).format('YYYY-MM-DD HH:mm:ss'),
-            ...(hasBreakdown(breakdownValue) ? { funnelStepBreakdown: breakdownValue } : {}),
-        }
+            entrancePeriodStart: dayjs(day).format('YYYY-MM-DD HH:mm:ss'),
+            breakdownValue,
+            compare: row.compare_label,
+        })
         openPersonsModal({ title, query })
     }
 

@@ -16,7 +16,6 @@ from django.db import transaction
 from django.db.models import Count, Prefetch, Q, QuerySet, deletion
 
 import structlog
-import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, extend_schema_field
 from rest_framework import exceptions, request, serializers, status, viewsets
@@ -61,6 +60,7 @@ from posthog.models.person.point_in_time_properties import (
 )
 from posthog.models.property import Property
 from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes
+from posthog.ph_client import feature_enabled_or_false
 from posthog.queries.base import determine_parsed_date_for_property_matching
 from posthog.rate_limit import BurstRateThrottle, ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -187,7 +187,7 @@ def _is_enforce_feature_flag_write_scope_enabled(request, *, team_id: int | None
         return False
     try:
         organization_id = str(Team.objects.values_list("organization_id", flat=True).get(pk=team_id))
-        return posthoganalytics.feature_enabled(
+        return feature_enabled_or_false(
             ENFORCE_FEATURE_FLAG_WRITE_SCOPE_FLAG,
             user.distinct_id,
             groups={"organization": organization_id},
@@ -265,7 +265,7 @@ def _is_realtime_cohort_flag_targeting_enabled(request) -> bool:
         user = getattr(request, "user", None)
         if user is None or user.is_anonymous:
             return False
-        return posthoganalytics.feature_enabled(
+        return feature_enabled_or_false(
             REALTIME_COHORT_FLAG_TARGETING_FLAG,
             user.distinct_id,
             groups={"organization": str(user.organization.id)},
@@ -585,7 +585,7 @@ class EvaluationTagsChecker:
 
         # Check FLAG_EVALUATION_TAGS feature flag
         try:
-            return posthoganalytics.feature_enabled(
+            return feature_enabled_or_false(
                 "flag-evaluation-tags",
                 request.user.distinct_id,
                 groups={"organization": str(request.user.organization.id)},
@@ -1567,7 +1567,7 @@ class FeatureFlagSerializer(
             user = getattr(request, "user", None)
             if user is None or user.is_anonymous:
                 return False
-            return posthoganalytics.feature_enabled(
+            return feature_enabled_or_false(
                 EARLY_EXIT_FLAG,
                 user.distinct_id,
                 groups={"organization": str(user.organization.id)},

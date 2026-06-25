@@ -630,6 +630,10 @@ const LegacyLineGraph = ({
                     showTooltip()
 
                     pinTooltip(() => {
+                        if (!chart.canvas?.isConnected) {
+                            return
+                        }
+
                         // Hide crosshair on tooltip unpin
                         if ((chart as any).crosshair) {
                             ;(chart as any).crosshair.enabled = false

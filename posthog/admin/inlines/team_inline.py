@@ -42,8 +42,6 @@ class TeamInline(TabularInlinePaginated):
         if f
         not in (
             "internal_properties",
-            "export_individual_replay",
-            "import_individual_replay",
             "delete_recordings",
             "remote_config_cache_actions",
             "api_token_display",
