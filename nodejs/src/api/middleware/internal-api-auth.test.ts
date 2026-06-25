@@ -19,10 +19,7 @@ describe('createInternalApiAuthMiddleware', () => {
     }
 
     describe('when no secret configured', () => {
-        it.each([
-            ['no secret configured', ''],
-            ['empty secret configured', ''],
-        ])('should reject protected request when %s', (_, configuredSecret) => {
+        it.each([['no secret configured', '']])('should reject protected request when %s', (_, configuredSecret) => {
             const middleware = createInternalApiAuthMiddleware({ secret: configuredSecret })
             const req = mockRequest('/api/test')
             const res = mockResponse()
