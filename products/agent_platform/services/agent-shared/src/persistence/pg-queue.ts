@@ -10,6 +10,7 @@
 
 import type { Pool, PoolClient } from 'pg'
 
+import { parseTriggerMetadata } from '../runtime/trigger-metadata'
 import {
     AgentSession,
     ConversationMessage,
@@ -623,10 +624,7 @@ function rowToSession(row: DbRow): AgentSession {
         principal: (row.principal as AgentSession['principal']) ?? null,
         external_key: row.external_key,
         idempotency_key: row.idempotency_key,
-        trigger_metadata:
-            row.trigger_metadata && typeof row.trigger_metadata === 'object'
-                ? (row.trigger_metadata as Record<string, unknown>)
-                : null,
+        trigger_metadata: parseTriggerMetadata(row.trigger_metadata),
         state: row.state as AgentSession['state'],
         conversation: Array.isArray(row.conversation) ? (row.conversation as AgentSession['conversation']) : [],
         pending_inputs: Array.isArray(row.pending_inputs) ? (row.pending_inputs as AgentSession['pending_inputs']) : [],

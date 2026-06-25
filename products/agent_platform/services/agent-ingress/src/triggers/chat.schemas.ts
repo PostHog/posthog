@@ -14,6 +14,9 @@ import { z } from 'zod'
 export const ChatRunBodySchema = z.object({
     message: z.string().min(1, 'message must be a non-empty string'),
     external_key: z.string().optional(),
+    // `kind:'client'` tool ids this client can fulfil; the runner exposes the
+    // matching spec tools to the model. UX hint, never a security boundary.
+    supported_client_tools: z.array(z.string().min(1)).optional(),
 })
 
 /**

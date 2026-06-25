@@ -57,8 +57,8 @@ export class NoopFailureNotifier implements FailureNotifier {
 }
 
 /**
- * Dispatch by `trigger_metadata.type`. The runner wires this with one or
- * more per-trigger sub-notifiers; types without a registered sub-notifier
+ * Dispatch by `trigger_metadata.kind`. The runner wires this with one or
+ * more per-trigger sub-notifiers; kinds without a registered sub-notifier
  * fall through silently. Sub-notifier failures are caught and logged here
  * so a single misbehaving channel can't crash the dispatcher.
  */
@@ -70,14 +70,10 @@ export class TriggerAwareFailureNotifier implements FailureNotifier {
 
     async notify(input: FailureNotifierInput): Promise<void> {
         const meta = input.session.trigger_metadata
-        if (!meta || typeof meta !== 'object') {
+        if (!meta) {
             return
         }
-        const type = (meta as { type?: unknown }).type
-        if (typeof type !== 'string') {
-            return
-        }
-        const sub = this.registry[type]
+        const sub = this.registry[meta.kind]
         if (!sub) {
             return
         }
@@ -87,7 +83,7 @@ export class TriggerAwareFailureNotifier implements FailureNotifier {
             this.logger?.warn(
                 {
                     session_id: input.session.id,
-                    trigger_type: type,
+                    trigger_kind: meta.kind,
                     err: err instanceof Error ? err.message : String(err),
                 },
                 'failure_notifier_dispatch_threw'

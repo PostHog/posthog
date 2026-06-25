@@ -2,8 +2,7 @@
  * Unit tests for the pure-logic branches inside `approval.ts`. The PG-backed
  * end-to-end behaviour (intercept → upsert → wake → dispatch) is covered by
  * `agent-tests/src/cases/approval-gated.test.ts`; this file pins the model-
- * facing envelope shape that varies on per-caller hints — currently the
- * posthog-code `client_kind` suppressing the URL + admin hint.
+ * facing envelope shape.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -12,7 +11,6 @@ import {
     AgentSession,
     ApprovalRequest,
     ApprovalStore,
-    CLIENT_KIND_POSTHOG_CODE,
     EMPTY_USAGE_TOTAL,
     UpsertApprovalRequestInput,
     UpsertApprovalRequestResult,
@@ -138,35 +136,12 @@ describe('queueApprovalResult: model-facing envelope', () => {
         })
     })
 
-    it('omits approver_hint + approval_url when the session was opened by posthog-code', async () => {
+    it('includes approver_hint + approval_url regardless of trigger_metadata', async () => {
         const store = makeStubStore()
         const out = await queueApprovalResult({
             approvals: store,
             buildApprovalUrl: (id) => `https://console.example.com/approvals?request=${id}`,
-            session: makeSession({ trigger_metadata: { kind: 'chat', client_kind: CLIENT_KIND_POSTHOG_CODE } }),
-            revisionId: TEST_REV_ID,
-            turn: 1,
-            toolName: '@posthog/memory-write',
-            toolCallId: 'tc-1',
-            args: { note: 'apples' },
-            policy: POLICY,
-        })
-        const envelope = parseEnvelope((out.content[0] as { text: string }).text)
-        // Posthog-code's chat preview renders an in-line approval card — the
-        // model has nothing to repeat about how the user should approve, so
-        // the URL + admin hint must not appear in the envelope it sees.
-        expect(envelope.approval.approver_hint).toBeUndefined()
-        expect(envelope.approval.approval_url).toBeUndefined()
-        // Still has the bits the model uses to know it's gated.
-        expect(envelope.approval).toMatchObject({ state: 'queued', request_id: expect.any(String) })
-    })
-
-    it('treats an unrecognised client_kind as the default (URL + hint preserved)', async () => {
-        const store = makeStubStore()
-        const out = await queueApprovalResult({
-            approvals: store,
-            buildApprovalUrl: (id) => `https://console.example.com/approvals?request=${id}`,
-            session: makeSession({ trigger_metadata: { kind: 'chat', client_kind: 'some-future-client' } }),
+            session: makeSession({ trigger_metadata: { kind: 'chat', supported_client_tools: ['connect_mcp'] } }),
             revisionId: TEST_REV_ID,
             turn: 1,
             toolName: '@posthog/memory-write',

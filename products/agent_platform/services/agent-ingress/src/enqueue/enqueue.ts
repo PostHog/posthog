@@ -30,6 +30,7 @@ import {
     EMPTY_USAGE_TOTAL,
     SessionPrincipal,
     SessionQueue,
+    TriggerMetadata,
 } from '@posthog/agent-shared'
 
 import { enqueueTotal } from '../metrics'
@@ -70,12 +71,11 @@ export interface EnqueueInput {
      */
     idempotencyKey?: string
     /**
-     * Trigger-specific metadata stamped on the session row at creation.
-     * Forwarded straight to `AgentSession.trigger_metadata` JSONB.
-     * Surfaced by `/sessions/list` so the UI can render a "fired by
-     * <cron_name> at <fired_at>" badge etc.
+     * Typed trigger metadata stamped on the session row. When omitted, a bare
+     * `{ kind }` is derived from `trigger` (chat/webhook/mcp); slack + cron
+     * always supply the full object.
      */
-    triggerMetadata?: Record<string, unknown>
+    triggerMetadata?: TriggerMetadata
     /**
      * Skip the per-session owner/ACL check on resume. Only set by triggers
      * that have ALREADY authorized the incoming principal via a broader,
@@ -167,12 +167,8 @@ async function enqueueOrResumeInner(deps: EnqueueDeps, input: EnqueueInput): Pro
         team_id: input.application.team_id,
         external_key: input.externalKey,
         idempotency_key: input.idempotencyKey ?? null,
-        // Always stamp the trigger source as `kind` so every session is
-        // attributable to how it started (chat / webhook / slack / mcp) — the
-        // console reads + filters on this. Trigger-specific extras (slack
-        // channel, etc.) merge on top. Cron sessions are created by the
-        // janitor, which stamps `kind: 'cron'` itself.
-        trigger_metadata: { kind: input.trigger ?? 'chat', ...input.triggerMetadata },
+        // Typed metadata; bare `{ kind }` when the caller supplied none.
+        trigger_metadata: input.triggerMetadata ?? bareTriggerMetadata(input.trigger),
         state: 'queued' as const,
         conversation: [input.seed],
         pending_inputs: [],
@@ -202,6 +198,17 @@ async function enqueueOrResumeInner(deps: EnqueueDeps, input: EnqueueInput): Pro
         throw err
     }
     return { kind: 'created', sessionId: session.id, isResume: false }
+}
+
+/** Bare `{ kind }` for triggers with no extra metadata. Slack/cron supply their own. */
+function bareTriggerMetadata(trigger: ElevationTrigger | undefined): TriggerMetadata {
+    if (trigger === 'webhook') {
+        return { kind: 'webhook' }
+    }
+    if (trigger === 'mcp') {
+        return { kind: 'mcp' }
+    }
+    return { kind: 'chat' }
 }
 
 /**

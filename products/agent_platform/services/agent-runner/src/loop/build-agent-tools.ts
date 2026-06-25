@@ -231,11 +231,20 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
             continue
         }
         if (t.kind === 'client') {
-            // Always exposed when dispatcher is wired. No upfront capability
-            // handshake: if the connecting client doesn't handle the id, the
-            // dispatcher's await times out and the model gets an error
-            // tool_result it can adapt to. Keeps the protocol simple +
-            // matches the agent.md degradation rules.
+            // Exposed to the model only if the connecting client declared this
+            // id in /run `supported_client_tools`. A `required` tool the client
+            // can't fulfil fails session open; otherwise it's hidden and the
+            // agent.md degrades.
+            const supported =
+                deps.session.trigger_metadata?.kind === 'chat'
+                    ? (deps.session.trigger_metadata.supported_client_tools ?? [])
+                    : []
+            if (!supported.includes(t.id)) {
+                if (t.required) {
+                    throw new Error(`client_tool_unsupported:${t.id}`)
+                }
+                continue
+            }
             if (!deps.dispatchClientTool) {
                 continue
             }
