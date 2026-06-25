@@ -4,6 +4,7 @@ import { dayjs } from 'lib/dayjs'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
+import { isDecisiveFailure } from '../lib/lifecycle'
 import { verdictTag } from '../lib/runStatus'
 
 // A run reduced to what the chart needs. Both WorkflowRunRow and PrRunRow satisfy this, so either page
@@ -60,7 +61,7 @@ function niceStep(rough: number): number {
 }
 
 /** Compact minutes label for the duration axis: "45m", "1h", "1h 30m". */
-function formatMinutes(min: number): string {
+function formatAxisMinutes(min: number): string {
     const rounded = Math.round(min)
     if (rounded < 60) {
         return `${rounded}m`
@@ -137,8 +138,11 @@ export function RunActivityChart({
     const sortedMin = [...durationsMin].sort((a, b) => a - b)
     const medianMin = sortedMin[Math.floor(sortedMin.length / 2)]
 
+    // Collected here so the legend reuses the per-run verdict instead of re-deriving it for every type.
+    const presentTypeSet = new Set<string>()
     const points: Point[] = plottable.map((run, i) => {
         const tag = verdictTag(run.conclusion)
+        presentTypeSet.add(tag.type)
         return {
             key: `${run.runId ?? 'run'}-${i}`,
             leftPct: xPct(dayjs(run.startedAt).valueOf()),
@@ -160,7 +164,7 @@ export function RunActivityChart({
 
     const yTicks = Array.from({ length: Math.round(niceMaxMin / step) + 1 }, (_, i) => {
         const min = step * i
-        return { min, topPx: yPx(min), label: formatMinutes(min) }
+        return { min, topPx: yPx(min), label: formatAxisMinutes(min) }
     })
 
     // Span under ~36h reads as time-of-day; a wider window reads as calendar days.
@@ -178,7 +182,7 @@ export function RunActivityChart({
         for (const iv of intervals) {
             if (iv.start <= t && t <= iv.end) {
                 total += 1
-                if (iv.conclusion === 'failure' || iv.conclusion === 'timed_out') {
+                if (isDecisiveFailure(iv.conclusion)) {
                     failing += 1
                 }
             }
@@ -199,16 +203,14 @@ export function RunActivityChart({
     areaTotal += ` L1000,${BAND_HEIGHT} Z`
     areaFailing += ` L1000,${BAND_HEIGHT} Z`
 
-    const presentTypes = LEGEND_ORDER.filter((type) =>
-        plottable.some((run) => verdictTag(run.conclusion).type === type)
-    )
+    const presentTypes = LEGEND_ORDER.filter((type) => presentTypeSet.has(type))
 
     return (
         <div className={cn('flex flex-col gap-2', className)}>
             <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <h3 className="mb-0">{title}</h3>
                 <span className="text-xs whitespace-nowrap text-secondary tabular-nums">
-                    {plottable.length} runs · median {formatMinutes(medianMin)} · peak {peak} in flight
+                    {plottable.length} runs · median {formatAxisMinutes(medianMin)} · peak {peak} in flight
                 </span>
             </div>
             <div className="rounded-lg border bg-surface-primary p-4">
@@ -242,7 +244,7 @@ export function RunActivityChart({
                                 className="absolute right-0 -translate-y-1/2 rounded bg-surface-primary px-1 text-[9px] text-secondary"
                                 style={{ top: yPx(medianMin) }}
                             >
-                                median {formatMinutes(medianMin)}
+                                median {formatAxisMinutes(medianMin)}
                             </span>
                             {points.map((p) => (
                                 <Tooltip key={p.key} title={p.tooltip} delayMs={60} placement="top">
