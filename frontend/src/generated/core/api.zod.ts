@@ -9240,73 +9240,6 @@ export const DesktopFileSystemShortcutReorderCreateBody = /* @__PURE__ */ zod.ob
     ordered_ids: zod.array(zod.uuid()).describe("IDs of the current user's shortcuts in the desired display order."),
 })
 
-/**
- * Persisted folders for the desktop product surface. Reuses all PersistedFolderViewSet behaviour
- * but is scoped to the "desktop" surface, so its folders are fully isolated from the default
- * "web" surface.
- */
-export const desktopPersistedFolderCreateBodyProtocolMax = 64
-
-export const DesktopPersistedFolderCreateBody = /* @__PURE__ */ zod.object({
-    type: zod
-        .enum(['home', 'pinned', 'custom_products'])
-        .describe('\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products')
-        .describe(
-            'Which persisted folder this is for the user (home, pinned, custom_products).\n\n\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products'
-        ),
-    protocol: zod
-        .string()
-        .max(desktopPersistedFolderCreateBodyProtocolMax)
-        .optional()
-        .describe("Protocol prefix of the folder location, e.g. 'products:\/\/'."),
-    path: zod.string().optional().describe('Path within the protocol that the folder resolves to.'),
-})
-
-/**
- * Persisted folders for the desktop product surface. Reuses all PersistedFolderViewSet behaviour
- * but is scoped to the "desktop" surface, so its folders are fully isolated from the default
- * "web" surface.
- */
-export const desktopPersistedFolderUpdateBodyProtocolMax = 64
-
-export const DesktopPersistedFolderUpdateBody = /* @__PURE__ */ zod.object({
-    type: zod
-        .enum(['home', 'pinned', 'custom_products'])
-        .describe('\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products')
-        .describe(
-            'Which persisted folder this is for the user (home, pinned, custom_products).\n\n\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products'
-        ),
-    protocol: zod
-        .string()
-        .max(desktopPersistedFolderUpdateBodyProtocolMax)
-        .optional()
-        .describe("Protocol prefix of the folder location, e.g. 'products:\/\/'."),
-    path: zod.string().optional().describe('Path within the protocol that the folder resolves to.'),
-})
-
-/**
- * Persisted folders for the desktop product surface. Reuses all PersistedFolderViewSet behaviour
- * but is scoped to the "desktop" surface, so its folders are fully isolated from the default
- * "web" surface.
- */
-export const desktopPersistedFolderPartialUpdateBodyProtocolMax = 64
-
-export const DesktopPersistedFolderPartialUpdateBody = /* @__PURE__ */ zod.object({
-    type: zod
-        .enum(['home', 'pinned', 'custom_products'])
-        .describe('\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products')
-        .optional()
-        .describe(
-            'Which persisted folder this is for the user (home, pinned, custom_products).\n\n\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products'
-        ),
-    protocol: zod
-        .string()
-        .max(desktopPersistedFolderPartialUpdateBodyProtocolMax)
-        .optional()
-        .describe("Protocol prefix of the folder location, e.g. 'products:\/\/'."),
-    path: zod.string().optional().describe('Path within the protocol that the folder resolves to.'),
-})
-
 export const ExportsCreateBody = /* @__PURE__ */ zod
     .object({
         dashboard: zod.number().nullish(),
@@ -9580,58 +9513,6 @@ export const NotebooksSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
     enabled: zod.boolean().optional(),
     settings: zod.unknown().optional(),
     password_required: zod.boolean().optional(),
-})
-
-export const persistedFolderCreateBodyProtocolMax = 64
-
-export const PersistedFolderCreateBody = /* @__PURE__ */ zod.object({
-    type: zod
-        .enum(['home', 'pinned', 'custom_products'])
-        .describe('\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products')
-        .describe(
-            'Which persisted folder this is for the user (home, pinned, custom_products).\n\n\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products'
-        ),
-    protocol: zod
-        .string()
-        .max(persistedFolderCreateBodyProtocolMax)
-        .optional()
-        .describe("Protocol prefix of the folder location, e.g. 'products:\/\/'."),
-    path: zod.string().optional().describe('Path within the protocol that the folder resolves to.'),
-})
-
-export const persistedFolderUpdateBodyProtocolMax = 64
-
-export const PersistedFolderUpdateBody = /* @__PURE__ */ zod.object({
-    type: zod
-        .enum(['home', 'pinned', 'custom_products'])
-        .describe('\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products')
-        .describe(
-            'Which persisted folder this is for the user (home, pinned, custom_products).\n\n\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products'
-        ),
-    protocol: zod
-        .string()
-        .max(persistedFolderUpdateBodyProtocolMax)
-        .optional()
-        .describe("Protocol prefix of the folder location, e.g. 'products:\/\/'."),
-    path: zod.string().optional().describe('Path within the protocol that the folder resolves to.'),
-})
-
-export const persistedFolderPartialUpdateBodyProtocolMax = 64
-
-export const PersistedFolderPartialUpdateBody = /* @__PURE__ */ zod.object({
-    type: zod
-        .enum(['home', 'pinned', 'custom_products'])
-        .describe('\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products')
-        .optional()
-        .describe(
-            'Which persisted folder this is for the user (home, pinned, custom_products).\n\n\* `home` - Home\n\* `pinned` - Pinned\n\* `custom_products` - Custom Products'
-        ),
-    protocol: zod
-        .string()
-        .max(persistedFolderPartialUpdateBodyProtocolMax)
-        .optional()
-        .describe("Protocol prefix of the folder location, e.g. 'products:\/\/'."),
-    path: zod.string().optional().describe('Path within the protocol that the folder resolves to.'),
 })
 
 export const projectSecretApiKeysCreateBodyLabelMax = 40
@@ -10011,6 +9892,13 @@ export const UsersHedgehogConfigPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Seed personal GitHub manage callback state before opening installation settings on GitHub.
+ */
+export const UsersIntegrationsGithubPrepareCallbackCreateBody = /* @__PURE__ */ zod.object({
+    installation_id: zod.string().describe('GitHub App installation id being managed on github.com.'),
+})
+
+/**
  * Start GitHub linking: either full App install or OAuth-only (user-to-server).
  *
  * ``**_kwargs`` absorbs ``parent_lookup_uuid`` from the nested
@@ -10042,6 +9930,39 @@ export const UsersIntegrationsGithubStartCreateBody = /* @__PURE__ */ zod.object
         .optional()
         .describe('Optional client hint (e.g. posthog_code) for return routing after OAuth.'),
 })
+
+/**
+ * Mint a Sign-in-with-Slack invite URL initiated from settings, without
+ * Slack-DM context. The returned URL takes the user through PostHog login
+ * (already satisfied here), then to Slack OAuth, then back to our callback
+ * which writes the ``UserIntegration`` row.
+ *
+ * Without body params, falls back to the user's ``current_team`` and that
+ * team's first Slack ``Integration`` — works when there's exactly one
+ * linkable workspace. With ``team_id`` + ``slack_team_id``, links against
+ * the exact pair (what the frontend uses when a picker is shown).
+ *
+ * Refuses if the target team has no matching Slack workspace, if the
+ * feature flag is off for the workspace, or if the user is already linked
+ * to it.
+ * @summary Start Slack identity link from settings
+ */
+export const UsersIntegrationsSlackStartCreateBody = /* @__PURE__ */ zod
+    .object({
+        team_id: zod
+            .number()
+            .nullish()
+            .describe("Optional team\/project id to link against; defaults to the user's current team."),
+        slack_team_id: zod
+            .string()
+            .nullish()
+            .describe(
+                'Specific Slack workspace id to link against, scoped to the team. Disambiguates when one team has multiple Slack integrations (rare).'
+            ),
+    })
+    .describe(
+        "Settings-initiated link can target a specific PostHog team + Slack workspace.\n\nBoth are optional — when omitted we fall back to the user's ``current_team``\nand that team's first Slack ``Integration`` (mirrors ``github_start`` for\nthe simple case). The frontend passes both explicitly once it has the\nlinkable-workspace list and the user has picked a workspace."
+    )
 
 /**
  * Mark the current user as having exited onboarding with a non-delegated reason.

@@ -19,6 +19,10 @@ from posthog.models import Group, GroupTypeMapping, GroupUsageMetric, Organizati
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.project import Project
 from posthog.models.scoping import team_scope
+from posthog.test.persons import (
+    create_group as _create_group_helper,
+    create_group_type_mapping,
+)
 
 from products.actions.backend.models.action import Action
 from products.ai_observability.backend.models.review_queues import ReviewQueue, ReviewQueueItem
@@ -47,10 +51,12 @@ from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 from products.surveys.backend.models import Survey
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable as DataWarehouseTableModel
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseTable as DataWarehouseTableModel,
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 if TYPE_CHECKING:
@@ -353,13 +359,11 @@ def _create_feature_flag(team: Team, label: str) -> FeatureFlag:
 
 
 def _create_group(team: Team, label: str) -> Group:
-    return Group.objects.create(team=team, group_key=f"group_{label}", group_type_index=0, version=0)
+    return _create_group_helper(team=team, group_key=f"group_{label}", group_type_index=0, version=0)
 
 
 def _create_group_type_mapping(team: Team, label: str) -> GroupTypeMapping:
-    return GroupTypeMapping.objects.create(
-        team=team, project=team.project, group_type=f"type_{label}", group_type_index=0
-    )
+    return create_group_type_mapping(team=team, project=team.project, group_type=f"type_{label}", group_type_index=0)
 
 
 def _create_integration(team: Team, label: str):

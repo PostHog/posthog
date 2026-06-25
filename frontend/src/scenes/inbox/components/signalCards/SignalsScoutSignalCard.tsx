@@ -136,7 +136,9 @@ export function SignalsScoutSignalCard({ signal }: SignalCardProps): JSX.Element
             signal={signal}
             label={
                 <span>
-                    {skillLabel}
+                    <Link to={urls.inboxScout(extra.skill_name)} className="font-medium">
+                        {skillLabel}
+                    </Link>
                     <span className="text-tertiary font-normal"> · v{extra.skill_version}</span>
                 </span>
             }

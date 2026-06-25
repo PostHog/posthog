@@ -5,6 +5,7 @@ import { IconCopy, IconPencil, IconPlus, IconSearch, IconTrash, IconWarning } fr
 import {
     LemonBanner,
     LemonButton,
+    LemonDialog,
     LemonInput,
     LemonSwitch,
     LemonTab,
@@ -334,10 +335,26 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                             status="danger"
                             icon={<IconTrash />}
                             onClick={() => {
-                                deleteWithUndo({
-                                    endpoint: `environments/${currentTeamId}/evaluations`,
-                                    object: evaluation,
-                                    callback: () => loadEvaluations(),
+                                LemonDialog.open({
+                                    title: `Delete ${evaluation.name}?`,
+                                    description: 'Are you sure you want to delete this evaluation?',
+                                    primaryButton: {
+                                        children: 'Delete',
+                                        type: 'primary',
+                                        status: 'danger',
+                                        'data-attr': 'confirm-delete-evaluation',
+                                        onClick: () => {
+                                            deleteWithUndo({
+                                                endpoint: `environments/${currentTeamId}/evaluations`,
+                                                object: evaluation,
+                                                callback: () => loadEvaluations(),
+                                            })
+                                        },
+                                    },
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                        type: 'secondary',
+                                    },
                                 })
                             }}
                         />

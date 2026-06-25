@@ -105,8 +105,14 @@ fn multi_file_is_union() {
 
 #[test]
 fn every_deployable_binary_has_an_image_entry() {
-    let non_deployable: HashSet<&str> =
-        ["affected-services", "debug_rule", "stl_dump", "hermes"].into();
+    let non_deployable: HashSet<&str> = [
+        "affected-services",
+        "debug_rule",
+        "stl_dump",
+        "run", // hogvm dev/diff CLI, not a service
+        "hermes",
+    ]
+    .into();
 
     let (graph, images) = load_test_fixtures();
     let bin_to_crate = build_binary_to_crate_map(&graph);

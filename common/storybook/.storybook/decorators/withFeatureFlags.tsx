@@ -17,7 +17,7 @@ declare module '@storybook/types' {
  *
  * Multivariate flags — pin a specific variant with the record form:
  * ```ts
- * parameters: { featureFlags: { [FEATURE_FLAGS.PROMOTED_PRODUCT]: 'intent_plus' } }
+ * parameters: { featureFlags: { [FEATURE_FLAGS.THEME_OVERRIDE]: 'intent_plus' } }
  * ```
  */
 export const withFeatureFlags: Decorator = (Story, { parameters: { featureFlags = [] } }) => {

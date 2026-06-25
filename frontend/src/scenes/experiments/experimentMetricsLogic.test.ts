@@ -82,7 +82,7 @@ const coldRunInProgressPartial = {
     completed_metrics: 1,
     results: [{ metric_uuid: PRIMARY_METRIC_UUID, status: 'completed', result: primaryResult, error_message: null }],
 }
-// Same intermediate payload but for a manual run — must NOT apply mid-flight.
+// Same intermediate payload but for a manual run; it now applies mid-flight, same as cold runs.
 const manualInProgressPartial = { ...coldRunInProgressPartial, trigger: 'manual' }
 // Create responses that seed the stored trigger for the polled run.
 const coldRunPending = { ...pendingRecalculation, trigger: 'cold_run', total_metrics: 2 }
@@ -217,6 +217,109 @@ describe('experimentMetricsLogic', () => {
             expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
             expect(logic.values.secondaryMetricsResults[0]).toEqual(secondaryResult)
             expect(logic.values.recalculationLoading).toBe(false)
+        })
+
+        it('surfaces a discovery-step failure (metric_errors entry, no result row) loaded on mount', async () => {
+            // A discovery/query-build failure records a metric_errors entry but never writes a result row,
+            // so `results` has no entry for the failed metric. The error must still surface.
+            const discoveryFailure = {
+                ...completedRecalculation,
+                id: 'recalc-3',
+                completed_metrics: 1,
+                failed_metrics: 1,
+                metric_errors: { [PRIMARY_METRIC_UUID]: { step: 'discovery', message: 'no events' } },
+                results: [
+                    {
+                        metric_uuid: SECONDARY_METRIC_UUID,
+                        status: 'completed',
+                        result: secondaryResult,
+                        error_message: null,
+                    },
+                ],
+            }
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                        200,
+                        discoveryFailure,
+                    ],
+                },
+            })
+            mountLogic()
+
+            await expectLogic(logic).toDispatchActions(['setCurrentRecalculation', 'setPrimaryMetricsResultsErrors'])
+
+            expect(logic.values.primaryMetricsResultsErrors[0]).toEqual({ detail: 'no events' })
+        })
+
+        it('counts failures toward progress and surfaces errors while a run is still in progress', async () => {
+            // Mirrors a real poll response: both computed metrics failed, the rest is still pending.
+            const inProgressWithFailures = {
+                ...baseRecalculation,
+                id: 'recalc-fail',
+                status: 'in_progress',
+                trigger: 'manual',
+                total_metrics: 3,
+                completed_metrics: 0,
+                failed_metrics: 2,
+                metric_errors: {
+                    [PRIMARY_METRIC_UUID]: { step: 'calculation', message: 'boom-primary' },
+                    [SECONDARY_METRIC_UUID]: { step: 'calculation', message: 'boom-secondary' },
+                },
+                results: [
+                    { metric_uuid: PRIMARY_METRIC_UUID, status: 'failed', result: null, error_message: 'boom-primary' },
+                    {
+                        metric_uuid: SECONDARY_METRIC_UUID,
+                        status: 'failed',
+                        result: null,
+                        error_message: 'boom-secondary',
+                    },
+                ],
+            }
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [404, {}],
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/:recalc_id/': () => [
+                        200,
+                        inProgressWithFailures,
+                    ],
+                },
+                post: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': () => [201, manualPending],
+                },
+            })
+            jest.useFakeTimers()
+            mountLogic()
+
+            await jest.advanceTimersByTimeAsync(0)
+            for (let i = 0; i < 2; i++) {
+                await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+            }
+
+            // Errors must surface in-row even mid-flight.
+            expect(logic.values.primaryMetricsResultsErrors[0]).toEqual({ detail: 'boom-primary' })
+            // Progress must count failures, not just completes; otherwise a fully-failing run shows 0/3 forever.
+            expect(logic.values.recalculationProgress).toEqual({ completed: 2, total: 3 })
+            jest.useRealTimers()
+        })
+
+        it('surfaces per-metric errors when the latest run loaded on mount is a partial failure', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
+                        200,
+                        partialFailureRecalculation,
+                    ],
+                },
+            })
+            mountLogic()
+
+            await expectLogic(logic).toDispatchActions(['setCurrentRecalculation', 'setPrimaryMetricsResultsErrors'])
+
+            // The successful secondary metric loads its result.
+            expect(logic.values.secondaryMetricsResults[0]).toEqual(secondaryResult)
+            // The failed primary metric must keep its error for the in-row box, not be cleared by its null result.
+            expect(logic.values.primaryMetricsResultsErrors[0]).toEqual({ detail: 'boom' })
         })
 
         it('shows no error toast on 404 (a fresh recalc is triggered instead)', async () => {
@@ -640,7 +743,7 @@ describe('experimentMetricsLogic', () => {
             expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
         })
 
-        it('on a non-cold_run, does not apply results until the run is terminal', async () => {
+        it('on a non-cold_run, applies partial results mid-flight so refreshed values stream in', async () => {
             useMocks({
                 get: {
                     '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [404, {}],
@@ -661,9 +764,9 @@ describe('experimentMetricsLogic', () => {
                 await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
             }
 
-            // In progress with the same partial payload, but a manual run leaves cells untouched mid-flight.
+            // Still in progress, but the finished metric from the partial payload is already on screen.
             expect(logic.values.currentRecalculation).toEqual(expect.objectContaining({ status: 'in_progress' }))
-            expect(logic.values.primaryMetricsResults).toEqual([])
+            expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
         })
     })
 
