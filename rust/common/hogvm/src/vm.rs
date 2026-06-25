@@ -1,7 +1,7 @@
 use std::any::Any;
 
 use indexmap::IndexMap;
-use serde::{de::DeserializeOwned, Deserialize};
+use serde::de::DeserializeOwned;
 use serde_json::Value as JsonValue;
 
 use crate::{

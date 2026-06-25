@@ -2,18 +2,20 @@ use core::str;
 use std::collections::HashMap;
 
 use chrono::{DateTime, Datelike, LocalResult, NaiveDate, NaiveDateTime, TimeZone};
+use indexmap::IndexMap;
 use rand::Rng;
+use serde::de::{MapAccess, SeqAccess, Visitor};
 use serde_json::{json, Value as JsonValue};
 
 use crate::{
     construct_free_standing,
     error::VmError,
-    memory::VmHeap,
+    memory::{HeapReference, VmHeap},
     print_hog_string_output,
     program::Module,
     util::{get_json_nested, regex_extract, regex_match},
     values::{HogLiteral, HogValue, Num},
-    vm::HogVM,
+    vm::{HogVM, MAX_JSON_SERDE_DEPTH},
     ExportedFunction,
 };
 
@@ -463,6 +465,42 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 )
             }),
         ),
+        (
+            "jsonParse",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "jsonParse")?;
+                let s: &str = args[0].deref(&vm.heap)?.try_as()?;
+                // Deserialize straight to a HogValue (not serde_json::Value, which sorts object keys
+                // without the preserve_order feature) to keep document order.
+                let parsed: HogJson = serde_json::from_str(s)
+                    .map_err(|e| VmError::NativeCallFailed(format!("jsonParse: {e}")))?;
+                Ok(parsed.0)
+            }),
+        ),
+        (
+            "jsonStringify",
+            native_func(|vm, args| {
+                // The optional 2nd "indent" arg (pretty-print) isn't used by the corpus; we emit the
+                // compact-with-spaces form (Python json.dumps default) the single-arg callers expect.
+                assert(
+                    !args.is_empty(),
+                    "jsonStringify requires at least one argument",
+                )?;
+                let s = json_stringify(&vm.heap, &args[0], &mut Vec::new(), 0)?;
+                Ok(HogLiteral::String(s).into())
+            }),
+        ),
+        (
+            "isValidJSON",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "isValidJSON")?;
+                let valid = match args[0].deref(&vm.heap)? {
+                    HogLiteral::String(s) => serde_json::from_str::<JsonValue>(s).is_ok(),
+                    _ => false,
+                };
+                Ok(HogLiteral::Boolean(valid).into())
+            }),
+        ),
     ]
     .into_iter()
     .map(|(name, func)| (name.to_string(), func))
@@ -648,6 +686,134 @@ fn collect_sorted_nums(heap: &VmHeap, arr: &[HogValue], name: &str) -> Result<Ve
     }
     nums.sort_unstable_by(|a, b| a.compare(b));
     Ok(nums)
+}
+
+// Order-preserving JSON -> HogValue deserialization (serde_json's Deserializer yields map entries
+// in document order; collecting into IndexMap keeps it, unlike serde_json::Value's sorted BTreeMap).
+struct HogJson(HogValue);
+
+impl<'de> serde::Deserialize<'de> for HogJson {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer
+            .deserialize_any(HogJsonVisitor)
+            .map(|lit| HogJson(lit.into()))
+    }
+}
+
+struct HogJsonVisitor;
+
+impl<'de> Visitor<'de> for HogJsonVisitor {
+    type Value = HogLiteral;
+
+    fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str("a JSON value")
+    }
+
+    fn visit_bool<E>(self, v: bool) -> Result<HogLiteral, E> {
+        Ok(HogLiteral::Boolean(v))
+    }
+    fn visit_i64<E>(self, v: i64) -> Result<HogLiteral, E> {
+        Ok(HogLiteral::Number(Num::Integer(v)))
+    }
+    fn visit_u64<E>(self, v: u64) -> Result<HogLiteral, E> {
+        Ok(HogLiteral::Number(Num::Integer(v as i64)))
+    }
+    fn visit_f64<E>(self, v: f64) -> Result<HogLiteral, E> {
+        Ok(HogLiteral::Number(Num::Float(v)))
+    }
+    fn visit_str<E>(self, v: &str) -> Result<HogLiteral, E> {
+        Ok(HogLiteral::String(v.to_string()))
+    }
+    fn visit_string<E>(self, v: String) -> Result<HogLiteral, E> {
+        Ok(HogLiteral::String(v))
+    }
+    fn visit_none<E>(self) -> Result<HogLiteral, E> {
+        Ok(HogLiteral::Null)
+    }
+    fn visit_unit<E>(self) -> Result<HogLiteral, E> {
+        Ok(HogLiteral::Null)
+    }
+    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<HogLiteral, A::Error> {
+        let mut vals = Vec::new();
+        while let Some(HogJson(v)) = seq.next_element()? {
+            vals.push(v);
+        }
+        Ok(HogLiteral::Array(vals))
+    }
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<HogLiteral, A::Error> {
+        let mut obj = IndexMap::new();
+        while let Some((k, HogJson(v))) = map.next_entry::<String, HogJson>()? {
+            obj.insert(k, v);
+        }
+        Ok(HogLiteral::Object(obj))
+    }
+}
+
+// Serialize a HogValue to a JSON string matching Python's `json.dumps` default: `, ` / `: `
+// separators (not serde's compact form), object keys in insertion order (IndexMap), and
+// self-referential containers rendered as `null` (cycle detection via `marked`).
+fn json_stringify(
+    heap: &VmHeap,
+    value: &HogValue,
+    marked: &mut Vec<HeapReference>,
+    depth: usize,
+) -> Result<String, VmError> {
+    if depth > MAX_JSON_SERDE_DEPTH {
+        return Ok("null".to_string());
+    }
+    let lit = value.deref(heap)?;
+    let container_ptr = match value {
+        HogValue::Ref(ptr) if matches!(lit, HogLiteral::Array(_) | HogLiteral::Object(_)) => {
+            Some(*ptr)
+        }
+        _ => None,
+    };
+    if let Some(ptr) = container_ptr {
+        if marked.contains(&ptr) {
+            return Ok("null".to_string());
+        }
+        marked.push(ptr);
+    }
+
+    let escape = |s: &str| -> Result<String, VmError> {
+        serde_json::to_string(s).map_err(|e| VmError::NativeCallFailed(e.to_string()))
+    };
+    let result = (|| match lit {
+        HogLiteral::Null => Ok("null".to_string()),
+        HogLiteral::Boolean(b) => Ok(if *b { "true" } else { "false" }.to_string()),
+        HogLiteral::Number(n) => Ok(if n.is_float() {
+            // Debug formatting keeps the decimal point (2.0 -> "2.0"), matching Python's repr.
+            format!("{:?}", n.to_float())
+        } else {
+            n.to_integer().to_string()
+        }),
+        HogLiteral::String(s) => escape(s),
+        HogLiteral::Array(arr) => {
+            let mut parts = Vec::with_capacity(arr.len());
+            for v in arr {
+                parts.push(json_stringify(heap, v, marked, depth + 1)?);
+            }
+            Ok(format!("[{}]", parts.join(", ")))
+        }
+        HogLiteral::Object(map) => {
+            let mut parts = Vec::with_capacity(map.len());
+            for (k, v) in map {
+                parts.push(format!(
+                    "{}: {}",
+                    escape(k)?,
+                    json_stringify(heap, v, marked, depth + 1)?
+                ));
+            }
+            Ok(format!("{{{}}}", parts.join(", ")))
+        }
+        // Callables/closures serialize as the quoted `fn<name(argCount)>` string, like the reference.
+        HogLiteral::Callable(_) | HogLiteral::Closure(_) => escape(&print_hog_string_output(heap, value)?),
+    })();
+
+    if container_ptr.is_some() {
+        marked.pop();
+    }
+    result
 }
 
 enum TrimSide {
