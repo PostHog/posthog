@@ -27,7 +27,7 @@ import { BATCH_HOGFLOW_REQUESTS_OUTPUT } from './outputs/outputs'
 import { RerunJobManager } from './rerun/rerun-job.manager'
 import { RerunRequest } from './rerun/rerun-job.types'
 import { BatchExportHogFunctionService, NotFoundError, ParseError } from './services/batch-export-hog-function.service'
-import { CyclotronV2Manager } from './services/cyclotron-v2'
+import type { CyclotronV2JobProducer } from './services/cyclotron-v2'
 import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
 import {
     BatchResolverState,
@@ -104,12 +104,13 @@ export class CdpApi {
     private outputs: CdpOutputs
     private batchExportHogFunctionService: BatchExportHogFunctionService
     private groupsManager: GroupsManagerService
-    private batchResolverCyclotronManager: CyclotronV2Manager | null = null
+    private batchResolverProducer: CyclotronV2JobProducer | null
 
     constructor(
         private config: PluginsServerConfig,
         private deps: CdpApiDeps,
-        jobQueues: { hogQueue: JobQueue; hogflowQueue: JobQueue }
+        jobQueues: { hogQueue: JobQueue; hogflowQueue: JobQueue },
+        batchResolverProducer: CyclotronV2JobProducer | null = null
     ) {
         const services = createCdpCoreServices(config, deps, 'cdp-api-redis')
 
@@ -152,6 +153,7 @@ export class CdpApi {
             this.hogWatcher,
             this.invocationResultsService
         )
+        this.batchResolverProducer = batchResolverProducer
     }
 
     public get service(): PluginServerService {
@@ -186,29 +188,7 @@ export class CdpApi {
             this.cdpSourceWebhooksConsumer.stop(),
             this.batchExportHogFunctionService.stop(),
             this.rerunJobManager?.disconnect() ?? Promise.resolve(),
-            this.batchResolverCyclotronManager?.disconnect() ?? Promise.resolve(),
         ])
-    }
-
-    /**
-     * Lazy-initialized cyclotron manager for dispatching batch resolver jobs.
-     * Only used when `CDP_BATCH_RESOLVER_USE_CYCLOTRON` is on. Lazy so the API
-     * doesn't open a cyclotron connection pool just to leave it idle when the
-     * flag is off (the legacy Kafka path doesn't need it).
-     */
-    private getOrCreateBatchResolverCyclotronManager(): CyclotronV2Manager {
-        if (!this.batchResolverCyclotronManager) {
-            if (!this.config.CYCLOTRON_NODE_DATABASE_URL) {
-                throw new Error('CYCLOTRON_NODE_DATABASE_URL is not configured — cyclotron batch resolver unavailable')
-            }
-            this.batchResolverCyclotronManager = new CyclotronV2Manager({
-                pool: {
-                    dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL,
-                    maxConnections: 5,
-                },
-            })
-        }
-        return this.batchResolverCyclotronManager
     }
 
     isHealthy(): HealthCheckResult {
@@ -809,11 +789,9 @@ export class CdpApi {
             }
 
             if (this.config.CDP_BATCH_RESOLVER_USE_CYCLOTRON) {
-                // New path: dispatch as a cyclotron resolver job. The resolver
-                // pages through the audience one batch at a time, atomically
-                // enqueueing child workflow invocations alongside its own
-                // cursor state — no in-memory accumulation, no all-or-nothing
-                // failure mode. See docs/internal/cdp-batch-resolver-cyclotron-design.md.
+                if (!this.batchResolverProducer) {
+                    throw new Error('CDP_BATCH_RESOLVER_USE_CYCLOTRON is on but no producer is configured')
+                }
                 const initialState: BatchResolverState = {
                     batchJobId: parent_run_id,
                     teamId: team.id,
@@ -828,27 +806,21 @@ export class CdpApi {
                     pagesProcessed: 0,
                     startedAt: new Date().toISOString(),
                 }
-
-                const manager = this.getOrCreateBatchResolverCyclotronManager()
-                await manager.createJob({
+                await this.batchResolverProducer.createJob({
                     teamId: team.id,
                     queueName: HOGFLOW_BATCH_RESOLVE_QUEUE,
                     parentRunId: parent_run_id,
                     functionId: hogFlow.id,
                     state: serializeResolverState(initialState),
                 })
-
-                res.json({ status: 'queued', dispatch: 'cyclotron' })
-                return
+            } else {
+                await this.outputs.produce(BATCH_HOGFLOW_REQUESTS_OUTPUT, {
+                    value: Buffer.from(JSON.stringify(batchHogFlowRequest)),
+                    key: `${team.id}_${hogFlow.id}`,
+                })
             }
 
-            // Legacy path: Kafka topic, consumed by CdpBatchHogFlowRequestsConsumer.
-            await this.outputs.produce(BATCH_HOGFLOW_REQUESTS_OUTPUT, {
-                value: Buffer.from(JSON.stringify(batchHogFlowRequest)),
-                key: `${team.id}_${hogFlow.id}`,
-            })
-
-            res.json({ status: 'queued', dispatch: 'kafka' })
+            res.json({ status: 'queued' })
         } catch (e) {
             logger.error('Error handling hogflow batch invocation', { error: e })
             res.status(500).json({ error: [e.message] })

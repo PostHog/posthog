@@ -49,6 +49,7 @@ import { CdpCyclotronWorkerHogFlow } from './consumers/cdp-cyclotron-worker-hogf
 import { CdpDatawarehouseEventsConsumer } from './consumers/cdp-data-warehouse-events.consumer'
 import { CdpEventsConsumer } from './consumers/cdp-events.consumer'
 import { CdpHogflowSubscriptionMatcherConsumer } from './consumers/cdp-hogflow-subscription-matcher.consumer'
+import { CyclotronV2Manager } from './services/cyclotron-v2'
 import type { CyclotronV2DequeuedJob } from './services/cyclotron-v2'
 import { CyclotronJobQueueKafka } from './services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgres } from './services/job-queue/job-queue-postgres'
@@ -2642,10 +2643,9 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
     let server: any
     let api: CdpApi
     let resolverWorker: CdpCyclotronWorkerBatchResolve
-    // Shared dequeue worker for the full-lifecycle tests. Built once so the
-    // dequeued job's closures (which capture the worker's pool) outlive the
-    // dequeue call — recreating + disconnecting per dequeue would close the
-    // pool out from under any later `bulkCreateAndCheckIn` on the job.
+    let batchResolverProducer: CyclotronV2Manager
+    // Shared dequeue worker so the dequeued job's closures (which capture the
+    // worker's pool) outlive the dequeue call.
 
     let dequeueWorker: any
 
@@ -2665,18 +2665,21 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
 
         const { createMockJobQueue } = require('../../tests/helpers/mocks/job-queue.mock')
         const deps = createCdpConsumerDeps(hub)
-        api = new CdpApi(hub, deps, {
-            hogQueue: createMockJobQueue(),
-            hogflowQueue: createMockJobQueue(),
+        batchResolverProducer = new CyclotronV2Manager({
+            pool: { dbUrl: CYCLOTRON_NODE_DB_URL, maxConnections: 5 },
         })
+        api = new CdpApi(
+            hub,
+            deps,
+            { hogQueue: createMockJobQueue(), hogflowQueue: createMockJobQueue() },
+            batchResolverProducer
+        )
         app = setupExpressApp()
         app.use('/', api.router())
         server = app.listen(0, () => {})
 
-        // Real resolver consumer — we'll drive it manually via `processResolverJob`
-        // rather than starting the consumer loop, so we can step through pages
-        // deterministically and avoid the consumer-loop-cleanup-deadlock issues
-        // that plague long-lived workers in jest teardown.
+        // Resolver consumer driven manually via processResolverJob — no consumer
+        // loop, so no teardown deadlock concerns.
         resolverWorker = new CdpCyclotronWorkerBatchResolve(hub, deps)
 
         const { CyclotronV2Worker } = require('./services/cyclotron-v2')
@@ -2690,10 +2693,9 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
 
     afterAll(async () => {
         await dequeueWorker?.disconnect()
-        // Stop the worker's underlying cyclotron pool. We never called .start()
-        // so there's no consumer loop to halt — just close the pool.
 
         await (resolverWorker as any)?.cyclotronWorker?.disconnect()
+        await batchResolverProducer?.disconnect()
         await api?.stop()
         if (server) {
             await new Promise<void>((resolve) => server.close(() => resolve()))
@@ -2751,7 +2753,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             })
             .expect(200)
 
-        expect(response.body).toEqual({ status: 'queued', dispatch: 'cyclotron' })
+        expect(response.body).toEqual({ status: 'queued' })
 
         // Exactly one resolver job, on the right queue, with state encoding
         // everything the worker needs to start paging.
@@ -2803,7 +2805,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             .send({ filters: { filter_test_accounts: false } })
             .expect(200)
 
-        expect(response.body).toEqual({ status: 'queued', dispatch: 'kafka' })
+        expect(response.body).toEqual({ status: 'queued' })
 
         const rows = await cyclotronPool.query(
             `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow_batch_resolve' AND parent_run_id = $1`,
@@ -2902,7 +2904,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
                     `Resolver job ${resolverJobId} stuck in state ${status.rows[0].status} after ${i} iterations`
                 )
             }
-            await resolverWorker.processResolverJob(job)
+            await resolverWorker['processResolverJob'](job)
         }
         throw new Error(`Resolver job ${resolverJobId} did not reach terminal state after ${maxIterations} iterations`)
     }
@@ -2957,7 +2959,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
             .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
             .expect(200)
-        expect(res.body).toEqual({ status: 'queued', dispatch: 'cyclotron' })
+        expect(res.body).toEqual({ status: 'queued' })
 
         const created = await cyclotronPool.query<{ id: string }>(
             `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow_batch_resolve' AND parent_run_id = $1`,
@@ -3018,7 +3020,7 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
             .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
             .expect(200)
-        expect(res.body.dispatch).toBe('cyclotron')
+        expect(res.body).toEqual({ status: 'queued' })
 
         const created = await cyclotronPool.query<{ id: string }>(
             `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow_batch_resolve' AND parent_run_id = $1`,

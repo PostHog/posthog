@@ -38,7 +38,7 @@ import { CdpPrecalculatedFiltersConsumer } from './cdp/consumers/cdp-precalculat
 import { CdpRerunWorkerConsumer } from './cdp/consumers/cdp-rerun-worker.consumer'
 import { createCdpProducerRegistry } from './cdp/outputs/producer-registry'
 import { CdpProducerName } from './cdp/outputs/producers'
-import { CyclotronV2JanitorService } from './cdp/services/cyclotron-v2'
+import { CyclotronV2JanitorService, CyclotronV2Manager } from './cdp/services/cyclotron-v2'
 import { HogFlowScheduleService } from './cdp/services/hogflow-schedule/hogflow-schedule.service'
 import { CyclotronJobQueueKafka } from './cdp/services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgres } from './cdp/services/job-queue/job-queue-postgres'
@@ -205,10 +205,20 @@ export class PluginServer implements NodeServer {
 
         if (capabilities.cdpApi) {
             serviceLoaders.push(async () => {
-                const api = new CdpApi(this.config, cdpDeps!, {
-                    hogQueue: kafkaQueue,
-                    hogflowQueue: postgresV2Queue,
-                })
+                // Only wire a batch-resolver producer when the cyclotron-node DB
+                // is configured; otherwise leave it null (flag-off path uses
+                // Kafka and doesn't need a producer).
+                const batchResolverProducer = this.config.CYCLOTRON_NODE_DATABASE_URL
+                    ? new CyclotronV2Manager({
+                          pool: { dbUrl: this.config.CYCLOTRON_NODE_DATABASE_URL, maxConnections: 5 },
+                      })
+                    : null
+                const api = new CdpApi(
+                    this.config,
+                    cdpDeps!,
+                    { hogQueue: kafkaQueue, hogflowQueue: postgresV2Queue },
+                    batchResolverProducer
+                )
                 this.lifecycle.expressApp.use('/', api.router())
                 await api.start()
                 return api.service

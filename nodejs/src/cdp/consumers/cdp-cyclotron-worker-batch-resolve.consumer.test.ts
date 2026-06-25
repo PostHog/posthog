@@ -125,9 +125,9 @@ interface MockedDeps {
 }
 
 function makeMockedConsumer(deps: MockedDeps): CdpCyclotronWorkerBatchResolve {
-    // Bypass CdpConsumerBase's heavy constructor (redis, kafka, hogexecutor, …
-    // none of which processResolverJob touches). Wire only what the method
-    // actually uses.
+    // Bypass CdpConsumerBase's heavy constructor (redis, kafka, executors) —
+    // none of which processResolverJob touches. Wire only what the state
+    // machine needs. Private fields are reached by bracket-key in tests.
     const inst: any = Object.create(CdpCyclotronWorkerBatchResolve.prototype)
     inst.name = 'CdpCyclotronWorkerBatchResolveTest'
     inst.config = { SITE_URL: 'http://localhost:8000' }
@@ -149,7 +149,7 @@ function makeMockedConsumer(deps: MockedDeps): CdpCyclotronWorkerBatchResolve {
     inst.hogFlowBatchPersonQueryService = {
         getBlastRadiusPersons: deps.fetchPages,
     }
-    inst.putBatchJobStatusFn = deps.djangoPutStatus
+    inst.putBatchJobStatus = deps.djangoPutStatus
     return inst as CdpCyclotronWorkerBatchResolve
 }
 
@@ -198,7 +198,7 @@ describe('CdpCyclotronWorkerBatchResolve (integration)', () => {
             queueLogs: jest.fn(),
         })
 
-        await consumer.processResolverJob(dequeued)
+        await consumer['processResolverJob'](dequeued)
 
         // Resolver job: back to available with advanced state
         const after = await readResolverState(jobId)
@@ -229,7 +229,7 @@ describe('CdpCyclotronWorkerBatchResolve (integration)', () => {
             queueLogs: jest.fn(),
         })
 
-        await consumer.processResolverJob(dequeued)
+        await consumer['processResolverJob'](dequeued)
 
         const after = await readResolverState(jobId)
         expect(after.status).toBe('available') // requeued for the terminal-write phase
@@ -258,7 +258,7 @@ describe('CdpCyclotronWorkerBatchResolve (integration)', () => {
             queueLogs: jest.fn(),
         })
 
-        await consumer.processResolverJob(dequeued)
+        await consumer['processResolverJob'](dequeued)
 
         expect(djangoPut).toHaveBeenCalledWith(TEAM_ID, BATCH_JOB_ID, 'completed')
 
@@ -278,7 +278,7 @@ describe('CdpCyclotronWorkerBatchResolve (integration)', () => {
             queueLogs: jest.fn(),
         })
 
-        await consumer.processResolverJob(dequeued)
+        await consumer['processResolverJob'](dequeued)
 
         expect(djangoPut).toHaveBeenCalledTimes(1)
 
@@ -300,7 +300,7 @@ describe('CdpCyclotronWorkerBatchResolve (integration)', () => {
             queueLogs: jest.fn(),
         })
 
-        await consumer.processResolverJob(dequeued)
+        await consumer['processResolverJob'](dequeued)
 
         const after = await readResolverState(jobId)
         expect(after.status).toBe('available')
@@ -331,7 +331,7 @@ describe('CdpCyclotronWorkerBatchResolve (integration)', () => {
             queueLogs,
         })
 
-        await consumer.processResolverJob(dequeued)
+        await consumer['processResolverJob'](dequeued)
 
         // No further audience fetch
         expect(fetchPages).not.toHaveBeenCalled()
@@ -385,7 +385,7 @@ describe('CdpCyclotronWorkerBatchResolve (integration)', () => {
 
         // Page 1
         let dequeued = await dequeueResolverJob()
-        await consumer.processResolverJob(dequeued)
+        await consumer['processResolverJob'](dequeued)
         worker = new CyclotronV2Worker({
             pool: { dbUrl: DB_URL },
             queueName: HOGFLOW_BATCH_RESOLVE_QUEUE,
@@ -395,7 +395,7 @@ describe('CdpCyclotronWorkerBatchResolve (integration)', () => {
 
         // Page 2
         dequeued = await dequeueResolverJob()
-        await consumer.processResolverJob(dequeued)
+        await consumer['processResolverJob'](dequeued)
         worker = new CyclotronV2Worker({
             pool: { dbUrl: DB_URL },
             queueName: HOGFLOW_BATCH_RESOLVE_QUEUE,
@@ -405,7 +405,7 @@ describe('CdpCyclotronWorkerBatchResolve (integration)', () => {
 
         // Page 3 (last)
         dequeued = await dequeueResolverJob()
-        await consumer.processResolverJob(dequeued)
+        await consumer['processResolverJob'](dequeued)
         worker = new CyclotronV2Worker({
             pool: { dbUrl: DB_URL },
             queueName: HOGFLOW_BATCH_RESOLVE_QUEUE,
@@ -415,7 +415,7 @@ describe('CdpCyclotronWorkerBatchResolve (integration)', () => {
 
         // Terminal write
         dequeued = await dequeueResolverJob()
-        await consumer.processResolverJob(dequeued)
+        await consumer['processResolverJob'](dequeued)
 
         expect(fetchPages).toHaveBeenCalledTimes(3)
         expect(djangoPut).toHaveBeenCalledTimes(1)

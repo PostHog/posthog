@@ -26,44 +26,23 @@ import {
     counterBatchHogFlowTriggerFailed,
 } from './metrics'
 
-/**
- * How long to wait between cyclotron-level retries when an external call
- * fails. Short enough to keep batches making progress; long enough to give
- * a transient blip a chance to resolve.
- */
 const RETRY_BACKOFF_MS = 5_000
 
 /**
- * Per-batch resolver consumer.
- *
- * Dequeues one resolver job at a time from the `hogflow_batch_resolve` queue.
- * Each dequeue does one unit of work — either one page of audience resolution
- * (fetch persons → enqueue 500 child workflow invocations atomically with
- * its own state update) or one terminal write to Django.
- *
- * State machine (carried in cyclotron_jobs.state for each resolver job):
+ * State machine carried in `cyclotron_jobs.state` per resolver job:
  *   cursor=null, pendingTerminal=undefined → fetch first page
  *   cursor=X,    pendingTerminal=undefined → fetch next page
- *   pendingTerminal='completed'|'failed'   → attempt Django PUT, ack on 200
+ *   pendingTerminal='completed'|'failed'   → PUT Django, ack on 200
  *
- * Failure handling is via cyclotron retry semantics (`reschedule` with
- * backoff). The resolver only acks when terminal Django write succeeds, so
- * no progress is lost on transient failures.
+ * Resolver only acks after terminal Django write succeeds — Django down
+ * means the job parks via cyclotron retry, no progress is lost.
  */
 export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServerConfig> {
     protected name = 'CdpCyclotronWorkerBatchResolve'
 
     private cyclotronWorker: CyclotronV2Worker
-    // Shared fetch service: same base URL + secret across audience-fetch
-    // and terminal-status calls, constructed once.
     private internalFetchService: InternalFetchService
-    // Public for test injection: integration tests provide a mock that returns
-    // synthetic person pages without talking to Django/ClickHouse.
-    public hogFlowBatchPersonQueryService: HogFlowBatchPersonQueryService
-    // Public for test injection: integration tests override this to simulate
-    // Django outages / 5xx without standing up a real Django process.
-    public putBatchJobStatusFn: (teamId: number, batchJobId: string, status: 'completed' | 'failed') => Promise<void> =
-        (teamId, batchJobId, status) => this.putBatchJobStatus(teamId, batchJobId, status)
+    private hogFlowBatchPersonQueryService: HogFlowBatchPersonQueryService
 
     constructor(config: PluginsServerConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps)
@@ -78,7 +57,6 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                 maxConnections: 10,
             },
             queueName: HOGFLOW_BATCH_RESOLVE_QUEUE,
-            batchMaxSize: 1, // process one resolver job at a time per worker
             pollDelayMs: 100,
         })
 
@@ -111,44 +89,54 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             : new HealthCheckResultError('Cyclotron worker is not healthy', { name: this.name })
     }
 
-    /**
-     * Single resolver job execution: either process one page or attempt the
-     * terminal Django write. All atomicity is handled by the cyclotron
-     * `bulkCreateAndCheckIn` primitive — partial state can't leak past a
-     * worker crash because the child enqueue and state update are one TX.
-     *
-     * Public for testability: integration tests dequeue a job through a real
-     * CyclotronV2Worker and then call this directly with the dequeued job
-     * so they can assert state transitions deterministically without racing
-     * the consumer loop.
-     */
-    public async processResolverJob(job: CyclotronV2DequeuedJob): Promise<void> {
+    private async processResolverJob(job: CyclotronV2DequeuedJob): Promise<void> {
         let state: BatchResolverState
         try {
             state = deserializeResolverState(job.state)
         } catch (err) {
+            // Schema drift, corrupted state, or a job from an incompatible
+            // older deploy. None should happen in steady state — alert on
+            // the counter so we notice fast.
+            counterBatchHogFlowResolverPagesProcessed.labels({ outcome: 'invalid_state' }).inc()
             logger.error('🔴', `${this.name} - invalid resolver state, failing job`, {
                 jobId: job.id,
+                teamId: job.teamId,
+                functionId: job.functionId,
+                parentRunId: job.parentRunId,
                 error: serializeError(err),
             })
-            captureException(err)
+            captureException(err, {
+                tags: { resolver_error: 'invalid_state', jobId: job.id, parentRunId: job.parentRunId ?? '' },
+            })
             await job.fail()
             return
         }
 
-        // Terminal-write phase: previous page set pendingTerminal; just push status to Django.
         if (state.pendingTerminal) {
-            await this.processTerminalWrite(job, state)
+            try {
+                await this.processTerminalWrite(job, state)
+            } catch (err) {
+                counterBatchHogFlowResolverPagesProcessed.labels({ outcome: 'terminal_write_failure' }).inc()
+                logger.error('🔴', `${this.name} - unexpected error in processTerminalWrite`, {
+                    batchJobId: state.batchJobId,
+                    pendingTerminal: state.pendingTerminal,
+                    error: serializeError(err),
+                })
+                captureException(err, {
+                    tags: { resolver_error: 'terminal_write_unhandled', batchJobId: state.batchJobId },
+                })
+                // Don't ack — leave the job parked so cyclotron's stall recovery
+                // picks it up and another worker can retry.
+                await job.reschedule({ scheduledAt: new Date(Date.now() + RETRY_BACKOFF_MS) })
+            }
             return
         }
 
-        // Truncation: audience cap reached. Surface to customer + flip into terminal-write phase.
         if (state.totalEnqueued >= state.maxAudienceSize) {
             await this.transitionToTruncatedTerminal(job, state)
             return
         }
 
-        // Normal page processing.
         await this.processOnePage(job, state)
     }
 
@@ -164,7 +152,6 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         ])
 
         if (!team || !hogFlow) {
-            // Team or HogFlow disappeared (deleted?). Terminate the resolver run.
             logger.error('🔴', `${this.name} - missing team or hogflow, failing resolver`, {
                 teamId: state.teamId,
                 hogFlowId: state.hogFlowId,
@@ -186,8 +173,6 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                 )
             )
         } catch (err) {
-            // Transient ClickHouse / Django blip — cyclotron retry semantics
-            // resume from the same cursor.
             logger.warn('⚠️', `${this.name} - page fetch failed, will retry`, {
                 batchJobId: state.batchJobId,
                 cursor: state.cursor,
@@ -199,7 +184,6 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             return
         }
 
-        // Build child invocations for this page.
         const defaultVariables = mergeDefaultVariables(hogFlow.variables, state.variables)
         const children: CyclotronV2JobInit[] = page.users_affected.map((personId) =>
             invocationToV2JobInit(
@@ -214,21 +198,16 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             )
         )
 
-        // Compute new state.
         const newState: BatchResolverState = {
             ...state,
             cursor: page.cursor,
             totalEnqueued: state.totalEnqueued + children.length,
             pagesProcessed: state.pagesProcessed + 1,
         }
-
-        // Is this the last page (audience exhausted)? If so, flip into terminal-write phase.
-        const isLastPage = !page.has_more
-        if (isLastPage) {
+        if (!page.has_more) {
             newState.pendingTerminal = 'completed'
         }
 
-        // Atomic: enqueue children + advance state (or transition into pendingTerminal).
         await job.bulkCreateAndCheckIn({
             newJobs: children,
             selfDisposition: {
@@ -246,13 +225,6 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         )
     }
 
-    /**
-     * Audience cap reached. Surface the truncation to the customer (workflow
-     * log) and ops (Prometheus counter), then flip the state into the
-     * terminal-write phase. Status to Django is plain `completed` — the
-     * truncation count itself is observable via the log + metric, no need
-     * to persist it as queryable data on HogFlowBatchJob.
-     */
     private async transitionToTruncatedTerminal(job: CyclotronV2DequeuedJob, state: BatchResolverState): Promise<void> {
         counterBatchHogFlowAudienceTruncated.labels({ hog_flow_id: state.hogFlowId }).inc()
 
@@ -283,12 +255,6 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         await job.reschedule({ scheduledAt: new Date(), state: serializeResolverState(newState) })
     }
 
-    /**
-     * Hard failure path: a non-retryable problem (deleted team/workflow,
-     * malformed filter). Flip into pendingTerminal='failed' so the next
-     * execution writes the failed status to Django. Children already
-     * enqueued continue executing normally.
-     */
     private async transitionToFailedTerminal(
         job: CyclotronV2DequeuedJob,
         state: BatchResolverState,
@@ -314,20 +280,14 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         await job.reschedule({ scheduledAt: new Date(), state: serializeResolverState(newState) })
     }
 
-    /**
-     * Write terminal status to Django via the idempotent PUT endpoint.
-     * Only acks the cyclotron job after Django acknowledges. On Django
-     * failure, reschedules with backoff — same Django call will be replayed.
-     */
     private async processTerminalWrite(job: CyclotronV2DequeuedJob, state: BatchResolverState): Promise<void> {
         if (!state.pendingTerminal) {
-            // Invariant violation — pendingTerminal is the entry condition.
             await job.fail()
             return
         }
 
         try {
-            await this.putBatchJobStatusFn(state.teamId, state.batchJobId, state.pendingTerminal)
+            await this.putBatchJobStatus(state.teamId, state.batchJobId, state.pendingTerminal)
         } catch (err) {
             logger.warn('⚠️', `${this.name} - terminal status write failed, will retry`, {
                 batchJobId: state.batchJobId,
@@ -352,10 +312,6 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         })
     }
 
-    /**
-     * PUT the terminal status to Django. Endpoint is idempotent — if the row
-     * is already in a terminal state, returns 200 no-op.
-     */
     private async putBatchJobStatus(teamId: number, batchJobId: string, status: 'completed' | 'failed'): Promise<void> {
         const urlPath = `/api/projects/${teamId}/internal/hog_flows/batch_jobs/${batchJobId}/status` as const
 
@@ -381,11 +337,6 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
     }
 }
 
-/**
- * Merge HogFlow's default variables with any per-run overrides. Per-run
- * overrides take precedence — the batch creator (UI/scheduler) can override
- * defaults via the variables field on HogFlowBatchJob.
- */
 function mergeDefaultVariables(
     hogFlowVariables: Array<{ key: string; default?: unknown }> | undefined | null,
     runOverrides: Record<string, unknown>
@@ -397,12 +348,8 @@ function mergeDefaultVariables(
     return { ...defaults, ...runOverrides }
 }
 
-/**
- * Build a CyclotronJobInvocation for one person in a batch. Mirrors the
- * shape produced by the legacy Kafka consumer's createHogFlowInvocation so
- * children land in cyclotron_jobs looking the same regardless of whether
- * the trigger came through Kafka or the new resolver path.
- */
+// Mirrors `createHogFlowInvocation` from the legacy Kafka consumer so children
+// land in cyclotron_jobs looking the same regardless of dispatch path.
 function buildHogFlowInvocation(params: {
     siteUrl: string
     parentRunId: string

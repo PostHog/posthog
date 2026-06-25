@@ -95,6 +95,16 @@ export type CyclotronV2ManagerConfig = {
 }
 
 /**
+ * Producer-side surface of `CyclotronV2Manager`. Lets API entrypoints depend
+ * on the interface (testable, mockable) without pulling the full manager
+ * implementation. Add methods here as new producers need them.
+ */
+export interface CyclotronV2JobProducer {
+    createJob(input: CyclotronV2JobInit): Promise<string>
+    disconnect(): Promise<void>
+}
+
+/**
  * Per-poll decision returned by a rate-limited worker's hook.
  *   `{ limit: 0, sleepMs }` → skip the dequeue and sleep.
  *   `{ limit: N }`          → dequeue up to `min(N, batchMaxSize)` rows.

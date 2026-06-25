@@ -14,4 +14,5 @@ export type {
     CyclotronV2CleanupResult,
     CyclotronV2BatchLimit,
     CyclotronV2BulkCreateAndCheckInInput,
+    CyclotronV2JobProducer,
 } from './types'
