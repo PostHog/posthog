@@ -50,7 +50,14 @@ local function take(key, want, max, rate, ttl, now)
   end
 
   redis.call('hset', key, 'ts', ts_to_write, 'pool', tokens - admit)
-  redis.call('expire', key, ttl)
+
+  -- EXPIRE dispatch dominated this primitive's Redis CPU in prod, so refresh the TTL
+  -- only on creation or once the remaining TTL drops below ttl/2, and write a 2x
+  -- ceiling for headroom (mirrors the Node.js v3 token-bucket script). PTTL's -1 (no
+  -- TTL) and -2 (missing key) are both below the threshold, so a lost TTL re-arms.
+  if cur[1] == false or redis.call('pttl', key) < (ttl * 500) then
+    redis.call('expire', key, ttl * 2)
+  end
   return admit
 end
 
@@ -358,6 +365,38 @@ mod tests {
                 .await
                 .0,
                 5
+            );
+        }
+
+        #[tokio::test]
+        #[ignore]
+        async fn creates_bucket_with_double_ttl_ceiling() {
+            let (client, _c) = start_redis().await;
+            // `charge` passes ttl = 3600; a freshly created bucket must get the 2x
+            // ceiling (7200s), proving the conditional EXPIRE armed the key. A key
+            // with no TTL (-1) would be a Redis memory leak.
+            let base = Charge {
+                team_id: 30,
+                issue: "a",
+                now: 1000,
+                n: 1,
+                per_issue: Bucket {
+                    max: 5.0,
+                    rate: 0.0,
+                },
+                project: unlimited(),
+            };
+            charge(&client, base).await;
+
+            let key = format!("test/{{{}}}/issue/{}", base.team_id, base.issue);
+            let pttl_ms = client
+                .eval_int_vec("return {redis.call('pttl', KEYS[1])}", vec![key], vec![])
+                .await
+                .unwrap()[0];
+            // Between 1x and 2x ttl (ms): the 2x ceiling, not the old unconditional 1x.
+            assert!(
+                pttl_ms > 3_600_000 && pttl_ms <= 7_200_000,
+                "expected a ~7200s TTL, got {pttl_ms}ms"
             );
         }
 
