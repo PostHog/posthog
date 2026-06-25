@@ -25,7 +25,7 @@ from posthog.sync import database_sync_to_async
 
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
-from products.data_warehouse.backend.data_load.saved_query_service import get_saved_query_schedule
+from products.data_warehouse.backend.logic.data_load.saved_query_service import get_saved_query_schedule
 from products.endpoints.backend.materialization_transforms import build_endpoint_hogql
 from products.endpoints.backend.models import EndpointVersion
 from products.endpoints.backend.services.execution import EndpointExecutionService
@@ -53,14 +53,14 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         }
         # Mock Temporal-related functions to avoid connection errors
         self.sync_workflow_patcher = mock.patch(
-            "products.data_warehouse.backend.data_load.saved_query_service.sync_saved_query_workflow"
+            "products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"
         )
         self.workflow_exists_patcher = mock.patch(
-            "products.data_warehouse.backend.data_load.saved_query_service.saved_query_workflow_exists",
+            "products.data_warehouse.backend.logic.data_load.saved_query_service.saved_query_workflow_exists",
             return_value=False,
         )
         self.delete_schedule_patcher = mock.patch(
-            "products.data_warehouse.backend.data_load.saved_query_service.delete_saved_query_schedule"
+            "products.data_warehouse.backend.logic.data_load.saved_query_service.delete_saved_query_schedule"
         )
         self.mock_sync_workflow = self.sync_workflow_patcher.start()
         self.mock_workflow_exists = self.workflow_exists_patcher.start()

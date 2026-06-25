@@ -1450,6 +1450,7 @@ class FunnelTimeToConvertResults(BaseModel):
     )
     average_conversion_time: float | None = None
     bins: list[list[int]]
+    median_conversion_time: float | None = None
 
 
 class FunnelTrendsResults(RootModel[list[dict[str, Any]]]):
@@ -10618,6 +10619,13 @@ class CachedFunnelsQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    total_median_conversion_time: float | None = Field(
+        default=None,
+        description=(
+            "Median total conversion time across all completers, computed"
+            " breakdown-agnostically for the Steps viz header."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -15721,6 +15729,13 @@ class FunnelsQueryResponse(BaseModel):
         default=None,
         description=("Measured timings for different parts of the query generation process"),
     )
+    total_median_conversion_time: float | None = Field(
+        default=None,
+        description=(
+            "Median total conversion time across all completers, computed"
+            " breakdown-agnostically for the Steps viz header."
+        ),
+    )
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,
         description=(
@@ -19091,6 +19106,13 @@ class QueryResponseAlternative68(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
+    )
+    total_median_conversion_time: float | None = Field(
+        default=None,
+        description=(
+            "Median total conversion time across all completers, computed"
+            " breakdown-agnostically for the Steps viz header."
+        ),
     )
     warnings: list[DataWarehouseSyncWarning] | None = Field(
         default=None,

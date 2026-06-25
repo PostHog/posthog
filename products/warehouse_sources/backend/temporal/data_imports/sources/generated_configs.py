@@ -1469,6 +1469,11 @@ class HighLevelSourceConfig(config.Config):
 
 
 @config.config
+class HightouchSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class HoorayHRSourceConfig(config.Config):
     pass
 
@@ -1715,6 +1720,11 @@ class LeexiSourceConfig(config.Config):
 @config.config
 class LemlistSourceConfig(config.Config):
     api_key: str
+
+
+@config.config
+class LemonSqueezySourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -3802,6 +3812,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.HELPSCOUT: HelpScoutSourceConfig,
         ExternalDataSourceType.HIBOB: HiBobSourceConfig,
         ExternalDataSourceType.HIGHLEVEL: HighLevelSourceConfig,
+        ExternalDataSourceType.HIGHTOUCH: HightouchSourceConfig,
         ExternalDataSourceType.HOORAYHR: HoorayHRSourceConfig,
         ExternalDataSourceType.HUBPLANNER: HubplannerSourceConfig,
         ExternalDataSourceType.HUBSPOT: HubspotSourceConfig,
@@ -3850,6 +3861,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.LEADFEEDER: LeadfeederSourceConfig,
         ExternalDataSourceType.LEEXI: LeexiSourceConfig,
         ExternalDataSourceType.LEMLIST: LemlistSourceConfig,
+        ExternalDataSourceType.LEMONSQUEEZY: LemonSqueezySourceConfig,
         ExternalDataSourceType.LESSANNOYINGCRM: LessAnnoyingCRMSourceConfig,
         ExternalDataSourceType.LEVER: LeverSourceConfig,
         ExternalDataSourceType.LIANA: LianaSourceConfig,

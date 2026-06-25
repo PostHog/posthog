@@ -61,7 +61,7 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
-        testOptions: { waitForSelector: '.LemonModal' },
+        testOptions: { waitForSelector: '.LemonModal', viewport: { width: 1300, height: 2000 } },
     },
 }
 export default meta
