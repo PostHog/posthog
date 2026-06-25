@@ -9,6 +9,7 @@ from posthog.llm.gateway_client import get_async_anthropic_gateway_client
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 
+from products.conversations.backend.temporal.ai_reply.activities.draft import _hydrate_chunks
 from products.conversations.backend.temporal.ai_reply.constants import TICKET_TYPE_HINTS, VALIDATOR_MODEL
 from products.conversations.backend.temporal.ai_reply.llms import anthropic_text, create_message, strip_json_fence
 from products.conversations.backend.temporal.ai_reply.schemas import ValidateInput, ValidateOutput
@@ -40,15 +41,9 @@ async def _validate(
     sources: list[dict[str, str]] | None = None,
     ticket_type: str = "how_to",
 ) -> ValidateOutput:
-    # Resolve patchable deps via pipeline so tests can mock PIPELINE_MODULE.* without
-    # importing pipeline at module load time (avoids circular import).
-    from products.conversations.backend.temporal import pipeline as pipeline_module
-
     # Only the cited chunks need rehydrating — fetch their content from the DB by id.
     cited_ids = [cid for cid in chunk_ids if cid in set(citations)]
-    cited_chunks = await database_sync_to_async(pipeline_module._hydrate_chunks, thread_sensitive=False)(
-        team_id, cited_ids
-    )
+    cited_chunks = await database_sync_to_async(_hydrate_chunks, thread_sensitive=False)(team_id, cited_ids)
     evidence_parts = [f"[{c['chunk_id']}] {c['content'][:500]}" for c in cited_chunks]
     # Ground against evidence the agent gathered via MCP tools too (e.g. docs-search URLs),
     # not just the seed chunks — otherwise docs-based answers always look unsupported.
