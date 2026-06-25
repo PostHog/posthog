@@ -258,6 +258,57 @@ describe('taskRunInteractionLogic', () => {
         expect(logic.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'follow up' }])
     })
 
+    it('keeps text typed into the composer during an in-flight draft send instead of clobbering it on success', async () => {
+        let resolveSend: () => void = () => {}
+        ;(tasksRunsCommandCreate as jest.Mock).mockReturnValue(
+            new Promise<void>((resolve) => {
+                resolveSend = () => resolve()
+            })
+        )
+
+        // Idle send straight from the draft: the draft is cleared up-front, before the await.
+        setThinking(false)
+        logic.actions.setDraft('ship it')
+        logic.actions.submit()
+        expect(logic.values.sending).toBe(true)
+        expect(logic.values.draft).toBe('')
+
+        // The user keeps typing while the send is in flight.
+        logic.actions.setDraft('next thought')
+
+        await expectLogic(logic, () => {
+            resolveSend()
+        }).toFinishAllListeners()
+
+        // Success leaves the composer alone — the newly typed text survives rather than being wiped.
+        expect(tasksRunsCommandCreate).toHaveBeenCalledWith(...userMessageCommand('ship it'))
+        expect(logic.values.draft).toBe('next thought')
+    })
+
+    it('restores a failed draft send ahead of text typed during the send, preserving order', async () => {
+        let rejectSend: () => void = () => {}
+        ;(tasksRunsCommandCreate as jest.Mock).mockReturnValue(
+            new Promise<void>((_, reject) => {
+                rejectSend = () => reject(new Error('boom'))
+            })
+        )
+
+        setThinking(false)
+        logic.actions.setDraft('ship it')
+        logic.actions.submit()
+        expect(logic.values.draft).toBe('')
+
+        logic.actions.setDraft('next thought')
+
+        await expectLogic(logic, () => {
+            rejectSend()
+        }).toFinishAllListeners()
+
+        // The failed send puts the original back in front of what was typed since, so nothing is lost.
+        expect(lemonToast.error).toHaveBeenCalled()
+        expect(logic.values.draft).toBe('ship it\n\nnext thought')
+    })
+
     it('keeps a follow-up typed during an in-flight queue flush instead of clearing it with the send', async () => {
         let resolveSend: () => void = () => {}
         ;(tasksRunsCommandCreate as jest.Mock).mockReturnValue(

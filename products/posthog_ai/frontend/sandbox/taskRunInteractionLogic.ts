@@ -182,22 +182,26 @@ export const taskRunInteractionLogic = kea<taskRunInteractionLogicType>([
                 return
             }
             actions.setSending(true)
+            // Clear the draft synchronously before the await so text the user types while the send is in
+            // flight isn't clobbered when the request resolves; a failed send restores it ahead of anything
+            // typed since. The queue buffer was already cleared up-front in `flushQueue`.
+            if (source === 'draft') {
+                actions.clearDraft()
+            }
             try {
                 await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
                     jsonrpc: '2.0',
                     method: 'user_message',
                     params: { content },
                 })
-                // The SSE echo (`pushHumanMessage`) reopens the turn. Clear the draft only on success so a
-                // failed send keeps the user's text in the composer; the queue buffer was already cleared.
+                // The SSE echo (`pushHumanMessage`) reopens the turn.
                 actions.pushHumanMessage(content)
-                if (source === 'draft') {
-                    actions.clearDraft()
-                }
             } catch {
-                // Restore unsent content for retry — the draft stays in the composer, queue content re-stages
-                // ahead of anything typed during the failed send so send order is preserved.
-                if (source === 'queue') {
+                // Restore unsent content for retry, preserving send order — draft content goes back ahead of
+                // anything typed during the failed send, queue content re-stages ahead of anything staged since.
+                if (source === 'draft') {
+                    actions.setDraft(values.draft ? `${content}\n\n${values.draft}` : content)
+                } else {
                     actions.prependQueuedMessage(content)
                 }
                 lemonToast.error('Failed to send message. Please try again.')
