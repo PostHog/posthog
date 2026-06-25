@@ -288,11 +288,13 @@ export enum AccessControlResourceType {
     Endpoint = 'endpoint',
     ProductTour = 'product_tour',
     Experiment = 'experiment',
+    ExperimentHoldout = 'experiment_holdout',
     ExperimentSavedMetric = 'experiment_saved_metric',
     Export = 'export',
     ExternalDataSource = 'external_data_source',
     WarehouseObjects = 'warehouse_objects',
     WarehouseTable = 'warehouse_table',
+    WarehouseView = 'warehouse_view',
     WebAnalytics = 'web_analytics',
     ActivityLog = 'activity_log',
     ErrorTracking = 'error_tracking',
@@ -750,6 +752,9 @@ export interface ConversationsSettings {
     github_integration_id?: number | null
     github_repos?: string[] | null
     ai_suggestions_enabled?: boolean
+    ai_diagnostics_enabled?: boolean
+    ai_resolution_channels?: string[] | null
+    ai_reply_modes?: Record<string, Record<string, 'private_note' | 'bot_reply'>> | null
 }
 
 export interface LogsSettings {
@@ -2862,6 +2867,8 @@ export interface RawAnnotationType {
     creation_type?: 'USR' | 'GIT'
     /** Optional emoji shown in place of the default badge when surfacing the annotation. */
     emoji?: string | null
+    /** When true, the annotation is hidden from the UI but still readable over the API and MCP. */
+    hidden_in_user_interface?: boolean | null
 }
 
 export interface AnnotationType extends Omit<RawAnnotationType, 'created_at' | 'date_marker'> {
@@ -3378,6 +3385,7 @@ export interface FunnelStep {
 export interface FunnelsTimeConversionBins {
     bins: [number, number][]
     average_conversion_time: number | null
+    median_conversion_time: number | null
 }
 
 export type FunnelResultType = FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
@@ -3394,7 +3402,8 @@ export interface FunnelStepWithNestedBreakdown extends FunnelStep {
 }
 
 export interface FunnelTimeConversionMetrics {
-    averageTime: number
+    /** Null when the result predates the median field (old cache) — the header hides the figure in that case. */
+    medianTime: number | null
     stepRate: number
     totalRate: number
 }
@@ -4720,6 +4729,8 @@ export interface ExperimentHoldoutType {
     created_by: UserBasicType | null
     created_at: string | null
     updated_at: string | null
+    /** Read-only, server-computed effective access level; absent on a not-yet-created holdout. */
+    user_access_level?: AccessControlLevel
 }
 
 export enum ExperimentStatsMethod {
@@ -4924,7 +4935,6 @@ export interface AppContext {
     effective_resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     custom_products: UserProductListItem[]
-    promoted_product_intent?: string | null
     commit_sha?: string
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
@@ -5580,6 +5590,7 @@ export type APIScopeObject =
     | 'evaluation'
     | 'event_definition'
     | 'experiment'
+    | 'experiment_holdout'
     | 'experiment_saved_metric'
     | 'external_data_source'
     | 'export'
@@ -5610,7 +5621,6 @@ export type APIScopeObject =
     | 'organization_integration'
     | 'organization_member'
     | 'person'
-    | 'persisted_folder'
     | 'plugin'
     | 'product_tour'
     | 'project'
@@ -7487,6 +7497,7 @@ export interface HeatmapScreenshotType {
     width: number
     status: HeatmapStatus
     has_content: boolean
+    block_consent_modals?: boolean
     created_at: string
     updated_at: string
     exception?: string

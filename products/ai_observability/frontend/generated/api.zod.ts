@@ -501,7 +501,18 @@ export const EvaluationsTestHogCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * CRUD for clustering job configurations (max 5 per team).
+ * Team-level clustering configuration (event filters for automated pipelines).
+ */
+export const LlmAnalyticsClusteringConfigSetEventFiltersCreateBody = /* @__PURE__ */ zod.object({
+    event_filters: zod
+        .array(zod.record(zod.string(), zod.unknown()))
+        .describe(
+            'PostHog property filters to save for automated clustering jobs. Pass an empty array to clear filters.'
+        ),
+})
+
+/**
+ * CRUD for clustering job configurations (max 10 per team).
  */
 export const llmAnalyticsClusteringJobsCreateBodyNameMax = 100
 
@@ -515,7 +526,7 @@ export const LlmAnalyticsClusteringJobsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * CRUD for clustering job configurations (max 5 per team).
+ * CRUD for clustering job configurations (max 10 per team).
  */
 export const llmAnalyticsClusteringJobsUpdateBodyNameMax = 100
 
@@ -529,7 +540,7 @@ export const LlmAnalyticsClusteringJobsUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * CRUD for clustering job configurations (max 5 per team).
+ * CRUD for clustering job configurations (max 10 per team).
  */
 export const llmAnalyticsClusteringJobsPartialUpdateBodyNameMax = 100
 
@@ -1351,43 +1362,6 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = /* @__PURE__ */ 
             "Version number the caller observed before requesting this bump. If provided and it does not match the scorer's current version, the request fails with 409. Omit to skip the optimistic-concurrency check."
         ),
 })
-
-export const llmAnalyticsSentimentCreateBodyIdsMax = 5
-
-export const llmAnalyticsSentimentCreateBodyAnalysisLevelDefault = `trace`
-export const llmAnalyticsSentimentCreateBodyForceRefreshDefault = false
-
-export const LlmAnalyticsSentimentCreateBody = /* @__PURE__ */ zod.object({
-    ids: zod
-        .array(zod.string())
-        .min(1)
-        .max(llmAnalyticsSentimentCreateBodyIdsMax)
-        .describe('Trace IDs (analysis_level=trace) or generation event UUIDs (analysis_level=generation).'),
-    analysis_level: zod
-        .enum(['trace', 'generation'])
-        .describe('\* `trace` - trace\n\* `generation` - generation')
-        .default(llmAnalyticsSentimentCreateBodyAnalysisLevelDefault)
-        .describe(
-            "Whether the IDs are 'trace' IDs or 'generation' IDs.\n\n\* `trace` - trace\n\* `generation` - generation"
-        ),
-    force_refresh: zod
-        .boolean()
-        .default(llmAnalyticsSentimentCreateBodyForceRefreshDefault)
-        .describe('If true, bypass cache and reclassify.'),
-    date_from: zod
-        .string()
-        .nullish()
-        .describe("Start of date range for the lookup (e.g. '-7d' or '2026-01-01'). Defaults to -30d."),
-    date_to: zod.string().nullish().describe('End of date range for the lookup. Defaults to now.'),
-})
-
-export const LlmAnalyticsSentimentGenerationsCreateBody = /* @__PURE__ */ zod
-    .object({
-        filters: zod.unknown().optional(),
-    })
-    .describe(
-        'Filter shape mirrors the previous frontend `api.query({filters: ...})` payload.\n\n`filters` accepts the same `HogQLFilters` schema that the legacy frontend HogQL\npath used (dateRange, filterTestAccounts, properties), so the migration is\nbehaviour-preserving for callers that pass a request unchanged.'
-    )
 
 /**
  *

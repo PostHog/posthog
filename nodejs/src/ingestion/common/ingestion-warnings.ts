@@ -1,13 +1,13 @@
 import { Counter } from 'prom-client'
 
+import { KAFKA_INGESTION_WARNINGS } from '~/common/config/kafka-topics'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { INGESTION_WARNINGS_OUTPUT, IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { KAFKA_INGESTION_WARNINGS } from '~/config/kafka-topics'
-import { KafkaProducerWrapper } from '~/kafka/producer'
+import { logger } from '~/common/utils/logger'
+import { IngestionWarningLimiter } from '~/common/utils/token-bucket'
+import { castTimestampOrNow } from '~/common/utils/utils'
 import { TeamId, TimestampFormat } from '~/types'
-import { logger } from '~/utils/logger'
-import { IngestionWarningLimiter } from '~/utils/token-bucket'
-import { castTimestampOrNow } from '~/utils/utils'
 
 export const ingestionWarningCounter = new Counter({
     name: 'ingestion_warnings_total',

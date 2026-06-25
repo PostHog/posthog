@@ -100,9 +100,6 @@ export async function queueApprovalResult(input: {
             type: input.policy.type,
             allow_edit: input.policy.allow_edit,
         },
-        // Stamp the session's preview mode on the row so the dispatch path
-        // and the listing serializer don't have to re-join `agent_session`.
-        is_preview: input.session.is_preview,
         expires_at: new Date(Date.now() + input.policy.ttl_ms).toISOString(),
     })
 
@@ -117,6 +114,12 @@ export async function queueApprovalResult(input: {
     const approval: Record<string, unknown> = {
         request_id: upsert.request.id,
         state: 'queued',
+        // The inline approval card renders straight from this envelope (live
+        // `tool_result` + persisted transcript on reload) — no extra fetch. It
+        // needs the edit affordance and whether it's decidable inline
+        // (`principal`) or console-only (`agent`); neither is on the tool_call.
+        allow_edit: input.policy.allow_edit,
+        approver_scope: { type: input.policy.type },
     }
     if (!suppressApprovalChannel) {
         approval.approver_hint = input.policy.type === 'agent' ? APPROVER_HINT_AGENT : APPROVER_HINT_PRINCIPAL
@@ -128,7 +131,13 @@ export async function queueApprovalResult(input: {
 
     return {
         content: [{ type: 'text', text: JSON.stringify({ approval }) }],
-        details: { queued: true, requestId: upsert.request.id, deduped: upsert.deduped },
+        details: {
+            queued: true,
+            requestId: upsert.request.id,
+            deduped: upsert.deduped,
+            allowEdit: input.policy.allow_edit,
+            approverType: input.policy.type,
+        },
         terminate: false,
     }
 }

@@ -144,9 +144,10 @@ def resolve_constant_data_type(constant: Any) -> ConstantType:
     raise ImpossibleASTError(f"Unsupported constant type: {type(constant)}")
 
 
-def resolve_types_from_table(
-    expr: ast.Expr, table_chain: list[str], context: HogQLContext, dialect: HogQLDialect
-) -> ast.Expr:
+def resolve_table_scope(table_chain: list[str], context: HogQLContext, dialect: HogQLDialect) -> ast.SelectQueryType:
+    """Resolve `SELECT * FROM <table_chain>` and return its query scope — the type other expressions
+    resolve against to reference the table's columns. Raises `QueryError` if the database/table is
+    unavailable. Caching, if wanted, is the caller's concern."""
     if context.database is None:
         raise QueryError("Database needs to be defined")
 
@@ -159,8 +160,14 @@ def resolve_types_from_table(
     )
     select_node_with_types = cast(ast.SelectQuery, resolve_types(select_node, context, dialect))
     assert select_node_with_types.type is not None
+    return select_node_with_types.type
 
-    return resolve_types(expr, context, dialect, [select_node_with_types.type])
+
+def resolve_types_from_table(
+    expr: ast.Expr, table_chain: list[str], context: HogQLContext, dialect: HogQLDialect
+) -> ast.Expr:
+    scope = resolve_table_scope(table_chain, context, dialect)
+    return resolve_types(expr, context, dialect, [scope])
 
 
 ResolverFactory = Callable[

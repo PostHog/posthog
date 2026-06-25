@@ -31,7 +31,7 @@ single-agent flow:
    `promote` / `archive` need explicit consent (a `principal`
    approval) and are out of scope for the sweep itself. Your write
    surface this run is: `new-draft-create`, the bundle edit tools
-   (`agent-md-update`, `skills-update`, `tools-update`,
+   (`agent-md-update`, `skill-refs-set`, `tools-update`,
    `partial-update`), and `validate-create`. Stop at validate. Do
    **not** `freeze` — a frozen revision reads as "ready to ship", and
    these are unreviewed.
@@ -108,7 +108,8 @@ For each fix:
    (`source_revision_id`) — clones every file so your edit is
    surgical.
 2. Apply the **smallest** change that addresses the root cause:
-   - prompt/loop bug → `agent-md-update` or `skills-update`
+   - prompt/loop bug → `agent-md-update`, or revise the skill in the
+     store (`llm-skills-create` a new version) and `skill-refs-set`
    - missing/over-broad tool, wrong limit, wrong model/reasoning →
      `partial-update` on the spec
    - keep each draft to **one** root cause. Don't bundle unrelated
@@ -169,8 +170,9 @@ it. There is no Slack post step — the Agent Builder doesn't post to Slack.
 - **No promotes / freezes / archives.** Proposals only. (Re-stating
   because it's the one rule that, broken, touches production.)
 - **No edits to the live revision in place.** Always branch a draft.
-- **No deletions** (`skills-destroy` / `tools-destroy`) — destructive
-  and unreviewed is the worst combination.
+- **No deletions** (`tools-destroy`) — destructive and unreviewed is
+  the worst combination. (Dropping a `skill_refs` entry is fine — it
+  only unlinks; the store skill stays.)
 - **No raw secrets.** If an agent's problem is a missing/expired
   credential, that's a recommendation for a human, never a value you
   set.

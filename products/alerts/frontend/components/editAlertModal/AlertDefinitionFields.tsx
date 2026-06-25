@@ -1,10 +1,17 @@
 import { Group } from 'kea-forms'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonSelect, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
+import {
+    funnelConfigForOptionKey,
+    funnelConfigToOptionKey,
+    funnelConversionOptions,
+} from 'lib/components/Alerts/funnelAlertOptions'
+import { FunnelAlertPreview } from 'lib/components/Alerts/funnelAlertPreview'
 import { HogQLAlertPreview } from 'lib/components/Alerts/hogqlAlertPreview'
+import { isFunnelsAlertConfig } from 'lib/components/Alerts/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { alphabet } from 'lib/utils/strings'
 
@@ -58,6 +65,112 @@ export function TrendsDefinitionFields({
     )
 }
 
+// Cap the named breaching breakdown values so a high-cardinality breakdown can't produce a runaway
+// banner string (mirrors the SQL preview's table cap); the rest collapse into "+N more".
+const FUNNEL_BREACH_PREVIEW_CAP = 5
+
+/** Conversion-rate read-out + breach/ok status (mirrors the SQL alert's preview). */
+function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | null }): JSX.Element | null {
+    if (preview === null) {
+        return (
+            <LemonBanner type="info" className="w-full">
+                Load the insight to preview the conversion rate this alert will evaluate.
+            </LemonBanner>
+        )
+    }
+    if (preview.status === 'no-data') {
+        return (
+            <LemonBanner type="info" className="w-full">
+                This funnel has no data for the selected steps yet, so the alert can't evaluate a conversion rate. Try
+                adjusting the funnel steps or the date range.
+            </LemonBanner>
+        )
+    }
+    const format = (rate: number): string => `${rate.toFixed(1)}%`
+    const breaching = preview.values.filter((value) => value.breaching)
+    const wouldFire = breaching.length > 0
+    // Same at-a-glance breach/ok tag as the SQL alert preview; only meaningful once a threshold is set.
+    const statusTag = preview.hasBounds ? (
+        <LemonTag type={wouldFire ? 'warning' : 'success'} className="mr-2">
+            {wouldFire ? 'breach' : 'ok'}
+        </LemonTag>
+    ) : null
+
+    if (preview.isBreakdown) {
+        const rates = preview.values.map((value) => value.rate)
+        return (
+            <LemonBanner type={wouldFire ? 'warning' : 'info'} className="w-full">
+                {statusTag}
+                Across {preview.values.length} breakdown values, currently{' '}
+                <strong>
+                    {format(Math.min(...rates))}–{format(Math.max(...rates))}
+                </strong>
+                {/* The tag + banner colour carry the breach/ok state; only add what they can't — which
+                    values breach, or (when no threshold is set yet) a prompt to set one. */}
+                {!preview.hasBounds ? (
+                    <> — fires if any value breaches. Set a threshold to preview.</>
+                ) : wouldFire ? (
+                    <>
+                        {' '}
+                        ·{' '}
+                        {breaching
+                            .slice(0, FUNNEL_BREACH_PREVIEW_CAP)
+                            .map((value) => `${value.label ?? 'conversion'} ${format(value.rate)}`)
+                            .join(', ')}
+                        {breaching.length > FUNNEL_BREACH_PREVIEW_CAP
+                            ? ` +${breaching.length - FUNNEL_BREACH_PREVIEW_CAP} more`
+                            : ''}
+                    </>
+                ) : null}
+            </LemonBanner>
+        )
+    }
+
+    return (
+        <LemonBanner type={wouldFire ? 'warning' : 'info'} className="w-full">
+            {statusTag}
+            Currently converting at <strong>{format(preview.values[0].rate)}</strong>
+            {!preview.hasBounds ? <> — set a threshold to preview whether it would fire.</> : null}
+        </LemonBanner>
+    )
+}
+
+/** Funnels: a single valid-conversion picker over the `{metric, funnel_step}` config — see funnelAlertOptions. */
+export function FunnelsDefinitionFields({
+    alertForm,
+    stepLabels,
+    funnelPreview,
+    onSetAlertFormValue,
+}: {
+    alertForm: AlertFormType
+    stepLabels: string[]
+    funnelPreview: FunnelAlertPreview | null
+    onSetAlertFormValue: <K extends keyof AlertFormType>(key: K, value: AlertFormType[K]) => void
+}): JSX.Element {
+    const config = isFunnelsAlertConfig(alertForm.config) ? alertForm.config : null
+    return (
+        <div className="flex flex-wrap gap-3 items-center">
+            <div>Alert on</div>
+            <LemonSelect
+                fullWidth
+                className="flex-auto"
+                data-attr="alertForm-funnel-conversion"
+                placeholder="Select a conversion"
+                // Wide funnels generate ~2 options per step; cap the menu so it scrolls instead of overflowing.
+                menu={{ className: '!max-h-[400px]' }}
+                value={config ? funnelConfigToOptionKey(config, stepLabels.length) : undefined}
+                onChange={(key) =>
+                    // Each key fully determines the config, so build a fresh one rather than spreading
+                    // the previous config (whose type/metric/funnel_step would all be overwritten anyway).
+                    onSetAlertFormValue('config', { type: 'FunnelsAlertConfig', ...funnelConfigForOptionKey(key) })
+                }
+                options={funnelConversionOptions(stepLabels)}
+            />
+            <FunnelAlertPreviewBanner preview={funnelPreview} />
+        </div>
+    )
+}
+
 /** SQL: pick the evaluation mode and (when the result is multi-column) the value/label columns,
  * plus the live preview of what the alert would evaluate. */
 export function HogQLDefinitionFields({
@@ -89,9 +202,13 @@ export function HogQLDefinitionFields({
                                 value={value ?? 'last_row'}
                                 onChange={(newValue) => {
                                     onChange(newValue)
-                                    // Any-row mode checks unrelated rows — a relative condition is meaningless.
+                                    // Any-row rows are unrelated entities, not a time series: a relative
+                                    // condition has no prior value, and anomaly detection has nothing to
+                                    // score. Reset both so we can't land in an unsupported any-row+detector
+                                    // (or any-row+relative) state.
                                     if (newValue === 'any_row') {
                                         onSetAlertFormValue('condition', { type: AlertConditionType.ABSOLUTE_VALUE })
+                                        onSetAlertFormValue('detector_config', null)
                                     }
                                 }}
                                 options={[

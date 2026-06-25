@@ -128,10 +128,25 @@ class TestLogFacetValues(ClickhouseTestMixin, APIBaseTest):
         ]
         self.assertEqual(self._facet_attr("k8s.namespace.name", filterGroup=filter_group), base)
 
-    def test_resource_facet_honors_other_filter(self):
-        """A top-level filter re-scopes a resource-attribute facet's counts (strictly fewer)."""
+    def test_resource_facet_ignores_severity_filter(self):
+        # Resource-attribute facets are served from the log_attributes rollup, which has no severity
+        # dimension — a severity filter is accepted but does not re-scope the counts.
         base = self._facet_attr("k8s.namespace.name")
+        self.assertGreater(len(base), 0)
         scoped = self._facet_attr("k8s.namespace.name", severityLevels=["error"])
+        self.assertEqual(scoped, base)
+
+    def test_resource_facet_honors_other_resource_attribute_filter(self):
+        # A different resource-attribute filter re-scopes the counts via the rollup's
+        # resource_fingerprint subquery — proves cross-filtering still works on log_attributes.
+        base = self._facet_attr("k8s.pod.name")
+        one_namespace = next(iter(self._facet_attr("k8s.namespace.name")))
+        filter_group = [
+            {"key": "k8s.namespace.name", "type": "log_resource_attribute", "operator": "exact", "value": one_namespace}
+        ]
+        scoped = self._facet_attr("k8s.pod.name", filterGroup=filter_group)
+        self.assertGreater(len(scoped), 0)
+        self.assertTrue(set(scoped).issubset(set(base)))
         self.assertLess(sum(scoped.values()), sum(base.values()))
 
     @parameterized.expand([("argo",), ("ARGO",)])

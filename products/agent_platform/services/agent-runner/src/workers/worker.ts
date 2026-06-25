@@ -41,6 +41,7 @@ import {
     LogSink,
     MemoryStore,
     TabularStore,
+    WebSearchProvider,
     RevisionStore,
     SandboxInstanceStore,
     SandboxPool,
@@ -135,11 +136,11 @@ export interface WorkerDeps {
     /** Operator override (AGENT_MAX_OUTPUT_TOKENS); clamps per-turn max_tokens below model ceiling. */
     maxOutputTokens?: number
     /**
-     * Set to true when calls go through PostHog's ai-gateway. The runner
-     * keeps token counts but drops pi-ai's `cost.*` accumulation — the
-     * gateway tracks cost server-side; client-side estimates are unreliable.
+     * True on the ai-gateway path: the gateway emits the `$ai_generation`
+     * (settled cost + forwarded attribution), so the runner suppresses its
+     * duplicate. pi-ai's `cost.*` estimates are never used regardless.
      */
-    useGatewayCost?: boolean
+    gatewayEmitsGenerations?: boolean
     /**
      * Approval-gated tools store. MANDATORY and
      * fail-closed: `requires_approval` in spec.tools is a security control, so
@@ -150,9 +151,11 @@ export interface WorkerDeps {
     approvals: ApprovalStore
     /**
      * Builds the deep link the synthetic queued tool_result surfaces to
-     * the model. Wire from config so prod hits the real domain.
+     * the model. Wire from config so prod hits the real domain. Takes the
+     * agent slug so the link can carry `?agent=<slug>` — the deep-link
+     * approval modal needs it to address the (slug-routed) ingress directly.
      */
-    buildApprovalUrl?: (requestId: string) => string
+    buildApprovalUrl?: (requestId: string, slug: string) => string
     /**
      * S3-backed memory store for `@posthog/memory-*` tools. Wired from
      * AGENT_MEMORY_S3_* config; unset disables memory tools.
@@ -160,6 +163,12 @@ export interface WorkerDeps {
     memoryStore?: MemoryStore
     /** Deterministic tabular store for `@posthog/table-*` tools; same S3 config as memory. */
     tabularStore?: TabularStore
+    /**
+     * Web-search provider chain for `@posthog/web-search`, built from
+     * AGENT_WEB_SEARCH_* config at boot. Threaded onto each session's
+     * ToolContext. Empty / absent → the tool is gated out of the session.
+     */
+    webSearchProviders?: readonly WebSearchProvider[]
     /**
      * Per-session credential broker, populated by ingress at /run + /send.
      * The runner passes this through to `runSession` → tool deps →
@@ -523,6 +532,10 @@ export class Worker {
             const apiKey = await this.deps.resolveApiKey?.(session)
             const gatewayHeaders = this.deps.resolveGatewayHeaders?.(session)
             const gatewayUsage = await this.deps.resolveGatewayUsage?.(session)
+            // Bind the agent slug into the approval-link builder so the deep link
+            // carries `?agent=<slug>` — the ingress-routed approval modal needs it
+            // to address the agent's ingress directly.
+            const buildApprovalUrl = this.deps.buildApprovalUrl
             const outcome = await runSession(rev, session, {
                 model,
                 apiKey,
@@ -536,13 +549,16 @@ export class Worker {
                 applicationName: application?.name || application?.slug,
                 shutdownSignal: this.shutdownController.signal,
                 getSessionState: async (id) => (await this.deps.queue.get(id))?.state ?? null,
-                useGatewayCost: this.deps.useGatewayCost,
+                gatewayEmitsGenerations: this.deps.gatewayEmitsGenerations,
                 gatewayHeaders,
                 gatewayUsage,
                 approvals: this.deps.approvals,
-                buildApprovalUrl: this.deps.buildApprovalUrl,
+                buildApprovalUrl: buildApprovalUrl
+                    ? (requestId) => buildApprovalUrl(requestId, application?.slug ?? '')
+                    : undefined,
                 memoryStore: this.deps.memoryStore,
                 tabularStore: this.deps.tabularStore,
+                webSearchProviders: this.deps.webSearchProviders,
                 credentialBroker: this.deps.credentialBroker,
                 identityCredentials: this.deps.identityCredentials,
                 identityLinks: this.deps.identityLinks,

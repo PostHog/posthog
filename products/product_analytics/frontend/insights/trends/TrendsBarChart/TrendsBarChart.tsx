@@ -39,7 +39,7 @@ import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { trendsFilterToYFormatterConfig } from '../shared/trendsAxisFormat'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'
-import { useTrendsLegendConfig } from '../shared/useTrendsLegendConfig'
+import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
 import { getAggregatedDisplayLabel as getAggregatedDisplayLabelFn } from './getAggregatedDisplayLabel'
 import { handleTrendsBarAggregatedChartClick } from './handleTrendsBarAggregatedChartClick'
 import {
@@ -90,7 +90,7 @@ export function TrendsBarChart({
 
     // Time-series bars (vertical) render the in-chart legend; the aggregated bar-value layout has
     // no legend (each bar is a breakdown row, not a series).
-    const legendConfig = useTrendsLegendConfig({ insightProps, inSharedMode })
+    const legendConfig = useInsightsLegendConfig({ insightProps, inSharedMode })
 
     const {
         indexedResults,
