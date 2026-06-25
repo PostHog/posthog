@@ -3,6 +3,7 @@ import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
 import { DashboardsListViewVariant, resolveDashboardsListViewVariant } from './dashboardsListViewVariants'
 
+// Experiment cleanup: flag `dashboards-list-view` · experiment 379125 — remove with the tree arm.
 describe('resolveDashboardsListViewVariant', () => {
     const cases: [string | boolean | undefined, DashboardsListViewVariant][] = [
         [undefined, 'control'],

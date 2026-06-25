@@ -5,6 +5,9 @@ import { useActions, useValues } from 'kea'
 
 import { DashboardsTree } from './DashboardsTree'
 
+// Captured so a test can invoke the tree's onFolderClick directly with undefined — no click path produces that.
+let mockLastOnFolderClick: ((folder: unknown) => void) | undefined
+
 jest.mock('kea', () => ({ ...jest.requireActual('kea'), useValues: jest.fn(), useActions: jest.fn() }))
 jest.mock('./DashboardsTable', () => ({
     DashboardsTable: ({ dashboards }: any) => (
@@ -25,9 +28,10 @@ jest.mock('lib/lemon-ui/LemonTree/LemonTree', () => {
             </div>
         ))
     return {
-        LemonTree: ({ data, onFolderClick, renderItem }: any) => (
-            <div>{renderNodes(data, onFolderClick, renderItem)}</div>
-        ),
+        LemonTree: ({ data, onFolderClick, renderItem }: any) => {
+            mockLastOnFolderClick = onFolderClick
+            return <div>{renderNodes(data, onFolderClick, renderItem)}</div>
+        },
     }
 })
 
@@ -62,6 +66,8 @@ describe('DashboardsTree', () => {
             expandedFolders: {},
             folderEntryByPath: {},
             folderDashboardCounts: {},
+            dashboardFileSystemEntriesLoading: false,
+            folderEntriesLoading: false,
             dashboardsLoading: false,
             ...overrides,
         })
@@ -176,5 +182,13 @@ describe('DashboardsTree', () => {
         expect(fireEvent.click(toggle)).toBe(false)
         expect(navigateToFolder).not.toHaveBeenCalled()
         expect(setExpandedFolders).toHaveBeenCalled()
+    })
+
+    it('onFolderClick ignores an undefined folder — the null guard never throws or navigates', () => {
+        mockValues({ folderTree: [] })
+        render(<DashboardsTree />)
+        // No click path produces undefined, but LemonTree's type allows it; the guard must hold.
+        expect(() => mockLastOnFolderClick?.(undefined)).not.toThrow()
+        expect(navigateToFolder).not.toHaveBeenCalled()
     })
 })

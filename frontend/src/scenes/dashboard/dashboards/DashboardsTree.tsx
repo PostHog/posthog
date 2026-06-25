@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { LemonTree, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { DropdownMenuGroup } from 'lib/ui/DropdownMenu/DropdownMenu'
@@ -56,6 +56,8 @@ export function DashboardsTree(): JSX.Element {
         expandedFolders,
         folderEntryByPath,
         folderDashboardCounts,
+        dashboardFileSystemEntriesLoading,
+        folderEntriesLoading,
     } = useValues(dashboardsFileSystemLogic)
     const { navigateToFolder, toggleFolder, setExpandedFolders } = useActions(dashboardsFileSystemLogic)
     const { reportDashboardsTreeFolderNavigated } = useActions(eventUsageLogic)
@@ -168,6 +170,11 @@ export function DashboardsTree(): JSX.Element {
                             )
                         }}
                     />
+                    {(dashboardFileSystemEntriesLoading || folderEntriesLoading) && folderTree.length === 0 && (
+                        <div className="flex items-center justify-center p-3">
+                            <Spinner className="text-lg" />
+                        </div>
+                    )}
                 </div>
             </div>
             <div className="min-w-0" data-attr="dashboards-tree-content">

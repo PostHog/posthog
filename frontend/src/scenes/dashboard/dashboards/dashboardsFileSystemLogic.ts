@@ -1,8 +1,10 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { withTimeout } from 'lib/utils/async'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
@@ -21,8 +23,15 @@ import {
 import { dashboardsLogic } from './dashboardsLogic'
 
 const FILE_SYSTEM_PAGE_SIZE = 500
-// Safety ceiling so a misbehaving endpoint can't loop forever — 40 pages = 20k entries, far above any real project.
-const MAX_FILE_SYSTEM_PAGES = 40
+// Safety ceiling so a misbehaving endpoint can't loop forever — 10 pages = 5k entries, well above any realistic
+// single project (and far cheaper to load than the old 40-page cap).
+const MAX_FILE_SYSTEM_PAGES = 10
+// Per-page timeout so one hung request can't leave the tree loader pending forever (mirrors the sidebar's
+// shortcuts loader); the abort signal cancels the in-flight request on timeout.
+const FILE_SYSTEM_PAGE_TIMEOUT_MS = 10000
+// Scopes projectTreeDataLogic's optional post-processing (selection clear, undo re-expand) for our reused delete
+// path; safely no-ops for our unmounted instance.
+const DASHBOARDS_TREE_PROJECT_LOGIC_KEY = 'dashboards-tree'
 
 // Page through every dashboard/folder FileSystem entry so large projects render their full tree instead of
 // being silently truncated to the first page — the experiment measures navigation, and big projects are
@@ -30,25 +39,31 @@ const MAX_FILE_SYSTEM_PAGES = 40
 async function fetchAllFileSystemEntries(type: 'dashboard' | 'folder'): Promise<FileSystemEntry[]> {
     const entries: FileSystemEntry[] = []
     for (let page = 0; page < MAX_FILE_SYSTEM_PAGES; page++) {
-        const response = await api.fileSystem.list({
-            type,
-            limit: FILE_SYSTEM_PAGE_SIZE,
-            offset: page * FILE_SYSTEM_PAGE_SIZE,
-        })
+        const response = await withTimeout(
+            (signal) =>
+                api.fileSystem.list({
+                    type,
+                    limit: FILE_SYSTEM_PAGE_SIZE,
+                    offset: page * FILE_SYSTEM_PAGE_SIZE,
+                    signal,
+                }),
+            FILE_SYSTEM_PAGE_TIMEOUT_MS,
+            `dashboardsFileSystemLogic: ${type} page ${page} timed out`
+        )
         entries.push(...response.results)
         if (response.results.length < FILE_SYSTEM_PAGE_SIZE) {
             return entries
         }
     }
-    console.warn(
-        `dashboardsFileSystemLogic: stopped paging ${type} entries at the ${MAX_FILE_SYSTEM_PAGES * FILE_SYSTEM_PAGE_SIZE}-entry ceiling.`
-    )
+    // Hitting the ceiling means a project's tree is truncated — emit a signal (not just a console.warn) so we can
+    // spot affected projects and raise the cap if real usage demands it.
+    posthog.capture('dashboards tree pagination ceiling hit', {
+        entry_type: type,
+        entries_loaded: entries.length,
+        ceiling: MAX_FILE_SYSTEM_PAGES * FILE_SYSTEM_PAGE_SIZE,
+    })
     return entries
 }
-
-// Folder mutations reuse projectTreeDataLogic's move/delete; this key only scopes that logic's optional
-// post-processing (selection clearing, undo re-expand), which safely no-ops for our unmounted instance.
-const DASHBOARDS_TREE_PROJECT_LOGIC_KEY = 'dashboards-tree'
 
 // View state for the tree arm: a folder tree built from the same FileSystem rows that back the sidebar
 // (both dashboard and folder rows, so empty folders appear), the selected folder, its expand state, and the
@@ -190,6 +205,9 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
                 lemonToast.success(`Created folder "${trimmed}"`)
             } catch (error) {
                 console.error('Error creating folder:', error)
+                // Runs in an async listener, not a kea-loader, so initKea's global onFailure never sees it —
+                // capture here or we're blind to folder-create error rates (a key adoption-metric operation).
+                posthog.captureException(error)
                 lemonToast.error('Could not create the folder.')
             }
         },
@@ -216,6 +234,8 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
                 lemonToast.success(`Renamed to "${trimmed}"`)
             } catch (error) {
                 console.error('Error renaming folder:', error)
+                // Async listener, not a kea-loader — capture so folder-rename failures surface in error tracking.
+                posthog.captureException(error)
                 lemonToast.error('Could not rename the folder.')
             }
         },

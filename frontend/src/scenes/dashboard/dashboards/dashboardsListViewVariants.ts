@@ -3,6 +3,8 @@ import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
 // One folder-navigation paradigm tested against today's flat list: `tree` (a persistent folder-tree panel
 // beside the table). The `grid` and `explorer` arms were both dropped before launch — see the design spec.
+// Experiment cleanup: flag `dashboards-list-view` · experiment 379125 — remove this resolver and the tree arm
+// when the experiment concludes.
 export type DashboardsListViewVariant = 'control' | 'tree'
 
 const DEFAULT_VARIANT: DashboardsListViewVariant = 'control'

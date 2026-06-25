@@ -1,9 +1,9 @@
+import { UNFILED_DASHBOARDS_FOLDER } from 'scenes/dashboard/dashboardConstants'
+
 import { joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { DashboardBasicType } from '~/types'
 
-// Dashboards with no folder entry live here by default (matches FileSystemSyncMixin's base folder).
-export const UNFILED_DASHBOARDS_FOLDER = 'Unfiled/Dashboards'
 const UNFILED_SEGMENTS = splitPath(UNFILED_DASHBOARDS_FOLDER)
 
 // The path segments of a dashboard's containing folder (its FileSystem entry's path minus the last
