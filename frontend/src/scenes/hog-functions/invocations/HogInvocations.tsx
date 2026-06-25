@@ -209,11 +209,20 @@ async function countRerunMatches(
     return Array.isArray(row) ? Number(row[0] ?? 0) : 0
 }
 
+export interface HogInvocationsProps extends HogInvocationsLogicProps {
+    /**
+     * Override how a log message is rendered in the per-row expansion. Workflows
+     * pass `renderWorkflowLogMessage` so event/person/action tokens become links,
+     * matching the standalone Logs tab. Defaults to the hog-function renderer.
+     */
+    renderLogMessage?: (message: string) => JSX.Element | string
+}
+
 /**
  * Rerun is async — posting to `/rerun` enqueues a cyclotron wrapper job; new
  * lifecycle rows show up here once the worker drains it.
  */
-export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): JSX.Element | null {
+export function HogInvocations({ id, functionKind, renderLogMessage }: HogInvocationsProps): JSX.Element | null {
     const logic = hogInvocationsLogic({ id, functionKind })
     const {
         runs,
@@ -433,7 +442,7 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
     ]
 
     return (
-        <div className="flex-1 deprecated-space-y-2 flex flex-col">
+        <div className="flex-1 deprecated-space-y-2 flex flex-col min-w-0">
             <InvocationsBetaBanner />
             <InvocationsSparkline
                 data={sparkline}
@@ -573,7 +582,10 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
                 columns={columns}
                 loading={runsLoading && !hasLoadedOnce}
                 rowKey={(row) => row.invocation_id}
-                className="ph-no-capture overflow-y-auto"
+                // `min-w-0` lets the table shrink to its flex parent so its own
+                // ScrollableShadows handles horizontal overflow — without it the
+                // wide column set pushes the whole page into a horizontal scroll.
+                className="ph-no-capture overflow-y-auto min-w-0"
                 // `hover:!` modifiers beat LemonTable's default
                 // `hover:bg-accent-highlight-secondary` once `onClick` is set.
                 rowRibbonColor={(row) => rowRibbonColorFor(row)}
@@ -607,7 +619,12 @@ export function HogInvocations({ id, functionKind }: HogInvocationsLogicProps): 
                     onRowExpand: (record) => setExpanded(record.invocation_id, true),
                     onRowCollapse: (record) => setExpanded(record.invocation_id, false),
                     expandedRowRender: (record) => (
-                        <RunDetail record={record} functionKind={functionKind} hogFunctionId={id} />
+                        <RunDetail
+                            record={record}
+                            functionKind={functionKind}
+                            hogFunctionId={id}
+                            renderLogMessage={renderLogMessage}
+                        />
                     ),
                 }}
                 emptyState={
@@ -632,10 +649,12 @@ function RunDetail({
     record,
     functionKind,
     hogFunctionId,
+    renderLogMessage,
 }: {
     record: HogInvocationRow
     functionKind: HogInvocationsLogicProps['functionKind']
     hogFunctionId: string
+    renderLogMessage?: (message: string) => JSX.Element | string
 }): JSX.Element {
     const isRerunWrapper = isRerunWrapperKind(record.function_kind)
     const logsLogicProps: LogsViewerLogicProps = {
@@ -647,44 +666,46 @@ function RunDetail({
     }
 
     return (
-        <div className="p-3 deprecated-space-y-2 bg-surface-secondary">
-            <div className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5 text-xs">
-                <DetailField label={isRerunWrapper ? 'Re-run job ID' : 'Invocation ID'} mono>
-                    <CopyToClipboardInline explicitValue={record.invocation_id} selectable>
-                        {record.invocation_id}
-                    </CopyToClipboardInline>
-                </DetailField>
-                {record.started_at ? (
-                    <DetailField label="Started">
-                        <TZLabel time={record.started_at} />
-                    </DetailField>
-                ) : null}
-                {record.finished_at ? (
-                    <DetailField label="Finished">
-                        <TZLabel time={record.finished_at} />
-                    </DetailField>
-                ) : null}
-                {record.parent_run_id ? (
-                    <DetailField label="Parent run" mono>
-                        <CopyToClipboardInline explicitValue={record.parent_run_id} selectable>
-                            {record.parent_run_id}
+        <div className="p-3 deprecated-space-y-3 bg-surface-secondary min-w-0">
+            <div className="border rounded bg-surface-primary p-3">
+                <dl className="grid grid-cols-[minmax(7rem,max-content)_1fr] items-baseline gap-x-4 gap-y-2 text-xs m-0">
+                    <DetailField label={isRerunWrapper ? 'Re-run job ID' : 'Invocation ID'} mono>
+                        <CopyToClipboardInline explicitValue={record.invocation_id} selectable>
+                            {record.invocation_id}
                         </CopyToClipboardInline>
                     </DetailField>
-                ) : null}
-                {isRerunWrapper ? null : record.distinct_id ? (
-                    <DetailField label="Distinct ID" mono>
-                        <CopyToClipboardInline explicitValue={record.distinct_id} selectable>
-                            {record.distinct_id}
-                        </CopyToClipboardInline>
-                    </DetailField>
-                ) : null}
-                {isRerunWrapper ? null : record.person_id ? (
-                    <DetailField label="Person ID" mono>
-                        <CopyToClipboardInline explicitValue={record.person_id} selectable>
-                            {record.person_id}
-                        </CopyToClipboardInline>
-                    </DetailField>
-                ) : null}
+                    {record.started_at ? (
+                        <DetailField label="Started">
+                            <TZLabel time={record.started_at} />
+                        </DetailField>
+                    ) : null}
+                    {record.finished_at ? (
+                        <DetailField label="Finished">
+                            <TZLabel time={record.finished_at} />
+                        </DetailField>
+                    ) : null}
+                    {record.parent_run_id ? (
+                        <DetailField label="Parent run" mono>
+                            <CopyToClipboardInline explicitValue={record.parent_run_id} selectable>
+                                {record.parent_run_id}
+                            </CopyToClipboardInline>
+                        </DetailField>
+                    ) : null}
+                    {isRerunWrapper ? null : record.distinct_id ? (
+                        <DetailField label="Distinct ID" mono>
+                            <CopyToClipboardInline explicitValue={record.distinct_id} selectable>
+                                {record.distinct_id}
+                            </CopyToClipboardInline>
+                        </DetailField>
+                    ) : null}
+                    {isRerunWrapper ? null : record.person_id ? (
+                        <DetailField label="Person ID" mono>
+                            <CopyToClipboardInline explicitValue={record.person_id} selectable>
+                                {record.person_id}
+                            </CopyToClipboardInline>
+                        </DetailField>
+                    ) : null}
+                </dl>
             </div>
 
             {record.status === 'failed' && record.error_message ? (
@@ -702,7 +723,7 @@ function RunDetail({
                     hideDateFilter
                     hideInstanceIdColumn
                     defaultAscending
-                    renderMessage={(message) => renderHogFunctionMessage(message)}
+                    renderMessage={renderLogMessage ?? ((message) => renderHogFunctionMessage(message))}
                 />
             </div>
         </div>
@@ -722,8 +743,8 @@ function DetailField({
 }): JSX.Element {
     return (
         <>
-            <div className="text-muted-alt">{label}</div>
-            <div className={mono ? 'font-mono break-all' : undefined}>{children ?? value}</div>
+            <dt className="text-muted-alt font-medium">{label}</dt>
+            <dd className={`m-0 min-w-0 ${mono ? 'font-mono break-all' : ''}`}>{children ?? value}</dd>
         </>
     )
 }
