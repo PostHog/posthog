@@ -5,7 +5,6 @@ import { IconTerminal } from '@posthog/icons'
 import { cn } from 'lib/utils/css-classes'
 
 export interface SandboxDebugMessageProps {
-    id: string
     text: string
     level: string
 }

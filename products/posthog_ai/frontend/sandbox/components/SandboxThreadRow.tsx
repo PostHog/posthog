@@ -162,7 +162,7 @@ export const SandboxThreadRow = memo(function SandboxThreadRow({
         return <SandboxProgressItem item={item} />
     }
     if (item.type === 'debug') {
-        return <SandboxDebugMessage id={item.id} text={item.text ?? ''} level={item.debugLevel ?? 'info'} />
+        return <SandboxDebugMessage text={item.text ?? ''} level={item.debugLevel ?? 'info'} />
     }
     return null
 })
