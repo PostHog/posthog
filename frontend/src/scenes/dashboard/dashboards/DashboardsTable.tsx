@@ -327,9 +327,7 @@ export function DashboardsTable({
                         // Tree arm only: in control the entry source is mostly empty, so the button would be
                         // perpetually disabled — leave control's bulk bar exactly as it was.
                         const moveEntries = isTreeArm
-                            ? ctx.selectedKeys
-                                  .map(fsEntryFor)
-                                  .filter((entry): entry is FileSystemEntry => !!entry)
+                            ? ctx.selectedKeys.map(fsEntryFor).filter((entry): entry is FileSystemEntry => !!entry)
                             : []
                         const unmovable = ctx.selectedKeys.length - moveEntries.length
                         const partial = unmovable > 0 && moveEntries.length > 0
