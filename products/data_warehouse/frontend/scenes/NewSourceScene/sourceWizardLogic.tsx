@@ -24,6 +24,7 @@ import {
     ProductKey,
     SourceConfig,
     SourceFieldConfig,
+    SourceFieldOauthConfig,
     SourceFieldSwitchGroupConfig,
     SuggestedTable,
     VALID_NATIVE_MARKETING_SOURCES,
@@ -1509,7 +1510,34 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     (e.status >= 500
                         ? 'PostHog could not validate your connection in time. This can happen with a very large schema or a slow or unreachable database — please check your connection details and try again.'
                         : e.message)
-                lemonToast.error(errorMessage)
+
+                // For OAuth-based sources, a permissions/scope failure is fixed by reconnecting with the
+                // right scopes — offer that directly instead of the generic "Get help" link, which just
+                // opens a support page in a new tab and reads as a dead click.
+                const oauthField = values.selectedConnector.fields.find(
+                    (field): field is SourceFieldOauthConfig => field.type === 'oauth'
+                )
+                const looksLikePermissionError =
+                    typeof apiMessage === 'string' && /permission|scope|reconnect|insufficient/i.test(apiMessage)
+
+                if (oauthField && looksLikePermissionError) {
+                    lemonToast.error(errorMessage, {
+                        button: {
+                            label: 'Reconnect account',
+                            action: () => {
+                                actions.saveFormStateBeforeRedirect()
+                                window.location.assign(
+                                    api.integrations.authorizeUrl({
+                                        kind: oauthField.kind,
+                                        next: window.location.pathname,
+                                    })
+                                )
+                            },
+                        },
+                    })
+                } else {
+                    lemonToast.error(errorMessage)
+                }
 
                 posthog.capture('warehouse credentials invalid', {
                     sourceType: values.selectedConnector.name,
