@@ -491,11 +491,15 @@ def _is_transient_grpc_unavailable(exc: BaseException) -> bool:
 
     The gapic transport usually surfaces it as ``google.api_core.exceptions.ServiceUnavailable``,
     but the raw ``grpc`` ``_InactiveRpcError`` (whose ``code()`` returns ``StatusCode.UNAVAILABLE``)
-    can also propagate, so we accept either shape.
+    can also propagate. The Google Ads SDK additionally re-wraps the transport error in a
+    ``GoogleAdsException`` when it can pull an ads ``failure`` from the trailing metadata (e.g. a
+    backend ``DEADLINE_EXCEEDED`` returned alongside an ``UNAVAILABLE`` status); the gRPC status
+    then lives on the wrapped ``error``, so we unwrap and inspect it too.
     """
     if isinstance(exc, google_api_exceptions.ServiceUnavailable):
         return True
-    code = getattr(exc, "code", None)
+    candidate: typing.Any = exc.error if isinstance(exc, GoogleAdsException) else exc
+    code = getattr(candidate, "code", None)
     return callable(code) and code() == grpc.StatusCode.UNAVAILABLE
 
 
@@ -508,7 +512,8 @@ def _search_with_transient_retry(
     """Call ``GoogleAdsService.search``, retrying a transient gRPC ``UNAVAILABLE`` with backoff.
 
     Only retries before any page is yielded or checkpointed, so there is no partial state to
-    reconcile. Non-transient errors (including ``GoogleAdsException``) re-raise immediately so the
+    reconcile. The transient ``UNAVAILABLE`` may itself arrive wrapped in a ``GoogleAdsException``
+    (see ``_is_transient_grpc_unavailable``). Non-transient errors re-raise immediately so the
     caller's ``INVALID_PAGE_TOKEN`` handling and Temporal's retry policy still apply.
     """
     attempt = 0
