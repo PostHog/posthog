@@ -9,9 +9,9 @@ from dateutil import parser
 from requests import Request, Response
 from requests.exceptions import HTTPError, RequestException, Timeout
 
-from posthog.temporal.data_imports.sources.common.http import make_tracked_session
-from posthog.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
-from posthog.temporal.data_imports.sources.snapchat_ads.settings import (
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
+from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.settings import (
     BASE_URL,
     MAX_SNAPCHAT_DAYS_TO_QUERY,
     EndpointType,

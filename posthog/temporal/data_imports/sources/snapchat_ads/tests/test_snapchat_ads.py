@@ -6,10 +6,16 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from posthog.temporal.data_imports.sources.snapchat_ads.snapchat_ads import SnapchatResumeConfig, _iter_rows
-from posthog.temporal.data_imports.sources.snapchat_ads.source import SnapchatAdsSource
-from posthog.temporal.data_imports.sources.snapchat_ads.utils import SnapchatDateRangeManager, format_stats_day_boundary
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.snapchat_ads import (
+    SnapchatResumeConfig,
+    _iter_rows,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.source import SnapchatAdsSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.utils import (
+    SnapchatDateRangeManager,
+    format_stats_day_boundary,
+)
 
 
 class _FakeResource:
@@ -61,7 +67,7 @@ class TestIterRowsFreshRun:
         manager = _mock_resumable_manager(can_resume=False)
 
         with patch(
-            "posthog.temporal.data_imports.sources.snapchat_ads.snapchat_ads.rest_api_resource",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.snapchat_ads.rest_api_resource",
             side_effect=_fake_rest_api_resource,
         ):
             batches = list(
@@ -91,7 +97,7 @@ class TestIterRowsFreshRun:
         manager = _mock_resumable_manager(can_resume=False)
 
         with patch(
-            "posthog.temporal.data_imports.sources.snapchat_ads.snapchat_ads.rest_api_resource",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.snapchat_ads.rest_api_resource",
             side_effect=_fake_rest_api_resource,
         ):
             list(
@@ -155,7 +161,7 @@ class TestIterRowsResume:
         manager = _mock_resumable_manager(can_resume=True, saved=saved)
 
         with patch(
-            "posthog.temporal.data_imports.sources.snapchat_ads.snapchat_ads.rest_api_resource",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.snapchat_ads.rest_api_resource",
             side_effect=_fake_rest_api_resource,
         ):
             batches = list(
@@ -183,7 +189,7 @@ class TestIterRowsEmptyPages:
         manager = _mock_resumable_manager(can_resume=False)
 
         with patch(
-            "posthog.temporal.data_imports.sources.snapchat_ads.snapchat_ads.rest_api_resource",
+            "products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.snapchat_ads.rest_api_resource",
             side_effect=_fake_rest_api_resource,
         ):
             batches = list(
@@ -251,15 +257,15 @@ class TestIterRowsMultiChunkStats:
 
         with (
             patch(
-                "posthog.temporal.data_imports.sources.snapchat_ads.snapchat_ads.rest_api_resource",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.snapchat_ads.rest_api_resource",
                 side_effect=_fake_rest_api_resource,
             ),
             patch(
-                "posthog.temporal.data_imports.sources.snapchat_ads.snapchat_ads.SnapchatStatsResource.setup_stats_resources",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.snapchat_ads.SnapchatStatsResource.setup_stats_resources",
                 return_value=_fake_stats_chunks(2),
             ),
             patch(
-                "posthog.temporal.data_imports.sources.snapchat_ads.snapchat_ads.fetch_account_metadata",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.snapchat_ads.fetch_account_metadata",
                 return_value=("USD", "America/Los_Angeles"),
             ),
         ):
@@ -304,15 +310,15 @@ class TestIterRowsMultiChunkStats:
 
         with (
             patch(
-                "posthog.temporal.data_imports.sources.snapchat_ads.snapchat_ads.rest_api_resource",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.snapchat_ads.rest_api_resource",
                 side_effect=_fake_rest_api_resource,
             ),
             patch(
-                "posthog.temporal.data_imports.sources.snapchat_ads.snapchat_ads.SnapchatStatsResource.setup_stats_resources",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.snapchat_ads.SnapchatStatsResource.setup_stats_resources",
                 return_value=_fake_stats_chunks(2),
             ),
             patch(
-                "posthog.temporal.data_imports.sources.snapchat_ads.snapchat_ads.fetch_account_metadata",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.snapchat_ads.fetch_account_metadata",
                 return_value=("USD", "America/Los_Angeles"),
             ),
         ):
