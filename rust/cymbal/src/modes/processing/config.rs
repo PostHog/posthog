@@ -107,24 +107,12 @@ pub struct ProcessingConfig {
     #[envconfig(default = "5000")]
     pub redis_connection_timeout_ms: u64,
 
-    // ----------------------------------------------------------------------
-    // Error-tracking rate limiting (per-issue + per-project token buckets).
-    //
-    // Additive and default-off: Node.js remains the enforcer. When enabled,
-    // cymbal drops over-limit events against its own Redis keyspace so it
-    // never double-charges the buckets Node is enforcing on. See the
-    // migration plan for rollout.
-    // ----------------------------------------------------------------------
     #[envconfig(from = "ERROR_TRACKING_RATE_LIMITER_ENABLED", default = "false")]
     pub error_tracking_rate_limiter_enabled: bool,
 
-    /// Connection string for the dedicated rate-limiter Redis. When empty,
-    /// falls back to `ISSUE_BUCKETS_REDIS_URL` (convenient for local dev).
     #[envconfig(from = "ERROR_TRACKING_RATE_LIMITER_REDIS_URL", default = "")]
     pub error_tracking_rate_limiter_redis_url: String,
 
-    /// Key prefix for the token buckets. Kept distinct from Node's prefix so
-    /// cymbal never reads or writes the buckets Node is actively enforcing on.
     #[envconfig(
         from = "ERROR_TRACKING_RATE_LIMITER_KEY_PREFIX",
         default = "@posthog/et-rate-limiter"
