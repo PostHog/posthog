@@ -1171,13 +1171,13 @@ export interface EditReportRequestApi {
     /** Id of the report to edit (must belong to this project). */
     report_id: string
     /**
-     * Optional new title. The pipeline may later re-research and overwrite it.
+     * Optional new title. Conventional-commit style (`type(scope): description`) renders with type/scope styling. The pipeline may later re-research and overwrite it.
      * @maxLength 300
      * @nullable
      */
     title?: string | null
     /**
-     * Optional new summary (markdown allowed). The pipeline may later re-research and overwrite it.
+     * Optional new summary. Markdown is supported (headings, lists, code, links; images are not rendered); lead with one plain declarative sentence — it becomes the inbox card headline. The pipeline may later re-research and overwrite it.
      * @nullable
      */
     summary?: string | null
@@ -1321,11 +1321,11 @@ export const ActionabilityEnumApi = {
  */
 export interface EmitReportRequestApi {
     /**
-     * One-line PR-style report title the inbox shows.
+     * One-line report title the inbox shows. Conventional-commit style (`type(scope): description`, e.g. `fix(insights): missing series color`) renders with type/scope styling.
      * @maxLength 300
      */
     title: string
-    /** The report body the inbox shows (markdown allowed). Authored by the scout. */
+    /** The report body the inbox shows. Markdown is supported (headings, lists, code, links; images are not rendered). Lead with one plain declarative sentence — the inbox card uses your first line verbatim as the headline (~140 chars, emphasis stripped), then renders the full markdown in the detail view. */
     summary: string
     /**
      * The observations backing the report — each becomes a bound signal. At least one.

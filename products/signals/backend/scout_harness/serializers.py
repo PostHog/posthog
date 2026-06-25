@@ -481,10 +481,19 @@ class EmitReportRequestSerializer(serializers.Serializer):
 
     title = serializers.CharField(
         max_length=MAX_REPORT_TITLE_LENGTH,
-        help_text="One-line PR-style report title the inbox shows.",
+        help_text=(
+            "One-line report title the inbox shows. Conventional-commit style "
+            "(`type(scope): description`, e.g. `fix(insights): missing series color`) renders with "
+            "type/scope styling."
+        ),
     )
     summary = serializers.CharField(
-        help_text="The report body the inbox shows (markdown allowed). Authored by the scout.",
+        help_text=(
+            "The report body the inbox shows. Markdown is supported (headings, lists, code, links; "
+            "images are not rendered). Lead with one plain declarative sentence — the inbox card uses "
+            "your first line verbatim as the headline (~140 chars, emphasis stripped), then renders the "
+            "full markdown in the detail view."
+        ),
     )
     evidence = serializers.ListField(
         child=ReportEvidenceSerializer(),
@@ -568,12 +577,19 @@ class EditReportRequestSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         max_length=MAX_REPORT_TITLE_LENGTH,
-        help_text="Optional new title. The pipeline may later re-research and overwrite it.",
+        help_text=(
+            "Optional new title. Conventional-commit style (`type(scope): description`) renders with "
+            "type/scope styling. The pipeline may later re-research and overwrite it."
+        ),
     )
     summary = serializers.CharField(
         required=False,
         allow_null=True,
-        help_text="Optional new summary (markdown allowed). The pipeline may later re-research and overwrite it.",
+        help_text=(
+            "Optional new summary. Markdown is supported (headings, lists, code, links; images are not "
+            "rendered); lead with one plain declarative sentence — it becomes the inbox card headline. "
+            "The pipeline may later re-research and overwrite it."
+        ),
     )
     append_note = serializers.CharField(
         required=False,
