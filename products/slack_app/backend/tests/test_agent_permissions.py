@@ -134,14 +134,22 @@ class TestSlackAgentPermissionPrompt(TestCase):
         assert approve_button["style"] == "primary"
         assert "style" not in deny_button
 
-        assert blocks[3]["type"] == "actions"
-        config_select = blocks[3]["elements"][0]
+        assert blocks[3]["type"] == "section"
+        assert "Approval mode" in blocks[3]["text"]["text"]
+        config_select = blocks[3]["accessory"]
         assert config_select["action_id"] == SLACK_PERMISSION_ACTION_SELECT
+        assert config_select["placeholder"]["text"] == "Choose approval mode"
         assert config_select["initial_option"]["value"] == SlackAutonomyTier.ASK_BEFORE_WRITE
+        assert config_select["initial_option"]["text"]["text"] == "Ask before write approval mode"
         assert [option["value"] for option in config_select["options"]] == [
             SlackAutonomyTier.READ_ONLY,
             SlackAutonomyTier.ASK_BEFORE_WRITE,
             SlackAutonomyTier.FULL_AUTO,
+        ]
+        assert [option["text"]["text"] for option in config_select["options"]] == [
+            "Read-only approval mode",
+            "Ask before write approval mode",
+            "Full auto approval mode",
         ]
 
         context_token = call_kwargs["metadata"]["event_payload"]["context_token"]

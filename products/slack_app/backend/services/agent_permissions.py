@@ -28,6 +28,11 @@ SLACK_PERMISSION_BLOCK_ID_PREFIX = "posthog_code_permission"
 SLACK_PERMISSION_ACTION_APPROVE = "posthog_code_permission_approve"
 SLACK_PERMISSION_ACTION_DENY = "posthog_code_permission_deny"
 SLACK_PERMISSION_ACTION_SELECT = "posthog_code_permission_select"
+SLACK_AUTONOMY_TIER_OPTION_LABELS = {
+    "read_only": "Read-only approval mode",
+    "ask_before_write": "Ask before write approval mode",
+    "full_auto": "Full auto approval mode",
+}
 POSTHOG_PERMISSION_REQUEST_METHOD = "_posthog/permission_request"
 MCP_TOOL_DEFINITIONS_PATH = Path(settings.BASE_DIR) / "services/mcp/schema/generated-tool-definitions.json"
 
@@ -337,7 +342,10 @@ def _reject_option_id(options: list[dict[str, str]]) -> str | None:
 
 
 def _build_autonomy_tier_option(value: str, label: str) -> dict[str, Any]:
-    return {"text": {"type": "plain_text", "text": label}, "value": value}
+    return {
+        "text": {"type": "plain_text", "text": SLACK_AUTONOMY_TIER_OPTION_LABELS.get(value, label)},
+        "value": value,
+    }
 
 
 def _initial_autonomy_tier(task_run: Any, fallback: str) -> str:
@@ -516,17 +524,16 @@ def post_slack_permission_request_for_task_run(
         ]
         blocks.append(
             {
-                "type": "actions",
+                "type": "section",
                 "block_id": f"{SLACK_PERMISSION_BLOCK_ID_PREFIX}_config:{context_token}",
-                "elements": [
-                    {
-                        "type": "static_select",
-                        "action_id": SLACK_PERMISSION_ACTION_SELECT,
-                        "placeholder": {"type": "plain_text", "text": "Approval config"},
-                        "options": autonomy_tier_options,
-                        "initial_option": initial_autonomy_option,
-                    },
-                ],
+                "text": {"type": "mrkdwn", "text": "*Approval mode*", "verbatim": False},
+                "accessory": {
+                    "type": "static_select",
+                    "action_id": SLACK_PERMISSION_ACTION_SELECT,
+                    "placeholder": {"type": "plain_text", "text": "Choose approval mode"},
+                    "options": autonomy_tier_options,
+                    "initial_option": initial_autonomy_option,
+                },
             }
         )
 
