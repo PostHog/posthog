@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { IconGraph, IconPencil, IconPeople, IconPiggyBank, IconReceipt } from '@posthog/icons'
@@ -22,9 +22,11 @@ import { urls } from 'scenes/urls'
 import type { AccountNotebookApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { AccountBillingExpansion } from './AccountBillingExpansion'
+import { accountBillingLogic } from './accountBillingLogic'
 import { accountLinksLogic } from './accountLinksLogic'
 import { accountNotebooksLogic } from './accountNotebooksLogic'
 import { AccountRelatedUsersExpansion } from './AccountRelatedUsersExpansion'
+import { accountRelatedUsersLogic } from './accountRelatedUsersLogic'
 import { accountsExpansionLogic } from './accountsExpansionLogic'
 import { AccountsEvents } from './constants'
 import { EditAccountLinksButton } from './EditAccountLinksButton'
@@ -98,6 +100,11 @@ export function AccountNotebooksExpansion({
     const logic = accountNotebooksLogic({ accountId })
     const { notebooks, notebooksResponseLoading, createdNoteLoading, searchTerm, sorting, pagination } =
         useValues(logic)
+
+    // LemonTabs only renders the active tab, so without this the data refetches on every tab switch.
+    useMountedLogic(accountRelatedUsersLogic({ externalId }))
+    useMountedLogic(accountBillingLogic({ accountId, externalId, kind: 'usage' }))
+    useMountedLogic(accountBillingLogic({ accountId, externalId, kind: 'spend' }))
     const { setSearchTerm, setSorting, createNote } = useActions(logic)
     const { activeTabFor } = useValues(accountsExpansionLogic)
     const { setActiveTab } = useActions(accountsExpansionLogic)
