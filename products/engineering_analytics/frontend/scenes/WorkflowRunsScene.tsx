@@ -13,7 +13,9 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { BillableBadge } from '../components/BillableBadge'
+import { RunActivityChart } from '../components/RunActivityChart'
 import { RunnerBadge, RunsTable } from '../components/runTables'
+import { WorkflowHealthHeader } from '../components/WorkflowHealthHeader'
 import type { WorkflowRunnerCostApi } from '../generated/api.schemas'
 import { githubWorkflowUrl } from '../lib/github'
 import { WorkflowRunRow, WorkflowRunsLogicProps, workflowRunsLogic } from './workflowRunsLogic'
@@ -99,6 +101,8 @@ export function WorkflowRunsScene(): JSX.Element {
         repoOwner,
         repoName,
         workflowName,
+        healthSummary,
+        costSummary,
     } = useValues(workflowRunsLogic)
     const { loadRuns, setRunExpanded, setDateRange } = useActions(workflowRunsLogic)
 
@@ -198,6 +202,8 @@ export function WorkflowRunsScene(): JSX.Element {
                     size="small"
                 />
             </div>
+            <WorkflowHealthHeader summary={healthSummary} cost={costSummary} />
+            <RunActivityChart runs={runRows} />
             {runnerCosts.length > 0 && <RunnerCostTable costs={runnerCosts} />}
             <div className="flex flex-col gap-2">
                 <h3 className="mb-0">Runs</h3>

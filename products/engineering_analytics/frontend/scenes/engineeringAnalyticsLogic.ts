@@ -16,6 +16,7 @@ import {
 } from '../generated/api'
 import type { GitHubSourceApi, PullRequestListItemApi } from '../generated/api.schemas'
 import { CIStatus, ciStatusOf } from '../lib/ci'
+import { type FleetSummary, computeFleetSummary } from '../lib/runHealth'
 import type { engineeringAnalyticsLogicType } from './engineeringAnalyticsLogicType'
 
 // Safety bound on the PR table (mirrors the endpoint's server-side limit). Surfaced
@@ -666,6 +667,11 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
         }),
 
         selectors({
+            // Fleet verdict + rollups across every workflow row, for the all-workflows health strip.
+            fleetSummary: [
+                (s) => [s.workflowHealth],
+                (workflowHealth): FleetSummary => computeFleetSummary(workflowHealth),
+            ],
             filters: [
                 (s) => [s.stateFilter, s.author, s.repo, s.ciStatusFilter, s.search, s.stuckOnly],
                 (stateFilter, author, repo, ciStatus, search, stuckOnly): PullRequestFilters => ({

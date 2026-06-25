@@ -14,7 +14,13 @@ import {
 } from '../generated/api'
 import type { PRCostSummaryApi, PRLifecycleApi, WorkflowJobApi, WorkflowRunDetailApi } from '../generated/api.schemas'
 import { jobCacheKey } from '../lib/jobs'
-import { LifecycleSummary, WorkflowRun, isPassingConclusion, summarizeLifecycle } from '../lib/lifecycle'
+import {
+    LifecycleSummary,
+    WorkflowRun,
+    isDecisiveFailure,
+    isPassingConclusion,
+    summarizeLifecycle,
+} from '../lib/lifecycle'
 import type { WorkflowHealthBucket, WorkflowHealthRow } from './engineeringAnalyticsLogic'
 import type { pullRequestDetailLogicType } from './pullRequestDetailLogicType'
 
@@ -49,8 +55,6 @@ export interface PrRunRow extends WorkflowRun {
     headSha: string
     headBranch: string
 }
-
-const isDecisiveFailure = (conclusion: string | null): boolean => conclusion === 'failure' || conclusion === 'timed_out'
 
 /** Nearest-rank percentile over a small sample (the PR's per-workflow run durations). */
 function percentile(values: number[], q: number): number | null {
