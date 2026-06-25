@@ -68,6 +68,14 @@ const CAPABILITY_GROUP_MAP: Record<string, PluginServerCapabilities> = {
     feature_flags: CAPABILITIES_FEATURE_FLAGS,
 }
 
+/**
+ * Capability groups that run as dedicated ingestion-* processes (see bin/mprocs.yaml),
+ * not inside this plugin-server. They are valid NODEJS_CAPABILITY_GROUPS values, so
+ * recognize them here to avoid a spurious "unknown group" warning; they contribute no
+ * capabilities to this process.
+ */
+const PROC_BACKED_GROUPS = new Set(['session_replay', 'logs', 'metrics', 'traces', 'error_tracking'])
+
 export function getPluginServerCapabilities(
     config: Pick<CommonConfig, 'PLUGIN_SERVER_MODE' | 'NODEJS_CAPABILITY_GROUPS'>
 ): PluginServerCapabilities {
@@ -87,7 +95,7 @@ export function getPluginServerCapabilities(
                     const groupCapabilities = CAPABILITY_GROUP_MAP[group]
                     if (groupCapabilities) {
                         capabilities.push(groupCapabilities)
-                    } else {
+                    } else if (!PROC_BACKED_GROUPS.has(group)) {
                         console.warn(`Unknown Node.js capability group: ${group}`)
                     }
                 }
