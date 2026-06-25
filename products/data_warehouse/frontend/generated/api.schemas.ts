@@ -45,6 +45,7 @@ export interface DataModelingJobApi {
 }
 
 export interface PaginatedDataModelingJobListApi {
+    count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
@@ -2349,13 +2350,13 @@ export interface ViewLinkValidationApi {
 
 export type DataModelingJobsListParams = {
     /**
-     * The pagination cursor value.
-     */
-    cursor?: string
-    /**
      * Number of results to return per page.
      */
     limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
     saved_query_id?: string
 }
 
