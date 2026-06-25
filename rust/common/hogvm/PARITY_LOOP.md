@@ -88,7 +88,14 @@ In an unrestricted environment, simply:
 HOGVM_CORPUS_DIR=$PWD/common/hogvm/__tests__ cargo test -p hogvm --test parity -- --nocapture
 ```
 
-Current status: **8 PASS / 1 MISMATCH / 26 ERROR** of 35 programs. The loop drives ERROR→PASS.
+Current status: **23 PASS / 3 MISMATCH / 9 ERROR** of 35 programs. The loop drives ERROR→PASS.
+
+Remaining backlog (corpus):
+- **try/catch** (`catch`, `catch2`, `exceptions`, `recursion`) — exception dispatch / stack management.
+- **tuple** (`stl`, `tuples`) — needs a tuple value-model distinction (prints `(a, b)`, not `[a, b]`).
+- **first-class STL** (`functionVars`) — referencing an STL function name as a global value.
+- **SQL/HogQLX** (`sql`, `hogqlx`) — `sql(...)` AST construction (`bool` vs `i64`).
+- **mismatches**: `json` (a containment/`JSONHas`-style bug), `scope` (closure upvalue capture).
 
 ### 2a-bis. Per-STL parity (`tests/stl_parity.rs`) — built, working
 Whole-program tests cover the STL only incidentally. To give **each STL function its own
@@ -102,7 +109,9 @@ Coverage: **103 / 130** STL functions have a direct case (**125 cases**). The 27
 operator aliases (`and`/`plus`/`equals`/…) and the lambda array fns (`arrayMap`/`arrayFilter`/…),
 both already exercised by the corpus harness, plus `run` (SQL) / `extract`.
 
-Current status: **30 PASS / 95 FAIL** — the FAILs are the STL backlog below.
+Current status: **123 PASS / 2 FAIL** — the remaining 2 are `tuple` (value-model) and
+`toUnixTimestamp` (a Python-oracle float-print artifact: the oracle prints `1609504496.0`,
+but Node — the real target — prints `1609504496`, which is what the Rust VM produces).
 
 Regenerate the committed oracle fixtures after adding/altering cases (also rebuilds the perf
 oracle); it provisions the reference VM's `re2`+`pytz` venv first:
