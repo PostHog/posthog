@@ -7591,8 +7591,6 @@ export namespace Schemas {
       team_id: number;
       /** Revision the gated call was proposed against. */
       revision_id: string;
-      /** Mirrors the owning session's `is_preview`. True when the request originated from a draft revision running in preview mode — render a preview badge in the approvals queue so reviewers can tell author-iteration approvals apart from production traffic. */
-      is_preview: boolean;
       /** Turn number within the session that emitted the call. */
       turn: number;
       /** pi-ai ToolCall.id from the original assistant message; matched into the synthetic tool_result. */
@@ -7770,8 +7768,6 @@ export namespace Schemas {
          */
       preview: string | null;
       retry_count: number;
-      /** True when the session ran against a draft revision in preview mode. Output adapters (Slack writes, failure notifier) no-op; `$ai_*` analytics events are tagged with `$agent_is_preview: true`. Surface a preview badge on the row so authors can distinguish iteration from live traffic. */
-      is_preview: boolean;
       created_at: string;
       updated_at: string;
     }
@@ -7885,8 +7881,6 @@ export namespace Schemas {
       pending_inputs: AgentConversationMessage[];
       /** Times the janitor has re-queued this session after a stuck-running detection. */
       retry_count: number;
-      /** True when the session ran against a draft revision in preview mode. Output adapters (Slack writes, failure notifier) no-op; `$ai_*` analytics events are tagged with `$agent_is_preview: true`. Surface a preview badge on session detail so authors can distinguish iteration from live traffic. */
-      is_preview: boolean;
       created_at: string;
       updated_at: string;
       /** True when `?last_n=` was supplied AND the full conversation exceeded it. */
@@ -7960,8 +7954,6 @@ export namespace Schemas {
          * @nullable
          */
       preview: string | null;
-      /** True when the session ran against a draft revision in preview mode. Output adapters (Slack writes, failure notifier) no-op; `$ai_*` analytics events are tagged with `$agent_is_preview: true`. Render a preview badge on the row so author iteration is distinguishable from live traffic. */
-      is_preview: boolean;
       created_at: string;
       updated_at: string;
     }
@@ -8404,7 +8396,10 @@ export namespace Schemas {
     };
 
     export type AgentRevisionSpec = {
-      /** @minLength 1 */
+      /**
+         * @minLength 1
+         * @pattern ^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$
+         */
       model: string;
       triggers: AgentRevisionSpecTriggersItem[];
       tools: AgentRevisionSpecToolsItem[];
@@ -8805,11 +8800,33 @@ export namespace Schemas {
       type: HogQLAlertConfigType;
     }
 
+    export type FunnelConversionMetric = typeof FunnelConversionMetric[keyof typeof FunnelConversionMetric];
+
+
+    export const FunnelConversionMetric = {
+      ConversionFromStart: 'conversion_from_start',
+      ConversionFromPrevious: 'conversion_from_previous',
+    } as const;
+
+    export type FunnelsAlertConfigType = typeof FunnelsAlertConfigType[keyof typeof FunnelsAlertConfigType];
+
+
+    export const FunnelsAlertConfigType = {
+      FunnelsAlertConfig: 'FunnelsAlertConfig',
+    } as const;
+
+    export interface FunnelsAlertConfig {
+      /** Zero-based step index to evaluate. Null = the last step (overall conversion). */
+      funnel_step?: number | null;
+      metric: FunnelConversionMetric;
+      type: FunnelsAlertConfigType;
+    }
+
     /**
      * Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the
      * generated frontend types and MCP tool schemas) in sync with every kind alerts support.
      */
-    export type AlertConfigUnion = TrendsAlertConfig | HogQLAlertConfig;
+    export type AlertConfigUnion = TrendsAlertConfig | HogQLAlertConfig | FunnelsAlertConfig;
 
     export interface PreprocessingConfig {
       /** Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0) */
@@ -9057,7 +9074,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly checks_total: number | null;
-      /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). */
+      /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step) and metric ('conversion_from_start' or 'conversion_from_previous'); funnel alerts only support absolute_value conditions. */
       config?: AlertConfigUnion | null;
       detector_config?: DetectorConfig | null;
       /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
@@ -13187,6 +13204,16 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `posthog_code` - posthog_code
+     */
+    export type ConnectFromEnum = typeof ConnectFromEnum[keyof typeof ConnectFromEnum];
+
+
+    export const ConnectFromEnum = {
+      PosthogCode: 'posthog_code',
+    } as const;
+
+    /**
      * Response containing a JWT token for direct sandbox connection
      */
     export interface ConnectionTokenResponse {
@@ -16581,6 +16608,13 @@ export namespace Schemas {
      * The request body contains source_type plus flat source-specific credential fields
      * (e.g. host, port, database, user, password, schema for Postgres). The credential
      * fields vary per source_type and are validated dynamically by the source registry.
+     *
+     * For source_type "Custom" (a user-defined REST API) the body carries `manifest_json`
+     * (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the
+     * credential for the manifest's declared auth type — `auth_token` (bearer), `auth_api_key`
+     * (api_key), or `auth_password` (http_basic); keep secrets in these auth_* keys, never
+     * inline in manifest_json. The returned tables mirror the manifest's resources, with
+     * detected primary keys and incremental cursors.
      */
     export interface DatabaseSchemaRequest {
       /** The source type to validate against.
@@ -20931,9 +20965,9 @@ export namespace Schemas {
       holdout_id?: number | null;
       /** @nullable */
       readonly exposure_cohort: number | null;
-      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded), and `variant_notes` (free-text notes per variant, keyed by variant key). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
+      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `custom_exposure_filter`, `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded), and `variant_notes` (free-text notes per variant, keyed by variant key). */
       parameters?: ExperimentParameters | null;
-      /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
+      /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`. */
       running_time_calculation?: ExperimentRunningTimeCalculation | null;
       /**
          * Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`; kept in sync with `parameters` during the deprecation window.
@@ -21040,9 +21074,9 @@ export namespace Schemas {
       readonly holdout: ExperimentHoldout;
       /** @nullable */
       readonly exposure_cohort: number | null;
-      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded), and `variant_notes` (free-text notes per variant, keyed by variant key). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
+      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `custom_exposure_filter`, `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded), and `variant_notes` (free-text notes per variant, keyed by variant key). */
       parameters?: ExperimentParameters | null;
-      /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
+      /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`. */
       running_time_calculation?: ExperimentRunningTimeCalculation | null;
       /**
          * Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`; kept in sync with `parameters` during the deprecation window.
@@ -23720,6 +23754,39 @@ export namespace Schemas {
       default_branch?: string | null;
       /** Whether more branches exist beyond the returned page */
       has_more: boolean;
+    }
+
+    export interface GitHubLinkExistingRequest {
+      /**
+         * Sibling team in the same organization whose GitHub installation should be reused.
+         * @nullable
+         */
+      source_team_id?: number | null;
+      /** GitHub installation ID to link; resolved within the organization when source_team_id is omitted. */
+      installation_id?: string;
+    }
+
+    export interface GitHubOAuthAuthorizeRequest {
+      /** GitHub installation ID to carry through the User OAuth flow. */
+      installation_id?: string;
+      /** Relative URL to redirect to after the OAuth flow completes. */
+      next?: string;
+      /** Originating surface for the connect flow; only 'posthog_code' is recognized.
+       *
+       * * `posthog_code` - posthog_code */
+      connect_from?: ConnectFromEnum;
+    }
+
+    export interface GitHubOAuthAuthorizeResponse {
+      /** GitHub User OAuth URL the client should redirect to. */
+      oauth_url: string;
+    }
+
+    export interface GitHubPrepareCallbackRequest {
+      /** Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Code). */
+      next?: string;
+      /** GitHub installation ID being managed; binds the seeded update state so a callback can't swap in a different installation. */
+      installation_id?: string;
     }
 
     export interface GitHubRepo {
@@ -33549,6 +33616,11 @@ export namespace Schemas {
       readonly github_repo: string | null;
       /** @nullable */
       readonly github_issue_number: number | null;
+      /**
+         * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
+         * @nullable
+         */
+      readonly organization_id: string | null;
       readonly person: TicketPerson | null;
       tags?: unknown[];
     }
@@ -34898,7 +34970,10 @@ export namespace Schemas {
     };
 
     export type PatchedAgentRevisionSpec = {
-      /** @minLength 1 */
+      /**
+         * @minLength 1
+         * @pattern ^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$
+         */
       model: string;
       triggers: PatchedAgentRevisionSpecTriggersItem[];
       tools: PatchedAgentRevisionSpecToolsItem[];
@@ -34976,7 +35051,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly checks_total?: number | null;
-      /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). */
+      /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step) and metric ('conversion_from_start' or 'conversion_from_previous'); funnel alerts only support absolute_value conditions. */
       config?: AlertConfigUnion | null;
       detector_config?: DetectorConfig | null;
       /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
@@ -36362,9 +36437,9 @@ export namespace Schemas {
       holdout_id?: number | null;
       /** @nullable */
       readonly exposure_cohort?: number | null;
-      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded), and `variant_notes` (free-text notes per variant, keyed by variant key). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
+      /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `custom_exposure_filter`, `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded), and `variant_notes` (free-text notes per variant, keyed by variant key). */
       parameters?: ExperimentParameters | null;
-      /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
+      /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`. */
       running_time_calculation?: ExperimentRunningTimeCalculation | null;
       /**
          * Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`; kept in sync with `parameters` during the deprecation window.
@@ -40918,6 +40993,11 @@ export namespace Schemas {
       readonly github_repo?: string | null;
       /** @nullable */
       readonly github_issue_number?: number | null;
+      /**
+         * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
+         * @nullable
+         */
+      readonly organization_id?: string | null;
       readonly person?: TicketPerson | null;
       tags?: unknown[];
     }
@@ -48015,7 +48095,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults.
+     * Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults.
      */
     export type SourceSetupPayload = { [key: string]: unknown };
 
@@ -48663,7 +48743,7 @@ export namespace Schemas {
        * * `RB2B` - RB2B
        * * `Superwall` - Superwall */
       source_type: ExternalDataSourceTypeEnum;
-      /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
+      /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
       /**
          * Table name prefix in HogQL, e.g. 'stripe' produces stripe_charges. Defaults to the source type.
@@ -50696,6 +50776,11 @@ export namespace Schemas {
       install_url: string;
       /** OAuth or install flow used for this GitHub connection. */
       connect_flow: string;
+    }
+
+    export interface UserGitHubPrepareCallbackRequest {
+      /** GitHub App installation id being managed on github.com. */
+      installation_id: string;
     }
 
     /**
@@ -55715,6 +55800,14 @@ export namespace Schemas {
 
     export type EnvironmentsMcpAnalyticsSessionsListParams = {
     /**
+     * Start of the window to aggregate sessions over. PostHog date string — relative (e.g. '-7d', '-24h') or an absolute ISO timestamp. Defaults to '-7d'.
+     */
+    date_from?: string;
+    /**
+     * End of the window. PostHog date string or absolute ISO timestamp. Defaults to now.
+     */
+    date_to?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -55732,7 +55825,18 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type EnvironmentsMcpAnalyticsSessionsGenerateIntentParams = {
+    /**
+     * Absolute ISO timestamp lower bound for the intent scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted.
+     */
+    date_from?: string;
+    };
+
     export type EnvironmentsMcpAnalyticsSessionsToolCallsParams = {
+    /**
+     * Absolute ISO timestamp lower bound for the event scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted.
+     */
+    date_from?: string;
     /**
      * Number of results to return per page.
      */
@@ -62148,6 +62252,14 @@ export namespace Schemas {
 
     export type McpAnalyticsSessionsListParams = {
     /**
+     * Start of the window to aggregate sessions over. PostHog date string — relative (e.g. '-7d', '-24h') or an absolute ISO timestamp. Defaults to '-7d'.
+     */
+    date_from?: string;
+    /**
+     * End of the window. PostHog date string or absolute ISO timestamp. Defaults to now.
+     */
+    date_to?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -62165,7 +62277,18 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type McpAnalyticsSessionsGenerateIntentParams = {
+    /**
+     * Absolute ISO timestamp lower bound for the intent scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted.
+     */
+    date_from?: string;
+    };
+
     export type McpAnalyticsSessionsToolCallsParams = {
+    /**
+     * Absolute ISO timestamp lower bound for the event scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted.
+     */
+    date_from?: string;
     /**
      * Number of results to return per page.
      */

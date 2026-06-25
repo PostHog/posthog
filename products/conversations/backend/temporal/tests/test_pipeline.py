@@ -374,6 +374,92 @@ class TestPersistReplyActivity:
         assert comment.item_context["citations"] == ["chunk-1", "chunk-2"]
         assert comment.item_context["confidence"] == 0.85
 
+    @parameterized.expand(
+        [
+            (
+                "allow_false_ignores_bot_reply_setting",
+                {"allow_bot_reply": False, "channel_source": "widget", "ticket_type": "how_to"},
+                {"widget": {"how_to": "bot_reply"}},
+                True,
+            ),
+            (
+                "allow_true_bot_reply_mode",
+                {"allow_bot_reply": True, "channel_source": "widget", "ticket_type": "how_to"},
+                {"widget": {"how_to": "bot_reply"}},
+                False,
+            ),
+            (
+                "allow_true_private_note_mode",
+                {"allow_bot_reply": True, "channel_source": "widget", "ticket_type": "how_to"},
+                {"widget": {"how_to": "private_note"}},
+                True,
+            ),
+            (
+                "allow_true_no_reply_modes_setting",
+                {"allow_bot_reply": True, "channel_source": "widget", "ticket_type": "how_to"},
+                None,
+                True,
+            ),
+            (
+                "allow_true_missing_channel_in_modes",
+                {"allow_bot_reply": True, "channel_source": "slack", "ticket_type": "how_to"},
+                {"widget": {"how_to": "bot_reply"}},
+                True,
+            ),
+            (
+                "allow_true_missing_ticket_type_in_modes",
+                {"allow_bot_reply": True, "channel_source": "widget", "ticket_type": "account_billing"},
+                {"widget": {"how_to": "bot_reply"}},
+                True,
+            ),
+            (
+                "diagnostic_stays_private_even_if_set_to_bot_reply",
+                {"allow_bot_reply": True, "channel_source": "widget", "ticket_type": "diagnostic"},
+                {"widget": {"diagnostic": "bot_reply"}},
+                True,
+            ),
+            (
+                "account_billing_stays_private_even_if_set_to_bot_reply",
+                {"allow_bot_reply": True, "channel_source": "widget", "ticket_type": "account_billing"},
+                {"widget": {"account_billing": "bot_reply"}},
+                True,
+            ),
+        ]
+    )
+    @pytest.mark.django_db
+    def test_reply_mode_matrix(self, _name, call_kwargs, ai_reply_modes, expected_private):
+        from posthog.models.comment import Comment
+
+        from products.conversations.backend.temporal.pipeline import _persist_reply_sync
+
+        org = Organization.objects.create(name="Test Org")
+        settings: dict[str, Any] = {"ai_suggestions_enabled": True}
+        if ai_reply_modes is not None:
+            settings["ai_reply_modes"] = ai_reply_modes
+        team = Team.objects.create(organization=org, name="Test Team", conversations_settings=settings)
+
+        ticket = Ticket.objects.create_with_number(
+            team=team,
+            widget_session_id="aabbccdd-0000-0000-0000-000000000001",
+            distinct_id="test-user",
+            channel_source=call_kwargs["channel_source"],
+        )
+
+        _persist_reply_sync(
+            team_id=team.id,
+            ticket_id=str(ticket.id),
+            reply="Test reply.",
+            citations=["c1"],
+            confidence=0.9,
+            ticket_type=call_kwargs["ticket_type"],
+            allow_bot_reply=call_kwargs["allow_bot_reply"],
+        )
+
+        comment = Comment.objects.get(team_id=team.id, item_id=str(ticket.id))
+        assert comment.item_context is not None
+        assert comment.item_context["author_type"] == "AI"
+        assert comment.item_context["is_private"] is expected_private
+
 
 class TestStripJsonFence:
     @parameterized.expand(
