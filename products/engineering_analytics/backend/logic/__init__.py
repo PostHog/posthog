@@ -22,10 +22,11 @@ from products.engineering_analytics.backend.facade.contracts import (
     WorkflowHealthItem,
     WorkflowJob,
     WorkflowRunDetail,
+    WorkflowRunnerCost,
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.ci_cards import query_ci_cards
-from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_cost
+from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_cost, query_workflow_runner_costs
 from products.engineering_analytics.backend.logic.queries.pr_lifecycle import query_pr_lifecycle
 from products.engineering_analytics.backend.logic.queries.pr_runs import query_pr_runs
 from products.engineering_analytics.backend.logic.queries.pull_request_list import query_pull_request_list
@@ -90,6 +91,15 @@ def build_workflow_run_list(
     if not (owner and name):
         raise ValueError("repo must be in 'owner/name' format")
     return query_workflow_run_list(curated=curated, repo_owner=owner, repo_name=name, workflow_name=workflow_name)
+
+
+def build_workflow_runner_costs(
+    *, curated: CuratedGitHubSource, repo: str | None, workflow_name: str
+) -> list[WorkflowRunnerCost]:
+    owner, name = _split_repo(repo)
+    if not (owner and name):
+        raise ValueError("repo must be in 'owner/name' format")
+    return query_workflow_runner_costs(curated=curated, repo_owner=owner, repo_name=name, workflow_name=workflow_name)
 
 
 def build_ci_cards(*, curated: CuratedGitHubSource) -> CICardSummary:

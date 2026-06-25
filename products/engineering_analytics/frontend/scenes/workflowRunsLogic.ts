@@ -6,8 +6,8 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import { engineeringAnalyticsWorkflowRuns } from '../generated/api'
-import type { WorkflowRunDetailApi } from '../generated/api.schemas'
+import { engineeringAnalyticsWorkflowRunnerCosts, engineeringAnalyticsWorkflowRuns } from '../generated/api'
+import type { WorkflowRunDetailApi, WorkflowRunnerCostApi } from '../generated/api.schemas'
 import type { workflowRunsLogicType } from './workflowRunsLogicType'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
@@ -35,6 +35,18 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
             {
                 loadRuns: async (): Promise<WorkflowRunDetailApi[]> =>
                     await engineeringAnalyticsWorkflowRuns(projectId(), {
+                        workflow_name: props.workflowName,
+                        repo: `${props.repoOwner}/${props.repoName}`,
+                        source_id: props.sourceId ?? undefined,
+                    }),
+            },
+        ],
+        // Cost split by runner tier — "where this workflow's spend goes"; [] when jobs aren't synced.
+        runnerCosts: [
+            [] as WorkflowRunnerCostApi[],
+            {
+                loadRunnerCosts: async (): Promise<WorkflowRunnerCostApi[]> =>
+                    await engineeringAnalyticsWorkflowRunnerCosts(projectId(), {
                         workflow_name: props.workflowName,
                         repo: `${props.repoOwner}/${props.repoName}`,
                         source_id: props.sourceId ?? undefined,
@@ -90,5 +102,6 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
 
     afterMount(({ actions }) => {
         actions.loadRuns()
+        actions.loadRunnerCosts()
     }),
 ])

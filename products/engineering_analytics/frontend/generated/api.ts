@@ -18,6 +18,7 @@ import type {
     EngineeringAnalyticsWorkflowHealthParams,
     EngineeringAnalyticsWorkflowJobsParams,
     EngineeringAnalyticsWorkflowRunParams,
+    EngineeringAnalyticsWorkflowRunnerCostsParams,
     EngineeringAnalyticsWorkflowRunsParams,
     GitHubSourceApi,
     PRCostSummaryApi,
@@ -26,6 +27,7 @@ import type {
     WorkflowHealthItemApi,
     WorkflowJobApi,
     WorkflowRunDetailApi,
+    WorkflowRunnerCostApi,
 } from './api.schemas'
 
 export const getEngineeringAnalyticsCiCardsUrl = (projectId: string, params?: EngineeringAnalyticsCiCardsParams) => {
@@ -295,6 +297,39 @@ export const engineeringAnalyticsWorkflowRun = async (
     options?: RequestInit
 ): Promise<WorkflowRunDetailApi> => {
     return apiMutator<WorkflowRunDetailApi>(getEngineeringAnalyticsWorkflowRunUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsWorkflowRunnerCostsUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsWorkflowRunnerCostsParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/workflow_runner_costs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/workflow_runner_costs/`
+}
+
+/**
+ * A workflow's estimated CI cost broken down by runner tier, highest spend first. Returns an empty list when the job-level source isn't synced.
+ */
+export const engineeringAnalyticsWorkflowRunnerCosts = async (
+    projectId: string,
+    params: EngineeringAnalyticsWorkflowRunnerCostsParams,
+    options?: RequestInit
+): Promise<WorkflowRunnerCostApi[]> => {
+    return apiMutator<WorkflowRunnerCostApi[]>(getEngineeringAnalyticsWorkflowRunnerCostsUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

@@ -26,6 +26,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     WorkflowHealthItem,
     WorkflowJob,
     WorkflowRunDetail,
+    WorkflowRunnerCost,
 )
 
 
@@ -169,6 +170,21 @@ class WorkflowJobSerializer(DataclassSerializer):
             "estimated_cost_usd": {
                 "help_text": "Estimated cost in USD from runner tier + elapsed time; null when the tier is "
                 "unknown or the job hasn't finished.",
+                "allow_null": True,
+            },
+        }
+
+
+class WorkflowRunnerCostSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = WorkflowRunnerCost
+        extra_kwargs = {
+            "provider": {"help_text": "'self_hosted' (billable), 'github_hosted' (free), or 'unknown'."},
+            "runner_label": {"help_text": "Runner tier, e.g. '16-core' or 'ubuntu-latest'."},
+            "job_count": {"help_text": "Jobs that ran on this tier for the workflow."},
+            "billable_minutes": {"help_text": "Billable minutes on this tier."},
+            "estimated_cost_usd": {
+                "help_text": "Estimated cost in USD on this tier; null for non-billable (github-hosted/non-Linux).",
                 "allow_null": True,
             },
         }

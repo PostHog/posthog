@@ -15,8 +15,8 @@ from typing import Any
 
 from posthog.hogql import ast
 
-from products.engineering_analytics.backend.facade.contracts import PRCostSummary, WorkflowCost
-from products.engineering_analytics.backend.logic.cost import PRCostAggregate, aggregate_pr_cost
+from products.engineering_analytics.backend.facade.contracts import PRCostSummary, WorkflowCost, WorkflowRunnerCost
+from products.engineering_analytics.backend.logic.cost import PRCostAggregate, aggregate_pr_cost, runner_descriptor
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 
 _SELECT = """
@@ -170,6 +170,64 @@ def query_workflow_window_costs(
             _expand_jobs(_parse_labels(labels), int(finished or 0), float(elapsed or 0.0), int(unfinished or 0))
         )
     return {workflow: aggregate_pr_cost(jobs) for workflow, jobs in by_workflow.items()}
+
+
+# Per-runner-tier cost for one workflow (single-workflow page "where the spend goes" breakdown).
+_RUNNER_COST_SELECT = """
+    SELECT
+        j.labels,
+        countIf(j.duration_seconds IS NOT NULL) AS finished,
+        sumIf(j.duration_seconds, j.duration_seconds IS NOT NULL) AS elapsed,
+        countIf(j.duration_seconds IS NULL) AS unfinished
+    FROM __JOBS_SOURCE__ AS j
+    INNER JOIN __RUNS_SOURCE__ AS r ON j.run_id = r.id AND j.run_attempt = r.run_attempt
+    WHERE r.repo_owner = {repo_owner} AND r.repo_name = {repo_name} AND r.workflow_name = {workflow_name}
+    GROUP BY j.labels
+    LIMIT 1000000
+"""
+
+
+def query_workflow_runner_costs(
+    *,
+    curated: CuratedGitHubSource,
+    repo_owner: str,
+    repo_name: str,
+    workflow_name: str,
+) -> list[WorkflowRunnerCost]:
+    """A workflow's CI cost broken down by runner tier, highest spend first. Empty when the jobs source
+    isn't synced. Raw runner-label combos are folded into their display tier (via runner_descriptor)."""
+    jobs_source = curated.jobs_source()
+    if jobs_source is None:
+        return []
+    sql = _RUNNER_COST_SELECT.replace("__JOBS_SOURCE__", jobs_source).replace("__RUNS_SOURCE__", curated.run_source())
+    response = curated.run(
+        sql,
+        query_type="engineering_analytics.workflow_runner_costs",
+        placeholders={
+            "repo_owner": ast.Constant(value=repo_owner),
+            "repo_name": ast.Constant(value=repo_name),
+            "workflow_name": ast.Constant(value=workflow_name),
+        },
+    )
+    by_tier: dict[tuple[str, str], list[tuple[list[str], float | None]]] = defaultdict(list)
+    for labels_raw, finished, elapsed, unfinished in response.results or []:
+        labels = _parse_labels(labels_raw)
+        by_tier[runner_descriptor(labels)].extend(
+            _expand_jobs(labels, int(finished or 0), float(elapsed or 0.0), int(unfinished or 0))
+        )
+    costs = []
+    for (provider, label), jobs in by_tier.items():
+        aggregate = aggregate_pr_cost(jobs)
+        costs.append(
+            WorkflowRunnerCost(
+                provider=provider,
+                runner_label=label,
+                job_count=len(jobs),
+                billable_minutes=aggregate.billable_seconds / 60,
+                estimated_cost_usd=aggregate.estimated_cost_usd,
+            )
+        )
+    return sorted(costs, key=lambda cost: (cost.estimated_cost_usd or 0.0, cost.billable_minutes), reverse=True)
 
 
 def _expand_jobs(

@@ -30,6 +30,7 @@ from products.engineering_analytics.backend.presentation.serializers import (
     WorkflowHealthItemSerializer,
     WorkflowJobSerializer,
     WorkflowRunDetailSerializer,
+    WorkflowRunnerCostSerializer,
 )
 
 ENGINEERING_ANALYTICS_TAG = "engineering_analytics"
@@ -129,6 +130,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         "pr_cost",
         "workflow_run",
         "workflow_runs",
+        "workflow_runner_costs",
         "workflow_jobs",
     ]
     scope_object_write_actions: list[str] = []
@@ -467,6 +469,52 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         except ValueError as exc:
             return _bad_request(exc, fallback="Invalid repo or source_id")
         return Response(WorkflowRunDetailSerializer(instance=runs, many=True).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_workflow_runner_costs",
+        parameters=[
+            OpenApiParameter(
+                name="workflow_name",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Workflow name to break down cost for.",
+            ),
+            OpenApiParameter(
+                name="repo",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="'owner/name' repository the workflow belongs to.",
+            ),
+            _SOURCE_ID,
+        ],
+        responses={
+            200: WorkflowRunnerCostSerializer(many=True),
+            400: OpenApiResponse(description="Missing workflow_name/repo, or invalid repo or source_id."),
+        },
+        description=(
+            "A workflow's estimated CI cost broken down by runner tier, highest spend first. Returns an "
+            "empty list when the job-level source isn't synced."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def workflow_runner_costs(self, request: Request, **kwargs) -> Response:
+        workflow_name = request.query_params.get("workflow_name")
+        repo = request.query_params.get("repo")
+        if not workflow_name or not repo:
+            return Response({"detail": "workflow_name and repo are required"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            costs = api.get_workflow_runner_costs(
+                team=self.team,
+                repo=repo,
+                workflow_name=workflow_name,
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid repo or source_id")
+        return Response(WorkflowRunnerCostSerializer(instance=costs, many=True).data)
 
     @extend_schema(
         operation_id="engineering_analytics_workflow_jobs",

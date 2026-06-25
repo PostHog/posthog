@@ -12,10 +12,33 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import type { WorkflowRunDetailApi } from '../generated/api.schemas'
+import { BillableBadge } from '../components/BillableBadge'
+import { RunnerBadge } from '../components/runTables'
+import type { WorkflowRunDetailApi, WorkflowRunnerCostApi } from '../generated/api.schemas'
 import { githubWorkflowUrl } from '../lib/github'
 import { verdictTag } from '../lib/runStatus'
 import { WorkflowRunsLogicProps, workflowRunsLogic } from './workflowRunsLogic'
+
+/** Where a workflow's CI spend goes, split by runner tier (self-hosted tiers + free GitHub-hosted). */
+function RunnerCostBreakdown({ costs }: { costs: WorkflowRunnerCostApi[] }): JSX.Element {
+    return (
+        <div className="flex flex-col gap-2">
+            <span className="text-xs text-secondary">Cost by runner</span>
+            <div className="flex flex-wrap gap-2">
+                {costs.map((cost) => (
+                    <div
+                        key={`${cost.provider}:${cost.runner_label}`}
+                        className="flex items-center gap-2 rounded-lg border bg-surface-primary px-3 py-2"
+                    >
+                        <RunnerBadge provider={cost.provider} label={cost.runner_label} />
+                        <BillableBadge minutes={cost.billable_minutes} costUsd={cost.estimated_cost_usd} />
+                        <span className="text-xs text-tertiary">{cost.job_count} jobs</span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    )
+}
 
 export const scene: SceneExport<WorkflowRunsLogicProps> = {
     component: WorkflowRunsScene,
@@ -29,7 +52,8 @@ export const scene: SceneExport<WorkflowRunsLogicProps> = {
 }
 
 export function WorkflowRunsScene(): JSX.Element {
-    const { runs, runsLoading, loadFailed, sourceId, repoOwner, repoName, workflowName } = useValues(workflowRunsLogic)
+    const { runs, runsLoading, runnerCosts, loadFailed, sourceId, repoOwner, repoName, workflowName } =
+        useValues(workflowRunsLogic)
     const { loadRuns } = useActions(workflowRunsLogic)
 
     const githubUrl = githubWorkflowUrl(repoOwner, repoName, workflowName)
@@ -149,6 +173,7 @@ export function WorkflowRunsScene(): JSX.Element {
                     </LemonButton>
                 }
             />
+            {runnerCosts.length > 0 && <RunnerCostBreakdown costs={runnerCosts} />}
             <LemonTable
                 data-attr="engineering-analytics-workflow-runs-table"
                 size="small"

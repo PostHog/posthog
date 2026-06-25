@@ -585,3 +585,17 @@ export const WorkflowJobApi = zod.object({
 
 export type WorkflowJobApi = zod.input<typeof WorkflowJobApi>
 export type WorkflowJobApiOutput = zod.output<typeof WorkflowJobApi>
+
+export const WorkflowRunnerCostApi = zod.object({
+    provider: zod.string().describe("'self_hosted' (billable), 'github_hosted' (free), or 'unknown'."),
+    runner_label: zod.string().describe("Runner tier, e.g. '16-core' or 'ubuntu-latest'."),
+    job_count: zod.number().describe('Jobs that ran on this tier for the workflow.'),
+    billable_minutes: zod.number().describe('Billable minutes on this tier.'),
+    estimated_cost_usd: zod
+        .number()
+        .nullable()
+        .describe('Estimated cost in USD on this tier; null for non-billable (github-hosted\/non-Linux).'),
+})
+
+export type WorkflowRunnerCostApi = zod.input<typeof WorkflowRunnerCostApi>
+export type WorkflowRunnerCostApiOutput = zod.output<typeof WorkflowRunnerCostApi>

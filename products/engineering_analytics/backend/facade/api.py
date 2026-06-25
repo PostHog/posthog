@@ -30,6 +30,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     WorkflowHealthItem,
     WorkflowJob,
     WorkflowRunDetail,
+    WorkflowRunnerCost,
 )
 
 if TYPE_CHECKING:
@@ -107,6 +108,19 @@ def list_workflow_runs(
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[WorkflowRunDetail]:
     return logic.build_workflow_run_list(
+        curated=_authorized_source(team, source_id, user_access_control), repo=repo, workflow_name=workflow_name
+    )
+
+
+def get_workflow_runner_costs(
+    *,
+    team: Team,
+    repo: str,
+    workflow_name: str,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> list[WorkflowRunnerCost]:
+    return logic.build_workflow_runner_costs(
         curated=_authorized_source(team, source_id, user_access_control), repo=repo, workflow_name=workflow_name
     )
 

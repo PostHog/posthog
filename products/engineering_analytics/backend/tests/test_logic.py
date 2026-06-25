@@ -667,6 +667,34 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         assert ci.estimated_cost_usd is not None and ci.estimated_cost_usd > 0
         assert ci.billable_minutes is not None and ci.billable_minutes > 0
 
+    def test_workflow_runner_costs_breaks_down_by_tier(self) -> None:
+        # The single-workflow breakdown splits a workflow's spend across runner tiers.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(83, "alice", "open", 0, _ago(1), head_sha="sha83")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [_run_row(9600, "CI", "sha83", "completed", "success", _ago(1), _ago(1))],
+        )
+        self._create_table(
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [
+                _job_row(96000, 9600, "build", "success", labels='["depot-ubuntu-22.04-16"]'),
+                _job_row(96001, 9600, "test", "success", labels='["depot-ubuntu-22.04-4"]'),
+                _job_row(96002, 9600, "e2e", "success", labels='["ubuntu-latest"]'),
+            ],
+        )
+        costs = api.get_workflow_runner_costs(team=self.team, repo="PostHog/posthog", workflow_name="CI")
+        by_label = {c.runner_label: c for c in costs}
+        assert by_label["16-core"].provider == "self_hosted"
+        assert by_label["16-core"].estimated_cost_usd is not None and by_label["16-core"].estimated_cost_usd > 0
+        github_hosted = next(c for c in costs if c.provider == "github_hosted")
+        assert github_hosted.estimated_cost_usd is None  # free tier: minutes/jobs only, no billable cost
+
     def test_workflow_health_daily_failures_exclude_non_failures(self) -> None:
         # The daily failure count is decisive failures only — skipped / cancelled / action_required
         # runs are completed but neither successes nor failures, so they must not inflate the trend.

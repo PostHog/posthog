@@ -194,6 +194,21 @@ class WorkflowJob:
 
 
 @dataclass(frozen=True)
+class WorkflowRunnerCost:
+    """One runner tier's share of a workflow's CI spend — for the single-workflow "where the spend
+    goes" breakdown. ``provider`` is 'self_hosted' (billable) / 'github_hosted' (free) / 'unknown';
+    ``runner_label`` is the tier (e.g. '16-core', 'ubuntu-latest'). estimated_cost_usd is None for
+    non-billable tiers (github-hosted / non-Linux), which still show their minutes + job count.
+    """
+
+    provider: str
+    runner_label: str
+    job_count: int
+    billable_minutes: float
+    estimated_cost_usd: float | None
+
+
+@dataclass(frozen=True)
 class WorkflowCost:
     """One workflow's billable CI spend within a scope (a PR, or a window) — same shape as the per-PR
     rollup but keyed by ``workflow_name``, for the per-workflow cost column. Billable runners only.
