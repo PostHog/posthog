@@ -1846,9 +1846,25 @@ jobs:
                   RUN_TEMPORAL: ${{ needs.select-tests.outputs.run_temporal }}
                   CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
                   DATA_IMPORT_SOURCES_ONLY: ${{ needs.changes.outputs.data_import_sources_only }}
+                  IS_DRAFT: ${{ github.event.pull_request.draft }}
+                  FORCE_FULL: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') }}
               run: |
                   # :NOTE: Keep shard counts/group ranges in sync with historical Django matrix tuning.
                   # Consult #team-devex before changing.
+
+                  # A draft PR must never fall back to the full matrix. select-tests only
+                  # runs on drafts and sets MODE to "skip"/"selected"; an empty MODE on a
+                  # draft means it was cancelled or failed (typically ready_for_review
+                  # superseding it mid-flight). Without this, the draft builds the full
+                  # matrix and holds the per-branch concurrency slot for ~30 min, so the
+                  # ready-for-review run — the actual merge gate — queues behind it instead
+                  # of starting. Skip here and defer to that ready run. The run-ci-backend
+                  # label intentionally forces the full matrix on a draft, so honor it.
+                  if [[ -z "$MODE" && "$IS_DRAFT" == "true" && "$FORCE_FULL" != "true" ]]; then
+                      echo "::notice::Draft PR with no trusted Django selection — skipping heavy matrices; the ready-for-review run is the full gate"
+                      MODE="skip"
+                  fi
+
                   if [[ "$MODE" == "skip" ]]; then
                       # Draft PR where selection couldn't be trusted: skip the heavy
                       # matrices and defer to the full run on ready for review.
