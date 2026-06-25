@@ -72,6 +72,32 @@ async def _load_ai_report(delivery_id: uuid.UUID) -> str | None:
     return await _read()
 
 
+async def _load_ai_report_diagnostics(delivery_id: uuid.UUID) -> tuple[int, int, list[str]]:
+    # (failed_step_count, total_step_count, sorted distinct failure types) read back from the
+    # persisted diagnostics. Used on Temporal redispatch, where the report is already generated and
+    # we return the prior run's failure shape instead of recomputing it.
+    @database_sync_to_async(thread_sensitive=False)
+    def _read() -> tuple[int, int, list[str]]:
+        try:
+            snapshot = SubscriptionDelivery.objects.values_list("content_snapshot", flat=True).get(pk=delivery_id)
+        except SubscriptionDelivery.DoesNotExist:
+            return (0, 0, [])
+        diagnostics = snapshot.get(AI_REPORT_DIAGNOSTICS_KEY) if isinstance(snapshot, dict) else None
+        if not isinstance(diagnostics, list):
+            return (0, 0, [])
+        failed = [d for d in diagnostics if isinstance(d, dict) and d.get("ok") is False]
+        error_types = sorted({str(d["error_type"]) for d in failed if d.get("error_type")})
+        return (len(failed), len(diagnostics), error_types)
+
+    return await _read()
+
+
+def _report_diagnostic_counts(result: AiReportResult) -> tuple[int, int, list[str]]:
+    failed = [d for d in result.diagnostics if not d.ok]
+    error_types = sorted({d.error_type for d in failed if d.error_type})
+    return (len(failed), len(result.diagnostics), error_types)
+
+
 async def _persist_ai_report(delivery_id: uuid.UUID, result: AiReportResult) -> None:
     @database_sync_to_async(thread_sensitive=False)
     def _write() -> None:
@@ -185,7 +211,13 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
     # don't re-bill the LLM — the point of the generate -> deliver split is one LLM run.
     if await _load_ai_report(inputs.delivery_id) is not None:
         await LOGGER.ainfo("generate_ai_subscription_report.already_generated", subscription_id=subscription.id)
-        return GenerateAIReportResult(aborted=False)
+        failed_count, total_count, error_types = await _load_ai_report_diagnostics(inputs.delivery_id)
+        return GenerateAIReportResult(
+            aborted=False,
+            failed_step_count=failed_count,
+            total_step_count=total_count,
+            query_error_types=error_types,
+        )
 
     # Consent is gated once here, before any LLM cost — creation-time gates don't catch an
     # org that revokes AI-data-processing approval later. Auto-disable so it stops re-firing.
@@ -256,7 +288,13 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
         return GenerateAIReportResult(aborted=True, recipient_results=aborted.recipient_results)
 
     await _persist_ai_report(inputs.delivery_id, report_result)
-    return GenerateAIReportResult(aborted=False)
+    failed_count, total_count, error_types = _report_diagnostic_counts(report_result)
+    return GenerateAIReportResult(
+        aborted=False,
+        failed_step_count=failed_count,
+        total_step_count=total_count,
+        query_error_types=error_types,
+    )
 
 
 async def _deliver_ai_subscription(

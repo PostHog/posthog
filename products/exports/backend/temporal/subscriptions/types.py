@@ -167,11 +167,20 @@ class GenerateAIReportResult:
     subscription; the workflow records `recipient_results` as FAILED and skips delivery.
     `skipped` signals an over-AI-credit-budget skip: generation rescheduled the sub past
     the credit reset and notified the owner — the workflow records SKIPPED (not FAILED,
-    the sub isn't broken) and skips delivery."""
+    the sub isn't broken) and skips delivery.
+
+    The `*_step_count` / `query_error_types` fields report how many of the AI-generated
+    queries failed to run. The workflow uses them to flag a fully-degraded report (every
+    query failed → recorded FAILED, not COMPLETED) and to attach a human-readable reason.
+    The per-query detail (generated HogQL + error type) lives in the delivery's
+    content_snapshot, kept off the Temporal wire."""
 
     aborted: bool = False
     skipped: bool = False
     recipient_results: list[RecipientResult] = dataclasses.field(default_factory=list)
+    failed_step_count: int = 0
+    total_step_count: int = 0
+    query_error_types: list[str] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass

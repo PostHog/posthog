@@ -451,6 +451,9 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
         final_status = DeliveryStatus.SKIPPED
         delivery_recipient_results: list[dict] = []
         caught_error: BaseException | None = None
+        # Set when a delivered-but-degraded report should record a reason without an exception
+        # (every generated query failed). Falls through to update_delivery_record's error column.
+        generation_error: dict | None = None
 
         try:
             delivery_id = await temporalio.workflow.execute_activity(
@@ -527,7 +530,31 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                 retry_policy=SUBSCRIPTION_DELIVER_RETRY_POLICY,
             )
             delivery_recipient_results = _to_recipient_dicts(deliver_result.recipient_results)
-            final_status = DeliveryStatus.COMPLETED
+
+            # A report whose every generated query failed computed no metrics — recording that as
+            # "completed" misrepresents an empty report, so mark it FAILED with the failure detail
+            # the delivery history surfaces on hover. Partial failures stay COMPLETED; their
+            # per-query diagnostics (generated HogQL + error type) live in content_snapshot for
+            # the delivery detail view.
+            failed_steps = generate_result.failed_step_count
+            total_steps = generate_result.total_step_count
+            if total_steps and failed_steps >= total_steps:
+                final_status = DeliveryStatus.FAILED
+                error_detail = (
+                    f" ({', '.join(generate_result.query_error_types)})"
+                    if generate_result.query_error_types
+                    else ""
+                )
+                noun = "query" if total_steps == 1 else "queries"
+                generation_error = {
+                    "message": (
+                        f"All {total_steps} {noun} the AI generated failed to run{error_detail}, "
+                        "so the report could not be computed."
+                    ),
+                    "type": "AIReportQueryFailure",
+                }
+            else:
+                final_status = DeliveryStatus.COMPLETED
 
         except Exception as e:
             # Preserve recipient outcomes carried in non-retryable delivery errors so the
@@ -552,7 +579,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                             recipient_results=delivery_recipient_results or None,
                             error={"message": str(caught_error)[:500], "type": type(caught_error).__name__}
                             if caught_error
-                            else None,
+                            else generation_error,
                             finished=True,
                         ),
                         start_to_close_timeout=dt.timedelta(minutes=2),

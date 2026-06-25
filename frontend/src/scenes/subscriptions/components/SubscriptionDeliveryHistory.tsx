@@ -18,6 +18,7 @@ import {
     SubscriptionsDeliveriesListStatus as SubscriptionDeliveriesListStatusByValue,
 } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TZLabel } from 'lib/components/TZLabel'
 
 import type { DeliveryFeedback } from '../subscriptionSceneLogic'
@@ -91,20 +92,65 @@ function deliveryTriggerLabel(triggerType: string): string {
 /** LemonTag and text cells share a row height; middle-align `td` so badges line up with copy. */
 const DELIVERY_TABLE_CELL_CLASS = 'align-middle'
 
-function ExpandedSummaryRow({ summary }: { summary: string }): JSX.Element {
+/** One entry of `content_snapshot.ai_report_diagnostics` — the generated query and why it failed. */
+interface AiReportDiagnostic {
+    description?: string
+    hogql?: string
+    ok?: boolean
+    error_type?: string | null
+}
+
+/**
+ * Failed per-query diagnostics for an AI-prompt delivery. The backend scrubs `content_snapshot`
+ * to `{}` for callers without `query:viewer` access, so this is empty unless the viewer may see
+ * query content.
+ */
+function failedDiagnostics(row: SubscriptionDeliveryApi): AiReportDiagnostic[] {
+    const diagnostics = (row.content_snapshot as { ai_report_diagnostics?: unknown } | null)?.ai_report_diagnostics
+    if (!Array.isArray(diagnostics)) {
+        return []
+    }
+    return (diagnostics as AiReportDiagnostic[]).filter((d) => d && d.ok === false)
+}
+
+function ExpandedDeliveryRow({ row }: { row: SubscriptionDeliveryApi }): JSX.Element {
+    const diagnostics = failedDiagnostics(row)
     return (
-        <div className="px-4 py-3 text-sm whitespace-pre-wrap">
-            <div className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1">AI summary</div>
-            {summary}
+        <div className="px-4 py-3 text-sm flex flex-col gap-3">
+            {row.change_summary ? (
+                <div className="whitespace-pre-wrap">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1">AI summary</div>
+                    {row.change_summary}
+                </div>
+            ) : null}
+            {diagnostics.length > 0 ? (
+                <div className="flex flex-col gap-2">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-secondary">
+                        Failed queries
+                    </div>
+                    {diagnostics.map((d, index) => (
+                        <div key={`${d.description ?? ''}-${index}`} className="flex flex-col gap-1">
+                            <div className="flex items-center gap-2">
+                                <span className="font-medium">{d.description || 'Query'}</span>
+                                {d.error_type ? <LemonTag type="danger">{d.error_type}</LemonTag> : null}
+                            </div>
+                            {d.hogql ? (
+                                <CodeSnippet language={Language.SQL} compact>
+                                    {d.hogql}
+                                </CodeSnippet>
+                            ) : null}
+                        </div>
+                    ))}
+                </div>
+            ) : null}
         </div>
     )
 }
 
 // Module-scope const keeps the reference stable across parent re-renders.
 const DELIVERY_TABLE_EXPANDABLE = {
-    rowExpandable: (row: SubscriptionDeliveryApi) => Boolean(row.change_summary),
-    expandedRowRender: (row: SubscriptionDeliveryApi) =>
-        row.change_summary ? <ExpandedSummaryRow summary={row.change_summary} /> : <></>,
+    rowExpandable: (row: SubscriptionDeliveryApi) => Boolean(row.change_summary) || failedDiagnostics(row).length > 0,
+    expandedRowRender: (row: SubscriptionDeliveryApi) => <ExpandedDeliveryRow row={row} />,
 }
 
 // Only called from storybook visual tests — production use ignores the optional set.
