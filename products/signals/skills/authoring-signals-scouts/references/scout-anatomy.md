@@ -129,7 +129,7 @@ classifier + scratchpad vocab). For a **per-team** scout you usually don't need 
 your own copies — the canonical scout already encodes the conventions inline, and your
 scout body can too. Bundle a reference only when you have genuinely surface-specific depth
 (a long SQL cookbook, a taxonomy of fingerprints) that would bloat the body. Attach bundled
-files to a per-team scout with `posthog:llma-skill-file-create`; in the repo, drop them in
+files to a per-team scout with `posthog:skill-file-create`; in the repo, drop them in
 `references/` and they're collected automatically.
 
 ## Skeleton — specialist scout

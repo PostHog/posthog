@@ -98,6 +98,7 @@ def export_asset_direct(
         "export_asset.starting",
         exported_asset_id=exported_asset.id,
         team_id=team.id,
+        export_format=exported_asset.export_format,
     )
 
     from posthog.clickhouse.query_tagging import tag_queries

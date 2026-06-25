@@ -728,7 +728,7 @@ describe('sourceWizardLogic', () => {
             }
         })
 
-        it('toggleDirectQuerySchemaGroup skips permission_error rows in a group', () => {
+        it('toggleSchemaGroup skips permission_error rows in a group', () => {
             const { logic, unmount } = mountWithSchemas([
                 buildSchema({ table: 'public.customers' }),
                 buildSchema({ table: 'public.charges', permission_error: 'Missing scope' }),
@@ -736,7 +736,7 @@ describe('sourceWizardLogic', () => {
             ])
 
             try {
-                logic.actions.toggleDirectQuerySchemaGroup('public', true)
+                logic.actions.toggleSchemaGroup('public', true)
                 const byTable = Object.fromEntries(logic.values.databaseSchema.map((s) => [s.table, s]))
                 expect(byTable['public.customers'].should_sync).toBe(true)
                 expect(byTable['public.invoices'].should_sync).toBe(true)

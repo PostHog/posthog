@@ -80,10 +80,9 @@ class TestActionApi(APIBaseTest):
             action = Action.objects.create(team=self.team, name=f"action_{i}")
             action.tagged_items.create(tag=tag)
 
-        # django_session + user + team  + look up if rate limit is enabled (cached after first lookup)
-        # + organizationmembership + organization + action + taggeditem
-        # + access control queries (including role membership)
-        with self.assertNumQueries(35):
+        # base request queries + the single bulk access-control preload (one query covering all
+        # actions, replacing the previous per-action access-control lookups)
+        with self.assertNumQueries(14):
             response = self.client.get(f"/api/projects/{self.team.id}/actions")
         self.assertEqual(response.json()["results"][0]["tags"][0], "tag")
         self.assertEqual(response.status_code, status.HTTP_200_OK)

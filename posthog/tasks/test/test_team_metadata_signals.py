@@ -63,6 +63,22 @@ class TestTeamMetadataInvalidationSignals(BaseTest):
 
         mock_task.delay.assert_not_called()
 
+    def test_enqueue_failure_records_counter_and_does_not_propagate(self) -> None:
+        with patch("posthog.tasks.team_metadata.update_related_teams_metadata_cache_task") as mock_task:
+            mock_task.delay.side_effect = Exception("broker down")
+            with patch("posthog.tasks.team_metadata.HYPERCACHE_SIGNAL_UPDATE_COUNTER") as mock_counter:
+                try:
+                    with self.captureOnCommitCallbacks(execute=True):
+                        self.organization.name = "Renamed org"
+                        self.organization.save(update_fields=["name"])
+                except Exception:
+                    self.fail("enqueue failure should not propagate to the caller")
+
+        mock_counter.labels.assert_called_once_with(
+            namespace="team_metadata", cache_name="team_metadata", operation="enqueue", result="failure"
+        )
+        mock_counter.labels.return_value.inc.assert_called_once_with()
+
 
 @override_settings(FLAGS_REDIS_URL="redis://localhost:6379")
 class TestRelatedTeamsMetadataFanoutTask(BaseTest):

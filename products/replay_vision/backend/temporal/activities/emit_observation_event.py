@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import structlog
 from temporalio import activity
 
-from posthog.api.capture_dispatch import capture_internal_routed
+from posthog.api.capture import capture_internal
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 
@@ -65,7 +65,7 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         else replay_vision_distinct_id(observation.team_id)
     )
 
-    result = capture_internal_routed(
+    result = capture_internal(
         token=team.api_token,
         event_name=_EVENT_NAME,
         event_source=_EVENT_SOURCE,

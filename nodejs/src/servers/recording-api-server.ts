@@ -1,24 +1,25 @@
-import { CommonConfig } from '../common/config'
-import { defaultConfig, overrideConfigWithEnv } from '../config/config'
+import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import {
-    KafkaWarpstreamProducerEnvConfig,
-    getDefaultKafkaWarpstreamProducerEnvConfig,
-} from '../ingestion/common/config'
-import { KafkaBrokerConfig } from '../ingestion/config'
-import { KafkaProducerRegistry } from '../ingestion/outputs/kafka-producer-registry'
-import { createProducerRegistry } from '../session-replay/recording-api/outputs/producer-registry'
-import { createOutputsRegistry } from '../session-replay/recording-api/outputs/registry'
-import { RecordingApi } from '../session-replay/recording-api/recording-api'
+    getDefaultSessionRecordingApiConfig,
+    getDefaultSessionRecordingConfig,
+} from '~/ingestion/pipelines/sessionreplay/config'
+import {
+    KafkaSessionreplayProducerEnvConfig,
+    getDefaultKafkaSessionreplayProducerEnvConfig,
+} from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
+import { createProducerRegistry } from '~/session-replay/recording-api/outputs/producer-registry'
+import { createOutputsRegistry } from '~/session-replay/recording-api/outputs/registry'
+import { RecordingApi } from '~/session-replay/recording-api/recording-api'
 import {
     RecordingApiConfig,
     RecordingApiOutputsConfig,
     type RecordingApiProducerName,
     getDefaultRecordingApiOutputsConfig,
-} from '../session-replay/recording-api/types'
-import {
-    KafkaDefaultProducerEnvConfig,
-    getDefaultKafkaDefaultProducerEnvConfig,
-} from '../session-replay/shared/outputs/producer-config'
+} from '~/session-replay/recording-api/types'
+
+import { CommonConfig } from '../common/config'
+import { defaultConfig, overrideConfigWithEnv } from '../config/config'
+import { KafkaBrokerConfig } from '../ingestion/config'
 import { PostgresRouter, PostgresRouterConfig } from '../utils/db/postgres'
 import { logger } from '../utils/logger'
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
@@ -26,8 +27,7 @@ import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from 
 export type RecordingApiServerConfig = BaseServerConfig &
     RecordingApiConfig &
     KafkaBrokerConfig &
-    KafkaDefaultProducerEnvConfig &
-    KafkaWarpstreamProducerEnvConfig &
+    KafkaSessionreplayProducerEnvConfig &
     RecordingApiOutputsConfig &
     PostgresRouterConfig &
     Pick<
@@ -45,8 +45,9 @@ export class RecordingApiServer implements NodeServer {
     constructor(config: Partial<RecordingApiServerConfig> = {}) {
         this.config = {
             ...defaultConfig,
-            ...overrideConfigWithEnv(getDefaultKafkaDefaultProducerEnvConfig()),
-            ...overrideConfigWithEnv(getDefaultKafkaWarpstreamProducerEnvConfig()),
+            ...overrideConfigWithEnv(getDefaultSessionRecordingConfig()),
+            ...overrideConfigWithEnv(getDefaultSessionRecordingApiConfig()),
+            ...overrideConfigWithEnv(getDefaultKafkaSessionreplayProducerEnvConfig()),
             ...overrideConfigWithEnv(getDefaultRecordingApiOutputsConfig()),
             ...config,
         }

@@ -383,7 +383,7 @@ class TestDynamicClientRegistration(APIBaseTest):
             ("strips_internal", "experiment:read signal_scout_internal:write", ["experiment:read"], "experiment:read"),
             (
                 "strips_hidden",
-                "experiment:read metrics:read wizard_session:write",
+                "experiment:read wizard_session:write",
                 ["experiment:read"],
                 "experiment:read",
             ),
@@ -420,7 +420,7 @@ class TestDynamicClientRegistration(APIBaseTest):
     @parameterized.expand(
         [
             ("only_privileged", "llm_gateway:read llm_gateway:write"),
-            ("only_internal_hidden_junk", "signal_scout_internal:write metrics:read not_a_real:scope"),
+            ("only_internal_hidden_junk", "signal_scout_internal:write wizard_session:read not_a_real:scope"),
         ]
     )
     def test_register_with_only_ungrantable_scopes_is_rejected(self, _name, scope):

@@ -98,6 +98,7 @@ export const VisualReviewRunsCreateBody = /* @__PURE__ */ zod.object({
     removed_identifiers: zod.array(zod.string()).optional(),
     purpose: zod.string().optional(),
     metadata: zod.record(zod.string(), zod.unknown()).optional(),
+    is_partial: zod.boolean().optional(),
 })
 
 /**
@@ -149,6 +150,7 @@ export const VisualReviewRunsApproveCreateBody = /* @__PURE__ */ zod.object({
  */
 export const visualReviewRunsFinalizeCreateBodyApproveAllDefault = false
 export const visualReviewRunsFinalizeCreateBodyCommitToGithubDefault = true
+export const visualReviewRunsFinalizeCreateBodyAddImagesToCommentOnPrDefault = false
 
 export const VisualReviewRunsFinalizeCreateBody = /* @__PURE__ */ zod.object({
     approve_all: zod
@@ -162,6 +164,12 @@ export const VisualReviewRunsFinalizeCreateBody = /* @__PURE__ */ zod.object({
         .default(visualReviewRunsFinalizeCreateBodyCommitToGithubDefault)
         .describe(
             'Whether the server commits the approved baseline to the PR branch and greens the gate (the normal path — leave true). Set false only for tooling that commits the baseline itself: the server skips the commit and returns the signed YAML in `baseline_content` instead. With false, the gate is NOT greened and `metadata.baseline_commit_sha` is absent.'
+        ),
+    add_images_to_comment_on_pr: zod
+        .boolean()
+        .default(visualReviewRunsFinalizeCreateBodyAddImagesToCommentOnPrDefault)
+        .describe(
+            'Whether to embed the before\/after snapshot images in the post-approval PR comment. The comment itself is always posted (when the run was initiated from a GitHub review prompt and the repo has PR comments enabled); this flag only controls the images. Defaults false — the comment stays a text summary unless the reviewer opts in to attach the snapshots.'
         ),
 })
 

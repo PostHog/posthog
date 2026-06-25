@@ -1,75 +1,50 @@
-import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
-
 import { normalizeMessages } from './messageNormalization'
 import { CompatMessage } from './types'
-import { extractTextContent, hasStringContentField, readAiInput } from './utils'
+import {
+    extractTextContent,
+    hasStringContentField,
+    isInternalTagMessage,
+    isInternalToolResultUserMessage,
+} from './utils'
 
+// Framework root-span names that carry no meaning as a title, so we ignore them.
 const GENERIC_TRACE_NAMES = new Set(['langgraph', 'runnablesequence', 'chatprompttemplate'])
 
 const DEFAULT_MAX_LENGTH = 120
 const WORD_BOUNDARY_LOOKBACK = 20
 
 /**
- * Resolve a human-readable title for a session, given its first trace.
+ * Resolve a session title from its opening payloads, in priority order:
+ * 1. first real user message in the trace `input_state`,
+ * 2. first real user message in the earliest generation `input`,
+ * 3. the trace name, unless it's a generic framework root-span name.
  *
- * Priority:
- * 1. First user-role message in `trace.inputState.messages`.
- * 2. First user-role message in the first event's `$ai_input_state.messages`.
- * 3. First user-role message in the first generation's `$ai_input`.
- * 4. `$mcp_intent` from the first event's properties.
- * 5. `trace.traceName` when it's not a generic framework root span name.
- *
- * Returns `null` if no signal is available, so that caller decides on fallback
+ * Returns `null` when none yield a usable title, so that caller decides on fallback
  */
-export function resolveSessionTitle(trace: LLMTrace | undefined, maxLength = DEFAULT_MAX_LENGTH): string | null {
-    if (!trace) {
-        return null
-    }
-
-    const sortedEvents = sortByCreatedAt(trace.events)
-    const firstEvent = sortedEvents[0]
-
-    const fromInputState = firstUserText(trace.inputState)
+export function resolveTitleFromInputs(
+    inputState: unknown,
+    generationInput: unknown,
+    traceName?: unknown,
+    maxLength = DEFAULT_MAX_LENGTH
+): string | null {
+    const fromInputState = firstUserText(inputState)
     if (fromInputState) {
         return truncate(fromInputState, maxLength)
     }
 
-    if (firstEvent) {
-        const fromSpanInputState = firstUserText(firstEvent.properties.$ai_input_state)
-        if (fromSpanInputState) {
-            return truncate(fromSpanInputState, maxLength)
-        }
+    const fromGenInput = firstUserText(generationInput)
+    if (fromGenInput) {
+        return truncate(fromGenInput, maxLength)
     }
 
-    const firstGeneration = sortedEvents.find((e) => e.event === '$ai_generation')
-    if (firstGeneration) {
-        const fromGenInput = firstUserText(readAiInput(firstGeneration.properties))
-        if (fromGenInput) {
-            return truncate(fromGenInput, maxLength)
-        }
-    }
-
-    if (firstEvent) {
-        const mcpIntent = firstEvent.properties.$mcp_intent
-        if (typeof mcpIntent === 'string' && mcpIntent.trim().length > 0) {
-            return truncate(mcpIntent, maxLength)
-        }
-    }
-
-    if (typeof trace.traceName === 'string' && trace.traceName.length > 0) {
-        if (!GENERIC_TRACE_NAMES.has(trace.traceName.toLowerCase())) {
-            return truncate(trace.traceName, maxLength)
+    if (typeof traceName === 'string') {
+        const trimmed = traceName.trim()
+        if (trimmed.length > 0 && !GENERIC_TRACE_NAMES.has(trimmed.toLowerCase())) {
+            return truncate(trimmed, maxLength)
         }
     }
 
     return null
-}
-
-function sortByCreatedAt(events: LLMTraceEvent[] | undefined): LLMTraceEvent[] {
-    if (!events?.length) {
-        return []
-    }
-    return [...events].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
 }
 
 /**
@@ -89,9 +64,12 @@ function firstUserText(inputPayload: unknown): string | null {
             Array.isArray((inputPayload as { messages?: unknown }).messages)
           ? (inputPayload as { messages: unknown[] }).messages
           : inputPayload
-    const normalized = normalizeMessages(messages, 'user')
+    const normalized = normalizeMessages(messages, 'user').messages
     for (const message of normalized) {
         if (message.role !== 'user') {
+            continue
+        }
+        if (isInternalTagMessage(message) || isInternalToolResultUserMessage(message)) {
             continue
         }
         const text = messageContentToText(message.content)

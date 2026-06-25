@@ -554,8 +554,12 @@ class TestDataDeletionRequestAdminEditLock(BaseTest):
     def test_editable_statuses_keep_fields_editable(self, _name, status):
         obj = self._make_request(status)
         readonly = self._readonly_fields(obj)
+        # team_id is immutable once the request exists, so it stays readonly even when editable.
         for field in EDITABLE_FIELDS:
-            self.assertNotIn(field, readonly)
+            if field == "team_id":
+                self.assertIn(field, readonly)
+            else:
+                self.assertNotIn(field, readonly)
 
     def test_add_view_fields_editable(self):
         readonly = self._readonly_fields(None)

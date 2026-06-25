@@ -1,16 +1,13 @@
 import { BindLogic, BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { PropsWithChildren } from 'react'
 
-import { IconX } from '@posthog/icons'
-
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { Query } from '~/queries/Query/Query'
 import { InsightLogicProps } from '~/types'
 
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from 'products/customer_analytics/frontend/constants'
-import { customerProfileLogic } from 'products/customer_analytics/frontend/customerProfileLogic'
 import { issueFiltersLogic } from 'products/error_tracking/frontend/components/IssueFilters/issueFiltersLogic'
 import { issueQueryOptionsLogic } from 'products/error_tracking/frontend/components/IssueQueryOptions/issueQueryOptionsLogic'
 import { ErrorTrackingSetupPrompt } from 'products/error_tracking/frontend/components/SetupPrompt/SetupPrompt'
@@ -23,6 +20,7 @@ import {
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/issues/IssuesList'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
+import { getCustomerProfileRemoveMenuItem } from './customerProfileNotebookNodeMenu'
 import { createPostHogWidgetNode } from './NodeWrapper'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { getLogicKey } from './utils'
@@ -42,17 +40,12 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeIssuesAttribute
     const { expanded, notebookLogic } = useValues(notebookNodeLogic)
     const { setMenuItems } = useActions(notebookNodeLogic)
     const logicKey = getLogicKey({ tabId, personId, groupKey })
-    const { removeNode } = useActions(customerProfileLogic)
 
     useOnMountEffect(() => {
-        setMenuItems([
-            {
-                label: 'Remove',
-                onClick: () => removeNode(NotebookNodeType.Issues),
-                sideIcon: <IconX />,
-                status: 'danger',
-            },
-        ])
+        const removeMenuItem = getCustomerProfileRemoveMenuItem(NotebookNodeType.Issues)
+        if (removeMenuItem) {
+            setMenuItems([removeMenuItem])
+        }
     })
 
     if (!expanded) {

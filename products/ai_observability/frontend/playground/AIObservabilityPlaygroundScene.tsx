@@ -34,8 +34,8 @@ import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
-import { humanFriendlyDuration } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -44,7 +44,6 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { AIObservabilityRenameBanner } from '../AIObservabilityRenameBanner'
 import { JSONEditor } from '../components/JSONEditor'
 import { MetadataHeader } from '../ConversationDisplay/MetadataHeader'
 import { getModelPickerFooterLink, ModelPicker, parseTrialProviderKeyId } from '../ModelPicker'
@@ -126,7 +125,6 @@ export function AIObservabilityPlaygroundScene(): JSX.Element {
                             }}
                             actions={<PlaygroundHeaderActions />}
                         />
-                        <AIObservabilityRenameBanner />
                         <div className="flex h-full flex-1 flex-col min-h-0">
                             <PlaygroundLayout />
                         </div>
@@ -854,6 +852,19 @@ function ToolsButton({ promptId }: { promptId: string }): JSX.Element {
     )
 }
 
+function getRoleDotClass(role: string): string {
+    switch (role) {
+        case 'user':
+            return 'bg-[var(--color-blue-500)]'
+        case 'assistant':
+            return 'bg-[var(--color-green-500)]'
+        case 'system':
+            return 'bg-[var(--color-purple-500)]'
+        default:
+            return 'bg-muted'
+    }
+}
+
 function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
     const prompt = usePromptConfig(promptId)
     const { promptConfigs, editModal, collapsedSections, linkedSource } = useValues(llmPlaygroundPromptsLogic)
@@ -887,7 +898,7 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
 
     return (
         <>
-            <div className="border rounded p-4 py-2 relative group border-l-4 border-l-[var(--color-purple-500)]">
+            <div className="border rounded p-4 py-2 relative group">
                 <div className="absolute top-2 right-2 flex items-center gap-1">
                     <PlaygroundSaveMenu prompt={prompt} />
                     <LemonDivider vertical className="h-5 mx-0.5" />
@@ -927,7 +938,8 @@ function SystemMessageDisplay({ promptId }: { promptId: string }): JSX.Element {
                     onClick={() => toggleCollapsed(`system:${promptId}`)}
                 >
                     <CollapsibleChevron collapsed={collapsed} />
-                    <LemonTag type="completion" size="small">
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${getRoleDotClass('system')}`} />
+                    <LemonTag type="default" size="small">
                         System
                     </LemonTag>
                     {linkedContextLabel ? (
@@ -1020,38 +1032,12 @@ function MessageDisplay({
         { label: 'Assistant', value: 'assistant' },
     ]
 
-    const getRoleBorderClass = (role: MessageRole): string => {
-        switch (role) {
-            case 'user':
-                return 'border-l-4 border-l-[var(--color-blue-500)]'
-            case 'assistant':
-                return 'border-l-4 border-l-[var(--color-green-500)]'
-            case 'system':
-                return 'border-l-4 border-l-[var(--color-purple-500)]'
-            default:
-                return ''
-        }
-    }
-
-    const getRoleDotClass = (role: MessageRole): string => {
-        switch (role) {
-            case 'user':
-                return 'bg-[var(--color-blue-500)]'
-            case 'assistant':
-                return 'bg-[var(--color-green-500)]'
-            case 'system':
-                return 'bg-[var(--color-purple-500)]'
-            default:
-                return 'bg-muted'
-        }
-    }
-
     const trimmedContent = message.content.trim()
     const useJsonEditor = trimmedContent.startsWith('{') || trimmedContent.startsWith('[')
 
     return (
         <>
-            <div className={`border rounded p-4 py-2 relative group ${getRoleBorderClass(message.role)}`}>
+            <div className="border rounded p-4 py-2 relative group">
                 <div className="absolute top-4 right-4 flex items-center gap-1">
                     <LemonButton
                         size="small"

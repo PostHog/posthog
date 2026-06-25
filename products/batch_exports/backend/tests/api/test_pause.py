@@ -29,7 +29,7 @@ def test_pause_and_unpause_batch_export(client: HttpClient, temporal, organizati
     """Test pausing and unpausing a BatchExport."""
 
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -78,7 +78,7 @@ def test_cannot_pause_and_unpause_batch_exports_of_other_organizations(
     client: HttpClient, temporal, organization, team, user
 ):
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -141,7 +141,7 @@ def test_cannot_pause_and_unpause_batch_exports_of_other_organizations(
 
 def test_pause_and_unpause_are_partitioned_by_team_id(client: HttpClient, temporal, organization, team, user):
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -198,7 +198,7 @@ def test_pause_batch_export_that_is_already_paused(client: HttpClient, temporal,
     """Test pausing a BatchExport that is already paused doesn't actually do anything."""
 
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -247,7 +247,7 @@ def test_unpause_batch_export_that_is_already_unpaused(client: HttpClient, tempo
     """Test unpausing a BatchExport that is already unpaused doesn't actually do anything."""
 
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -287,7 +287,7 @@ def test_pause_non_existent_batch_export(client: HttpClient, temporal, organizat
     """Test pausing a BatchExport that doesn't exist."""
 
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -325,7 +325,7 @@ def test_unpause_can_trigger_a_backfill(client: HttpClient, temporal, organizati
     """Test unpausing a BatchExport can trigger a backfill."""
 
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",

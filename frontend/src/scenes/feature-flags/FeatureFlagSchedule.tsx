@@ -25,12 +25,11 @@ import {
 } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
-import { hasFormErrors, shortTimeZone } from 'lib/utils'
+import { hasFormErrors } from 'lib/utils/objects'
+import { shortTimeZone } from 'lib/utils/timezones'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -456,7 +455,8 @@ export default function FeatureFlagSchedule(): JSX.Element {
         saveEdit,
     } = useActions(featureFlagScheduleEditLogic({ id: featureFlag.id ?? 'new' }))
     const { aggregationLabel } = useValues(groupsModel)
-    const { featureFlags } = useValues(enabledFeaturesLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const scheduleTimezone = currentTeam?.timezone || 'UTC'
 
     const aggregationGroupTypeIndex = featureFlag.filters.aggregation_group_type_index
     const scheduleFilters = { ...schedulePayload.filters, aggregation_group_type_index: aggregationGroupTypeIndex }
@@ -472,11 +472,9 @@ export default function FeatureFlagSchedule(): JSX.Element {
 
     const supportsRecurring = RECURRING_SUPPORTED_OPERATIONS.has(scheduledChangeOperation)
 
-    // Available change type options (gate UpdateVariants behind feature flag)
+    // UpdateVariants is only available for multivariate flags
     const availableOptions = CHANGE_TYPE_OPTIONS.filter(
-        (opt) =>
-            opt.value !== ScheduledChangeOperationType.UpdateVariants ||
-            (featureFlags[FEATURE_FLAGS.SCHEDULE_FEATURE_FLAG_VARIANTS_UPDATE] && featureFlag.filters.multivariate)
+        (opt) => opt.value !== ScheduledChangeOperationType.UpdateVariants || featureFlag.filters.multivariate
     )
 
     return (
@@ -530,6 +528,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                     }}
                                     placeholder="Select date"
                                     selectionPeriod="upcoming"
+                                    selectionPeriodTimezone={scheduleTimezone}
                                     granularity={repeatsValue === 'cron' ? 'day' : 'minute'}
                                     format={repeatsValue === 'cron' ? 'MMMM D, YYYY' : undefined}
                                     clearable
@@ -675,6 +674,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                             onChange={(value) => setEndDate(value)}
                                             placeholder="Never"
                                             selectionPeriod="upcoming"
+                                            selectionPeriodTimezone={scheduleTimezone}
                                             granularity="day"
                                             clearable
                                         />
@@ -804,56 +804,49 @@ export default function FeatureFlagSchedule(): JSX.Element {
                         </div>
                     )}
                     {scheduledChangeOperation === ScheduledChangeOperationType.UpdateVariants &&
-                        featureFlags[FEATURE_FLAGS.SCHEDULE_FEATURE_FLAG_VARIANTS_UPDATE] && (
+                        !!featureFlag.filters.multivariate && (
                             <div className="rounded border p-3">
                                 <FeatureFlagVariantsForm
                                     variants={displayVariants}
                                     payloads={displayPayloads}
                                     onAddVariant={() => {
-                                        const { variants: currentVariants, payloads: currentPayloads } =
-                                            getScheduledVariantsPayloads(featureFlag, schedulePayload)
                                         const newVariants = [
-                                            ...currentVariants,
+                                            ...displayVariants,
                                             { key: '', name: '', rollout_percentage: 0 },
                                         ]
-                                        setSchedulePayload(null, null, null, newVariants, currentPayloads)
+                                        setSchedulePayload(null, null, null, newVariants, displayPayloads)
                                     }}
                                     onRemoveVariant={(index) => {
-                                        const { variants: currentVariants, payloads: currentPayloads } =
-                                            getScheduledVariantsPayloads(featureFlag, schedulePayload)
-                                        const newVariants = currentVariants.filter((_, i) => i !== index)
-                                        const newPayloads = { ...currentPayloads }
+                                        const newVariants = displayVariants.filter((_, i) => i !== index)
+                                        const newPayloads = { ...displayPayloads }
                                         delete newPayloads[index]
                                         setSchedulePayload(null, null, null, newVariants, newPayloads)
                                     }}
                                     onDistributeEqually={() => {
-                                        const { variants: currentVariants, payloads: currentPayloads } =
-                                            getScheduledVariantsPayloads(featureFlag, schedulePayload)
-                                        const equalPercentage = Math.floor(100 / currentVariants.length)
-                                        const remainder = 100 - equalPercentage * currentVariants.length
-                                        const distributedVariants = currentVariants.map((variant, index) => ({
+                                        if (displayVariants.length === 0) {
+                                            return
+                                        }
+                                        const equalPercentage = Math.floor(100 / displayVariants.length)
+                                        const remainder = 100 - equalPercentage * displayVariants.length
+                                        const distributedVariants = displayVariants.map((variant, index) => ({
                                             ...variant,
                                             rollout_percentage: equalPercentage + (index === 0 ? remainder : 0),
                                         }))
-                                        setSchedulePayload(null, null, null, distributedVariants, currentPayloads)
+                                        setSchedulePayload(null, null, null, distributedVariants, displayPayloads)
                                     }}
                                     onVariantChange={(index, field, value) => {
-                                        const { variants: currentVariants, payloads: currentPayloads } =
-                                            getScheduledVariantsPayloads(featureFlag, schedulePayload)
-                                        const newVariants = [...currentVariants]
+                                        const newVariants = [...displayVariants]
                                         newVariants[index] = { ...newVariants[index], [field]: value }
-                                        setSchedulePayload(null, null, null, newVariants, currentPayloads)
+                                        setSchedulePayload(null, null, null, newVariants, displayPayloads)
                                     }}
                                     onPayloadChange={(index, value) => {
-                                        const { variants: currentVariants, payloads: currentPayloads } =
-                                            getScheduledVariantsPayloads(featureFlag, schedulePayload)
-                                        const newPayloads = { ...currentPayloads }
+                                        const newPayloads = { ...displayPayloads }
                                         if (value === undefined) {
                                             delete newPayloads[index]
                                         } else {
                                             newPayloads[index] = value
                                         }
-                                        setSchedulePayload(null, null, null, currentVariants, newPayloads)
+                                        setSchedulePayload(null, null, null, displayVariants, newPayloads)
                                     }}
                                     variantErrors={variantErrors}
                                 />
@@ -861,12 +854,14 @@ export default function FeatureFlagSchedule(): JSX.Element {
                         )}
 
                     {/* Warning for recurring variant updates */}
-                    {isRecurring && scheduledChangeOperation === ScheduledChangeOperationType.UpdateVariants && (
-                        <LemonBanner type="warning">
-                            This will reset variants to the configuration above on each recurrence. Any manual changes
-                            made between runs will be overwritten.
-                        </LemonBanner>
-                    )}
+                    {isRecurring &&
+                        scheduledChangeOperation === ScheduledChangeOperationType.UpdateVariants &&
+                        !!featureFlag.filters.multivariate && (
+                            <LemonBanner type="warning">
+                                This will reset variants to the configuration above on each recurrence. Any manual
+                                changes made between runs will be overwritten.
+                            </LemonBanner>
+                        )}
 
                     {/* Hint when creating a single recurring schedule with no other active schedules */}
                     {isRecurring && !schedulePreset && activeSchedules.length === 0 && (
@@ -1048,6 +1043,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                             }}
                             placeholder="Select date"
                             selectionPeriod="upcoming"
+                            selectionPeriodTimezone={scheduleTimezone}
                             granularity={editRepeatsValue === 'cron' ? 'day' : 'minute'}
                             format={editRepeatsValue === 'cron' ? 'MMMM D, YYYY' : undefined}
                             clearable
@@ -1099,6 +1095,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                                 onChange={(value) => setEditEndDate(value)}
                                 placeholder="Never"
                                 selectionPeriod="upcoming"
+                                selectionPeriodTimezone={scheduleTimezone}
                                 granularity="day"
                                 clearable
                             />

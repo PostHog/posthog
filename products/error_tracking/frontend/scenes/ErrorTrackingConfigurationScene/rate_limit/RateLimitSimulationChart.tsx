@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 
 import { getColorVar } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
 import { ChartDisplayType } from '~/types'

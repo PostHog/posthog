@@ -14,6 +14,8 @@ export interface Span {
     matched_filter: boolean
     // OTel span attributes the user set, as a key-value map.
     attributes: Record<string, string>
+    // OTel resource attributes (who/what emitted the span: service.version, host, k8s, ...).
+    resource_attributes: Record<string, string>
 }
 
 export const SPAN_KIND_LABELS: Record<number, string> = {

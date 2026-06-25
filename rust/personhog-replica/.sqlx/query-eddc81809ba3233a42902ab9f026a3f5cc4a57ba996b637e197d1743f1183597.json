@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            UPDATE posthog_persondistinctid AS pdi\n            SET person_id = m.new_person_id, version = m.new_version\n            FROM unnest($2::text[], $3::bigint[], $4::bigint[]) AS m(distinct_id, new_person_id, new_version)\n            WHERE pdi.team_id = $1 AND pdi.distinct_id = m.distinct_id\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "TextArray",
+        "Int8Array",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "eddc81809ba3233a42902ab9f026a3f5cc4a57ba996b637e197d1743f1183597"
+}
