@@ -229,6 +229,12 @@
         margin: 0;
     }
 
+    &--ActionsBarValue {
+        height: auto;
+        min-height: auto;
+        max-height: none;
+    }
+
     &--BoldNumber {
         display: flex;
         align-items: center;
