@@ -43,14 +43,20 @@ qla MV → `system.query_log`, distributed proxies → other clusters) and are l
 
 ## Making a change (edit HCL → migration)
 
-Run from the repo root. Point `HCLEXP_BIN` at a built binary for speed
-(`go build -o hclexp ./cmd/hclexp` in `../../../../python-clickhouse-schema`); CI uses the
-pinned container image via the same wrapper.
+Run from the repo root. All the scripts below call `hclexp` through `ops/bin/hclexp`,
+which runs the pinned container image — **no install needed, just have Docker running**:
 
 ```bash
-export HCLEXP_BIN=$PWD/../python-clickhouse-schema/hclexp   # adjust to your checkout
 OPS=posthog/clickhouse/hcl/ops
+# the wrapper used by every script (for running hclexp directly), e.g.:
+$OPS/bin/hclexp -help
+# it is equivalent to:
+docker run --rm -v "$PWD:/work" -v "${TMPDIR:-/tmp}:${TMPDIR:-/tmp}" -w /work \
+  ghcr.io/posthog/chschema:sha-f9490b7 -help
 ```
+
+(For faster local iteration you can build the binary — `go build -o hclexp ./cmd/hclexp` in
+`../../../../python-clickhouse-schema` — and `export HCLEXP_BIN=…/hclexp`; the wrapper prefers it.)
 
 1. **Edit the right layer** for what you're changing:
    - all-role object (the `query_log_archive` path, `custom_metrics_*` sub-views) → `shared/`

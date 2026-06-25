@@ -30,11 +30,13 @@ source of truth for placement.
 
 ## Usage
 
+Runs `hclexp` via `ops/bin/hclexp` (the pinned ghcr.io image) — just have Docker running:
+
 ```bash
-HCLEXP_BIN=../python-clickhouse-schema/hclexp \
-  python posthog/clickhouse/hcl/ops/codegen/gen_migration.py --name add_foo_column
+python posthog/clickhouse/hcl/ops/codegen/gen_migration.py --name add_foo_column
 #   --ref <git-ref>   diff the working tree against this ref (default HEAD)
 #   --out <path|->    write here, or stdout (default)
+# (optional: export HCLEXP_BIN=…/hclexp to use a local binary instead of Docker)
 ```
 
 Then: review the output, save it as the next `posthog/clickhouse/migrations/NNNN_<name>.py`,

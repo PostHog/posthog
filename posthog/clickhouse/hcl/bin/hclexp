@@ -24,5 +24,8 @@ if command -v hclexp >/dev/null 2>&1; then
   exec hclexp "$@"
 fi
 
-# Mount the repo so layer-dir and dump-file paths resolve inside the container.
-exec docker run --rm -v "$PWD:/work" -w /work "$HCLEXP_IMAGE" "$@"
+# Mount the repo (relative layer/golden paths resolve under -w /work) and the temp
+# dir (diff.sh/gen-sql.sh/the generator pass absolute committed-tree and scratch paths
+# under $TMPDIR) so both resolve inside the container.
+TMP="${TMPDIR:-/tmp}"; TMP="${TMP%/}"
+exec docker run --rm -v "$PWD:/work" -v "$TMP:$TMP" -w /work "$HCLEXP_IMAGE" "$@"
