@@ -365,6 +365,15 @@ class ClickhouseCluster:
                 raise ValueError(f"No hosts found with roles {node_roles}")
             return executor.submit(self.__get_task_function(host, fn))
 
+    def has_hosts_for_roles(self, node_roles: list[NodeRole], workload: Workload = Workload.DEFAULT) -> bool:
+        """Whether any host in the cluster matches the given roles for this workload.
+
+        Lets callers that would otherwise hit ``any_host_by_roles`` (which raises on an
+        empty match) skip instead, matching the no-op behaviour of ``map_hosts_by_roles``
+        when a topology has no node for a role.
+        """
+        return bool(self.__hosts_by_roles(self.__hosts, node_roles, workload))
+
     def map_all_hosts(self, fn: Callable[[Client], T], concurrency: int | None = None) -> FuturesMap[HostInfo, T]:
         """
         Execute the callable once for each host in the cluster.

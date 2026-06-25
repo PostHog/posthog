@@ -96,10 +96,21 @@ def run_sql_with_exceptions(
             # Satellite clusters are single-shard and live in __extra_hosts, which
             # map_one_host_per_shard cannot reach; any_host_by_roles can.
             if not is_local_or_test and single_role in SINGLE_SHARD_DATA_NODE_ROLES:
+                if not cluster.has_hosts_for_roles(node_roles_list):
+                    logger.info(
+                        "       Skipping ALTER on sharded replicated table: no hosts for roles %s", node_roles_list
+                    )
+                    return None
                 logger.info("       Running ALTER on sharded replicated table on one host of role %s", single_role)
                 return cluster.any_host_by_roles(query, node_roles=node_roles_list).result()
             return cluster.map_one_host_per_shard(query).result()
         elif is_alter_on_replicated_table:
+            # A topology without a node for these roles (e.g. the multinode migration smoke
+            # has no LOGS node) should skip rather than crash. map_hosts_by_roles already
+            # no-ops on an empty match; any_host_by_roles raises, so guard it explicitly.
+            if not cluster.has_hosts_for_roles(node_roles_list):
+                logger.info("       Skipping ALTER on replicated table: no hosts for roles %s", node_roles_list)
+                return None
             logger.info("       Running ALTER on replicated table on just one host")
             return cluster.any_host_by_roles(query, node_roles=node_roles_list).result()
         else:

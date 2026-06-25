@@ -131,3 +131,29 @@ class TestShardedAlterRouting(unittest.TestCase):
         for role in SINGLE_SHARD_DATA_NODE_ROLES:
             self.assertIn(role, DATA_NODE_ROLES)
         self.assertNotIn(NodeRole.DATA, SINGLE_SHARD_DATA_NODE_ROLES)
+
+
+class TestReplicatedAlterSkipsMissingRole(unittest.TestCase):
+    def test_replicated_alter_skips_when_no_host_for_role(self):
+        # The multinode migration smoke (and any topology) may lack a node for a role —
+        # e.g. there is no LOGS node. A replicated-table ALTER must then no-op like
+        # map_hosts_by_roles does, not crash on any_host_by_roles raising.
+        cluster = _build_cluster_mock()
+        cluster.has_hosts_for_roles.return_value = False
+
+        with (
+            mock.patch("posthog.clickhouse.client.migration_tools.settings.MULTINODE_CLICKHOUSE", True),
+            mock.patch(
+                "posthog.clickhouse.client.migration_tools.get_migrations_cluster",
+                return_value=cluster,
+            ),
+        ):
+            operation = run_sql_with_exceptions(
+                sql="ALTER TABLE log_attributes2 ADD COLUMN severity_text LowCardinality(String)",
+                node_roles=[NodeRole.LOGS],
+                sharded=False,
+                is_alter_on_replicated_table=True,
+            )
+            self.assertIsNone(operation._func(None))
+
+        cluster.any_host_by_roles.assert_not_called()
