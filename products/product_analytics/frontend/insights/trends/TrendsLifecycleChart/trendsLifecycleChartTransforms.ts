@@ -28,26 +28,65 @@ function lifecycleStatusOrder(status: string | undefined): number {
 export interface LifecycleValueLabelOptions {
     showValues: boolean
     showPercentages: boolean
+    /** Per-dataIndex denominator for the dormant series — the *previous* period's active total
+     *  (new + returning + resurrecting), produced by `lifecyclePrevActiveBaseByDataIndex`. Dormant
+     *  orgs were active last period and aren't now, so their meaningful share is a churn rate against
+     *  that prior base, not against the current period. Omit it (or a 0 entry) to skip dormant's % . */
+    dormantBaseByDataIndex?: readonly number[]
 }
 
-// Each segment's percentage is its share of the band's absolute total — `abs` so the negative
-// dormant series contributes a sensible denominator instead of cancelling the positives.
+// Active statuses (new/returning/resurrecting) are the positive bars, so each one's percentage is its
+// share of the period's active total (the sum of the positive band values). Dormant is the only
+// negative series — orgs that were active last period and didn't return — so its percentage is a
+// churn rate against the previous period's active total, a deliberately different base. The two
+// groups therefore don't sum to 100%: the positives describe "who is active now", dormant describes
+// "what fraction of last period's actives left".
 export function buildLifecycleValueLabelFormatter(
     formatValue: (value: number) => string,
-    { showValues, showPercentages }: LifecycleValueLabelOptions
+    { showValues, showPercentages, dormantBaseByDataIndex }: LifecycleValueLabelOptions
 ): ValueLabelFormatter {
-    return (value, _seriesIndex, _dataIndex, context) => {
+    return (value, _seriesIndex, dataIndex, context) => {
         const valueText = showValues ? formatValue(value) : ''
         if (!showPercentages || context.isPercent) {
             return valueText
         }
-        const absTotal = context.bandValues.reduce((sum, v) => sum + Math.abs(v), 0)
-        if (absTotal === 0) {
+        const isDormant = context.rawValue < 0
+        const denominator = isDormant
+            ? (dormantBaseByDataIndex?.[dataIndex] ?? 0)
+            : context.bandValues.reduce((sum, v) => (v > 0 ? sum + v : sum), 0)
+        if (denominator === 0) {
             return valueText
         }
-        const pct = Math.round((Math.abs(context.rawValue) / absTotal) * 100)
+        const pct = Math.round((Math.abs(context.rawValue) / denominator) * 100)
         return showValues ? `${valueText} (${pct}%)` : `${pct}%`
     }
+}
+
+/** Per-period churn base for the dormant series: the previous period's active total
+ *  (new + returning + resurrecting). Dormant at period d counts orgs active at d-1 but not d, so its
+ *  share belongs to d-1's active population. `base[0]` is 0 — the period before the first is off the
+ *  chart, so dormant there gets no percentage. Independent of legend toggles: the prior active base
+ *  is a fixed population, unlike the positives' share which re-normalizes among visible series. */
+export function lifecyclePrevActiveBaseByDataIndex(results: readonly TrendsLifecycleResultLike[]): number[] {
+    const periodCount = results.reduce((n, r) => Math.max(n, r.data.length), 0)
+    const activeTotals = new Array<number>(periodCount).fill(0)
+    for (const r of results) {
+        // Dormant is the only negative series; everything else is an active status.
+        if (r.status === 'dormant') {
+            continue
+        }
+        for (let i = 0; i < r.data.length; i++) {
+            const v = r.data[i]
+            if (Number.isFinite(v)) {
+                activeTotals[i] += v
+            }
+        }
+    }
+    const base = new Array<number>(periodCount).fill(0)
+    for (let i = 1; i < periodCount; i++) {
+        base[i] = activeTotals[i - 1]
+    }
+    return base
 }
 
 /** Drops rows whose lifecycle status is toggled off — mirrors the main app's legend toggles, which

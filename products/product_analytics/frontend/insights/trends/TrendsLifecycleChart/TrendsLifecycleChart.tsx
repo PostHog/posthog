@@ -29,7 +29,11 @@ import {
 } from '../shared/handleTrendsChartClick'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'
-import { buildLifecycleChartModel, buildLifecycleValueLabelFormatter } from './trendsLifecycleChartTransforms'
+import {
+    buildLifecycleChartModel,
+    buildLifecycleValueLabelFormatter,
+    lifecyclePrevActiveBaseByDataIndex,
+} from './trendsLifecycleChartTransforms'
 
 interface TrendsLifecycleChartProps {
     context?: QueryContext<InsightVizNode>
@@ -90,13 +94,19 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
         [trendsFilter, baseCurrency]
     )
 
+    const dormantBaseByDataIndex = useMemo(
+        () => lifecyclePrevActiveBaseByDataIndex(indexedResults ?? []),
+        [indexedResults]
+    )
+
     const valueLabelFormatter = useMemo(
         () =>
             buildLifecycleValueLabelFormatter(formatValue, {
                 showValues: !!showValuesOnSeries,
                 showPercentages: !!showPercentagesOnSeries,
+                dormantBaseByDataIndex,
             }),
-        [formatValue, showValuesOnSeries, showPercentagesOnSeries]
+        [formatValue, showValuesOnSeries, showPercentagesOnSeries, dormantBaseByDataIndex]
     )
 
     const { series, labels, config } = useMemo(
