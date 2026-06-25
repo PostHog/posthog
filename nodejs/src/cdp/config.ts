@@ -50,11 +50,6 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: CyclotronJobQueueKind
     CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: CyclotronJobQueueSource
     CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: string
-    // Controls which teams route email sends to the dedicated email queue.
-    // Supports team IDs, percentage rollout, or both.
-    // Examples: '' (disabled), '123,456' (specific teams), '*:0.1' (10% of traffic),
-    //           '123,*:0.05' (team 123 + 5% of rest), '*' (all traffic)
-    CDP_EMAIL_QUEUE_ROUTING: string
 
     CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: string
     CDP_LEGACY_EVENT_CONSUMER_TOPIC: string
@@ -185,7 +180,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND: 'hog',
         CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'kafka',
         CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
-        CDP_EMAIL_QUEUE_ROUTING: '',
 
         CDP_LEGACY_EVENT_CONSUMER_GROUP_ID: 'clickhouse-plugin-server-async-onevent',
         CDP_LEGACY_EVENT_CONSUMER_TOPIC: KAFKA_EVENTS_JSON,
@@ -227,9 +221,9 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_FETCH_RETRIES: 3,
         CDP_FETCH_BACKOFF_BASE_MS: 1000,
         CDP_FETCH_BACKOFF_MAX_MS: 30000,
-        // Observe-only by default: detect self-loops and emit metrics without blocking.
-        // Valid values: 'disabled' | 'warn'. A blocking 'enforce' mode will be added in a
-        // follow-up PR once cdp_self_loop_guard_total production data is in.
+        // Observe-only by default. Values: 'disabled' | 'warn' | 'enforce'. 'warn' detects
+        // and emits cdp_self_loop_guard_total without blocking; 'enforce' bounds true loops
+        // at SELF_LOOP_MAX_DEPTH hops. Roll out warn -> enforce per environment.
         CDP_SELF_LOOP_GUARD_MODE: 'warn',
         CDP_OVERFLOW_QUEUE_ENABLED: false,
         HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,

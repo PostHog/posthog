@@ -5,4 +5,4 @@ requests-toolbelt==1.0.0
 boto3==1.29.7
 docker==6.1.3
 python-multipart==0.0.6
-posthog==6.7.6
+posthog==7.20.4

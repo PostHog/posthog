@@ -30,6 +30,8 @@ import type {
     SourceConnectLinkApi,
     SourceCredentialApi,
     SourceCredentialCreateApi,
+    SourcePreviewRequestApi,
+    SourcePreviewResponseApi,
     SourceSetupApi,
     SourceSetupResponseApi,
 } from './api.schemas'
@@ -864,6 +866,32 @@ export const externalDataSourcesDatabaseSchemaCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(databaseSchemaRequestApi),
+    })
+}
+
+export const getExternalDataSourcesPreviewResourceCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/preview_resource/`
+}
+
+/**
+ * Read a bounded sample of rows for one resource of a Custom REST source.
+ *
+ * Lets a manifest author verify `data_selector`, `primary_key`, and the incremental
+ * `cursor_path` against live data before creating the source. Only `source_type: "Custom"`
+ * is supported — other source types return 400. The read is bounded (single page per
+ * resource, capped row count, short timeouts, no redirects). Manifest, validation, and SSRF
+ * problems return 400; a live fetch failure returns 200 with `error` set and empty `rows`.
+ */
+export const externalDataSourcesPreviewResourceCreate = async (
+    projectId: string,
+    sourcePreviewRequestApi: SourcePreviewRequestApi,
+    options?: RequestInit
+): Promise<SourcePreviewResponseApi> => {
+    return apiMutator<SourcePreviewResponseApi>(getExternalDataSourcesPreviewResourceCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sourcePreviewRequestApi),
     })
 }
 

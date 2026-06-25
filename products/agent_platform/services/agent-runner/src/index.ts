@@ -59,6 +59,7 @@ import {
     SlackFailureNotifier,
     TriggerAwareFailureNotifier,
 } from '@posthog/agent-shared'
+import { buildWebSearchProviders } from '@posthog/agent-tools'
 
 import { defaultApiKeyFromConfig, loadAgentRunnerConfig } from './config'
 import { posthogAiGatewayModel } from './models/ai-gateway-model'
@@ -101,6 +102,22 @@ async function main(): Promise<void> {
     // so author-supplied URLs (web-fetch, http-request, external MCPs) get SSRF
     // protection; required in prod, enforced at config-load (config.ts).
     const http = new HttpClient({ proxyUrl: config.httpsProxy })
+
+    // `@posthog/web-search` provider chain. Built once from AGENT_WEB_SEARCH_*
+    // config and threaded onto each session's ToolContext. The providers issue
+    // their egress through the same proxy-bound `http` above (vendor hosts must
+    // be on the smokescreen allowlist). Empty chain → the tool is gated out of
+    // every session, so an unconfigured deployment never shows a tool that
+    // just throws.
+    const webSearchProviders = buildWebSearchProviders(
+        {
+            primary: config.webSearchProvider,
+            fallbacks: config.webSearchFallbacks,
+            keys: { exa: config.exaApiKey, tavily: config.tavilyApiKey, brave: config.braveApiKey },
+        },
+        log
+    )
+    log.info({ providers: webSearchProviders.map((p) => p.name) }, 'web_search.boot')
 
     // S3 bundle storage is required (enforced on `bundleS3Bucket` in config —
     // dev default, fail closed at config-load in prod). Endpoint is optional:
@@ -347,6 +364,7 @@ async function main(): Promise<void> {
         devMcpBearerToken: config.devMcpBearerToken,
         http,
         posthogApiBaseUrl: config.posthogApiBaseUrl,
+        webSearchProviders,
         failureNotifier,
     })
 

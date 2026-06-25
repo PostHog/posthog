@@ -73,12 +73,7 @@ function SandboxRunViewerContent({
     const showSpinner = bootstrapLoading && threadItems.length === 0
 
     return (
-        <div
-            className={cn(
-                '@container/thread flex flex-col items-stretch w-full max-w-180 self-center gap-1.5 grow mx-auto',
-                className
-            )}
-        >
+        <div className={cn('flex flex-col h-full min-h-0 w-full', className)}>
             {showSpinner ? (
                 <div className="flex justify-center py-8">
                     <Spinner className="text-2xl" />

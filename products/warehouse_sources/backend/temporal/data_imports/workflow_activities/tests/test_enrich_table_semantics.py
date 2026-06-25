@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     MAX_PROMPT_CHARS,
     EnrichTableSemanticsInputs,
     EnrichTableSemanticsWorkflow,
+    _columns_from_table,
     _extract_json_object,
     build_bounded_enrichment_prompt,
     build_enrichment_prompt,
@@ -298,6 +299,24 @@ class TestBuildBoundedEnrichmentPrompt:
         # The surviving column's FK stays; the dropped column's FK is gone.
         assert "kept_target" in prompt
         assert "dropped_target" not in prompt
+
+
+class TestColumnsFromTable:
+    def test_skips_internal_plumbing_columns(self):
+        # `_dlt_*`, `_ph_debug` and the partition key are hidden from the HogQL catalog and carry no
+        # user-facing meaning — they must not be sent to the LLM for a description.
+        table = DataWarehouseTable(
+            columns={
+                "id": {"clickhouse": "String"},
+                "amount": {"clickhouse": "Nullable(Int64)"},
+                "_dlt_id": {"clickhouse": "String"},
+                "_dlt_load_id": {"clickhouse": "String"},
+                "_ph_debug": {"clickhouse": "String"},
+                "_ph_partition_key": {"clickhouse": "String"},
+            }
+        )
+        names = {column["name"] for column in _columns_from_table(table)}
+        assert names == {"id", "amount"}
 
 
 class TestExtractJsonObject:

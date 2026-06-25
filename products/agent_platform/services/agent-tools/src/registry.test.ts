@@ -10,6 +10,7 @@ describe('native tool registry', () => {
                 '@posthog/slack-update-message',
                 '@posthog/slack-react',
                 '@posthog/http-request',
+                '@posthog/web-search',
                 '@posthog/meta-end-turn',
                 '@posthog/meta-end-session',
                 '@posthog/meta-emit-event',

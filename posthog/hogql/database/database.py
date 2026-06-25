@@ -14,7 +14,6 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from django.db.models import Prefetch, Q
 
 import structlog
-import posthoganalytics
 from opentelemetry import trace
 from pydantic import BaseModel, ConfigDict
 
@@ -143,6 +142,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team, WeekStartDay
+from posthog.ph_client import feature_enabled_or_false
 from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
 from posthog.schema_enums import DatabaseSerializedFieldType, PersonsOnEventsMode, SessionTableVersion
 from posthog.synthetic_user import SyntheticUser
@@ -1089,7 +1089,7 @@ class Database(BaseModel):
         is_direct_query = connection_id is not None
 
         with timings.measure("feature_flags", emit_span=True):
-            is_managed_viewset_enabled = posthoganalytics.feature_enabled(
+            is_managed_viewset_enabled = feature_enabled_or_false(
                 "managed-viewsets",
                 str(team.uuid),
                 groups={
@@ -1131,7 +1131,7 @@ class Database(BaseModel):
                 team, user, user_access_control
             )
 
-        is_hogql_warehouse_access_control_enabled = posthoganalytics.feature_enabled(
+        is_hogql_warehouse_access_control_enabled = feature_enabled_or_false(
             "hogql-warehouse-access-control",
             str(team.uuid),
             groups={"organization": str(team.organization_id), "project": str(team.id)},

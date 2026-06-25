@@ -13,6 +13,10 @@ ALL_OUTCOMES = (OUTCOME_PASS, OUTCOME_DIVERGENCE, OUTCOME_PATH_FLIP, OUTCOME_ERR
 # Cap CanaryMetricResult.detail so a pathological error message can't bloat the Temporal payload.
 MAX_CANARY_DETAIL_LENGTH = 1000
 
+# Max attempts for the per-metric recalculation activity. Shared between the workflow's RetryPolicy and the
+# activity so the activity knows when it's on its final attempt.
+MAX_METRIC_ATTEMPTS = 5
+
 
 @dataclasses.dataclass
 class ExperimentMetricsRecalculationWorkflowInputs:

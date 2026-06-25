@@ -1,11 +1,4 @@
-import {
-    defineNativeTool,
-    HttpFetcher,
-    isPreviewSideEffect,
-    SLACK_BOT_TOKEN_KEY,
-    ToolContext,
-    Type,
-} from '@posthog/agent-shared'
+import { defineNativeTool, HttpFetcher, SLACK_BOT_TOKEN_KEY, ToolContext, Type } from '@posthog/agent-shared'
 
 /**
  * Resolve the agent's Slack bot token from `encrypted_env` via `ctx.secret`.
@@ -130,15 +123,6 @@ export const slackPostMessageV1 = defineNativeTool({
     requires: { provider: { id: 'slack', scopes: ['chat:write'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
-        // Preview-mode noop: don't post into the real channel attached to the
-        // live revision while the author is iterating. The synthetic `ts` is
-        // shape-valid so a follow-up `slack-update-message` / `slack-react`
-        // in the same preview turn doesn't blow up on a missing ts — though
-        // those write tools also short-circuit on preview, so the synthetic
-        // value never reaches slack.com regardless.
-        if (isPreviewSideEffect(ctx, '@posthog/slack-post-message', args)) {
-            return { ts: `preview-noop:${Date.now()}`, channel: args.channel }
-        }
         const token = slackBotToken(ctx)
         const res = (await slackCall(ctx.http, token, 'chat.postMessage', {
             channel: args.channel,
@@ -161,9 +145,6 @@ export const slackUpdateMessageV1 = defineNativeTool({
     requires: { provider: { id: 'slack', scopes: ['chat:write'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
-        if (isPreviewSideEffect(ctx, '@posthog/slack-update-message', args)) {
-            return { ok: true }
-        }
         const token = slackBotToken(ctx)
         await slackCall(ctx.http, token, 'chat.update', { channel: args.channel, ts: args.ts, text: args.text })
         return { ok: true }
@@ -268,9 +249,6 @@ export const slackReactV1 = defineNativeTool({
     requires: { provider: { id: 'slack', scopes: ['reactions:write'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
-        if (isPreviewSideEffect(ctx, '@posthog/slack-react', args)) {
-            return { ok: true }
-        }
         const token = slackBotToken(ctx)
         await slackCall(ctx.http, token, 'reactions.add', {
             channel: args.channel,

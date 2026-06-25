@@ -83,7 +83,7 @@ class TestEnforcementGateTargetsTeamOrg(APIBaseTest):
         request = SimpleNamespace(user=self.user)
 
         with patch(
-            "products.feature_flags.backend.api.feature_flag.posthoganalytics.feature_enabled",
+            "products.feature_flags.backend.api.feature_flag.feature_enabled_or_false",
             return_value=True,
         ) as mock_feature_enabled:
             result = _is_enforce_feature_flag_write_scope_enabled(request, team_id=other_team.id)
@@ -112,7 +112,7 @@ class TestEnforcementGateTargetsTeamOrg(APIBaseTest):
     def test_gate_returns_feature_enabled_result(self):
         request = SimpleNamespace(user=self.user)
         with patch(
-            "products.feature_flags.backend.api.feature_flag.posthoganalytics.feature_enabled",
+            "products.feature_flags.backend.api.feature_flag.feature_enabled_or_false",
             return_value=False,
         ):
             assert _is_enforce_feature_flag_write_scope_enabled(request, team_id=self.team.id) is False

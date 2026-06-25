@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import (
     _MAX_CONNECT_ATTEMPTS,
+    _SSH_HANDSHAKE_EOF_ERROR,
     STATEMENT_TIMEOUT_SECONDS,
     MySQLColumn,
     MySQLImplementation,
@@ -1361,6 +1362,12 @@ class TestMySQLSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"SSH gateway failure should be non-retryable: {error_msg}"
 
+    def test_ssh_handshake_eof_is_non_retryable(self, source):
+        # `connect` translates paramiko's bare handshake EOFError into this message.
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in _SSH_HANDSHAKE_EOF_ERROR for pattern in non_retryable.keys())
+        assert is_non_retryable, f"SSH handshake EOF should be non-retryable: {_SSH_HANDSHAKE_EOF_ERROR}"
+
     @pytest.mark.parametrize(
         "error_msg",
         [
@@ -1560,3 +1567,35 @@ class TestMySQLSourceValidateCredentials:
         assert valid is False
         assert error is not None
         capture.assert_called_once()
+
+
+class _RaisingTunnel:
+    """Context manager whose `__enter__` raises, standing in for paramiko's handshake EOFError."""
+
+    def __enter__(self):
+        raise EOFError()
+
+    def __exit__(self, *args):
+        return False
+
+
+class TestConnectSSHTunnel:
+    def test_bare_handshake_eof_is_translated_and_non_retryable(self, mocker):
+        mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.open_ssh_tunnel",
+            return_value=_RaisingTunnel(),
+        )
+        mock_connect = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect"
+        )
+
+        with pytest.raises(Exception, match=_SSH_HANDSHAKE_EOF_ERROR) as exc_info:
+            with MySQLImplementation().connect(_make_config()):
+                pass
+
+        # Cause preserved, the database connection is never attempted, and the translated
+        # message is classified non-retryable so the sync stops instead of retrying forever.
+        assert isinstance(exc_info.value.__cause__, EOFError)
+        mock_connect.assert_not_called()
+        non_retryable = MySQLSource().get_non_retryable_errors()
+        assert any(pattern in str(exc_info.value) for pattern in non_retryable.keys())

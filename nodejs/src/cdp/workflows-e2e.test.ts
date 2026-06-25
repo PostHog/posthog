@@ -19,6 +19,7 @@ import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import { register } from 'prom-client'
 
+import { HogFlow } from '~/cdp/schema/hogflow'
 import { InternalPersonWithDistinctId, PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
@@ -28,7 +29,6 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '../../src/config/kafka-topics'
 import { KafkaProducerWrapper } from '../../src/kafka/producer'
-import { HogFlow } from '../../src/schema/hogflow'
 import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PostgresUse } from '../../src/utils/db/postgres'
@@ -1538,8 +1538,6 @@ describe('Workflows E2E (email queue)', () => {
         await cyclotronPool.query('DELETE FROM cyclotron_jobs')
 
         hub = await createHub()
-        // Route all teams' emails through the dedicated queue
-        hub.CDP_EMAIL_QUEUE_ROUTING = '*'
         hub.CDP_CYCLOTRON_BATCH_DELAY_MS = 50
 
         kafkaProducer = await ActualKafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
