@@ -151,6 +151,30 @@ class TestWarehouseMetadata(APIBaseTest):
         _descriptions, row_counts, _view_row_counts = _warehouse_metadata(self.team.id)
         assert row_counts["shared"] == 7
 
+    def test_descriptions_are_keyed_by_table_id_not_name(self):
+        # A synced table's catalog name (source-prefixed) differs from its model name, so descriptions
+        # must key by table UUID — keying by name silently dropped every annotation in production.
+        table = self._table("orders", 100)
+        with team_scope(self.team.id, canonical=True):
+            WarehouseColumnAnnotation.objects.create(
+                team=self.team,
+                table=table,
+                column_name="",
+                description="All orders placed by customers.",
+                description_source=WarehouseColumnAnnotation.DescriptionSource.CANONICAL,
+            )
+            WarehouseColumnAnnotation.objects.create(
+                team=self.team,
+                table=table,
+                column_name="id",
+                description="Unique order identifier.",
+                description_source=WarehouseColumnAnnotation.DescriptionSource.USER_EDITED,
+            )
+        descriptions, _row_counts, _view_row_counts = _warehouse_metadata(self.team.id)
+        assert descriptions[(str(table.id), "")] == "All orders placed by customers."
+        assert descriptions[(str(table.id), "id")] == "Unique order identifier."
+        assert ("orders", "") not in descriptions
+
 
 class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
     def _context(self, db: Database) -> HogQLContext:

@@ -168,7 +168,7 @@ def _warehouse_metadata(
     """Lazily load warehouse semantic descriptions and row counts for the team.
 
     Returns `(descriptions, row_counts, view_row_counts)`. Descriptions are keyed by
-    `(table_name, column_name)` with `""` denoting the table-level description. `row_counts` is keyed
+    `(table_id, column_name)` with `""` denoting the table-level description. `row_counts` is keyed
     by warehouse table name, `view_row_counts` by saved-query (view) name. Only runs when an
     information_schema table is actually queried, so it never touches the hot
     `create_hogql_database` path. Mirrors how `serialize_database` sources counts so the catalog and
@@ -190,10 +190,14 @@ def _warehouse_metadata(
 
     try:
         with team_scope(team_id):
-            for table_name, column_name, description in WarehouseColumnAnnotation.objects.values_list(
-                "table__name", "column_name", "description"
+            # Key by table UUID, not name: the catalog entry's `table.name` is the source-prefixed
+            # key (e.g. `stripe.prod.charge`) while the annotation's `table__name` is the raw model
+            # name (e.g. `prod_stripe_charge`), so a name-keyed lookup never matches a synced table.
+            # `column_name=""` is the table-level description.
+            for table_id, column_name, description in WarehouseColumnAnnotation.objects.values_list(
+                "table_id", "column_name", "description"
             ):
-                descriptions[(table_name, column_name)] = description
+                descriptions[(str(table_id), column_name)] = description
             # `DataWarehouseTable` is on the IDOR baseline (not team-scoped), so `team_scope` is a
             # no-op for it — filter by team_id explicitly or it reads every team's tables. `.queryable()`
             # (not `.objects`) drops soft-deleted tables and orphans of a soft-deleted source —
@@ -462,8 +466,9 @@ class _Introspection:
     def _table_description(self, table: Table, table_type: str) -> Optional[str]:
         if table.description:
             return table.description
-        if table_type == "data_warehouse" and table.name:
-            return self.descriptions.get((table.name, ""))
+        table_id = getattr(table, "table_id", None)
+        if table_type == "data_warehouse" and table_id:
+            return self.descriptions.get((str(table_id), ""))
         return None
 
     def _column_description(
@@ -471,8 +476,9 @@ class _Introspection:
     ) -> Optional[str]:
         if field.description:
             return field.description
-        if table_type == "data_warehouse" and table.name:
-            return self.descriptions.get((table.name, column_name))
+        table_id = getattr(table, "table_id", None)
+        if table_type == "data_warehouse" and table_id:
+            return self.descriptions.get((str(table_id), column_name))
         return None
 
     def collect(self) -> tuple[list[list[Any]], list[list[Any]], list[list[Any]]]:
