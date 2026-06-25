@@ -42,6 +42,7 @@ depends_on = [
     "products.customer_analytics",
     "products.dashboards",
     "products.data_modeling",
+    "products.demo",
     "products.error_tracking",
     "products.event_definitions",
     "products.experiments",
@@ -80,6 +81,7 @@ depends_on = [
     "products.dashboards",
     "products.data_modeling",
     "products.data_warehouse",
+    "products.demo",
     "products.early_access_features",
     "products.endpoints",
     "products.error_tracking",
@@ -264,6 +266,24 @@ depends_on = [
     "products.dashboards",
     "products.data_modeling",
     "products.revenue_analytics", "products.warehouse_sources", "products.data_tools", "products.batch_exports",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.demo"
+depends_on = [
+    "posthog",
+    "products.actions",
+    "products.cohorts",
+    "products.dashboards",
+    "products.data_tools",
+    "products.endpoints",
+    "products.error_tracking",
+    "products.event_definitions",
+    "products.experiments",
+    "products.feature_flags",
+    "products.product_analytics",
+    "products.warehouse_sources",
 ]
 layer = "modules"
 
