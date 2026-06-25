@@ -3152,10 +3152,11 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             )
 
         lines = ""
+        lines += self._logs_records_json(self.org_1_team_1.id, "web", 3)
         lines += self._logs_records_json(self.org_1_team_1.id, "posthog-ios", 2)
         lines += self._logs_records_json(self.org_1_team_1.id, "posthog-android", 1)
+        lines += self._logs_records_json(self.org_1_team_1.id, "posthog-ruby", 7)
         lines += self._logs_records_json(self.org_1_team_2.id, "posthog-react-native", 4)
-        # A server SDK and an infra log (no telemetry.sdk.name) must not be counted.
         lines += self._logs_records_json(self.org_1_team_2.id, "posthog-node", 5)
         lines += self._logs_records_json(self.org_1_team_2.id, None, 6)
         # Team 3 has log records but no app_metrics2 row, so the pre-filter excludes it entirely.
@@ -3174,9 +3175,9 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         # telemetry.sdk.name are not counted; flutter ships no logs yet; team 5 has log records but
         # no app_metrics2 row, so the pre-filter drops it entirely.
         expected_counts: dict[str, tuple[dict, dict[str, int]]] = {
-            "org": (org_1_report, {"ios": 2, "react_native": 4, "android": 1, "flutter": 0}),
-            "team 3": (org_1_report["teams"]["3"], {"ios": 2, "android": 1, "react_native": 0}),
-            "team 4": (org_1_report["teams"]["4"], {"react_native": 4, "ios": 0}),
+            "org": (org_1_report, {"web": 3, "ios": 2, "react_native": 4, "android": 1, "flutter": 0, "ruby": 7}),
+            "team 3": (org_1_report["teams"]["3"], {"web": 3, "ios": 2, "android": 1, "react_native": 0, "ruby": 7}),
+            "team 4": (org_1_report["teams"]["4"], {"react_native": 4, "ios": 0, "web": 0, "ruby": 0}),
             "team 5": (org_1_report["teams"]["5"], {"ios": 0}),
         }
         for scope, (counters, per_sdk) in expected_counts.items():
