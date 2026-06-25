@@ -113,8 +113,11 @@ function failedDiagnostics(row: SubscriptionDeliveryApi): AiReportDiagnostic[] {
     return (diagnostics as AiReportDiagnostic[]).filter((d) => d && d.ok === false)
 }
 
-function ExpandedDeliveryRow({ row }: { row: SubscriptionDeliveryApi }): JSX.Element {
+function ExpandedDeliveryRow({ row }: { row: SubscriptionDeliveryApi }): JSX.Element | null {
     const diagnostics = failedDiagnostics(row)
+    if (!row.change_summary && diagnostics.length === 0) {
+        return null
+    }
     return (
         <div className="px-4 py-3 text-sm flex flex-col gap-3">
             {row.change_summary ? (

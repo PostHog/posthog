@@ -1,5 +1,6 @@
 import uuid
 import datetime as dt
+import dataclasses
 from datetime import datetime
 
 from django.utils import timezone as tz
@@ -56,40 +57,38 @@ AI_REPORT_DIAGNOSTICS_KEY = "ai_report_diagnostics"
 _CREDIT_RESET_FALLBACK_DAYS = 31
 
 
+async def _load_snapshot(delivery_id: uuid.UUID) -> dict | None:
+    # Single read of the delivery's content_snapshot (both the AI report markdown and the
+    # diagnostics live here). DoesNotExist is tolerated: a missing row just means "no report yet".
+    @database_sync_to_async(thread_sensitive=False)
+    def _read() -> dict | None:
+        try:
+            snapshot = SubscriptionDelivery.objects.values_list("content_snapshot", flat=True).get(pk=delivery_id)
+        except SubscriptionDelivery.DoesNotExist:
+            return None
+        return snapshot if isinstance(snapshot, dict) else None
+
+    return await _read()
+
+
+def _snapshot_report(snapshot: dict | None) -> str | None:
+    report = snapshot.get(AI_REPORT_SNAPSHOT_KEY) if snapshot else None
+    return report if isinstance(report, str) and report else None
+
+
 async def _load_ai_report(delivery_id: uuid.UUID) -> str | None:
-    @database_sync_to_async(thread_sensitive=False)
-    def _read() -> str | None:
-        # DoesNotExist is tolerated here (read side): a missing row just means "no report yet".
-        try:
-            snapshot = SubscriptionDelivery.objects.values_list("content_snapshot", flat=True).get(pk=delivery_id)
-        except SubscriptionDelivery.DoesNotExist:
-            return None
-        if not isinstance(snapshot, dict):
-            return None
-        report = snapshot.get(AI_REPORT_SNAPSHOT_KEY)
-        return report if isinstance(report, str) and report else None
-
-    return await _read()
+    return _snapshot_report(await _load_snapshot(delivery_id))
 
 
-async def _load_ai_report_diagnostics(delivery_id: uuid.UUID) -> tuple[int, int, list[str]]:
-    # (failed_step_count, total_step_count, sorted distinct failure types) read back from the
-    # persisted diagnostics. Used on Temporal redispatch, where the report is already generated and
-    # we return the prior run's failure shape instead of recomputing it.
-    @database_sync_to_async(thread_sensitive=False)
-    def _read() -> tuple[int, int, list[str]]:
-        try:
-            snapshot = SubscriptionDelivery.objects.values_list("content_snapshot", flat=True).get(pk=delivery_id)
-        except SubscriptionDelivery.DoesNotExist:
-            return (0, 0, [])
-        diagnostics = snapshot.get(AI_REPORT_DIAGNOSTICS_KEY) if isinstance(snapshot, dict) else None
-        if not isinstance(diagnostics, list):
-            return (0, 0, [])
-        failed = [d for d in diagnostics if isinstance(d, dict) and d.get("ok") is False]
-        error_types = sorted({str(d["error_type"]) for d in failed if d.get("error_type")})
-        return (len(failed), len(diagnostics), error_types)
-
-    return await _read()
+def _snapshot_diagnostic_counts(snapshot: dict | None) -> tuple[int, int, list[str]]:
+    # (failed_step_count, total_step_count, sorted distinct failure types) from the persisted
+    # diagnostics — used on Temporal redispatch to return the prior run's failure shape.
+    diagnostics = snapshot.get(AI_REPORT_DIAGNOSTICS_KEY) if snapshot else None
+    if not isinstance(diagnostics, list):
+        return (0, 0, [])
+    failed = [d for d in diagnostics if isinstance(d, dict) and d.get("ok") is False]
+    error_types = sorted({str(d["error_type"]) for d in failed if d.get("error_type")})
+    return (len(failed), len(diagnostics), error_types)
 
 
 def _report_diagnostic_counts(result: AiReportResult) -> tuple[int, int, list[str]]:
@@ -107,10 +106,7 @@ async def _persist_ai_report(delivery_id: uuid.UUID, result: AiReportResult) -> 
         delivery.content_snapshot = {
             **(delivery.content_snapshot or {}),
             AI_REPORT_SNAPSHOT_KEY: result.markdown,
-            AI_REPORT_DIAGNOSTICS_KEY: [
-                {"description": d.description, "hogql": d.hogql, "ok": d.ok, "error_type": d.error_type}
-                for d in result.diagnostics
-            ],
+            AI_REPORT_DIAGNOSTICS_KEY: [dataclasses.asdict(d) for d in result.diagnostics],
         }
         delivery.save(update_fields=["content_snapshot", "last_updated_at"])
 
@@ -209,9 +205,11 @@ async def generate_ai_subscription_report(inputs: GenerateAIReportInputs) -> Gen
 
     # Idempotency on Temporal redispatch: if a prior attempt already produced the report,
     # don't re-bill the LLM — the point of the generate -> deliver split is one LLM run.
-    if await _load_ai_report(inputs.delivery_id) is not None:
+    # One snapshot read serves both the "already generated?" check and the prior failure shape.
+    snapshot = await _load_snapshot(inputs.delivery_id)
+    if _snapshot_report(snapshot) is not None:
         await LOGGER.ainfo("generate_ai_subscription_report.already_generated", subscription_id=subscription.id)
-        failed_count, total_count, error_types = await _load_ai_report_diagnostics(inputs.delivery_id)
+        failed_count, total_count, error_types = _snapshot_diagnostic_counts(snapshot)
         return GenerateAIReportResult(
             aborted=False,
             failed_step_count=failed_count,

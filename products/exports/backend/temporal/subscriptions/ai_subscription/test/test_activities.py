@@ -10,9 +10,10 @@ from products.exports.backend.models.subscription import Subscription, Subscript
 from products.exports.backend.temporal.subscriptions.ai_subscription.activities import (
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_SNAPSHOT_KEY,
-    _load_ai_report_diagnostics,
+    _load_snapshot,
     _persist_ai_report,
     _report_diagnostic_counts,
+    _snapshot_diagnostic_counts,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     AiReportResult,
@@ -113,8 +114,8 @@ class TestReportDiagnosticCounts:
 
 
 # On Temporal redispatch the report is already persisted, so the failure shape is read back from the
-# snapshot rather than recomputed — it must match what _persist_ai_report wrote.
-async def test_load_ai_report_diagnostics_reads_persisted_failure_shape(team, user) -> None:
+# snapshot rather than recomputed — the persist -> load -> count round-trip must match what was written.
+async def test_snapshot_diagnostic_counts_reads_persisted_failure_shape(team, user) -> None:
     delivery = await _create_delivery(team, user)
     await _persist_ai_report(
         delivery.id,
@@ -127,10 +128,11 @@ async def test_load_ai_report_diagnostics_reads_persisted_failure_shape(team, us
         ),
     )
 
-    assert await _load_ai_report_diagnostics(delivery.id) == (1, 2, ["ResolutionError"])
+    assert _snapshot_diagnostic_counts(await _load_snapshot(delivery.id)) == (1, 2, ["ResolutionError"])
 
 
-async def test_load_ai_report_diagnostics_handles_missing_snapshot(team, user) -> None:
+async def test_snapshot_diagnostic_counts_handles_missing_diagnostics(team, user) -> None:
     delivery = await _create_delivery(team, user)
-    # No report persisted yet (empty content_snapshot) — must not raise, reports nothing failed.
-    assert await _load_ai_report_diagnostics(delivery.id) == (0, 0, [])
+    # Empty content_snapshot (nothing persisted yet) and a fully-missing snapshot both report nothing failed.
+    assert _snapshot_diagnostic_counts(await _load_snapshot(delivery.id)) == (0, 0, [])
+    assert _snapshot_diagnostic_counts(None) == (0, 0, [])

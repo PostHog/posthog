@@ -182,6 +182,12 @@ class GenerateAIReportResult:
     total_step_count: int = 0
     query_error_types: list[str] = dataclasses.field(default_factory=list)
 
+    @property
+    def all_queries_failed(self) -> bool:
+        # Every generated query failed → the report computed nothing. The single source of truth for
+        # this "fully degraded" judgement, so callers don't re-derive it from the raw counts.
+        return bool(self.total_step_count) and self.failed_step_count >= self.total_step_count
+
 
 @dataclasses.dataclass
 class SubscriptionAbortInfo:

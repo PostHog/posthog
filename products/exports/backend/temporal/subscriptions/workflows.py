@@ -536,20 +536,15 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
             # the delivery history surfaces on hover. Partial failures stay COMPLETED; their
             # per-query diagnostics (generated HogQL + error type) live in content_snapshot for
             # the delivery detail view.
-            failed_steps = generate_result.failed_step_count
-            total_steps = generate_result.total_step_count
-            if total_steps and failed_steps >= total_steps:
+            if generate_result.all_queries_failed:
                 final_status = DeliveryStatus.FAILED
-                error_detail = (
+                total = generate_result.total_step_count
+                detail = (
                     f" ({', '.join(generate_result.query_error_types)})" if generate_result.query_error_types else ""
                 )
-                subject = (
-                    "The query the AI generated failed to run"
-                    if total_steps == 1
-                    else f"All {total_steps} queries the AI generated failed to run"
-                )
+                subject = "The query the AI generated" if total == 1 else f"All {total} queries the AI generated"
                 generation_error = {
-                    "message": f"{subject}{error_detail}, so the report could not be computed.",
+                    "message": f"{subject} failed to run{detail}, so the report could not be computed.",
                     "type": "AIReportQueryFailure",
                 }
             else:
