@@ -855,6 +855,47 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 }
             }),
         ),
+        (
+            "fromUnixTimestamp",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "fromUnixTimestamp")?;
+                let ts = args[0].deref(&vm.heap)?.try_as::<Num>()?.to_float();
+                make_hog_datetime(ts, "UTC")
+            }),
+        ),
+        (
+            "fromUnixTimestampMilli",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "fromUnixTimestampMilli")?;
+                let ms = args[0].deref(&vm.heap)?.try_as::<Num>()?.to_float();
+                make_hog_datetime(ms / 1000.0, "UTC")
+            }),
+        ),
+        (
+            "toUnixTimestamp",
+            native_func(|vm, args| {
+                assert(!args.is_empty(), "toUnixTimestamp requires at least one argument")?;
+                let secs = temporal_seconds(vm, &args[0], "toUnixTimestamp")?;
+                Ok(HogLiteral::Number(Num::Float(secs)).into())
+            }),
+        ),
+        (
+            "toUnixTimestampMilli",
+            native_func(|vm, args| {
+                assert(!args.is_empty(), "toUnixTimestampMilli requires at least one argument")?;
+                let secs = temporal_seconds(vm, &args[0], "toUnixTimestampMilli")?;
+                Ok(HogLiteral::Number(Num::Integer((secs * 1000.0) as i64)).into())
+            }),
+        ),
+        (
+            "toTimeZone",
+            native_func(|vm, args| {
+                assert_argc(&args, 2, "toTimeZone")?;
+                let secs = temporal_seconds(vm, &args[0], "toTimeZone")?;
+                let zone: String = args[1].deref(&vm.heap)?.try_as::<str>()?.to_string();
+                make_hog_datetime(secs, &zone)
+            }),
+        ),
     ]
     .into_iter()
     .map(|(name, func)| (name.to_string(), func))
@@ -1250,6 +1291,18 @@ fn trim_impl(vm: &HogVM, args: Vec<HogValue>, side: TrimSide) -> Result<HogValue
         }
     };
     Ok(HogLiteral::String(result).into())
+}
+
+fn make_hog_datetime(dt: f64, zone: &str) -> Result<HogValue, VmError> {
+    construct_free_standing(json!({ "__hogDateTime__": true, "dt": dt, "zone": zone }), 0)
+}
+
+// Epoch seconds of a Hog Date/DateTime value (the `dt` field, or UTC midnight for a Date).
+fn temporal_seconds(vm: &HogVM, value: &HogValue, name: &str) -> Result<f64, VmError> {
+    value
+        .deref(&vm.heap)?
+        .as_temporal_seconds(&vm.heap)
+        .ok_or_else(|| VmError::NativeCallFailed(format!("{name} expects a Date or DateTime")))
 }
 
 fn assert(test: bool, msg: impl AsRef<str>) -> Result<(), VmError> {

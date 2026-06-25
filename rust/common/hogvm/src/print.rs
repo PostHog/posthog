@@ -5,6 +5,8 @@
 //! (which is `toString` semantics) on purpose — the two are subtly different and the
 //! parity loop is what reconciles them.
 
+use indexmap::IndexMap;
+
 use crate::{
     memory::{HeapReference, VmHeap},
     values::{Callable, HogLiteral, HogValue},
@@ -104,6 +106,10 @@ fn format_literal(
             Ok(format!("[{}]", parts.join(", ")))
         }
         HogLiteral::Object(obj) => {
+            // Hog temporals are duck-typed objects; the reference prints them as DateTime(...)/Date(...).
+            if let Some(temporal) = format_temporal(heap, obj)? {
+                return Ok(temporal);
+            }
             let mut parts = Vec::with_capacity(obj.len());
             for (key, val) in obj {
                 parts.push(format!(
@@ -123,6 +129,68 @@ fn format_literal(
 fn print_callable(callable: &Callable) -> String {
     let Callable::Local(local) = callable;
     format!("fn<{}({})>", escape_identifier(&local.name), local.stack_arg_count)
+}
+
+// Render the Hog temporal duck-types: `{__hogDateTime__: true, dt, zone}` -> `DateTime(dt, 'zone')`
+// and `{__hogDate__: true, year, month, day}` -> `Date(y, m, d)`. Returns None for plain objects.
+fn format_temporal(
+    heap: &VmHeap,
+    obj: &IndexMap<String, HogValue>,
+) -> Result<Option<String>, crate::VmError> {
+    if marker(heap, obj.get("__hogDateTime__"))? {
+        let dt = number(heap, obj.get("dt"))?.unwrap_or(0.0);
+        let zone = string(heap, obj.get("zone"))?.unwrap_or_else(|| "UTC".to_string());
+        return Ok(Some(format!(
+            "DateTime({}, {})",
+            format_dt_seconds(dt),
+            escape_string(&zone)
+        )));
+    }
+    if marker(heap, obj.get("__hogDate__"))? {
+        let y = number(heap, obj.get("year"))?.unwrap_or(0.0) as i64;
+        let m = number(heap, obj.get("month"))?.unwrap_or(0.0) as i64;
+        let d = number(heap, obj.get("day"))?.unwrap_or(0.0) as i64;
+        return Ok(Some(format!("Date({y}, {m}, {d})")));
+    }
+    Ok(None)
+}
+
+fn marker(heap: &VmHeap, v: Option<&HogValue>) -> Result<bool, crate::VmError> {
+    match v {
+        Some(v) => Ok(matches!(v.deref(heap)?, HogLiteral::Boolean(true))),
+        None => Ok(false),
+    }
+}
+
+fn number(heap: &VmHeap, v: Option<&HogValue>) -> Result<Option<f64>, crate::VmError> {
+    match v {
+        Some(v) => Ok(match v.deref(heap)? {
+            HogLiteral::Number(n) => Some(n.to_float()),
+            _ => None,
+        }),
+        None => Ok(None),
+    }
+}
+
+fn string(heap: &VmHeap, v: Option<&HogValue>) -> Result<Option<String>, crate::VmError> {
+    match v {
+        Some(v) => Ok(match v.deref(heap)? {
+            HogLiteral::String(s) => Some(s.clone()),
+            _ => None,
+        }),
+        None => Ok(None),
+    }
+}
+
+// DateTime seconds print with a trailing `.0` when integral (matching Python's `float(dt)` str and
+// the reference DateTime() format), e.g. 1609504496 -> "1609504496.0", 1609504496.5 unchanged.
+fn format_dt_seconds(f: f64) -> String {
+    let s = format!("{f}");
+    if s.contains(['.', 'e', 'E']) || !f.is_finite() {
+        s
+    } else {
+        format!("{s}.0")
+    }
 }
 
 /// Identifiers print raw when they look like identifiers, else backtick-escaped — matching
