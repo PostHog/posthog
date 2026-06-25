@@ -1365,6 +1365,9 @@ def clone_workspace(
     clone. If ``base_ami`` is rejected, the template predates the clone change
     and we fail loudly instead.
     """
+    # --preset none is required: newer Coder shows an interactive preset picker
+    # that --yes does not bypass, which would hang clone_workspace. The source's
+    # own parameters arrive via --copy-parameters-from, so no preset is wanted.
     args = _append_parameter_flags(
         [
             "coder",
@@ -1372,6 +1375,8 @@ def clone_workspace(
             target,
             "--template",
             template,
+            "--preset",
+            NO_PRESET,
             "--copy-parameters-from",
             source,
             "--yes",
