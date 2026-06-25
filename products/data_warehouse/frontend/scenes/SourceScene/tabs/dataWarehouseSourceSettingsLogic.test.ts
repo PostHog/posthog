@@ -130,9 +130,8 @@ describe('sourceSettingsLogic', () => {
     })
 
     it('bulk frequency edit sends only the changed field and preserves untouched ones', async () => {
-        // The schema has a column selection the user never touched in this edit. The bulk PATCH must
-        // carry only { id, sync_frequency } — sending enabled_columns (even unchanged) makes the
-        // backend reproject and wipe the selection.
+        // Sending enabled_columns (even unchanged) would make the backend wipe the selection, so the
+        // PATCH must carry only { id, sync_frequency }.
         jest.spyOn(api.externalDataSources, 'get').mockResolvedValue(
             makeSource([makeSchema({ sync_type: 'full_refresh', enabled_columns: ['id', 'name'] })])
         )
@@ -160,8 +159,7 @@ describe('sourceSettingsLogic', () => {
     })
 
     it('sends a changed writable field discovered by diff, not a fixed allowlist', async () => {
-        // The diff is dynamic: any writable field that changed is sent, even one no hardcoded list
-        // enumerates (here row_filters). Guards against regressing to an allowlist that silently drops it.
+        // row_filters isn't in any hardcoded list — guards against regressing to an allowlist that drops it.
         jest.spyOn(api.externalDataSources, 'get').mockResolvedValue(
             makeSource([makeSchema({ sync_type: 'incremental', incremental_field: 'updated_at' })])
         )
@@ -183,8 +181,7 @@ describe('sourceSettingsLogic', () => {
     })
 
     it('re-sends a failed in-flight edit fields when a newer edit for the same schema is queued', async () => {
-        // Minimal-diff payloads must not lose data: if a flush fails while a newer edit for the same
-        // schema is queued, the retry has to re-send the failed edit's fields too — not just the new one.
+        // A failed flush must not lose its fields: the retry re-sends them alongside the newer edit's.
         let rejectFirst: (() => void) | null = null
         let callCount = 0
         const bulkUpdateSchemasSpy = jest

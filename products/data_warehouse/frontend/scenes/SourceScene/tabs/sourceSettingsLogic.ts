@@ -67,18 +67,9 @@ function nextJobsPollDelay(softFailureCount: number): number {
     return exponential * (0.5 + Math.random() * 0.5)
 }
 
-// The backend treats any field present in a bulk-update request as an intentional write, so we send
-// only the fields the user actually changed — re-sending an unchanged field (e.g. enabled_columns:
-// null) clobbers the persisted value. Which fields changed is discovered dynamically by diffing the
-// edit against the current schema (see diffSchemaPayloadFields), so new editable fields need no
-// wiring here.
-//
-// This set is the inverse: the schema fields that must never be written by that diff. It mirrors the
-// serializer's read-only/derived fields — the backend ignores them on write anyway, but listing them
-// keeps a server-mutated value (e.g. a status change landing mid-edit) out of the payload. Using a
-// denylist rather than an allowlist of writable fields is deliberate: a newly added editable field is
-// then sent automatically, and the worst case of forgetting to list a new read-only field here is a
-// harmless ignored field on the wire — never the silent data loss a stale allowlist would cause.
+// Read-only/derived fields to keep out of bulk-update payloads. A denylist (not an allowlist of
+// writable fields) so new editable fields are sent automatically — a stale allowlist silently
+// dropped edits like sync_frequency.
 const NON_WRITABLE_SCHEMA_FIELDS = new Set<keyof ExternalDataSourceSchema>([
     'id',
     'name',
@@ -98,8 +89,7 @@ type SchemaPayloadField = keyof ExternalDataSourceSchema
 interface PendingSchemaUpdate {
     revision: number
     schema: ExternalDataSourceSchema
-    // Which payload fields changed relative to the last server-confirmed state, accumulated
-    // across coalesced edits to the same schema before a flush.
+    // Fields changed vs. server state, accumulated across coalesced edits before a flush.
     changedFields: Set<SchemaPayloadField>
 }
 
@@ -154,15 +144,13 @@ function applySchemasToSource(
     )
 }
 
-// Build the PATCH body from only the fields that changed, always including `id`. A changed value is
-// normalized to `null` when nullish so an explicit clear is sent (JSON drops `undefined`), while a
-// field the user never touched is omitted entirely — the backend leaves it untouched.
+// PATCH body of only the changed fields (+ id). The backend writes every field it receives, so
+// sending an untouched field would clobber it. Nullish → null so a clear is sent (JSON drops undefined).
 function buildSchemaUpdatePayload(
     schema: ExternalDataSourceSchema,
     changedFields: Set<SchemaPayloadField>
 ): Partial<ExternalDataSourceSchema> & Pick<ExternalDataSourceSchema, 'id'> {
     const payload: Partial<ExternalDataSourceSchema> & Pick<ExternalDataSourceSchema, 'id'> = { id: schema.id }
-    // Indexing payload by a union-typed key isn't expressible to TS; assign through an indexable view.
     const assign = payload as Record<string, unknown>
 
     for (const field of changedFields) {
@@ -172,10 +160,8 @@ function buildSchemaUpdatePayload(
     return payload
 }
 
-// The writable fields that differ between the new schema and the last server-confirmed schema,
-// discovered by diffing every key rather than a fixed list so new editable fields are picked up for
-// free. Read-only/derived fields are skipped (see NON_WRITABLE_SCHEMA_FIELDS). With no known baseline
-// (source not loaded yet) every writable field counts as changed, so the edit still fully persists.
+// Writable fields whose value changed vs. the current schema. No baseline (source not loaded) =>
+// treat all as changed so the edit still persists.
 function diffSchemaPayloadFields(
     nextSchema: ExternalDataSourceSchema,
     baselineSchema: ExternalDataSourceSchema | undefined
@@ -198,10 +184,8 @@ function diffSchemaPayloadFields(
     return changed
 }
 
-// When a flush fails while a newer edit for the same schema is already queued, the pending update
-// only carries the fields that changed since the (optimistically applied) in-flight edit — so its
-// changedFields omit the fields the failed request was sending. Fold the failed update back in so
-// the retry re-sends everything the user intended; the pending (newer) edit wins on field overlap.
+// A failed flush merges its fields into the newer queued edit so the retry re-sends both; the newer
+// edit wins on overlap. Otherwise the retry would drop the failed edit's fields.
 function foldFailedUpdateIntoPending(failed: PendingSchemaUpdate, pending: PendingSchemaUpdate): PendingSchemaUpdate {
     const mergedSchema = { ...failed.schema }
     const assign = mergedSchema as Record<string, unknown>
@@ -831,9 +815,8 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
 
                 schemaUpdateCache.schemaUpdateRevisions[schema.id] = nextRevision
 
-                // Diff against the current source schema (already reflects any in-flight optimistic
-                // state) to find what this edit changed, then merge with fields a not-yet-flushed
-                // pending edit changed so coalesced edits send the union — not just the latest one.
+                // Union this edit's changed fields with any not-yet-flushed pending edit's, so
+                // coalesced edits send everything that changed — not just the latest field.
                 const baselineSchema = values.source?.schemas.find((item) => item.id === schema.id)
                 const changedFields = diffSchemaPayloadFields(schema, baselineSchema)
                 for (const field of schemaUpdateCache.pendingSchemaUpdates[schema.id]?.changedFields ?? []) {
