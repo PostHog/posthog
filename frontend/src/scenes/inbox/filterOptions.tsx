@@ -43,8 +43,8 @@ export const PRIORITY_ACCENT: Record<SignalReportPriority, string> = {
 }
 
 // Port of desktop `@posthog/ui/features/inbox/filterOptions`. Drives the Source /
-// Sort / Priority filter popovers. Source-product values match the backend
-// `source_product` values; priority values are P0–P4.
+// Sort filter popovers. Source-product values match the backend
+// `source_product` values.
 
 export interface InboxSortOption {
     label: string
@@ -59,10 +59,6 @@ export const INBOX_SORT_OPTIONS: InboxSortOption[] = [
     { label: 'Newest first', field: 'created_at', direction: 'desc', icon: <IconCalendar /> },
     { label: 'Oldest first', field: 'created_at', direction: 'asc', icon: <IconClock /> },
 ]
-
-export const INBOX_PRIORITY_OPTIONS: { value: SignalReportPriority; accent: string }[] = (
-    ['P0', 'P1', 'P2', 'P3', 'P4'] as SignalReportPriority[]
-).map((value) => ({ value, accent: PRIORITY_ACCENT[value] }))
 
 export const INBOX_SOURCE_OPTIONS: { value: string; label: string; icon: JSX.Element }[] = [
     { value: 'session_replay', label: 'Session replay', icon: <IconRewindPlay /> },
@@ -88,14 +84,4 @@ export function inboxSourceFilterLabel(selected: string[]): string {
         return INBOX_SOURCE_OPTIONS.find((o) => o.value === selected[0])?.label ?? selected[0]
     }
     return `${selected.length} sources`
-}
-
-export function inboxPriorityFilterLabel(selected: SignalReportPriority[]): string {
-    if (selected.length === 0) {
-        return 'All priorities'
-    }
-    if (selected.length <= 2) {
-        return selected.join(', ')
-    }
-    return `${selected.length} priorities`
 }

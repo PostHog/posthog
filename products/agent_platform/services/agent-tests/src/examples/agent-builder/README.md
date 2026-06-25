@@ -125,7 +125,9 @@ Through the authoring MCP (preferred — same as other example bundles):
 agent-applications-create slug=agent-builder name="Agent Builder"
 agent-applications-revisions-create application_id=<id>
 # write bundle resources via the granular per-resource tools:
-#   agent-applications-revisions-agent-md-update / -skills-update / -tools-update
+#   agent-applications-revisions-agent-md-update / -tools-update
+# skills come from the store: llm-skills-create / -search, then
+#   agent-applications-revisions-skill-refs-set
 agent-applications-revisions-partial-update revision_id=<rid> spec=<contents of spec.json>
 agent-applications-revisions-validate-create revision_id=<rid>
 agent-applications-revisions-freeze-create revision_id=<rid>

@@ -2,11 +2,11 @@ import { DateTime } from 'luxon'
 import { Summary } from 'prom-client'
 import { gunzip, gzip } from 'zlib'
 
-import { sanitizeForUTF8 } from '~/utils/strings'
+import { parseJSON } from '~/common/utils/json-parse'
+import { sanitizeForUTF8 } from '~/common/utils/strings'
+import { UUIDT, castTimestampOrNow, clickHouseTimestampToISO } from '~/common/utils/utils'
 
 import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
-import { parseJSON } from '../utils/json-parse'
-import { UUIDT, castTimestampOrNow, clickHouseTimestampToISO } from '../utils/utils'
 import { CdpInternalEvent } from './schema'
 import { HogFunctionInvocationGlobals, HogFunctionType, LogEntry, LogEntrySerialized, MinimalLogEntry } from './types'
 

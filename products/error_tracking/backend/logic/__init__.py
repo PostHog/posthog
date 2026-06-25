@@ -515,13 +515,13 @@ def get_assignment_rule(team_id: int, rule_id: str) -> ErrorTrackingAssignmentRu
 
 
 def create_assignment_rule(
-    team_id: int, *, filters: dict, assignee_type: str, assignee_id: int | UUID
+    team_id: int, *, filters: dict, assignee_type: str, assignee_id: int | UUID, order_key: int = 0
 ) -> ErrorTrackingAssignmentRule:
     return ErrorTrackingAssignmentRule.objects.create(
         team_id=team_id,
         filters=filters,
         bytecode=_rule_bytecode(team_id, filters),
-        order_key=0,
+        order_key=order_key,
         user_id=cast(int, assignee_id) if assignee_type == "user" else None,
         role_id=cast(UUID, assignee_id) if assignee_type == "role" else None,
     )

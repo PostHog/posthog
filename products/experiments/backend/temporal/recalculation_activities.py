@@ -8,6 +8,7 @@ and lets the logic be unit-tested without the activity decorator.
 import temporalio.activity
 
 from products.experiments.backend.temporal.models import (
+    MAX_METRIC_ATTEMPTS,
     ExperimentMetricToRecalculate,
     MetricRecalculationResult,
     RecalculationProgressUpdate,
@@ -49,6 +50,9 @@ async def calculate_experiment_metric_for_recalculation(
     PostHog event so the capture path doesn't have to re-query the saved-metric M2M to resolve it. Defaults to
     "primary" so existing call sites and tests that don't pass it remain valid.
     """
+    # Temporal attempt is 1-based. On the final attempt, a transient failure must be persisted rather than
+    # re-raised, so the row reflects the real outcome once retries are exhausted.
+    is_final_attempt = temporalio.activity.info().attempt >= MAX_METRIC_ATTEMPTS
     return await _calculate_experiment_metric_for_recalculation_sync(
-        experiment_id, metric_uuid, recalculation_id, query_to, metric_type
+        experiment_id, metric_uuid, recalculation_id, query_to, metric_type, is_final_attempt
     )

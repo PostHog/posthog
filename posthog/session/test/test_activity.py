@@ -16,6 +16,7 @@ from posthog.models import User
 from posthog.session.activity import (
     list_user_sessions,
     revoke_other_sessions,
+    revoke_other_sessions_for_request,
     revoke_user_auth_session,
     session_public_id,
     sync_current_session_metadata,
@@ -184,3 +185,39 @@ class TestSessionActivity(BaseTest):
         user.delete()
 
         self.assertFalse(Session.objects.filter(session_key=key).exists())
+
+    def test_revoke_other_sessions_for_request_keeps_current(self):
+        user = self._make_user()
+        current = self._login_session(user)
+        other = self._login_session(user)
+
+        revoked = revoke_other_sessions_for_request(self._request(user, current), user)
+
+        self.assertEqual(revoked, 1)
+        self.assertTrue(Session.objects.filter(session_key=current).exists())
+        self.assertFalse(Session.objects.filter(session_key=other).exists())
+
+    def test_revoke_other_sessions_for_request_noop_when_impersonated(self):
+        user = self._make_user()
+        self._login_session(user)
+        self._login_session(user)
+        impersonated = self.engine.SessionStore()
+        impersonated[la_settings.USER_SESSION_FLAG] = "signed-original-user-pk"
+        impersonated.create()
+
+        revoked = revoke_other_sessions_for_request(self._request(user, impersonated.session_key), user)
+
+        self.assertEqual(revoked, 0)
+        self.assertEqual(Session.objects.filter(user_id=user.pk).count(), 2)
+
+    def test_deactivating_user_revokes_their_sessions(self):
+        user = self._make_user()
+        key = self._login_session(user)
+        other_user = self._make_user()
+        other_key = self._login_session(other_user)
+
+        user.is_active = False
+        user.save()
+
+        self.assertFalse(Session.objects.filter(session_key=key).exists())
+        self.assertTrue(Session.objects.filter(session_key=other_key).exists())  # other users untouched
