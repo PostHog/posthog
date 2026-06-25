@@ -1,10 +1,13 @@
+from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
 from unittest.mock import Mock, patch
 
 from django.apps import apps
+from django.utils import timezone
 
+from asgiref.sync import async_to_sync
 from social_django.models import UserSocialAuth
 
 from posthog.models import Organization, Team, User
@@ -156,20 +159,20 @@ def test_build_autostart_task_description_uses_research_branch_when_present():
     assert "Babysit CI" in description
 
 
-@pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_latest_artefact_as_returns_newest_commit(team):
+def test_latest_artefact_as_returns_newest_commit(team):
     report = SignalReport.objects.create(
         team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
     )
     older = Commit(repository="owner/repo", branch="posthog-self-driving/old", commit_sha="111", message="old")
     newer = Commit(repository="owner/repo", branch="posthog-self-driving/new", commit_sha="222", message="new")
-    SignalReportArtefact.objects.create(
+    older_artefact = SignalReportArtefact.objects.create(
         report=report,
         team=team,
         type=SignalReportArtefact.ArtefactType.COMMIT,
         content=older.model_dump_json(),
     )
+    SignalReportArtefact.objects.filter(pk=older_artefact.pk).update(created_at=timezone.now() - timedelta(hours=1))
     SignalReportArtefact.objects.create(
         report=report,
         team=team,
@@ -177,7 +180,7 @@ async def test_latest_artefact_as_returns_newest_commit(team):
         content=newer.model_dump_json(),
     )
 
-    result = await _latest_artefact_as(str(report.id), SignalReportArtefact.ArtefactType.COMMIT, Commit)
+    result = async_to_sync(_latest_artefact_as)(str(report.id), SignalReportArtefact.ArtefactType.COMMIT, Commit)
 
     assert result is not None
     assert result.branch == "posthog-self-driving/new"
