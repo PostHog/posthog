@@ -104,6 +104,10 @@ export function DashboardsTree(): JSX.Element {
                                             icon={allExpanded ? <IconCollapse /> : <IconExpand />}
                                             tooltip={allExpanded ? 'Collapse all folders' : 'Expand all folders'}
                                             onClick={(e) => {
+                                                // The row is a Link (to='#' since folders carry no href); preventDefault
+                                                // stops the toggle from triggering that nav (which bounces to home),
+                                                // stopPropagation stops it from also selecting the root folder.
+                                                e.preventDefault()
                                                 e.stopPropagation()
                                                 setExpandedFolders(
                                                     allExpanded

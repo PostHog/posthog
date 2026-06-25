@@ -157,4 +157,24 @@ describe('DashboardsTree', () => {
         clickExpandToggle(container)
         expect(setExpandedFolders).toHaveBeenCalledWith({})
     })
+
+    it('the expand toggle cancels the row-link nav (no bounce to home) and does not select the root', () => {
+        mockValues({
+            folderTree: [
+                {
+                    path: 'Marketing',
+                    label: 'Marketing',
+                    children: [{ path: 'Marketing/Q1', label: 'Q1', children: [] }],
+                },
+            ],
+        })
+        const { container } = render(<DashboardsTree />)
+        const toggle = container.querySelector('[data-attr="dashboards-tree-expand-toggle"]') as HTMLElement
+        // The row is a Link (to='#' for folders); fireEvent returns false only when the handler called
+        // preventDefault — the guard that stops the toggle bouncing to home. stopPropagation keeps it from
+        // also selecting the root folder.
+        expect(fireEvent.click(toggle)).toBe(false)
+        expect(navigateToFolder).not.toHaveBeenCalled()
+        expect(setExpandedFolders).toHaveBeenCalled()
+    })
 })
