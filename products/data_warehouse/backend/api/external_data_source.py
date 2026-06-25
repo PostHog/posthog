@@ -1409,7 +1409,7 @@ class DraftCustomManifestResponseSerializer(serializers.Serializer):
 # Local-dev only. `draft_custom_manifest` falls back to this canned draft when the gateway call fails
 # under DEBUG, so the intro→builder flow stays testable without the LLM gateway — which needs
 # prod-style ingress to route get_llm_client's product path, so the bare local gateway 404s it.
-_STUB_CUSTOM_MANIFEST = {
+_STUB_CUSTOM_MANIFEST: dict[str, Any] = {
     "client": {"base_url": "https://api.example.com/v1", "auth": {"type": "bearer"}},
     "resources": [
         {
