@@ -255,7 +255,7 @@ class MarketingMixDatasetQueryRunner:
 
     def _build_outcome_query(self, processor: ConversionGoalProcessor) -> ast.SelectQuery:
         date_field = processor.get_date_field()  # e.g. "events.timestamp"
-        date_expr = ast.Field(chain=date_field.split("."))
+        date_expr = ast.Field(chain=[*date_field.split(".")])
         date_as_datetime = ast.Call(name="toDateTime", args=[date_expr])
         window = [
             ast.CompareOperation(

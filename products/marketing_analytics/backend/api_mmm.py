@@ -14,7 +14,7 @@ Everything is staff-gated while in development (mirroring the identity matching 
 """
 
 import csv
-from typing import Any
+from typing import Any, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.http import StreamingHttpResponse
@@ -34,6 +34,7 @@ from rest_framework.response import Response
 from posthog.schema import DateRange
 
 from posthog.api.mixins import validated_request
+from posthog.models.user import User
 
 from .hogql_queries.marketing_mix_dataset_query_runner import (
     MarketingMixDataset,
@@ -223,7 +224,7 @@ class MmmCalibrationSerializer(serializers.Serializer):
     )
     ci_low = serializers.FloatField(help_text="Lower bound of the lift confidence interval, same units as lift_pct.")
     ci_high = serializers.FloatField(help_text="Upper bound of the lift confidence interval, same units as lift_pct.")
-    source = serializers.CharField(
+    source = serializers.CharField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
         required=False, default="manual", help_text="Origin of the calibration: 'manual' or 'experiment'."
     )
     experiment_id = serializers.CharField(
@@ -296,7 +297,7 @@ class MmmActionsMixin:
     @action(methods=["GET"], detail=False, url_path="mmm_dataset", required_scopes=["marketing_analytics:read"])
     def mmm_dataset(self, request: Request, *args: Any, **kwargs: Any) -> Response | StreamingHttpResponse:
         self._assert_mmm_access(request)
-        params = request.validated_query_data  # type: ignore[attr-defined]
+        params = request.validated_query_data
         date_from = params.get("date_from")
         date_to = params.get("date_to")
         date_range = DateRange(date_from=date_from, date_to=date_to) if (date_from and date_to) else default_window()
@@ -306,7 +307,7 @@ class MmmActionsMixin:
                 team=self.team,  # type: ignore[attr-defined]
                 date_range=date_range,
                 outcome_index=params["outcome_index"],
-                user=request.user,
+                user=cast(User, request.user),
             )
             dataset = runner.run()
         except Exception:

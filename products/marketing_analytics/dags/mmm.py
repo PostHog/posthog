@@ -537,7 +537,7 @@ def _summarize_curves(
         # The saturation transform maps spend → diminishing incremental outcome; sample it across the
         # posterior to get a mean + 90% band per grid point. Exact API validated in MMM-0b.
         try:
-            curve = model.sample_response_distribution(channel=channel, spend_grid=grid)  # type: ignore[attr-defined]
+            curve = model.sample_response_distribution(channel=channel, spend_grid=grid)
             mean = np.asarray(curve).mean(axis=0)
             lower = np.quantile(np.asarray(curve), 0.05, axis=0)
             upper = np.quantile(np.asarray(curve), 0.95, axis=0)
@@ -592,13 +592,13 @@ def _diagnostics(context: dagster.OpExecutionContext, model, frame, np, degraded
     """
     diagnostics: dict[str, float] = {"r_squared": 0.0, "mape": 0.0, "divergences": 0.0}
     try:
-        idata = model.idata  # type: ignore[attr-defined]
+        idata = model.idata
         diagnostics["divergences"] = float(int(idata.sample_stats["diverging"].values.sum()))
     except Exception:
         context.log.exception("MMM divergence diagnostic unavailable; defaulting to 0 and marking degraded")
         degraded.add("diagnostics")
     try:
-        predicted = np.asarray(model.get_target_transformer().inverse_transform(model.posterior_predictive_mean()))  # type: ignore[attr-defined]
+        predicted = np.asarray(model.get_target_transformer().inverse_transform(model.posterior_predictive_mean()))
         actual = frame["outcome"].to_numpy()
         ss_res = float(np.sum((actual - predicted) ** 2))
         ss_tot = float(np.sum((actual - actual.mean()) ** 2)) or 1.0
