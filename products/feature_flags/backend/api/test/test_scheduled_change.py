@@ -906,6 +906,24 @@ class TestScheduledChangeAccessControl(BaseAccessControlTest):
         assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
         assert not ScheduledChange.objects.filter(id=orphaned_change.id).exists()
 
+    def test_delete_schedule_with_non_numeric_record_id(self):
+        # The edit check's int cast raises ValueError for a non-numeric record_id; like the deleted-flag
+        # case it has no flag-level permission to enforce, so the schedule must still be deletable.
+        change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id="not-a-number",
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": False},
+            scheduled_at=datetime(2023, 12, 8, 12, 0, 0, tzinfo=UTC),
+            created_by=self.user,
+        )
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/scheduled_changes/{change.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT, response.content
+        assert not ScheduledChange.objects.filter(id=change.id).exists()
+
     def test_create_requires_resource_write_despite_object_editor_grant(self):
         # Create is gated at the resource level: AccessControlPermission denies `create` before the
         # per-object fallback that read/update/delete fall through to. So a member whose feature_flag

@@ -187,7 +187,7 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
 
     def _check_target_edit_permission(self, model_name: str | None, record_id: Any, team_id: int) -> FeatureFlag | None:
         """Enforce edit permission on the target record and return the resolved flag (None if not a flag)."""
-        if model_name != "FeatureFlag" or not record_id:
+        if model_name != ScheduledChange.AllowedModels.FEATURE_FLAG or not record_id:
             return None
 
         try:
@@ -277,7 +277,9 @@ class ScheduledChangeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # so reads match feature-flag visibility (list/retrieve; retrieve then 404s).
         denied_flag_ids = self._inaccessible_feature_flag_ids()
         if denied_flag_ids:
-            queryset = queryset.exclude(model_name="FeatureFlag", record_id__in=denied_flag_ids)
+            queryset = queryset.exclude(
+                model_name=ScheduledChange.AllowedModels.FEATURE_FLAG, record_id__in=denied_flag_ids
+            )
 
         return queryset
 
@@ -297,7 +299,7 @@ class ScheduledChangeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return {str(pk) for pk in denied.values_list("id", flat=True)}
 
     def _assert_can_edit_target_flag(self, instance: ScheduledChange) -> None:
-        if instance.model_name != "FeatureFlag" or not instance.record_id:
+        if instance.model_name != ScheduledChange.AllowedModels.FEATURE_FLAG or not instance.record_id:
             return
         try:
             feature_flag = FeatureFlag.objects.get(id=instance.record_id, team_id=instance.team_id)
