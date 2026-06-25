@@ -16,10 +16,8 @@ export const language: () => languages.IMonarchLanguage = () => ({
             [/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/, 'type'],
             // Team / user owners: @org/team, @user.
             [/@[A-Za-z0-9/_.-]+/, 'type'],
-            // Glob wildcards within a path pattern.
-            [/[*?]+/, 'operator'],
-            // Path pattern segments.
-            [/[^\s#@*?]+/, 'string'],
+            // Path patterns, including glob wildcards.
+            [/[^\s#@]+/, 'string'],
         ],
     },
 })
