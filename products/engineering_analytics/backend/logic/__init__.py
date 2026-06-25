@@ -20,6 +20,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     PullRequestList,
     WorkflowHealthItem,
 )
+from products.engineering_analytics.backend.logic.quarantine import build_quarantine as build_quarantine
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.ci_cards import query_ci_cards
 from products.engineering_analytics.backend.logic.queries.pr_lifecycle import query_pr_lifecycle
