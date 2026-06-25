@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlus, IconTrash } from '@posthog/icons'
+import { IconPlus, IconSparkles, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDivider, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
@@ -85,7 +85,7 @@ export function CustomSourceManifestBuilder({
     setValue,
 }: CustomSourceManifestBuilderLogicProps): JSX.Element {
     const logic = customSourceManifestBuilderLogic({ initialManifestJson, setValue })
-    const { manifestState, manifestJson, manifestPreviewOpen } = useValues(logic)
+    const { manifestState, manifestJson, manifestPreviewOpen, docsUrl, draftResultLoading } = useValues(logic)
     const {
         updateState,
         updateTable,
@@ -96,10 +96,45 @@ export function CustomSourceManifestBuilder({
         removeHeader,
         updateHeader,
         setManifestPreviewOpen,
+        setDocsUrl,
+        generateFromDocs,
     } = useActions(logic)
 
     return (
         <div className="space-y-6">
+            <div className="rounded border border-border p-3 deprecated-space-y-2">
+                <div>
+                    <h4 className="mb-0 flex items-center gap-1">
+                        <IconSparkles /> Build from API docs
+                    </h4>
+                    <p className="m-0 text-xs text-secondary">
+                        Paste a link to the API's documentation and we'll draft the manifest below for you to review.
+                        Add your credentials after.
+                    </p>
+                </div>
+                <div className="flex items-center gap-2">
+                    <LemonInput
+                        className="flex-1"
+                        placeholder="https://docs.example.com/api"
+                        value={docsUrl}
+                        onChange={setDocsUrl}
+                        onPressEnter={generateFromDocs}
+                        disabled={draftResultLoading}
+                    />
+                    <LemonButton
+                        type="primary"
+                        icon={<IconSparkles />}
+                        loading={draftResultLoading}
+                        disabledReason={!docsUrl.trim() ? 'Enter a documentation URL' : undefined}
+                        onClick={generateFromDocs}
+                    >
+                        Generate
+                    </LemonButton>
+                </div>
+            </div>
+
+            <LemonDivider />
+
             <LemonField.Pure label="Base URL" htmlFor="custom-source-base-url">
                 <LemonInput
                     id="custom-source-base-url"

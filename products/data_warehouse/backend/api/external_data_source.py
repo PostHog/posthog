@@ -131,6 +131,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.custom.ai_builder import (
+    DocsFetchError,
+    draft_manifest_sync,
+    fetch_docs_text,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
     MAX_CUSTOM_SOURCES_PER_TEAM,
     PREVIEW_DEFAULT_ROWS,
@@ -1334,6 +1339,71 @@ class SourcePreviewResponseSerializer(serializers.Serializer):
     )
 
 
+class DraftCustomManifestRequestSerializer(serializers.Serializer):
+    source_name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Optional human name of the API being connected (e.g. 'Acme CRM'). Used only to orient the model.",
+    )
+    docs_url = serializers.URLField(
+        required=False,
+        allow_blank=True,
+        help_text="URL of the API documentation to read. Provide this or docs_text; fetched server-side via the egress proxy.",
+    )
+    docs_text = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Raw API documentation or an OpenAPI/Swagger spec, pasted directly. Provide this or docs_url.",
+    )
+    auth_token = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional bearer token, used only to live-validate the drafted manifest. Never written into the manifest.",
+    )
+    auth_api_key = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional API key (api_key auth), used only to live-validate the drafted manifest. Never written into the manifest.",
+    )
+    auth_password = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional HTTP basic password, used only to live-validate the drafted manifest. Never written into the manifest.",
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if not (attrs.get("docs_url") or attrs.get("docs_text")):
+            raise serializers.ValidationError("Provide either docs_url or docs_text.")
+        return attrs
+
+
+class DraftCustomManifestResponseSerializer(serializers.Serializer):
+    draft_status = serializers.ChoiceField(
+        choices=["ok", "invalid", "model_error"],
+        help_text=(
+            "'ok' = a manifest validated; 'invalid' = a manifest was drafted but never validated within the budget "
+            "(see error; manifest_json holds the last attempt to fix by hand); 'model_error' = the model returned no "
+            "usable JSON."
+        ),
+    )
+    manifest_json = serializers.CharField(
+        allow_null=True,
+        help_text="The drafted RESTAPIConfig manifest as a JSON string (non-secret), or null if none was produced.",
+    )
+    resource_names = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Names of the resources (tables) the validated manifest exposes. Empty unless draft_status is 'ok'.",
+    )
+    attempts = serializers.IntegerField(
+        help_text="How many draft→validate→repair rounds were run.",
+    )
+    error = serializers.CharField(
+        allow_null=True,
+        help_text="The last validation error when draft_status is not 'ok'; null on success.",
+    )
+
+
 class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
     class Meta:
         model = ExternalDataSource
@@ -1378,6 +1448,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # Live outbound HTTP to a caller-supplied manifest (including POSTs) — a
         # side-effecting action, so it needs write scope, not read.
         "preview_resource",
+        # Fetches a caller-supplied docs URL and calls the (paid) LLM gateway — side-effecting.
+        "draft_custom_manifest",
     ]
     scope_object_read_actions = [
         "list",
@@ -2601,6 +2673,64 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 "rows": result.rows,
                 "row_count": result.row_count,
                 "columns": result.columns,
+                "error": result.error,
+            },
+        )
+
+    @extend_schema(
+        request=DraftCustomManifestRequestSerializer,
+        responses={200: DraftCustomManifestResponseSerializer},
+    )
+    @action(methods=["POST"], detail=False)
+    def draft_custom_manifest(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Draft a Custom REST source manifest from API documentation using an LLM.
+
+        Reads the docs (a URL fetched server-side, or pasted text / OpenAPI spec), asks the model to
+        author a RESTAPIConfig manifest, and validates it against the create-path checks — repairing
+        against validation errors up to a small budget. Returns the manifest for the user to review
+        and tweak in the builder before creating the source; it does NOT create anything. Requires
+        the org to have approved AI data processing, since the docs are sent to the LLM gateway.
+        """
+        serializer = DraftCustomManifestRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+
+        if self.team.organization.is_ai_data_processing_approved is not True:
+            return Response(
+                status=status.HTTP_403_FORBIDDEN,
+                data={"message": "Enable AI data processing for this organization to use AI manifest drafting."},
+            )
+
+        docs_text = (data.get("docs_text") or "").strip()
+        if not docs_text:
+            try:
+                docs_text = fetch_docs_text(data["docs_url"])
+            except DocsFetchError as e:
+                return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
+
+        try:
+            result = draft_manifest_sync(
+                team_id=self.team_id,
+                source_name=data.get("source_name") or "",
+                docs_text=docs_text,
+                auth_token=data.get("auth_token") or None,
+                auth_api_key=data.get("auth_api_key") or None,
+                auth_password=data.get("auth_password") or None,
+            )
+        except Exception as e:
+            capture_exception(e, {"team_id": self.team_id})
+            return Response(
+                status=status.HTTP_502_BAD_GATEWAY,
+                data={"message": "The manifest drafting service failed. Try again, or author the manifest manually."},
+            )
+
+        return Response(
+            status=status.HTTP_200_OK,
+            data={
+                "draft_status": result.status,
+                "manifest_json": result.manifest_json,
+                "resource_names": result.resource_names,
+                "attempts": result.attempts,
                 "error": result.error,
             },
         )

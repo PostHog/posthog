@@ -2561,6 +2561,52 @@ export const ExternalDataSourcesDatabaseSchemaCreateBody = /* @__PURE__ */ zod
     )
 
 /**
+ * Draft a Custom REST source manifest from API documentation using an LLM.
+ *
+ * Reads the docs (a URL fetched server-side, or pasted text / OpenAPI spec), asks the model to
+ * author a RESTAPIConfig manifest, and validates it against the create-path checks — repairing
+ * against validation errors up to a small budget. Returns the manifest for the user to review
+ * and tweak in the builder before creating the source; it does NOT create anything. Requires
+ * the org to have approved AI data processing, since the docs are sent to the LLM gateway.
+ */
+export const externalDataSourcesDraftCustomManifestCreateBodySourceNameDefault = ``
+
+export const ExternalDataSourcesDraftCustomManifestCreateBody = /* @__PURE__ */ zod.object({
+    source_name: zod
+        .string()
+        .default(externalDataSourcesDraftCustomManifestCreateBodySourceNameDefault)
+        .describe("Optional human name of the API being connected (e.g. 'Acme CRM'). Used only to orient the model."),
+    docs_url: zod
+        .url()
+        .optional()
+        .describe(
+            'URL of the API documentation to read. Provide this or docs_text; fetched server-side via the egress proxy.'
+        ),
+    docs_text: zod
+        .string()
+        .optional()
+        .describe('Raw API documentation or an OpenAPI\/Swagger spec, pasted directly. Provide this or docs_url.'),
+    auth_token: zod
+        .string()
+        .optional()
+        .describe(
+            'Optional bearer token, used only to live-validate the drafted manifest. Never written into the manifest.'
+        ),
+    auth_api_key: zod
+        .string()
+        .optional()
+        .describe(
+            'Optional API key (api_key auth), used only to live-validate the drafted manifest. Never written into the manifest.'
+        ),
+    auth_password: zod
+        .string()
+        .optional()
+        .describe(
+            'Optional HTTP basic password, used only to live-validate the drafted manifest. Never written into the manifest.'
+        ),
+})
+
+/**
  * Read a bounded sample of rows for one resource of a Custom REST source.
  *
  * Lets a manifest author verify `data_selector`, `primary_key`, and the incremental

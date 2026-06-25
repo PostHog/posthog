@@ -19,9 +19,11 @@ from __future__ import annotations
 import re
 import json
 import dataclasses
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Literal
 
+import requests
 import structlog
 from openai import OpenAI
 
@@ -52,6 +54,13 @@ MAX_DOCS_CHARS = 600_000
 MAX_OUTPUT_TOKENS = 32_000
 # How many draft→validate→repair rounds before giving up to manual authoring.
 MAX_DRAFT_ATTEMPTS = 4
+
+# Docs fetch bounds. Egress runs through Smokescreen (the cloud egress proxy), which blocks private
+# hosts — so this is a plain fetch through the proxy, not a hand-rolled SSRF validator. Bounded by a
+# byte cap and a connect/read timeout so a hostile or slow server can't hang or exhaust memory.
+DOCS_FETCH_TIMEOUT = (5, 20)  # (connect, read) seconds
+DOCS_FETCH_MAX_BYTES = 2_000_000
+DOCS_FETCH_USER_AGENT = "PostHog-CustomSourceBuilder/1.0"
 
 # The skill is the single source of truth for the prompt; load it from its canonical repo path
 # rather than duplicating the grammar here. parents[5] is the `warehouse_sources` product root.
@@ -85,6 +94,67 @@ def load_skill_reference() -> str:
         return f"{skill.read_text()}\n\n{reference.read_text()}"
     except OSError as exc:
         raise RuntimeError(f"Custom-source skill reference not found at {_SKILL_DIR}: {exc}") from exc
+
+
+class DocsFetchError(Exception):
+    """A docs URL couldn't be fetched. The message is user-safe (no internal detail)."""
+
+
+class _DocsTextExtractor(HTMLParser):
+    """Strip HTML to visible text, dropping script/style/noscript bodies."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._skip = 0
+        self.parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in ("script", "style", "noscript"):
+            self._skip += 1
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in ("script", "style", "noscript") and self._skip:
+            self._skip -= 1
+
+    def handle_data(self, data: str) -> None:
+        if not self._skip:
+            self.parts.append(data)
+
+
+def _html_to_text(html: str) -> str:
+    parser = _DocsTextExtractor()
+    parser.feed(html)
+    return re.sub(r"\n{3,}", "\n\n", "".join(parser.parts)).strip()
+
+
+def fetch_docs_text(url: str) -> str:
+    """Fetch an API docs page and return its text. HTML is reduced to visible text; other content
+    types are returned as-is. Relies on Smokescreen for SSRF protection — do NOT bypass the proxy.
+    """
+    try:
+        with requests.get(
+            url,
+            timeout=DOCS_FETCH_TIMEOUT,
+            stream=True,
+            headers={"User-Agent": DOCS_FETCH_USER_AGENT},
+        ) as response:
+            response.raise_for_status()
+            content_type = response.headers.get("content-type", "")
+            raw = b""
+            for chunk in response.iter_content(chunk_size=8192):
+                raw += chunk
+                if len(raw) >= DOCS_FETCH_MAX_BYTES:
+                    break
+    except requests.RequestException as exc:
+        raise DocsFetchError(f"Could not fetch the docs URL: {exc}") from exc
+
+    text = raw.decode(response.encoding or "utf-8", errors="replace")
+    if "html" in content_type.lower():
+        text = _html_to_text(text)
+    text = text.strip()
+    if not text:
+        raise DocsFetchError("The docs URL returned no readable text — paste the docs or an OpenAPI spec instead.")
+    return text
 
 
 def _collapse_untrusted(text: str) -> str:

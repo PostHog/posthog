@@ -11,6 +11,14 @@ import {
     sharedListeners,
 } from 'kea'
 import type { FieldName } from 'kea-forms'
+import { loaders } from 'kea-loaders'
+
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
+import { ApiConfig } from '~/lib/api'
+
+import { externalDataSourcesDraftCustomManifestCreate } from 'products/warehouse_sources/frontend/generated/api'
+import type { DraftCustomManifestResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import {
     buildManifest,
@@ -75,6 +83,8 @@ export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderL
         // UI-only: tracks the generated-manifest <details> disclosure so the
         // CodeSnippet (and its syntax highlighting) only renders while expanded.
         setManifestPreviewOpen: (open: boolean) => ({ open }),
+        // AI assist: the docs URL the user wants to draft a manifest from.
+        setDocsUrl: (docsUrl: string) => ({ docsUrl }),
     }),
     reducers(({ props }) => ({
         manifestState: [
@@ -149,6 +159,31 @@ export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderL
                 setManifestPreviewOpen: (_, { open }) => open,
             },
         ],
+        docsUrl: [
+            '',
+            {
+                setDocsUrl: (_, { docsUrl }) => docsUrl,
+            },
+        ],
+    })),
+    loaders(({ values }) => ({
+        // Drafts a manifest from the docs URL via the backend AI builder. The returned value drives
+        // `draftResultLoading` (button spinner); the success listener populates the builder.
+        draftResult: [
+            null as DraftCustomManifestResponseApi | null,
+            {
+                generateFromDocs: async (): Promise<DraftCustomManifestResponseApi | null> => {
+                    const docsUrl = values.docsUrl.trim()
+                    if (!docsUrl) {
+                        lemonToast.error('Enter a documentation URL first')
+                        return null
+                    }
+                    return await externalDataSourcesDraftCustomManifestCreate(String(ApiConfig.getCurrentTeamId()), {
+                        docs_url: docsUrl,
+                    })
+                },
+            },
+        ],
     })),
     selectors({
         manifestJson: [(s) => [s.manifestState], (state): string => JSON.stringify(buildManifest(state), null, 2)],
@@ -169,7 +204,7 @@ export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderL
     })),
     // Every state mutation re-pushes the serialized manifest + secrets to the
     // outer form — this replaces the effect that watched the derived values.
-    listeners(({ sharedListeners }) => ({
+    listeners(({ sharedListeners, actions }) => ({
         setManifestState: sharedListeners.pushManifestToOuterForm,
         updateState: sharedListeners.pushManifestToOuterForm,
         updateTable: sharedListeners.pushManifestToOuterForm,
@@ -180,6 +215,28 @@ export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderL
         removeHeader: sharedListeners.pushManifestToOuterForm,
         updateHeader: sharedListeners.pushManifestToOuterForm,
         syncToOuterForm: sharedListeners.pushManifestToOuterForm,
+        generateFromDocsSuccess: ({ draftResult }) => {
+            if (!draftResult) {
+                return
+            }
+            // Populate the builder from the draft so the user reviews and adds credentials before
+            // creating; secrets are never in the manifest, so the auth_* fields stay for them to fill.
+            if (draftResult.manifest_json) {
+                actions.setManifestState(parseManifestIntoState(draftResult.manifest_json))
+            }
+            if (draftResult.draft_status === 'ok') {
+                lemonToast.success(
+                    `Drafted a manifest with ${draftResult.resource_names.length} table(s). Review it and add your credentials.`
+                )
+            } else {
+                lemonToast.warning(
+                    draftResult.error || 'Could not fully validate the manifest — review and fix it before creating.'
+                )
+            }
+        },
+        generateFromDocsFailure: () => {
+            lemonToast.error('Failed to draft a manifest. Try again, or build it manually below.')
+        },
     })),
     afterMount(({ actions, props }) => {
         // The reducer already parsed `initialManifestJson` at mount, but the listeners
