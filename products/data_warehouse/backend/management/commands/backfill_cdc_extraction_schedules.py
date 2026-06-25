@@ -34,7 +34,7 @@ from django.core.management.base import BaseCommand
 
 import structlog
 
-from products.data_warehouse.backend.data_load.service import bulk_sync_cdc_extraction_schedules, cdc_min_interval
+from products.data_warehouse.backend.logic.data_load.service import bulk_sync_cdc_extraction_schedules, cdc_min_interval
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
