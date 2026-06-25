@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from django.utils.timezone import now
 
+from posthog.models import signals
 from posthog.models.group.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person, PersonDistinctId
@@ -233,7 +234,10 @@ def _remove_cohort_member_from_fake(cohort_id: int, person_id: int) -> None:
 
 def _ch_sync_person(person: Person, distinct_ids: list[str]) -> None:
     """Mirror a person + its distinct ids into ClickHouse, matching the old
-    post_save signal behavior that fired on ORM creation."""
+    post_save signal behavior that fired on ORM creation.  Like that signal it is
+    a @mutable_receiver, so mute_selected_signals() suppresses the ClickHouse write."""
+    if signals.is_muted:
+        return
     _ch_create_person(
         team_id=person.team_id,
         properties=person.properties or {},
@@ -346,7 +350,8 @@ def update_person(person: Person) -> None:
 
 def add_distinct_id(*, person: Person, distinct_id: str, version: int = 0) -> PersonDistinctId:
     """Add a distinct ID to a person in ClickHouse + the personhog fake (or the persons DB when fake-off)."""
-    _ch_create_person_distinct_id(person.team_id, str(distinct_id), str(person.uuid), version=version)
+    if not signals.is_muted:
+        _ch_create_person_distinct_id(person.team_id, str(distinct_id), str(person.uuid), version=version)
 
     existing_distinct_ids = getattr(person, "_distinct_ids", None)
     if existing_distinct_ids is not None and distinct_id not in existing_distinct_ids:
