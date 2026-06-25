@@ -347,6 +347,26 @@ describe('featureFlagLogic', () => {
             }
         )
 
+        it('prepends org default groups ahead of template groups when default conditions are enabled', async () => {
+            const DEFAULT_GROUP = { properties: [], rollout_percentage: 10, variant: null }
+            useMocks({
+                get: {
+                    [`/api/environments/${MOCK_DEFAULT_PROJECT.id}/default_release_conditions/`]: () => [
+                        200,
+                        { enabled: true, default_groups: [DEFAULT_GROUP] },
+                    ],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.applyTemplate('targeted')
+            }).toDispatchActions(['applyTemplate', 'setFeatureFlag'])
+
+            const groups = logic.values.featureFlag.filters.groups
+            expect(groups[0]).toMatchObject(DEFAULT_GROUP)
+            expect(groups.length).toBeGreaterThan(1)
+        })
+
         it('preserves variant payloads when applying a template to a non-encrypted flag', async () => {
             const MOCK_NON_ENCRYPTED_FLAG: FeatureFlagType = {
                 ...logic.values.featureFlag,

@@ -18,6 +18,29 @@ export async function fetchDefaultReleaseConditions(teamId: number): Promise<Def
     return await api.get(`/api/environments/${teamId}/default_release_conditions/`)
 }
 
+/**
+ * Returns the cached value if already loaded, otherwise fetches it directly.
+ * Used in loaders that need default release conditions on mount before the
+ * async load from defaultReleaseConditionsLogic has resolved.
+ */
+export async function resolveDefaultReleaseConditions(
+    cached: DefaultReleaseConditionsResponse | null,
+    teamId: number | undefined
+): Promise<DefaultReleaseConditionsResponse | null> {
+    if (cached) {
+        return cached
+    }
+    if (!teamId) {
+        return null
+    }
+    try {
+        return await fetchDefaultReleaseConditions(teamId)
+    } catch (e) {
+        console.warn('Failed to fetch default release conditions:', e)
+        return null
+    }
+}
+
 export const defaultReleaseConditionsLogic = kea<defaultReleaseConditionsLogicType>([
     path(['scenes', 'feature-flags', 'defaultReleaseConditionsLogic']),
 

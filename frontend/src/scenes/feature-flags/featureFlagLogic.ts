@@ -84,11 +84,7 @@ import { TEMPLATE_NAMES } from 'products/feature_flags/frontend/featureFlagTempl
 import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
 import { defaultEvaluationContextsLogic } from './defaultEvaluationContextsLogic'
-import {
-    DefaultReleaseConditionsResponse,
-    defaultReleaseConditionsLogic,
-    fetchDefaultReleaseConditions,
-} from './defaultReleaseConditionsLogic'
+import { defaultReleaseConditionsLogic, resolveDefaultReleaseConditions } from './defaultReleaseConditionsLogic'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
@@ -1295,17 +1291,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         // Use cached value if already loaded; fetch directly if not yet available
                         // to avoid a race where defaultReleaseConditionsLogic's async load hasn't
                         // completed before loadFeatureFlag reads values.defaultReleaseConditions.
-                        let conditionsConfig: DefaultReleaseConditionsResponse | null = values.defaultReleaseConditions
-                        if (!conditionsConfig) {
-                            const teamId = values.currentTeam?.id
-                            if (teamId) {
-                                try {
-                                    conditionsConfig = await fetchDefaultReleaseConditions(teamId)
-                                } catch (e) {
-                                    // Don't block new flag creation if the fetch fails
-                                    console.warn('Failed to fetch default release conditions:', e)
-                                }
-                            }
+                        const conditionsConfig = await resolveDefaultReleaseConditions(
+                            values.defaultReleaseConditions,
+                            values.currentTeam?.id
+                        )
+                        if (conditionsConfig && !values.defaultReleaseConditions) {
+                            // Warm the cache so applyTemplate doesn't issue a redundant fetch
+                            actions.loadDefaultReleaseConditionsSuccess(conditionsConfig)
                         }
                         if (conditionsConfig?.enabled && conditionsConfig.default_groups?.length > 0) {
                             baseFlagConfig = {
@@ -2007,17 +1999,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
             const templateValues = template.getValues(values.featureFlag)
 
-            let defaultConfig: DefaultReleaseConditionsResponse | null = values.defaultReleaseConditions
-            if (!defaultConfig) {
-                const teamId = values.currentTeam?.id
-                if (teamId) {
-                    try {
-                        defaultConfig = await fetchDefaultReleaseConditions(teamId)
-                    } catch (e) {
-                        console.warn('Failed to fetch default release conditions:', e)
-                    }
-                }
-            }
+            const defaultConfig = await resolveDefaultReleaseConditions(
+                values.defaultReleaseConditions,
+                values.currentTeam?.id
+            )
             const defaultGroups =
                 defaultConfig?.enabled && defaultConfig.default_groups?.length > 0 ? defaultConfig.default_groups : []
             const templateGroups = templateValues.filters?.groups ?? []
