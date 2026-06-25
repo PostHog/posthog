@@ -22,7 +22,9 @@ use crate::{
     },
 };
 
-pub use limiter::{RateLimitDecision, RedisRateLimiter, RATE_LIMIT_LUA};
+use crate::modes::processing::rules::rate_limit::RateLimitSettings;
+
+pub use limiter::{RateLimitDecision, RedisRateLimiter, ScriptRunner, RATE_LIMIT_LUA};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum LimitKind {
@@ -92,93 +94,107 @@ impl Stage for RateLimitingStage {
 
         let mut items: Vec<ExceptionEventPipelineItem> = batch.into();
 
-        // Group surviving (Ok) events by (team_id, issue_id). Suppressed / failed
-        // events are already Err and never charged. Vec<usize> stays in input order.
-        let mut groups: HashMap<(i32, Option<Uuid>), Vec<usize>> = HashMap::new();
-        for (idx, item) in items.iter().enumerate() {
-            if let Ok(props) = item {
-                groups
-                    .entry((props.team_id, props.issue_id))
-                    .or_default()
-                    .push(idx);
-            }
-        }
-
-        if groups.is_empty() {
+        // Teams of the surviving (Ok) events. Suppressed / failed events are
+        // already Err and are never charged.
+        let team_ids: HashSet<i32> = items
+            .iter()
+            .filter_map(|item| item.as_ref().ok().map(|props| props.team_id))
+            .collect();
+        if team_ids.is_empty() {
             return Ok(Batch::from(items));
         }
 
-        let team_ids: HashSet<i32> = groups.keys().map(|(team_id, _)| *team_id).collect();
         let settings = self
             .ctx
             .team_manager
             .get_rate_limit_settings(&self.ctx.posthog_pool, team_ids)
             .await;
 
-        let mut outcomes: HashMap<(i32, LimitKind, Outcome), u32> = HashMap::new();
-        let mut drops: Vec<(usize, EventError)> = Vec::new();
-
-        for ((team_id, issue_id), indices) in groups {
-            let Some(team_settings) = settings.get(&team_id) else {
-                continue; // no row → team hasn't opted in
-            };
-
-            // Per-issue limit only applies when we actually have an issue to key on.
-            let per_issue = issue_id.and(team_settings.per_issue());
-            let project = team_settings.project();
-            if per_issue.is_none() && project.is_none() {
-                continue;
-            }
-
-            let n = indices.len() as u32;
-            let decision = match limiter
-                .admit(team_id, issue_id, per_issue, project, n)
-                .await
-            {
-                Ok(decision) => decision,
-                Err(e) => {
-                    // Fail open: keep everything, but record it so we can alert on it.
-                    warn!("error-tracking rate limiter failed open for team {team_id}: {e}");
-                    counter!(RATE_LIMIT_FAIL_OPEN).increment(n as u64);
-                    continue;
-                }
-            };
-
-            let group = classify_group(
-                team_id,
-                issue_id,
-                &indices,
-                decision,
-                per_issue.is_some(),
-                project.is_some(),
-            );
-            drops.extend(group.drops);
-            if let Some((allowed, limited)) = group.per_issue {
-                add_outcome(
-                    &mut outcomes,
-                    team_id,
-                    LimitKind::PerIssue,
-                    allowed,
-                    limited,
-                );
-            }
-            if let Some((allowed, limited)) = group.project {
-                add_outcome(&mut outcomes, team_id, LimitKind::Project, allowed, limited);
-            }
-        }
-
-        // Flip dropped slots Ok -> Err in place; length and order are preserved
-        // (post-processing reattaches original events by index).
-        for (idx, err) in drops {
-            if let Some(slot) = items.get_mut(idx) {
-                *slot = Err(err);
-            }
-        }
+        let outcomes = apply_rate_limits(&limiter, &settings, &mut items).await;
 
         self.emit_metrics(&outcomes).await;
 
         Ok(Batch::from(items))
     }
+}
+
+/// Core of `RateLimitingStage::process`, split out so it can be unit-tested with
+/// an in-memory `ScriptRunner` (the stage itself needs a full `AppContext`).
+///
+/// Groups the surviving (`Ok`) events by (team_id, issue_id), charges each group
+/// against the team's configured limits, and flips over-limit events to `Err` in
+/// place — length and input order are preserved, so post-processing still
+/// reattaches original events by index. Returns per-(team, limit, outcome)
+/// tallies for metrics. Fails open per group: a limiter error keeps that group's
+/// events and records a fail-open metric.
+async fn apply_rate_limits(
+    limiter: &RedisRateLimiter,
+    settings: &HashMap<i32, RateLimitSettings>,
+    items: &mut [ExceptionEventPipelineItem],
+) -> HashMap<(i32, LimitKind, Outcome), u32> {
+    // Group surviving (Ok) events by (team_id, issue_id). Vec<usize> stays in input order.
+    let mut groups: HashMap<(i32, Option<Uuid>), Vec<usize>> = HashMap::new();
+    for (idx, item) in items.iter().enumerate() {
+        if let Ok(props) = item {
+            groups
+                .entry((props.team_id, props.issue_id))
+                .or_default()
+                .push(idx);
+        }
+    }
+
+    let mut outcomes: HashMap<(i32, LimitKind, Outcome), u32> = HashMap::new();
+    let mut drops: Vec<(usize, EventError)> = Vec::new();
+
+    for ((team_id, issue_id), indices) in groups {
+        let Some(team_settings) = settings.get(&team_id) else {
+            continue; // no row → team hasn't opted in
+        };
+
+        // Per-issue limit only applies when we actually have an issue to key on.
+        let per_issue = issue_id.and(team_settings.per_issue());
+        let project = team_settings.project();
+        if per_issue.is_none() && project.is_none() {
+            continue;
+        }
+
+        let n = indices.len() as u32;
+        let decision = match limiter.admit(team_id, issue_id, per_issue, project, n).await {
+            Ok(decision) => decision,
+            Err(e) => {
+                // Fail open: keep everything, but record it so we can alert on it.
+                warn!("error-tracking rate limiter failed open for team {team_id}: {e}");
+                counter!(RATE_LIMIT_FAIL_OPEN).increment(n as u64);
+                continue;
+            }
+        };
+
+        let group = classify_group(
+            team_id,
+            issue_id,
+            &indices,
+            decision,
+            per_issue.is_some(),
+            project.is_some(),
+        );
+        drops.extend(group.drops);
+        if let Some((allowed, limited)) = group.per_issue {
+            add_outcome(&mut outcomes, team_id, LimitKind::PerIssue, allowed, limited);
+        }
+        if let Some((allowed, limited)) = group.project {
+            add_outcome(&mut outcomes, team_id, LimitKind::Project, allowed, limited);
+        }
+    }
+
+    // Flip dropped slots Ok -> Err in place; length and order are preserved
+    // (post-processing reattaches original events by index).
+    for (idx, err) in drops {
+        if let Some(slot) = items.get_mut(idx) {
+            *slot = Err(err);
+        }
+    }
+
+    outcomes
 }
 
 impl RateLimitingStage {
@@ -301,6 +317,145 @@ fn add_outcome(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::modes::processing::types::exception_properties::ExceptionProperties;
+    use crate::modes::processing::types::ExceptionList;
+    use async_trait::async_trait;
+    use common_redis::CustomRedisError;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// A `ScriptRunner` that never touches Redis: returns a canned reply, or an
+    /// error to drive the stage's fail-open path, and counts its invocations.
+    struct FakeScriptRunner {
+        result: Result<Vec<i64>, ()>,
+        calls: AtomicUsize,
+    }
+
+    impl FakeScriptRunner {
+        fn returning(reply: Vec<i64>) -> Self {
+            Self {
+                result: Ok(reply),
+                calls: AtomicUsize::new(0),
+            }
+        }
+
+        fn failing() -> Self {
+            Self {
+                result: Err(()),
+                calls: AtomicUsize::new(0),
+            }
+        }
+
+        fn call_count(&self) -> usize {
+            self.calls.load(Ordering::Relaxed)
+        }
+    }
+
+    #[async_trait]
+    impl ScriptRunner for FakeScriptRunner {
+        async fn eval_int_vec(
+            &self,
+            _script: &str,
+            _keys: Vec<String>,
+            _args: Vec<String>,
+        ) -> Result<Vec<i64>, CustomRedisError> {
+            self.calls.fetch_add(1, Ordering::Relaxed);
+            match &self.result {
+                Ok(reply) => Ok(reply.clone()),
+                Err(()) => Err(CustomRedisError::Timeout),
+            }
+        }
+    }
+
+    fn limiter_with(runner: Arc<FakeScriptRunner>) -> RedisRateLimiter {
+        RedisRateLimiter::new(runner, "test".to_string(), 3600)
+    }
+
+    fn settings(per_issue: Option<i32>, project: Option<i32>) -> RateLimitSettings {
+        RateLimitSettings {
+            per_issue_value: per_issue,
+            per_issue_bucket_minutes: Some(60),
+            project_value: project,
+            project_bucket_minutes: Some(60),
+        }
+    }
+
+    fn event(team_id: i32, issue_id: Option<Uuid>) -> ExceptionEventPipelineItem {
+        Ok(ExceptionProperties {
+            exception_list: ExceptionList(vec![]),
+            exception_sources: None,
+            exception_types: None,
+            exception_messages: None,
+            exception_functions: None,
+            exception_handled: None,
+            exception_releases: HashMap::new(),
+            fingerprint: None,
+            proposed_fingerprint: None,
+            fingerprint_record: None,
+            issue_id,
+            proposed_issue_name: None,
+            proposed_issue_description: None,
+            debug_images: vec![],
+            props: HashMap::new(),
+            uuid: Uuid::now_v7(),
+            timestamp: String::new(),
+            team_id,
+            issue: None,
+        })
+    }
+
+    #[tokio::test]
+    async fn fails_open_keeping_all_events_when_redis_errors() {
+        let runner = Arc::new(FakeScriptRunner::failing());
+        let limiter = limiter_with(runner.clone());
+        let issue = Uuid::now_v7();
+        let mut items: Vec<ExceptionEventPipelineItem> =
+            (0..5).map(|_| event(1, Some(issue))).collect();
+        let mut cfg = HashMap::new();
+        cfg.insert(1, settings(Some(1), Some(1)));
+
+        let outcomes = apply_rate_limits(&limiter, &cfg, &mut items).await;
+
+        // Redis errored, so the whole group is kept (fail open): nothing is
+        // flipped to Err, and no allowed/limited outcomes are tallied.
+        assert!(items.iter().all(|item| item.is_ok()));
+        assert_eq!(runner.call_count(), 1); // one group -> one (failed) redis call
+        assert!(outcomes.is_empty());
+    }
+
+    #[tokio::test]
+    async fn drops_over_limit_events_in_classify_order() {
+        // One issue group of 5; per-issue admits 3, project admits 1 of those.
+        let runner = Arc::new(FakeScriptRunner::returning(vec![3, 1]));
+        let limiter = limiter_with(runner);
+        let issue = Uuid::now_v7();
+        let mut items: Vec<ExceptionEventPipelineItem> =
+            (0..5).map(|_| event(7, Some(issue))).collect();
+        let mut cfg = HashMap::new();
+        cfg.insert(7, settings(Some(100), Some(100)));
+
+        apply_rate_limits(&limiter, &cfg, &mut items).await;
+
+        assert!(items[0].is_ok()); // kept
+        assert!(matches!(items[1], Err(EventError::RateLimitedProject(7))));
+        assert!(matches!(items[2], Err(EventError::RateLimitedProject(7))));
+        assert!(matches!(items[3], Err(EventError::RateLimitedPerIssue(_))));
+        assert!(matches!(items[4], Err(EventError::RateLimitedPerIssue(_))));
+    }
+
+    #[tokio::test]
+    async fn skips_team_without_settings_without_touching_redis() {
+        let runner = Arc::new(FakeScriptRunner::returning(vec![0, 0]));
+        let limiter = limiter_with(runner.clone());
+        let mut items: Vec<ExceptionEventPipelineItem> =
+            (0..3).map(|_| event(42, Some(Uuid::now_v7()))).collect();
+        let cfg = HashMap::new(); // team 42 has no settings row
+
+        let outcomes = apply_rate_limits(&limiter, &cfg, &mut items).await;
+
+        assert!(items.iter().all(|item| item.is_ok())); // opted-out team untouched
+        assert_eq!(runner.call_count(), 0); // and we never hit redis for it
+        assert!(outcomes.is_empty());
+    }
 
     fn decision(issue: u32, team: u32) -> RateLimitDecision {
         RateLimitDecision {

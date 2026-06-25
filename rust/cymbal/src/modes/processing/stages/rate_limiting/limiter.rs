@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use chrono::Utc;
 use common_redis::{CustomRedisError, RedisClient};
 use uuid::Uuid;
@@ -62,14 +63,44 @@ local team_admitted  = take(KEYS[2], issue_admitted, tonumber(ARGV[6]), tonumber
 return { issue_admitted, team_admitted }
 "#;
 
+/// The single Redis operation the limiter needs: run the Lua script and decode
+/// its integer-array reply. Behind a trait so the rate-limiting stage can be
+/// unit-tested with an in-memory fake — including a failing one, to prove the
+/// stage fails open. Production uses the real `RedisClient`.
+#[async_trait]
+pub trait ScriptRunner: Send + Sync {
+    async fn eval_int_vec(
+        &self,
+        script: &str,
+        keys: Vec<String>,
+        args: Vec<String>,
+    ) -> Result<Vec<i64>, CustomRedisError>;
+}
+
+#[async_trait]
+impl ScriptRunner for RedisClient {
+    async fn eval_int_vec(
+        &self,
+        script: &str,
+        keys: Vec<String>,
+        args: Vec<String>,
+    ) -> Result<Vec<i64>, CustomRedisError> {
+        RedisClient::eval_int_vec(self, script, keys, args).await
+    }
+}
+
 pub struct RedisRateLimiter {
-    redis: Arc<RedisClient>,
+    redis: Arc<dyn ScriptRunner>,
     key_prefix: String,
     bucket_ttl_seconds: u64,
 }
 
 impl RedisRateLimiter {
-    pub fn new(redis: Arc<RedisClient>, key_prefix: String, bucket_ttl_seconds: u64) -> Self {
+    pub fn new(
+        redis: Arc<dyn ScriptRunner>,
+        key_prefix: String,
+        bucket_ttl_seconds: u64,
+    ) -> Self {
         Self {
             redis,
             key_prefix,
