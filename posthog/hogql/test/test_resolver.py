@@ -5,11 +5,13 @@ from uuid import UUID
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.test import override_settings
 
 from parameterized import parameterized
 
+import posthog.hogql.resolver_utils as resolver_utils
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
@@ -693,6 +695,28 @@ class TestResolver(BaseTest):
                 "WITH initial_alias AS (SELECT 1 AS a) SELECT a FROM initial_alias AS new_alias WHERE new_alias.a=1"
             ),
             "WITH initial_alias AS (SELECT 1 AS a) SELECT a FROM initial_alias AS new_alias WHERE equals(new_alias.a, 1) LIMIT 50000",
+        )
+
+    def test_cte_synthetic_table_built_at_most_once(self):
+        built_ids: list[int] = []
+        real = resolver_utils.resolve_cte_database_table
+
+        def counting(select_query_type, context):
+            built_ids.append(id(select_query_type))
+            return real(select_query_type, context)
+
+        query = (
+            "with base as (select event from events), "
+            "mid as (select x.event from base x, base y), "
+            "top as (select p.event from mid p, mid q) "
+            "select r.event from top r, top s"
+        )
+        with patch.object(resolver_utils, "resolve_cte_database_table", side_effect=counting):
+            self._print_hogql(query)
+
+        assert built_ids, "expected at least one CTE table to be built"
+        assert len(built_ids) == len(set(built_ids)), (
+            f"a CTE table was rebuilt: {len(built_ids)} builds for {len(set(built_ids))} distinct CTEs"
         )
 
     def test_ctes_with_aliases_in_joins(self):

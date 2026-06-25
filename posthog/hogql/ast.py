@@ -462,7 +462,16 @@ class CTETableType(BaseTableType):
             return False
 
     def resolve_database_table(self, context: HogQLContext) -> Table:
-        return resolver_utils.resolve_cte_database_table(self.select_query_type, context)
+        # Cache per resolution: building this table re-resolves every column, so without it a CTE
+        # referenced N times is rebuilt N times (quadratic on SELECT * CTE chains).
+        cache = context.cte_database_table_cache
+        key = id(self.select_query_type)
+        cached = cache.get(key)
+        if cached is not None and cached[0] is self.select_query_type:
+            return cached[1]
+        table = resolver_utils.resolve_cte_database_table(self.select_query_type, context)
+        cache[key] = (self.select_query_type, table)
+        return table
 
     def resolve_column_constant_type(self, name: str, context: HogQLContext) -> ConstantType:
         field = self.resolve_database_table(context).get_field(name)
