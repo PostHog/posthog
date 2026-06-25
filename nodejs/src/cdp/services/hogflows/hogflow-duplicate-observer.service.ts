@@ -2,8 +2,8 @@ import { Counter } from 'prom-client'
 
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { RedisClient, RedisV2 } from '~/common/redis/redis-v2'
+import { logger } from '~/common/utils/logger'
 
-import { logger } from '../../../utils/logger'
 import { CyclotronJobInvocationHogFlow } from '../../types'
 import { mirrorCall } from '../../utils/mirror-call'
 

@@ -27,7 +27,7 @@ from products.revenue_analytics.backend.hogql_queries.test.data.structure import
     STRIPE_SUBSCRIPTION_COLUMNS,
 )
 from products.revenue_analytics.backend.views.schemas.mrr import SCHEMA as MRR_SCHEMA
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,

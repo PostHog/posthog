@@ -4,8 +4,7 @@ from unittest import mock
 from django.core.management import call_command
 from django.test import override_settings
 
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 
 _SERVICE = "products.data_warehouse.backend.data_load.service"
 

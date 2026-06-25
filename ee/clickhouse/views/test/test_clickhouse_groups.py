@@ -2091,8 +2091,7 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
         self.assertEqual(metric.name, "Updated by admin")
 
     def _create_dw_table(self, name: str = "stripe_charges"):
-        from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-        from products.warehouse_sources.backend.models.table import DataWarehouseTable
+        from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
         credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
         return DataWarehouseTable.objects.create(

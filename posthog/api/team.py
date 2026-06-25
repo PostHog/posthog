@@ -839,7 +839,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     @tracer.start_as_current_span("team_serializer.managed_viewsets")
     def get_managed_viewsets(self, obj):
         from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
-        from products.warehouse_sources.backend.types import DataWarehouseManagedViewSetKind
+        from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
         enabled_viewsets = DataWarehouseManagedViewSet.objects.filter(team=obj).values_list("kind", flat=True)
         enabled_set = set(enabled_viewsets)
@@ -1640,7 +1640,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         if "events" in validated_data:
             from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
-            from products.warehouse_sources.backend.types import DataWarehouseManagedViewSetKind
+            from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
             managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
                 team=instance,
