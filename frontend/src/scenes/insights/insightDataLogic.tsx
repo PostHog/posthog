@@ -297,14 +297,18 @@ export const insightDataLogic = kea<insightDataLogicType>([
             // Debounce rapid clicks. insightDataLogic is keyed per insight, so breakpoint
             // only cancels concurrent saves for THIS insight — not unrelated tiles.
             await breakpoint(700)
+            const insightId = values.insight.id
+            if (!insightId) {
+                return
+            }
             try {
-                const updatedItem = await insightsApi.update(values.insight.id, { query })
+                const updatedItem = await insightsApi.update(insightId, { query })
                 // Drop the response if a newer save started while this request was in flight.
                 await breakpoint(0)
                 actions.renameInsightSuccess(updatedItem)
                 lemonToast.success('Insight updated')
             } catch (e) {
-                if (!isBreakpoint(e)) {
+                if (!isBreakpoint(e as Error)) {
                     lemonToast.error('Failed to update insight')
                 }
             }
