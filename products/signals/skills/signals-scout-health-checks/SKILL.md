@@ -18,9 +18,6 @@ compatibility: >
 metadata:
   owner_team: signals
   scope: health_checks
-allowed_tools:
-  - emit_report
-  - edit_report
 ---
 
 # Signals scout: setup health
@@ -213,36 +210,6 @@ Write scratchpad entries continuously, encoding the category in the key prefix:
   `noise:` entry).
 - **Skip** if a `dedupe:` / `noise:` / `addressed:` entry already covers it.
 
-#### Report channel (opt-in)
-
-Your output is naturally _one well-framed report_ — a bundled kind-cluster, or a single
-high-blast-radius root cause with remediation. For those you can author a full inbox report
-directly with `signals-scout-emit-report` instead of `-emit-signal`, when you've already done
-the research and want 1:1 control over the title/summary rather than letting the pipeline
-cluster it. The confidence bar is the same (≥ 0.85 for a report-worthy finding); reporting is a
-higher bar, not a shortcut.
-
-- **Before authoring**, `inbox-reports-list` (filter by title substring / `status`) for a
-  prior report on the same cluster/cause. Found one → `signals-scout-edit-report` it (append a
-  note with the new count/critical, or rewrite the summary) instead of filing a duplicate.
-- **After authoring**, write a `report:health:<kind-or-cause>` scratchpad entry storing the
-  `report_id` and date, so the next run edits that report rather than re-filing. The channel is
-  **not idempotent** — never retry a call that may have succeeded; `inbox-reports-list` (or
-  `inbox-reports-retrieve` by stored `report_id`) to check first.
-- `actionability` is your call: `immediately_actionable` for an agent-fixable issue with clear
-  MCP remediation, `requires_human_input` for credential-gated ones (e.g.
-  `external_data_failure`), `not_actionable` to file for the record. Put the issue ids and
-  blast-radius numbers in `evidence` exactly as you would for a signal.
-- **Opening a draft PR (optional):** for an `immediately_actionable` issue that's fixable in a
-  known repo, also pass `repository` (`owner/repo`), `priority` (`P0`-`P4`) + `priority_explanation`,
-  and `suggested_reviewers` (GitHub logins) — autostart opens a draft PR when a reviewer clears their
-  autonomy threshold. Omit them (or pass `NO_REPO`) to just surface the report; don't trigger
-  free-form repo selection by omitting `repository` on a fixable issue — name the repo.
-
-When a finding is a routine single issue or a low-confidence pattern, stay on `-emit-signal` —
-the report channel is for the bundled, researched, human-framed findings this scout exists to
-produce.
-
 ### Close out
 
 One paragraph: which issues you looked at, what you emitted (and why), what
@@ -308,9 +275,7 @@ Direct (read-only):
 
 Harness-level: `signals-scout-project-profile-get`, `signals-scout-scratchpad-search` /
 `-remember` / `-forget`, `signals-scout-runs-list` / `-runs-retrieve`,
-`signals-scout-emit-signal`. Report channel (opt-in): `signals-scout-emit-report` /
-`-edit-report`, with `inbox-reports-list` / `-retrieve` for dedup (see the Report channel
-note under Decide).
+`signals-scout-emit-signal`.
 
 For deeper query playbooks the sandbox bakes `posthog:querying-posthog-data` (HogQL syntax +
 `system.*` patterns).

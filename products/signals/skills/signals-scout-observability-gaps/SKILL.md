@@ -16,9 +16,6 @@ compatibility: >
 metadata:
   owner_team: signals
   scope: observability_gaps
-allowed_tools:
-  - emit_report
-  - edit_report
 ---
 
 # Signals scout: observability gaps
@@ -236,26 +233,6 @@ A finding here recommends an action, not surfaces a problem. Required elements:
   volume just crossed a threshold? Because a new event class emerged? Volume + recency
   is the dedupe key.
 
-A recommendation is naturally _one well-formed report_ — a specific gap with a concrete
-suggested action. You can author it directly as an inbox report with
-`signals-scout-emit-report` instead of `-emit-signal`, keeping 1:1 control over the
-title/summary rather than letting the pipeline cluster it. Recommendations are almost always
-`requires_human_input` (a human decides whether to build the insight/dashboard/alert), so an
-authored report surfaces as `PENDING_INPUT`. The bar is unchanged — only cross-the-stability-bar
-gaps get reported.
-
-- **Before authoring**, `inbox-reports-list` (filter by title substring / `status`) for
-  a prior recommendation on the same gap. Found one → `signals-scout-edit-report` rather than
-  re-filing.
-- **After authoring**, store the `report_id` in the gap's watch entry (or a
-  `report:observability_gaps:<gap>` entry) so the ~30-day guard edits/retires that report instead
-  of producing a duplicate. The channel is **not idempotent** — never retry a call that may have
-  succeeded.
-
-When a candidate is still parked (hasn't crossed the stability bar) or is a marginal gap, stay
-on memory / `-emit-signal` — the report channel is for the researched recommendation you'd put
-in front of a human.
-
 Severity for observability-gap findings is almost always **P3** (suggestion). The
 confidence bar trades off:
 
@@ -362,9 +339,6 @@ Harness-level:
 - `signals-scout-scratchpad-search` / `signals-scout-scratchpad-remember` — durable steering.
 - `signals-scout-runs-list` / `signals-scout-runs-retrieve` — what prior runs found.
 - `signals-scout-emit-signal` — emit a recommendation finding.
-- Report channel (opt-in): `signals-scout-emit-report` / `-edit-report`, with `inbox-reports-list`
-  / `-retrieve` for dedup — author or update a recommendation as a full inbox report (see the
-  report-channel note under Recommend).
 
 For deeper investigation playbooks, the sandbox image bakes upstream PostHog skills:
 `posthog:querying-posthog-data` (HogQL syntax + system.\* search patterns) and
