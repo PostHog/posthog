@@ -16,6 +16,7 @@ import type {
     IdentityLinkStateStore,
     IdentityStore,
     SecretResolver,
+    TransportBindingStore,
 } from '@posthog/agent-shared'
 import {
     applyApprovalDecision,
@@ -36,6 +37,7 @@ const log = createLogger('ingress')
 import { SessionEventBus } from '@posthog/agent-shared'
 import type { AuthConfig } from '@posthog/agent-shared'
 
+import { buildAdmission } from '../enqueue/admission-gate'
 import { authorize, AuthProvider, principalsMatch, PUBLIC_ONLY_AUTH_PROVIDER } from '../enqueue/auth'
 import { chatTrigger } from '../triggers/chat'
 import { mcpTrigger } from '../triggers/mcp'
@@ -147,6 +149,8 @@ export interface BuildAppOpts {
      */
     identityCredentials?: IdentityCredentialStore
     identityLinks?: IdentityLinkStateStore
+    /** Durable transport→canonical-identity bindings; backs edge admission. */
+    transportBindings?: TransportBindingStore
     envEncryption?: EncryptedFields
     /** PostHog API base — the `{kind:posthog}` provider builds its OAuth
      *  endpoints from this in the link callback. Without it the callback can't
@@ -320,7 +324,15 @@ export function buildApp(opts: BuildAppOpts): Express {
                 return
             }
             try {
-                await provider.complete({ stateId, query: { code, error: errorParam } })
+                // Authoritative-provider callback → admission.complete (writes the
+                // canonical identity + transport binding). Any other provider is a
+                // per-asker capability link → the provider persists its own credential.
+                const admission = buildAdmission(opts, revision)
+                if (admission && providerId === revision.spec.authoritative_provider) {
+                    await admission.complete(providerId, stateId, { code, error: errorParam })
+                } else {
+                    await provider.complete({ stateId, query: { code, error: errorParam } })
+                }
             } catch (err) {
                 log.warn(
                     { provider: providerId, err: err instanceof Error ? err.message : String(err) },
@@ -352,6 +364,12 @@ export function buildApp(opts: BuildAppOpts): Express {
         routingMode: opts.routingMode,
         domainSuffix: opts.domainSuffix,
         publicBaseUrl: opts.publicBaseUrl,
+        // Edge admission (Slack trigger).
+        identityLinks: opts.identityLinks,
+        identityCredentials: opts.identityCredentials,
+        transportBindings: opts.transportBindings,
+        envEncryption: opts.envEncryption,
+        posthogApiBaseUrl: opts.posthogApiBaseUrl,
     } as const
     const mount = opts.routingMode === 'path' ? `${opts.pathPrefix ?? '/agents'}/:slug` : ''
 

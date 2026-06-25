@@ -1165,6 +1165,9 @@ export type SessionPrincipal =
           workspace_id: string
           slack_user_id: string
           agent_user_id?: string
+          /** Canonical identity (authoritative provider) set by edge admission;
+           *  keys secondary links when present. Absent on passthrough. */
+          canonical_agent_user_id?: string
       }
     /** Internal / service-to-service caller (PostHog backend → ingress). */
     | { kind: 'posthog_internal'; team_id?: number }

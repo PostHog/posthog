@@ -28,6 +28,7 @@ import {
 } from '@posthog/agent-shared'
 
 import { applyElevationDecline, applyElevationGrant, authorizeGrant } from '../enqueue/acl'
+import { buildAdmission } from '../enqueue/admission-gate'
 import { enqueueOrResume } from '../enqueue/enqueue'
 import { getOwnedSession } from './session-access'
 import { verifySlackSignature } from './slack-signature'
@@ -219,11 +220,42 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
         agentUserId = agentUser.id
     }
 
+    // Edge admission: if the agent declares an authoritative provider, the Slack
+    // claim must resolve a verified identity before we run. Unauthenticated →
+    // deliver an auth link and enqueue nothing.
+    let canonicalAgentUserId: string | undefined
+    const admission = buildAdmission(deps, resolved.revision)
+    if (admission) {
+        const result = await admission.resolve(
+            { transport: 'slack', subjectId: principalId, attributes: { workspace: workspaceId, slack_user: event.user } },
+            { application: resolved.application, revision: resolved.revision }
+        )
+        if (result.kind === 'auth_required') {
+            // TODO(admission): deliver ephemeral/DM, not in-thread (T2 link hijack).
+            await postThreadMessage(deps, resolved.application, resolved.revision, {
+                channel: event.channel,
+                thread_ts: event.thread_ts ?? event.ts,
+                text: `Before I can help, please connect your account: ${result.authorizeUrl}`,
+            }).catch(() => undefined)
+            res.json({ ok: true, auth_required: true, provider: result.provider, authorize_url: result.authorizeUrl })
+            return
+        }
+        if (result.kind === 'error') {
+            log.warn({ slug: resolved.application.slug, reason: result.reason }, 'slack_admission_error')
+            res.status(500).json({ error: 'admission_failed' })
+            return
+        }
+        if (result.kind === 'admitted') {
+            canonicalAgentUserId = result.identity.canonicalId
+        }
+    }
+
     const slackPrincipal: SessionPrincipal = {
         kind: 'slack',
         workspace_id: workspaceId,
         slack_user_id: event.user,
         agent_user_id: agentUserId,
+        ...(canonicalAgentUserId ? { canonical_agent_user_id: canonicalAgentUserId } : {}),
     }
     // Embed the Slack envelope context in the seed message so the model knows
     // which channel/ts/thread_ts to use when calling Slack APIs.

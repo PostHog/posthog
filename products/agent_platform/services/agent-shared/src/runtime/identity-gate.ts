@@ -126,7 +126,9 @@ export async function agentUserIdForPrincipal(
     }
     switch (principal.kind) {
         case 'slack':
-            return principal.agent_user_id ?? null
+            // Canonical identity (edge admission) keys secondary links so they're
+            // shared across transports; fall back to the raw principal on passthrough.
+            return principal.canonical_agent_user_id ?? principal.agent_user_id ?? null
         case 'jwt':
             return findOrCreate('jwt', principal.sub)
         case 'posthog':

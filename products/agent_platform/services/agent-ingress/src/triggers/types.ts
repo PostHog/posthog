@@ -25,12 +25,16 @@ import type {
     AuthConfig,
     CredentialBroker,
     CredentialMap,
+    EncryptedFields,
     HttpFetcher,
+    IdentityCredentialStore,
+    IdentityLinkStateStore,
     IdentityStore,
     SecretResolver,
     SessionEventBus,
     SessionPrincipal,
     SessionQueue,
+    TransportBindingStore,
     Trigger,
 } from '@posthog/agent-shared'
 
@@ -70,6 +74,14 @@ export interface TriggerDeps {
     routingMode?: RoutingMode
     domainSuffix?: string
     publicBaseUrl?: string
+    /** Edge-admission stores (Slack trigger). When wired + the agent declares an
+     *  authoritative_provider, an unauthenticated claim gets an auth link instead
+     *  of a session. See `enqueue/admission-gate.ts`. */
+    identityLinks?: IdentityLinkStateStore
+    identityCredentials?: IdentityCredentialStore
+    transportBindings?: TransportBindingStore
+    envEncryption?: EncryptedFields
+    posthogApiBaseUrl?: string
 }
 
 /** Pulled from the `Trigger` discriminator in `@posthog/agent-shared` so this

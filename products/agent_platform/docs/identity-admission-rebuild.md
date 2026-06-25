@@ -12,10 +12,19 @@
 - `AgentTransportBinding` model + migration `0010` (applied to the test DB).
 - Tests: `admission.test.ts` (7, PG-free, multi-provider/transport + per-request bearer + passthrough + fail-closed + replay), `transport-binding-store.test.ts` (4, real PG), `admission-e2e.test.ts` (2, real PG + real `dogs` IdP — full arc incl. one-identity-two-transports + the cred calling the protected API). agent-shared suite: 495 pass, no regressions.
 
-**Next (clearly scoped):**
-- Wire admission into the ingress edge: Slack trigger delivers the auth block as a DM/ephemeral and skips enqueue on `auth_required`; HTTP/chat returns `401 + { auth_required }`. Route `/link/:provider/callback` branches to `AdmissionService.complete()` when the link-state is an admission link.
-- Re-key secondary provider linking (`identity-gate.ts` `agentUserIdForPrincipal`) to the canonical identity so a person's GitHub/Grafana links are shared across transports.
-- Cluster e2e through the real Express ingress + faux inference.
+**Ingress edge wiring — done + green:**
+- `enqueue/admission-gate.ts` `buildAdmission()` builds an `AdmissionService` per revision (registry from `identity_providers` + decrypted env; null when no authoritative provider).
+- Slack trigger (`triggers/slack.ts`): resolves admission before enqueue; `auth_required` → posts the link + returns `{ auth_required, provider, authorize_url }`, enqueues nothing; `admitted` → stamps `canonical_agent_user_id` on the principal; `passthrough`/`error` handled.
+- Callback `/link/:provider/callback` branches to `AdmissionService.complete()` when `providerId === spec.authoritative_provider` (writes canonical + binding); other providers stay per-asker links.
+- Secondary linking re-keyed: `agentUserIdForPrincipal` prefers `canonical_agent_user_id`.
+- `transportBindings` wired through ingress `index.ts` + harness `cluster.ts`.
+- `admission-cluster-e2e.test.ts` (2): Slack unbound → auth_required (no run) → link → admitted → agent runs; + passthrough runs immediately. agent-ingress: 141 pass; identity e2e suite: no regression.
+
+**Follow-ups (tracked):**
+- Slack auth-block delivery is in-thread; make it ephemeral/DM (T2 link-hijack). `TODO(admission)` in slack.ts.
+- Chat/HTTP transport: `authoritative_provider` is NOT yet enforced on the chat path (it relies on `auth.modes` for per-request identity). Wire admission there — the `verifyBearer` seam exists (unit-tested) but isn't connected to a transport.
+- e2e proving a secondary provider link resolves under the canonical identity through the runner (re-key end-to-end).
+- See `CODE_REVIEW.md` for the review pass + testing-gap list.
 
 ## What changes, in one paragraph
 

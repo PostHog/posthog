@@ -48,6 +48,7 @@ import {
     PgIdentityCredentialStore,
     PgIdentityLinkStateStore,
     PgIdentityStore,
+    PgTransportBindingStore,
     PgRevisionStore,
     PgSandboxInstanceStore,
     PgSessionQueue,
@@ -463,6 +464,9 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         // Identity-linking callback route (`GET /link/:provider/callback`).
         identityCredentials,
         identityLinks,
+        // Edge admission: durable transport→canonical bindings.
+        transportBindings: new PgTransportBindingStore(pool),
+        posthogApiBaseUrl: 'http://localhost:8010',
         envEncryption: encryption,
         // Same `http` the worker uses, so tests asserting on outbound
         // slack.com calls from the ingress (ack_reaction, identity bridge)
