@@ -15,7 +15,6 @@ from hogli_commands.test_runner import (
     _detect_all,
     _find_test_files_for_source,
     _is_test_file,
-    _parse_porcelain_path,
     _resolve_to_repo_relative,
     _run_changed,
     _run_grouped,
@@ -333,22 +332,6 @@ class TestIsTestFile:
 
     def test_rs_inline_cfg_test_absent_from_batch(self) -> None:
         assert not _is_test_file("rust/capture/src/api.rs", rs_cfg_test=set())
-
-
-class TestParsePorcelainPath:
-    @parameterized.expand(
-        [
-            (" M posthog/api/views.py", "posthog/api/views.py"),
-            ("?? posthog/new_file.py", "posthog/new_file.py"),
-            ("A  posthog/added.py", "posthog/added.py"),
-            ("R  old/test_foo.py -> new/test_foo.py", "new/test_foo.py"),
-            ("C  src/a.py -> src/b.py", "src/b.py"),
-            (' M "path with spaces/test_foo.py"', "path with spaces/test_foo.py"),
-            ('R  "old name.py" -> "new name.py"', "new name.py"),
-        ]
-    )
-    def test_parse_porcelain_path(self, line: str, expected: str) -> None:
-        assert _parse_porcelain_path(line) == expected
 
 
 class TestFindTestFilesForSource:

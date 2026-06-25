@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Iterable
 
 import click
 from hogli.manifest import REPO_ROOT
@@ -33,7 +34,7 @@ TRIGGERS: dict[str, tuple[str, ...]] = {
 }
 
 
-def _match_commands(changed: list[str]) -> list[str]:
+def _match_commands(changed: Iterable[str]) -> list[str]:
     """Return build commands whose trigger globs match any changed file."""
     return [cmd for cmd, globs in TRIGGERS.items() if any(matches_globs(p, globs) for p in changed)]
 
