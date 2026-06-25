@@ -2576,6 +2576,14 @@ snapshots:
         hash: v1.k794b7964.d8d3e3ecade64da3301879f5c9a72a9e0a4f879fd23adc9c22940150ced641c4._P8QZDgkeQ4Z5Ii0RfD5kHotcs8VMJdg7y7F9UhxXyE
     insights-trendsbarchart--aggregated-compare-breakdown--light:
         hash: v1.k794b7964.71df39ed07e55a63f5769f6771aa97fafb3b45f83bb3316e820b1d5c62eacc17.fqe0WSxWna4P6aIUpMidVoxtseV69UR9iFJyEX0uXv8
+    insights-trendsbarchart--bar-value-50-breakdowns--dark:
+        hash: v1.k794b7964.0aa74828d652bcc08c7edf6e846f25079cd634404524a2f46ecfab9ca58b3253.RC1OqPi8ALE8mT4L0qBcaNeMFwNYDmyvdY32qCX8Lao
+    insights-trendsbarchart--bar-value-50-breakdowns--light:
+        hash: v1.k794b7964.da48bff1f9643e5f27c0371f29bee5b1478389736d9e9baf4d159effe918f7f9.DTLbuDHBCHUpqdykg69Lzh-lasHbn-AzA9k50D9Eig8
+    insights-trendsbarchart--bar-value-single-breakdown--dark:
+        hash: v1.k794b7964.e2b8f5afe06a39c4cf3ae1beb282fed9a64117a91ac92ffa91a8f9fa0a09a69d.QWoL7QbuoCoXDv6xoLFepkGX5DRp5NfndCYdz1TZjE4
+    insights-trendsbarchart--bar-value-single-breakdown--light:
+        hash: v1.k794b7964.13733d2478cb0d86b2fbed8cae08efb73555fbd2798dc199118ccde0bf192b6b.ujkbY4JXzzAH9hNg6G5F5z4q6Lt4CkeCQMYu_H0cAoc
     insights-trendsbarchart--compare--dark:
         hash: v1.k794b7964.471bac2dc88d109f8b59fb9824be9b97aa91a0e92e71053ccfa7483c5d1a33a7.lBVLXYRSp4frYlGbUwXnYMibF-b5l_ZyGDNqL8q3rLI
     insights-trendsbarchart--compare--light:
