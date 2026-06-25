@@ -8,11 +8,11 @@ import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
+import { FilePath } from './FilePath'
 import { GenericMcpToolRenderer } from './GenericMcpToolRenderer'
-import { SandboxFilePath } from './SandboxFilePath'
-import { SandboxToolActivity } from './SandboxToolActivity'
-import type { SandboxToolRendererProps } from './sandboxToolRegistry'
+import { ToolActivity } from './ToolActivity'
 import { findAllDiffContent, getDiffStats, languageFromPath, type ToolCallDiffContent } from './toolDiffContent'
+import type { ToolRendererProps } from './toolRegistry'
 
 // A stripped-down, unified diff that reads cleanly embedded in a chat card — mirrors the look of the
 // sandbox agent's own diff UI (unified style, soft-wrapped, compact font, no editor chrome). Module-level
@@ -81,7 +81,7 @@ function DiffStats({ added, removed }: { added: number; removed: number }): JSX.
  * file" (or "Edited N files"); expanding the card reveals the filename, line stats, and an inline visual
  * diff per file. Without `type: "diff"` content blocks it degrades to the generic card.
  */
-export function EditDiffRenderer(props: SandboxToolRendererProps): JSX.Element {
+export function EditDiffRenderer(props: ToolRendererProps): JSX.Element {
     const { message, icon, turnComplete, turnCancelled } = props
     const diffs = findAllDiffContent(message.content)
 
@@ -101,7 +101,7 @@ export function EditDiffRenderer(props: SandboxToolRendererProps): JSX.Element {
                 return (
                     <div key={index} className="flex flex-col gap-1 w-full min-w-0">
                         <div className="flex items-center gap-2 min-w-0">
-                            {path && <SandboxFilePath path={path} />}
+                            {path && <FilePath path={path} />}
                             <DiffStats added={stats.added} removed={stats.removed} />
                         </div>
                         <DiffEditor diff={diff} path={path} />
@@ -112,7 +112,7 @@ export function EditDiffRenderer(props: SandboxToolRendererProps): JSX.Element {
     )
 
     return (
-        <SandboxToolActivity
+        <ToolActivity
             message={message}
             icon={icon ?? <IconPencil />}
             title={title}

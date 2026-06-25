@@ -7,11 +7,10 @@ import { CodeSnippet } from 'lib/components/CodeSnippet/CodeSnippet'
 // IconRobot is not exported from @posthog/icons — it lives only in the legacy lib icon set.
 import { IconRobot } from 'lib/lemon-ui/icons'
 
+import { FilePath } from './FilePath'
 import { GenericMcpToolRenderer } from './GenericMcpToolRenderer'
 import { getPostHogExecDisplay } from './posthogExecDisplay'
-import { SandboxFilePath } from './SandboxFilePath'
-import { SandboxToolActivity } from './SandboxToolActivity'
-import type { SandboxToolRendererProps } from './sandboxToolRegistry'
+import { ToolActivity } from './ToolActivity'
 import {
     MAX_COMMAND_LENGTH,
     MAX_URL_LENGTH,
@@ -28,24 +27,25 @@ import {
 } from './toolContentUtils'
 import { languageFromPath } from './toolDiffContent'
 import { ToolOutput } from './ToolOutput'
+import type { ToolRendererProps } from './toolRegistry'
 
 function asString(value: unknown): string {
     return typeof value === 'string' ? value : ''
 }
 
-function firstLocationPath(props: SandboxToolRendererProps): string | undefined {
+function firstLocationPath(props: ToolRendererProps): string | undefined {
     return props.message.locations?.[0]?.path ?? (asString(props.message.rawInput.file_path) || undefined)
 }
 
 /** Bash / BashOutput / KillShell — command on the second line, ANSI-stripped output in the body. */
-const BashToolRenderer = memo(function BashToolRenderer(props: SandboxToolRendererProps): JSX.Element {
+const BashToolRenderer = memo(function BashToolRenderer(props: ToolRendererProps): JSX.Element {
     const { message, icon, turnComplete, turnCancelled } = props
     const command = asString(message.rawInput.command)
     const description = asString(message.rawInput.description)
     const output = stripAnsi(stripCodeFences(getCommandOutput(message.content, command, message.rawOutput)))
 
     return (
-        <SandboxToolActivity
+        <ToolActivity
             message={message}
             icon={icon ?? <IconTerminal />}
             title={description || message.title || 'Terminal'}
@@ -64,7 +64,7 @@ const BashToolRenderer = memo(function BashToolRenderer(props: SandboxToolRender
 })
 
 /** Read / NotebookRead — line/image summary on line 1, file chip on line 2, preview in the body. */
-const ReadToolRenderer = memo(function ReadToolRenderer(props: SandboxToolRendererProps): JSX.Element {
+const ReadToolRenderer = memo(function ReadToolRenderer(props: ToolRendererProps): JSX.Element {
     const { message, icon, turnComplete, turnCancelled } = props
     const path = firstLocationPath(props)
     const image = getContentImage(message.content)
@@ -95,11 +95,11 @@ const ReadToolRenderer = memo(function ReadToolRenderer(props: SandboxToolRender
     }
 
     return (
-        <SandboxToolActivity
+        <ToolActivity
             message={message}
             icon={icon ?? <IconDocument />}
             title={title}
-            subtitle={path ? <SandboxFilePath path={path} /> : undefined}
+            subtitle={path ? <FilePath path={path} /> : undefined}
             body={body}
             turnComplete={turnComplete}
             turnCancelled={turnCancelled}
@@ -108,13 +108,13 @@ const ReadToolRenderer = memo(function ReadToolRenderer(props: SandboxToolRender
 })
 
 /** Grep / Glob / LS — result count on line 2, matched lines in the body. */
-const SearchToolRenderer = memo(function SearchToolRenderer(props: SandboxToolRendererProps): JSX.Element {
+const SearchToolRenderer = memo(function SearchToolRenderer(props: ToolRendererProps): JSX.Element {
     const { message, icon, displayName, turnComplete, turnCancelled } = props
     const output = getContentText(message.content)
     const count = getResultCount(output)
 
     return (
-        <SandboxToolActivity
+        <ToolActivity
             message={message}
             icon={icon ?? <IconSearch />}
             title={message.title || displayName || 'Search'}
@@ -131,7 +131,7 @@ const SearchToolRenderer = memo(function SearchToolRenderer(props: SandboxToolRe
  * body carries the prompt the subagent was handed plus its returned output. The description lives only
  * in the title (not echoed as a subtitle or input dump), so the card no longer duplicates it.
  */
-const SubagentToolRenderer = memo(function SubagentToolRenderer(props: SandboxToolRendererProps): JSX.Element {
+const SubagentToolRenderer = memo(function SubagentToolRenderer(props: ToolRendererProps): JSX.Element {
     const { message, icon, turnComplete, turnCancelled } = props
     const subagentType = asString(message.rawInput.subagent_type)
     const description = asString(message.rawInput.description) || message.title || ''
@@ -156,7 +156,7 @@ const SubagentToolRenderer = memo(function SubagentToolRenderer(props: SandboxTo
         ) : undefined
 
     return (
-        <SandboxToolActivity
+        <ToolActivity
             message={message}
             icon={icon ?? <IconRobot />}
             title={title}
@@ -168,7 +168,7 @@ const SubagentToolRenderer = memo(function SubagentToolRenderer(props: SandboxTo
 })
 
 /** WebFetch / WebSearch — linked URL (or query) on line 2, fetched content in the body. */
-const FetchToolRenderer = memo(function FetchToolRenderer(props: SandboxToolRendererProps): JSX.Element {
+const FetchToolRenderer = memo(function FetchToolRenderer(props: ToolRendererProps): JSX.Element {
     const { message, icon, turnComplete, turnCancelled } = props
     const url = asString(message.rawInput.url)
     const query = asString(message.rawInput.query)
@@ -178,7 +178,7 @@ const FetchToolRenderer = memo(function FetchToolRenderer(props: SandboxToolRend
     const target = url || query
 
     return (
-        <SandboxToolActivity
+        <ToolActivity
             message={message}
             icon={icon ?? <IconGlobe />}
             title={message.title || (isSearch ? 'Web search' : 'Fetched')}
@@ -203,14 +203,14 @@ const FetchToolRenderer = memo(function FetchToolRenderer(props: SandboxToolRend
  * discovery output renders in the body. The `call` verb never reaches here — it resolves to its inner
  * tool's renderer instead.
  */
-const PostHogExecRenderer = memo(function PostHogExecRenderer(props: SandboxToolRendererProps): JSX.Element {
+const PostHogExecRenderer = memo(function PostHogExecRenderer(props: ToolRendererProps): JSX.Element {
     const { message, icon, turnComplete, turnCancelled } = props
     const display = getPostHogExecDisplay(message.rawInput)
     const input = display?.input
     const output = stripCodeFences(getContentText(message.content))
 
     return (
-        <SandboxToolActivity
+        <ToolActivity
             message={message}
             icon={icon ?? <IconWrench />}
             title={display?.label || message.title || 'Run command'}
@@ -233,7 +233,7 @@ const PostHogExecRenderer = memo(function PostHogExecRenderer(props: SandboxTool
  * UI's `ToolCallBlock` dispatch. Switches on the resolved tool name; anything unrecognised renders
  * through `GenericMcpToolRenderer`. Registered for each built-in key and as the registry's default.
  */
-export const BuiltinToolRenderer = memo(function BuiltinToolRenderer(props: SandboxToolRendererProps): JSX.Element {
+export const BuiltinToolRenderer = memo(function BuiltinToolRenderer(props: ToolRendererProps): JSX.Element {
     if (props.message.resolvedKey.startsWith('__posthog_exec_')) {
         return <PostHogExecRenderer {...props} />
     }

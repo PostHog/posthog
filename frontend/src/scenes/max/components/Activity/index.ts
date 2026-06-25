@@ -5,7 +5,7 @@ export {
     ActivityStatusIcon,
     ActivitySubsteps,
     ActivityToggleSection,
-    SandboxActivity,
+    RunActivity,
     ShimmeringContent,
 } from 'products/posthog_ai/frontend'
 export type { ActivityStatus } from 'products/posthog_ai/frontend'

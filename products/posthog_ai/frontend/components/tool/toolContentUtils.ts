@@ -1,4 +1,4 @@
-import type { SandboxToolCallMessage } from 'products/posthog_ai/frontend/types/sandboxToolTypes'
+import type { ToolCallMessage } from 'products/posthog_ai/frontend/types/toolTypes'
 
 /** Compact single-line preview length for a generic MCP tool's input JSON. */
 export const INPUT_PREVIEW_MAX_LENGTH = 60
@@ -21,7 +21,7 @@ export interface ToolCallStatusFlags {
  * not a hook despite reading like one, so it is safe to call conditionally.
  */
 export function resolveToolCallStatus(
-    status: SandboxToolCallMessage['status'],
+    status: ToolCallMessage['status'],
     turnCancelled: boolean,
     turnComplete: boolean
 ): ToolCallStatusFlags {

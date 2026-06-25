@@ -9,11 +9,11 @@
 
 // --- Embeddable run surface ---
 // `RunViewer` is the Radix-style compound (Root + Thread/Prompt/Composer/Resources/ContextUsage slots);
-// `SandboxRunViewer` is the prepackaged default layout for the common embed (tasks, signals inbox).
-export { RunViewer, SandboxRunViewer } from './components/SandboxRunViewer'
-export type { RunViewerRootProps, SandboxRunViewerProps } from './components/SandboxRunViewer'
-export { SandboxComposer } from './components/SandboxComposer'
-export type { SandboxComposerProps } from './components/SandboxComposer'
+// called directly (`<RunViewer .../>`) it renders the prepackaged default layout for the common embed.
+export { RunViewer } from './components/RunViewer'
+export type { RunViewerRootProps, RunViewerProps } from './components/RunViewer'
+export { RunComposer } from './components/RunComposer'
+export type { RunComposerProps } from './components/RunComposer'
 
 // --- Composer (Radix-style compound) ---
 export { Composer } from './components/composer/Composer'
@@ -26,9 +26,9 @@ export type {
 
 // --- Thread + message presenters ---
 // `Thread` is the Radix-style compound (Root + Message/Markdown/Reasoning/Failure/Activity/ToolCall atoms);
-// `SandboxThreadView` is the prepackaged virtualized presenter (also `Thread.Root`).
+// `ThreadView` is the prepackaged virtualized presenter (also `Thread.Root`).
 export { Thread } from './components/Thread'
-export { SandboxThreadView } from './components/SandboxThreadView'
+export { ThreadView } from './components/ThreadView'
 export { MessageTemplate } from './messages/MessageTemplate'
 export { MarkdownMessage } from './messages/MarkdownMessage'
 export { ReasoningAnswer } from './messages/ReasoningAnswer'
@@ -46,20 +46,16 @@ export {
     ShimmeringContent,
 } from './components/ActivityPrimitives'
 export type { ActivityStatus } from './components/ActivityPrimitives'
-export { SandboxActivity } from './components/SandboxActivity'
+export { RunActivity } from './components/RunActivity'
 
 // --- Tool rendering + registry ---
-export { sandboxToolRegistry, lookupSandboxToolRenderer } from './components/tool/sandboxToolRegistry'
-export type {
-    SandboxToolRendererProps,
-    SandboxToolRegistryEntry,
-    SandboxToolRegistry,
-} from './components/tool/sandboxToolRegistry'
+export { toolRegistry, lookupToolRenderer } from './components/tool/toolRegistry'
+export type { ToolRendererProps, ToolRegistryEntry, ToolRegistry } from './components/tool/toolRegistry'
 export { GenericMcpToolRenderer } from './components/tool/GenericMcpToolRenderer'
-export { SandboxDataToolRow } from './components/tool/SandboxDataToolRow'
-export { SandboxToolActivity } from './components/tool/SandboxToolActivity'
-export type { SandboxToolActivityProps } from './components/tool/SandboxToolActivity'
-export { SandboxFilePath } from './components/tool/SandboxFilePath'
+export { DataToolRow } from './components/tool/DataToolRow'
+export { ToolActivity } from './components/tool/ToolActivity'
+export type { ToolActivityProps } from './components/tool/ToolActivity'
+export { FilePath } from './components/tool/FilePath'
 export { findAllDiffContent, getDiffStats, languageFromPath } from './components/tool/toolDiffContent'
 export type { ToolCallDiffContent } from './components/tool/toolDiffContent'
 
@@ -69,16 +65,16 @@ export { OptionSelector } from './components/OptionSelector'
 export type { Option } from './components/OptionSelector'
 
 // --- Stream logic + interaction facade ---
-export { sandboxStreamLogic, isTerminalRunStatus, SANDBOX_INITIAL_PERMISSION_MODE } from './logics/sandboxStreamLogic'
-export type { SandboxStreamLogicProps, SandboxSseStatus, SandboxRunStatus } from './logics/sandboxStreamLogic'
-export { taskRunInteractionLogic } from './logics/taskRunInteractionLogic'
-export type { TaskRunInteractionLogicProps, QueuedMessage } from './logics/taskRunInteractionLogic'
+export { runStreamLogic, isTerminalRunStatus, INITIAL_PERMISSION_MODE } from './logics/runStreamLogic'
+export type { RunStreamLogicProps, RunSseStatus, RunStatus } from './logics/runStreamLogic'
+export { runInteractionLogic } from './logics/runInteractionLogic'
+export type { RunInteractionLogicProps, QueuedMessage } from './logics/runInteractionLogic'
 
 // --- Permission / question / resource surfaces ---
-export { SandboxPermissionInput } from './components/SandboxPermissionInput'
-export { SandboxQuestionInput } from './components/SandboxQuestionInput'
-export { SandboxResourcesBar } from './components/SandboxResourcesBar'
-export { SandboxContextUsage } from './components/SandboxContextUsage'
+export { PermissionInput } from './components/PermissionInput'
+export { QuestionInput } from './components/QuestionInput'
+export { ResourcesBar } from './components/ResourcesBar'
+export { ContextUsageBar } from './components/ContextUsageBar'
 
 // --- Thinking-message helpers ---
 export { getThinkingMessageFromResponse, getRandomThinkingMessage, THINKING_MESSAGES } from './utils/thinkingMessages'
@@ -90,6 +86,6 @@ export type {
     PermissionRequestRecord,
     ContextUsage,
     RunArtifacts,
-    SandboxProgressStep,
-} from './types/sandboxStreamTypes'
-export type { SandboxToolCallMessage } from './types/sandboxToolTypes'
+    ProgressStep,
+} from './types/streamTypes'
+export type { ToolCallMessage } from './types/toolTypes'

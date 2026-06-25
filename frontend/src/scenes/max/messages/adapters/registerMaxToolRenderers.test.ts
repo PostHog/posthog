@@ -1,9 +1,9 @@
 // Importing the module runs its side effect: registering Max's product-specific tool renderers into the
-// shared sandboxToolRegistry. We assert the stable key → displayName metadata it contributes (the lazy
+// shared toolRegistry. We assert the stable key → displayName metadata it contributes (the lazy
 // Renderer itself is an opaque chunk).
 import './registerMaxToolRenderers'
 
-import { sandboxToolRegistry } from 'products/posthog_ai/frontend'
+import { toolRegistry } from 'products/posthog_ai/frontend'
 
 describe('registerMaxToolRenderers', () => {
     it.each([
@@ -22,7 +22,7 @@ describe('registerMaxToolRenderers', () => {
         ['notebooks-create', 'Notebook'],
         ['notebook-edit', 'Notebook'],
     ])('registers %s into the shared registry with displayName "%s"', (key, displayName) => {
-        const entry = sandboxToolRegistry.lookup(key)
+        const entry = toolRegistry.lookup(key)
         expect(entry).not.toBeNull()
         expect(entry?.displayName).toEqual(displayName)
     })
