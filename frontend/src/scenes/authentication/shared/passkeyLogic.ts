@@ -129,6 +129,11 @@ export const passkeyLogic = kea<passkeyLogicType>([
     })),
     listeners(({ actions, values }) => ({
         beginPasskeyLogin: () => {
+            // Don't start a second ceremony while one is already in flight. precheck can resolve more
+            // than once (autofill effect + onBlur), and concurrent WebAuthn ceremonies hang WebKit.
+            if (values.loginWithPasskeyLoading) {
+                return
+            }
             // After setting credentials in reducer, start the authentication
             actions.startPasskeyAuthentication()
         },
