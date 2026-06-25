@@ -123,9 +123,18 @@ class CustomerProfileConfigSerializer(DataclassSerializer):
 
 class CustomerJourneySerializer(DataclassSerializer):
     id = serializers.UUIDField(read_only=True)
-    insight = serializers.IntegerField()
-    name = serializers.CharField(max_length=400)
-    description = serializers.CharField(required=False, allow_null=True)
+    insight = serializers.IntegerField(
+        help_text="ID of the funnel insight this journey is based on. Must reference an insight in the same project.",
+    )
+    name = serializers.CharField(
+        max_length=400,
+        help_text="Human-readable name of the customer journey.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Optional free-text description of the customer journey.",
+    )
     created_at = serializers.DateTimeField(read_only=True)
     created_by = serializers.IntegerField(read_only=True, allow_null=True)
     updated_at = serializers.DateTimeField(read_only=True, allow_null=True)

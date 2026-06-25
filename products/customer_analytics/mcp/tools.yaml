@@ -209,19 +209,78 @@ tools:
         enabled: false
     customer-journeys-create:
         operation: customer_journeys_create
-        enabled: false
+        enabled: true
+        scopes:
+            - customer_journey:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create customer journey
+        description: >
+            Create a Customer Analytics customer journey. A customer journey pairs a funnel insight with a name so the
+            funnel can be tracked as a named journey on Customer Analytics surfaces. Provide `insight` (the id of an
+            existing funnel insight in this project — see `insights-list`), `name` (required), and an optional
+            `description`. The insight must belong to the same project.
+        feature_flag: customer-analytics-journeys
     customer-journeys-destroy:
         operation: customer_journeys_destroy
-        enabled: false
+        enabled: true
+        scopes:
+            - customer_journey:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete customer journey
+        description: |
+            Permanently delete a Customer Analytics customer journey by id.
+        feature_flag: customer-analytics-journeys
     customer-journeys-list:
         operation: customer_journeys_list
-        enabled: false
+        enabled: true
+        scopes:
+            - customer_journey:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List customer journeys
+        description: >
+            List Customer Analytics customer journeys in the project. Each result includes the journey `id`, the linked
+            funnel `insight` id, `name`, `description`, and creation/update metadata. Use `customer-journeys-retrieve`
+            for a single journey by id.
+        feature_flag: customer-analytics-journeys
     customer-journeys-partial-update:
         operation: customer_journeys_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - customer_journey:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update customer journey
+        description: >
+            Update fields on an existing Customer Analytics customer journey. Accepts a subset of fields (`insight`,
+            `name`, `description`); unspecified fields are left unchanged. A new `insight` must reference a funnel
+            insight that belongs to this project.
+        feature_flag: customer-analytics-journeys
     customer-journeys-retrieve:
         operation: customer_journeys_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - customer_journey:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get customer journey
+        description: >
+            Fetch a single Customer Analytics customer journey by id. Returns the journey including the linked funnel
+            `insight` id, `name`, and `description`.
+        feature_flag: customer-analytics-journeys
     customer-journeys-update:
         operation: customer_journeys_update
         enabled: false
