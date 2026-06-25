@@ -41,14 +41,14 @@ class TestBillingAlertAPI(APIBaseTest):
     def _alert(self, **overrides) -> BillingAlertConfiguration:
         defaults = {
             "organization_id": self.organization.id,
-            "execution_team_id": self.team.id,
+            "team_id": self.team.id,
             "name": "Daily spend spike",
             "metric": BillingAlertConfiguration.Metric.SPEND,
             "threshold_type": BillingAlertConfiguration.ThresholdType.RELATIVE_INCREASE,
             "threshold_percentage": Decimal("50"),
         }
         defaults.update(overrides)
-        return BillingAlertConfiguration.objects.create(**defaults)
+        return BillingAlertConfiguration.objects.unscoped().create(**defaults)
 
     def _destination(self, alert: BillingAlertConfiguration, template_id: str) -> HogFunction:
         return HogFunction.objects.create(
@@ -81,15 +81,15 @@ class TestBillingAlertAPI(APIBaseTest):
         assert data["created_by_id"] == self.user.id
         assert data["state"] == BillingAlertConfiguration.State.NOT_FIRING
 
-        alert = BillingAlertConfiguration.objects.get(id=data["id"])
+        alert = BillingAlertConfiguration.objects.unscoped().get(id=data["id"])
         assert alert.threshold_percentage == Decimal("50.00")
 
     def test_list_is_scoped_to_organization(self) -> None:
         other_org = Organization.objects.create(name="Other")
         other_team = Team.objects.create(organization=other_org, name="Other project")
-        BillingAlertConfiguration.objects.create(
+        BillingAlertConfiguration.objects.unscoped().create(
             organization_id=other_org.id,
-            execution_team_id=other_team.id,
+            team_id=other_team.id,
             name="Other alert",
             metric=BillingAlertConfiguration.Metric.SPEND,
             threshold_type=BillingAlertConfiguration.ThresholdType.RELATIVE_INCREASE,
@@ -130,7 +130,7 @@ class TestBillingAlertAPI(APIBaseTest):
         response = self.client.post(self.url, self._payload(), format="json")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert not BillingAlertConfiguration.objects.exists()
+        assert not BillingAlertConfiguration.objects.unscoped().exists()
 
     def test_webhook_destinations_require_https(self) -> None:
         alert = self._alert()
@@ -159,16 +159,17 @@ class TestBillingAlertAPI(APIBaseTest):
         assert serializer.is_valid(), serializer.errors
 
     def test_check_now_uses_shared_organization_object_permissions(self) -> None:
-        alert = BillingAlertConfiguration.objects.create(
+        alert = BillingAlertConfiguration.objects.unscoped().create(
             organization_id=self.organization.id,
-            execution_team_id=self.team.id,
+            team_id=self.team.id,
             name="Daily spend spike",
             metric=BillingAlertConfiguration.Metric.SPEND,
             threshold_type=BillingAlertConfiguration.ThresholdType.RELATIVE_INCREASE,
             threshold_percentage=Decimal("50"),
         )
-        event = BillingAlertEvent.objects.create(
+        event = BillingAlertEvent.objects.unscoped().create(
             alert=alert,
+            team_id=alert.team_id,
             kind=BillingAlertEvent.Kind.CHECK,
             metric=BillingAlertConfiguration.Metric.SPEND,
             state_before=BillingAlertConfiguration.State.NOT_FIRING,

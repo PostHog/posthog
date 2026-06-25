@@ -2,6 +2,7 @@
 
 from decimal import Decimal
 
+import django.db.models.manager
 import django.db.models.deletion
 from django.db import migrations, models
 
@@ -11,7 +12,9 @@ import posthog.models.utils
 class Migration(migrations.Migration):
     initial = True
 
-    dependencies = []
+    dependencies = [
+        ("posthog", "1238_ducklakebackfill_earliest_event_date"),
+    ]
 
     operations = [
         migrations.CreateModel(
@@ -27,7 +30,15 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("organization_id", models.UUIDField(db_index=True)),
-                ("execution_team_id", models.BigIntegerField(db_index=True)),
+                (
+                    "team",
+                    models.ForeignKey(
+                        db_column="execution_team_id",
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="+",
+                        to="posthog.team",
+                    ),
+                ),
                 ("created_by_id", models.BigIntegerField(blank=True, null=True)),
                 ("updated_by_id", models.BigIntegerField(blank=True, null=True)),
                 ("name", models.CharField(max_length=160)),
@@ -81,12 +92,16 @@ class Migration(migrations.Migration):
             ],
             options={
                 "db_table": "billing_alerts_configuration",
+                "default_manager_name": "all_teams",
                 "indexes": [
                     models.Index(fields=["organization_id", "-created_at"], name="billing_alert_org_created_idx"),
                     models.Index(fields=["enabled", "next_check_at"], name="billing_alert_scheduler_idx"),
                     models.Index(fields=["organization_id", "enabled", "state"], name="billing_alert_org_state_idx"),
                 ],
             },
+            managers=[
+                ("all_teams", django.db.models.manager.Manager()),
+            ],
         ),
         migrations.CreateModel(
             name="BillingAlertEvent",
@@ -160,15 +175,28 @@ class Migration(migrations.Migration):
                         to="billing_alerts.billingalertconfiguration",
                     ),
                 ),
+                (
+                    "team",
+                    models.ForeignKey(
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="+",
+                        to="posthog.team",
+                    ),
+                ),
             ],
             options={
                 "db_table": "billing_alerts_event",
+                "default_manager_name": "all_teams",
                 "indexes": [
+                    models.Index(fields=["team", "-created_at"], name="billing_event_team_ts_idx"),
                     models.Index(fields=["alert", "-created_at"], name="billing_event_alert_ts_idx"),
                     models.Index(fields=["alert", "evaluation_date"], name="billing_event_alert_date_idx"),
                     models.Index(fields=["kind", "-created_at"], name="billing_event_kind_ts_idx"),
                 ],
             },
+            managers=[
+                ("all_teams", django.db.models.manager.Manager()),
+            ],
         ),
         migrations.AddConstraint(
             model_name="billingalertevent",

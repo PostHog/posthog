@@ -76,6 +76,8 @@ rules:
                               |BatchExportFileDownload
                               |BatchExportOnDemand
                               |BatchImport
+                              |BillingAlertConfiguration
+                              |BillingAlertEvent
                               |ButtonTile
                               |ChangeRequest
                               |ClusteringConfig
@@ -342,6 +344,8 @@ rules:
                         |BatchExportFileDownload
                         |BatchExportOnDemand
                         |BatchImport
+                        |BillingAlertConfiguration
+                        |BillingAlertEvent
                         |ButtonTile
                         |ChangeRequest
                         |ClusteringConfig

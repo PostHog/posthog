@@ -43,7 +43,7 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 @extend_schema(tags=["billing"], extensions={"x-product": "core"})
 class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
-    queryset = BillingAlertConfiguration.objects.all()
+    queryset = BillingAlertConfiguration.objects.unscoped().all()
     serializer_class = BillingAlertConfigurationSerializer
     lookup_field = "id"
     permission_classes = [IsOrganizationAdminOrOwner]
@@ -65,7 +65,7 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         execution_team = self._execution_team()
         serializer.save(
             organization_id=self.organization.id,
-            execution_team_id=execution_team.id,
+            team=execution_team,
             created_by_id=user.id,
             updated_by_id=user.id,
         )
@@ -94,7 +94,7 @@ class BillingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(detail=True, methods=["GET"], url_path="events", required_scopes=["billing:read"])
     def events(self, request: Request, *args: object, **kwargs: object) -> Response:
         alert = self.get_object()
-        queryset = visible_billing_alert_events(BillingAlertEvent.objects.filter(alert=alert))
+        queryset = visible_billing_alert_events(BillingAlertEvent.objects.unscoped().filter(alert=alert))
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = BillingAlertEventSerializer(page, many=True)

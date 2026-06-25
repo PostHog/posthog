@@ -28,7 +28,7 @@ class TestBillingAlertActivities(BaseTest):
     def _alert(self, **overrides) -> BillingAlertConfiguration:
         defaults = {
             "organization_id": self.organization.id,
-            "execution_team_id": self.team.id,
+            "team_id": self.team.id,
             "created_by_id": self.user.id,
             "name": "Daily spend spike",
             "metric": BillingAlertConfiguration.Metric.SPEND,
@@ -39,7 +39,7 @@ class TestBillingAlertActivities(BaseTest):
             "evaluation_delay_hours": 6,
         }
         defaults.update(overrides)
-        return BillingAlertConfiguration.objects.create(**defaults)
+        return BillingAlertConfiguration.objects.unscoped().create(**defaults)
 
     @freeze_time("2026-06-23T12:00:00Z")
     @patch("posthog.temporal.billing_alerts.activities.fetch_billing_data")
@@ -60,8 +60,8 @@ class TestBillingAlertActivities(BaseTest):
 
         failed_alert.refresh_from_db()
         successful_alert.refresh_from_db()
-        failed_event = BillingAlertEvent.objects.get(alert=failed_alert)
-        successful_event = BillingAlertEvent.objects.get(alert=successful_alert)
+        failed_event = BillingAlertEvent.objects.unscoped().get(alert=failed_alert)
+        successful_event = BillingAlertEvent.objects.unscoped().get(alert=successful_alert)
 
         assert mock_fetch_billing_data.call_count == 2
         assert set(event_ids) == {str(failed_event.id), str(successful_event.id)}

@@ -77,7 +77,8 @@ def _record_group_failure(
 def _evaluate_billing_alerts(inputs: EvaluateBillingAlertBatchActivityInputs) -> list[str]:
     now = datetime.now(UTC)
     alerts = list(
-        BillingAlertConfiguration.objects.filter(id__in=inputs.alert_ids, enabled=True)
+        BillingAlertConfiguration.objects.unscoped()
+        .filter(id__in=inputs.alert_ids, enabled=True)
         .exclude(state=BillingAlertConfiguration.State.BROKEN)
         .order_by("organization_id", "metric", "id")
     )
@@ -134,9 +135,8 @@ async def discover_due_billing_alerts_activity() -> list[BillingAlertInfo]:
     def get_due_alerts() -> list[BillingAlertInfo]:
         now = datetime.now(UTC)
         alerts = (
-            BillingAlertConfiguration.objects.filter(
-                Q(enabled=True, next_check_at__lte=now) | Q(enabled=True, next_check_at__isnull=True)
-            )
+            BillingAlertConfiguration.objects.unscoped()
+            .filter(Q(enabled=True, next_check_at__lte=now) | Q(enabled=True, next_check_at__isnull=True))
             .filter(Q(snooze_until__isnull=True) | Q(snooze_until__lte=now))
             .exclude(state=BillingAlertConfiguration.State.BROKEN)
             .order_by(F("next_check_at").asc(nulls_first=True))
@@ -159,7 +159,7 @@ async def notify_billing_alert_events_activity(inputs: NotifyBillingAlertEventsA
     @database_sync_to_async(thread_sensitive=False)
     def notify_events() -> int:
         dispatched = 0
-        for event in BillingAlertEvent.objects.filter(id__in=inputs.event_ids).select_related("alert"):
+        for event in BillingAlertEvent.objects.unscoped().filter(id__in=inputs.event_ids).select_related("alert"):
             dispatched += dispatch_billing_alert_event(event)
         return dispatched
 

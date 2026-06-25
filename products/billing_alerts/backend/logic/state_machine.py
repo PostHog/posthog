@@ -85,7 +85,7 @@ def record_billing_alert_failure(
 ) -> BillingAlertEvent:
     now = now or timezone.now()
     with transaction.atomic():
-        locked_alert = BillingAlertConfiguration.objects.select_for_update().get(pk=alert.pk)
+        locked_alert = BillingAlertConfiguration.objects.unscoped().select_for_update().get(pk=alert.pk)
         state_before = locked_alert.state
         locked_alert.consecutive_failures += 1
         next_state = (
@@ -113,8 +113,9 @@ def record_billing_alert_failure(
                 "updated_at",
             ]
         )
-        return BillingAlertEvent.objects.create(
+        return BillingAlertEvent.objects.unscoped().create(
             alert=locked_alert,
+            team_id=locked_alert.team_id,
             kind=event_kind,
             evaluation_date=None,
             period_start=None,
@@ -175,15 +176,16 @@ def evaluate_and_record_billing_alert(
                 "payload": evaluation.payload,
             }
             if event_kind == BillingAlertEvent.Kind.CHECK:
-                event, _ = BillingAlertEvent.objects.update_or_create(
+                event, _ = BillingAlertEvent.objects.unscoped().update_or_create(
                     alert=alert,
                     kind=event_kind,
                     evaluation_date=evaluation.evaluation_date,
-                    defaults=event_defaults,
+                    defaults={**event_defaults, "team_id": alert.team_id},
                 )
             else:
-                event = BillingAlertEvent.objects.create(
+                event = BillingAlertEvent.objects.unscoped().create(
                     alert=alert,
+                    team_id=alert.team_id,
                     kind=event_kind,
                     evaluation_date=evaluation.evaluation_date,
                     **event_defaults,

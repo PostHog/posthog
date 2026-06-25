@@ -98,6 +98,7 @@ class BillingAlertConfigurationSerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(read_only=True, help_text="Unique identifier for this billing alert.")
     organization_id = serializers.UUIDField(read_only=True, help_text="Organization this billing alert belongs to.")
     execution_team_id = serializers.IntegerField(
+        source="team_id",
         read_only=True,
         help_text="Team used as the execution context for internal notification destinations.",
     )

@@ -81,7 +81,7 @@ def _destination_hog_functions(event: BillingAlertEvent) -> list[HogFunction]:
 def dispatch_billing_alert_event(event: BillingAlertEvent, now: datetime | None = None) -> int:
     now = now or timezone.now()
     with transaction.atomic():
-        locked_event = BillingAlertEvent.objects.select_for_update().select_related("alert").get(id=event.id)
+        locked_event = BillingAlertEvent.objects.unscoped().select_for_update().select_related("alert").get(id=event.id)
         if locked_event.targets_notified or locked_event.notification_sent_at is not None:
             return 0
 

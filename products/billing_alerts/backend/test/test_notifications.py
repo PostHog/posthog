@@ -20,9 +20,9 @@ NOW = datetime(2026, 6, 23, 12, 0, tzinfo=UTC)
 
 class TestBillingAlertNotifications(BaseTest):
     def _alert(self) -> BillingAlertConfiguration:
-        return BillingAlertConfiguration.objects.create(
+        return BillingAlertConfiguration.objects.unscoped().create(
             organization_id=self.organization.id,
-            execution_team_id=self.team.id,
+            team_id=self.team.id,
             created_by_id=self.user.id,
             name="Daily spend spike",
             metric=BillingAlertConfiguration.Metric.SPEND,
@@ -35,8 +35,9 @@ class TestBillingAlertNotifications(BaseTest):
         alert: BillingAlertConfiguration,
         kind: str = BillingAlertEvent.Kind.FIRING,
     ) -> BillingAlertEvent:
-        return BillingAlertEvent.objects.create(
+        return BillingAlertEvent.objects.unscoped().create(
             alert=alert,
+            team_id=alert.team_id,
             kind=kind,
             evaluation_date=NOW.date(),
             period_start=NOW,
@@ -144,7 +145,9 @@ class TestBillingAlertNotifications(BaseTest):
         alert = self._alert()
         event = self._event(alert)
         destination = self._destination(alert, "template-slack")
-        BillingAlertEvent.objects.filter(id=event.id).update(targets_notified={"hog_functions": [str(destination.id)]})
+        BillingAlertEvent.objects.unscoped().filter(id=event.id).update(
+            targets_notified={"hog_functions": [str(destination.id)]}
+        )
 
         with patch("products.billing_alerts.backend.logic.notifications.produce_internal_event") as produce:
             assert dispatch_billing_alert_event(event, now=NOW) == 0

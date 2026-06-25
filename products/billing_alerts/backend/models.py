@@ -8,12 +8,13 @@ from django.db import models
 from django.db.models import Q
 
 from posthog.models.organization import Organization
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
 MAX_FAILURES_BEFORE_BROKEN = 5
 
 
-class BillingAlertConfiguration(UUIDModel):
+class BillingAlertConfiguration(TeamScopedRootMixin, UUIDModel):
     class Metric(models.TextChoices):
         SPEND = "spend", "Spend"
         USAGE = "usage", "Usage"
@@ -30,8 +31,10 @@ class BillingAlertConfiguration(UUIDModel):
         SNOOZED = "snoozed", "Snoozed"
         BROKEN = "broken", "Broken"
 
+    all_teams = models.Manager()  # noqa: DJ012
+
     organization_id = models.UUIDField(db_index=True)
-    execution_team_id = models.BigIntegerField(db_index=True)
+    team = models.ForeignKey("posthog.Team", db_column="execution_team_id", on_delete=models.CASCADE, related_name="+")
     created_by_id = models.BigIntegerField(null=True, blank=True)
     updated_by_id = models.BigIntegerField(null=True, blank=True)
 
@@ -66,12 +69,21 @@ class BillingAlertConfiguration(UUIDModel):
     updated_at = models.DateTimeField(auto_now=True, null=True, blank=True)
 
     class Meta:
+        default_manager_name = "all_teams"
         db_table = "billing_alerts_configuration"
         indexes = [
             models.Index(fields=["organization_id", "-created_at"], name="billing_alert_org_created_idx"),
             models.Index(fields=["enabled", "next_check_at"], name="billing_alert_scheduler_idx"),
             models.Index(fields=["organization_id", "enabled", "state"], name="billing_alert_org_state_idx"),
         ]
+
+    @property
+    def execution_team_id(self) -> int | None:
+        return self.team_id
+
+    @execution_team_id.setter
+    def execution_team_id(self, value: int | None) -> None:
+        self.team_id = value
 
     def __str__(self) -> str:
         return f"{self.name} ({self.organization_id})"
@@ -102,7 +114,7 @@ class BillingAlertConfiguration(UUIDModel):
                 raise ValidationError({"threshold_value": "Must be greater than or equal to 0."})
 
 
-class BillingAlertEvent(UUIDModel):
+class BillingAlertEvent(TeamScopedRootMixin, UUIDModel):
     class Kind(models.TextChoices):
         CHECK = "check", "Check"
         FIRING = "firing", "Firing"
@@ -110,7 +122,10 @@ class BillingAlertEvent(UUIDModel):
         ERRORED = "errored", "Errored"
         BROKEN_CONFIG = "broken_config", "Broken config"
 
+    all_teams = models.Manager()  # noqa: DJ012
+
     alert = models.ForeignKey(BillingAlertConfiguration, on_delete=models.CASCADE, related_name="events")
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     kind = models.CharField(max_length=32, choices=Kind.choices, default=Kind.CHECK)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -142,8 +157,10 @@ class BillingAlertEvent(UUIDModel):
     payload = models.JSONField(default=dict)
 
     class Meta:
+        default_manager_name = "all_teams"
         db_table = "billing_alerts_event"
         indexes = [
+            models.Index(fields=["team", "-created_at"], name="billing_event_team_ts_idx"),
             models.Index(fields=["alert", "-created_at"], name="billing_event_alert_ts_idx"),
             models.Index(fields=["alert", "evaluation_date"], name="billing_event_alert_date_idx"),
             models.Index(fields=["kind", "-created_at"], name="billing_event_kind_ts_idx"),
