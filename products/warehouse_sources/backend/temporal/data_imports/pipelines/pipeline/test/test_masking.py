@@ -1,7 +1,7 @@
 import pyarrow as pa
 from parameterized import parameterized
 
-from posthog.temporal.data_imports.pipelines.pipeline.masking import (
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.masking import (
     mask_table_columns,
     mask_value,
     resolve_masked_columns,

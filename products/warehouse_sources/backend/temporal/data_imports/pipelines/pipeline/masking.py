@@ -17,7 +17,7 @@ import hashlib
 
 import pyarrow as pa
 
-from posthog.temporal.data_imports.naming_convention import NamingConvention
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 
 
 def mask_value(team_id: int, value: object) -> str | None:
