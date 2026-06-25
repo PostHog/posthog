@@ -1,6 +1,7 @@
 from typing import cast
 
 from posthog.schema import (
+    DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
@@ -22,6 +23,7 @@ class ChorusSource(SimpleSource[ChorusSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CHORUS,
+            category=DataWarehouseSourceCategory.SALES,
             label="Chorus",
             iconPath="/static/services/chorus.png",
             fields=cast(list[FieldType], []),

@@ -148,18 +148,25 @@ function buildBarrelImports(copiedSchemas, configModelNames) {
     const aliasLines = []
 
     const exportedComponentNames = new Set([...configModelNames, WIDGET_FILTER_ENTRY_MODEL])
+    // When the friendly type export matches the Orval component name (config models without a
+    // "List" infix), the import must be aliased or it collides with the exported type.
+    const friendlyTypeNames = new Set(configModelNames.map((name) => configModelNameToFriendlyNames(name).type))
+    const importLocalName = (componentName) =>
+        friendlyTypeNames.has(componentName) ? `${componentName}Component` : componentName
 
     for (const { componentName, fileName } of copiedSchemas) {
         if (!exportedComponentNames.has(componentName)) {
             continue
         }
         const importPath = `./${SCHEMAS_SUBDIR_NAME}/${fileName.replace(/\.ts$/, '')}`
-        importLines.push(`import { ${componentName} } from '${importPath}'`)
+        const localName = importLocalName(componentName)
+        const importSpecifier = localName === componentName ? componentName : `${componentName} as ${localName}`
+        importLines.push(`import { ${importSpecifier} } from '${importPath}'`)
     }
 
     for (const configModelName of configModelNames) {
         const { schema, orvalExport } = configModelNameToFriendlyNames(configModelName)
-        aliasLines.push(`export const ${schema} = /* @__PURE__ */ ${orvalExport}`)
+        aliasLines.push(`export const ${schema} = /* @__PURE__ */ ${importLocalName(orvalExport)}`)
     }
 
     const filterEntryImport = copiedSchemas.find((entry) => entry.componentName === WIDGET_FILTER_ENTRY_MODEL)

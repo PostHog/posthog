@@ -136,7 +136,9 @@ class EvalGroupingPipeline:
                 self.progress.signal_dropped()
                 return
 
-            safety_result = await safety_filter(EVAL_TEAM_ID, description)
+            safety_result = await safety_filter(
+                EVAL_TEAM_ID, description, source_product=case.signal.content.source_product
+            )
             await self._capture_safety_filter(case, safety_result)
 
             if not safety_result.safe:

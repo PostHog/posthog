@@ -15,13 +15,19 @@ from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryEr
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string, safe_identifier
 from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
 from posthog.hogql.functions.embed_text import resolve_embed_text
-from posthog.hogql.printer.base import BasePrinter, get_channel_definition_dict, resolve_field_type
+from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
+from posthog.hogql.printer.base import (
+    BasePrinter,
+    get_channel_definition_dict,
+    get_geoip_city_postal_dict,
+    resolve_field_type,
+)
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
 from posthog.hogql.type_system import parse_sql_runtime_type
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
-from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
+from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION, EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
 
@@ -65,6 +71,19 @@ INLINE_SENTINEL_LITERALS = frozenset({"", "null", "true", "false", '^"|"$'})
 
 class ClickHousePrinter(BasePrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "clickhouse"
+
+    def visit_cte(self, node: ast.CTE):
+        if node.materialized is False:
+            raise ImpossibleASTError("ClickHouse does not support NOT MATERIALIZED CTEs")
+        if node.using_key is not None:
+            raise ImpossibleASTError(f"CTE USING KEY is not supported in the '{self.DIALECT_NAME}' dialect")
+
+        if node.cte_type == "subquery":
+            if node.columns is not None:
+                raise NotImplementedError("CTE column name lists are not supported in this dialect")
+            materialized = " MATERIALIZED" if node.materialized else ""
+            return f"{self._print_identifier(node.name)} AS{materialized} {self.visit(node.expr)}"
+        return f"{self.visit(node.expr)} AS {self._print_identifier(node.name)}"
 
     def _render_set_query_limit_percent(self, limit: ast.Expr, limit_str: str) -> str:
         return str(self._limit_percent_constant_value(limit))
@@ -236,6 +255,31 @@ class ClickHousePrinter(BasePrinter):
 
         if node.name == "embedText":
             return self.visit_constant(resolve_embed_text(self.context.team, node))
+        elif node.name in ("_lookupGeoipCityName", "_lookupGeoipPostalCode"):
+            # Temporary (June 2026 MaxMind incident: https://posthog.slack.com/archives/C0B9DDSCTF1), remove with the
+            # geoip_dict_fallback transform. toIPv6OrDefault
+            # covers both families (v4 input becomes a ::ffff: mapped address, which the ip_trie dict resolves against
+            # its IPv4 prefixes); empty or invalid input becomes '::', which misses and returns the '' default.
+            # Reads the once-per-query decision from the context (set in prepare_ast_for_printing) rather than
+            # re-probing, so a background cache refresh can never make this gate reject the transform's own calls.
+            if not self.context.geoip_dict_fallback_enabled:
+                raise QueryError(f"{node.name} is not available on this instance")
+            # Deliberately NO property-restriction guard here, reviewers included AI ones: these are pure functions
+            # over GeoLite2, a public IP->geo dataset, and they cannot circumvent property-level access control.
+            # (1) They never expose a restricted input: a restricted property read in the argument (e.g.
+            # `properties.$ip`) is scrubbed to constant NULL by the restriction layer before this function sees it,
+            # so the lookup misses and returns '' — there is no oracle for the restricted value. (2) They never serve
+            # a restricted *stored* property: the "restricted property reads as NULL" contract is enforced where
+            # properties are read (clickhouse_property_resolution + JSONDropKeys) and by the geoip_dict_fallback
+            # transform's own target guard. (3) The only capability left is deriving geo data from an IP the user can
+            # already read, which any external geo service provides — a guard here would add zero protection while
+            # risking the printer rejecting the transform's own emitted calls. Pinned by tests in
+            # test_geoip_dict_fallback.py.
+            attribute = "city_name" if node.name == "_lookupGeoipCityName" else "postal_code"
+            geoip_dict = get_geoip_city_postal_dict()
+            return (
+                f"dictGetStringOrDefault('{geoip_dict}', '{attribute}', toIPv6OrDefault(coalesce({args[0]}, '')), '')"
+            )
         elif node.name == "lookupDomainType":
             channel_dict = get_channel_definition_dict()
             return f"coalesce(dictGetOrNull('{channel_dict}', 'domain_type', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{channel_dict}', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
@@ -256,12 +300,13 @@ class ClickHousePrinter(BasePrinter):
             from_currency, to_currency, amount, *_rest = args
             date = args[3] if len(args) > 3 and args[3] else "today()"
             db = django_settings.CLICKHOUSE_DATABASE
+            scale = EXCHANGE_RATE_DECIMAL_PRECISION
             # Build rate lookup expressions
-            from_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))"
-            to_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10))"
+            from_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, {scale}))"
+            to_rate = f"dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, {scale}))"
             # Use if() around divisor to avoid division by zero — with enable_analyzer=0, the old analyzer evaluates all branches regardless of condition.
-            safe_from_rate = f"if({from_rate} = 0, toDecimal64(1, 10), {from_rate})"
-            return f"if(equals({from_currency}, {to_currency}), toDecimal64({amount}, 10), if({from_rate} = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), {safe_from_rate}), {to_rate})))"
+            safe_from_rate = f"if({from_rate} = 0, toDecimal128(1, {scale}), {from_rate})"
+            return f"if(equals({from_currency}, {to_currency}), toDecimal128({amount}, {scale}), if({from_rate} = 0, toDecimal128(0, {scale}), multiplyDecimal(divideDecimal(toDecimal128({amount}, {scale}), {safe_from_rate}), {to_rate})))"
 
         relevant_clickhouse_name = func_meta.clickhouse_name
         if "{}" in relevant_clickhouse_name:
@@ -390,6 +435,8 @@ class ClickHousePrinter(BasePrinter):
             return value
         else:
             # Strings, lists, tuples, and any other random datatype printed in ClickHouse.
+            if node.is_sensitive:
+                return self.context.add_sensitive_value(node.value)
             return self.context.add_value(node.value)
 
     def visit_interpolate_expr(self, node: ast.InterpolateExpr):
@@ -442,7 +489,7 @@ class ClickHousePrinter(BasePrinter):
             return field_sql
 
         keys_placeholder = self.context.add_sensitive_value(sorted(keys_to_drop))
-        return f"JSONDropKeys({keys_placeholder})({field_sql})"
+        return f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}({keys_placeholder})({field_sql})"
 
     def _get_events_session_id_table_type(self, node: ast.Expr) -> ast.BaseTableType | None:
         """If the expression resolves to $session_id on the events table, return the table type."""
@@ -772,8 +819,42 @@ class ClickHousePrinter(BasePrinter):
         ):
             return team_id_guard_for_table(node_type, self.context)
 
+    def _ensure_access_control_where_clause(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ):
+        """Add access control guard for system tables"""
+        from posthog.hogql.database.postgres_table import PostgresTable
+        from posthog.hogql.printer.access_control import build_access_control_guard
+
+        if node_type is None:
+            return None
+        if not isinstance(table_type.table, PostgresTable):
+            return None
+        if not self.context.database or not self.context.database.user_access_control:
+            return None
+
+        # Only apply access control to tables registered under the system namespace
+        system_node = self.context.database.tables.children.get("system")
+        if not system_node or table_type.table.name not in system_node.children:
+            return None
+
+        if not table_type.table.primary_key:
+            return None
+
+        return build_access_control_guard(table_type.table, node_type, self.context)
+
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
         sql = table_type.table.to_printed_clickhouse(self.context)
+        table = table_type.table
+
+        # The v3 Parquet reader crashes (NOT_FOUND_COLUMN_IN_BLOCK) when the analyzer moves a
+        # computed predicate into the object-storage scan's PREWHERE. Wrap the read in a subquery
+        # that disables PREWHERE locally, so the surrounding query (incl. MergeTree joins) keeps it.
+        # See ClickHouse issue 80443.
+        if isinstance(table, S3Table) and table.format in ("Parquet", "Delta", "DeltaS3Wrapper"):
+            return f"(SELECT * FROM {sql} SETTINGS optimize_move_to_prewhere = 0)"
 
         # Edge case. If we are joining an s3 table, we must wrap it in a subquery for the join to work
         if isinstance(table_type.table, S3Table) and (

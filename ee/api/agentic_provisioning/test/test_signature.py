@@ -174,8 +174,9 @@ class TestVerifySignatureAfterDRFParsing(TestCase):
         [
             (
                 "no_signature_matches",
-                lambda body,
-                ts: f"t={ts},v1={compute_signature('wrong_a', ts, body)},v1={compute_signature('wrong_b', ts, body)}",
+                lambda body, ts: (
+                    f"t={ts},v1={compute_signature('wrong_a', ts, body)},v1={compute_signature('wrong_b', ts, body)}"
+                ),
             ),
             ("stale_timestamp", lambda body, ts: f"t={ts - 301},v1={compute_signature(HMAC_SECRET, ts - 301, body)}"),
             ("wrong_scheme_only", lambda body, ts: f"t={ts},v0={compute_signature(HMAC_SECRET, ts, body)}"),

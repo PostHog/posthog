@@ -18,7 +18,7 @@ import { v4 as uuidv4 } from 'uuid'
 import api from 'lib/api'
 import { isEmptyProperty } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -27,14 +27,22 @@ import {
     FeatureFlagEvaluationRuntime,
     FeatureFlagFilters,
     FeatureFlagGroupType,
-    GroupType,
     GroupTypeIndex,
     MultivariateFlagVariant,
     PropertyFilterType,
     UserBlastRadiusType,
 } from '~/types'
 
+import { resolveAggregationGroupTypeIndex } from './aggregation'
 import type { featureFlagReleaseConditionsLogicType } from './featureFlagReleaseConditionsLogicType'
+
+// A property filter targets people by their raw distinct id.
+export function isDistinctIdFilter(property: AnyPropertyFilter): boolean {
+    return property.type === PropertyFilterType.Person && property.key === 'distinct_id'
+}
+
+// Server caps batch_by_distinct_ids per request; chunk client-side so every id resolves.
+const DISTINCT_ID_BATCH_SIZE = 200
 
 // Helper function to move a condition set to a new index
 function moveConditionSet<T>(groups: T[], index: number, newIndex: number): T[] {
@@ -131,11 +139,10 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         loadAllFlagKeys: (flagIds: string[]) => ({ flagIds }),
         setFlagKeys: (flagKeys: Record<string, string>) => ({ flagKeys }),
         setFlagKeysLoading: (isLoading: boolean) => ({ isLoading }),
+        loadDistinctIdNames: (distinctIds: string[]) => ({ distinctIds }),
+        setDistinctIdNames: (distinctIdNames: Record<string, string>) => ({ distinctIdNames }),
         setOpenConditions: (openConditions: string[]) => ({ openConditions }),
         openCondition: (sortKey: string) => ({ sortKey }),
-        setIsMixedTargeting: (isMixedTargeting: boolean) => ({ isMixedTargeting }),
-        switchToMixedTargeting: true,
-        setMixedGroupTypeIndex: (mixedGroupTypeIndex: number) => ({ mixedGroupTypeIndex }),
         setIsAnyItemDragging: (isAnyItemDragging: boolean) => ({ isAnyItemDragging }),
         setDraggedGroup: (draggedGroup: FeatureFlagGroupType | null) => ({ draggedGroup }),
     }),
@@ -181,8 +188,10 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                         ...state,
                         aggregation_group_type_index: value,
                         groups: state.groups.map((group) => {
-                            const previousEffective =
-                                group.aggregation_group_type_index ?? state.aggregation_group_type_index ?? null
+                            const previousEffective = resolveAggregationGroupTypeIndex(
+                                group.aggregation_group_type_index,
+                                state.aggregation_group_type_index
+                            )
                             // Use == to treat null and undefined equivalently
                             const scopeChanged = previousEffective != value
                             return {
@@ -258,22 +267,6 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                     return state
                 }
                 return { ...state, early_exit: earlyExit }
-            },
-            switchToMixedTargeting: (state) => {
-                if (!state) {
-                    return state
-                }
-                const previousGlobal = state.aggregation_group_type_index
-                return {
-                    ...state,
-                    aggregation_group_type_index: null,
-                    // Each condition inherits the global aggregation type as its
-                    // per-condition value, so properties remain valid
-                    groups: state.groups.map((group) => ({
-                        ...group,
-                        aggregation_group_type_index: group.aggregation_group_type_index ?? previousGlobal ?? null,
-                    })) as FeatureFlagGroupTypeWithSortKey[],
-                }
             },
             setConditionAggregation: (state, { index, groupTypeIndex }) => {
                 if (!state) {
@@ -377,25 +370,21 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 setFlagKeysLoading: (_, { isLoading }) => isLoading,
             },
         ],
+        distinctIdNameCache: [
+            {} as Record<string, string>,
+            {
+                setDistinctIdNames: (state, { distinctIdNames }) => ({
+                    ...state,
+                    ...distinctIdNames,
+                }),
+            },
+        ],
         openConditions: [
             [] as string[],
             {
                 setOpenConditions: (_, { openConditions }) => openConditions,
                 openCondition: (state, { sortKey }) =>
                     state.includes(`condition-${sortKey}`) ? state : [...state, `condition-${sortKey}`],
-            },
-        ],
-        isMixedTargeting: [
-            false as boolean,
-            {
-                setIsMixedTargeting: (_, { isMixedTargeting }) => isMixedTargeting,
-                switchToMixedTargeting: () => true,
-            },
-        ],
-        mixedGroupTypeIndex: [
-            0 as number,
-            {
-                setMixedGroupTypeIndex: (_, { mixedGroupTypeIndex }) => mixedGroupTypeIndex,
             },
         ],
         isAnyItemDragging: [
@@ -413,9 +402,12 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
     })),
     listeners(({ actions, values, props }) => ({
         setFilters: async () => {
-            const { flagIds } = values
+            const { flagIds, distinctIds } = values
             if (flagIds.length > 0) {
                 await actions.loadAllFlagKeys(flagIds)
+            }
+            if (distinctIds.length > 0) {
+                actions.loadDistinctIdNames(distinctIds)
             }
             // Recalculate blast radius when filters change (e.g., from template application)
             if (!props.readOnly) {
@@ -455,6 +447,11 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 if (allFlagIds.length > 0) {
                     await actions.loadAllFlagKeys(allFlagIds)
                 }
+
+                // Resolve display names for any distinct_id targeting in the updated properties.
+                if (values.distinctIds.length > 0) {
+                    actions.loadDistinctIdNames(values.distinctIds)
+                }
             }
 
             if (!newProperties || newProperties.some(isEmptyProperty)) {
@@ -462,8 +459,10 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             }
 
             await breakpoint(1000) // in ms
-            const groupTypeIndex =
-                group.aggregation_group_type_index ?? values.filters?.aggregation_group_type_index ?? null
+            const groupTypeIndex = resolveAggregationGroupTypeIndex(
+                group.aggregation_group_type_index,
+                values.filters?.aggregation_group_type_index
+            )
             const response: UserBlastRadiusType = await api.create(
                 `api/projects/${values.currentProjectId}/feature_flags/user_blast_radius`,
                 {
@@ -478,8 +477,10 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         setConditionAggregation: ({ index }) => {
             const group = values.filters.groups[index]
             if (group?.sort_key) {
-                const groupTypeIndex =
-                    group.aggregation_group_type_index ?? values.filters?.aggregation_group_type_index ?? null
+                const groupTypeIndex = resolveAggregationGroupTypeIndex(
+                    group.aggregation_group_type_index,
+                    values.filters?.aggregation_group_type_index
+                )
                 actions.calculateBlastRadiusForCondition(group.sort_key, group.properties, groupTypeIndex)
             }
         },
@@ -487,8 +488,10 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             const newGroup = values.filters.groups[values.filters.groups.length - 1]
             if (newGroup.sort_key) {
                 actions.openCondition(newGroup.sort_key)
-                const groupTypeIndex =
-                    newGroup.aggregation_group_type_index ?? values.filters?.aggregation_group_type_index ?? null
+                const groupTypeIndex = resolveAggregationGroupTypeIndex(
+                    newGroup.aggregation_group_type_index,
+                    values.filters?.aggregation_group_type_index
+                )
                 actions.calculateBlastRadiusForCondition(newGroup.sort_key, newGroup.properties, groupTypeIndex)
             }
         },
@@ -502,9 +505,6 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             if (newOpenConditions.length !== values.openConditions.length) {
                 actions.setOpenConditions(newOpenConditions)
             }
-        },
-        switchToMixedTargeting: () => {
-            actions.calculateBlastRadius()
         },
         setAggregationGroupTypeIndex: () => {
             actions.calculateBlastRadius()
@@ -554,8 +554,10 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         },
         calculateBlastRadius: () => {
             values.filters.groups.forEach((condition: FeatureFlagGroupTypeWithSortKey) => {
-                const groupTypeIndex =
-                    condition.aggregation_group_type_index ?? values.filters?.aggregation_group_type_index ?? null
+                const groupTypeIndex = resolveAggregationGroupTypeIndex(
+                    condition.aggregation_group_type_index,
+                    values.filters?.aggregation_group_type_index
+                )
                 actions.calculateBlastRadiusForCondition(condition.sort_key, condition.properties, groupTypeIndex)
             })
         },
@@ -628,6 +630,45 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 actions.setFlagKeysLoading(false)
             }
         },
+        loadDistinctIdNames: async ({ distinctIds }) => {
+            if (!distinctIds || distinctIds.length === 0) {
+                return
+            }
+
+            // Only fetch ids we haven't resolved yet. Failed lookups stay uncached so they
+            // retry on a later setFilters/updateConditionSet rather than pinning to the raw id.
+            const uncachedIds = [...new Set(distinctIds)].filter((id) => !(id in values.distinctIdNameCache))
+            if (uncachedIds.length === 0) {
+                return
+            }
+
+            // Resolve a chunk to its display-name mapping, keeping the raw id when no
+            // meaningful name resolved.
+            const toMapping = (
+                chunk: string[],
+                personsByDistinctId: Record<string, { name?: string }>
+            ): Record<string, string> =>
+                Object.fromEntries(
+                    chunk.map((id) => {
+                        const name = personsByDistinctId[id]?.name
+                        return [id, name && name !== id ? name : id]
+                    })
+                )
+
+            // Commit each chunk as it resolves so a later-chunk failure doesn't discard
+            // already-resolved names.
+            for (let i = 0; i < uncachedIds.length; i += DISTINCT_ID_BATCH_SIZE) {
+                const chunk = uncachedIds.slice(i, i + DISTINCT_ID_BATCH_SIZE)
+                try {
+                    const personsByDistinctId = await api.persons.getByDistinctIds(chunk)
+                    actions.setDistinctIdNames(toMapping(chunk, personsByDistinctId))
+                } catch (error) {
+                    // Leave failed ids uncached so a later setFilters/updateConditionSet retries
+                    // them; getDistinctIdName already renders the raw id while unresolved.
+                    console.error('Error loading distinct ID names:', error)
+                }
+            }
+        },
     })),
     selectors({
         filterGroups: [(s) => [s.filters], (filters: FeatureFlagFilters) => filters.groups || []],
@@ -661,7 +702,10 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             (s) => [s.filters, s.aggregationLabel],
             (filters, aggregationLabel) =>
                 (conditionGroupTypeIndex?: number | null): string => {
-                    const effectiveIndex = conditionGroupTypeIndex ?? filters.aggregation_group_type_index
+                    const effectiveIndex = resolveAggregationGroupTypeIndex(
+                        conditionGroupTypeIndex,
+                        filters.aggregation_group_type_index
+                    )
                     if (effectiveIndex != null) {
                         return aggregationLabel(effectiveIndex).plural
                     }
@@ -672,7 +716,10 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             (s) => [s.filters, s.groupTypes],
             (filters, groupTypes) =>
                 (conditionGroupTypeIndex: number | null | undefined): TaxonomicFilterGroupType[] => {
-                    const effectiveIndex = conditionGroupTypeIndex ?? filters?.aggregation_group_type_index
+                    const effectiveIndex = resolveAggregationGroupTypeIndex(
+                        conditionGroupTypeIndex,
+                        filters?.aggregation_group_type_index
+                    )
                     const targetGroupTypes: TaxonomicFilterGroupType[] = []
 
                     if (effectiveIndex != null) {
@@ -779,28 +826,36 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                         ) || []
                 ) || [],
         ],
+        distinctIds: [
+            (s) => [s.filterGroups],
+            (filterGroups: FeatureFlagGroupType[]): string[] =>
+                filterGroups?.flatMap(
+                    (group: FeatureFlagGroupType) =>
+                        group.properties?.flatMap((property: AnyPropertyFilter) => {
+                            if (!isDistinctIdFilter(property)) {
+                                return []
+                            }
+                            if (Array.isArray(property.value)) {
+                                return property.value.map((v) => String(v))
+                            }
+                            return property.value !== null && property.value !== undefined
+                                ? [String(property.value)]
+                                : []
+                        }) || []
+                ) || [],
+        ],
+        getDistinctIdName: [
+            (s) => [s.distinctIdNameCache],
+            (distinctIdNameCache: Record<string, string>) =>
+                (distinctId: string): string => {
+                    const name = distinctIdNameCache[distinctId]
+                    return name && name !== distinctId ? `${distinctId} (${name})` : distinctId
+                },
+        ],
         properties: [
             (s) => [s.filterGroups],
             (filterGroups: FeatureFlagGroupType[]) => {
                 return filterGroups?.flatMap((g) => g.properties ?? []) ?? []
-            },
-        ],
-        hasMixedAggregations: [
-            (s) => [s.filterGroups],
-            (filterGroups: FeatureFlagGroupType[]) => {
-                const aggregations = filterGroups.map((g) => g.aggregation_group_type_index ?? null)
-                return aggregations.length > 1 && !aggregations.every((a) => a === aggregations[0])
-            },
-        ],
-        defaultMixedGroupTypeIndex: [
-            (s) => [s.filterGroups, s.groupTypes],
-            (filterGroups: FeatureFlagGroupType[], groupTypes: Map<GroupTypeIndex, GroupType>) => {
-                const groupTypeValues = Array.from(groupTypes.values()) as GroupType[]
-                return (
-                    filterGroups.find((g) => g.aggregation_group_type_index != null)?.aggregation_group_type_index ??
-                    groupTypeValues[0]?.group_type_index ??
-                    0
-                )
             },
         ],
     }),
@@ -823,9 +878,12 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
     afterMount(({ props, actions, values }) => {
         // Load flag keys on mount if there are flag dependencies
         if (props.filters) {
-            const { flagIds } = values
+            const { flagIds, distinctIds } = values
             if (flagIds.length > 0) {
                 actions.loadAllFlagKeys(flagIds)
+            }
+            if (distinctIds.length > 0) {
+                actions.loadDistinctIdNames(distinctIds)
             }
         }
 
@@ -837,11 +895,5 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         if (values.filters.groups.length === 1 && values.filters.groups[0]?.sort_key) {
             actions.setOpenConditions([`condition-${values.filters.groups[0].sort_key}`])
         }
-
-        // Initialize mixed targeting state from existing filter groups
-        if (values.hasMixedAggregations) {
-            actions.setIsMixedTargeting(true)
-        }
-        actions.setMixedGroupTypeIndex(values.defaultMixedGroupTypeIndex)
     }),
 ])

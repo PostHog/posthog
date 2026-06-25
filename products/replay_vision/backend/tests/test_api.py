@@ -30,6 +30,7 @@ from products.replay_vision.backend.temporal.constants import (
     build_apply_scanner_workflow_id,
 )
 from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
+from products.signals.backend.models import SignalSourceConfig
 
 
 class _VisionAPITestCase(APIBaseTest):
@@ -637,17 +638,25 @@ class TestScannerEstimatePersistence(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200, resp.json())
         self.assertEqual(self.mock_refresh_estimate.called, expect_refresh)
 
-    def test_reenabling_refreshes_a_stale_estimate(self) -> None:
+    @parameterized.expand(
+        [
+            ("fresh_estimate_skips_inline_refresh", timedelta(hours=1), False),
+            ("stale_estimate_refreshes_inline", timedelta(days=2), True),
+        ]
+    )
+    def test_reenabling_refreshes_inline_only_when_stale(
+        self, _name: str, estimate_age: timedelta, expect_refresh: bool
+    ) -> None:
         scanner = self._create_scanner(enabled=False)
         ReplayScanner.objects.filter(pk=scanner.pk).update(
-            estimated_monthly_observations=10, estimated_at=timezone.now() - timedelta(days=30)
+            estimated_monthly_observations=10, estimated_at=timezone.now() - estimate_age
         )
         self.mock_refresh_estimate.reset_mock()
 
         resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"enabled": True}, format="json")
 
         self.assertEqual(resp.status_code, 200, resp.json())
-        self.mock_refresh_estimate.assert_called_once()
+        self.assertEqual(self.mock_refresh_estimate.called, expect_refresh)
 
     def test_update_backfills_a_never_computed_estimate(self) -> None:
         scanner = self._create_scanner()
@@ -657,6 +666,33 @@ class TestScannerEstimatePersistence(_VisionAPITestCase):
 
         self.assertEqual(resp.status_code, 200, resp.json())
         self.mock_refresh_estimate.assert_called_once()
+
+
+class TestScannerSignalSourceEnablement(_VisionAPITestCase):
+    def _payload(self, **overrides: Any) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "name": "signal-enablement",
+            "scanner_type": ScannerType.MONITOR,
+            "scanner_config": {"prompt": "p"},
+            "model": ScannerModel.GEMINI_3_FLASH,
+        }
+        payload.update(overrides)
+        return payload
+
+    def _has_source_config(self) -> bool:
+        return SignalSourceConfig.objects.filter(team=self.team, source_product="replay_vision").exists()
+
+    def test_creating_with_emits_signals_writes_no_source_config(self) -> None:
+        # Scanner findings are self-authorizing — the scanner is the config, so no SignalSourceConfig row is created.
+        resp = self.client.post(self.scanners_url, data=self._payload(emits_signals=True), format="json")
+        self.assertEqual(resp.status_code, 201, resp.json())
+        assert not self._has_source_config()
+
+    def test_enabling_emits_signals_on_update_writes_no_source_config(self) -> None:
+        scanner = self._create_scanner()
+        resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"emits_signals": True}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        assert not self._has_source_config()
 
 
 class TestReplayScannerViewSetFeatureFlag(APIBaseTest):
@@ -806,6 +842,23 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?{field}={value}")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(len(resp.json()["results"]), expected_count)
+
+    @parameterized.expand(
+        [
+            ("single", "a", {"a"}),
+            ("multiple", "a,b", {"a", "b"}),
+            ("all", "a,b,c", {"a", "b", "c"}),
+            ("unknown_ignored", "a,zzz", {"a"}),
+            ("no_match", "zzz", set()),
+        ]
+    )
+    def test_filter_by_session_ids(self, _name: str, filter_value: str, expected: set[str]) -> None:
+        self._create_observation(session_id="a")
+        self._create_observation(session_id="b")
+        self._create_observation(session_id="c")
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?session_id={filter_value}")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual({r["session_id"] for r in resp.json()["results"]}, expected)
 
     def test_order_by_created_at_descending(self) -> None:
         first = self._create_observation(session_id="first")

@@ -4,7 +4,7 @@ import { ReactNode, useMemo, useState } from 'react'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { isObject } from 'lib/utils'
+import { isObject } from 'lib/utils/guards'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 

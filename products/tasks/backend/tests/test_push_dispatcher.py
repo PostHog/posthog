@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 from django.db import InterfaceError, OperationalError
-from django.test import TransactionTestCase
+from django.test import TestCase
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -18,9 +18,11 @@ from products.tasks.backend.push_dispatcher import (
 )
 
 
-# TransactionTestCase so transaction.on_commit callbacks (which we use to defer
-# the Celery dispatch) actually fire during the test instead of being rolled back.
-class TestPushDispatcher(TransactionTestCase):
+# The Celery dispatch is deferred via transaction.on_commit, which never fires
+# inside TestCase's rolled-back transaction — tests wrap notify calls in
+# captureOnCommitCallbacks(execute=True) to run the deferred callback (or assert
+# none was registered) without TransactionTestCase's per-test full-DB flush.
+class TestPushDispatcher(TestCase):
     def setUp(self) -> None:
         cache.clear()
         self.organization = Organization.objects.create(name="Test Org")
@@ -49,7 +51,8 @@ class TestPushDispatcher(TransactionTestCase):
     @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
     def test_notify_enqueues_push(self, _name, notify_fn, expected_body_fragment, mock_delay, _flag):
-        notify_fn(self.task_run)
+        with self.captureOnCommitCallbacks(execute=True):
+            notify_fn(self.task_run)
         mock_delay.assert_called_once()
         user_id, title, body, data, suppressed = mock_delay.call_args.args
         self.assertEqual(user_id, self.user.id)
@@ -63,7 +66,8 @@ class TestPushDispatcher(TransactionTestCase):
     @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=False)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
     def test_feature_flag_off_skips_dispatch(self, mock_delay, _flag):
-        notify_task_run_completed(self.task_run)
+        with self.captureOnCommitCallbacks(execute=True):
+            notify_task_run_completed(self.task_run)
         mock_delay.assert_not_called()
 
     @patch(
@@ -72,23 +76,26 @@ class TestPushDispatcher(TransactionTestCase):
     )
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
     def test_flag_error_fails_closed(self, mock_delay, _flag):
-        notify_task_run_completed(self.task_run)
+        with self.captureOnCommitCallbacks(execute=True):
+            notify_task_run_completed(self.task_run)
         mock_delay.assert_not_called()
 
     @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
     def test_cooldown_collapses_duplicates(self, mock_delay, _flag):
-        notify_task_run_completed(self.task_run)
-        notify_task_run_completed(self.task_run)
-        notify_task_run_completed(self.task_run)
+        with self.captureOnCommitCallbacks(execute=True):
+            notify_task_run_completed(self.task_run)
+            notify_task_run_completed(self.task_run)
+            notify_task_run_completed(self.task_run)
         self.assertEqual(mock_delay.call_count, 1)
 
     @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
     def test_cooldown_is_per_kind(self, mock_delay, _flag):
         # Different push kinds on the same run shouldn't share a cooldown key.
-        notify_task_run_completed(self.task_run)
-        notify_task_run_awaiting_input(self.task_run)
+        with self.captureOnCommitCallbacks(execute=True):
+            notify_task_run_completed(self.task_run)
+            notify_task_run_awaiting_input(self.task_run)
         self.assertEqual(mock_delay.call_count, 2)
 
     @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
@@ -106,7 +113,8 @@ class TestPushDispatcher(TransactionTestCase):
         )
         outsider_run = TaskRun.objects.create(task=outsider_task, team=self.team)
 
-        notify_task_run_completed(outsider_run)
+        with self.captureOnCommitCallbacks(execute=True):
+            notify_task_run_completed(outsider_run)
         mock_delay.assert_not_called()
 
     @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
@@ -120,7 +128,8 @@ class TestPushDispatcher(TransactionTestCase):
             created_by=None,
         )
         anonymous_run = TaskRun.objects.create(task=anonymous_task, team=self.team)
-        notify_task_run_completed(anonymous_run)
+        with self.captureOnCommitCallbacks(execute=True):
+            notify_task_run_completed(anonymous_run)
         mock_delay.assert_not_called()
 
     @patch("products.tasks.backend.push_dispatcher._enqueue_inner", side_effect=RuntimeError("redis is down"))

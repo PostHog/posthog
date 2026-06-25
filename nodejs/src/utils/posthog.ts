@@ -16,12 +16,12 @@ if (process.env.NODE_ENV === 'test' && posthog) {
     void posthog.disable()
 }
 
-export function initSuperProperties(): void {
+export function initSuperProperties(eventsIngestionPipeline: string | null = null): void {
     if (posthog) {
         const superProperties: Record<string, any> = {
             plugin_server_mode: defaultConfig.PLUGIN_SERVER_MODE,
             deployment: defaultConfig.CLOUD_DEPLOYMENT,
-            plugin_server_events_ingestion_pipeline: defaultConfig.PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE,
+            plugin_server_events_ingestion_pipeline: eventsIngestionPipeline,
             // Super properties matching Python posthoganalytics.super_properties (posthog/apps.py)
             region: defaultConfig.CLOUD_DEPLOYMENT,
             service: defaultConfig.OTEL_SERVICE_NAME,

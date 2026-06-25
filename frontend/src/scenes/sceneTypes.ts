@@ -12,6 +12,7 @@ export enum Scene {
     AdvancedActivityLogs = 'AdvancedActivityLogs',
     AgenticAccountMismatch = 'AgenticAccountMismatch',
     AgenticAuthorize = 'AgenticAuthorize',
+    AIGateway = 'AIGateway',
     Annotations = 'Annotations',
     Approval = 'Approval',
     AsyncMigrations = 'AsyncMigrations',
@@ -39,6 +40,7 @@ export enum Scene {
     DataOps = 'DataOps',
     DataWarehouseRedirect = 'DataWarehouseRedirect',
     DataWarehouseSource = 'DataWarehouseSource',
+    DataWarehouseSourceConnect = 'DataWarehouseSourceConnect',
     DataWarehouseSourceNew = 'DataWarehouseSourceNew',
     DataWarehouseSourceSchema = 'DataWarehouseSourceSchema',
     DeadLetterQueue = 'DeadLetterQueue',
@@ -80,6 +82,7 @@ export enum Scene {
     Insight = 'Insight',
     InsightQuickStart = 'InsightQuickStart',
     IntegrationsRedirect = 'IntegrationsRedirect',
+    IntegrationsLanding = 'IntegrationsLanding',
     StripeConfirmInstall = 'StripeConfirmInstall',
     IngestionWarnings = 'IngestionWarnings',
     InviteSignup = 'InviteSignup',
@@ -233,7 +236,6 @@ export interface SceneExport<T = SceneProps> {
 // we use an untyped SceneProps to satisfy the types
 export interface LoadedScene extends SceneExport<SceneProps> {
     id: string
-    tabId?: string
     sceneParams: SceneParams
 }
 
@@ -358,6 +360,9 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     // Experiments
     [Scene.Experiment]: AccessControlResourceType.Experiment,
     [Scene.Experiments]: AccessControlResourceType.Experiment,
+
+    // Exports
+    [Scene.Exports]: AccessControlResourceType.Export,
 
     // Customer analytics (only journey scenes — configuration uses project-level admin)
     [Scene.CustomerJourneyBuilder]: AccessControlResourceType.CustomerAnalytics,

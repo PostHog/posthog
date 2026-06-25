@@ -74,6 +74,9 @@ NON_RETRYABLE_ERROR_TYPES: list[str] = [
     "DatabricksSchemaNotFoundError",
     # Raised when the Databricks warehouse is stopped.
     "DatabricksWarehouseStoppedError",
+    # Raised when the destination table's column types are incompatible with the exported data
+    # (e.g. the table column is VARIANT but the export is configured to write STRING).
+    "DatabricksIncompatibleSchemaError",
 ]
 
 DatabricksField = tuple[str, str]
@@ -148,6 +151,31 @@ class DatabricksWarehouseStoppedError(DatabricksOperationError):
     """Error for when a Databricks warehouse is stopped."""
 
     pass
+
+
+class DatabricksIncompatibleSchemaError(DatabricksOperationError):
+    """Raised when the destination table's column types are incompatible with the exported data.
+
+    This happens when an existing table column has a type that can't accept the data we're
+    exporting into it. One common cause is the export's `use_variant_type` setting not matching
+    the existing table (e.g. a column is VARIANT in the table but the export is configured to
+    write STRING, or vice versa).
+    """
+
+    def __init__(self, operation: str, reason: str, export_schema: list[DatabricksField] | None = None):
+        detail = reason
+        if export_schema is not None:
+            # We only report the schema of the data we're exporting (which the user already controls)
+            # and deliberately not the destination table's schema: this error is surfaced to users via
+            # the batch export run APIs, and the table could be any table the integration can reach.
+            export_schema_str = ", ".join(f"`{name}` {type_name}" for name, type_name in export_schema)
+            detail += f" Exported data schema: {export_schema_str}."
+        super().__init__(
+            operation,
+            detail,
+            "This means the destination table's column types don't match the data being exported. "
+            "Please check the schema of your destination table.",
+        )
 
 
 @dataclasses.dataclass(kw_only=True)
@@ -567,8 +595,21 @@ class DatabricksClient:
         query = self._get_copy_into_table_from_volume_query(
             table_name=table_name, volume_path=volume_path, fields=fields, with_schema_evolution=with_schema_evolution
         )
-        async with handle_common_errors(f"COPY INTO {table_name} FROM VOLUME", timeout):
-            await self.execute_async_query(query, fetch_results=False, timeout=timeout)
+        operation = f"COPY INTO {table_name} FROM VOLUME"
+        async with handle_common_errors(operation, timeout):
+            try:
+                await self.execute_async_query(query, fetch_results=False, timeout=timeout)
+            except ServerOperationError as err:
+                # Delta raises DELTA_FAILED_TO_MERGE_FIELDS when the destination table's column
+                # types are incompatible with the data we're loading (e.g. a VARIANT vs STRING
+                # mismatch). Re-raise as a clear, non-retryable error reporting the schema we're
+                # exporting so the user can compare it against their table.
+                message = err.message or ""
+                if "failed to merge fields" in message.lower() or "delta_failed_to_merge_fields" in message.lower():
+                    raise DatabricksIncompatibleSchemaError(
+                        operation=operation, reason=message, export_schema=fields
+                    ) from err
+                raise
 
     def _get_copy_into_table_from_volume_query(
         self, table_name: str, volume_path: str, fields: list[DatabricksField], with_schema_evolution: bool = True
@@ -1208,6 +1249,7 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
                     consumer=consumer,
                     producer_task=producer_task,
                     transformer=transformer,
+                    records_total=inputs.records_total,
                 )
 
                 # TODO - maybe move this into the consumer finalize method?

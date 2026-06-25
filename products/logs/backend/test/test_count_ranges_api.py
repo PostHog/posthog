@@ -117,6 +117,14 @@ class TestCountRangesApi(ClickhouseTestMixin, APIBaseTest):
             self.assertGreater(dt_, df)
 
     @freeze_time("2025-12-18T12:00:00Z")
+    def test_bucket_timestamps_are_utc_z_suffixed(self):
+        ranges = self._ranges({"dateRange": _DENSE_DAY, "targetBuckets": 24})["ranges"]
+        self.assertGreater(len(ranges), 0)
+        for bucket in ranges:
+            self.assertTrue(bucket["date_from"].endswith("Z"), bucket["date_from"])
+            self.assertTrue(bucket["date_to"].endswith("Z"), bucket["date_to"])
+
+    @freeze_time("2025-12-18T12:00:00Z")
     def test_recursion_happy_path(self):
         wide = self._ranges({"dateRange": _FIXTURE_WINDOW, "targetBuckets": 10})
         densest = max(wide["ranges"], key=lambda b: b["count"])

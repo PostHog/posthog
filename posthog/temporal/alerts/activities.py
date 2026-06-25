@@ -10,7 +10,7 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.schema import AlertCalculationInterval, AlertState
 
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
 from posthog.schema_migrations.upgrade_manager import upgrade_query
@@ -24,7 +24,6 @@ from posthog.tasks.alerts.utils import (
     next_check_time,
     record_alert_delivery,
     skip_because_of_weekend,
-    validate_alert_config,
 )
 from posthog.temporal.alerts.investigation import claim_investigation_slot, should_trigger_investigation
 from posthog.temporal.alerts.types import (
@@ -40,6 +39,7 @@ from posthog.temporal.alerts.types import (
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.alerts.backend.evaluation import check_alert_for_insight
+from products.alerts.backend.evaluation.validation import validate_alert_config
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -201,8 +201,8 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                 non_retryable=True,
             )
 
-        # CH workload management keys off this tag to isolate alert queries from other tenants.
-        tag_queries(alert_config_id=str(alert.id))
+        # CH workload management keys off these tags to isolate alert queries from other tenants.
+        tag_queries(alert_config_id=str(alert.id), product=Product.PRODUCT_ANALYTICS, feature=Feature.ALERTING)
 
         # Snapshot before add_alert_check mutates alert.state — needed to detect the
         # NOT_FIRING/ERRORED -> FIRING transition that triggers an investigation.

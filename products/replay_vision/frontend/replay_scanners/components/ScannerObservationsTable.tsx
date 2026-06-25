@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh, IconRewindPlay } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTag, LemonTagType, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -91,10 +91,13 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         hasActiveObservationFilters,
         availableTags,
         observationStats,
+        observationStatsApiLoading,
         scanner,
+        triggeringOnDemandObservation,
+        refreshing,
     } = useValues(logic)
     const {
-        loadObservations,
+        refreshObservations,
         setObservationsPage,
         setObservationsSort,
         setObservationStatusFilter,
@@ -192,9 +195,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
     return (
         <div className="space-y-2">
             <div className="flex items-center gap-3">
-                <p className="text-muted text-sm m-0">
-                    Past observations made by this scanner. Each row is one observation.
-                </p>
+                <h3 className="font-semibold text-base m-0">Observation history</h3>
                 <div className="ml-auto flex items-center gap-3">
                     <div className="flex items-center gap-2">
                         {(observationStats.total > 0 || hasActiveObservationFilters) && (
@@ -245,15 +246,15 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                 size="small"
                                 type="secondary"
                                 icon={<IconRefresh />}
-                                onClick={() => loadObservations()}
-                                loading={observationsLoading}
+                                onClick={() => refreshObservations()}
+                                loading={refreshing}
                                 data-attr="vision-observations-refresh"
                             >
                                 Refresh
                             </LemonButton>
                         </Tooltip>
                     </div>
-                    {observationStats.total > 0 && (
+                    {observationStats.total > 0 ? (
                         <div className="flex gap-4 text-sm">
                             <Metric label="Total" value={observationStats.total} />
                             {observationStats.successRate !== null && (
@@ -273,13 +274,19 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                 <Metric label="In flight" value={observationStats.inFlight} />
                             )}
                         </div>
-                    )}
+                    ) : observationStatsApiLoading ? (
+                        <div className="flex items-center text-muted text-sm">
+                            <Spinner />
+                        </div>
+                    ) : null}
                 </div>
             </div>
             <LemonTable
                 columns={columns}
                 dataSource={observations}
-                loading={observationsLoading}
+                loading={
+                    refreshing || triggeringOnDemandObservation || (observationsLoading && observations.length === 0)
+                }
                 rowKey="id"
                 pagination={{
                     controlled: true,

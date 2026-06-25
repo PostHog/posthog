@@ -133,8 +133,8 @@ class PropertyDefinition(UUIDTModel):
 
 # ClickHouse Table DDL
 
-PROPERTY_DEFINITIONS_TABLE_SQL = (
-    lambda: f"""
+PROPERTY_DEFINITIONS_TABLE_SQL = lambda: (
+    f"""
 CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`property_definitions`
 (
     -- Team and project relationships

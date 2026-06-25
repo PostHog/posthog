@@ -61,7 +61,9 @@ export const AccountsCreateBody = /* @__PURE__ */ zod
             .string()
             .max(accountsCreateBodyExternalIdMax)
             .nullish()
-            .describe('Identifier for the account in an external system (e.g. CRM ID). Optional.'),
+            .describe(
+                "Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional."
+            ),
         properties: zod
             .object({
                 csm: zod
@@ -113,6 +115,8 @@ export const AccountsNotebooksListParams = /* @__PURE__ */ zod.object({
 export const AccountsNotebooksListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    ordering: zod.string().optional().describe("Sort by creation date or author. Defaults to '-created_at'."),
+    search: zod.string().optional().describe('Full-text search across notebook title and content.'),
 })
 
 export const AccountsNotebooksCreateParams = /* @__PURE__ */ zod.object({
@@ -189,7 +193,9 @@ export const AccountsPartialUpdateBody = /* @__PURE__ */ zod
             .string()
             .max(accountsPartialUpdateBodyExternalIdMax)
             .nullish()
-            .describe('Identifier for the account in an external system (e.g. CRM ID). Optional.'),
+            .describe(
+                "Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional."
+            ),
         properties: zod
             .object({
                 csm: zod

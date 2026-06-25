@@ -32,7 +32,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
-import { objectsEqual, slugify } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
+import { slugify } from 'lib/utils/strings'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { parseQueryTablesAndColumns, queryUsesFiltersPlaceholder } from 'scenes/data-warehouse/editor/sql-utils'
@@ -58,6 +59,7 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import {
+    AccessControlResourceType,
     ChartDisplayType,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
@@ -177,6 +179,12 @@ export interface QueryTab {
 }
 
 export type SqlEditorSource = 'insight' | 'endpoint'
+
+export interface DataWarehouseAccessControlModalProps {
+    resource: AccessControlResourceType.WarehouseTable | AccessControlResourceType.WarehouseView
+    resourceId: string
+    name: string
+}
 
 export interface SuggestionPayload {
     suggestedValue?: string
@@ -587,6 +595,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             view,
         }),
         closeMaterializationModal: true,
+        openAccessControlModal: (editingAccessControlObject: DataWarehouseAccessControlModalProps) => ({
+            editingAccessControlObject,
+        }),
+        closeAccessControlModal: true,
     })),
     propsChanged(({ actions, props, cache }, oldProps) => {
         if (!oldProps.monaco && !oldProps.editor && props.monaco && props.editor) {
@@ -733,6 +745,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             {
                 setMaterializationModalView: (_, { view }) => view,
                 closeMaterializationModal: () => null,
+            },
+        ],
+        accessControlModalOpen: [
+            false,
+            {
+                openAccessControlModal: () => true,
+                closeAccessControlModal: () => false,
+            },
+        ],
+        editingAccessControlObject: [
+            null as DataWarehouseAccessControlModalProps | null,
+            {
+                openAccessControlModal: (_, { editingAccessControlObject }) => editingAccessControlObject,
+                closeAccessControlModal: () => null,
             },
         ],
         editingInsight: [
@@ -1566,6 +1592,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     name,
                     query: sourceQueryToSave,
                     saved: true,
+                    ...(dashboardId ? { dashboards: [dashboardId] } : {}),
                 })
                 const logic = insightLogic({
                     dashboardItemId: insight.short_id,
@@ -1683,6 +1710,17 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     query: currentVisualizationQuery,
                 }
 
+                // When saving from a dashboard flow, attach the tile server-side without
+                // dropping the insight's existing dashboard links.
+                const dashboardId = values.dashboardId
+                if (dashboardId) {
+                    const existingDashboardIds = [
+                        ...(values.editingInsight.dashboard_tiles?.map((tile) => tile.dashboard_id) ?? []),
+                        ...(values.editingInsight.dashboards ?? []),
+                    ]
+                    insightRequest.dashboards = Array.from(new Set([...existingDashboardIds, dashboardId]))
+                }
+
                 let savedInsight: QueryBasedInsightModel
                 try {
                     savedInsight = await insightsApi.update(values.editingInsight.id, insightRequest)
@@ -1715,7 +1753,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     })
                 }
 
-                const dashboardId = values.dashboardId
                 if (dashboardId) {
                     dashboardsModel.findMounted()?.actions.updateDashboardInsight(savedInsight)
                     dashboardLogic.findMounted({ id: dashboardId })?.actions.loadDashboard({

@@ -1,12 +1,10 @@
 from typing import TYPE_CHECKING, Optional
 
 import posthoganalytics
-from pydantic import ValidationError
 
-from posthog.schema import (
+from posthog.cloud_utils import is_cloud
+from posthog.schema_enums import (
     BounceRatePageViewMode,
-    CustomChannelRule,
-    HogQLQueryModifiers,
     InCohortVia,
     InlineCohortCalculation,
     MaterializationMode,
@@ -16,15 +14,19 @@ from posthog.schema import (
     SessionTableVersion,
 )
 
-from posthog.cloud_utils import is_cloud
-
+# This module loads at django.setup() via Team; posthog.schema (the pydantic models) is
+# runtime-imported in the functions that build modifier objects to keep it off that path.
 if TYPE_CHECKING:
+    from posthog.schema import HogQLQueryModifiers
+
     from posthog.models import Team, User
 
 
 def create_default_modifiers_for_user(
-    user: "User", team: "Team", modifiers: Optional[HogQLQueryModifiers] = None
-) -> HogQLQueryModifiers:
+    user: "User", team: "Team", modifiers: Optional["HogQLQueryModifiers"] = None
+) -> "HogQLQueryModifiers":
+    from posthog.schema import HogQLQueryModifiers  # noqa: PLC0415
+
     if modifiers is None:
         modifiers = HogQLQueryModifiers()
     else:
@@ -44,8 +46,12 @@ def create_default_modifiers_for_user(
 
 
 def create_default_modifiers_for_team(
-    team: "Team", modifiers: Optional[HogQLQueryModifiers] = None
-) -> HogQLQueryModifiers:
+    team: "Team", modifiers: Optional["HogQLQueryModifiers"] = None
+) -> "HogQLQueryModifiers":
+    from pydantic import ValidationError  # noqa: PLC0415
+
+    from posthog.schema import CustomChannelRule, HogQLQueryModifiers  # noqa: PLC0415
+
     if modifiers is None:
         modifiers = HogQLQueryModifiers()
     else:
@@ -76,7 +82,7 @@ def create_default_modifiers_for_team(
     return modifiers
 
 
-def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
+def set_default_modifier_values(modifiers: "HogQLQueryModifiers", team: "Team"):
     if modifiers.personsOnEventsMode is None:
         modifiers.personsOnEventsMode = team.person_on_events_mode_flag_based_default
 
@@ -120,7 +126,7 @@ def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
         modifiers.sessionPropertyPreAggregation = False
 
 
-def set_default_in_cohort_via(modifiers: HogQLQueryModifiers) -> HogQLQueryModifiers:
+def set_default_in_cohort_via(modifiers: "HogQLQueryModifiers") -> "HogQLQueryModifiers":
     if modifiers.inCohortVia is None or modifiers.inCohortVia == InCohortVia.AUTO:
         modifiers.inCohortVia = InCohortVia.SUBQUERY
 

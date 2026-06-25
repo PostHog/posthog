@@ -29,12 +29,30 @@ _MESSAGE_INFO_FIELDS: list[tuple[str, str]] = [
 
 
 def _datetime_to_plain_iso8601(value: datetime) -> str:
-    """Serialize a datetime to the ISO-8601 format Plain returns and accepts (e.g. 2024-01-15T10:30:00.000Z)."""
+    """Serialize a datetime to an ISO-8601 format Plain accepts.
+
+    Plain's ``DatetimeFilter`` only accepts ``yyyy-MM-dd'T'HH:mm:ss.SSS'Z'`` (millisecond precision)
+    or ``yyyy-MM-dd'T'HH:mm:ss'Z'`` (whole seconds). ``datetime.isoformat()`` emits microseconds
+    (six fractional digits) whenever the value has sub-second precision, which Plain rejects with a
+    generic ``There was a validation error.``. Incremental watermarks routinely carry microseconds,
+    so cap the precision at milliseconds (and drop the fractional part entirely for whole seconds).
+    """
     if value.tzinfo is None:
         value = value.replace(tzinfo=UTC)
     else:
         value = value.astimezone(UTC)
-    return value.isoformat().replace("+00:00", "Z")
+    timespec = "seconds" if value.microsecond == 0 else "milliseconds"
+    return value.isoformat(timespec=timespec).replace("+00:00", "Z")
+
+
+def _updated_at_filter(updated_at_gte: datetime) -> dict[str, Any]:
+    """Build Plain's server-side ``updatedAt`` filter for incremental syncs.
+
+    Plain's ``DatetimeFilter`` exposes ``after`` (>= the given timestamp) and ``before`` (< it);
+    it has no ``gte`` field, so sending one is rejected with a 400. ``after`` matches the inclusive
+    lower-bound semantics we want for incremental syncs.
+    """
+    return {"updatedAt": {"after": _datetime_to_plain_iso8601(updated_at_gte)}}
 
 
 def _parse_plain_datetime(value: str | datetime | None) -> datetime | None:
@@ -235,7 +253,7 @@ def _fetch_paginated_endpoint(
     variables: dict[str, Any] = {"first": PLAIN_DEFAULT_PAGE_SIZE}
 
     if updated_at_gte is not None:
-        variables["filter"] = {"updatedAt": {"gte": _datetime_to_plain_iso8601(updated_at_gte)}}
+        variables["filter"] = _updated_at_filter(updated_at_gte)
 
     has_next_page = True
     while has_next_page:
@@ -267,7 +285,7 @@ def _fetch_timeline_entries(
     """
     variables: dict[str, Any] = {"first": PLAIN_DEFAULT_PAGE_SIZE}
     if created_at_gte is not None:
-        variables["filter"] = {"updatedAt": {"gte": _datetime_to_plain_iso8601(created_at_gte)}}
+        variables["filter"] = _updated_at_filter(created_at_gte)
 
     has_next_page = True
     while has_next_page:

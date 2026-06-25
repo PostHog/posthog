@@ -1,3 +1,5 @@
+import { getDefaultLogsIngestionConsumerConfig, getDefaultTracesIngestionConsumerConfig } from '~/logs/config'
+
 import { getDefaultAIObservabilityConfig } from '../ai-observability/config'
 import { getDefaultCdpConfig } from '../cdp/config'
 import {
@@ -7,14 +9,6 @@ import {
     getDefaultKafkaWarpstreamIngestionProducerEnvConfig,
 } from '../cdp/outputs/producers'
 import { getDefaultCommonConfig } from '../common/config'
-import { getDefaultIngestionConsumerConfig } from '../ingestion/config'
-import { getDefaultErrorTrackingConsumerConfig } from '../ingestion/error-tracking/config'
-import {
-    getDefaultLogsIngestionConsumerConfig,
-    getDefaultTracesIngestionConsumerConfig,
-} from '../logs-ingestion/config'
-import { getDefaultMetricsIngestionConsumerConfig } from '../metrics-ingestion/config'
-import { getDefaultSessionRecordingApiConfig, getDefaultSessionRecordingConfig } from '../session-recording/config'
 import { PluginsServerConfig, ValueMatcher, stringToPluginServerMode } from '../types'
 import { stringToBoolean } from '../utils/env-utils'
 
@@ -28,13 +22,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         ...getDefaultCommonConfig(),
         ...getDefaultCdpConfig(),
         ...getDefaultAIObservabilityConfig(),
-        ...getDefaultIngestionConsumerConfig(),
         ...getDefaultLogsIngestionConsumerConfig(),
-        ...getDefaultMetricsIngestionConsumerConfig(),
         ...getDefaultTracesIngestionConsumerConfig(),
-        ...getDefaultErrorTrackingConsumerConfig(),
-        ...getDefaultSessionRecordingConfig(),
-        ...getDefaultSessionRecordingApiConfig(),
         ...getDefaultKafkaWarpstreamIngestionProducerEnvConfig(),
         ...getDefaultKafkaWarpstreamCalculatedEventsProducerEnvConfig(),
         ...getDefaultKafkaWarpstreamCyclotronProducerEnvConfig(),
@@ -100,7 +89,7 @@ export function overrideWithEnv(
  * iterates its keys, reads matching env vars, and coerces based on the default value type.
  *
  * Unlike `overrideWithEnv`, this has no PluginsServerConfig-specific validation.
- * Use for server-local config types (e.g. KafkaProducerEnvConfig, IngestionOutputsConfig).
+ * Use for server-local config types (e.g. KafkaDownstreamProducerEnvConfig, IngestionOutputsConfig).
  */
 export function overrideConfigWithEnv<T extends Record<string, unknown>>(
     config: T,

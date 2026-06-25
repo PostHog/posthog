@@ -1,3 +1,4 @@
+import re
 import hmac
 import json
 import time
@@ -37,8 +38,6 @@ from rest_framework.request import Request
 from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
-from posthog.schema import SlackIntegrationScope, SlackIntegrationScopeInReview
-
 from posthog.cache_utils import cache_for
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONField
@@ -50,6 +49,7 @@ from posthog.models.user import User
 from posthog.models.utils import IntegrityError, generate_random_oauth_access_token, generate_random_oauth_refresh_token
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.rbac.decorators import field_access_control
+from posthog.schema_enums import SlackIntegrationScope, SlackIntegrationScopeInReview
 from posthog.security.url_validation import is_url_allowed
 from posthog.sync import database_sync_to_async
 from posthog.utils import get_instance_region
@@ -84,6 +84,37 @@ oauth_refresh_counter = Counter(
 )
 
 GITHUB_API_VERSION = "2022-11-28"
+
+# `owner/repo`, single slash, no traversal. Used to keep repo/ref/sha values out of GitHub API URL
+# paths where a crafted value (e.g. `../../other-repo/contents/x?ref=y`) could redirect the
+# authenticated request to a different endpoint.
+_GITHUB_REPO_PATH_RE = re.compile(r"^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$")
+_GITHUB_REF_RE = re.compile(r"^[A-Za-z0-9._\-/]+$")
+_GITHUB_COMMIT_SHA_RE = re.compile(r"^[0-9a-fA-F]{7,40}$")
+
+# Upper bound on the diff text we return, to keep a pathological diff (generated/vendored
+# files) from bloating the JSON response and worker memory. ~1 MB of text.
+_MAX_DIFF_CHARS = 1_000_000
+
+
+def _is_safe_github_repo_path(repo_path: str) -> bool:
+    return ".." not in repo_path and bool(_GITHUB_REPO_PATH_RE.fullmatch(repo_path))
+
+
+def _is_safe_github_ref(ref: str) -> bool:
+    """A git ref safe to interpolate into a GitHub API URL path (no traversal / URL-control chars)."""
+    return (
+        bool(ref)
+        and ".." not in ref
+        and not ref.startswith("/")
+        and not ref.endswith("/")
+        and bool(_GITHUB_REF_RE.fullmatch(ref))
+    )
+
+
+def _is_safe_github_sha(sha: str) -> bool:
+    return bool(_GITHUB_COMMIT_SHA_RE.fullmatch(sha))
+
 
 PRIVATE_CHANNEL_WITHOUT_ACCESS = "PRIVATE_CHANNEL_WITHOUT_ACCESS"
 
@@ -151,6 +182,7 @@ class Integration(models.Model):
     class IntegrationKind(models.TextChoices):
         ANTHROPIC = "anthropic"
         APPLE_PUSH = "apns"
+        AWS_S3 = "aws-s3"
         AZURE_BLOB = "azure-blob"
         BING_ADS = "bing-ads"
         CLICKUP = "clickup"
@@ -163,6 +195,7 @@ class Integration(models.Model):
         GITHUB = "github"
         GITLAB = "gitlab"
         GOOGLE_ADS = "google-ads"
+        GOOGLE_ANALYTICS = "google-analytics"
         GOOGLE_CLOUD_SERVICE_ACCOUNT = "google-cloud-service-account"
         GOOGLE_CLOUD_STORAGE = "google-cloud-storage"
         GOOGLE_PUBSUB = "google-pubsub"
@@ -177,6 +210,7 @@ class Integration(models.Model):
         PINTEREST_ADS = "pinterest-ads"
         POSTGRESQL = "postgresql"
         REDDIT_ADS = "reddit-ads"
+        S3_COMPATIBLE = "s3-compatible"
         SALESFORCE = "salesforce"
         SLACK = "slack"
         # Deprecated — kept in choices to avoid a no-op migration. The runtime no longer creates
@@ -231,6 +265,19 @@ class Integration(models.Model):
             return dot_get(self.config, "account.name", self.integration_id)
         if self.kind == "databricks":
             return self.integration_id or "unknown ID"
+        if self.kind == Integration.IntegrationKind.AWS_S3:
+            name = self.integration_id or "unknown ID"
+            # config["auth_type"] leaves room for a future OIDC / IAM-role mode; only keys exist today.
+            auth_label = self.config.get("auth_type", "access key")
+            account_id = self.config.get("aws_account_id")
+            detail = f"{auth_label}, AWS account {account_id}" if account_id else auth_label
+            return f"{name} ({detail})"
+        if self.kind == Integration.IntegrationKind.S3_COMPATIBLE:
+            name = self.integration_id or "unknown ID"
+            auth_label = self.config.get("auth_type", "access key")
+            endpoint_url = self.config.get("endpoint_url")
+            detail = f"{auth_label}, {endpoint_url}" if endpoint_url else auth_label
+            return f"{name} ({detail})"
         if self.kind == "gitlab":
             return self.integration_id or "unknown ID"
         if self.kind == "email":
@@ -298,6 +345,7 @@ class OauthIntegration:
         "salesforce",
         "hubspot",
         "google-ads",
+        "google-analytics",
         "google-search-console",
         "google-sheets",
         "snapchat",
@@ -323,7 +371,7 @@ class OauthIntegration:
 
     @classmethod
     @cache_for(timedelta(minutes=5))
-    def oauth_config_for_kind(cls, kind: str, is_sandbox: bool = False) -> OauthConfig:
+    def oauth_config_for_kind(cls, kind: str) -> OauthConfig:
         if kind == "slack":
             from_settings = get_instance_settings(
                 [
@@ -404,6 +452,23 @@ class OauthIntegration:
                 client_id=settings.GOOGLE_ADS_APP_CLIENT_ID,
                 client_secret=settings.GOOGLE_ADS_APP_CLIENT_SECRET,
                 scope="https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/userinfo.email",
+                id_path="sub",
+                name_path="email",
+            )
+        elif kind == "google-analytics":
+            if not settings.GOOGLE_ANALYTICS_APP_CLIENT_ID or not settings.GOOGLE_ANALYTICS_APP_CLIENT_SECRET:
+                raise NotImplementedError("Google Analytics app not configured")
+
+            return OauthConfig(
+                authorize_url="https://accounts.google.com/o/oauth2/v2/auth",
+                # forces the consent screen, otherwise we won't receive a refresh token
+                additional_authorize_params={"access_type": "offline", "prompt": "consent"},
+                token_info_url="https://openidconnect.googleapis.com/v1/userinfo",
+                token_info_config_fields=["sub", "email"],
+                token_url="https://oauth2.googleapis.com/token",
+                client_id=settings.GOOGLE_ANALYTICS_APP_CLIENT_ID,
+                client_secret=settings.GOOGLE_ANALYTICS_APP_CLIENT_SECRET,
+                scope="https://www.googleapis.com/auth/analytics.readonly https://www.googleapis.com/auth/userinfo.email",
                 id_path="sub",
                 name_path="email",
             )
@@ -612,17 +677,8 @@ class OauthIntegration:
             if not settings.STRIPE_APP_CLIENT_ID or not settings.STRIPE_APP_SECRET_KEY:
                 raise NotImplementedError("Stripe app not configured")
 
-            # Stripe issues separate client_id and secret for live vs sandbox installs of the
-            # same app. Sandbox-issued OAuth codes can only be redeemed with the sandbox secret;
-            # using the live secret returns "Authorization code provided does not belong to you".
-            if is_sandbox:
-                if not settings.STRIPE_APP_SANDBOX_CLIENT_ID or not settings.STRIPE_APP_SANDBOX_SECRET_KEY:
-                    raise NotImplementedError("Stripe sandbox not configured")
-                client_id = settings.STRIPE_APP_SANDBOX_CLIENT_ID
-                client_secret = settings.STRIPE_APP_SANDBOX_SECRET_KEY
-            else:
-                client_id = settings.STRIPE_APP_CLIENT_ID
-                client_secret = settings.STRIPE_APP_SECRET_KEY
+            client_id = settings.STRIPE_APP_CLIENT_ID
+            client_secret = settings.STRIPE_APP_SECRET_KEY
 
             authorize_url = (
                 settings.STRIPE_APP_OVERRIDE_AUTHORIZE_URL or "https://marketplace.stripe.com/oauth/v2/authorize"
@@ -647,8 +703,8 @@ class OauthIntegration:
         return f"{settings.SITE_URL.replace('http://', 'https://')}/integrations/{kind}/callback"
 
     @classmethod
-    def authorize_url(cls, kind: str, token: str, next: str = "", is_sandbox: bool = False) -> str:
-        oauth_config = cls.oauth_config_for_kind(kind, is_sandbox=is_sandbox)
+    def authorize_url(cls, kind: str, token: str, next: str = "") -> str:
+        oauth_config = cls.oauth_config_for_kind(kind)
 
         state_payload: dict[str, str] = {"next": next, "token": token}
 
@@ -723,37 +779,6 @@ class OauthIntegration:
                     "grant_type": "authorization_code",
                 },
             )
-            # Marketplace-initiated installs land on /integrations/stripe/confirm-install
-            # without any signal indicating live vs sandbox. If the live secret rejected
-            # the code as "does not belong to you", it was minted by the sandbox app -
-            # retry with the sandbox secret. Both sandbox client_id and secret must be
-            # configured: oauth_config_for_kind requires both, so guard on both here to
-            # avoid raising NotImplementedError over the original OAuth error.
-            if (
-                res.status_code == 400
-                and settings.STRIPE_APP_SANDBOX_CLIENT_ID
-                and settings.STRIPE_APP_SANDBOX_SECRET_KEY
-                and "does not belong to you" in (res.text or "")
-            ):
-                sandbox_oauth_config = cls.oauth_config_for_kind("stripe", is_sandbox=True)
-                res = requests.post(
-                    sandbox_oauth_config.token_url,
-                    auth=HTTPBasicAuth(sandbox_oauth_config.client_secret, ""),
-                    data={
-                        "code": params["code"],
-                        "grant_type": "authorization_code",
-                    },
-                )
-                if res.status_code == 200:
-                    # Use the sandbox config for downstream API calls (account name lookup)
-                    # and persist the flag so refresh / write_posthog_secrets / clear_posthog_secrets
-                    # pick the sandbox secret without retrying.
-                    oauth_config = sandbox_oauth_config
-                    stripe_is_sandbox = True
-                else:
-                    stripe_is_sandbox = False
-            else:
-                stripe_is_sandbox = False
         else:
             redirect_uri = OauthIntegration.redirect_uri(kind)
             res = requests.post(
@@ -966,12 +991,6 @@ class OauthIntegration:
         if not config.get("expires_in") and kind == "stripe":
             config["expires_in"] = 3600
 
-        if kind == "stripe":
-            # Persisted so downstream Stripe API calls (refresh_access_token,
-            # StripeIntegration.write_posthog_secrets / clear_posthog_secrets)
-            # pick the right developer secret without error-driven retries.
-            config["is_sandbox"] = stripe_is_sandbox
-
         config["refreshed_at"] = int(time.time())
 
         integration, created = Integration.objects.update_or_create(
@@ -988,6 +1007,27 @@ class OauthIntegration:
         if integration.errors:
             integration.errors = ""
             integration.save()
+
+        if kind == "slack":
+            # The cached auth verdict in slack_app is per-integration. A
+            # reconnect mints a new bot token, so any stale ``ok=false`` row
+            # from the previous token would silently demote this install for
+            # the remaining cache TTL. Inline-imported to keep the slack_app
+            # module off the core django.setup() path; wrapped so a broken
+            # slack_app build can't take down OAuth completion for every
+            # integration kind.
+            try:
+                from products.slack_app.backend.facade.api import (  # noqa: PLC0415
+                    invalidate_slack_integration_auth_state,
+                )
+
+                invalidate_slack_integration_auth_state(integration.id)
+            except Exception:
+                logger.warning(
+                    "slack_app_auth_state_invalidation_on_oauth_failed",
+                    integration_id=integration.id,
+                    exc_info=True,
+                )
 
         return integration
 
@@ -1020,8 +1060,7 @@ class OauthIntegration:
         """
         Refresh the access token for the integration if necessary
         """
-        is_sandbox = _stripe_integration_is_sandbox(self.integration)
-        oauth_config = self.oauth_config_for_kind(self.integration.kind, is_sandbox=is_sandbox)
+        oauth_config = self.oauth_config_for_kind(self.integration.kind)
 
         # Clear out previous token refreshing errors, as they'll be re-set below if another error occurs
         self.integration.errors = ""
@@ -2484,7 +2523,15 @@ class GitHubIntegration(GitHubIntegrationBase):
 
     @classmethod
     def first_for_team_repository(cls, team_id: int, repository: str) -> "GitHubIntegration | None":
-        """First GitHub integration for the team whose installation can access ``repository`` (``owner/name``)."""
+        """First GitHub integration for the team whose installation can access ``repository`` (``owner/name``).
+
+        ``repository`` reaches us from team-writable content (e.g. artefact payloads), and the access
+        check below interpolates it into an authenticated ``GET /repos/{repository}``. Reject anything
+        that isn't a plain ``owner/repo`` first, so a crafted value (``owner/repo/contents/x?ref=y``)
+        can't steer that authenticated request to a different GitHub endpoint as a probe.
+        """
+        if not _is_safe_github_repo_path(repository):
+            return None
         for integration in Integration.objects.filter(team_id=team_id, kind="github").order_by("id"):
             github = cls(integration)
             if github.installation_can_access_repository(repository):
@@ -2594,6 +2641,70 @@ class GitHubIntegration(GitHubIntegrationBase):
                 "error": f"Failed to create branch: {response.text}",
                 "status_code": response.status_code,
             }
+
+    def get_diff(
+        self,
+        repository: str,
+        target_branch: str,
+        base_branch: str,
+        target_sha: str | None = None,
+        base_sha: str | None = None,
+    ) -> dict[str, Any]:
+        """Return the unified diff of one branch/commit against another for ``repository``.
+
+        ``repository`` may be ``owner/name`` or a bare name (resolved against the installation's
+        org). The diff is ``base...target``: ``target_branch`` compared against ``base_branch``.
+        A SHA, when supplied, pins that side to an exact commit; otherwise the side tracks the
+        branch tip (``None`` means "use latest"). The branch is what's used when no SHA pins the
+        point — diffing branch tips keeps the result useful as a branch keeps moving (e.g. after PR
+        babysitting or customer tweaks), which a single pinned commit would not.
+
+        Uses the GitHub compare API with the ``diff`` media type, so the response body is raw
+        unified-diff text. Repository / ref / SHA values come from team-writable artefact content,
+        so they're validated before interpolation — a crafted value could otherwise redirect the
+        authenticated request to a different GitHub endpoint.
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        if not _is_safe_github_repo_path(repo_path):
+            return {"success": False, "error": f"Invalid repository '{repository}'.", "status_code": 400}
+        for ref in (target_branch, base_branch):
+            if not _is_safe_github_ref(ref):
+                return {"success": False, "error": f"Invalid branch '{ref}'.", "status_code": 400}
+        for sha in (target_sha, base_sha):
+            if sha is not None and not _is_safe_github_sha(sha):
+                return {"success": False, "error": f"Invalid commit SHA '{sha}'.", "status_code": 400}
+
+        # Pin to the SHA when we have one, else compare branch tips. Both sides are now built from
+        # validated values, so the compare path can't be steered off-endpoint.
+        base_ref = base_sha or base_branch
+        target_ref = target_sha or target_branch
+        access_token = self.integration.sensitive_config["access_token"]
+
+        try:
+            response = self._github_api_get(
+                f"https://api.github.com/repos/{repo_path}/compare/{base_ref}...{target_ref}",
+                endpoint="/repos/{owner}/{repo}/compare/{basehead}",
+                headers={
+                    "Accept": "application/vnd.github.diff",
+                    "Authorization": f"Bearer {access_token}",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
+                },
+                timeout=10,
+            )
+        except requests.RequestException:
+            # Don't let a slow/unreachable GitHub hang a worker or 500 the caller.
+            return {"success": False, "error": "Could not reach GitHub.", "status_code": 502}
+        if response.status_code != 200:
+            return {"success": False, "error": response.text, "status_code": response.status_code}
+        # Cap the diff we return: a branch touching generated/vendored files can produce a diff of
+        # many MB, which would bloat the JSON response and worker memory. Truncate with a marker so
+        # the consumer can tell the diff was cut rather than silently showing a partial diff.
+        diff_text = response.text
+        truncated = len(diff_text) > _MAX_DIFF_CHARS
+        if truncated:
+            diff_text = diff_text[:_MAX_DIFF_CHARS] + "\n\n… diff truncated (too large to display in full) …\n"
+        return {"success": True, "diff": diff_text, "truncated": truncated}
 
     def update_file(
         self, repository: str, file_path: str, content: str, commit_message: str, branch: str, sha: str | None = None
@@ -3316,14 +3427,208 @@ class AzureBlobIntegration:
         return None
 
 
-def _stripe_integration_is_sandbox(integration: Integration) -> bool:
-    """True when this is a Stripe integration provisioned via the sandbox channel.
+class S3CredentialIntegrationError(Exception):
+    """Error raised when an S3-family credential integration is not valid."""
 
-    Strict identity check on the config flag - a malformed string write (e.g. "false")
-    fails closed to live rather than escalating to sandbox-secret usage. Returns
-    False for non-stripe integrations so non-Stripe call sites can pass through.
+    pass
+
+
+def _read_s3_credentials(integration: Integration) -> tuple[str, str]:
+    try:
+        return (
+            integration.sensitive_config["aws_access_key_id"],
+            integration.sensitive_config["aws_secret_access_key"],
+        )
+    except KeyError as e:
+        raise S3CredentialIntegrationError(f"S3 integration is not valid: {str(e)} missing")
+
+
+def _build_s3_sensitive_config(aws_access_key_id: str, aws_secret_access_key: str) -> dict[str, str]:
+    return {
+        "aws_access_key_id": aws_access_key_id,
+        "aws_secret_access_key": aws_secret_access_key,
+    }
+
+
+def _create_unique_s3_integration(
+    *,
+    team_id: int,
+    kind: str,
+    name: str,
+    config: dict[str, Any],
+    sensitive_config: dict[str, str],
+    created_by: "User | None",
+) -> Integration:
+    """Create an S3-family integration, rejecting a name already taken for this team and kind.
+
+    Unlike most integrations, `name` is a free-form user-supplied identifier rather than one derived
+    from the external connection (an OAuth account id, service-account email, etc.). So we create
+    rather than upsert — re-using a name is a 400, not a silent overwrite of an unrelated credential
+    set.
     """
-    return integration.kind == "stripe" and integration.config.get("is_sandbox") is True
+    try:
+        # Savepoint so the unique-constraint IntegrityError aborts only this INSERT, not the
+        # surrounding transaction (e.g. the test wrapper, or any outer atomic block).
+        with transaction.atomic():
+            return Integration.objects.create(
+                team_id=team_id,
+                kind=kind,
+                integration_id=name,
+                config=config,
+                sensitive_config=sensitive_config,
+                created_by=created_by,
+            )
+    except IntegrityError:
+        raise S3CredentialIntegrationError(f"An integration named '{name}' already exists")
+
+
+class AwsS3Integration:
+    """An AWS S3 integration storing reusable AWS credentials.
+
+    Holds only credentials; bucket, region, prefix and other export-specific settings stay on the
+    batch export destination config, so one credential can be reused across many buckets/regions —
+    and, in future, by Redshift COPY-mode exports that stage to S3.
+
+    Unlike `S3CompatibleIntegration` it has no `endpoint_url` — an AWS
+    integration must never be pointed at an arbitrary endpoint (SSRF boundary).
+    """
+
+    integration: Integration
+    aws_access_key_id: str
+    aws_secret_access_key: str
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != Integration.IntegrationKind.AWS_S3.value:
+            raise S3CredentialIntegrationError(
+                f"Integration provided is not an AWS S3 integration (got kind='{integration.kind}')"
+            )
+        self.integration = integration
+        self.aws_access_key_id, self.aws_secret_access_key = _read_s3_credentials(integration)
+
+    @property
+    def aws_account_id(self) -> str | None:
+        """The AWS account id resolved from the credentials at create time, if available."""
+        return self.integration.config.get("aws_account_id")
+
+    @staticmethod
+    def validate_credentials(aws_access_key_id: str, aws_secret_access_key: str) -> str:
+        """Validate AWS credentials via STS GetCallerIdentity, returning the AWS account id.
+
+        GetCallerIdentity requires no IAM permissions, so it verifies the credentials are valid
+        without assuming any particular S3 policy. It hits the fixed global AWS STS endpoint, so
+        there is no user-controlled endpoint and no SSRF surface (unlike S3-compatible).
+
+        This runs synchronously on the request thread, so the timeout budget is kept tight:
+        a single attempt (no retry) bounds the worst case at ~10s (connect + read) if STS is
+        unreachable, rather than blocking the worker while botocore retries.
+        """
+        import boto3  # noqa: PLC0415 — keeps botocore off the module import path (startup time)
+        from botocore.config import Config  # noqa: PLC0415
+        from botocore.exceptions import BotoCoreError, ClientError  # noqa: PLC0415
+
+        client = boto3.client(
+            "sts",
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+            config=Config(connect_timeout=5, read_timeout=5, retries={"max_attempts": 1}),
+        )
+        try:
+            identity = client.get_caller_identity()
+        except ClientError as e:
+            message = e.response.get("Error", {}).get("Message") or str(e)
+            raise S3CredentialIntegrationError(f"AWS credentials are not valid: {message}")
+        except BotoCoreError as e:
+            raise S3CredentialIntegrationError(f"Could not validate AWS credentials: {e}")
+
+        return identity["Account"]
+
+    @classmethod
+    def integration_from_config(
+        cls,
+        team_id: int,
+        name: str,
+        aws_access_key_id: str,
+        aws_secret_access_key: str,
+        created_by: "User | None" = None,
+    ) -> Integration:
+        if not name:
+            raise S3CredentialIntegrationError("A name is required for an AWS S3 integration")
+
+        # Fail fast on invalid/expired credentials, and capture the (non-sensitive) account id.
+        account_id = cls.validate_credentials(aws_access_key_id, aws_secret_access_key)
+
+        # `name` is the unencrypted, frontend-visible identifier — never an AWS credential, which is
+        # treated as a secret. The account id is non-sensitive and kept for display/debugging.
+        return _create_unique_s3_integration(
+            team_id=team_id,
+            kind=Integration.IntegrationKind.AWS_S3.value,
+            name=name,
+            config={"name": name, "aws_account_id": account_id},
+            sensitive_config=_build_s3_sensitive_config(aws_access_key_id, aws_secret_access_key),
+            created_by=created_by,
+        )
+
+
+class S3CompatibleIntegration:
+    """An S3-compatible storage integration (Cloudflare R2, DigitalOcean Spaces, Hetzner, etc.).
+
+    Holds the same credentials as `AwsS3Integration` plus the provider `endpoint_url` (non-sensitive),
+    since credentials are bound to a specific S3-compatible provider. `integration_from_config`
+    SSRF-validates `endpoint_url`, so callers don't have to.
+
+    bucket, region, prefix and other export-specific settings stay on the batch export destination
+    config, so one credential can be reused across many buckets/regions.
+    """
+
+    integration: Integration
+    # The `aws_` prefix applies even to these non-AWS providers: they are AWS Signature V4
+    # credentials, which every S3-compatible provider (R2, MinIO, Spaces, ...) uses. The names also
+    # match boto3's kwargs and the existing S3-family batch export config fields, so they pass
+    # through unchanged.
+    aws_access_key_id: str
+    aws_secret_access_key: str
+    endpoint_url: str
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != Integration.IntegrationKind.S3_COMPATIBLE.value:
+            raise S3CredentialIntegrationError(
+                f"Integration provided is not an S3-compatible integration (got kind='{integration.kind}')"
+            )
+        self.integration = integration
+        self.aws_access_key_id, self.aws_secret_access_key = _read_s3_credentials(integration)
+        try:
+            self.endpoint_url = integration.config["endpoint_url"]
+        except KeyError:
+            raise S3CredentialIntegrationError("S3-compatible integration is missing required field: 'endpoint_url'")
+
+    @classmethod
+    def integration_from_config(
+        cls,
+        team_id: int,
+        name: str,
+        endpoint_url: str,
+        aws_access_key_id: str,
+        aws_secret_access_key: str,
+        created_by: "User | None" = None,
+    ) -> Integration:
+        if not name:
+            raise S3CredentialIntegrationError("A name is required for an S3-compatible integration")
+        if not endpoint_url:
+            raise S3CredentialIntegrationError("An endpoint URL is required for an S3-compatible integration")
+
+        # SSRF protection — credentials must not be testable against an attacker-controlled endpoint.
+        allowed, error = is_url_allowed(endpoint_url)
+        if not allowed:
+            raise S3CredentialIntegrationError(f"Invalid endpoint URL: {error}")
+
+        return _create_unique_s3_integration(
+            team_id=team_id,
+            kind=Integration.IntegrationKind.S3_COMPATIBLE.value,
+            name=name,
+            config={"name": name, "endpoint_url": endpoint_url},
+            sensitive_config=_build_s3_sensitive_config(aws_access_key_id, aws_secret_access_key),
+            created_by=created_by,
+        )
 
 
 class StripeIntegration:
@@ -3356,25 +3661,18 @@ class StripeIntegration:
             raise ValueError(f"Expected stripe integration, got {integration.kind}")
         self.integration = integration
 
-    @property
-    def is_sandbox(self) -> bool:
-        return _stripe_integration_is_sandbox(self.integration)
-
     def _stripe_client(self) -> "StripeClient | None":
-        # Sandbox accounts are issued by a separate Stripe app (live vs sandbox), so the
-        # Apps Secret Store and account-scoped API calls must authenticate with the matching
-        # developer secret. Returns None when the required env vars are missing so callers
-        # can skip Stripe API calls without raising past their per-secret error handling.
+        # Returns None when the required env vars are missing so callers can skip Stripe
+        # API calls without raising past their per-secret error handling.
         from stripe import StripeClient  # noqa: PLC0415
 
         try:
-            oauth_config = OauthIntegration.oauth_config_for_kind("stripe", is_sandbox=self.is_sandbox)
+            oauth_config = OauthIntegration.oauth_config_for_kind("stripe")
         except NotImplementedError as e:
             capture_exception(
                 e,
                 {
                     "stripe_user_id": self.integration.integration_id,
-                    "is_sandbox": self.is_sandbox,
                 },
             )
             return None
@@ -3441,7 +3739,6 @@ class StripeIntegration:
                     {
                         "secret_name": name,
                         "stripe_user_id": stripe_user_id,
-                        "is_sandbox": self.is_sandbox,
                     },
                 )
 
@@ -3477,7 +3774,6 @@ class StripeIntegration:
                     {
                         "secret_name": name,
                         "stripe_user_id": stripe_user_id,
-                        "is_sandbox": self.is_sandbox,
                     },
                 )
 

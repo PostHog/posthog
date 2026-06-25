@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconHome, IconLock, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
+import { IconFolder, IconHome, IconLock, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { BulkUpdateTagsButton } from 'lib/components/BulkActions/BulkUpdateTagsButton'
@@ -34,6 +34,7 @@ import {
     DashboardType,
 } from '~/types'
 
+import { UNFILED_DASHBOARDS_FOLDER } from '../dashboardConstants'
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from '../DashboardHeader'
 import { DashboardsFiltersBar } from './DashboardsFiltersBar'
 
@@ -58,7 +59,7 @@ export function DashboardsTable({
     hideActions,
 }: DashboardsTableProps): JSX.Element {
     const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
-    const { tableSortingChanged } = useActions(dashboardsLogic)
+    const { tableSortingChanged, setFilters } = useActions(dashboardsLogic)
     const { tableSorting, filters } = useValues(dashboardsLogic)
     // Server-side fuzzy search ranks results by relevance; re-sorting alphabetically by name
     // would push the exact match below partial matches. Suppress the persisted column sort
@@ -136,6 +137,26 @@ export function DashboardsTable({
             dataIndex: 'tags' as keyof DashboardType,
             render: function Render(tags: DashboardType['tags']) {
                 return tags ? <ObjectTags tags={[...tags].sort()} staticOnly /> : null
+            },
+        } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
+        {
+            title: 'Folder',
+            dataIndex: 'folder' as keyof DashboardType,
+            render: function Render(folder: DashboardType['folder']) {
+                // Unfiled dashboards live in the default `Unfiled/Dashboards` folder — that's not a folder
+                // the user chose, so show nothing rather than a filter affordance.
+                if (folder === null || folder === undefined || folder === UNFILED_DASHBOARDS_FOLDER) {
+                    return <span className="text-secondary">—</span>
+                }
+                const label = folder || 'Project root'
+                return (
+                    <Tooltip title={`Filter to dashboards in ${label}`}>
+                        <Link className="flex items-center gap-1 text-secondary" onClick={() => setFilters({ folder })}>
+                            <IconFolder className="shrink-0" />
+                            <span className="truncate">{label}</span>
+                        </Link>
+                    </Tooltip>
+                )
             },
         } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         createdByColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
@@ -268,6 +289,7 @@ export function DashboardsTable({
                 emptyState="No dashboards matching your filters!"
                 nouns={['dashboard', 'dashboards']}
                 bulkSelection={{
+                    barClassName: 'mb-2',
                     getKey: (dashboard: DashboardType): number => dashboard.id,
                     isRowSelectable: (dashboard: DashboardType) =>
                         accessLevelSatisfied(

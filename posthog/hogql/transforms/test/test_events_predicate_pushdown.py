@@ -19,7 +19,13 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import InCohortVia, InlineCohortCalculation, PersonsOnEventsMode, PropertyGroupsMode
+from posthog.schema import (
+    HogQLQueryModifiers,
+    InCohortVia,
+    InlineCohortCalculation,
+    PersonsOnEventsMode,
+    PropertyGroupsMode,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -27,7 +33,6 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import IntegerDatabaseField, SavedQuery, StringDatabaseField, TableNode
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.util.where_clause_extractor import EventsPredicatePushdownExtractor
-from posthog.hogql.modifiers import HogQLQueryModifiers
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer.utils import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query

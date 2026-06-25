@@ -5,7 +5,7 @@ import pytest
 from asgiref.sync import async_to_sync
 
 from products.tasks.backend.exceptions import SandboxNotFoundError
-from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
+from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.create_snapshot.activities.get_snapshot_context import SnapshotContext
 from products.tasks.backend.temporal.create_snapshot.activities.setup_repository import (
     SetupRepositoryInput,

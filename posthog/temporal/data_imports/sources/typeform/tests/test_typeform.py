@@ -102,6 +102,40 @@ class TestTypeformTransport:
         assert "before" not in request_b.params
         assert request_b.params["since"] == "2026-03-01"
 
+    @parameterized.expand(
+        [
+            # Whole page predates the watermark — everything further back is already synced.
+            ("entire_page_older", "2026-03-01T00:00:00Z", "2026-02-27T10:00:00Z", "2026-02-20T10:00:00Z", False),
+            # Newest row in the page is still at/after the watermark — keep walking back.
+            ("page_straddles_watermark", "2026-03-01T00:00:00Z", "2026-03-02T10:00:00Z", "2026-02-20T10:00:00Z", True),
+            # No watermark (first sync) — full history walk continues.
+            (None, None, "2026-02-27T10:00:00Z", "2026-02-20T10:00:00Z", True),
+        ]
+    )
+    def test_responses_paginator_stops_once_page_is_older_than_watermark(
+        self, _name, watermark, newest_submitted_at, oldest_submitted_at, expected_has_next
+    ) -> None:
+        paginator = TypeformResponsesPaginator(stop_when_older_than=watermark)
+        response = Mock()
+
+        paginator.update_state(
+            response,
+            data=[
+                {"token": "tok_1", "submitted_at": newest_submitted_at},
+                {"token": "tok_2", "submitted_at": oldest_submitted_at},
+            ],
+        )
+
+        assert paginator.has_next_page is expected_has_next
+
+    def test_responses_paginator_watermark_ignores_rows_without_submitted_at(self) -> None:
+        paginator = TypeformResponsesPaginator(stop_when_older_than="2026-03-01T00:00:00Z")
+        response = Mock()
+
+        paginator.update_state(response, data=[{"token": "tok_1"}, {"token": "tok_2", "submitted_at": None}])
+
+        assert paginator.has_next_page is False
+
     def test_validated_api_base_url_rejects_unknown(self) -> None:
         with pytest.raises(
             ValueError,
@@ -266,6 +300,9 @@ class TestTypeformTransport:
         rows = list(cast(Any, response.items()))
         assert rows == [{"response_id": "resp_1", "form_id": "form_1"}]
         assert response.partition_mode == "datetime"
+        # Tokens are only unique within a form, and the API returns responses newest-first.
+        assert response.primary_keys == ["form_id", "token"]
+        assert response.sort_mode == "desc"
 
     @patch("posthog.temporal.data_imports.sources.typeform.typeform.build_dependent_resource")
     def test_typeform_source_responses_passes_items_data_selector_to_fanout(
@@ -287,6 +324,35 @@ class TestTypeformTransport:
         assert kwargs["child_endpoint_extra"]["data_selector"] == "items"
         assert isinstance(kwargs["parent_endpoint_extra"]["paginator"], TypeformFormsPaginator)
         assert isinstance(kwargs["child_endpoint_extra"]["paginator"], TypeformResponsesPaginator)
+
+    @parameterized.expand(
+        [
+            # Incremental sync with a watermark — paginator gets the stop floor.
+            ("incremental_with_watermark", True, datetime(2026, 3, 1, tzinfo=UTC), "2026-03-01T00:00:00Z"),
+            # First sync (no watermark) — full history walk.
+            ("first_sync", True, None, None),
+            # Non-incremental sync — no floor even if a stale value exists.
+            ("not_incremental", False, datetime(2026, 3, 1, tzinfo=UTC), None),
+        ]
+    )
+    @patch("posthog.temporal.data_imports.sources.typeform.typeform.build_dependent_resource")
+    def test_typeform_source_responses_watermark_wiring(
+        self, _name, should_use_incremental_field, last_value, expected_floor, mock_build_dependent_resource
+    ) -> None:
+        mock_build_dependent_resource.return_value = iter([])
+
+        typeform_source(
+            auth_token="token",
+            api_base_url="https://api.typeform.com",
+            endpoint="responses",
+            team_id=1,
+            job_id="job-1",
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=last_value,
+        )
+
+        paginator = mock_build_dependent_resource.call_args.kwargs["child_endpoint_extra"]["paginator"]
+        assert paginator._stop_when_older_than == expected_floor
 
     def test_typeform_source_rejects_unknown_api_base_url(self) -> None:
         with pytest.raises(

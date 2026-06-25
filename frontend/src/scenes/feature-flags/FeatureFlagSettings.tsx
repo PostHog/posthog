@@ -183,7 +183,7 @@ export function FlagsSecureApiKeys(): JSX.Element {
                     </p>
                 </>
             ) : (
-                <p className="text-xs text-muted mt-2">
+                <p className="text-xs text-muted mt-2 mb-0">
                     Rotating the key will move this primary key to backup so you can migrate safely.
                 </p>
             )}

@@ -1,11 +1,15 @@
-import type { PointClickData, Series } from '@posthog/quill-charts'
+import type { PointClickData } from '@posthog/quill-charts'
 
 import type { FunnelStepWithConversionMetrics } from '~/types'
 
-export const FUNNEL_STEPS_SERIES_KEY_PREFIX = 'funnel-step-series-'
+import { RATE_TO_PERCENT } from '../shared/funnelBarHorizontalShared'
+import {
+    buildFunnelStepsBars,
+    type FunnelStepsBarsModel,
+    type FunnelStepsBarVariant,
+} from '../shared/funnelStepsBarShared'
 
-/** `conversionRates.fromBasisStep` is a 0–1 ratio; hog-charts bars are valued in percent. */
-const RATE_TO_PERCENT = 100
+export const FUNNEL_STEPS_SERIES_KEY_PREFIX = 'funnel-step-series-'
 
 /** Identifies which breakdown variant a hog-charts series maps back to, so click and
  *  tooltip handlers can recover the original `FunnelStepWithConversionMetrics`. */
@@ -18,11 +22,7 @@ interface BuildOptions {
     getLabel: (series: FunnelStepWithConversionMetrics) => string
 }
 
-export interface FunnelStepsBarData {
-    /** One series per breakdown variant; `data[stepIndex]` is a percent (0–100). */
-    series: Series<FunnelStepsBarSeriesMeta>[]
-    labels: string[]
-}
+export type FunnelStepsBarData = FunnelStepsBarsModel<FunnelStepsBarSeriesMeta>
 
 function variantAtStep(
     step: FunnelStepWithConversionMetrics,
@@ -42,23 +42,25 @@ function variantAtStep(
 }
 
 /** Maps the funnel steps onto grouped hog-charts bar series — one series per breakdown
- *  variant, one bar per step, valued by conversion rate from the basis step. */
+ *  variant, one bar per step, valued by conversion rate from the basis step. Resolves the
+ *  breakdown variants (web-only) and defers to the shared builder for the band labels, rows,
+ *  and overall stats it shares with the MCP funnel app. */
 export function buildFunnelStepsBarData(
     steps: FunnelStepWithConversionMetrics[],
     options: BuildOptions
 ): FunnelStepsBarData {
     if (steps.length === 0) {
-        return { series: [], labels: [] }
+        return buildFunnelStepsBars<FunnelStepsBarSeriesMeta>([], [])
     }
 
     const isBreakdown = steps[0].nested_breakdown != null
     const breakdownCount = isBreakdown ? steps[0].nested_breakdown!.length : 1
-    const series: Series<FunnelStepsBarSeriesMeta>[] = []
+    const seriesVariants: FunnelStepsBarVariant<FunnelStepsBarSeriesMeta>[] = []
 
     for (let breakdownIndex = 0; breakdownIndex < breakdownCount; breakdownIndex++) {
         const variants = steps.map((step) => variantAtStep(step, breakdownIndex, isBreakdown))
         const representative = variants[0]
-        series.push({
+        seriesVariants.push({
             key: `${FUNNEL_STEPS_SERIES_KEY_PREFIX}${breakdownIndex}`,
             label: representative ? options.getLabel(representative) : '',
             data: variants.map((variant) => variant.conversionRates.fromBasisStep * RATE_TO_PERCENT),
@@ -67,7 +69,7 @@ export function buildFunnelStepsBarData(
         })
     }
 
-    return { series, labels: steps.map((_, stepIndex) => `${stepIndex + 1}`) }
+    return buildFunnelStepsBars(steps, seriesVariants)
 }
 
 export interface FunnelStepClickTarget {

@@ -51,7 +51,6 @@ from posthog.schema import (
     MatchingEventsResponse,
     ProductIntentContext,
     ProductKey,
-    PropertyFilterType,
     PropertyOperator,
     QueryTiming,
     RecordingPropertyFilter,
@@ -80,6 +79,7 @@ from posthog.models.comment import Comment
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import hash_key_value
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
@@ -95,7 +95,10 @@ from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from posthog.session_recordings.queries.session_replay_events import (
+    SessionReplayEvents,
+    get_latest_session_event_properties,
+)
 from posthog.session_recordings.recordings import recording_s3_client
 from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
 from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
@@ -103,7 +106,9 @@ from posthog.session_recordings.session_recording_v2_service import list_blocks,
 from posthog.session_recordings.utils import (
     clean_prompt_whitespace,
     filter_from_params_to_query,
+    gate_surfacing_score_order,
     query_as_params_to_dict,
+    recordings_query_has_event_filters,
 )
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
 from posthog.temporal.common.client import async_connect
@@ -878,6 +883,8 @@ class SessionRecordingViewSet(
                 with tracer.start_as_current_span("convert_filters"):
                     query = filter_from_params_to_query(params)
 
+                gate_surfacing_score_order(query, cast(User, request.user))
+
                 if query.comment_text:
                     with tracer.start_as_current_span("search_comments"):
                         comment_session_ids = _get_session_ids_from_comment_search(self.team, query.comment_text)
@@ -943,11 +950,7 @@ class SessionRecordingViewSet(
                 "Must specify exactly one session_id",
             )
 
-        has_event_properties = any(
-            getattr(p, "type", None) == PropertyFilterType.EVENT for p in (query.properties or [])
-        )
-
-        if not query.events and not query.actions and not has_event_properties:
+        if not recordings_query_has_event_filters(query):
             raise exceptions.ValidationError(
                 "Must specify at least one event or action filter, or event properties filter",
             )
@@ -982,6 +985,14 @@ class SessionRecordingViewSet(
             recording.viewers = other_viewers.get(str(recording.session_id), [])
 
         return JsonResponse({"viewed": recording.viewed, "other_viewers": len(recording.viewers or [])})
+
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], detail=True, url_path="capture_diagnostics")
+    def capture_diagnostics(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        """Latest event properties for the recording's session, for the capture diagnostics panel."""
+        recording = self.get_object()
+        properties = get_latest_session_event_properties(str(recording.session_id), self.team)
+        return Response({"properties": properties})
 
     # Returns metadata about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
@@ -2144,7 +2155,8 @@ def list_recordings_from_query(
 
     with timer("load_persons"), tracer.start_as_current_span("load_persons"):
         distinct_ids = sorted([x.distinct_id for x in recordings if x.distinct_id])
-        distinct_id_to_person = get_persons_mapped_by_distinct_id(team.pk, distinct_ids)
+        with personhog_caller_tag("replay/recordings-persons"):
+            distinct_id_to_person = get_persons_mapped_by_distinct_id(team.pk, distinct_ids)
 
     with timer("process_persons"), tracer.start_as_current_span("process_persons"):
         for recording in recordings:
