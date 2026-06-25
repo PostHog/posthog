@@ -8,7 +8,7 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ARTEFACT_CONTENT_SCHEMAS,
     ChunkAnalysisArtefact,
     ChunkSetArtefact,
-    LensResultArtefact,
+    PerspectiveResultArtefact,
     ReviewIssueFinding,
     ValidationVerdict,
     parse_artefact_content,
@@ -47,8 +47,8 @@ def _chunk_analysis(head_sha: str = "abc123") -> ChunkAnalysisArtefact:
     )
 
 
-def _lens_result(head_sha: str = "abc123") -> LensResultArtefact:
-    return LensResultArtefact(head_sha=head_sha, pass_number=1, chunk_id=1, review=IssuesReview(issues=[]))
+def _perspective_result(head_sha: str = "abc123") -> PerspectiveResultArtefact:
+    return PerspectiveResultArtefact(head_sha=head_sha, pass_number=1, chunk_id=1, review=IssuesReview(issues=[]))
 
 
 class TestReviewArtefactContent:
@@ -57,7 +57,7 @@ class TestReviewArtefactContent:
         # silently breaks parse_artefact_content / artefact_type_for for that type.
         assert set(ARTEFACT_CONTENT_SCHEMAS.keys()) == set(ReviewReportArtefact.ArtefactType.values)
         # The working-state types the DB-driven resume reads back must be registered.
-        assert {"chunk_set", "chunk_analysis", "lens_result"} <= set(ARTEFACT_CONTENT_SCHEMAS.keys())
+        assert {"chunk_set", "chunk_analysis", "perspective_result"} <= set(ARTEFACT_CONTENT_SCHEMAS.keys())
 
     @parameterized.expand([("finding", _finding), ("chunk_set", _chunk_set)])
     def test_add_log_rejects_non_log_content(self, _name, make_content):
@@ -72,7 +72,7 @@ class TestReviewArtefactContent:
             )
 
     def test_add_working_state_rejects_non_working_state_content(self):
-        # add_working_state must refuse a finding — only chunk_set/chunk_analysis/lens_result
+        # add_working_state must refuse a finding — only chunk_set/chunk_analysis/perspective_result
         # accumulate via it. Raises before any DB write.
         with pytest.raises(ValueError):
             ReviewReportArtefact.add_working_state(
@@ -130,7 +130,7 @@ class TestReviewArtefactFunnel(BaseTest):
         [
             (_chunk_set, ReviewReportArtefact.ArtefactType.CHUNK_SET, ChunkSetArtefact),
             (_chunk_analysis, ReviewReportArtefact.ArtefactType.CHUNK_ANALYSIS, ChunkAnalysisArtefact),
-            (_lens_result, ReviewReportArtefact.ArtefactType.LENS_RESULT, LensResultArtefact),
+            (_perspective_result, ReviewReportArtefact.ArtefactType.PERSPECTIVE_RESULT, PerspectiveResultArtefact),
         ]
     )
     def test_working_state_funnel_derives_type_and_round_trips_content(self, make_content, expected_type, model_cls):

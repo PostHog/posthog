@@ -51,14 +51,14 @@ class ReviewIssueFinding(BaseModel):
     instead of duplicating it.
     """
 
-    issue_key: str = Field(description="Stable identity across turns (e.g. file + anchor + lens).")
+    issue_key: str = Field(description="Stable identity across turns (e.g. file + anchor + perspective).")
     title: str = Field(description="Issue title.")
     file: str = Field(description="Repository-relative path to the file containing the issue.")
     lines: list[LineRange] = Field(default_factory=list, description="Affected line ranges.")
     body: str = Field(description="Description of the problem.")
     suggestion: str = Field(description="Specific fix or improvement.")
     priority: IssuePriority = Field(description="Priority level of the finding.")
-    source_lens: str | None = Field(default=None, description="Which review lens produced this finding.")
+    source_perspective: str | None = Field(default=None, description="Which review perspective produced this finding.")
     is_directly_related_to_changes: bool = Field(
         default=False, description="Whether the finding is caused by the PR's changes, not just the same file."
     )
@@ -111,20 +111,20 @@ class ChunkAnalysisArtefact(BaseModel):
     analysis: ChunkAnalysis = Field(description="The chunk analysis narrative.")
 
 
-class LensResultArtefact(BaseModel):
-    """Content for a `lens_result` artefact: one (lens, chunk) review for one turn."""
+class PerspectiveResultArtefact(BaseModel):
+    """Content for a `perspective_result` artefact: one (perspective, chunk) review for one turn."""
 
     head_sha: str = Field(description="PR head commit this review was computed for.")
-    pass_number: int = Field(description="The review lens (1=Logic, 2=Contracts, 3=Performance).")
-    chunk_id: int = Field(description="The chunk this lens reviewed.")
-    review: IssuesReview = Field(description="The issues this lens found in this chunk.")
+    pass_number: int = Field(description="The review perspective (1=Logic, 2=Contracts, 3=Performance).")
+    chunk_id: int = Field(description="The chunk this perspective reviewed.")
+    review: IssuesReview = Field(description="The issues this perspective found in this chunk.")
 
 
 # Reused leaf models back the work-log entry types; ReviewHog adds findings + verdicts. The
-# working-state types (chunk_set / chunk_analysis / lens_result) are per-turn pipeline scaffolding
-# the DB-driven resume reads back — head_sha-scoped, latest-wins within a turn.
+# working-state types (chunk_set / chunk_analysis / perspective_result) are per-turn pipeline
+# scaffolding the DB-driven resume reads back — head_sha-scoped, latest-wins within a turn.
 ReviewLogArtefactContent = TaskRunArtefact | Commit | CodeReference | NoteArtefact
-ReviewWorkingStateContent = ChunkSetArtefact | ChunkAnalysisArtefact | LensResultArtefact
+ReviewWorkingStateContent = ChunkSetArtefact | ChunkAnalysisArtefact | PerspectiveResultArtefact
 ReviewArtefactContent = ReviewIssueFinding | ValidationVerdict | ReviewLogArtefactContent | ReviewWorkingStateContent
 
 # Keys must match `ReviewReportArtefact.ArtefactType` values exactly (asserted by a test).
@@ -137,7 +137,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "note": NoteArtefact,
     "chunk_set": ChunkSetArtefact,
     "chunk_analysis": ChunkAnalysisArtefact,
-    "lens_result": LensResultArtefact,
+    "perspective_result": PerspectiveResultArtefact,
 }
 _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model in ARTEFACT_CONTENT_SCHEMAS.items()}
 

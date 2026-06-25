@@ -55,8 +55,8 @@ async def main(pr_url: str, *, team_id: int, user_id: int) -> None:
     tasks run as. Inter-stage state lives in Postgres (`ReviewReport` + `ReviewReportArtefact`),
     passed in-process within this run and persisted per stage — there is no on-disk store. A re-run
     on the same ``head_sha`` reuses the expensive, turn-stable sandbox stages (chunk / analyze /
-    lens review) from rows; dedup and validation recompute, since their post-dedup issue set isn't
-    stable across re-runs.
+    perspective review) from rows; dedup and validation recompute, since their post-dedup issue set
+    isn't stable across re-runs.
     """
 
     # 1. Parse PR URL into PR metadata
@@ -135,9 +135,9 @@ async def main(pr_url: str, *, team_id: int, user_id: int) -> None:
         repository=repository,
     )
 
-    # 6. Find issues in each chunk across the parallel lenses
-    _stage(4, "Review chunks (3 lenses)")
-    lens_results = await review_chunks(
+    # 6. Find issues in each chunk across the parallel perspectives
+    _stage(4, "Review chunks (3 perspectives)")
+    perspective_results = await review_chunks(
         team_id=team_id,
         report_id=report_id,
         head_sha=head_sha,
@@ -153,7 +153,7 @@ async def main(pr_url: str, *, team_id: int, user_id: int) -> None:
 
     # 7. Combine + scope-clean the issues (local, in-process)
     _stage(5, "Combine & scope-clean issues")
-    raw_issues = combine_issues(lens_results)
+    raw_issues = combine_issues(perspective_results)
     cleaned_issues = clean_issues(raw_issues, pr_files)
 
     # 8. Deduplicate issues

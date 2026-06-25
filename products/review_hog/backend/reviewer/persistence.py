@@ -4,20 +4,20 @@ Postgres is the single source of truth for a review. Each stage passes its outpu
 within one run and persists them as rows; the DB-driven resume reads those rows back so a re-run
 (or a future Temporal activity on another worker) skips completed sandbox work. There is no
 on-disk store. Resume is head_sha-scoped and covers the turn-stable sandbox stages — chunk_set /
-chunk_analysis / lens_result; dedup and validation recompute on a re-run because their post-dedup
-issue set (and thus the per-issue ids) isn't stable across runs.
+chunk_analysis / perspective_result; dedup and validation recompute on a re-run because their
+post-dedup issue set (and thus the per-issue ids) isn't stable across runs.
 
 Durable rows this layer writes:
 
-- per-turn pipeline working state — `chunk_set` / `chunk_analysis` / `lens_result` artefacts, each
-  tagged with the turn's `head_sha` so resume reuses only the current head's work,
+- per-turn pipeline working state — `chunk_set` / `chunk_analysis` / `perspective_result` artefacts,
+  each tagged with the turn's `head_sha` so resume reuses only the current head's work,
 - the post-dedup findings → `issue_finding` artefacts and their validation verdicts →
   `validation_verdict` artefacts (paired by `issue_key`, latest-wins),
 - this turn's point-in-time reviewed diff → a per-turn `commit` artefact (+ the report watermark),
 - the rendered review body → `ReviewReport.report_markdown`.
 
 Findings, verdicts, and working state are attributed to the **system**: they are aggregated across
-many sandbox tasks (chunking, the parallel lenses, dedup), so no single task produced them. The
+many sandbox tasks (chunking, the parallel perspectives, dedup), so no single task produced them. The
 remaining work-log artefacts (`task_run` / `note`) are deferred to the loop-y turn tracking — the
 data they need (per-call task ids, comment-driven notes) isn't surfaced by the current pipeline.
 """
@@ -35,7 +35,7 @@ from products.review_hog.backend.reviewer.artefact_content import (
     ArtefactContentValidationError,
     ChunkAnalysisArtefact,
     ChunkSetArtefact,
-    LensResultArtefact,
+    PerspectiveResultArtefact,
     ReviewIssueFinding,
     ValidationVerdict,
     parse_artefact_content,
@@ -130,7 +130,7 @@ def persist_commit_snapshot(
     return True
 
 
-# --- Per-turn working state (chunks / analyses / lens results) -------------------------------------
+# --- Per-turn working state (chunks / analyses / perspective results) ------------------------------
 #
 # These back the DB-driven resume. Each row carries the turn's `head_sha`; the load helpers return
 # only the rows for the requested head, latest-wins per key, so a resumed run reuses completed
@@ -179,10 +179,10 @@ def load_chunk_analyses(*, team_id: int, report_id: str, head_sha: str) -> dict[
     return out
 
 
-def persist_lens_results(
+def persist_perspective_results(
     *, team_id: int, report_id: str, head_sha: str, results: dict[tuple[int, int], IssuesReview]
 ) -> None:
-    """Append one `lens_result` artefact per (pass, chunk) reviewed this turn."""
+    """Append one `perspective_result` artefact per (pass, chunk) reviewed this turn."""
     if not results:
         return
     with transaction.atomic():
@@ -190,18 +190,20 @@ def persist_lens_results(
             ReviewReportArtefact.add_working_state(
                 team_id=team_id,
                 report_id=report_id,
-                content=LensResultArtefact(
+                content=PerspectiveResultArtefact(
                     head_sha=head_sha, pass_number=pass_number, chunk_id=chunk_id, review=review
                 ),
                 attribution=ArtefactAttribution.system(),
             )
 
 
-def load_lens_results(*, team_id: int, report_id: str, head_sha: str) -> dict[tuple[int, int], IssuesReview]:
-    """The (pass, chunk) lens reviews already computed for this turn (latest wins per key)."""
+def load_perspective_results(*, team_id: int, report_id: str, head_sha: str) -> dict[tuple[int, int], IssuesReview]:
+    """The (pass, chunk) perspective reviews already computed for this turn (latest wins per key)."""
     out: dict[tuple[int, int], IssuesReview] = {}
-    for content in _load_working_state(team_id, report_id, ReviewReportArtefact.ArtefactType.LENS_RESULT, head_sha):
-        assert isinstance(content, LensResultArtefact)
+    for content in _load_working_state(
+        team_id, report_id, ReviewReportArtefact.ArtefactType.PERSPECTIVE_RESULT, head_sha
+    ):
+        assert isinstance(content, PerspectiveResultArtefact)
         out[(content.pass_number, content.chunk_id)] = content.review
     return out
 
@@ -340,14 +342,14 @@ def _issue_key(issue: Issue) -> str:
     """Identity for a finding, shared by its verdict so they pair 1:1.
 
     Built from the pipeline's unique issue id (`{pass}-{chunk}-{issue}`) behind a readable
-    file/line/lens prefix — the id makes the key unique within a turn, so two distinct findings on
-    the same line from the same lens don't collapse and shadow each other. Robust cross-turn
-    identity (the id is reassigned each turn and line numbers shift as the PR evolves) needs
-    semantic matching and is a loop-phase concern.
+    file/line/perspective prefix — the id makes the key unique within a turn, so two distinct
+    findings on the same line from the same perspective don't collapse and shadow each other. Robust
+    cross-turn identity (the id is reassigned each turn and line numbers shift as the PR evolves)
+    needs semantic matching and is a loop-phase concern.
     """
     start = issue.lines[0].start if issue.lines else 0
-    lens = issue.source_lens or "unknown"
-    return f"{issue.file}:{start}:{lens}:{issue.id}"
+    perspective = issue.source_perspective or "unknown"
+    return f"{issue.file}:{start}:{perspective}:{issue.id}"
 
 
 def _persistable_findings(issues: list[Issue]) -> list[tuple[Issue, ReviewIssueFinding]]:
@@ -375,6 +377,6 @@ def _to_finding(issue: Issue) -> ReviewIssueFinding:
         body=issue.issue,
         suggestion=issue.suggestion,
         priority=issue.priority,
-        source_lens=issue.source_lens,
+        source_perspective=issue.source_perspective,
         is_directly_related_to_changes=issue.is_directy_related_to_changes,
     )

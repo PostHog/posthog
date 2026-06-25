@@ -15,13 +15,13 @@ from products.review_hog.backend.reviewer.persistence import (
     finalize_review_report,
     load_chunk_analyses,
     load_chunk_set,
-    load_lens_results,
+    load_perspective_results,
     load_valid_findings,
     persist_chunk_analyses,
     persist_chunk_set,
     persist_commit_snapshot,
     persist_findings,
-    persist_lens_results,
+    persist_perspective_results,
     persist_verdicts,
     upsert_review_report,
 )
@@ -55,7 +55,7 @@ def _issue(issue_id: str, *, file: str = "a.py", start: int = 10, **kwargs: obje
         "issue": "problem",
         "suggestion": "fix",
         "priority": IssuePriority.MUST_FIX,
-        "source_lens": "Logic & Correctness",
+        "source_perspective": "Logic & Correctness",
     }
     defaults.update(kwargs)
     return Issue(id=issue_id, **defaults)
@@ -131,7 +131,7 @@ class TestPersistResults(BaseTest):
         assert finding_row.task_id is None
 
     def test_colliding_findings_persist_distinctly_and_pair_to_own_verdict(self) -> None:
-        # Two genuinely distinct issues from the same lens on the same start line survive dedup with
+        # Two genuinely distinct issues from the same perspective on the same start line survive dedup with
         # different ids. They must NOT collapse to one issue_key (which would shadow a finding) and
         # each must pair to its OWN verdict (not the other's ruling).
         a = _issue("1-2-1", file="x.py", start=5, title="A", issue="problem A", suggestion="fix A")
@@ -316,16 +316,16 @@ class TestWorkingState(BaseTest):
         assert loaded[1].goal == "new"
         assert load_chunk_analyses(team_id=self.team.id, report_id=self.report_id, head_sha="sha-bbb") == {}
 
-    def test_lens_results_round_trip_keyed_by_pass_and_chunk(self) -> None:
+    def test_perspective_results_round_trip_keyed_by_pass_and_chunk(self) -> None:
         results = {
             (1, 1): IssuesReview(issues=[_issue("1-1-1")]),
             (2, 1): IssuesReview(issues=[_issue("2-1-1")]),
         }
-        persist_lens_results(team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa", results=results)
-        loaded = load_lens_results(team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa")
+        persist_perspective_results(team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa", results=results)
+        loaded = load_perspective_results(team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa")
         assert set(loaded.keys()) == {(1, 1), (2, 1)}
         assert loaded[(1, 1)].issues[0].id == "1-1-1"
-        assert load_lens_results(team_id=self.team.id, report_id=self.report_id, head_sha="sha-bbb") == {}
+        assert load_perspective_results(team_id=self.team.id, report_id=self.report_id, head_sha="sha-bbb") == {}
 
 
 class TestPersistCommitSnapshot(BaseTest):

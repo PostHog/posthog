@@ -46,7 +46,7 @@
                     "title": "Is Directy Related To Changes",
                     "type": "boolean"
                 },
-                "source_lens": {
+                "source_perspective": {
                     "anyOf": [
                         {
                             "type": "string"
@@ -56,8 +56,8 @@
                         }
                     ],
                     "default": null,
-                    "description": "Which review lens produced this issue; set by the pipeline, not the model",
-                    "title": "Source Lens"
+                    "description": "Which review perspective produced this issue; set by the pipeline, not the model",
+                    "title": "Source Perspective"
                 }
             },
             "required": ["id", "title", "file", "lines", "issue", "suggestion", "priority"],

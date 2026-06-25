@@ -2,7 +2,7 @@
 
 Postgres is the single source of truth for a review (there is no on-disk store), so this one
 command is the entire "clean state" story while iterating: it deletes every `ReviewReportArtefact`
-(findings, verdicts, commit snapshots, and the `chunk_set` / `chunk_analysis` / `lens_result`
+(findings, verdicts, commit snapshots, and the `chunk_set` / `chunk_analysis` / `perspective_result`
 working state the DB-driven resume reads back) and every `ReviewReport`, across all teams.
 
 Local iteration helper only — refuses to run unless `DEBUG=True`.

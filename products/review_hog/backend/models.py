@@ -72,7 +72,7 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
         # Per-turn pipeline working state, read back by the DB-driven resume (head_sha-scoped).
         CHUNK_SET = "chunk_set"
         CHUNK_ANALYSIS = "chunk_analysis"
-        LENS_RESULT = "lens_result"
+        PERSPECTIVE_RESULT = "perspective_result"
 
     # Log types accumulate (each call is a new row). Findings and verdicts also append, but their
     # identity is `issue_key` — latest row per key wins at read time — so they get dedicated
@@ -82,7 +82,7 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
     )
     # Working-state types accumulate per turn; the resume reads the latest per (head_sha, key).
     WORKING_STATE_ARTEFACT_TYPES: frozenset[str] = frozenset(
-        {ArtefactType.CHUNK_SET, ArtefactType.CHUNK_ANALYSIS, ArtefactType.LENS_RESULT}
+        {ArtefactType.CHUNK_SET, ArtefactType.CHUNK_ANALYSIS, ArtefactType.PERSPECTIVE_RESULT}
     )
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
@@ -160,7 +160,7 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
     def add_working_state(
         cls, *, team_id: int, report_id: str, content: ReviewWorkingStateContent, attribution: ArtefactAttribution
     ) -> "ReviewReportArtefact":
-        """Append per-turn pipeline working state (`chunk_set` / `chunk_analysis` / `lens_result`).
+        """Append per-turn pipeline working state (`chunk_set` / `chunk_analysis` / `perspective_result`).
 
         These accumulate; the DB-driven resume reads the latest row per (head_sha, key), so a
         resumed turn reuses completed sandbox work instead of re-running it.

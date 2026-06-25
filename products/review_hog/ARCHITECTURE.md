@@ -187,10 +187,14 @@ state + cloud persistence is its own effort — now **Stage 3** below.
 > **DB-driven** (body from `ReviewReport.report_markdown`, inline comments from the finding/verdict rows). No
 > object storage. **Step 9 — `reset_review_hog`** now wipes all ReviewHog DB rows (DEBUG-only, unscoped,
 > `--dry-run` / `--yes`) so iteration starts from a clean slate. Lint + tach + the ReviewHog backend suite
-> (128) + the Signals artefact suite pass. What remains (next step): **(10)** the **Temporal migration** —
-> orchestrator → parent workflow + the loop-y re-check; plus the deferred `task_run` / `note` work-log
-> artefacts and cross-turn finding identity (semantic, not the per-turn positional `issue_key`). See the
-> step list and the Deferred / future section below.
+> (128) + the Signals artefact suite pass. What remains (planned, in order): **(10)** **perspectives as LLMA
+> skills** — rename the review "lens" → **perspective** and move the three jinja focus templates into DB-synced
+> `LLMSkill` skills (the Signals-scout pattern), landing **before** Temporal because it collapses the three
+> pass→perspective couplings into one registry the Temporal fan-out will iterate; then **(11)** the **Temporal
+> migration** — `run.py main()` → a **single-turn** `ReviewPRWorkflow` with the fan-out stages as child
+> workflows. The loop-y re-check, cross-turn finding identity, and the `task_run` / `note` work-log artefacts
+> are deferred to a follow-up after the single-turn workflow lands. See the step list and the Deferred / future
+> section below.
 
 **Why.** Today every run writes Pydantic-serialized JSON/MD to a gitignored `reviews/<pr_number>/` tree — no
 DB, no `team_id`, no run identity (a "run" is just the PR-number directory). That blocks two things: running
@@ -453,13 +457,23 @@ either DB rows, in-process values within the run, or the S3 agent log (`task_run
    through the fail-closed managers' cross-team escape hatch (`ReviewReport.objects.unscoped()` /
    `ReviewReportArtefact.objects.unscoped()`), not raw SQL. (Tests in `backend/tests/test_reset_review_hog.py`:
    the DEBUG gate, the cross-team wipe, and `--dry-run` safety.)
-10. ⏭️ **(after) Make the whole pipeline Temporal.** Rework `run.py main()` into a **parent workflow** with each
-    stage a child workflow / activity (exchanging Postgres **row ids by reference**, ~2 MiB payload cap), and add
-    the **loop-y re-check** as a long-running `continue-as-new` workflow advanced by the report's `head_sha` /
-    `last_seen_comment_id` watermark. Step 8's DB-driven, `head_sha`-scoped design exists precisely so this is
-    an _orchestration_ change, not a persistence one. Cross-turn finding identity (semantic, not the positional
-    `issue_key`) and the `task_run` / `note` work-log artefacts land here. Full design in _Everything on
-    Temporal_ under Deferred / future below.
+10. ⏭️ **(next) Perspectives as LLMA skills — rename "lens" → "perspective" + DB-synced skill pipeline (before
+    Temporal).** The three review "lenses" (Logic & Correctness / Contracts & Security / Performance &
+    Reliability) are renamed **perspectives** — "lens" collides with Replay Vision, which already abandoned it
+    (migration `0006_rename_lens_to_scanner`; "scanner" is now taken too) — and the static jinja focus templates
+    (`prompts/issues_review/pass_contexts/pass{1,2,3}_focus.jinja`) become first-class **LLMA skills** stored and
+    synced the way Signals Scouts store theirs (disk `SKILL.md` → per-team `LLMSkill` rows). Lands **before**
+    Temporal because it collapses the three pass→perspective couplings into one registry the Temporal fan-out
+    iterates, so the perspective-loading code isn't touched twice. Full design in _Perspectives as LLMA skills_
+    under Deferred / future below.
+11. ⏭️ **(after) Make the pipeline Temporal — single-turn workflow first.** Rework `run.py main()` into a
+    single-turn **`ReviewPRWorkflow`** parent workflow with the three fan-out stages (analyze / perspective
+    review / validate) as **child workflows** and the rest as **activities**, exchanging Postgres **row ids by
+    reference** (~2 MiB payload cap). Step 8's DB-driven, `head_sha`-scoped design exists precisely so this is an
+    _orchestration_ change, not a persistence one. The **loop-y re-check** (`continue-as-new` advanced by the
+    `head_sha` / `last_seen_comment_id` watermark), cross-turn finding identity (semantic, not the positional
+    `issue_key`), and the `task_run` / `note` work-log artefacts are deferred to a follow-up after the single-turn
+    workflow lands. Full design in _Everything on Temporal_ under Deferred / future below.
 
 ##### Cloud host, Temporal & GitHub (assumed / later)
 
@@ -476,25 +490,88 @@ either DB rows, in-process values within the run, or the S3 agent log (`task_run
 - **Shared abstract artefact base.** If a second consumer proves it out (nest-then-promote), extract an abstract
   `AttributedArtefact` (funnel + fields, with `task` / `report` FKs declared per-subclass to avoid a core→tasks
   FK) into a shared home; Signals would converge onto it via a **mixin only** (no table change). Not now.
-- **Everything on Temporal — this is step 10** (the major step after the `reset_review_hog` command; design
-  detail here). The whole orchestrator (`run.py main()`, the `TODO: Make it a parent workflow`)
-  moves onto Temporal: a **parent workflow** with each pipeline stage (chunk → analyze → parallel lenses →
-  combine/clean → dedupe → validate → persist → publish) as a **child workflow / activity**, so retries,
-  visibility, and the global sandbox throttle are durable rather than in-process. The **loop-y re-check** (after
-  a turn, re-poll the PR for new commits/comments and take another turn until nothing significant changes) is
-  modeled as a **long-running workflow** — timer-driven, `continue-as-new` per turn to bound history — keyed by
-  the `ReviewReport` and advanced via its `head_sha` / `last_seen_comment_id` watermark. The **trigger** (a
-  Temporal schedule or a signal from a GitHub webhook) supplies `team_id` / `user_id` = the PR's author and
-  their team, replacing the CLI args. Large artifacts (e.g. the per-turn diff snapshot) are persisted **inside**
-  the activity and passed **by reference** (Postgres row id) to respect the ~2 MiB payload cap. (See _Cloud
-  host, Temporal & GitHub_ above.)
-- **Lenses as LLMA skills, not jinja.** Today the three review lenses are static jinja focus templates
-  (`prompts/issues_review/pass_contexts/pass{1,2,3}_focus.jinja`). The direction is to author each lens as an
-  **LLMA skill** — the same mechanism **Signals Scouts** use (the `signals-scout-*` skills) — so a lens becomes
-  a first-class, independently authored / versioned / discoverable unit instead of a hardcoded prompt fragment.
-  A run would **select and load** the relevant lens skills (potentially per-repo or per-team) rather than always
-  running the fixed three, and new lenses ship as new skills with no pipeline change. Replicate the Scouts
-  pattern (skill registry + selection) rather than reinventing it.
+- **Perspectives as LLMA skills — this is step 10** (next; lands _before_ Temporal; design detail here).
+  Two coupled changes:
+  - **Rename "lens" → "perspective" everywhere.** The word "lens" collides with Replay Vision, which already
+    abandoned it (migration `0006_rename_lens_to_scanner`; its replacement "scanner" is now taken too). "perspective"
+    is collision-clear and idiomatic. The rename touches `Issue.source_lens` → `source_perspective`, `PassType`
+    → `PerspectiveType` (the `{pass}-{chunk}-{issue}` id keeps "pass" — a separate ordinal index, not the
+    perspective name), the pydantic `LensResultArtefact` → `PerspectiveResultArtefact`, the
+    `ARTEFACT_CONTENT_SCHEMAS` key + the stored DB choice `ReviewReportArtefact.ArtefactType.LENS_RESULT =
+"lens_result"` → `PERSPECTIVE_RESULT = "perspective_result"` (a **Django migration** generated via
+    `makemigrations` — not a pure code rename), and `persist_lens_results` / `load_lens_results` →
+    `persist_perspective_results` / `load_perspective_results`.
+  - **Move the three perspectives into DB-synced LLMA skills (the full Signals-scout pattern, "v2").** On disk,
+    `products/review_hog/skills/review-hog-perspective-{logic-correctness,contracts-security,performance-reliability}/SKILL.md`
+    (frontmatter `name` under a `REVIEW_HOG_PERSPECTIVE_PREFIX = "review-hog-perspective-"` constant + `description`;
+    body = the perspective text moved verbatim out of the jinja focus blocks; optional `references/`). A
+    `sync_review_hog_perspectives` command (ported from Signals' `sync_canonical_skills` / `lazy_seed.py`) mirrors
+    each disk `SKILL.md` into **per-team `LLMSkill` / `LLMSkillFile` rows** (content-hashed; buckets
+    created/updated/diverged/tombstoned/pruned; ownership guard `metadata.seeded_by == "review_hog"`,
+    `category = "review_perspective"`), driven both by `manage.py sync_review_hog_perspectives`
+    (`--team-id` / `--all-enabled` / `--dry-run`) and a **lazy cold-start sync** at the start of a review run
+    (mirroring the scout runner — no Temporal coordinator needed yet). Reuses the shared `LLMSkill` model, so
+    add `products.skills` to `products.review_hog`'s `tach` `depends_on` (skills is un-isolated; no facade).
+    Delivery flips to **pull**: the issues-review prompt stops splicing the focus text and instead instructs the
+    sandbox agent to `skill-get(skill_name="review-hog-perspective-…", version=N)` over the PostHog MCP (the
+    sandbox context already carries `llm_skill:read` via the default `full` scope); the version is pinned per run,
+    `references/` load on demand via `skill-file-get`.
+  - **Selection: fixed three for now.** A registry-driven loader loads the three canonical perspective skills
+    (pinned versions) and every run executes all three — preserving the stable **ordinal** source attribution
+    (the `{pass}-{chunk}-{issue}` id + `source_perspective` derived from registry order) and its test.
+    **Per-team custom perspectives** (a `ReviewPerspectiveConfig` per `(team, perspective)` + a
+    `register_missing_configs` prefix-scan, exactly like Signals' `SignalScoutConfig`, so a team runs a chosen
+    subset or authors its own) is a **next-iteration** follow-up — it breaks the positional attribution (issues
+    would key by perspective name, not ordinal), so it's deferred until that capability is actually needed.
+  - **Why before Temporal:** v2 collapses the three pass→perspective couplings (`PASS_ENUM_MAP`, the
+    `pass{N}_focus.jinja` filename convention, and the positional `list(PassType)[n-1]`) into one ordered
+    `PERSPECTIVES` registry — the single source of truth the Temporal "perspective review" fan-out
+    (`ReviewPerspectivesWorkflow`) iterates — so the perspective-loading code isn't touched twice.
+  - **Acceptance gate (run at the END of step 10, not before):** an e2e `run_review` against the default PR
+    **#65862** (`--team-id 1 --user-id 1`), with `reset_review_hog` run first for a clean slate, must complete
+    the full pipeline — confirming the three perspectives sync into `LLMSkill` rows and the sandbox agent
+    pull-delivers them via `skill-get` (replacing the deleted jinja splice). The e2e is the step's verification,
+    so it only makes sense once the jinja→skill move is in place. The unit suite (the `PERSPECTIVES`-vs-enum
+    order assert + the loader test) guards the wiring along the way.
+
+- **Everything on Temporal — this is step 11** (the major step after perspectives-as-skills; design detail here).
+  Rework `run.py main()` into a **single-turn `ReviewPRWorkflow`** parent workflow (one run = one review turn);
+  the **loop** is a deferred follow-up (below). Topology, all on a new `products/review_hog/backend/temporal/`
+  package:
+  - **Parent `ReviewPRWorkflow`** — pure orchestration mirroring today's `main()`: inline `parse_github_pr_url`
+    → activities → three child workflows → activities. Stages exchange only `report_id` + `head_sha` (+ small
+    unit-key lists); every consumer reloads its inputs from artefact rows (`persistence.load_*`), so no
+    diff / `pr_files` / perspective-results ever cross the workflow boundary (respects the ~2 MiB cap).
+  - **Per-step split:** parse = inline workflow-code; fetch + diff snapshot = one **activity** (writes the diff
+    - a **new `pr_files` artefact** internally, returns a small `ReviewMeta`); validate-integration, schema-gen,
+      split-into-chunks, combine+scope-clean, dedup+persist-findings, build-body+finalize, and publish = **activities**;
+      the three fan-out stages **analyze chunks**, **perspective review** (3 perspectives × N chunks), and **validate**
+      = **child workflows** (`AnalyzeChunksWorkflow` / `ReviewPerspectivesWorkflow` / `ValidateIssuesWorkflow`), each
+      dispatching its per-unit sandbox-turn **activities** in bounded batches and persisting per-unit artefacts.
+  - **Identity (delete the contextvar):** remove `executor.py`'s `_sandbox_identity` ContextVar + `bind_sandbox_identity`
+    - `_sandbox_context_for`; thread `(team_id, user_id, repository, branch)` **explicitly** into every sandbox-turn
+      activity input and build `CustomPromptSandboxContext` inline — a ContextVar doesn't cross worker boundaries and
+      risks cross-tenant bleed.
+  - **Throttle:** the in-process `asyncio.Semaphore(MAX_CONCURRENT_SANDBOXES)` is removed from any workflow-reachable
+    code; each fan-out child dispatches its sandbox-turn activities in **bounded batches** (width =
+    `MAX_CONCURRENT_SANDBOXES`, repurposed as a fan-out width). The true global ceiling stays the `tasks-task-queue`
+    worker's own concurrency — where the sandbox `ProcessTaskWorkflow`s actually execute.
+  - **Task queue:** register the orchestrator + child workflows + ReviewHog activities on
+    **`video-export-task-queue`** (`settings.VIDEO_EXPORT_TASK_QUEUE`) for now — it already hosts Signals' product
+    workflows, so ReviewHog co-locates with its mirror; a dedicated **`reviewhog-task-queue`** is a later split.
+    Sandbox `ProcessTaskWorkflow`s stay on `tasks-task-queue`. Wire it via a new
+    `products/review_hog/backend/temporal/__init__.py` (`WORKFLOWS` / `ACTIVITIES`) + a facade re-export, append to
+    the `video-export-task-queue` tuple in `start_temporal_worker.py`, and update the CI worker-trigger.
+  - **Trigger:** `run_review` starts `ReviewPRWorkflow` via the Temporal client (locally the dev worker on the
+    collapsed `development-task-queue` handles both the orchestrator and the sandbox sub-workflows). **Publish stays
+    disabled** through the migration; its idempotency guard (a `published_head_sha` watermark + comment-dedup) ships
+    with the loop.
+  - **Deferred to a follow-up (after the single-turn workflow):** the **loop-y re-check** — a per-PR singleton
+    `continue-as-new` workflow, timer-driven + `signal-with-start` on a GitHub webhook, advanced by the report's
+    `head_sha` / `last_seen_comment_id` watermark, the trigger supplying `team_id` / `user_id` = the PR's author and
+    their team — plus **cross-turn finding identity** (semantic, not the positional `issue_key`) and the
+    `task_run` / `note` work-log artefacts. (See _Cloud host, Temporal & GitHub_ above.)
+
 - **API viewset + frontend** to browse reviews (`/improving-drf-endpoints`).
 - **Emit into the Signals inbox.** Like `replay_vision`, ReviewHog could emit notable findings into Signals via
   the facade `emit_signal` so they surface in the inbox — a product feature, separate from this storage work.

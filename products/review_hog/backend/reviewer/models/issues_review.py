@@ -49,8 +49,8 @@ class Issue(BaseModel):
         ),
         default=False,
     )
-    source_lens: str | None = Field(
-        description="Which review lens produced this issue; set by the pipeline, not the model",
+    source_perspective: str | None = Field(
+        description="Which review perspective produced this issue; set by the pipeline, not the model",
         default=None,
     )
 
@@ -61,8 +61,8 @@ class IssuesReview(BaseModel):
     issues: list[Issue] = Field(default_factory=list, description="List of issues found in the chunk")
 
 
-class PassType(Enum):
-    """Enum for the review lenses, each run independently and in parallel per chunk."""
+class PerspectiveType(Enum):
+    """Enum for the review perspectives, each run independently and in parallel per chunk."""
 
     LOGIC_CORRECTNESS = "Logic & Correctness"
     CONTRACTS_SECURITY = "Contracts & Security"

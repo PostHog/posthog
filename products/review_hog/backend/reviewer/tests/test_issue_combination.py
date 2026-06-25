@@ -15,38 +15,38 @@ def _issue(issue_id: str) -> Issue:
 
 
 class TestCombineIssues:
-    def test_stamps_source_lens_per_pass_and_flattens_in_key_order(self) -> None:
-        # Passes 1..3 map to PassType members in order; combine flattens sorted by (pass, chunk).
-        lens_results = {
+    def test_stamps_source_perspective_per_pass_and_flattens_in_key_order(self) -> None:
+        # Passes 1..3 map to PerspectiveType members in order; combine flattens sorted by (pass, chunk).
+        perspective_results = {
             (3, 5): IssuesReview(issues=[_issue("3-5-1")]),
             (1, 5): IssuesReview(issues=[_issue("1-5-1"), _issue("1-5-2")]),
             (2, 5): IssuesReview(issues=[_issue("2-5-1")]),
         }
 
-        combined = combine_issues(lens_results)
+        combined = combine_issues(perspective_results)
 
         # Total count equals the sum of every review's issues.
         assert len(combined) == 4
         # Deterministic order: sorted by (pass_number, chunk_id), so pass 1 issues come first.
         assert [i.id for i in combined] == ["1-5-1", "1-5-2", "2-5-1", "3-5-1"]
-        # Each issue carries the lens value for its pass number.
-        expected_lens = {
+        # Each issue carries the perspective value for its pass number.
+        expected_perspective = {
             "1-5-1": "Logic & Correctness",
             "1-5-2": "Logic & Correctness",
             "2-5-1": "Contracts & Security",
             "3-5-1": "Performance & Reliability",
         }
-        assert {i.id: i.source_lens for i in combined} == expected_lens
+        assert {i.id: i.source_perspective for i in combined} == expected_perspective
 
     def test_orders_by_chunk_id_within_a_pass(self) -> None:
         # Within one pass, chunks flatten in ascending chunk_id order regardless of insertion order.
-        lens_results = {
+        perspective_results = {
             (1, 5): IssuesReview(issues=[_issue("1-5-1")]),
             (1, 1): IssuesReview(issues=[_issue("1-1-1")]),
             (1, 3): IssuesReview(issues=[_issue("1-3-1")]),
         }
 
-        combined = combine_issues(lens_results)
+        combined = combine_issues(perspective_results)
 
         assert [i.id for i in combined] == ["1-1-1", "1-3-1", "1-5-1"]
 

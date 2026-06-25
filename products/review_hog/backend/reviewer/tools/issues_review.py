@@ -8,9 +8,9 @@ from jinja2 import Environment, FileSystemLoader, Template, select_autoescape
 
 from products.review_hog.backend.reviewer.models.chunk_analysis import ChunkAnalysis
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
-from products.review_hog.backend.reviewer.models.issues_review import IssuesReview, PassType
+from products.review_hog.backend.reviewer.models.issues_review import IssuesReview, PerspectiveType
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList
-from products.review_hog.backend.reviewer.persistence import load_lens_results, persist_lens_results
+from products.review_hog.backend.reviewer.persistence import load_perspective_results, persist_perspective_results
 from products.review_hog.backend.reviewer.sandbox.code_context import prepare_code_context
 from products.review_hog.backend.reviewer.sandbox.executor import run_sandbox_review
 
@@ -18,9 +18,9 @@ from products.review_hog.backend.reviewer.sandbox.executor import run_sandbox_re
 logger = logging.getLogger(__name__)
 
 PASS_ENUM_MAP = {
-    1: PassType.LOGIC_CORRECTNESS,
-    2: PassType.CONTRACTS_SECURITY,
-    3: PassType.PERFORMANCE_RELIABILITY,
+    1: PerspectiveType.LOGIC_CORRECTNESS,
+    2: PerspectiveType.CONTRACTS_SECURITY,
+    3: PerspectiveType.PERFORMANCE_RELIABILITY,
 }
 
 _SYSTEM_PROMPT = (
@@ -47,14 +47,14 @@ async def review_chunks(
     branch: str,
     repository: str,
 ) -> dict[tuple[int, int], IssuesReview]:
-    """Run all review lenses concurrently per chunk, keyed by (pass_number, chunk_id).
+    """Run all review perspectives concurrently per chunk, keyed by (pass_number, chunk_id).
 
-    Each (lens × chunk) review is independent — no cross-lens context; overlap between lenses is
-    resolved downstream by the deduplication step, so every lens can run in parallel. Resumes by
-    skipping (pass, chunk) pairs already reviewed this turn; on partial failure it logs and returns
-    what succeeded (overlap/missing coverage is absorbed downstream).
+    Each (perspective × chunk) review is independent — no cross-perspective context; overlap between
+    perspectives is resolved downstream by the deduplication step, so every perspective can run in
+    parallel. Resumes by skipping (pass, chunk) pairs already reviewed this turn; on partial failure
+    it logs and returns what succeeded (overlap/missing coverage is absorbed downstream).
     """
-    existing = await sync_to_async(load_lens_results)(team_id=team_id, report_id=report_id, head_sha=head_sha)
+    existing = await sync_to_async(load_perspective_results)(team_id=team_id, report_id=report_id, head_sha=head_sha)
     todo = [
         (pass_number, chunk)
         for pass_number in PASS_ENUM_MAP
@@ -62,7 +62,7 @@ async def review_chunks(
         if (pass_number, chunk.chunk_id) not in existing
     ]
     if not todo:
-        logger.info("All (lens, chunk) reviews already completed for this turn")
+        logger.info("All (perspective, chunk) reviews already completed for this turn")
         return existing
 
     main_template, output_schema, env = _load_review_assets()
@@ -71,7 +71,7 @@ async def review_chunks(
         pass_number: env.get_template(f"pass{pass_number}_focus.jinja").render() for pass_number in PASS_ENUM_MAP
     }
 
-    logger.info(f"Running {len(todo)} (lens, chunk) review(s) for PR {pr_metadata.number}")
+    logger.info(f"Running {len(todo)} (perspective, chunk) review(s) for PR {pr_metadata.number}")
     results = await asyncio.gather(
         *(
             _review_one(
@@ -96,9 +96,11 @@ async def review_chunks(
         if review is not None
     }
     if len(new) != len(todo):
-        logger.error(f"Failed to review {len(todo) - len(new)} (lens, chunk) pair(s)")
-    await sync_to_async(persist_lens_results)(team_id=team_id, report_id=report_id, head_sha=head_sha, results=new)
-    logger.info("Lens review completed")
+        logger.error(f"Failed to review {len(todo) - len(new)} (perspective, chunk) pair(s)")
+    await sync_to_async(persist_perspective_results)(
+        team_id=team_id, report_id=report_id, head_sha=head_sha, results=new
+    )
+    logger.info("Perspective review completed")
     return {**existing, **new}
 
 
@@ -168,7 +170,7 @@ async def _review_one(
     branch: str,
     repository: str,
 ) -> IssuesReview | None:
-    """Review one chunk through one lens in a sandbox agent; None on failure."""
+    """Review one chunk through one perspective in a sandbox agent; None on failure."""
     prompt = _render_prompt(
         pass_number=pass_number,
         chunk=chunk,
@@ -189,7 +191,7 @@ async def _review_one(
         step_name=f"issues-review-p{pass_number}-c{chunk.chunk_id}",
     )
     if review is None:
-        logger.error(f"Failed to review chunk {chunk.chunk_id} (lens {pass_number}) using sandbox")
+        logger.error(f"Failed to review chunk {chunk.chunk_id} (perspective {pass_number}) using sandbox")
         return None
-    logger.info(f"Chunk {chunk.chunk_id} reviewed (lens {pass_number}) successfully!")
+    logger.info(f"Chunk {chunk.chunk_id} reviewed (perspective {pass_number}) successfully!")
     return review

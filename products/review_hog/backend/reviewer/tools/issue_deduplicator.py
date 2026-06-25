@@ -47,7 +47,7 @@ def _select_dedup_candidates(
 
     Only an issue that shares a file and overlapping lines with another issue — or with a prior
     review comment — can be a duplicate, so the rest skip the LLM dedupe entirely. This keeps the
-    single dedupe call small as the number of lenses grows, and never drops a positionally isolated
+    single dedupe call small as the number of perspectives grows, and never drops a positionally isolated
     finding. Whether two positionally-colliding issues are *actually* duplicates is still left to
     the content-aware LLM.
     """

@@ -10,8 +10,8 @@ from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chu
 from products.review_hog.backend.reviewer.tests.conftest import create_mock_run_sandbox_review
 from products.review_hog.backend.reviewer.tools.issues_review import review_chunks
 
-# Every (lens, chunk) pair produced for a single-chunk list — three lenses × chunk 1.
-ALL_LENS_KEYS = {(1, 1), (2, 1), (3, 1)}
+# Every (perspective, chunk) pair produced for a single-chunk list — three perspectives × chunk 1.
+ALL_PERSPECTIVE_KEYS = {(1, 1), (2, 1), (3, 1)}
 
 
 def _analyses(chunk_id: int) -> dict[int, ChunkAnalysis]:
@@ -47,18 +47,18 @@ async def _run(
 
 class TestReviewChunks:
     @pytest.mark.asyncio
-    async def test_runs_all_three_lenses_and_persists(
+    async def test_runs_all_three_perspectives_and_persists(
         self,
         expected_chunks: ChunksList,
         pr_metadata: PRMetadata,
         sample_issues_review_simple: IssuesReview,
     ) -> None:
-        # Nothing persisted yet → all three lenses run for the one chunk and the results persist.
+        # Nothing persisted yet → all three perspectives run for the one chunk and the results persist.
         load = MagicMock(return_value={})
         persist = MagicMock()
         with (
-            patch("products.review_hog.backend.reviewer.tools.issues_review.load_lens_results", load),
-            patch("products.review_hog.backend.reviewer.tools.issues_review.persist_lens_results", persist),
+            patch("products.review_hog.backend.reviewer.tools.issues_review.load_perspective_results", load),
+            patch("products.review_hog.backend.reviewer.tools.issues_review.persist_perspective_results", persist),
             patch(
                 "products.review_hog.backend.reviewer.tools.issues_review.run_sandbox_review",
                 create_mock_run_sandbox_review(sample_issues_review_simple),
@@ -66,10 +66,10 @@ class TestReviewChunks:
         ):
             result = await _run(chunks=_single_chunk(expected_chunks), analyses=_analyses(1), pr_metadata=pr_metadata)
 
-        assert set(result) == ALL_LENS_KEYS
+        assert set(result) == ALL_PERSPECTIVE_KEYS
         assert all(r is sample_issues_review_simple for r in result.values())
-        # Persisted exactly the newly computed (lens, chunk) pairs.
-        assert set(persist.call_args.kwargs["results"]) == ALL_LENS_KEYS
+        # Persisted exactly the newly computed (perspective, chunk) pairs.
+        assert set(persist.call_args.kwargs["results"]) == ALL_PERSPECTIVE_KEYS
 
     @pytest.mark.asyncio
     async def test_resume_skips_sandbox_when_all_loaded(
@@ -78,14 +78,14 @@ class TestReviewChunks:
         pr_metadata: PRMetadata,
         sample_issues_review_simple: IssuesReview,
     ) -> None:
-        # All (lens, chunk) pairs already in the DB → sandbox is never invoked and the load is returned.
-        existing = dict.fromkeys(ALL_LENS_KEYS, sample_issues_review_simple)
+        # All (perspective, chunk) pairs already in the DB → sandbox is never invoked and load is returned.
+        existing = dict.fromkeys(ALL_PERSPECTIVE_KEYS, sample_issues_review_simple)
         load = MagicMock(return_value=dict(existing))
         persist = MagicMock()
         sandbox_spy = MagicMock(side_effect=create_mock_run_sandbox_review(sample_issues_review_simple))
         with (
-            patch("products.review_hog.backend.reviewer.tools.issues_review.load_lens_results", load),
-            patch("products.review_hog.backend.reviewer.tools.issues_review.persist_lens_results", persist),
+            patch("products.review_hog.backend.reviewer.tools.issues_review.load_perspective_results", load),
+            patch("products.review_hog.backend.reviewer.tools.issues_review.persist_perspective_results", persist),
             patch("products.review_hog.backend.reviewer.tools.issues_review.run_sandbox_review", sandbox_spy),
         ):
             result = await _run(chunks=_single_chunk(expected_chunks), analyses=_analyses(1), pr_metadata=pr_metadata)
@@ -101,7 +101,7 @@ class TestReviewChunks:
         pr_metadata: PRMetadata,
         sample_issues_review_simple: IssuesReview,
     ) -> None:
-        # One lens fails (returns None); that pair is dropped while the other two survive and persist.
+        # One perspective fails (returns None); that pair is dropped while the other two survive and persist.
         async def flaky_sandbox(**kwargs: Any) -> IssuesReview | None:
             if kwargs["step_name"] == "issues-review-p2-c1":
                 return None
@@ -110,8 +110,8 @@ class TestReviewChunks:
         load = MagicMock(return_value={})
         persist = MagicMock()
         with (
-            patch("products.review_hog.backend.reviewer.tools.issues_review.load_lens_results", load),
-            patch("products.review_hog.backend.reviewer.tools.issues_review.persist_lens_results", persist),
+            patch("products.review_hog.backend.reviewer.tools.issues_review.load_perspective_results", load),
+            patch("products.review_hog.backend.reviewer.tools.issues_review.persist_perspective_results", persist),
             patch("products.review_hog.backend.reviewer.tools.issues_review.run_sandbox_review", flaky_sandbox),
         ):
             result = await _run(chunks=_single_chunk(expected_chunks), analyses=_analyses(1), pr_metadata=pr_metadata)

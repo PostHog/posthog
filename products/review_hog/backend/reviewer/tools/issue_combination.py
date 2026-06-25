@@ -1,23 +1,23 @@
 import logging
 
-from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuesReview, PassType
+from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuesReview, PerspectiveType
 
 logger = logging.getLogger(__name__)
 
 
-def combine_issues(lens_results: dict[tuple[int, int], IssuesReview]) -> list[Issue]:
-    """Flatten every (lens, chunk) review into one issue list, stamping each issue's source lens.
+def combine_issues(perspective_results: dict[tuple[int, int], IssuesReview]) -> list[Issue]:
+    """Flatten every (perspective, chunk) review into one issue list, stamping each issue's source.
 
-    `lens_results` is keyed by `(pass_number, chunk_id)`; passes 1..3 map to `PassType` members in
-    order, so the pass number recovers which lens found each issue.
+    `perspective_results` is keyed by `(pass_number, chunk_id)`; passes 1..3 map to `PerspectiveType`
+    members in order, so the pass number recovers which perspective found each issue.
     """
     all_issues: list[Issue] = []
-    for (pass_number, chunk_id), review in sorted(lens_results.items()):
-        lens_name = list(PassType)[pass_number - 1].value
+    for (pass_number, chunk_id), review in sorted(perspective_results.items()):
+        perspective_name = list(PerspectiveType)[pass_number - 1].value
         for issue in review.issues:
-            issue.source_lens = lens_name
+            issue.source_perspective = perspective_name
         all_issues += review.issues
         logger.info(
-            f"Added {len(review.issues)} issues from chunk {chunk_id} (lens {pass_number}) to the combined list"
+            f"Added {len(review.issues)} issues from chunk {chunk_id} (perspective {pass_number}) to the combined list"
         )
     return all_issues

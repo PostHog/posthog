@@ -1,5 +1,5 @@
 # SANDBOX
-# Global cap on concurrent sandbox agents per process — tuned for the parallel (lens × chunk) review
+# Global cap on concurrent sandbox agents per process — tuned for the parallel (perspective × chunk) review
 # to fan out wider; accepted tradeoff of more in-flight sandboxes for speed.
 MAX_CONCURRENT_SANDBOXES = 10
 
