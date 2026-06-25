@@ -125,7 +125,6 @@ from posthog.models.exchange_rate.sql import (
 from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import OrganizationMembership
-from posthog.models.person import Person
 from posthog.models.person.sql import (
     DROP_PERSON_TABLE_SQL,
     PERSONS_TABLE_SQL,
@@ -134,7 +133,6 @@ from posthog.models.person.sql import (
     TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
     TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
 )
-from posthog.models.person.util import bulk_create_persons
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.precalculated_events.sql import (
     DROP_PRECALCULATED_EVENTS_KAFKA_TABLE_SQL,
@@ -223,9 +221,9 @@ cast(Any, freezegun).configure(
     extend_ignore_list=["posthog.test.assert_faster_than", "transformers"],
 )
 
-persons_cache_tests: list[dict[str, Any]] = []
 events_cache_tests: list[dict[str, Any]] = []
-persons_ordering_int: int = 0
+
+from posthog.test.persons import stage_person_for_bulk_create  # noqa: E402
 
 # Expand string diffs
 unittest.util._MAX_LENGTH = 2000  # type: ignore
@@ -696,8 +694,10 @@ class PostHogTestCase(SimpleTestCase):
             _setup_test_data(self)
 
     def tearDown(self):
-        if len(persons_cache_tests) > 0:
-            persons_cache_tests.clear()
+        from posthog.test.persons import has_unflushed_persons, reset_persons_state
+
+        if has_unflushed_persons():
+            reset_persons_state()
             raise Exception(
                 "Some persons created in this test weren't flushed, which can lead to inconsistent test results. Add flush_persons_and_events() right after creating all persons."
             )
@@ -709,8 +709,7 @@ class PostHogTestCase(SimpleTestCase):
             )
         # We might be using memory cache in tests at Django level, but we also use `redis` directly in some places, so we need to clear Redis
         redis.get_client().flushdb()
-        global persons_ordering_int
-        persons_ordering_int = 0
+        reset_persons_state()
         super().tearDown()
 
     def validate_basic_html(self, html_message, site_url, preheader=None):
@@ -1540,10 +1539,9 @@ def flush_persons_and_events():
     pass of writing a test. Only consider adding it after the test has failed, and you think that lack of flushing is
     the cause.
     """
-    person_mapping = {}
-    if len(persons_cache_tests) > 0:
-        person_mapping = bulk_create_persons(persons_cache_tests)
-        persons_cache_tests.clear()
+    from posthog.test.persons import flush_persons_to_db_and_clickhouse
+
+    person_mapping = flush_persons_to_db_and_clickhouse()
     if len(events_cache_tests) > 0:
         bulk_create_events(events_cache_tests, person_mapping)
         _flush_ai_events(events_cache_tests, person_mapping)
@@ -1603,27 +1601,8 @@ def _warn_if_session_id_malformed(session_id: str):
 
 
 def _create_person(*args, **kwargs):
-    """
-    Create a person in tests. NOTE: all persons get batched and only created when sync_execute is called
-    Pass immediate=True to create immediately and get a pk back
-    """
-    global persons_ordering_int
-    if not (kwargs.get("uuid")):
-        kwargs["uuid"] = uuid.UUID(
-            int=persons_ordering_int, version=4
-        )  # make sure the ordering of uuids is always consistent
-    persons_ordering_int += 1
-    # If we've done freeze_time just create straight away
-    if kwargs.get("immediate") or (
-        hasattr(dt.datetime.now(), "__module__") and dt.datetime.now().__module__ == "freezegun.api"
-    ):
-        kwargs.pop("immediate", None)
-        return Person.objects.create(**kwargs)
-    if len(args) > 0:
-        kwargs["distinct_ids"] = [args[0]]  # allow calling _create_person("distinct_id")
-
-    persons_cache_tests.append(kwargs)
-    return Person(**{key: value for key, value in kwargs.items() if key != "distinct_ids"})
+    """Thin wrapper — delegates to posthog.test.persons.stage_person_for_bulk_create."""
+    return stage_person_for_bulk_create(*args, **kwargs)
 
 
 def _create_action(**kwargs):
