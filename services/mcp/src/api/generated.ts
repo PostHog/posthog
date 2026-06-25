@@ -33549,6 +33549,11 @@ export namespace Schemas {
       readonly github_repo: string | null;
       /** @nullable */
       readonly github_issue_number: number | null;
+      /**
+         * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
+         * @nullable
+         */
+      readonly organization_id: string | null;
       readonly person: TicketPerson | null;
       tags?: unknown[];
     }
@@ -40918,6 +40923,11 @@ export namespace Schemas {
       readonly github_repo?: string | null;
       /** @nullable */
       readonly github_issue_number?: number | null;
+      /**
+         * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
+         * @nullable
+         */
+      readonly organization_id?: string | null;
       readonly person?: TicketPerson | null;
       tags?: unknown[];
     }
