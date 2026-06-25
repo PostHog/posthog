@@ -45,6 +45,8 @@ import supertest from 'supertest'
 import express from 'ultimate-express'
 
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { PostgresRouter } from '~/common/utils/db/postgres'
+import { parseJSON } from '~/common/utils/json-parse'
 import { SodiumRecordingDecryptor, SodiumRecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/crypto'
 import { DynamoDBKeyStore, MemoryKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore'
 import { MemoryCachedKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore/cache'
@@ -52,8 +54,6 @@ import { ReplayEventsOutput, SessionFeaturesOutput } from '~/ingestion/pipelines
 import { RecordingApi } from '~/session-replay/recording-api/recording-api'
 import { RecordingService } from '~/session-replay/recording-api/recording-service'
 import { KeyStore, RecordingApiConfig, SessionKey, SessionKeyDeletedError } from '~/session-replay/recording-api/types'
-import { PostgresRouter } from '~/utils/db/postgres'
-import { parseJSON } from '~/utils/json-parse'
 
 const mockOutputs = {
     queueMessages: jest.fn().mockResolvedValue(undefined),

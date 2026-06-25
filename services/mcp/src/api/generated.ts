@@ -4258,8 +4258,10 @@ export namespace Schemas {
       orderBy?: SessionReplayListWidgetConfigOrderBy;
       /** Sort direction for orderBy. */
       orderDirection?: SessionReplayListWidgetConfigOrderDirection;
-      /** short_id of a saved session replay filter to use as the recordings source. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. */
+      /** short_id of a saved session replay filter to refine the recordings shown. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. Combine with collectionId to filter within a collection. */
       savedFilterId?: string | null;
+      /** short_id of a session replay collection to scope the widget to its pinned recordings. Combine with savedFilterId or property filters to narrow within the collection; orderBy, orderDirection, and limit still apply. */
+      collectionId?: string | null;
     }
 
     export interface SessionReplayListWidgetAddRequestOpenApi {
@@ -5243,6 +5245,26 @@ export namespace Schemas {
       warnings?: DataWarehouseSyncWarning[] | null;
     }
 
+    export type LLMSentimentMessageScores = {[key: string]: number} | null;
+
+    export interface LLMSentimentMessage {
+      label: string;
+      score: number;
+      scores?: LLMSentimentMessageScores;
+    }
+
+    export type LLMSentimentResultMessages = {[key: string]: LLMSentimentMessage} | null;
+
+    export type LLMSentimentResultScores = {[key: string]: number} | null;
+
+    export interface LLMSentimentResult {
+      label: string;
+      message_count?: number | null;
+      messages?: LLMSentimentResultMessages;
+      score: number;
+      scores?: LLMSentimentResultScores;
+    }
+
     export type LLMTraceEventProperties = { [key: string]: unknown };
 
     export interface LLMTraceEvent {
@@ -5250,6 +5272,7 @@ export namespace Schemas {
       event: AIEventType | string;
       id: string;
       properties: LLMTraceEventProperties;
+      sentiment?: LLMSentimentResult | null;
     }
 
     export type LLMTracePersonProperties = { [key: string]: unknown };
@@ -5277,6 +5300,7 @@ export namespace Schemas {
       outputTokens?: number | null;
       person?: LLMTracePerson | null;
       requestCost?: number | null;
+      sentiment?: LLMSentimentResult | null;
       tools?: string[] | null;
       totalCost?: number | null;
       totalLatency?: number | null;
@@ -6756,6 +6780,8 @@ export namespace Schemas {
       filterTestAccounts?: boolean | null;
       groupKey?: string | null;
       groupTypeIndex?: number | null;
+      /** Include stored sentiment evaluation results for returned traces and direct generation events. */
+      includeSentiment?: boolean | null;
       kind?: 'TracesQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
@@ -6800,6 +6826,8 @@ export namespace Schemas {
 
     export interface TraceQuery {
       dateRange?: DateRange | null;
+      /** Include stored sentiment evaluation results for the trace and its generations. */
+      includeSentiment?: boolean | null;
       kind?: 'TraceQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -9183,6 +9211,20 @@ export namespace Schemas {
       /** Per-breakdown-value simulation results. Present only when the insight has breakdowns (up to 25 values). */
       breakdown_results?: BreakdownSimulationResult[];
     }
+
+    /**
+     * * `trace` - trace
+     * * `generation` - generation
+     * * `evaluation` - evaluation
+     */
+    export type AnalysisLevelEnum = typeof AnalysisLevelEnum[keyof typeof AnalysisLevelEnum];
+
+
+    export const AnalysisLevelEnum = {
+      Trace: 'trace',
+      Generation: 'generation',
+      Evaluation: 'evaluation',
+    } as const;
 
     /**
      * * `USR` - user
@@ -12613,25 +12655,11 @@ export namespace Schemas {
       truncated: boolean;
     }
 
-    /**
-     * * `trace` - trace
-     * * `generation` - generation
-     * * `evaluation` - evaluation
-     */
-    export type ClusteringJobAnalysisLevelEnum = typeof ClusteringJobAnalysisLevelEnum[keyof typeof ClusteringJobAnalysisLevelEnum];
-
-
-    export const ClusteringJobAnalysisLevelEnum = {
-      Trace: 'trace',
-      Generation: 'generation',
-      Evaluation: 'evaluation',
-    } as const;
-
     export interface ClusteringJob {
       readonly id: string;
       /** @maxLength 100 */
       name: string;
-      analysis_level: ClusteringJobAnalysisLevelEnum;
+      analysis_level: AnalysisLevelEnum;
       event_filters?: unknown;
       enabled?: boolean;
       readonly created_at: string;
@@ -15958,6 +15986,7 @@ export namespace Schemas {
      * * `RB2B` - RB2B
      * * `Superwall` - Superwall
      * * `Liana` - Liana
+     * * `TawkTo` - TawkTo
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -16604,6 +16633,7 @@ export namespace Schemas {
       Rb2b: 'RB2B',
       Superwall: 'Superwall',
       Liana: 'Liana',
+      TawkTo: 'TawkTo',
     } as const;
 
     /**
@@ -17263,7 +17293,8 @@ export namespace Schemas {
        * * `Leexi` - Leexi
        * * `RB2B` - RB2B
        * * `Superwall` - Superwall
-       * * `Liana` - Liana */
+       * * `Liana` - Liana
+       * * `TawkTo` - TawkTo */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -17827,58 +17858,6 @@ export namespace Schemas {
       threshold?: number | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
-    }
-
-    export interface DraftCustomManifestRequest {
-      /** Optional human name of the API being connected (e.g. 'Acme CRM'). Used only to orient the model. */
-      source_name?: string;
-      /** URL of the API documentation to read. Provide this or docs_text; fetched server-side via the egress proxy. */
-      docs_url?: string;
-      /** Raw API documentation or an OpenAPI/Swagger spec, pasted directly. Provide this or docs_url. */
-      docs_text?: string;
-      /** Optional bearer token, used only to live-validate the drafted manifest. Never written into the manifest. */
-      auth_token?: string;
-      /** Optional API key (api_key auth), used only to live-validate the drafted manifest. Never written into the manifest. */
-      auth_api_key?: string;
-      /** Optional HTTP basic password, used only to live-validate the drafted manifest. Never written into the manifest. */
-      auth_password?: string;
-    }
-
-    /**
-     * * `ok` - ok
-     * * `invalid` - invalid
-     * * `model_error` - model_error
-     */
-    export type DraftStatusEnum = typeof DraftStatusEnum[keyof typeof DraftStatusEnum];
-
-
-    export const DraftStatusEnum = {
-      Ok: 'ok',
-      Invalid: 'invalid',
-      ModelError: 'model_error',
-    } as const;
-
-    export interface DraftCustomManifestResponse {
-      /** 'ok' = a manifest validated; 'invalid' = a manifest was drafted but never validated within the budget (see error; manifest_json holds the last attempt to fix by hand); 'model_error' = the model returned no usable JSON.
-       *
-       * * `ok` - ok
-       * * `invalid` - invalid
-       * * `model_error` - model_error */
-      draft_status: DraftStatusEnum;
-      /**
-         * The drafted RESTAPIConfig manifest as a JSON string (non-secret), or null if none was produced.
-         * @nullable
-         */
-      manifest_json: string | null;
-      /** Names of the resources (tables) the validated manifest exposes. Empty unless draft_status is 'ok'. */
-      resource_names: string[];
-      /** How many draft→validate→repair rounds were run. */
-      attempts: number;
-      /**
-         * The last validation error when draft_status is not 'ok'; null on success.
-         * @nullable
-         */
-      error: string | null;
     }
 
     export interface DraftStatusResponse {
@@ -22529,7 +22508,8 @@ export namespace Schemas {
        * * `Leexi` - Leexi
        * * `RB2B` - RB2B
        * * `Superwall` - Superwall
-       * * `Liana` - Liana */
+       * * `Liana` - Liana
+       * * `TawkTo` - TawkTo */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -28799,14 +28779,6 @@ export namespace Schemas {
       updated_at: string;
       /** Map of category ID to preference status. */
       preferences: unknown;
-    }
-
-    export type MessageSentimentScores = {[key: string]: number};
-
-    export interface MessageSentiment {
-      label: string;
-      score: number;
-      scores: MessageSentimentScores;
     }
 
     /**
@@ -35314,7 +35286,7 @@ export namespace Schemas {
       readonly id?: string;
       /** @maxLength 100 */
       name?: string;
-      analysis_level?: ClusteringJobAnalysisLevelEnum;
+      analysis_level?: AnalysisLevelEnum;
       event_filters?: unknown;
       enabled?: boolean;
       readonly created_at?: string;
@@ -46597,77 +46569,6 @@ export namespace Schemas {
       send_async?: boolean;
     }
 
-    export type SentimentResultScores = {[key: string]: number};
-
-    export type SentimentResultMessages = {[key: string]: MessageSentiment};
-
-    export interface SentimentResult {
-      label: string;
-      score: number;
-      scores: SentimentResultScores;
-      messages: SentimentResultMessages;
-      message_count: number;
-    }
-
-    export type SentimentBatchResponseResults = {[key: string]: SentimentResult};
-
-    export interface SentimentBatchResponse {
-      results: SentimentBatchResponseResults;
-    }
-
-    /**
-     * Filter shape mirrors the previous frontend `api.query({filters: ...})` payload.
-     *
-     * `filters` accepts the same `HogQLFilters` schema that the legacy frontend HogQL
-     * path used (dateRange, filterTestAccounts, properties), so the migration is
-     * behaviour-preserving for callers that pass a request unchanged.
-     */
-    export interface SentimentGenerationsRequest {
-      filters?: unknown;
-    }
-
-    export interface SentimentGenerationsResponse {
-      results: unknown[][];
-    }
-
-    /**
-     * * `trace` - trace
-     * * `generation` - generation
-     */
-    export type SentimentRequestAnalysisLevelEnum = typeof SentimentRequestAnalysisLevelEnum[keyof typeof SentimentRequestAnalysisLevelEnum];
-
-
-    export const SentimentRequestAnalysisLevelEnum = {
-      Trace: 'trace',
-      Generation: 'generation',
-    } as const;
-
-    export interface SentimentRequest {
-      /**
-         * Trace IDs (analysis_level=trace) or generation event UUIDs (analysis_level=generation).
-         * @minItems 1
-         * @maxItems 5
-         */
-      ids: string[];
-      /** Whether the IDs are 'trace' IDs or 'generation' IDs.
-       *
-       * * `trace` - trace
-       * * `generation` - generation */
-      analysis_level?: SentimentRequestAnalysisLevelEnum;
-      /** If true, bypass cache and reclassify. */
-      force_refresh?: boolean;
-      /**
-         * Start of date range for the lookup (e.g. '-7d' or '2026-01-01'). Defaults to -30d.
-         * @nullable
-         */
-      date_from?: string | null;
-      /**
-         * End of date range for the lookup. Defaults to now.
-         * @nullable
-         */
-      date_to?: string | null;
-    }
-
     export interface SessionGroupSummary {
       readonly id: string;
       /** Title of the group session summary */
@@ -48124,7 +48025,8 @@ export namespace Schemas {
        * * `Leexi` - Leexi
        * * `RB2B` - RB2B
        * * `Superwall` - Superwall
-       * * `Liana` - Liana */
+       * * `Liana` - Liana
+       * * `TawkTo` - TawkTo */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -48810,7 +48712,8 @@ export namespace Schemas {
        * * `Leexi` - Leexi
        * * `RB2B` - RB2B
        * * `Superwall` - Superwall
-       * * `Liana` - Liana */
+       * * `Liana` - Liana
+       * * `TawkTo` - TawkTo */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -49488,7 +49391,8 @@ export namespace Schemas {
        * * `Leexi` - Leexi
        * * `RB2B` - RB2B
        * * `Superwall` - Superwall
-       * * `Liana` - Liana */
+       * * `Liana` - Liana
+       * * `TawkTo` - TawkTo */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -54264,6 +54168,14 @@ export namespace Schemas {
      */
     enabled?: boolean;
     /**
+     * Filter by evaluation type
+     *
+     * * `llm_judge` - LLM as a judge
+     * * `hog` - Hog
+     * * `sentiment` - Sentiment analysis
+     */
+    evaluation_type?: EnvironmentsEvaluationsListEvaluationType;
+    /**
      * Multiple values may be separated by commas.
      */
     id__in?: string[];
@@ -54291,6 +54203,15 @@ export namespace Schemas {
      */
     search?: string;
     };
+
+    export type EnvironmentsEvaluationsListEvaluationType = typeof EnvironmentsEvaluationsListEvaluationType[keyof typeof EnvironmentsEvaluationsListEvaluationType];
+
+
+    export const EnvironmentsEvaluationsListEvaluationType = {
+      Hog: 'hog',
+      LlmJudge: 'llm_judge',
+      Sentiment: 'sentiment',
+    } as const;
 
     export type EnvironmentsEventsListParams = {
     /**
@@ -56040,14 +55961,6 @@ export namespace Schemas {
      */
     search?: string;
     };
-
-    export type EnvironmentsLlmAnalyticsSentimentCreate400 = { [key: string]: unknown };
-
-    export type EnvironmentsLlmAnalyticsSentimentCreate500 = { [key: string]: unknown };
-
-    export type EnvironmentsLlmAnalyticsSentimentGenerationsCreate400 = { [key: string]: unknown };
-
-    export type EnvironmentsLlmAnalyticsSentimentGenerationsCreate500 = { [key: string]: unknown };
 
     export type EnvironmentsLlmAnalyticsSummarizationCreate400 = { [key: string]: unknown };
 
@@ -60224,6 +60137,14 @@ export namespace Schemas {
      */
     enabled?: boolean;
     /**
+     * Filter by evaluation type
+     *
+     * * `llm_judge` - LLM as a judge
+     * * `hog` - Hog
+     * * `sentiment` - Sentiment analysis
+     */
+    evaluation_type?: EvaluationsListEvaluationType;
+    /**
      * Multiple values may be separated by commas.
      */
     id__in?: string[];
@@ -60251,6 +60172,15 @@ export namespace Schemas {
      */
     search?: string;
     };
+
+    export type EvaluationsListEvaluationType = typeof EvaluationsListEvaluationType[keyof typeof EvaluationsListEvaluationType];
+
+
+    export const EvaluationsListEvaluationType = {
+      Hog: 'hog',
+      LlmJudge: 'llm_judge',
+      Sentiment: 'sentiment',
+    } as const;
 
     export type EventDefinitionsListParams = {
     /**
@@ -62456,14 +62386,6 @@ export namespace Schemas {
      */
     search?: string;
     };
-
-    export type LlmAnalyticsSentimentCreate400 = { [key: string]: unknown };
-
-    export type LlmAnalyticsSentimentCreate500 = { [key: string]: unknown };
-
-    export type LlmAnalyticsSentimentGenerationsCreate400 = { [key: string]: unknown };
-
-    export type LlmAnalyticsSentimentGenerationsCreate500 = { [key: string]: unknown };
 
     export type LlmAnalyticsSummarizationCreate400 = { [key: string]: unknown };
 

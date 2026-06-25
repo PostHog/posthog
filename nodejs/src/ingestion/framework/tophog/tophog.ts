@@ -1,6 +1,6 @@
 import { TOPHOG_OUTPUT, TophogOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { logger } from '~/utils/logger'
+import { logger } from '~/common/utils/logger'
 
 import { AverageMetricTracker, MaxMetricTracker, SummingMetricTracker, Tracker } from './metric-tracker'
 

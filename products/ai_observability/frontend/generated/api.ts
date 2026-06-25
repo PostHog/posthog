@@ -88,10 +88,6 @@ import type {
     ScoreDefinitionApi,
     ScoreDefinitionCreateApi,
     ScoreDefinitionNewVersionApi,
-    SentimentBatchResponseApi,
-    SentimentGenerationsRequestApi,
-    SentimentGenerationsResponseApi,
-    SentimentRequestApi,
     SummarizeRequestApi,
     SummarizeResponseApi,
     TaggerApi,
@@ -1600,40 +1596,6 @@ export const llmAnalyticsScoreDefinitionsNewVersionCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(scoreDefinitionNewVersionApi),
-    })
-}
-
-export const getLlmAnalyticsSentimentCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/llm_analytics/sentiment/`
-}
-
-export const llmAnalyticsSentimentCreate = async (
-    projectId: string,
-    sentimentRequestApi: SentimentRequestApi,
-    options?: RequestInit
-): Promise<SentimentBatchResponseApi> => {
-    return apiMutator<SentimentBatchResponseApi>(getLlmAnalyticsSentimentCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sentimentRequestApi),
-    })
-}
-
-export const getLlmAnalyticsSentimentGenerationsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/llm_analytics/sentiment/generations/`
-}
-
-export const llmAnalyticsSentimentGenerationsCreate = async (
-    projectId: string,
-    sentimentGenerationsRequestApi?: SentimentGenerationsRequestApi,
-    options?: RequestInit
-): Promise<SentimentGenerationsResponseApi> => {
-    return apiMutator<SentimentGenerationsResponseApi>(getLlmAnalyticsSentimentGenerationsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sentimentGenerationsRequestApi),
     })
 }
 

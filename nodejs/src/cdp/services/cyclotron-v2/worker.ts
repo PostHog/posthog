@@ -2,7 +2,8 @@ import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import { v7 as uuidv7 } from 'uuid'
 
-import { logger } from '../../../utils/logger'
+import { logger } from '~/common/utils/logger'
+
 import { assignEmailDequeueSeq } from './manager'
 import {
     CyclotronV2DequeuedJob,

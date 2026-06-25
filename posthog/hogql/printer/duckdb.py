@@ -58,3 +58,21 @@ class DuckDBPrinter(PostgresPrinter):
         # DuckDB supports the ``LIMIT N WITH TIES`` shape this printer emits via the
         # inherited limit-clause rendering. Override to allow what Postgres rejects.
         return
+
+    def _json_property_args(self, chain) -> list[str]:
+        # DuckDB reads a JSON key beginning with `$` as a JSONPath root marker, so PostHog's
+        # `$`-prefixed property keys break the inherited Postgres `->>` arrow form. Bind the whole
+        # chain as one quoted JSONPath member expression (`$."k1"."k2"`) instead, forcing plain-key
+        # semantics for every key. The path is a bound value (not inlined), so this is not an
+        # injection vector; the escaping only keeps the JSONPath itself well-formed.
+        def member(key) -> str:
+            escaped = str(key).replace("\\", "\\\\").replace('"', '\\"')
+            return f'."{escaped}"'
+
+        path = "$" + "".join(member(k) for k in chain)
+        return [self.context.add_value(path)]
+
+    def _unsafe_json_extract_trim_quotes(self, unsafe_field, unsafe_args):
+        if not unsafe_args:
+            return unsafe_field
+        return f"({unsafe_field}) ->> {unsafe_args[0]}"
