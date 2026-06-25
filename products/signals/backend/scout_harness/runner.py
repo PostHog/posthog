@@ -19,6 +19,7 @@ from posthog.sync import database_sync_to_async
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
 from products.signals.backend.scout_harness.limits import DEFAULT_MAX_RUNTIME_S, STALE_RUN_CUTOFF_S
+from products.signals.backend.scout_harness.model_selection import resolve_scout_model
 from products.signals.backend.scout_harness.prompt import SignalScoutRunSummary, build_run_prompt
 from products.signals.backend.scout_harness.skill_loader import LoadedSkill, load_skill_for_run
 from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
@@ -192,6 +193,12 @@ async def arun_signals_scout(
             skip_reason="no active user to act as for team",
         )
 
+    # Resolve the scout's agent model from the `scouts-glm` gate. `None` keeps the agent-server
+    # default; an override (glm-5.2) routes the whole run on that model. Resolved once here so the
+    # whole run is consistent even if the flag flips mid-run. Off the event loop — `feature_enabled`
+    # does blocking network I/O.
+    model = await database_sync_to_async(resolve_scout_model, thread_sensitive=False)(team)
+
     started = time.monotonic()
     # Pre-mint the bridge row's UUID so the prompt can reference it before the row
     # exists. The TaskRun is created inside `MultiTurnSession.start`; the bridge row is
@@ -209,6 +216,7 @@ async def arun_signals_scout(
             repository=repository,
             verbose=verbose,
             user_id=user_id,
+            model=model,
         )
         runtime_s = time.monotonic() - started
         emitted_count, _ = await database_sync_to_async(_read_run_metrics, thread_sensitive=False)(
@@ -327,10 +335,12 @@ async def _spawn_and_run(
     repository: str | None,
     verbose: bool,
     user_id: int,
+    model: str | None,
 ) -> tuple[str, str]:
     """Spawn the sandbox, create the bridge row before the first turn, run the agent.
 
-    `user_id` is the acting user resolved (and validated non-None) by the caller. Returns
+    `user_id` is the acting user resolved (and validated non-None) by the caller. `model` is the
+    agent-model override (`None` keeps the agent-server default). Returns
     `(last_message, task_run_id)`.
     """
     sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
@@ -357,6 +367,10 @@ async def _spawn_and_run(
         # `forget`, and `emit_finding` tools — even though the OAuth token does carry the
         # right scope to call them.
         posthog_mcp_scopes="signals_scout",
+        # `None` keeps the agent-server default; an override pins the whole run on one model
+        # (the `scouts-glm` gate routes glm-5.2 here). The model the gateway actually serves is
+        # tagged on each $ai_generation, so per-run model is queryable in LLM analytics.
+        model=model,
     )
     prompt = build_run_prompt(skill, run_id=str(run_id), team_id=team.id, started_at=started_at)
     logger.info(
