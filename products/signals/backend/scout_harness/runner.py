@@ -193,12 +193,6 @@ async def arun_signals_scout(
             skip_reason="no active user to act as for team",
         )
 
-    # Resolve the scout's agent model from the `scouts-glm` gate. `None` keeps the agent-server
-    # default; an override (glm-5.2) routes the whole run on that model. Resolved once here so the
-    # whole run is consistent even if the flag flips mid-run. Off the event loop — `feature_enabled`
-    # does blocking network I/O.
-    model = await database_sync_to_async(resolve_scout_model, thread_sensitive=False)(team)
-
     started = time.monotonic()
     # Pre-mint the bridge row's UUID so the prompt can reference it before the row
     # exists. The TaskRun is created inside `MultiTurnSession.start`; the bridge row is
@@ -206,6 +200,13 @@ async def arun_signals_scout(
     # the agent's first turn — so first-turn finding emits can resolve the run by id.
     run_id = uuid7()
     started_at = timezone.now()
+
+    # Resolve the scout's agent model from the `scouts-glm` gate. `None` keeps the agent-server
+    # default; an override (glm-5.2) routes the whole run on that model. Gated per (team, scout)
+    # and sampled per run on `run_id` — so the same scout can A/B against itself across runs.
+    # Resolved once here so the whole run is consistent. Off the event loop — the flag reads do
+    # blocking network I/O.
+    model = await database_sync_to_async(resolve_scout_model, thread_sensitive=False)(team, skill.name, str(run_id))
     try:
         last_message, task_run_id = await _spawn_and_run(
             team=team,
