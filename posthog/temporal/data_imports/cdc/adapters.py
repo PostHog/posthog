@@ -24,6 +24,7 @@ from posthog.temporal.data_imports.sources.postgres.cdc.adapter import PostgresC
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
+    from posthog.temporal.data_imports.cdc.errors import CDCErrorInfo
     from posthog.temporal.data_imports.cdc.types import CDCStreamReader
 
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -71,12 +72,19 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
         such that it cannot be resumed and must be recreated."""
         ...
 
+    def classify_error(self, exc: BaseException) -> CDCErrorInfo | None:
+        """Interpret a single engine-specific exception as a CDC error category, or None
+        when unrecognized (the caller falls back to the engine-agnostic default). Mirrors
+        ``is_slot_invalidation_error``: keeps psycopg/engine specifics out of the shared layer."""
+        ...
+
     def recreate_slot(self, source: ExternalDataSource, tables: list[str]) -> dict[str, Any]:
         """Drop and recreate the change-stream resource after invalidation, against the
         existing capture definition (recreating it when PostHog owns it). ``tables`` is
-        the capture set used if the definition must be recreated. Returns ``cdc_*``
-        job_inputs updates (e.g. the new consistent point). Raises when recreation isn't
-        possible (e.g. a customer-owned publication is missing)."""
+        the schema-qualified (``schema.table``) capture set used if the definition must be
+        recreated. Returns ``cdc_*`` job_inputs updates (e.g. the new consistent point).
+        Raises when recreation isn't possible (e.g. a customer-owned publication is
+        missing)."""
         ...
 
     def parse_cdc_config(self, source: ExternalDataSource) -> CDCConfigT_co: ...

@@ -24,9 +24,9 @@ frontend/src/toolbar/product-tours/** @PostHog/team-surveys
 # Nodejs Services - ownership is split between ingestion and workflows teams
 nodejs/tests/ @PostHog/team-ingestion
 nodejs/src/ingestion/ @PostHog/team-ingestion
+nodejs/src/ingestion/pipelines/sessionreplay/ @PostHog/team-replay @PostHog/team-ingestion
 nodejs/src/cdp/ @PostHog/team-workflows
-nodejs/src/session-replay/ @PostHog/team-replay
-nodejs/src/session-replay/shared/ @PostHog/team-replay @PostHog/team-ingestion
+nodejs/src/recording-rasterizer/ @PostHog/team-replay
 
 # CDP / Workflows - owned by @PostHog/team-workflows
 posthog/cdp/** @PostHog/team-workflows
@@ -175,6 +175,8 @@ frontend/src/scenes/settings/ @PostHog/team-growth
 frontend/src/scenes/organization/ @PostHog/team-growth
 frontend/src/scenes/project/ @PostHog/team-growth
 frontend/src/scenes/instance/ @PostHog/team-growth
+# ...except the query performance scene, owned by @PostHog/team-experiments
+frontend/src/scenes/instance/QueryPerformance/ @PostHog/team-experiments
 
 # Weekly digest - owned by @PostHog/team-growth
 posthog/temporal/weekly_digest @PostHog/team-growth
@@ -201,9 +203,9 @@ services/mcp/src/tools/aiObservability/ @PostHog/team-ai-observability
 services/mcp/src/ui-apps/apps/generated/llm-costs.tsx @PostHog/team-ai-observability
 
 # LLM Gateway - owned by @PostHog/team-ai-gateway
-nodejs/src/ingestion/ai/costs/ @PostHog/team-ai-observability @PostHog/team-ai-gateway
-nodejs/src/ingestion/ai/costs/scripts/ @PostHog/team-ai-gateway
-nodejs/src/ingestion/ai/costs/providers/ @PostHog/team-ai-gateway
+nodejs/src/ingestion/pipelines/ai/costs/ @PostHog/team-ai-observability @PostHog/team-ai-gateway
+nodejs/src/ingestion/pipelines/ai/costs/scripts/ @PostHog/team-ai-gateway
+nodejs/src/ingestion/pipelines/ai/costs/providers/ @PostHog/team-ai-gateway
 products/ai_observability/backend/api/proxy.py @PostHog/team-ai-gateway
 products/ai_observability/backend/api/test/test_proxy.py @PostHog/team-ai-gateway
 products/ai_observability/frontend/playground/ @PostHog/team-ai-gateway

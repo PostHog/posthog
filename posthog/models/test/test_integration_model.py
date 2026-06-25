@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, call, patch
 
 from django.core.cache import cache
 from django.db import connection
+from django.test import override_settings
 from django.utils import timezone
 
 import requests
@@ -25,6 +26,7 @@ from posthog.models.integration import (
     MISSING_CERT_PATH,
     TLS,
     Authority,
+    AwsS3Integration,
     Credentials,
     DatabricksIntegration,
     DatabricksIntegrationError,
@@ -37,6 +39,8 @@ from posthog.models.integration import (
     Integration,
     OauthIntegration,
     PostgreSQLIntegration,
+    S3CompatibleIntegration,
+    S3CredentialIntegrationError,
     SlackIntegration,
     raise_if_github_rate_limited,
 )
@@ -886,6 +890,124 @@ class TestGitHubIntegrationModel(BaseTest):
             return mock_response
 
         return _client_request
+
+    def test_get_diff_compares_branch_tips(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=200, text="diff --git a b")
+        with patch.object(github, "_github_api_get", return_value=mock_response) as mock_get:
+            result = github.get_diff("PostHog/posthog", target_branch="feature/foo", base_branch="master")
+            assert result == {
+                "success": True,
+                "diff": "diff --git a b",
+                "truncated": False,
+            }
+            mock_get.assert_called_once()
+            assert "/compare/master...feature/foo" in mock_get.call_args.args[0]
+
+    def test_get_diff_pins_to_shas_when_given(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=200, text="diff --git a b")
+        with patch.object(github, "_github_api_get", return_value=mock_response) as mock_get:
+            result = github.get_diff(
+                "PostHog/posthog",
+                target_branch="feature/foo",
+                base_branch="master",
+                target_sha="abc123f",
+                base_sha="def456a",
+            )
+            assert result["success"] is True
+            assert "/compare/def456a...abc123f" in mock_get.call_args.args[0]
+
+    def test_get_diff_maps_upstream_error(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=404, text="Not Found")
+        with patch.object(github, "_github_api_get", return_value=mock_response):
+            result = github.get_diff("PostHog/posthog", target_branch="feature/foo", base_branch="master")
+        assert result == {"success": False, "error": "Not Found", "status_code": 404}
+
+    def test_get_diff_handles_request_exception(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        with patch.object(github, "_github_api_get", side_effect=requests.ConnectionError("boom")):
+            result = github.get_diff("PostHog/posthog", target_branch="feature/foo", base_branch="master")
+        assert result["success"] is False
+        assert result["status_code"] == 502
+
+    def test_get_diff_truncates_oversized_diff(self):
+        from posthog.models.integration import _MAX_DIFF_CHARS
+
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        oversized = "x" * (_MAX_DIFF_CHARS + 100)
+        mock_response = MagicMock(status_code=200, text=oversized)
+        with patch.object(github, "_github_api_get", return_value=mock_response):
+            result = github.get_diff("PostHog/posthog", target_branch="feature/foo", base_branch="master")
+        assert result["success"] is True
+        assert result["truncated"] is True
+        assert len(result["diff"]) < len(oversized)
+        assert result["diff"].startswith("x" * 100)
+        assert "truncated" in result["diff"]
+
+    @parameterized.expand(
+        [
+            ("repo_traversal", {"repository": "../../other/repo"}),
+            ("repo_extra_path", {"repository": "owner/repo/contents/x"}),
+            ("target_branch_traversal", {"target_branch": "../../../etc"}),
+            ("target_branch_query", {"target_branch": "main?ref=x"}),
+            ("base_branch_traversal", {"base_branch": "..%2f"}),
+            ("target_sha_not_hex", {"target_sha": "main?ref=x"}),
+            ("base_sha_not_hex", {"base_sha": "../../x"}),
+        ]
+    )
+    def test_get_diff_rejects_unsafe_values(self, _name, overrides):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        kwargs: dict = {"repository": "PostHog/posthog", "target_branch": "feature/foo", "base_branch": "master"}
+        kwargs.update(overrides)
+        with patch.object(github, "_github_api_get") as mock_get:
+            result = github.get_diff(**kwargs)
+        assert result["success"] is False
+        assert result["status_code"] == 400
+        mock_get.assert_not_called()
+
+    def test_get_diff_allows_nested_branch_names(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=200, text="diff --git a b")
+        with patch.object(github, "_github_api_get", return_value=mock_response) as mock_get:
+            result = github.get_diff(
+                "PostHog/posthog", target_branch="feature/nested/branch", base_branch="release/v1.2"
+            )
+        assert result["success"] is True
+        mock_get.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("traversal", "../../other/repo"),
+            ("extra_path_segment", "owner/repo/contents/secret"),
+            ("query_injection", "owner/repo?ref=x"),
+            ("fragment", "owner/repo#"),
+            ("bare_name", "repo"),
+        ]
+    )
+    def test_first_for_team_repository_rejects_unsafe_path_without_probing(self, _name, repository):
+        # The access check interpolates `repository` into an authenticated GET /repos/{repository};
+        # an unsafe path must be rejected before any request fires, so it can't probe other endpoints.
+        self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        with patch.object(GitHubIntegration, "installation_can_access_repository") as mock_access:
+            result = GitHubIntegration.first_for_team_repository(self.team.id, repository)
+        assert result is None
+        mock_access.assert_not_called()
+
+    def test_first_for_team_repository_allows_owner_repo(self):
+        self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        with patch.object(GitHubIntegration, "installation_can_access_repository", return_value=True) as mock_access:
+            result = GitHubIntegration.first_for_team_repository(self.team.id, "PostHog/posthog")
+        assert result is not None
+        mock_access.assert_called_once_with("PostHog/posthog")
 
     @parameterized.expand(
         [
@@ -1849,6 +1971,162 @@ class TestDatabricksIntegrationModel(BaseTest):
                 client_secret="client_secret",
                 created_by=self.user,
             )
+
+
+class TestAwsS3IntegrationModel(BaseTest):
+    @patch("posthog.models.integration.AwsS3Integration.validate_credentials", return_value="123456789012")
+    def test_integration_from_config_with_valid_config(self, mock_validate):
+        integration = AwsS3Integration.integration_from_config(
+            team_id=self.team.pk,
+            name="prod-aws",
+            aws_access_key_id="AKIAEXAMPLE",
+            aws_secret_access_key="secret",
+            created_by=self.user,
+        )
+        assert integration.team == self.team
+        assert integration.created_by == self.user
+        assert integration.kind == Integration.IntegrationKind.AWS_S3
+        # The identifier is the user-supplied name, never a credential.
+        assert integration.integration_id == "prod-aws"
+        # The account id resolved from STS is stored in non-sensitive config.
+        assert integration.config == {"name": "prod-aws", "aws_account_id": "123456789012"}
+        assert integration.sensitive_config == {
+            "aws_access_key_id": "AKIAEXAMPLE",
+            "aws_secret_access_key": "secret",
+        }
+        # display_name surfaces auth type and AWS account so users can tell integrations apart.
+        assert integration.display_name == "prod-aws (access key, AWS account 123456789012)"
+        assert AwsS3Integration(integration).aws_account_id == "123456789012"
+
+    def test_integration_from_config_requires_name(self):
+        with pytest.raises(S3CredentialIntegrationError, match="A name is required"):
+            AwsS3Integration.integration_from_config(
+                team_id=self.team.pk,
+                name="",
+                aws_access_key_id="AKIAEXAMPLE",
+                aws_secret_access_key="secret",
+            )
+
+    @patch("posthog.models.integration.AwsS3Integration.validate_credentials", return_value="123456789012")
+    def test_integration_from_config_rejects_duplicate_name(self, mock_validate):
+        AwsS3Integration.integration_from_config(
+            team_id=self.team.pk,
+            name="prod-aws",
+            aws_access_key_id="AKIAEXAMPLE",
+            aws_secret_access_key="secret",
+        )
+        with pytest.raises(S3CredentialIntegrationError, match="An integration named 'prod-aws' already exists"):
+            AwsS3Integration.integration_from_config(
+                team_id=self.team.pk,
+                name="prod-aws",
+                aws_access_key_id="AKIAOTHER",
+                aws_secret_access_key="other-secret",
+            )
+        assert Integration.objects.filter(team=self.team, integration_id="prod-aws").count() == 1
+
+    @patch("boto3.client")
+    def test_validate_credentials_returns_account_id(self, mock_boto_client):
+        mock_boto_client.return_value.get_caller_identity.return_value = {"Account": "123456789012"}
+        assert AwsS3Integration.validate_credentials("key", "secret") == "123456789012"
+
+    @patch("boto3.client")
+    def test_validate_credentials_raises_on_invalid_credentials(self, mock_boto_client):
+        from botocore.exceptions import ClientError
+
+        mock_boto_client.return_value.get_caller_identity.side_effect = ClientError(
+            {"Error": {"Code": "InvalidClientTokenId", "Message": "The security token is invalid."}},
+            "GetCallerIdentity",
+        )
+        with pytest.raises(
+            S3CredentialIntegrationError, match="AWS credentials are not valid: The security token is invalid."
+        ):
+            AwsS3Integration.validate_credentials("key", "secret")
+
+    def test_wrapping_wrong_kind_raises(self):
+        integration = Integration.objects.create(
+            team=self.team, kind=Integration.IntegrationKind.S3_COMPATIBLE, integration_id="x"
+        )
+        with pytest.raises(S3CredentialIntegrationError, match="is not an AWS S3 integration"):
+            AwsS3Integration(integration)
+
+    def test_wrapping_missing_credentials_raises(self):
+        integration = Integration.objects.create(
+            team=self.team, kind=Integration.IntegrationKind.AWS_S3, integration_id="x", sensitive_config={}
+        )
+        with pytest.raises(S3CredentialIntegrationError, match="missing"):
+            AwsS3Integration(integration)
+
+
+class TestS3CompatibleIntegrationModel(BaseTest):
+    def test_integration_from_config_with_valid_config(self):
+        integration = S3CompatibleIntegration.integration_from_config(
+            team_id=self.team.pk,
+            name="my-r2",
+            endpoint_url="https://account.r2.cloudflarestorage.com",
+            aws_access_key_id="key",
+            aws_secret_access_key="secret",
+            created_by=self.user,
+        )
+        assert integration.kind == Integration.IntegrationKind.S3_COMPATIBLE
+        assert integration.integration_id == "my-r2"
+        # endpoint_url is non-sensitive and lives in config.
+        assert integration.config == {"name": "my-r2", "endpoint_url": "https://account.r2.cloudflarestorage.com"}
+        assert integration.sensitive_config == {"aws_access_key_id": "key", "aws_secret_access_key": "secret"}
+        wrapped = S3CompatibleIntegration(integration)
+        assert wrapped.endpoint_url == "https://account.r2.cloudflarestorage.com"
+        # display_name surfaces auth type and endpoint so users can tell integrations apart.
+        assert integration.display_name == "my-r2 (access key, https://account.r2.cloudflarestorage.com)"
+
+    def test_integration_from_config_requires_endpoint_url(self):
+        with pytest.raises(S3CredentialIntegrationError, match="endpoint URL is required"):
+            S3CompatibleIntegration.integration_from_config(
+                team_id=self.team.pk,
+                name="my-r2",
+                endpoint_url="",
+                aws_access_key_id="key",
+                aws_secret_access_key="secret",
+            )
+
+    def test_integration_from_config_rejects_duplicate_name(self):
+        S3CompatibleIntegration.integration_from_config(
+            team_id=self.team.pk,
+            name="my-r2",
+            endpoint_url="https://account.r2.cloudflarestorage.com",
+            aws_access_key_id="key",
+            aws_secret_access_key="secret",
+        )
+        with pytest.raises(S3CredentialIntegrationError, match="An integration named 'my-r2' already exists"):
+            S3CompatibleIntegration.integration_from_config(
+                team_id=self.team.pk,
+                name="my-r2",
+                endpoint_url="https://other.r2.cloudflarestorage.com",
+                aws_access_key_id="key2",
+                aws_secret_access_key="secret2",
+            )
+        assert Integration.objects.filter(team=self.team, integration_id="my-r2").count() == 1
+
+    # is_url_allowed bypasses validation in DEBUG/test mode, so force the production path to exercise rejection.
+    @override_settings(FORCE_URL_VALIDATION=True)
+    def test_integration_from_config_rejects_internal_endpoint(self):
+        with pytest.raises(S3CredentialIntegrationError, match="Invalid endpoint URL"):
+            S3CompatibleIntegration.integration_from_config(
+                team_id=self.team.pk,
+                name="my-r2",
+                endpoint_url="https://169.254.169.254",
+                aws_access_key_id="key",
+                aws_secret_access_key="secret",
+            )
+
+    def test_wrapping_missing_endpoint_url_raises(self):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.S3_COMPATIBLE,
+            integration_id="x",
+            config={"name": "x"},
+            sensitive_config={"aws_access_key_id": "key", "aws_secret_access_key": "secret"},
+        )
+        with pytest.raises(S3CredentialIntegrationError, match="missing required field: 'endpoint_url'"):
+            S3CompatibleIntegration(integration)
 
 
 class TestGoogleCloudServiceAccountIntegration(BaseTest):

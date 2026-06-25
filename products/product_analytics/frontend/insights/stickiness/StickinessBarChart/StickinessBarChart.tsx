@@ -25,6 +25,7 @@ import {
     type TrendsSeriesMeta,
 } from '../../trends/shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../../trends/shared/TrendsTooltip'
+import { useInsightsLegendConfig } from '../../trends/shared/useInsightsLegendConfig'
 import { handleStickinessChartClick } from '../StickinessLineChart/handleStickinessChartClick'
 import {
     buildStickinessLabels,
@@ -43,6 +44,9 @@ const handleChartError = makeChartErrorHandler('stickiness-bar-chart')
 export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.Element | null {
     const theme = useMemo(() => buildTheme(), [])
     const { insightProps } = useValues(insightLogic)
+
+    const legendConfig = useInsightsLegendConfig({ insightProps })
+    const quillLegendEnabled = !!legendConfig
 
     const {
         indexedResults,
@@ -78,21 +82,26 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
         () =>
             buildStickinessBarSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
                 getColor: getTrendsColor,
-                getHidden: getTrendsHidden,
+                // With the quill legend on, hidden series stay listed (dimmed) and are excluded via
+                // config.legend.hiddenKeys instead of being dropped here, so the legend can restore them.
+                getHidden: quillLegendEnabled ? undefined : getTrendsHidden,
                 buildMeta: buildTrendsSeriesMeta,
             }),
-        [indexedResults, getTrendsColor, getTrendsHidden]
+        [indexedResults, getTrendsColor, getTrendsHidden, quillLegendEnabled]
     )
 
     const chartConfig: TimeSeriesBarChartConfig = useMemo(
-        () =>
-            buildStickinessBarTimeSeriesConfig({
+        () => ({
+            ...buildStickinessBarTimeSeriesConfig({
                 yAxisScaleType,
                 isGrouped,
                 valueLabels: showValuesOnSeries ? { formatter: stickinessPercentFormatter } : false,
                 tooltip: STICKINESS_TOOLTIP_CONFIG,
             }),
-        [yAxisScaleType, isGrouped, showValuesOnSeries]
+            // Interactive legend is a component concern, kept out of the pure transform.
+            legend: legendConfig,
+        }),
+        [yAxisScaleType, isGrouped, showValuesOnSeries, legendConfig]
     )
 
     // Close over the primitives so the click memos don't invalidate when unrelated

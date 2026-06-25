@@ -1,8 +1,8 @@
 from posthog.api.routing import RouterRegistry
 
-import products.tasks.backend.api as tasks
-import products.tasks.backend.seat_api as seats
-import products.tasks.backend.code_home_api as code_home
+import products.tasks.backend.presentation.views.api as tasks
+import products.tasks.backend.presentation.views.seat_api as seats
+import products.tasks.backend.presentation.views.code_home_api as code_home
 
 
 def register_routes(routers: RouterRegistry) -> None:

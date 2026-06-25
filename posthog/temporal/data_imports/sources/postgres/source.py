@@ -1,6 +1,8 @@
 import logging
 from typing import TYPE_CHECKING, Optional, cast
 
+from django.db import OperationalError as DjangoOperationalError
+
 import structlog
 from psycopg import OperationalError
 from sshtunnel import BaseSSHTunnelForwarderError
@@ -67,6 +69,15 @@ PostgresErrors = {
         "your database is active and the connection details are correct."
     ),
     "could not translate host name": "Could not connect to the host",
+    # libpq prefixes a DNS-resolution failure with "could not translate host name ..." (matched
+    # above), but the same getaddrinfo failure also surfaces as the raw socket wording with no such
+    # prefix — "[Errno -2] Name or service not known" (EAI_NONAME) or its EAI_NODATA sibling
+    # "[Errno -5] No address associated with hostname" — e.g. through an SSH tunnel or psycopg's
+    # Python-side resolution. `get_non_retryable_errors` already treats both as non-retryable; map
+    # them here too so credential validation returns an actionable message instead of surfacing the
+    # customer's unresolvable host as captured error noise.
+    "Name or service not known": "Could not resolve the database host. Check that the host is spelled correctly and reachable from the public internet.",
+    "No address associated with hostname": "Could not resolve the database host. Check that the host is spelled correctly and reachable from the public internet.",
     "Is the server running on that host and accepting TCP/IP connections": "Could not connect to the host on the port given",
     'database "': "Database does not exist",
     "timeout expired": "Connection timed out. Does your database have our IP addresses allowed?",
@@ -231,6 +242,20 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "deleted, or the pooler username/host is wrong. Check that your database is active "
                 "and the connection details are correct, then re-enable the sync."
             ),
+            # Supabase/Supavisor poolers reject a connection that carries no tenant identifier with
+            # "FATAL: (ENOIDENTIFIER) no tenant identifier provided (external_id or sni_hostname
+            # required)". The shared regional pooler host (e.g. aws-0-<region>.pooler.supabase.com)
+            # can't identify the project from SNI, so the pooler username must embed the project ref
+            # (e.g. "postgres.<project-ref>"). A plain username like "postgres" leaves the pooler with
+            # nothing to route on — deterministic until the customer fixes the username, so retrying
+            # just re-hits it. Match the stable message and exclude the volatile host/IP/port.
+            "no tenant identifier provided": (
+                "Your Supabase connection pooler rejected the connection because it couldn't "
+                'identify your project ("no tenant identifier provided"). On the shared pooler host '
+                "the username must include your project ref (for example "
+                '"postgres.<project-ref>"). Update the user for this source to the pooler username '
+                "shown in your Supabase dashboard, then re-enable the sync."
+            ),
             "error received from server in SCRAM exchange: Wrong password": None,
             # The server (commonly Supabase's Supavisor transaction pooler on port 6543) rejects the
             # SASL/SCRAM credential exchange with "FATAL: SASL authentication failed" instead of
@@ -278,18 +303,26 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "No primary key defined for table": None,
             "failed: timeout expired": None,
             # NOTE: "SSL connection has been closed unexpectedly" is intentionally NOT listed here.
-            # It denotes an established SSL connection being dropped mid-stream (idle cull by a
-            # pooler, failover, network blip) — a transient condition that recovers on a fresh
-            # attempt. It is the SSL-flavoured sibling of the "consuming input failed" drops handled
-            # by `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` in postgres.py. Marking it non-retryable
-            # permanently disabled syncs on a transient blip during schema discovery, which has no
-            # in-process reconnect. A genuinely unsupported-SSL source fails at connect time with a
-            # different message and is caught via "SSLRequiredError" / "SSL/TLS connection is required".
+            # It denotes an established SSL connection being dropped on connect or mid-stream (idle
+            # cull by a pooler, failover, network blip) — a transient condition that recovers on a
+            # fresh attempt. It is the SSL-flavoured sibling of the libpq drops in
+            # `_CONNECTION_DROPPED_ERROR_SUBSTRINGS`, where it is listed so the in-process reconnect
+            # retries it during schema discovery and sync setup instead of failing the activity.
+            # Marking it non-retryable would permanently disable syncs on a transient blip. A
+            # genuinely unsupported-SSL source fails at connect time with a different message and is
+            # caught via "SSLRequiredError" / "SSL/TLS connection is required".
             "Address not in tenant allow_list": None,
             "FATAL: no such database": None,
             "does not exist": None,
             "timestamp too small": None,
             "QueryTimeoutException": None,
+            # Activity-layer twin of the `QueryTimeoutException` key above. That key only matches once
+            # Temporal wraps the failure (the stringified ApplicationError carries the class name); the
+            # activity-level check sees the raw `str(e)`, which is the bare message with no class name.
+            # Without a message key the timeout goes unrecognised there and the activity burns its full
+            # retry budget re-running the same futile statement-timeout query before the workflow gives
+            # up. Match the index-guidance fragment every postgres statement-timeout message shares.
+            "has an appropriate index": None,
             "TemporaryFileSizeExceedsLimitException": None,
             "Name or service not known": None,
             # Sibling getaddrinfo failure to "Name or service not known" (EAI_NONAME): EAI_NODATA
@@ -363,6 +396,17 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
             "Could not establish session to SSH gateway": None,
+            # Raised by `SSHTunnel.get_tunnel` when `is_auth_valid()` fails — the SSH tunnel private
+            # key can't be parsed, or password auth is missing a username/password. The auth config
+            # is fixed, so retrying just replays the same invalid credentials. The streaming path
+            # already classifies this via `Any_Source_Errors`, but schema discovery only consults
+            # the per-source dict, so without this entry discovery keeps retrying and reporting the
+            # customer's misconfig as error-tracking noise on every run.
+            "SSHTunnel auth is not valid": (
+                "Your SSH tunnel credentials are not valid. Check the SSH authentication details "
+                "(private key, passphrase, or username and password) on the source's SSH tunnel "
+                "configuration, then re-enable the sync."
+            ),
             "server login has been failing": (
                 "Your database's connection pooler (for example PgBouncer) reported that it has "
                 'repeatedly failed to connect to the backend database ("server login has been '
@@ -389,6 +433,23 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             ),
             "DiskFull": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
             "No space left on device": "Source database ran out of disk space. Free up disk space on your database server or add an index on your incremental field to reduce temp file usage.",
+            # The source server itself ran out of memory (PostgreSQL SQLSTATE 53200, psycopg's
+            # `OutOfMemory`) — "out of memory ... Failed on request of size N in memory context ...".
+            # We've seen it fire even on the tiny schema-discovery queries in `_get_table` (a few KB
+            # in server-side contexts like "MessageContext" / "get_actual_variable_range workspace"),
+            # which means the server is memory-starved regardless of our workload — an undersized
+            # instance, work_mem set too high, or too many concurrent connections. Retrying re-reads
+            # into the same wall, so it's non-retryable like the disk-full siblings above (same class
+            # 53 "insufficient resources"). The lowercase message matches both the raw activity-level
+            # str(e) and the Temporal-wrapped "OutOfMemory: ..." workflow-level form. The volatile
+            # request size and memory-context name are excluded from the match.
+            "out of memory": (
+                "Your database server ran out of memory while PostHog was reading from it "
+                '(PostgreSQL reported "out of memory"). This usually means the server is undersized, '
+                "work_mem is set too high, or too many connections are competing for memory. Reduce "
+                "memory pressure on your database (for example lower work_mem, reduce concurrent "
+                "connections, or increase the instance's memory), then re-enable the sync."
+            ),
             # Raised when a Postgres numeric value cannot be represented in any Delta-compatible
             # decimal type — the pipeline falls back through the best-fit decimal and
             # `decimal256(76, 32)` before giving up. Only triggers when source data genuinely
@@ -788,13 +849,24 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 conn.close()
 
     def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        from posthog.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
+        from posthog.temporal.data_imports.sources.postgres.exceptions import (
+            CDCHandledExternally,
+            PostHogDatabaseConnectionError,
+        )
 
         from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
         ssh_tunnel = self.make_ssh_tunnel_func(config)
 
-        schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
+        # This reads sync metadata from PostHog's own database, not the customer's Postgres. A
+        # transient failure reaching our database here (e.g. a DNS blip resolving our host) raises
+        # the same "Name or service not known" wording a customer host misconfig would, which
+        # `get_non_retryable_errors` would misclassify as non-retryable and permanently stop a
+        # healthy sync. Re-raise as a retryable error whose message doesn't collide with those.
+        try:
+            schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
+        except DjangoOperationalError as e:
+            raise PostHogDatabaseConnectionError("Failed to load sync metadata from PostHog's database") from e
         schema_metadata = schema.schema_metadata or {}
         source_schema = (
             schema_metadata.get("source_schema") if isinstance(schema_metadata.get("source_schema"), str) else None

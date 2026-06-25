@@ -5,7 +5,7 @@ from django.conf import settings
 
 import boto3
 import posthoganalytics
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import filters, parsers, request, response, serializers, status, viewsets
 
 from posthog.schema import DatabaseSerializedFieldType
@@ -216,6 +216,11 @@ class SimpleTableSerializer(UserAccessControlSerializerMixin, serializers.ModelS
         return get_data_warehouse_table_name(table.external_data_source, table.name)
 
     def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
+        # Callers that don't consume columns (e.g. the source list) skip the expensive HogQL
+        # field serialization entirely by passing include_columns=False.
+        if not self.context.get("include_columns", True):
+            return []
+
         database = self.context.get("database", None)
         team_id = self.context.get("team_id", None)
 
@@ -375,7 +380,19 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
 
         return response.Response(status=status.HTTP_200_OK)
 
-    @action(methods=["POST"], detail=True)
+    @extend_schema(
+        request=None,
+        responses={200: OpenApiResponse(description="Schema refreshed from the table's underlying source")},
+        summary="Refresh table schema from source",
+        description=(
+            "Re-introspect a self-managed (manually linked) warehouse table's schema from its underlying "
+            "source files and overwrite its stored column list. Use when the source schema has evolved "
+            "(e.g. new columns in the underlying Delta/Parquet/CSV files) but queries still can't see the "
+            "new columns, because PostHog serves a cached column snapshot until the table is refreshed. "
+            "Not for tables managed by an external data source sync — those refresh on their own schedule."
+        ),
+    )
+    @action(methods=["POST"], detail=True, required_scopes=["warehouse_table:write"])
     def refresh_schema(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         table: DataWarehouseTable = self.get_object()
 

@@ -178,13 +178,25 @@ export function isBreakdownFunnelResults(results: FunnelResultType): results is 
 }
 
 /** Whether a STEPS result is a compare-tagged flat list (both periods' steps tagged with
- * `compare_label`, no breakdown). Breakdown compare lands in a later slice. */
+ * `compare_label`, no breakdown). Breakdown + compare is a list-of-lists — see
+ * `isFunnelStepsBreakdownCompareResult`. */
 export function isFunnelStepsCompareResult(results: FunnelResultType): results is FunnelStep[] {
     return (
         Array.isArray(results) &&
         results.length > 0 &&
         !Array.isArray(results[0]) &&
         (results as FunnelStep[]).some((step) => step.compare_label != null)
+    )
+}
+
+/** Whether a STEPS result is a breakdown + compare result — a list of inner funnels (one per
+ * breakdown value, per period) whose steps carry `compare_label`. The runner emits 2·N such inner
+ * funnels; `aggregateBreakdownCompareResult` pairs them by breakdown value. */
+export function isFunnelStepsBreakdownCompareResult(results: FunnelResultType): results is FunnelStep[][] {
+    return (
+        isBreakdownFunnelResults(results) &&
+        results.length > 0 &&
+        (results[0] as FunnelStep[]).some((step) => step.compare_label != null)
     )
 }
 
@@ -232,6 +244,26 @@ export function funnelComparePeriodDateRange(
     return formatDateRange(previousFrom, previousTo)
 }
 
+/** Compose the funnel tooltip header from the parts a series carries: its breakdown value, its
+ * compare period (optionally with a date range), or both joined — so breakdown + compare bars are
+ * labelled with both which value and which period they represent. */
+export function funnelTooltipHeaderLabel({
+    breakdownLabel,
+    compareLabel,
+    comparePeriodDateRange,
+}: {
+    breakdownLabel?: string | null
+    compareLabel?: 'current' | 'previous'
+    comparePeriodDateRange?: string | null
+}): string {
+    const periodLabel = compareLabel
+        ? `${compareLabel === 'current' ? 'Current' : 'Previous'}${
+              comparePeriodDateRange ? ` (${comparePeriodDateRange})` : ''
+          }`
+        : null
+    return [breakdownLabel || null, periodLabel].filter(Boolean).join(' • ')
+}
+
 /** Desaturate a series color to the "previous period" treatment (50% opacity), matching the
  * dimmed previous-period series in trends (`LineGraph.processDataset`). */
 export function dimPreviousPeriodColor(color: string): string {
@@ -259,6 +291,74 @@ export function aggregateFunnelCompareResult(results: FunnelStep[]): FunnelStepW
         // conversion rates, and `StepBars` keys the bars on `compare_label`.
         nested_breakdown: [{ ...step }, ...(previous[i] ? [{ ...previous[i] }] : [])],
     }))
+}
+
+/**
+ * Reshape a breakdown + compare STEPS result (2·N inner funnels — one per breakdown value, per
+ * period) into one step per order, each carrying a `nested_breakdown` that pairs the current and
+ * previous bar for every breakdown value: `[A_current, A_previous, B_current, B_previous, …]`.
+ *
+ * Both bars of a value share an `order` so they resolve to the same breakdown color (the previous
+ * one is then desaturated via its `compare_label`), while distinct values get distinct orders and
+ * colors. Values are ordered by current first-step count descending, matching the non-compare
+ * breakdown path.
+ */
+export function aggregateBreakdownCompareResult(
+    results: FunnelStep[][],
+    breakdownProperty?: BreakdownKeyType
+): FunnelStepWithNestedBreakdown[] {
+    const groups = results.filter((group) => group.length > 0)
+    if (!groups.length) {
+        return []
+    }
+
+    const valueKey = (group: FunnelStep[]): string => getBreakdownStepValues(group[0], -1).breakdown_value.join('_')
+
+    const currentByValue = new Map<string, FunnelStep[]>()
+    const previousByValue = new Map<string, FunnelStep[]>()
+    for (const group of groups) {
+        const target = group[0].compare_label === 'previous' ? previousByValue : currentByValue
+        target.set(valueKey(group), group)
+    }
+
+    // Union of breakdown values across periods, ordered by current first-step count descending
+    // (falling back to the previous period's count for values that only appear there).
+    const firstStepCount = (key: string): number =>
+        currentByValue.get(key)?.[0]?.count ?? previousByValue.get(key)?.[0]?.count ?? 0
+    const orderedValues = Array.from(new Set(groups.map(valueKey))).sort(
+        (a, b) => firstStepCount(b) - firstStepCount(a)
+    )
+
+    const representative = groups[0]
+
+    return representative.map((baseStep, stepIndex) => {
+        const nestedBreakdown: FunnelStep[] = []
+        let currentTotal = 0
+
+        orderedValues.forEach((key, breakdownOrder) => {
+            const current = currentByValue.get(key)?.[stepIndex]
+            const previous = previousByValue.get(key)?.[stepIndex]
+            if (current) {
+                nestedBreakdown.push({ ...current, order: breakdownOrder })
+                currentTotal += current.count
+            }
+            if (previous) {
+                nestedBreakdown.push({ ...previous, order: breakdownOrder })
+            }
+        })
+
+        return {
+            ...baseStep,
+            count: currentTotal,
+            breakdown: breakdownProperty,
+            nested_breakdown: nestedBreakdown,
+            average_conversion_time: calculateAverageConversionTime(
+                nestedBreakdown.filter((variant) => variant.compare_label !== 'previous')
+            ),
+            median_conversion_time: null,
+            people: [],
+        }
+    })
 }
 
 /** Breakdown parameter could be a string (property breakdown) or object/number (list of cohort ids). */

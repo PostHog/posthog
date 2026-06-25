@@ -3,6 +3,10 @@ import { isDevEnv, isProdEnv, isTestEnv } from '../utils/env-utils'
 
 export const DEFAULT_HTTP_SERVER_PORT = 6738
 
+// Public dev-only default for the internal API secret. Never accepted as a valid secret in production
+// (mirrors LOCAL_DEV_INTERNAL_API_SECRET on the Django side).
+export const LOCAL_DEV_INTERNAL_API_SECRET = 'posthog123'
+
 export enum KafkaSaslMechanism {
     Plain = 'plain',
     ScramSha256 = 'scram-sha-256',
@@ -322,7 +326,8 @@ export function getDefaultCommonConfig(): CommonConfig {
         INTERNAL_API_BASE_URL: isProdEnv()
             ? 'http://posthog-web-django.posthog.svc.cluster.local:8000'
             : 'http://localhost:8000',
-        INTERNAL_API_SECRET: isProdEnv() ? '' : 'posthog123',
+        INTERNAL_API_SECRET: isProdEnv() ? '' : LOCAL_DEV_INTERNAL_API_SECRET,
+        INTERNAL_API_SECRET_FALLBACKS: '',
         HOGFLOW_SCHEDULER_POLL_INTERVAL_MS: 60_000,
         HOGFLOW_SCHEDULER_MAX_POLL_INTERVAL_MS: 5 * 60_000,
         HOGFLOW_SCHEDULER_HEALTH_TIMEOUT_MS: 10 * 60_000,

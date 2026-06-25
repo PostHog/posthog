@@ -90,8 +90,9 @@ export interface Series<Meta = unknown> {
          *  filling down to the x-axis baseline. */
         lowerData?: number[]
         /** Fade the fill vertically from the series color at the top of the plot to transparent
-         *  at the baseline. Ignored whenever the area has a bottom edge — stacking, `lowerData`,
-         *  or dashed `stroke.partial` (those branches need a solid fill / hatch). */
+         *  at the baseline. Ignored when the area has a bottom edge — stacking or `lowerData`
+         *  (those need a solid fill). With a dashed `stroke.partial` the gradient is kept and only
+         *  the stroke dashes; non-gradient area fills instead hatch the dashed range. */
         gradient?: boolean
     }
     /** Auxiliary overlay derived from primary data — trend lines and moving averages.

@@ -41,6 +41,8 @@ import type {
     _LogsCountRangesResponseApi,
     _LogsCountRequestApi,
     _LogsCountResponseApi,
+    _LogsFacetValuesRequestApi,
+    _LogsFacetValuesResponseApi,
     _LogsQueryRequestApi,
     _LogsQueryResponseApi,
     _LogsServicesRequestApi,
@@ -375,6 +377,23 @@ export const logsExportCreate = async (projectId: string, options?: RequestInit)
     return apiMutator<LogsExportCreate201>(getLogsExportCreateUrl(projectId), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getLogsFacetValuesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/facet_values/`
+}
+
+export const logsFacetValuesCreate = async (
+    projectId: string,
+    _logsFacetValuesRequestApi: _LogsFacetValuesRequestApi,
+    options?: RequestInit
+): Promise<_LogsFacetValuesResponseApi> => {
+    return apiMutator<_LogsFacetValuesResponseApi>(getLogsFacetValuesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_logsFacetValuesRequestApi),
     })
 }
 

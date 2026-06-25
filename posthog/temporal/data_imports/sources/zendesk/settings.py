@@ -13,7 +13,23 @@ CUSTOM_FIELDS_STATE_KEY = "ticket_custom_fields_v2"
 
 # Resources that will always get pulled
 BASE_ENDPOINTS = ["ticket_fields", "ticket_events", "tickets", "ticket_metric_events"]
-INCREMENTAL_ENDPOINTS = ["tickets"]
+
+# Endpoints backed by a Zendesk Incremental Export API, so incremental sync actually
+# reduces the data fetched (the `start_time` cursor is filtered server-side) rather than
+# only changing the write disposition. Endpoints without an incremental export
+# (brands, groups, sla_policies, ticket_fields) stay full-refresh on purpose.
+INCREMENTAL_ENDPOINTS = ["tickets", "users", "organizations", "ticket_events", "ticket_metric_events"]
+
+
+def _datetime_incremental_field(field: str) -> IncrementalField:
+    return {
+        "label": field,
+        "type": IncrementalFieldType.DateTime,
+        "field": field,
+        "field_type": IncrementalFieldType.DateTime,
+    }
+
+
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     "tickets": [
         {
@@ -23,6 +39,14 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
             "field_type": IncrementalFieldType.Integer,
         }
     ],
+    # The incremental exports for these resources order by the per-record timestamp below.
+    # Zendesk recommends using the response `end_time` as the next `start_time`; using the
+    # row-level field is safe because re-fetched boundary rows are upserted by `id`, never
+    # skipped.
+    "users": [_datetime_incremental_field("updated_at")],
+    "organizations": [_datetime_incremental_field("updated_at")],
+    "ticket_events": [_datetime_incremental_field("created_at")],
+    "ticket_metric_events": [_datetime_incremental_field("time")],
 }
 
 # CLUDGE: refactor this to EndpointConfig like in tiktok_ads/settings.py
