@@ -1,10 +1,10 @@
 from django.core.management.base import BaseCommand
 
-from products.data_warehouse.backend.data_load.service import (
+from products.data_warehouse.backend.logic.data_load.service import (
     external_data_workflow_exists,
     sync_external_data_job_workflow,
 )
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 
 class Command(BaseCommand):

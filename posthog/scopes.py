@@ -47,6 +47,7 @@ APIScopeObject = Literal[
     "element",
     "event_definition",
     "experiment",
+    "experiment_holdout",
     "experiment_saved_metric",
     "export",
     "external_data_schema",
@@ -79,7 +80,6 @@ APIScopeObject = Literal[
     "organization_integration",
     "organization_member",
     "person",
-    "persisted_folder",
     "plugin",
     "product_tour",
     "project",
@@ -105,6 +105,7 @@ APIScopeObject = Literal[
     "usage_metric",
     "user",
     "user_interview",  # Alpha product — access gated by feature flag at the MCP/API layer rather than by hiding the scope.
+    "vision_action",
     "visual_review",
     "warehouse_objects",
     "warehouse_table",

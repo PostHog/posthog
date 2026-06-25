@@ -179,7 +179,7 @@ class TestRunEvaluationWorkflow:
             "posthog.temporal.ai_observability.evaluation_workflow_activities.Team.objects.get"
         ) as mock_team_get:
             with patch(
-                "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal_routed"
+                "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal"
             ) as mock_capture:
                 mock_team_get.return_value = team
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
@@ -242,7 +242,7 @@ class TestRunEvaluationWorkflow:
             "posthog.temporal.ai_observability.evaluation_workflow_activities.Team.objects.get"
         ) as mock_team_get:
             with patch(
-                "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal_routed"
+                "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal"
             ) as mock_capture:
                 mock_team_get.return_value = team
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
@@ -302,7 +302,7 @@ class TestRunEvaluationWorkflow:
             "posthog.temporal.ai_observability.evaluation_workflow_activities.Team.objects.get"
         ) as mock_team_get:
             with patch(
-                "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal_routed"
+                "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal"
             ) as mock_capture:
                 mock_team_get.return_value = team
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
@@ -586,7 +586,7 @@ class TestRunEvaluationWorkflow:
             "posthog.temporal.ai_observability.evaluation_workflow_activities.Team.objects.get"
         ) as mock_team_get:
             with patch(
-                "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal_routed"
+                "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal"
             ) as mock_capture:
                 mock_team_get.return_value = team
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
@@ -633,7 +633,7 @@ class TestRunEvaluationWorkflow:
             "posthog.temporal.ai_observability.evaluation_workflow_activities.Team.objects.get"
         ) as mock_team_get:
             with patch(
-                "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal_routed"
+                "posthog.temporal.ai_observability.evaluation_workflow_activities.capture_internal"
             ) as mock_capture:
                 mock_team_get.return_value = team
                 mock_capture.return_value = MagicMock(status_code=200, raise_for_status=MagicMock())
@@ -1619,7 +1619,7 @@ class TestJudgePromptAssembly:
 
         with (
             patch(
-                "posthog.temporal.ai_observability.evaluation_llm_judge.EvaluationConfig.objects.get_or_create"
+                "posthog.temporal.ai_observability.model_resolution.EvaluationConfig.objects.get_or_create"
             ) as mock_get_or_create,
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
         ):
@@ -1673,7 +1673,7 @@ class TestJudgePromptAssembly:
 
         with (
             patch(
-                "posthog.temporal.ai_observability.evaluation_llm_judge.EvaluationConfig.objects.get_or_create"
+                "posthog.temporal.ai_observability.model_resolution.EvaluationConfig.objects.get_or_create"
             ) as mock_get_or_create,
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
         ):

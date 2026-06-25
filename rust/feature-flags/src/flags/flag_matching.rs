@@ -16,7 +16,8 @@ use crate::flags::flag_matching_utils::{
     should_write_hash_key_override,
 };
 use crate::flags::flag_models::{
-    FeatureFlag, FeatureFlagId, FeatureFlagList, FlagFilters, FlagPropertyGroup,
+    default_has_experiment, FeatureFlag, FeatureFlagId, FeatureFlagList, FlagFilters,
+    FlagPropertyGroup,
 };
 use crate::flags::flag_operations::flags_require_db_preparation;
 use crate::handler::canonical_log::{install_rayon_canonical_log, take_rayon_canonical_log};
@@ -36,6 +37,7 @@ use crate::properties::property_models::{PropertyFilter, PropertyType};
 use crate::rayon_dispatcher::RayonDispatcher;
 use crate::utils::graph_utils::PrecomputedDependencyGraph;
 use anyhow::Result;
+use chrono_tz::Tz;
 use common_metrics::{histogram, inc, timing_guard};
 use common_types::collections::HashMapExt;
 use common_types::{PersonId, TeamId};
@@ -335,6 +337,10 @@ pub struct FeatureFlagMatcher {
     detailed_analysis: bool,
     /// Whether to only use person properties from request payload, ignoring database properties.
     only_use_override_person_properties: bool,
+    /// Team timezone used to interpret naive datetime filter values (IS_DATE_* and
+    /// relative dates), so flag evaluation matches HogQL/ClickHouse cohort behavior.
+    /// Parsed once per request and reused across every property comparison.
+    timezone: Tz,
 }
 
 /// Lightweight snapshot of a flag's identity fields, saved before moving
@@ -402,7 +408,16 @@ impl FeatureFlagMatcher {
             preloaded_cohorts: None,
             detailed_analysis: false,
             only_use_override_person_properties: false,
+            timezone: Tz::UTC,
         }
+    }
+
+    /// Sets the team timezone used to interpret naive datetime filter values.
+    /// Defaults to UTC; production must thread the team's timezone through so flag
+    /// evaluation agrees with HogQL/ClickHouse cohort membership near day boundaries.
+    pub fn with_timezone(mut self, timezone: Tz) -> Self {
+        self.timezone = timezone;
+        self
     }
 
     pub fn with_parallel_eval_threshold(mut self, threshold: usize) -> Self {
@@ -738,6 +753,7 @@ impl FeatureFlagMatcher {
                     target_properties,
                     &cohorts,
                     &current_matches,
+                    self.timezone,
                 )?;
                 cohort_matches.insert(cohort_id, match_result);
             }
@@ -1026,6 +1042,7 @@ impl FeatureFlagMatcher {
                         true,
                         merged_person_props.as_ref(),
                         Some(&self.flag_evaluation_state.flag_evaluation_results),
+                        self.timezone,
                     )
                 } else {
                     FlagDetails::create(flag, flag_match)
@@ -1176,6 +1193,8 @@ impl FeatureFlagMatcher {
                 let stub = FeatureFlag {
                     id: snapshot.id,
                     key: snapshot.key,
+                    // Panic fallback can't compute experiment linkage; use the shared default.
+                    has_experiment: default_has_experiment(),
                     active: true,
                     version: snapshot.version,
                     filters: FlagFilters::default(),
@@ -1569,7 +1588,7 @@ impl FeatureFlagMatcher {
                     cohort_filters.push(filter);
                 } else {
                     let props = property_context.resolve_for_filter(filter);
-                    if !match_property(filter, props, false).unwrap_or(false) {
+                    if !match_property(filter, props, false, self.timezone).unwrap_or(false) {
                         return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
                     }
                 }
@@ -1785,16 +1804,20 @@ impl FeatureFlagMatcher {
                 }
             }
 
-            // Use hash key overrides for experience continuity
+            // Use hash key overrides for experience continuity. Only consult overrides
+            // when the flag *currently* has continuity enabled — a stored override row
+            // is never deleted when continuity is turned off, so a stale row must not
+            // steer a flag whose continuity is now off (which would keep every distinct_id
+            // of the person bucketing on the old key).
             // Priority: DB override > request's anon_distinct_id > distinct_id
-            if let Some(hash_key_override) = hash_key_overrides
-                .as_ref()
-                .and_then(|h| h.get(&feature_flag.key))
-            {
-                Ok(hash_key_override.clone())
-            } else if feature_flag.has_experience_continuity() {
-                // For EEC flags, use the request's anon_distinct_id as fallback when no DB override exists
-                if let Some(request_override) = request_hash_key_override {
+            if feature_flag.has_experience_continuity() {
+                if let Some(hash_key_override) = hash_key_overrides
+                    .as_ref()
+                    .and_then(|h| h.get(&feature_flag.key))
+                {
+                    Ok(hash_key_override.clone())
+                } else if let Some(request_override) = request_hash_key_override {
+                    // Use the request's anon_distinct_id as fallback when no DB override exists
                     Ok(request_override.clone())
                 } else {
                     Ok(self.distinct_id.clone())
@@ -2426,6 +2449,53 @@ mod tests {
             assert!(!stub.deleted);
             assert!(stub.filters.groups.is_empty());
         }
+    }
+
+    /// A stored hash-key override must only steer bucketing while the flag *currently*
+    /// has experience continuity enabled. When continuity is turned off, the row written
+    /// back while it was on is never deleted — so the matcher must fall back to the raw
+    /// distinct_id and ignore the stale override, otherwise every distinct_id of the
+    /// person keeps bucketing on the old key and resolves to the same stale value.
+    #[rstest::rstest]
+    #[case::continuity_off_ignores_stale_override(Some(false), "logged-in-username")]
+    #[case::continuity_unset_ignores_stale_override(None, "logged-in-username")]
+    #[case::continuity_on_applies_override(Some(true), "stale-anon-id")]
+    #[tokio::test]
+    async fn test_hashed_identifier_respects_current_continuity_for_stored_override(
+        #[case] ensure_experience_continuity: Option<bool>,
+        #[case] expected_identifier: &str,
+    ) {
+        use crate::utils::test_utils::{mock_group_type_cache, TestContext};
+
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let matcher = FeatureFlagMatcher::new(
+            "logged-in-username".to_string(),
+            None, // device_id
+            1,
+            context.create_postgres_router(),
+            cohort_cache,
+            mock_group_type_cache(HashMap::new()),
+            None,
+        );
+
+        // Override left behind from when this flag still had continuity enabled.
+        let overrides = HashMap::from([("my_flag".to_string(), "stale-anon-id".to_string())]);
+        let flag = FeatureFlag {
+            key: "my_flag".to_string(),
+            ensure_experience_continuity,
+            ..Default::default()
+        };
+
+        let identifier = matcher
+            .hashed_identifier(&flag, None, Some(&overrides), &None)
+            .unwrap();
+
+        assert_eq!(identifier, expected_identifier);
     }
 
     #[rstest::rstest]

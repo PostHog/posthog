@@ -1,8 +1,8 @@
 // eslint-disable-next-line no-restricted-imports
 import fetch from 'node-fetch'
 
-import { installPostgresTypeParsers } from './src/utils/db/postgres'
-import { logger, shutdownLogger } from './src/utils/logger'
+import { installPostgresTypeParsers } from './src/common/utils/db/postgres'
+import { logger, shutdownLogger } from './src/common/utils/logger'
 
 const { readFileSync } = require('fs')
 const { DateTime } = require('luxon')

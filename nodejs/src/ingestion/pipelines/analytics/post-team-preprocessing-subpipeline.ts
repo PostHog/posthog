@@ -1,6 +1,8 @@
 import { Message } from 'node-rdkafka'
 
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
+import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
+import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { EventFilterManager } from '~/ingestion/common/event-filters'
 import { EventFiltersBatchAppMetrics } from '~/ingestion/common/event-filters/batch-app-metrics'
@@ -25,8 +27,6 @@ import { FeatureFlagCalledDedupService } from '~/ingestion/utils/feature-flag-ca
 import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, Team } from '~/types'
-import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
-import { EventSchemaEnforcementManager } from '~/utils/event-schema-enforcement-manager'
 
 export interface PostTeamPreprocessingSubpipelineInput {
     message: Message
@@ -48,6 +48,7 @@ export interface PostTeamPreprocessingSubpipelineConfig {
     overflowLaneTTLRefreshService?: OverflowRedirectService
     featureFlagCalledDedupService?: FeatureFlagCalledDedupService
     personsPrefetchEnabled: boolean
+    flagCalledPersonlessDefaultTeams: string
     hogTransformer: HogTransformer
     cdpHogWatcherSampleRate: number
 }
@@ -67,6 +68,7 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
         overflowLaneTTLRefreshService,
         featureFlagCalledDedupService,
         personsPrefetchEnabled,
+        flagCalledPersonlessDefaultTeams,
         hogTransformer,
         cdpHogWatcherSampleRate,
     } = config
@@ -110,11 +112,14 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
             // Batch insert personless distinct IDs after prefetch (uses prefetch cache).
             // This step awaits its DB write, so retry transient persons-Postgres failures
             // (e.g. PgBouncer scale-down) instead of letting them crash the consumer loop.
-            .pipeBatchWithRetry(processPersonlessDistinctIdsBatchStep(personsPrefetchEnabled), {
-                tries: 5,
-                sleepMs: 100,
-                name: 'personless_distinct_ids',
-            })
+            .pipeBatchWithRetry(
+                processPersonlessDistinctIdsBatchStep(personsPrefetchEnabled, flagCalledPersonlessDefaultTeams),
+                {
+                    tries: 5,
+                    sleepMs: 100,
+                    name: 'personless_distinct_ids',
+                }
+            )
             // Prefetch hog functions for all teams in the batch
             .pipeBatch(createPrefetchHogFunctionsStep(hogTransformer, cdpHogWatcherSampleRate))
     )

@@ -1,4 +1,7 @@
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { initializePrometheusLabels } from '~/common/api/router'
+import { defaultConfig } from '~/common/config/config'
+import { createIngestionRedisConnectionConfig, createPosthogRedisConnectionConfig } from '~/common/config/redis-pools'
 import { GroupReadRepository } from '~/common/groups/repositories/group-repository.interface'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { createPersonHogClient } from '~/common/personhog'
@@ -7,8 +10,15 @@ import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-pers
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
 import { InternalCaptureService } from '~/common/services/internal-capture'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
+import { ServerCommands } from '~/common/utils/commands'
+import { PostgresRouter } from '~/common/utils/db/postgres'
+import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
+import { GeoIPService } from '~/common/utils/geoip'
+import { logger } from '~/common/utils/logger'
+import { PubSub } from '~/common/utils/pubsub'
+import { TeamManager } from '~/common/utils/team-manager'
 
-import { initializePrometheusLabels } from './api/router'
+import { startEvaluationScheduler } from './ai-observability/evaluation-scheduler/evaluation-scheduler'
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
 import { CdpConsumerBaseDeps } from './cdp/consumers/cdp-base.consumer'
@@ -36,18 +46,8 @@ import { CyclotronJobQueueRateLimitedPostgresV2 } from './cdp/services/job-queue
 import { createSesRateLimiterValkeyPool } from './cdp/services/rate-limiter/rate-limiter-valkey-pool'
 import { RateLimiterService } from './cdp/services/rate-limiter/rate-limiter.service'
 import { EncryptedFields } from './cdp/utils/encryption-utils'
-import { defaultConfig } from './config/config'
-import { createIngestionRedisConnectionConfig, createPosthogRedisConnectionConfig } from './config/redis-pools'
-import { startEvaluationScheduler } from './evaluation-scheduler/evaluation-scheduler'
 import { CleanupResources, NodeServer, ServerLifecycle } from './servers/base-server'
 import { PluginServerService, PluginsServerConfig, RedisPool } from './types'
-import { ServerCommands } from './utils/commands'
-import { PostgresRouter } from './utils/db/postgres'
-import { createRedisPoolFromConfig } from './utils/db/redis'
-import { GeoIPService } from './utils/geoip'
-import { logger } from './utils/logger'
-import { PubSub } from './utils/pubsub'
-import { TeamManager } from './utils/team-manager'
 
 /**
  * PluginServer handles CDP, logs, evaluation scheduler, and local-dev combined modes.
@@ -81,7 +81,7 @@ export class PluginServer implements NodeServer {
     }
 
     private async startServices(): Promise<void> {
-        initializePrometheusLabels(this.config.INGESTION_PIPELINE, this.config.INGESTION_LANE)
+        initializePrometheusLabels()
 
         const capabilities = getPluginServerCapabilities(this.config)
 
@@ -96,6 +96,7 @@ export class PluginServer implements NodeServer {
             capabilities.cdpCyclotronWorkerHogFlow ||
             capabilities.cdpCyclotronWorkerHogFlowLegacyPg ||
             capabilities.cdpCyclotronWorkerEmail ||
+            capabilities.cdpCyclotronWorkerEmailLegacyPg ||
             capabilities.cdpPrecalculatedFilters ||
             capabilities.cdpCohortMembership ||
             capabilities.cdpBatchHogFlow ||
@@ -167,7 +168,10 @@ export class PluginServer implements NodeServer {
 
         if (capabilities.cdpDataWarehouseEvents) {
             serviceLoaders.push(async () => {
-                const consumer = new CdpDatawarehouseEventsConsumer(this.config, cdpDeps!, kafkaQueue)
+                const consumer = new CdpDatawarehouseEventsConsumer(this.config, cdpDeps!, {
+                    hogQueue: kafkaQueue,
+                    hogflowQueue: postgresV2Queue,
+                })
                 await consumer.start()
                 return consumer.service
             })
@@ -270,6 +274,17 @@ export class PluginServer implements NodeServer {
             serviceLoaders.push(async () => {
                 const legacyQueue = new CyclotronJobQueuePostgres(this.config.CONSUMER_BATCH_SIZE, this.config)
                 const worker = new CdpCyclotronWorkerHogFlow(this.config, cdpDeps!, legacyQueue)
+                await worker.start()
+                return worker.service
+            })
+        }
+
+        // Transitional drain for email jobs stranded on the legacy V1 queue — the email worker
+        // run against V1, sending inline. Delete once V1 'email' throughput is ~0.
+        if (capabilities.cdpCyclotronWorkerEmailLegacyPg) {
+            serviceLoaders.push(async () => {
+                const legacyQueue = new CyclotronJobQueuePostgres(this.config.CONSUMER_BATCH_SIZE, this.config)
+                const worker = new CdpCyclotronWorkerEmail(this.config, cdpDeps!, legacyQueue)
                 await worker.start()
                 return worker.service
             })

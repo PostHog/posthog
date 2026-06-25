@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import structlog
 from temporalio import activity
 
-from posthog.api.capture_dispatch import capture_internal_routed
+from posthog.api.capture import capture_internal
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 
@@ -46,6 +46,9 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
     properties: dict = {
         # Deterministic id so a worker crash mid-flush doesn't produce a duplicate event row.
         "$insert_id": str(observation.id),
+        # Owning team/org so observations can be attributed and billed per tenant.
+        "team_id": observation.team_id,
+        "organization_id": str(team.organization_id),
         "scanner_id": str(observation.scanner_id),
         "scanner_name": snapshot.name,
         "scanner_type": snapshot.scanner_type.value,
@@ -65,7 +68,7 @@ def _emit_event(inputs: EmitObservationEventInputs) -> None:
         else replay_vision_distinct_id(observation.team_id)
     )
 
-    result = capture_internal_routed(
+    result = capture_internal(
         token=team.api_token,
         event_name=_EVENT_NAME,
         event_source=_EVENT_SOURCE,

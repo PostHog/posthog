@@ -15,10 +15,13 @@ from posthog.models.group_type_mapping import (
 from posthog.models.project import Project
 from posthog.models.tag import Tag
 from posthog.models.team.team import Team
+from posthog.test.personhog_fake import get_active_fake
+from posthog.test.persons import _seed_group_type_mapping_into_fake, create_group_type_mapping
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import safe_cache_delete
 
 from products.cohorts.backend.models.cohort import Cohort
+from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.flags_cache import get_team_ids_with_recently_updated_flags
 from products.feature_flags.backend.local_evaluation import (
     FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
@@ -341,6 +344,9 @@ class TestUpdateFlagCachesGroupMappingGuards(BaseTest):
     def test_writes_when_genuinely_empty(self, mock_emptied_counter):
         # A team that truly has no group types must still rebuild normally
         GroupTypeMapping.objects.filter(team_id=self.team.id).delete()
+        fake = get_active_fake()
+        fake._group_type_mappings_by_project.pop(self.team.project_id, None)
+        fake._group_type_mappings_by_team.pop(self.team.id, None)
         self._clear_stale()
         clear_flag_definition_caches(self.team)
 
@@ -400,6 +406,30 @@ class TestUpdateFlagCachesGroupMappingGuards(BaseTest):
 
 
 class TestLocalEvaluationSignals(BaseTest):
+    @parameterized.expand(["create", "soft_delete", "delete"])
+    @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_signal_fired_on_experiment_change(self, action, mock_task):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="exp-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        if action == "create":
+            mock_task.reset_mock()
+            Experiment.objects.create(team=self.team, name="My experiment", feature_flag=flag)
+        else:
+            experiment = Experiment.objects.create(team=self.team, name="My experiment", feature_flag=flag)
+            mock_task.reset_mock()
+            if action == "soft_delete":
+                experiment.deleted = True
+                experiment.save()
+            else:
+                experiment.delete()
+
+        mock_task.delay.assert_called_once_with(self.team.id)
+
     @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
     @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_signal_fired_on_evaluation_context_association_create(self, mock_task):
@@ -1230,10 +1260,10 @@ class TestLocalEvaluationBatch(BaseTest):
             filters={"groups": [{"rollout_percentage": 100}]},
         )
 
-        with self.assertNumQueries(3):
-            # Expected queries: survey flag IDs, flags (with evaluation
-            # tags via ArrayAgg), and group type mappings. No cohort
-            # query should be issued.
+        with self.assertNumQueries(2):
+            # Expected queries: survey flag IDs and flags (with evaluation
+            # tags via ArrayAgg). Group type mappings are read from
+            # personhog, not SQL. No cohort query should be issued.
             results = _get_flags_response_for_local_evaluation_batch([team], True)
 
         assert results[team.id]["cohorts"] == {}
@@ -1586,7 +1616,7 @@ class TestVerifyFlagDefinitions(BaseTest):
         assert len(cohorts_diff) == 1
 
     def test_verify_returns_mismatch_when_group_type_mapping_changed(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping(
             team=self.team,
             project_id=self.team.project_id,
             group_type="company",
@@ -1608,6 +1638,7 @@ class TestVerifyFlagDefinitions(BaseTest):
         mapping = GroupTypeMapping.objects.get(team=self.team, group_type_index=0)
         mapping.group_type = "organization"
         mapping.save()
+        _seed_group_type_mapping_into_fake(mapping)
 
         result = verify_team_flag_definitions(self.team, include_cohorts=True, verbose=True)
 

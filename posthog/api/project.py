@@ -27,12 +27,10 @@ from posthog.api.shared import ProjectBackwardCompatBasicSerializer
 # project.py must NOT depend on team.py at that point. The parity *logic* (config writes, retention check,
 # and the team-config actions) is defined locally below rather than imported, so it survives that removal.
 from posthog.api.team import (
-    PROMOTED_PRODUCT_INTENT_DESCRIPTION,
     TEAM_CONFIG_FIELDS,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
     EvaluationContextSuggestionRequestSerializer,
     EvaluationContextSuggestionResponseSerializer,
-    PromotedProductIntentSerializer,
     TeamCustomerAnalyticsConfigSerializer,
     TeamMarketingAnalyticsConfigSerializer,
     TeamRevenueAnalyticsConfigSerializer,
@@ -64,7 +62,6 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from posthog.models.group_type_mapping import cached_group_types_for_project
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.product_intent import promoted_product_lookup
 from posthog.models.product_intent.product_intent import (
     ProductIntent,
     ProductIntentSerializer,
@@ -173,7 +170,7 @@ def update_team_revenue_analytics_config(team: Team, validated_data: dict[str, A
 
     if "events" in validated_data:
         from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
-        from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
+        from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
         managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
             team=team,
@@ -905,7 +902,7 @@ class ProjectBackwardCompatSerializer(
     @extend_schema_field(serializers.DictField(child=serializers.BooleanField()))
     def get_managed_viewsets(self, obj: Project) -> dict[str, bool]:
         from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
-        from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
+        from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
         enabled_set = set(
             DataWarehouseManagedViewSet.objects.filter(team=obj.passthrough_team).values_list("kind", flat=True)
@@ -1611,18 +1608,6 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
             page=page,
         )
         return activity_page_response(activity_page, limit, page, request)
-
-    @extend_schema(
-        tags=["platform_features"],
-        responses={200: PromotedProductIntentSerializer},
-        description=PROMOTED_PRODUCT_INTENT_DESCRIPTION,
-    )
-    @action(methods=["GET"], detail=True, required_scopes=["project:read"], url_path="promoted_product_intent")
-    def promoted_product_intent(self, request: request.Request, **kwargs) -> response.Response:
-        project = self.get_object()
-        team = project.passthrough_team
-        product_key = promoted_product_lookup.get_promoted_product_intent(team.pk)
-        return response.Response({"product_key": product_key})
 
     # The following actions mirror TeamViewSet, operating on the project's passthrough Team. They delegate to
     # the shared team_*_view helpers so /api/projects/ and /api/environments/ cannot drift apart.

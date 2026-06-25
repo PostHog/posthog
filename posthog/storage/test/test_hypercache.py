@@ -1263,3 +1263,89 @@ class TestHyperCacheRemoveExpiryTracking(BaseTest):
             hc.clear_cache(42)
 
         mock_redis.zrem.assert_called_once_with(self.SORTED_SET_KEY, "42")
+
+
+class TestHyperCacheSetCacheValueRedisOnly(BaseTest):
+    """Tests for set_cache_value_redis_only, focused on the track_expiry option."""
+
+    SORTED_SET_KEY = "test_redis_only_expiry_sorted_set"
+
+    @property
+    def sample_data(self) -> dict:
+        return {"key": "value"}
+
+    def _make_hypercache(self, secondary: bool = False) -> HyperCache:
+        return HyperCache(
+            namespace="test",
+            value="value",
+            load_fn=lambda key: {"data": "test"},
+            token_based=True,
+            expiry_sorted_set_key=self.SORTED_SET_KEY,
+            cache_alias="flags_dedicated" if secondary else None,
+            secondary_cache_alias="default" if secondary else None,
+        )
+
+    @patch("posthog.storage.object_storage.write")
+    @patch("posthog.storage.hypercache.get_client")
+    def test_track_expiry_stamps_sorted_set_without_writing_s3(self, mock_get_client, mock_s3_write):
+        mock_redis = Mock()
+        mock_get_client.return_value = mock_redis
+
+        hc = self._make_hypercache()
+        hc.set_cache_value_redis_only(self.team, self.sample_data, track_expiry=True)
+
+        # Redis-only path never touches S3.
+        mock_s3_write.assert_not_called()
+        # Expiry tracking is stamped with the team's api_token (token-based cache).
+        mock_redis.zadd.assert_called_once()
+        sorted_set_key, member_map = mock_redis.zadd.call_args[0]
+        assert sorted_set_key == self.SORTED_SET_KEY
+        assert str(self.team.api_token) in member_map
+        # The value is readable from the Redis tier afterwards.
+        assert hc.get_from_cache(self.team.api_token) == self.sample_data
+
+    @patch("posthog.storage.hypercache.get_client")
+    def test_default_does_not_track_expiry(self, mock_get_client):
+        hc = self._make_hypercache()
+        hc.set_cache_value_redis_only(self.team, self.sample_data)
+
+        # No expiry tracking by default → no Redis client for the sorted set is requested.
+        mock_get_client.assert_not_called()
+
+    @patch("posthog.storage.hypercache.get_client")
+    def test_track_expiry_raises_for_non_team_key(self, mock_get_client):
+        # track_expiry needs a Team to derive the identifier, so a non-Team key must fail
+        # loud rather than silently skip the stamp.
+        hc = self._make_hypercache()
+        with pytest.raises(ValueError, match="requires a Team key"):
+            hc.set_cache_value_redis_only(self.team.api_token, self.sample_data, track_expiry=True)
+
+        mock_get_client.assert_not_called()
+
+    @override_settings(
+        CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "redis-only-secondary",
+            },
+            "flags_dedicated": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "redis-only-primary",
+            },
+        }
+    )
+    @patch("posthog.storage.hypercache.get_client")
+    def test_track_expiry_mirrors_to_secondary_cache(self, mock_get_client):
+        from django.core.cache import caches
+
+        caches["default"].clear()
+        caches["flags_dedicated"].clear()
+        mock_get_client.return_value = Mock()
+
+        hc = self._make_hypercache(secondary=True)
+        hc.set_cache_value_redis_only(self.team, self.sample_data, track_expiry=True)
+
+        cache_key = hc.get_cache_key(self.team)
+        expected = json.dumps(self.sample_data, sort_keys=True)
+        assert caches["flags_dedicated"].get(cache_key) == expected
+        assert caches["default"].get(cache_key) == expected
