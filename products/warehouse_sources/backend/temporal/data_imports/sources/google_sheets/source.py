@@ -17,8 +17,6 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
-from posthog.models.integration import Integration
-
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
     SourceInputs,
     SourceResponse,
@@ -104,15 +102,17 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig], OAuthMixin):
         self, config: GoogleSheetsSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
         integration_id = config.auth_method.google_sheets_integration_id if config.auth_method else None
-        try:
-            client = google_sheets_client(integration_id, team_id)
-        except (Integration.DoesNotExist, ValueError):
-            return (
-                False,
-                "The Google account connected to this source no longer exists. Please reconnect your Google account.",
-            )
+        if integration_id:
+            try:
+                self.get_oauth_integration(integration_id, team_id)
+            except ValueError:
+                return (
+                    False,
+                    "The Google account connected to this source no longer exists. Please reconnect your Google account.",
+                )
 
         try:
+            client = google_sheets_client(integration_id, team_id)
             client.open_by_url(config.spreadsheet_url)
             return True, None
         except gspread.SpreadsheetNotFound:

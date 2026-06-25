@@ -531,8 +531,6 @@ def test_google_sheets_client_selects_auth_by_integration(integration_id, team_i
 # A missing connected account must yield a friendly validation failure, not an exception — else
 # source create/update 500s instead of telling the user to reconnect.
 def test_validate_credentials_missing_oauth_integration_fails_gracefully():
-    from posthog.models.integration import Integration
-
     config = GoogleSheetsSourceConfig.from_dict(
         {
             "spreadsheet_url": "https://docs.google.com/spreadsheets/d/fake",
@@ -540,9 +538,9 @@ def test_validate_credentials_missing_oauth_integration_fails_gracefully():
         }
     )
 
-    with mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source.google_sheets_client",
-        side_effect=Integration.DoesNotExist,
+    # OAuthMixin.get_oauth_integration raises ValueError when the integration is gone.
+    with mock.patch.object(
+        GoogleSheetsSource, "get_oauth_integration", side_effect=ValueError("Integration not found: 1")
     ):
         ok, error = GoogleSheetsSource().validate_credentials(config, team_id=1)
 
