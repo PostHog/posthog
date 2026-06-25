@@ -668,11 +668,11 @@ class SignalReportViewSet(
 
     def _implementation_pr_report_filter(self):
         # Reports with a shipped implementation PR, as a `Q` on `SignalReport.id`. Decorrelated:
-        # starts from the (small, index-backed) set of tasks whose runs carry a non-empty `pr_url`
-        # and maps them to reports via the indexed `task_id` columns — instead of a correlated
+        # starts from the (small, index-backed) set of this team's tasks whose runs carry a non-empty
+        # `pr_url` and maps them to reports via the indexed `task_id` columns — instead of a correlated
         # `Exists` over `tasks.TaskRun` evaluated once per candidate report (which made the inbox
         # PR-tab count scan the whole `ready` set per PR'd run).
-        return SignalReport.reports_for_task_ids_filter(tasks_facade.task_ids_with_pr_url_subquery())
+        return SignalReport.reports_for_task_ids_filter(tasks_facade.task_ids_with_pr_url_subquery(self.team.id))
 
     def _apply_signal_report_implementation_pr_filter(self, queryset):
         # `has_implementation_pr=true|false` filters reports by whether a shipped

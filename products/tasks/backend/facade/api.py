@@ -458,15 +458,22 @@ def get_latest_pr_url_by_task(task_ids: Iterable[str | UUID]) -> dict[str, str]:
     return {str(row["task_id"]): row["output_pr_url_text"] for row in rows if row["output_pr_url_text"]}
 
 
-def task_ids_with_pr_url_subquery() -> QuerySet[TaskRun, Any]:
-    """A ``values('task_id')`` queryset of the tasks that produced a non-empty ``output.pr_url``.
+def task_ids_with_pr_url_subquery(team_id: int) -> QuerySet[TaskRun, Any]:
+    """A ``values('task_id')`` queryset of ``team_id``'s tasks that produced a non-empty ``output.pr_url``.
 
     For embedding in a caller's ``task_id__in=...`` lookup so the report→PR correlation can be
     *decorrelated*: instead of a per-report ``Exists`` over runs, the caller drives off this small,
     index-backed set (served by the partial ``task_run_output_pr_url_idx``) and joins outward to its
     own report-association tables. Returns a query expression — no ORM instances cross the boundary.
+
+    Scoped to ``team_id`` so the set stays bounded to the request's tenant rather than scanning every
+    team's PR-bearing runs — associated runs are always same-team, so this drops no valid matches.
     """
-    return TaskRun.objects.filter(output__pr_url__isnull=False).exclude(output__pr_url="").values("task_id")
+    return (
+        TaskRun.objects.filter(team_id=team_id, output__pr_url__isnull=False)
+        .exclude(output__pr_url="")
+        .values("task_id")
+    )
 
 
 def latest_task_run_pr_url_subquery(*conditions: Q, **task_run_filter) -> Subquery:
