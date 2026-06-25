@@ -9,6 +9,8 @@ from unittest.mock import AsyncMock, patch
 import temporalio.exceptions
 from temporalio.testing import ActivityEnvironment
 
+from posthog.hogql import ast
+
 from products.signals.backend.temporal.signal_queries import (
     WAIT_INSERTED_AT_LOOKBACK,
     WaitForClickHouseInput,
@@ -30,9 +32,9 @@ async def test_threshold_is_anchored_to_signal_timestamps_not_wall_clock(ateam) 
     # found: anchoring the inserted_at lower bound to wall-clock `now()` would push it past the
     # signal's own (old) inserted_at and exclude a row that genuinely arrived.
     emitted_at = datetime.now(UTC) - timedelta(minutes=45)
-    captured: dict[str, object] = {}
+    captured: dict[str, ast.Constant] = {}
 
-    def fake_query(*, placeholders, **kwargs):
+    def fake_query(*, placeholders: dict[str, ast.Constant], **kwargs: object) -> SimpleNamespace:
         captured.update(placeholders)
         return SimpleNamespace(results=[[1]])
 
