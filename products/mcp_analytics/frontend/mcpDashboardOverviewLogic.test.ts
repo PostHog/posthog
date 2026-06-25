@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { harnessLogo } from './dashboard/harnessRegistry'
+import { HARNESS_BY_LABEL, harnessLogo } from './dashboard/harnessRegistry'
 import {
     type ActivityRow,
     type BucketRow,
@@ -49,6 +49,45 @@ function session(overrides: Partial<SessionRow> & { session_id: string }): Sessi
 
 describe('mcpDashboardOverviewLogic', () => {
     describe('harnessLogo', () => {
+        // The expected labels mirror HARNESS_LABELS in mcp_harness.py, minus "Other".
+        // If the backend renames or adds a label, update this list to keep it in sync
+        // and add the corresponding entry to HARNESS_BY_LABEL in harnessRegistry.ts.
+        const EXPECTED_HARNESS_LABELS = [
+            'Claude Desktop',
+            'Claude Code (VS Code)',
+            'Claude Agent SDK',
+            'Claude Code',
+            'Claude.ai',
+            'Anthropic API',
+            'Cowork',
+            'Claude Design',
+            'ChatGPT',
+            'OpenAI Agent Builder',
+            'OpenAI Responses API',
+            'OpenAI',
+            'OpenAI Codex',
+            'Cursor',
+            'VS Code',
+            'Windsurf',
+            'Replit',
+            'Lovable',
+            'Manus',
+            'CodeRabbit',
+            'Notion',
+            'Linear',
+            'LibreChat',
+            'Pi',
+            'Antigravity',
+            'Poke',
+            'opencode',
+            'Kiro',
+            'Desktop Commander',
+        ]
+
+        it.each(EXPECTED_HARNESS_LABELS)('HARNESS_BY_LABEL has an entry for backend label %s', (label) => {
+            expect(Object.prototype.hasOwnProperty.call(HARNESS_BY_LABEL, label)).toBe(true)
+        })
+
         it.each([
             'Claude Code',
             'OpenAI',

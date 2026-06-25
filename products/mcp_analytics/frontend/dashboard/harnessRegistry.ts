@@ -32,7 +32,8 @@ interface HarnessDescriptor {
 // produced server-side by the backend classifier (products/mcp_analytics/backend/mcp_harness.py,
 // the single source of truth); this map owns only the frontend-specific concerns the backend
 // has no opinion on. Keys must match HARNESS_LABELS / harness_label_sql in mcp_harness.py.
-const HARNESS_BY_LABEL: Record<string, HarnessDescriptor> = {
+// Exported so tests can assert coverage against the backend HARNESS_LABELS tuple.
+export const HARNESS_BY_LABEL: Record<string, HarnessDescriptor> = {
     'Claude Desktop': { logo: { src: claudeLogo, alt: 'Claude Desktop logo' }, colorIndex: 5 },
     'Claude Code (VS Code)': { logo: { src: claudeLogo, alt: 'Claude Code logo' }, colorIndex: 6 },
     'Claude Agent SDK': { logo: { src: claudeLogo, alt: 'Claude Agent SDK logo' }, colorIndex: 7 },
