@@ -1,5 +1,11 @@
 # posthog-cli
 
+## 0.7.32 — 2026-06-24
+
+### Patch changes
+
+- [6fb4456e8f](https://github.com/PostHog/posthog/commit/6fb4456e8f9a5048b3db6ceb6d873241e14fe6b8) Fix the CLI release workflow so the Windows (`x86_64-pc-windows-msvc`) build succeeds and ships with each release. — Thanks @cat-ph!
+
 ## 0.7.31 — 2026-06-24
 
 ### Patch changes

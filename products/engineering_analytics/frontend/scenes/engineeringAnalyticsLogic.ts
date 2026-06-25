@@ -1,4 +1,4 @@
-import { LogicWrapper, actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { LogicWrapper, actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -195,16 +195,9 @@ export function loaderStatusFromError(errorObject: unknown): LoaderStatus {
     return errorObject instanceof ApiError && errorObject.status === 400 ? 'notConnected' : 'error'
 }
 
-export interface EngineeringAnalyticsLogicProps {
-    tabId?: string
-}
-
 export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicType> =
     kea<engineeringAnalyticsLogicType>([
-        props({} as EngineeringAnalyticsLogicProps),
-        // One instance per internal tab so filters and loading state don't bleed across tabs.
-        key((props) => props.tabId ?? 'default'),
-        path((key) => ['products', 'engineering_analytics', 'frontend', 'scenes', 'engineeringAnalyticsLogic', key]),
+        path(['products', 'engineering_analytics', 'frontend', 'scenes', 'engineeringAnalyticsLogic']),
 
         actions({
             setStateFilter: (state: PRStateFilter) => ({ state }),

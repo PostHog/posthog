@@ -73,7 +73,7 @@ def _set_search_path(conn: psycopg.Connection[Any], extra_schemas: list[str] | N
 def compile_hogql_to_ducklake_sql(
     team_id: int, query: HogQLQuery, *, team: Team | None = None
 ) -> tuple[str, dict[str, object], str]:
-    """Compile a HogQLQuery to Postgres-dialect SQL for DuckLake.
+    """Compile a HogQLQuery to DuckDB-dialect SQL for DuckLake.
 
     Returns ``(postgres_sql, values, hogql_pretty)``. The ``values`` dict holds
     parameter bindings for ``psycopg``'s ``%(name)s`` placeholders embedded in
@@ -91,10 +91,10 @@ def compile_hogql_to_ducklake_sql(
     if query.variables:
         team = team or Team.objects.get(pk=team_id)
         parsed = replace_variables(parsed, list(query.variables.values()), team)
-    # Separate context for the Postgres print — the HogQL round-trip below shouldn't
+    # Separate context for the DuckDB print — the HogQL round-trip below shouldn't
     # contribute to ``postgres_context.values``.
     postgres_context = HogQLContext(team_id=team_id, enable_select_queries=True)
-    postgres_sql, _ = prepare_and_print_ast(parsed, postgres_context, dialect="postgres")
+    postgres_sql, _ = prepare_and_print_ast(parsed, postgres_context, dialect="duckdb")
 
     hogql_context = HogQLContext(team_id=team_id, enable_select_queries=True)
     hogql_pretty, _ = prepare_and_print_ast(parsed, hogql_context, dialect="hogql")
@@ -113,7 +113,7 @@ def execute_ducklake_query(
     """Execute a query against a team's duckgres server.
 
     Accepts either raw SQL or a HogQLQuery (which gets compiled to
-    Postgres-dialect SQL). Exactly one of `sql` or `query` must be provided.
+    DuckDB-dialect SQL). Exactly one of `sql` or `query` must be provided.
 
     Pass organization_id to skip the Team→Organization lookup when org
     context is already available from the caller. Pass team to skip the

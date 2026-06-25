@@ -342,7 +342,7 @@ export const SignalsScoutConfigCreateParams = /* @__PURE__ */ zod.object({
 
 export const signalsScoutConfigCreateBodySkillNameMax = 200
 
-export const signalsScoutConfigCreateBodyRunIntervalMinutesMin = 10
+export const signalsScoutConfigCreateBodyRunIntervalMinutesMin = 30
 export const signalsScoutConfigCreateBodyRunIntervalMinutesMax = 43200
 
 export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
@@ -365,7 +365,7 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
             .min(signalsScoutConfigCreateBodyRunIntervalMinutesMin)
             .max(signalsScoutConfigCreateBodyRunIntervalMinutesMax)
             .optional()
-            .describe('Minutes between runs (10–43200). Defaults to 1440 (every 24 hours).'),
+            .describe('Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).'),
     })
     .describe(
         'Request body for registering a scout config without waiting for the coordinator tick.\n\nUpsert keyed on `skill_name`: if the coordinator (or a concurrent caller) already\nregistered the row, the provided tunables are applied to it instead.'
@@ -384,7 +384,7 @@ export const SignalsScoutConfigUpdateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const signalsScoutConfigUpdateBodyRunIntervalMinutesMin = 10
+export const signalsScoutConfigUpdateBodyRunIntervalMinutesMin = 30
 export const signalsScoutConfigUpdateBodyRunIntervalMinutesMax = 43200
 
 export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
@@ -405,7 +405,7 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
             .max(signalsScoutConfigUpdateBodyRunIntervalMinutesMax)
             .optional()
             .describe(
-                'Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.'
+                'Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.'
             ),
     })
     .describe(

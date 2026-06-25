@@ -13,6 +13,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { codeEditorLogicType } from 'lib/monaco/codeEditorLogicType'
 import { findNextFocusableElement, findPreviousFocusableElement } from 'lib/monaco/domUtils'
+import { initCodeownersLanguage } from 'lib/monaco/languages/codeowners'
 import { initHogLanguage } from 'lib/monaco/languages/hog'
 import { initHogJsonLanguage } from 'lib/monaco/languages/hogJson'
 import { initHogQLLanguage } from 'lib/monaco/languages/hogQL'
@@ -90,6 +91,9 @@ function initEditor(
     }
     if (editorProps?.language === 'liquid') {
         initLiquidLanguage(monaco)
+    }
+    if (editorProps?.language === 'codeowners') {
+        initCodeownersLanguage(monaco)
     }
 
     editor.onKeyDown((evt) => {

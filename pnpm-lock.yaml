@@ -1149,6 +1149,9 @@ importers:
       react-window:
         specifier: ^2.2.5
         version: 2.2.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      remark-breaks:
+        specifier: ^4.0.0
+        version: 4.0.0
       remark-gfm:
         specifier: ^4.0.0
         version: 4.0.1
@@ -1986,6 +1989,9 @@ importers:
 
   packages/quill/packages/components:
     dependencies:
+      '@posthog/quill-charts':
+        specifier: workspace:^
+        version: link:../charts
       '@posthog/quill-primitives':
         specifier: workspace:^
         version: link:../primitives
@@ -3787,6 +3793,9 @@ importers:
       react-dom:
         specifier: 18.3.1
         version: 18.3.1(react@18.3.1)
+      react-window:
+        specifier: '*'
+        version: 2.2.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       tailwind-merge:
         specifier: '*'
         version: 2.2.2
@@ -4117,6 +4126,9 @@ importers:
       kea-test-utils:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
+      msw:
+        specifier: '*'
+        version: 2.14.6(@types/node@25.8.0)(typescript@6.0.3)
 
   products/toolbar: {}
 
@@ -9955,9 +9967,6 @@ packages:
   '@posthog/siphash@1.1.1':
     resolution: {integrity: sha512-JUFk57H89fOnHpF62FDyFGw4uXeHAX20OPfkLL8/iqg/xrVp5Q21LvJUDijmS5wt0avgUwXF2bxYgaZ5iWRmAg==}
 
-  '@posthog/types@1.391.0':
-    resolution: {integrity: sha512-oJ6jkqVMq+T4ax9F0rUllJc0KHpSgpaMwTNYWkE70iBiyXDVyhcNBmYnNKzSODgpzsaQNI6VfK8JrRYbkSJZZw==}
-
   '@posthog/types@1.391.1':
     resolution: {integrity: sha512-ASwd7Nf4pViqdYRYaNRyPYRVKWa1CcHUAUWR0XeQJLGdNnsWACBwe0sSieb/cHnKsRXjRwO/23KIY83lm/Ccpw==}
 
@@ -12196,9 +12205,6 @@ packages:
     resolution: {integrity: sha512-fVdCsnmYoKICsycbWuuGp6Jvi51/3G/UluFWuAUCvR8PIW5IJkAk5BM9UF8PSm0Q2IphWHFZjYEgjHsh3B9y/g==}
     cpu: [arm64]
     os: [win32]
-
-  '@tybys/wasm-util@0.10.1':
-    resolution: {integrity: sha512-9tTaPJLSiejZKx+Bmog4uSubteqTvFrVrURwkmHixBo0G4seD0zUxp98E1DzUBJxLQ3NPwXrGKDiVjwx/DpPsg==}
 
   '@tybys/wasm-util@0.10.2':
     resolution: {integrity: sha512-RoBvJ2X0wuKlWFIjrwffGw1IqZHKQqzIchKaadZZfnNpsAYp2mM0h36JtPCjNDAHGgYez/15uMBpfGwchhiMgg==}
@@ -18338,6 +18344,9 @@ packages:
   mdast-util-mdxjs-esm@2.0.1:
     resolution: {integrity: sha512-EcmOpxsZ96CvlP03NghtH1EsLtr0n9Tm4lPUJUBccV9RwUOneqSycg19n5HGzCf+10LozMRSObtVr3ee1WoHtg==}
 
+  mdast-util-newline-to-break@2.0.0:
+    resolution: {integrity: sha512-MbgeFca0hLYIEx/2zGsszCSEJJ1JSCdiY5xQxRcLDDGa8EPvlLPupJ4DSajbMPAnC0je8jfb9TiUATnxxrHUog==}
+
   mdast-util-phrasing@4.1.0:
     resolution: {integrity: sha512-TqICwyvJJpBwvGAMZjj4J2n0X8QWp21b9l0o7eXyVJ25YNWYbJDVIyD1bZXE6WtV6RmKJVYmQAKWa0zWOABz2w==}
 
@@ -20781,6 +20790,9 @@ packages:
   release-zalgo@1.0.0:
     resolution: {integrity: sha512-gUAyHVHPPC5wdqX/LG4LWtRYtgjxyX78oanFNTMMyFEfOqdC54s3eE82imuWKbOeqYht2CrNf64Qb8vgmmtZGA==}
     engines: {node: '>=4'}
+
+  remark-breaks@4.0.0:
+    resolution: {integrity: sha512-IjEjJOkH4FuJvHZVIW0QCDWxcG96kCq7An/KVH2NfJe6rKZU2AsHeB3OEjPNRxi4QC34Xdx7I2KGYn6IpT7gxQ==}
 
   remark-gfm@4.0.1:
     resolution: {integrity: sha512-1quofZ2RQ9EWdeN34S79+KExV1764+wCUGop5CPL1WGdD0ocPpu91lzPGbwWMECpEpd42kJGQwzRfyov9j4yNg==}
@@ -27207,7 +27219,7 @@ snapshots:
 
   '@img/sharp-wasm32@0.34.5':
     dependencies:
-      '@emnapi/runtime': 1.9.2
+      '@emnapi/runtime': 1.11.0
     optional: true
 
   '@img/sharp-win32-arm64@0.34.5':
@@ -27234,7 +27246,6 @@ snapshots:
       '@inquirer/type': 4.0.7(@types/node@25.8.0)
     optionalDependencies:
       '@types/node': 25.8.0
-    optional: true
 
   '@inquirer/core@11.2.1(@types/node@22.18.8)':
     dependencies:
@@ -27259,7 +27270,6 @@ snapshots:
       signal-exit: 4.1.0
     optionalDependencies:
       '@types/node': 25.8.0
-    optional: true
 
   '@inquirer/figures@2.0.7': {}
 
@@ -27270,7 +27280,6 @@ snapshots:
   '@inquirer/type@4.0.7(@types/node@25.8.0)':
     optionalDependencies:
       '@types/node': 25.8.0
-    optional: true
 
   '@ioredis/commands@1.10.0':
     optional: true
@@ -28443,9 +28452,9 @@ snapshots:
 
   '@napi-rs/wasm-runtime@0.2.12':
     dependencies:
-      '@emnapi/core': 1.9.2
-      '@emnapi/runtime': 1.9.2
-      '@tybys/wasm-util': 0.10.1
+      '@emnapi/core': 1.11.0
+      '@emnapi/runtime': 1.11.0
+      '@tybys/wasm-util': 0.10.2
     optional: true
 
   '@napi-rs/wasm-runtime@0.2.6':
@@ -30355,7 +30364,7 @@ snapshots:
 
   '@posthog/core@1.35.1':
     dependencies:
-      '@posthog/types': 1.391.0
+      '@posthog/types': 1.391.1
 
   '@posthog/core@1.37.2':
     dependencies:
@@ -30417,8 +30426,6 @@ snapshots:
       '@types/react': 18.3.27
 
   '@posthog/siphash@1.1.1': {}
-
-  '@posthog/types@1.391.0': {}
 
   '@posthog/types@1.391.1': {}
 
@@ -33001,11 +33008,6 @@ snapshots:
     optional: true
 
   '@turbo/windows-arm64@2.9.14':
-    optional: true
-
-  '@tybys/wasm-util@0.10.1':
-    dependencies:
-      tslib: 2.8.1
     optional: true
 
   '@tybys/wasm-util@0.10.2':
@@ -41334,6 +41336,11 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  mdast-util-newline-to-break@2.0.0:
+    dependencies:
+      '@types/mdast': 4.0.4
+      mdast-util-find-and-replace: 3.0.2
+
   mdast-util-phrasing@4.1.0:
     dependencies:
       '@types/mdast': 4.0.4
@@ -41920,7 +41927,6 @@ snapshots:
       typescript: 6.0.3
     transitivePeerDependencies:
       - '@types/node'
-    optional: true
 
   muggle-string@0.4.1: {}
 
@@ -44491,6 +44497,12 @@ snapshots:
   release-zalgo@1.0.0:
     dependencies:
       es6-error: 4.1.1
+
+  remark-breaks@4.0.0:
+    dependencies:
+      '@types/mdast': 4.0.4
+      mdast-util-newline-to-break: 2.0.0
+      unified: 11.0.5
 
   remark-gfm@4.0.1:
     dependencies:

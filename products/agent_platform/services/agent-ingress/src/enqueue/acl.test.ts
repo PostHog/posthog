@@ -54,7 +54,6 @@ function makeSession(opts: { state?: AgentSession['state']; pending?: PendingEle
         usage_total: { ...EMPTY_USAGE_TOTAL },
         acl: [],
         pending_elevation_requests: opts.pending ?? [],
-        is_preview: false,
         created_at: '2026-05-27',
         updated_at: '2026-05-27',
     }
