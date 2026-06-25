@@ -475,7 +475,10 @@ export interface EvaluationApi {
     enabled?: boolean
     readonly status: EvaluationStatusEnumApi
     readonly status_reason: StatusReasonEnumApi | null
-    /** Additional detail for the current system-disabled status. This is only populated when the detail is safe to show in the evaluation UI. */
+    /**
+     * Additional detail for the current system-disabled status. This is only populated when the detail is safe to show in the evaluation UI.
+     * @nullable
+     */
     readonly status_reason_detail: string | null
     /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
      *
@@ -555,7 +558,10 @@ export interface PatchedEvaluationApi {
     enabled?: boolean
     readonly status?: EvaluationStatusEnumApi
     readonly status_reason?: StatusReasonEnumApi | null
-    /** Additional detail for the current system-disabled status. This is only populated when the detail is safe to show in the evaluation UI. */
+    /**
+     * Additional detail for the current system-disabled status. This is only populated when the detail is safe to show in the evaluation UI.
+     * @nullable
+     */
     readonly status_reason_detail?: string | null
     /** 'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.
      *
