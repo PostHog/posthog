@@ -96,6 +96,10 @@ features:
   bot_user:
     display_name: posthog-slack-dev
     always_online: true
+  app_home:
+    home_tab_enabled: true
+    messages_tab_enabled: false
+    messages_tab_read_only_enabled: false
 oauth_config:
   redirect_urls:
     - https://<you>-posthog.ngrok.dev/integrations/slack/callback
@@ -115,6 +119,7 @@ settings:
     request_url: https://<you>-posthog.ngrok.dev/slack/event-callback
     bot_events:
       - app_mention
+      - app_home_opened
   interactivity:
     is_enabled: true
     request_url: https://<you>-posthog.ngrok.dev/slack/interactivity-callback
@@ -129,6 +134,9 @@ Django must be up at that moment.
 
 > `link_shared` is left out on purpose — it needs the `links:read` scope (the manifest won't save
 > otherwise) and the coding agent doesn't use it.
+
+> The `app_home` block + `app_home_opened` bot event power the App Home tab. Drop them if you
+> don't want the Home tab locally — it's gated behind the `slack-app-home` flag.
 
 ## Step 3 — backend credentials and `SITE_URL`
 
