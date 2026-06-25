@@ -20,7 +20,7 @@ struct IssueLifecycleInternalEvent<'a, I: NotificationIssue> {
     event_timestamp: &'a DateTime<Utc>,
 }
 
-pub async fn send_new_fingerprint_event_to_producer<I: NotificationIssue>(
+pub async fn send_new_fingerprint_event<I: NotificationIssue>(
     producer: &FutureProducer<KafkaContext>,
     embedding_worker_topic: &str,
     issue: &I,
@@ -55,7 +55,7 @@ fn fingerprint_embedding_request<I: NotificationIssue>(
     }
 }
 
-pub async fn send_issue_created_alert_to_producer<I: NotificationIssue>(
+pub async fn send_issue_created_internal_event<I: NotificationIssue>(
     producer: &FutureProducer<KafkaContext>,
     internal_events_topic: &str,
     notification_id: Uuid,
@@ -79,7 +79,7 @@ pub async fn send_issue_created_alert_to_producer<I: NotificationIssue>(
     .await
 }
 
-pub async fn send_issue_reopened_alert_to_producer<I: NotificationIssue>(
+pub async fn send_issue_reopened_internal_event<I: NotificationIssue>(
     producer: &FutureProducer<KafkaContext>,
     internal_events_topic: &str,
     notification_id: Uuid,
@@ -103,7 +103,7 @@ pub async fn send_issue_reopened_alert_to_producer<I: NotificationIssue>(
     .await
 }
 
-pub async fn send_issue_spiking_alert_to_producer<I: NotificationIssue>(
+pub async fn send_issue_spiking_internal_event<I: NotificationIssue>(
     producer: &FutureProducer<KafkaContext>,
     internal_events_topic: &str,
     notification_id: Uuid,

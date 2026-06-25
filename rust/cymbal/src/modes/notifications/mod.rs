@@ -5,38 +5,29 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use std::time::Duration;
 
 use axum::{http::StatusCode, routing::get, Router};
-use common_kafka::kafka_consumer::{Offset, RecvErr, SingleTopicConsumer};
+use common_kafka::kafka_consumer::SingleTopicConsumer;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
-use tokio::time::MissedTickBehavior;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, warn};
 
-use crate::core::{shutdown::wait_for_shutdown, types::notification::IngestionNotification};
+use crate::core::shutdown::wait_for_shutdown;
+use crate::modes::notifications::consumer_loop::consume_loop;
 use crate::modes::notifications::context::NotificationsContext;
-use crate::modes::notifications::handler::handle_notification;
 
 pub mod analytics;
 pub mod config;
+mod consumer_loop;
 mod context;
 mod handler;
+mod issue_handler;
 pub mod side_effects;
 pub mod signals;
 pub mod stacktrace;
 pub mod types;
 
 pub use config::NotificationsConfig;
-
-const NOTIFICATIONS_RECEIVED_TOTAL: &str = "cymbal_notifications_received_total";
-const NOTIFICATIONS_HANDLED_TOTAL: &str = "cymbal_notifications_handled_total";
-const NOTIFICATIONS_SKIPPED_TOTAL: &str = "cymbal_notifications_skipped_total";
-const NOTIFICATIONS_KAFKA_ERRORS_TOTAL: &str = "cymbal_notifications_kafka_errors_total";
-const NOTIFICATIONS_HANDLE_ERRORS_TOTAL: &str = "cymbal_notifications_handle_errors_total";
-const NOTIFICATIONS_COMMIT_BATCH_SIZE: usize = 100;
-const NOTIFICATIONS_COMMIT_INTERVAL: Duration = Duration::from_secs(1);
-const NOTIFICATIONS_FETCH_BATCH_TIMEOUT: Duration = Duration::from_millis(250);
 
 /// Boot the notifications consumer plus its metrics/health server and run until
 /// shutdown.
@@ -66,140 +57,6 @@ pub async fn run(config: NotificationsConfig) {
         warn!(error = %err, "metrics server task failed during shutdown");
     }
     shutdown_handle.abort();
-}
-
-/// Receive messages until shutdown. Offsets are stored only after successful
-/// handling, then explicitly committed in small batches. Serde and empty
-/// failures are auto-stored as poison pills inside `json_recv`, so this loop
-/// also explicitly commits those stored offsets.
-async fn consume_loop(
-    consumer: SingleTopicConsumer,
-    context: NotificationsContext,
-    mut shutdown_rx: watch::Receiver<bool>,
-) {
-    let mut pending_offsets = 0usize;
-    let mut commit_interval = tokio::time::interval(NOTIFICATIONS_COMMIT_INTERVAL);
-    commit_interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
-    commit_interval.tick().await;
-
-    loop {
-        tokio::select! {
-            biased;
-            changed = shutdown_rx.changed() => {
-                if changed.is_err() || *shutdown_rx.borrow() {
-                    info!("notifications consumer shutting down");
-                    commit_pending_offsets(&consumer, &mut pending_offsets, "shutdown");
-                    break;
-                }
-            }
-            _ = commit_interval.tick(), if pending_offsets > 0 => {
-                commit_pending_offsets(&consumer, &mut pending_offsets, "interval");
-            }
-            batch = consumer.json_recv_batch::<IngestionNotification>(
-                NOTIFICATIONS_COMMIT_BATCH_SIZE,
-                NOTIFICATIONS_FETCH_BATCH_TIMEOUT,
-            ) => {
-                handle_notification_batch(&consumer, &context, batch, &mut pending_offsets).await;
-                if pending_offsets >= NOTIFICATIONS_COMMIT_BATCH_SIZE {
-                    commit_pending_offsets(&consumer, &mut pending_offsets, "batch");
-                }
-            }
-        }
-    }
-}
-
-async fn handle_notification_batch(
-    consumer: &SingleTopicConsumer,
-    context: &NotificationsContext,
-    batch: Vec<Result<(IngestionNotification, Offset), RecvErr>>,
-    pending_offsets: &mut usize,
-) {
-    for result in batch {
-        match result {
-            Ok((notification, offset)) => {
-                log_notification_summary(&notification);
-                metrics::counter!(NOTIFICATIONS_RECEIVED_TOTAL).increment(1);
-                match handle_notification(context, notification).await {
-                    Ok(()) => {
-                        metrics::counter!(NOTIFICATIONS_HANDLED_TOTAL).increment(1);
-                        if let Err(e) = offset.store() {
-                            panic!("failed to store notification offset: {e}");
-                        }
-                        *pending_offsets += 1;
-                    }
-                    Err(e) => {
-                        metrics::counter!(NOTIFICATIONS_HANDLE_ERRORS_TOTAL).increment(1);
-                        commit_pending_offsets(consumer, pending_offsets, "before_panic");
-                        panic!("failed to handle notification: {e}");
-                    }
-                }
-            }
-            Err(RecvErr::Serde(e)) => {
-                warn!(error = %e, "notification serde error (poison pill skipped)");
-                metrics::counter!(NOTIFICATIONS_SKIPPED_TOTAL, "reason" => "serde").increment(1);
-                *pending_offsets += 1;
-            }
-            Err(RecvErr::Empty) => {
-                metrics::counter!(NOTIFICATIONS_SKIPPED_TOTAL, "reason" => "empty").increment(1);
-                *pending_offsets += 1;
-            }
-            Err(RecvErr::Kafka(e)) => {
-                error!(error = %e, "notifications kafka error");
-                metrics::counter!(NOTIFICATIONS_KAFKA_ERRORS_TOTAL).increment(1);
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
-        }
-    }
-}
-
-fn commit_pending_offsets(
-    consumer: &SingleTopicConsumer,
-    pending_offsets: &mut usize,
-    reason: &str,
-) {
-    if *pending_offsets == 0 {
-        return;
-    }
-
-    if let Err(e) = consumer.commit() {
-        panic!("failed to commit notification offsets: {e}");
-    }
-
-    debug!(
-        count = *pending_offsets,
-        reason, "committed notification offsets"
-    );
-    *pending_offsets = 0;
-}
-
-fn log_notification_summary(notification: &IngestionNotification) {
-    match notification {
-        IngestionNotification::IssueCreated(issue_created) => {
-            debug!(
-                notification_type = "issue_created",
-                team_id = issue_created.team_id,
-                issue_id = %issue_created.issue_id,
-                event_uuid = %issue_created.event_uuid,
-                "received error-tracking ingestion notification"
-            );
-        }
-        IngestionNotification::IssueReopened(issue_reopened) => {
-            debug!(
-                notification_type = "issue_reopened",
-                team_id = issue_reopened.team_id,
-                issue_id = %issue_reopened.issue_id,
-                "received error-tracking ingestion notification"
-            );
-        }
-        IngestionNotification::IssueSpiking(issue_spiking) => {
-            debug!(
-                notification_type = "issue_spiking",
-                team_id = issue_spiking.team_id,
-                issue_id = %issue_spiking.issue_id,
-                "received error-tracking ingestion notification"
-            );
-        }
-    }
 }
 
 fn spawn_metrics_server(

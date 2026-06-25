@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::core::types::notification::{
-    IngestionNotification, IssueCreated, IssueReopened, IssueSpiking,
+    IngestionNotification, IssueCreated, IssueNotificationContext, IssueReopened, IssueSnapshot,
+    IssueSpiking, NotificationMeta,
 };
 use crate::modes::processing::rules::assignment::{Assignee, Assignment};
 use crate::types::OutputErrProps;
@@ -346,17 +347,16 @@ pub async fn send_issue_created_notification(
     event_uuid: Uuid,
     event_timestamp: &DateTime<Utc>,
 ) -> Result<(), UnhandledError> {
+    let fingerprint = output_props.fingerprint.clone();
     publish_ingestion_notification(
         context,
         IngestionNotification::IssueCreated(IssueCreated {
-            notification_id: Uuid::now_v7(),
-            team_id: issue.team_id,
-            issue_id: issue.id,
-            fingerprint: output_props.fingerprint.clone(),
+            meta: notification_meta(issue),
+            issue: issue_notification_context(issue, output_props),
+            fingerprint,
             event_uuid,
             event_timestamp: event_timestamp.to_rfc3339(),
             assignee: assignment_to_string(assignment)?,
-            event_properties: output_props,
         }),
     )
     .await
@@ -372,12 +372,10 @@ pub async fn send_issue_reopened_notification(
     publish_ingestion_notification(
         context,
         IngestionNotification::IssueReopened(IssueReopened {
-            notification_id: Uuid::now_v7(),
-            team_id: issue.team_id,
-            issue_id: issue.id,
+            meta: notification_meta(issue),
+            issue: issue_notification_context(issue, output_props),
             event_timestamp: event_timestamp.to_rfc3339(),
             assignee: assignment_to_string(assignment)?,
-            event_properties: output_props,
         }),
     )
     .await
@@ -393,15 +391,40 @@ pub async fn send_issue_spiking_notification(
     publish_ingestion_notification(
         context,
         IngestionNotification::IssueSpiking(IssueSpiking {
-            notification_id: Uuid::now_v7(),
-            team_id: issue.team_id,
-            issue_id: issue.id,
+            meta: notification_meta(issue),
+            issue: issue_notification_context(issue, output_props),
             computed_baseline,
             current_bucket_value,
-            event_properties: output_props,
         }),
     )
     .await
+}
+
+fn notification_meta(issue: &Issue) -> NotificationMeta {
+    NotificationMeta {
+        notification_id: Uuid::now_v7(),
+        team_id: issue.team_id,
+    }
+}
+
+fn issue_notification_context(
+    issue: &Issue,
+    output_props: OutputErrProps,
+) -> IssueNotificationContext {
+    IssueNotificationContext {
+        issue_id: issue.id,
+        issue: issue_snapshot(issue),
+        event_properties: output_props,
+    }
+}
+
+fn issue_snapshot(issue: &Issue) -> IssueSnapshot {
+    IssueSnapshot {
+        name: issue.name.clone(),
+        description: issue.description.clone(),
+        status: issue.status.to_string(),
+        created_at: issue.created_at,
+    }
 }
 
 async fn publish_ingestion_notification(
