@@ -1020,6 +1020,15 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 format_datetime_impl(vm, &args)
             }),
         ),
+        (
+            "isIPAddressInRange",
+            native_func(|vm, args| {
+                assert_argc(&args, 2, "isIPAddressInRange")?;
+                let address: &str = args[0].deref(&vm.heap)?.try_as()?;
+                let prefix: &str = args[1].deref(&vm.heap)?.try_as()?;
+                Ok(HogLiteral::Boolean(is_ip_address_in_range(address, prefix)).into())
+            }),
+        ),
     ]
     .into_iter()
     .map(|(name, func)| (name.to_string(), func))
@@ -1654,6 +1663,117 @@ fn translate_format_token(c: char) -> &'static str {
         'z' => "%z", '%' => "%%",
         _ => "",
     }
+}
+
+// Port of the reference `isIPAddressInRange` (common/hogvm/typescript/src/stl/ip.ts): is `address`
+// inside the CIDR `prefix`? Any malformed input returns false rather than erroring, matching the
+// reference's try/catch. We reimplement parsing instead of leaning on std::net so the strict
+// validation (no leading zeros, exact segment counts, single `::`) matches byte-for-byte.
+fn is_ip_address_in_range(address: &str, prefix: &str) -> bool {
+    if address.is_empty() || prefix.is_empty() {
+        return false;
+    }
+    let Some((net, mask)) = prefix.split_once('/') else {
+        return false;
+    };
+    if net.is_empty() || mask.is_empty() {
+        return false;
+    }
+    let Ok(cidr) = mask.parse::<i64>() else {
+        return false;
+    };
+    if cidr < 0 {
+        return false;
+    }
+    let v4 = address.contains('.') && net.contains('.');
+    let v6 = !v4 && address.contains(':') && net.contains(':');
+    if !v4 && !v6 {
+        return false;
+    }
+    if (v4 && cidr > 32) || (v6 && cidr > 128) {
+        return false;
+    }
+    let (Some(a_bytes), Some(n_bytes)) = (ip_to_bytes(address, v4), ip_to_bytes(net, v4)) else {
+        return false;
+    };
+    let cidr = cidr as usize;
+    let full_bytes = cidr >> 3;
+    for i in 0..full_bytes {
+        if a_bytes[i] != n_bytes[i] {
+            return false;
+        }
+    }
+    let bits = cidr & 7;
+    if bits != 0 && full_bytes < a_bytes.len() {
+        let m = 0xffu16 << (8 - bits);
+        if (u16::from(a_bytes[full_bytes]) & m) != (u16::from(n_bytes[full_bytes]) & m) {
+            return false;
+        }
+    }
+    true
+}
+
+fn ip_to_bytes(ip: &str, is_v4: bool) -> Option<Vec<u8>> {
+    if is_v4 {
+        let parts: Vec<&str> = ip.split('.').collect();
+        if parts.len() != 4 {
+            return None;
+        }
+        let mut bytes = Vec::with_capacity(4);
+        for part in parts {
+            let n: u32 = part.parse().ok()?;
+            // Reject n > 255 and non-canonical forms like "01" (parse() already rejects "+1"/" 1").
+            if n > 255 || part != n.to_string() {
+                return None;
+            }
+            bytes.push(n as u8);
+        }
+        return Some(bytes);
+    }
+
+    let segments: Vec<String> = if ip.contains("::") {
+        if ip.matches("::").count() > 1 {
+            return None;
+        }
+        let (pre, post) = ip.split_once("::")?;
+        let pre_seg: Vec<&str> = if pre.is_empty() {
+            vec![]
+        } else {
+            pre.split(':').collect()
+        };
+        let post_seg: Vec<&str> = if post.is_empty() {
+            vec![]
+        } else {
+            post.split(':').collect()
+        };
+        if pre_seg.len() + post_seg.len() > 7 {
+            return None;
+        }
+        let fill = 8 - pre_seg.len() - post_seg.len();
+        pre_seg
+            .iter()
+            .map(|s| s.to_string())
+            .chain((0..fill).map(|_| "0".to_string()))
+            .chain(post_seg.iter().map(|s| s.to_string()))
+            .collect()
+    } else {
+        let segs: Vec<&str> = ip.split(':').collect();
+        if segs.len() != 8 {
+            return None;
+        }
+        segs.iter().map(|s| s.to_string()).collect()
+    };
+
+    let mut bytes = vec![0u8; 16];
+    for (i, seg) in segments.iter().enumerate() {
+        if seg.is_empty() {
+            return None;
+        }
+        let v = u16::from_str_radix(seg, 16).ok()?;
+        bytes[i * 2] = (v >> 8) as u8;
+        bytes[i * 2 + 1] = (v & 0xff) as u8;
+    }
+    Some(bytes)
 }
 
 fn assert(test: bool, msg: impl AsRef<str>) -> Result<(), VmError> {
