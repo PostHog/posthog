@@ -22,6 +22,7 @@ import type { Credential } from './credential-broker'
 import type {
     IdentityCompleteInput,
     IdentityCompleteResult,
+    IdentityExchangeResult,
     IdentityInitiateInput,
     IdentityInitiateResult,
     IdentityProvider,
@@ -30,34 +31,14 @@ import type {
 import { Oauth2AuthProvider } from './oauth2-identity-provider'
 
 export class PostHogAuthProvider extends Oauth2AuthProvider {
+    // Linking proves WHO the principal is; `complete()` stamps the userinfo `sub`
+    // (read by the inherited `fetchSubject`) as the credential subject.
     override readonly establishesIdentity = true
 
     // The edge seed (PostHog Code's posthog bearer) and the native `@posthog/*`
     // tools both key off `posthog_api`; the linked store stays keyed by `id`.
     override get credentialTarget(): string {
         return 'posthog_api'
-    }
-
-    protected override async deriveSubject(accessToken: string): Promise<string | undefined> {
-        const url = this.deps.config.userinfoUrl
-        if (!url) {
-            return undefined
-        }
-        // Best-effort: a userinfo hiccup must not block the link succeeding as a
-        // capability. Without a subject the credential just isn't identity-bearing.
-        try {
-            const res = await this.deps.http.fetch(url, {
-                method: 'GET',
-                headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
-            })
-            if (!res.ok) {
-                return undefined
-            }
-            const json = (await res.json()) as { sub?: string }
-            return typeof json.sub === 'string' && json.sub.length > 0 ? json.sub : undefined
-        } catch {
-            return undefined
-        }
     }
 }
 
@@ -89,6 +70,10 @@ export class SeedOnlyPostHogProvider implements IdentityProvider {
     }
 
     async initiate(_input: IdentityInitiateInput): Promise<IdentityInitiateResult> {
+        throw new Error('link_unavailable_no_oauth_app')
+    }
+
+    async exchange(_input: IdentityCompleteInput): Promise<IdentityExchangeResult> {
         throw new Error('link_unavailable_no_oauth_app')
     }
 
