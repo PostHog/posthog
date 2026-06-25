@@ -18,6 +18,10 @@ compatibility: >
 metadata:
   owner_team: signals
   scope: health_checks
+allowed_tools:
+  - emit_report
+  - edit_report
+  - search_scout_reports
 ---
 
 # Signals scout: setup health
@@ -210,6 +214,31 @@ Write scratchpad entries continuously, encoding the category in the key prefix:
   `noise:` entry).
 - **Skip** if a `dedupe:` / `noise:` / `addressed:` entry already covers it.
 
+#### Report channel (opt-in)
+
+Your output is naturally _one well-framed report_ — a bundled kind-cluster, or a single
+high-blast-radius root cause with remediation. For those you can author a full inbox report
+directly with `signals-scout-emit-report` instead of `-emit-signal`, when you've already done
+the research and want 1:1 control over the title/summary rather than letting the pipeline
+cluster it. The confidence bar is the same (≥ 0.85 for a report-worthy finding); reporting is a
+higher bar, not a shortcut.
+
+- **Before authoring**, `signals-scout-search-reports` (and check `inbox-reports-list`) for a
+  prior report on the same cluster/cause. Found one → `signals-scout-edit-report` it (append a
+  note with the new count/critical, or rewrite the summary) instead of filing a duplicate.
+- **After authoring**, write a `report:health:<kind-or-cause>` scratchpad entry storing the
+  `report_id` and date, so the next run edits that report rather than re-filing. The channel is
+  **not idempotent** — never retry a call that may have succeeded; `search-reports` to check
+  first.
+- `actionability` is your call: `immediately_actionable` for an agent-fixable issue with clear
+  MCP remediation, `requires_human_input` for credential-gated ones (e.g.
+  `external_data_failure`), `not_actionable` to file for the record. Put the issue ids and
+  blast-radius numbers in `evidence` exactly as you would for a signal.
+
+When a finding is a routine single issue or a low-confidence pattern, stay on `-emit-signal` —
+the report channel is for the bundled, researched, human-framed findings this scout exists to
+produce.
+
 ### Close out
 
 One paragraph: which issues you looked at, what you emitted (and why), what
@@ -275,7 +304,8 @@ Direct (read-only):
 
 Harness-level: `signals-scout-project-profile-get`, `signals-scout-scratchpad-search` /
 `-remember` / `-forget`, `signals-scout-runs-list` / `-runs-retrieve`,
-`signals-scout-emit-signal`.
+`signals-scout-emit-signal`. Report channel (opt-in): `signals-scout-emit-report` /
+`-edit-report` / `-search-reports` (see the Report channel note under Decide).
 
 For deeper query playbooks the sandbox bakes `posthog:querying-posthog-data` (HogQL syntax +
 `system.*` patterns).
