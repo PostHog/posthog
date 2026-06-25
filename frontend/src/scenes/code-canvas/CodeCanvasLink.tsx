@@ -28,6 +28,11 @@ export const scene: SceneExport<CodeCanvasLinkProps> = {
  */
 export function CodeCanvasLink({ channelId, dashboardId }: CodeCanvasLinkProps): JSX.Element {
     useEffect(() => {
+        // Guard against a partial URL (one segment) or params not yet resolved —
+        // firing with an empty id would send a malformed `posthog-code://canvas//`.
+        if (!channelId || !dashboardId) {
+            return
+        }
         // Production custom scheme only — the public website has no dev build to target.
         window.location.href = `posthog-code://canvas/${encodeURIComponent(channelId)}/${encodeURIComponent(
             dashboardId
@@ -40,8 +45,8 @@ export function CodeCanvasLink({ channelId, dashboardId }: CodeCanvasLinkProps):
                 <IconLaptop className="text-5xl shrink-0" />
                 <h2 className="text-xl font-semibold m-0">Opening in PostHog Code…</h2>
                 <p className="text-muted mb-0">
-                    Canvases live in the PostHog Code desktop app. If it's installed, it should open
-                    automatically. Otherwise, download it to view this canvas.
+                    Canvases live in the PostHog Code desktop app. If it's installed, it should open automatically.
+                    Otherwise, download it to view this canvas.
                 </p>
                 <LemonButton type="primary" to="https://posthog.com/code" targetBlank>
                     Download PostHog Code
