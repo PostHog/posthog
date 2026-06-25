@@ -110,7 +110,10 @@ pub struct ProcessingConfig {
     #[envconfig(from = "ERROR_TRACKING_CYMBAL_RATE_LIMITER_ENABLED", default = "false")]
     pub error_tracking_rate_limiter_enabled: bool,
 
-    #[envconfig(from = "ERROR_TRACKING_CYMBAL_RATE_LIMITER_REDIS_URL", default = "redis://localhost:6379/")]
+    #[envconfig(
+        from = "ERROR_TRACKING_CYMBAL_RATE_LIMITER_REDIS_URL",
+        default = "redis://localhost:6379/"
+    )]
     pub error_tracking_rate_limiter_redis_url: String,
 
     #[envconfig(
@@ -127,7 +130,10 @@ pub struct ProcessingConfig {
 
     // Comma separated list of team IDs the error-tracking rate limiter applies to.
     // If empty, it applies to all teams (that have limits configured).
-    #[envconfig(from = "ERROR_TRACKING_CYMBAL_RATE_LIMITER_ENABLED_TEAM_IDS", default = "")]
+    #[envconfig(
+        from = "ERROR_TRACKING_CYMBAL_RATE_LIMITER_ENABLED_TEAM_IDS",
+        default = ""
+    )]
     pub error_tracking_rate_limiter_enabled_team_ids: String,
 
     // Comma separated list of team IDs that can receive spike alerts.
