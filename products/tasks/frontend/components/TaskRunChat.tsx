@@ -91,41 +91,53 @@ function TaskRunChatContent({ taskId, runId }: TaskRunChatProps): JSX.Element {
                 )}
             </div>
 
-            {!isBlockingBootstrapState && <SandboxResourcesBar />}
+            {!isBlockingBootstrapState && (
+                <div className="w-full max-w-180 mx-auto">
+                    <SandboxResourcesBar />
+                </div>
+            )}
 
             {pendingPermissionRequest && !isTerminal && !isBlockingBootstrapState && (
                 <div className="border-t px-4 py-3">
-                    {isQuestion ? (
-                        <SandboxQuestionInput streamKey={runId} request={pendingPermissionRequest} />
-                    ) : (
-                        <SandboxPermissionInput streamKey={runId} request={pendingPermissionRequest} />
-                    )}
+                    <div className="w-full max-w-180 mx-auto">
+                        {isQuestion ? (
+                            <SandboxQuestionInput streamKey={runId} request={pendingPermissionRequest} />
+                        ) : (
+                            <SandboxPermissionInput streamKey={runId} request={pendingPermissionRequest} />
+                        )}
+                    </div>
                 </div>
             )}
 
             {!isTerminal && !pendingPermissionRequest && !isBlockingBootstrapState && (
-                <div className="border-t px-4 py-3 flex gap-2 items-end">
-                    <LemonTextArea
-                        className="flex-1"
-                        value={composerText}
-                        onChange={setComposerText}
-                        placeholder="Send a follow-up message…"
-                        minRows={1}
-                        maxRows={8}
-                        onPressCmdEnter={handleSend}
-                    />
-                    <LemonButton
-                        type="primary"
-                        onClick={handleSend}
-                        loading={sendingMessage}
-                        disabledReason={!composerText.trim() ? 'Type a message first' : undefined}
-                    >
-                        Send
-                    </LemonButton>
+                <div className="border-t px-4 py-3">
+                    <div className="w-full max-w-180 mx-auto flex gap-2 items-end">
+                        <LemonTextArea
+                            className="flex-1"
+                            value={composerText}
+                            onChange={setComposerText}
+                            placeholder="Send a follow-up message…"
+                            minRows={1}
+                            maxRows={8}
+                            onPressCmdEnter={handleSend}
+                        />
+                        <LemonButton
+                            type="primary"
+                            onClick={handleSend}
+                            loading={sendingMessage}
+                            disabledReason={!composerText.trim() ? 'Type a message first' : undefined}
+                        >
+                            Send
+                        </LemonButton>
+                    </div>
                 </div>
             )}
 
-            {!isBlockingBootstrapState && <SandboxContextUsage />}
+            {!isBlockingBootstrapState && (
+                <div className="w-full max-w-180 mx-auto">
+                    <SandboxContextUsage />
+                </div>
+            )}
         </div>
     )
 }
