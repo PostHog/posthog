@@ -318,6 +318,7 @@ export const getScopeDescription = (scope: string): string | undefined => {
     }
 
     if (scope === 'introspection') {
+        // OAuth-internal scope — never shown to users; list call sites .filter(Boolean) it out.
         return undefined
     }
 
@@ -326,33 +327,17 @@ export const getScopeDescription = (scope: string): string | undefined => {
     if (!object || !action) {
         return scope
     }
+
+    const actionWord = action === 'write' ? 'Write' : 'Read'
 
     const scopeObject = API_SCOPES.find((s) => s.key === object)
     if (!scopeObject) {
-        // Unknown / hidden scope — call sites .filter(Boolean) the result.
-        return undefined
+        // OAuth-hidden scope (e.g. wizard_session, query_performance) — absent from API_SCOPES,
+        // so derive a readable label from the raw key rather than surfacing the raw identifier.
+        return `${actionWord} access to ${object.replace(/_/g, ' ')}`
     }
-    const actionWord = action === 'write' ? 'Write' : 'Read'
 
     return `${actionWord} access to ${scopeObject.objectPlural}`
-}
-
-/**
- * Like getScopeDescription but always returns a string. Falls back to a formatted
- * version of the raw scope string for hidden/unknown scopes (e.g. `wizard_session:write`
- * → "Write access to wizard session") so the OAuth consent screen never shows raw identifiers.
- */
-export const formatScopeDescription = (scope: string): string => {
-    const known = getScopeDescription(scope)
-    if (known !== undefined) {
-        return known
-    }
-    const [object, action] = scope.split(':')
-    if (!object || !action) {
-        return scope
-    }
-    const actionWord = action === 'write' ? 'Write' : 'Read'
-    return `${actionWord} access to ${object.replace(/_/g, ' ')}`
 }
 
 export const getMinimumEquivalentScopes = (scopes: string[]): string[] => {

@@ -9,7 +9,6 @@ import {
     API_SCOPES,
     DEFAULT_OAUTH_SCOPES,
     MCP_SERVER_OAUTH_SCOPES,
-    formatScopeDescription,
     getMinimumEquivalentScopes,
     getScopeDescription,
 } from 'lib/scopes'
@@ -533,7 +532,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                             {
                                 key,
                                 toggleKey: key,
-                                description: formatScopeDescription(effective),
+                                description: getScopeDescription(effective) ?? effective,
                                 granted: !denied.has(key),
                                 required: false,
                             },
@@ -554,7 +553,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                         {
                             key,
                             toggleKey: null,
-                            description: formatScopeDescription(floorScope),
+                            description: getScopeDescription(floorScope) ?? floorScope,
                             granted: true,
                             required: true,
                         },
@@ -563,7 +562,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                         rows.push({
                             key: `${key}:optional-write`,
                             toggleKey: key,
-                            description: formatScopeDescription(scope),
+                            description: getScopeDescription(scope) ?? scope,
                             granted: !denied.has(key),
                             required: false,
                         })
