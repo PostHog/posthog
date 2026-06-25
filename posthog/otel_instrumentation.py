@@ -36,6 +36,17 @@ def _otel_django_response_hook(span, request, response):
 
 
 def initialize_otel():
+    # App tracing targets a real OTLP collector (dev/prod). In tests, booting the app
+    # (e.g. posthog/test/test_asgi_lifespan.py imports posthog.asgi) would otherwise arm a
+    # process-wide span exporter to the SDK default localhost:4317 with no collector there,
+    # so the flush at pytest shutdown retries with exponential backoff and stalls the run by
+    # minutes. Skip app instrumentation in tests WITHOUT touching OTEL_SDK_DISABLED, so tests
+    # that build their own in-memory TracerProvider still record spans (test_auth_spans,
+    # test_celery_span_team_id, test_routing). TEST is forced on by settings/overrides.py
+    # before any app import runs.
+    if os.environ.get("TEST") == "1":
+        return
+
     # --- BEGIN FORCED OTEL DEBUG LOGGING ---
     otel_python_log_level_env = os.environ.get("OTEL_PYTHON_LOG_LEVEL", "info").lower()
     effective_log_level = logging.DEBUG if otel_python_log_level_env == "debug" else logging.INFO

@@ -1,10 +1,10 @@
 import { Message } from 'node-rdkafka'
 
-import { KafkaProducerRegistryComponent } from '~/common/outputs/registry'
+import { KafkaProducerRegistryComponent } from '~/ingestion/common/producer-registry'
 import {
     getDefaultKafkaDownstreamProducerEnvConfig,
     getDefaultKafkaUpstreamProducerEnvConfig,
-} from '~/ingestion/common/config'
+} from '~/ingestion/common/producers'
 import { Component, newScope } from '~/ingestion/common/scopes'
 import { getDefaultIngestionOutputsConfig } from '~/ingestion/config'
 import {

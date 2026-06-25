@@ -1,4 +1,4 @@
-use std::{collections::HashMap, net::IpAddr, sync::Arc, time::Duration};
+use std::{collections::HashMap, net::IpAddr, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::Error;
 use aws_config::{retry::RetryConfig, timeout::TimeoutConfig, BehaviorVersion, Region};
@@ -191,9 +191,10 @@ impl SourceConfig {
     pub async fn construct(
         &self,
         secrets: &JobSecrets,
-        _context: Arc<AppContext>,
+        context: Arc<AppContext>,
         is_restarting: bool,
     ) -> Result<Box<dyn DataSource>, Error> {
+        let staging_dir = context.config.staging_dir();
         match self {
             SourceConfig::Folder(config) => Ok(Box::new(config.create_source().await?)),
             SourceConfig::UrlList(config) => Ok(Box::new(
@@ -202,9 +203,11 @@ impl SourceConfig {
                 config.create_source(secrets, !is_restarting).await?,
             )),
             SourceConfig::S3(config) => Ok(Box::new(config.create_source(secrets).await?)),
-            SourceConfig::S3Gzip(config) => Ok(Box::new(config.create_gzip_source(secrets).await?)),
+            SourceConfig::S3Gzip(config) => Ok(Box::new(
+                config.create_gzip_source(secrets, staging_dir).await?,
+            )),
             SourceConfig::DateRangeExport(config) => {
-                Ok(Box::new(config.create_source(secrets).await?))
+                Ok(Box::new(config.create_source(secrets, staging_dir).await?))
             }
         }
     }
@@ -248,7 +251,10 @@ impl SinkConfig {
                 let options = posthog_rs::ClientOptionsBuilder::default()
                     .api_key(token)
                     .host(&context.config.capture_url)
-                    .request_timeout_seconds(30)
+                    .request_timeout_seconds(30u64)
+                    .max_capture_attempts(6u32)
+                    .retry_initial_backoff_ms(1000u64)
+                    .retry_max_backoff_ms(30000u64)
                     .build()
                     .map_err(|e| {
                         Error::msg(format!("Failed to build capture client options: {e}"))
@@ -408,7 +414,11 @@ impl S3SourceConfig {
         ))
     }
 
-    pub async fn create_gzip_source(&self, secrets: &JobSecrets) -> Result<GzipS3Source, Error> {
+    pub async fn create_gzip_source(
+        &self,
+        secrets: &JobSecrets,
+        staging_dir: PathBuf,
+    ) -> Result<GzipS3Source, Error> {
         let builder = self.build_s3_config(secrets)?;
         let client = aws_sdk_s3::Client::from_conf(builder.build());
 
@@ -417,6 +427,7 @@ impl S3SourceConfig {
             self.bucket.clone(),
             self.prefix.clone(),
             ExtractorType::PlainGzip.create_extractor(),
+            staging_dir,
         ))
     }
 }
@@ -424,6 +435,7 @@ impl DateRangeExportSourceConfig {
     pub async fn create_source(
         &self,
         secrets: &JobSecrets,
+        staging_dir: PathBuf,
     ) -> Result<DateRangeExportSource, Error> {
         let auth_config = match &self.auth {
             AuthSourceConfig::None => AuthConfig::None,
@@ -515,6 +527,7 @@ impl DateRangeExportSourceConfig {
             self.end,
             self.interval_duration,
             extractor,
+            staging_dir,
         )
         .with_query_params(self.start_qp.clone(), self.end_qp.clone())
         .with_timeout(Duration::from_secs(self.timeout_seconds))

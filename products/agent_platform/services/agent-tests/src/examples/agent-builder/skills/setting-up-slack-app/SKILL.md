@@ -34,8 +34,8 @@ time. **Always promote first, then surface the URL.**
 Don't make the user hand-pick OAuth scopes and bot event subscriptions —
 they get it wrong (classically: `auto_resume_threads` on but
 `message.channels` never subscribed, so thread replies never arrive).
-Instead, call **`agent-applications-revisions-slack-manifest`** (native
-tool / MCP tool `agent-applications-revisions-slack-manifest`) for the
+Instead, call **`posthog__agent-applications-revisions-slack-manifest`**
+(MCP tool) for the
 revision. It returns `{ manifest, notes, events_url, interactivity_url }`
 where `manifest` is a ready-to-paste Slack app manifest whose scopes +
 bot events are **derived from this agent's slack trigger config and
@@ -73,10 +73,10 @@ Before walking the user through anything, gather:
 1. **Agent slug.** From `get_context` or whichever agent the user is
    configuring. Required for the events URL.
 2. **`slack_events_url` / `slack_interactivity_url` on the agent.**
-   `agent-applications-retrieve` returns both. They're `null` when the
+   `posthog__agent-applications-retrieve` returns both. They're `null` when the
    PostHog deployment hasn't set `AGENT_INGRESS_PUBLIC_URL`. Hold onto
    the values — you'll surface them at step 3 below, AFTER promote.
-3. **Current env state.** `agent-applications-env-keys-get` for
+3. **Current env state.** `posthog__agent-applications-env-keys-get` for
    `SLACK_SIGNING_SECRET` and `SLACK_BOT_TOKEN` — tells you whether
    you're setting fresh or rotating.
 
@@ -251,7 +251,7 @@ Tell the user: "Mention the bot in the channel you invited it to
 (`@<bot> hi`). I'll watch `sessions-list` for the new session and
 we can debug from there if nothing arrives."
 
-Then poll `agent-applications-sessions-list` filtered to the slack
+Then poll `posthog__agent-applications-sessions-list` filtered to the slack
 trigger and the last few minutes. If nothing shows up within ~10s,
 check the agent-ingress logs for a 401 (signing secret mismatch),
 403 (`workspace_not_trusted`), or 404 (`no_slack_trigger` — spec
@@ -349,7 +349,7 @@ flip it on only when the user explicitly wants a shared thread.
 
 `allow_direct_messages` is also independent — it only adds the DM
 surface, it doesn't change channel behaviour. When you flip it on,
-**regenerate the manifest** (`agent-applications-revisions-slack-manifest`)
+**regenerate the manifest** (`posthog__agent-applications-revisions-slack-manifest`)
 and tell the user to reinstall the app: it adds `im:history` /
 `mpim:history` (new scopes only minted at install) and enables the App
 Home Messages tab, without which Slack won't let anyone open a DM.
@@ -407,9 +407,11 @@ present.
   don't. Each agent's Slack creds live in its own `encrypted_env`.
 - **Don't ask for the token values in chat.** Every bot token /
   signing secret comes in through the `set_secret` punch-out — see
-  `skills/secrets-and-integrations` for the hard rule.
+  `skills/secrets-and-integrations` for the hard rule. A Slack agent
+  that acts on a service as the user needs an identity provider — see
+  `skills/authenticating-as-the-user`.
 - **Don't invent the events URL.** It comes from
-  `agent-applications-retrieve.slack_events_url`. If that field is
+  `posthog__agent-applications-retrieve.slack_events_url`. If that field is
   null, the deployment isn't externally reachable — say so and
   stop.
 - **Don't promote before both secrets are set** unless the user

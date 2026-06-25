@@ -6,6 +6,7 @@ import { context, type Plugin } from 'esbuild'
 import { existsSync } from 'fs'
 import { resolve } from 'path'
 
+import { copyInstructions } from './copy-instructions'
 import { honoEsbuildOptions, honoOutfile } from './hono-esbuild-config'
 
 // Load the same local-dev config the Workers (wrangler) runtime uses, so
@@ -20,6 +21,8 @@ const dotEnv = resolve(process.cwd(), '.env')
 if (existsSync(dotEnv)) {
     process.loadEnvFile(dotEnv)
 }
+
+copyInstructions()
 
 // flox sets SSL_CERT_FILE; Node's TLS layer only reads NODE_EXTRA_CA_CERTS.
 if (!process.env.NODE_EXTRA_CA_CERTS && process.env.SSL_CERT_FILE) {

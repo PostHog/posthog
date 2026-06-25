@@ -12,8 +12,15 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
+import { FunnelAlertPreview } from 'lib/components/Alerts/funnelAlertPreview'
 import { HogQLAlertPreview } from 'lib/components/Alerts/hogqlAlertPreview'
-import { AlertSimulationResult, isAnyRowHogQLConfig, isTrendsAlertConfig } from 'lib/components/Alerts/types'
+import {
+    AlertSimulationResult,
+    isAnyRowHogQLConfig,
+    isFunnelsAlertConfig,
+    isHogQLAlertConfig,
+    isTrendsAlertConfig,
+} from 'lib/components/Alerts/types'
 import { DetectorSelector, getDefaultWindow } from 'lib/components/Alerts/views/DetectorSelector'
 import { SimulationSummary } from 'lib/components/Alerts/views/SimulationSummary'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -22,7 +29,7 @@ import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schem
 
 import { getDefaultSimulationRange } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 
-import { HogQLDefinitionFields, TrendsDefinitionFields } from './AlertDefinitionFields'
+import { FunnelsDefinitionFields, HogQLDefinitionFields, TrendsDefinitionFields } from './AlertDefinitionFields'
 import { getSimulationRangeOptions } from './editAlertModalUtils'
 
 export interface AlertDefinitionSectionProps {
@@ -33,6 +40,10 @@ export interface AlertDefinitionSectionProps {
     isNonTimeSeriesDisplay: boolean
     alertSeries: Array<{ custom_name?: string | null; name?: string | null; event?: string | null }> | null
     formulaNodes: Array<{ formula: string; custom_name?: string | null }> | undefined
+    /** The funnel's step labels (real event/series names), used to populate the conversion picker. */
+    funnelStepLabels: string[]
+    /** The conversion rate(s) a funnel alert would evaluate right now; null until the result loads. */
+    funnelPreview: FunnelAlertPreview | null
     /** What a SQL alert would evaluate right now; null until the insight result loads. */
     hogqlPreview: HogQLAlertPreview | null
     /** Result column names of the SQL insight, for the column pickers. */
@@ -66,6 +77,8 @@ export function AlertDefinitionSection({
     isNonTimeSeriesDisplay,
     alertSeries,
     formulaNodes,
+    funnelStepLabels,
+    funnelPreview,
     hogqlPreview,
     hogqlColumns,
     hogqlValueColumnOptions,
@@ -81,13 +94,18 @@ export function AlertDefinitionSection({
     onClearSimulation,
     onClearSimulationOverlay,
 }: AlertDefinitionSectionProps): JSX.Element {
+    // Funnel alerts evaluate a single conversion-rate snapshot (always a 0–100%), so relative
+    // conditions have no prior value to compare against — they're omitted entirely below.
+    const isFunnelAlert = isFunnelsAlertConfig(alertForm.config)
+    const supportsRelativeConditions = !isFunnelAlert
     const relativeConditionDisabledReason =
         (isNonTimeSeriesDisplay && 'This condition is only supported for time series trends') ||
         (isHogQLAnyRow(alertForm) &&
             "Rows in any-row mode aren't a time series — switch to 'the latest value' for relative conditions")
     return (
         <>
-            {isBreakdownValid && (
+            {/* Trends-specific copy; funnels have their own breakdown messaging in the preview banner. */}
+            {isBreakdownValid && isTrendsAlertConfig(alertForm.config) && (
                 <LemonBanner type="warning">
                     {alertMode === 'detector'
                         ? 'For trends with breakdown, the detector will independently monitor each breakdown value (up to 25) and fire if any is anomalous.'
@@ -101,7 +119,14 @@ export function AlertDefinitionSection({
                     isBreakdownValid={isBreakdownValid}
                     alertMode={alertMode}
                 />
-            ) : (
+            ) : isFunnelAlert ? (
+                <FunnelsDefinitionFields
+                    alertForm={alertForm}
+                    stepLabels={funnelStepLabels}
+                    funnelPreview={funnelPreview}
+                    onSetAlertFormValue={onSetAlertFormValue}
+                />
+            ) : isHogQLAlertConfig(alertForm.config) ? (
                 <HogQLDefinitionFields
                     alertForm={alertForm}
                     hogqlPreview={hogqlPreview}
@@ -110,7 +135,7 @@ export function AlertDefinitionSection({
                     hogqlLabelColumnOptions={hogqlLabelColumnOptions}
                     onSetAlertFormValue={onSetAlertFormValue}
                 />
-            )}
+            ) : null}
 
             {anomalyDetectionEnabled && (
                 <LemonSegmentedButton
@@ -150,37 +175,37 @@ export function AlertDefinitionSection({
                         <LemonBanner type="error">{thresholdBoundsFormError}</LemonBanner>
                     ) : null}
                     <div className="flex flex-wrap gap-x-3 gap-y-2 items-center">
-                        <Group name={['condition']}>
-                            <LemonField name="type">
-                                <LemonSelect
-                                    fullWidth
-                                    className="w-40"
-                                    data-attr="alertForm-condition"
-                                    options={[
-                                        {
-                                            label: 'has value',
-                                            value: AlertConditionType.ABSOLUTE_VALUE,
-                                        },
-                                        {
-                                            label: 'increases by',
-                                            value: AlertConditionType.RELATIVE_INCREASE,
-                                            disabledReason: relativeConditionDisabledReason,
-                                        },
-                                        {
-                                            label: 'decreases by',
-                                            value: AlertConditionType.RELATIVE_DECREASE,
-                                            disabledReason: relativeConditionDisabledReason,
-                                        },
-                                    ]}
-                                />
-                            </LemonField>
-                        </Group>
+                        {supportsRelativeConditions && (
+                            <Group name={['condition']}>
+                                <LemonField name="type">
+                                    <LemonSelect
+                                        fullWidth
+                                        className="w-40"
+                                        data-attr="alertForm-condition"
+                                        options={[
+                                            { label: 'has value', value: AlertConditionType.ABSOLUTE_VALUE },
+                                            {
+                                                label: 'increases by',
+                                                value: AlertConditionType.RELATIVE_INCREASE,
+                                                disabledReason: relativeConditionDisabledReason,
+                                            },
+                                            {
+                                                label: 'decreases by',
+                                                value: AlertConditionType.RELATIVE_DECREASE,
+                                                disabledReason: relativeConditionDisabledReason,
+                                            },
+                                        ]}
+                                    />
+                                </LemonField>
+                            </Group>
+                        )}
                         <div>less than</div>
                         <LemonField name="lower">
                             <LemonInput
                                 type="number"
                                 className="w-30"
                                 data-attr="alertForm-lower-threshold"
+                                suffix={isFunnelAlert ? <span aria-label="percent">%</span> : undefined}
                                 value={
                                     alertForm.threshold.configuration.type === InsightThresholdType.PERCENTAGE &&
                                     alertForm.threshold.configuration.bounds?.lower
@@ -211,6 +236,7 @@ export function AlertDefinitionSection({
                                 type="number"
                                 className="w-30"
                                 data-attr="alertForm-upper-threshold"
+                                suffix={isFunnelAlert ? <span aria-label="percent">%</span> : undefined}
                                 value={
                                     alertForm.threshold.configuration.type === InsightThresholdType.PERCENTAGE &&
                                     alertForm.threshold.configuration.bounds?.upper

@@ -16,6 +16,7 @@ Do NOT:
 """
 
 from typing import TYPE_CHECKING, Any, Optional, cast
+from uuid import UUID
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
@@ -32,18 +33,35 @@ from posthog.models.tagged_item import TaggedItem
 
 from products.customer_analytics.backend.account_urls import build_account_deeplink as build_account_deeplink
 from products.customer_analytics.backend.constants import ACCOUNT_ASSIGNMENT_ROLE_FIELDS
+from products.customer_analytics.backend.logic import custom_property_values as _custom_property_values_logic
+from products.customer_analytics.backend.logic.custom_property_definitions import coerce_is_big_number
 from products.customer_analytics.backend.logic.usage_spike_notifications import (
     notify_managers_of_usage_spike as notify_managers_of_usage_spike,
 )
-from products.customer_analytics.backend.models import Account, CustomerJourney, CustomerProfileConfig
+from products.customer_analytics.backend.models import (
+    Account,
+    CustomerJourney,
+    CustomerProfileConfig,
+    CustomPropertyDefinition,
+)
 from products.customer_analytics.backend.models.account import AccountProperties as _ModelAccountProperties
-from products.notebooks.backend.models import Notebook, ResourceNotebook
+from products.notebooks.backend.facade import (
+    api as notebooks,
+    contracts as notebook_contracts,
+)
+
+# ResourceNotebook stays a direct import for the account-list Prefetch only — prefetching the
+# account -> ResourceNotebook -> notebook relation can't cross a data facade. All account-notebook
+# CRUD goes through `notebooks` (the facade). Tracked by the notebooks legacy-leak interface block.
+from products.notebooks.backend.models import ResourceNotebook
 
 from . import contracts
 
 if TYPE_CHECKING:
     from posthog.models.user import User
     from posthog.rbac.user_access_control import UserAccessControl
+
+    from products.customer_analytics.backend.models import CustomPropertyValue
 
 
 def _to_assignment(assignment) -> contracts.AccountAssignment | None:
@@ -76,16 +94,10 @@ def _account_tags(account: Account) -> list[str]:
 
 
 def _account_notes(account: Account) -> list[contracts.AccountNote]:
-    links = (
-        ResourceNotebook.objects.filter(
-            account=account,
-            notebook__deleted=False,
-            notebook__visibility=Notebook.Visibility.INTERNAL,
-        )
-        .select_related("notebook")
-        .order_by("-notebook__last_modified_at")
-    )
-    return [contracts.AccountNote(title=link.notebook.title, short_id=link.notebook.short_id) for link in links]
+    return [
+        contracts.AccountNote(title=note.title, short_id=note.short_id)
+        for note in notebooks.list_account_internal_notes(account.id)
+    ]
 
 
 def get_account_context_data(
@@ -369,6 +381,10 @@ class CustomerJourneyConflictError(Exception):
     """Raised when a customer journey already exists for the given insight (per team)."""
 
 
+class CustomPropertyDefinitionConflictError(Exception):
+    """Raised when a custom property definition violates the per-team unique name constraint."""
+
+
 class ResourceForbiddenError(Exception):
     """Raised when the caller passes resource/object access checks at the team level but
     lacks the object-level access required for the action — the view maps this to 403,
@@ -579,6 +595,138 @@ def delete_customer_profile_config(
         user=user,
         was_impersonated=was_impersonated,
     )
+    return True
+
+
+# --- CustomPropertyDefinition ---
+
+
+def _to_custom_property_definition_view(
+    definition: CustomPropertyDefinition,
+) -> contracts.CustomPropertyDefinitionView:
+    return contracts.CustomPropertyDefinitionView(
+        id=definition.id,
+        name=definition.name,
+        description=definition.description,
+        display_type=definition.display_type,
+        is_big_number=definition.is_big_number,
+        created_at=definition.created_at,
+        created_by=definition.created_by_id,
+        updated_at=definition.updated_at,
+    )
+
+
+def list_custom_property_definitions(
+    team_id: int, offset: int, limit: int
+) -> tuple[list[contracts.CustomPropertyDefinitionView], int]:
+    """Custom property definitions for the team, ordered by name. Returns ``(page, total_count)``."""
+    queryset = CustomPropertyDefinition.objects.filter(team_id=team_id).order_by("name")
+    total_count = queryset.count()
+    page = queryset[offset : offset + limit]
+    return [_to_custom_property_definition_view(d) for d in page], total_count
+
+
+def get_custom_property_definition(team_id: int, definition_id: str) -> contracts.CustomPropertyDefinitionView | None:
+    definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
+    return _to_custom_property_definition_view(definition) if definition is not None else None
+
+
+def create_custom_property_definition(
+    *,
+    team_id: int,
+    name: str,
+    description: str | None,
+    display_type: str,
+    is_big_number: bool,
+    organization_id,
+    user: "User",
+    was_impersonated: bool,
+) -> contracts.CustomPropertyDefinitionView:
+    try:
+        definition = CustomPropertyDefinition.objects.create(
+            team_id=team_id,
+            created_by=user,
+            name=name,
+            description=description,
+            display_type=display_type,
+            is_big_number=coerce_is_big_number(display_type, is_big_number),
+        )
+    except IntegrityError:
+        raise CustomPropertyDefinitionConflictError("A custom property with this name already exists for this team.")
+    _log_activity_swallowing(
+        instance=definition,
+        scope="CustomPropertyDefinition",
+        activity="created",
+        name=definition.name,
+        organization_id=organization_id,
+        team_id=team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+    )
+    return _to_custom_property_definition_view(definition)
+
+
+def update_custom_property_definition(
+    *,
+    team_id: int,
+    definition_id: str,
+    fields: dict[str, Any],
+    organization_id,
+    user: "User",
+    was_impersonated: bool,
+) -> contracts.CustomPropertyDefinitionView | None:
+    """Apply ``fields`` (only the keys the caller sent) to a team-scoped definition. Returns the
+    updated view, or None when no definition matches the id for this team (→ 404)."""
+    definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
+    if definition is None:
+        return None
+    previous = CustomPropertyDefinition.objects.get(pk=definition.pk)
+    for attr, value in fields.items():
+        setattr(definition, attr, value)
+    # Re-coerce against the effective display type: a PATCH that only flips the type to a
+    # non-numeric one must clear a previously-set is_big_number (the partial-update case).
+    definition.is_big_number = coerce_is_big_number(definition.display_type, definition.is_big_number)
+    try:
+        definition.save()
+    except IntegrityError:
+        raise CustomPropertyDefinitionConflictError("A custom property with this name already exists for this team.")
+    _log_activity_swallowing(
+        instance=definition,
+        scope="CustomPropertyDefinition",
+        activity="updated",
+        name=definition.name,
+        organization_id=organization_id,
+        team_id=team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        previous=previous,
+    )
+    return _to_custom_property_definition_view(definition)
+
+
+def delete_custom_property_definition(
+    *,
+    team_id: int,
+    definition_id: str,
+    organization_id,
+    user: "User",
+    was_impersonated: bool,
+) -> bool:
+    """Delete a team-scoped definition. Returns False when none matched (→ 404)."""
+    definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
+    if definition is None:
+        return False
+    _log_activity_swallowing(
+        instance=definition,
+        scope="CustomPropertyDefinition",
+        activity="deleted",
+        name=definition.name,
+        organization_id=organization_id,
+        team_id=team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+    )
+    definition.delete()
     return True
 
 
@@ -972,7 +1120,25 @@ def _to_user_basic_info(user: "User | None") -> contracts.UserBasicInfo | None:
     )
 
 
-def _to_account_notebook_view(notebook: Notebook) -> contracts.AccountNotebookView:
+def _notebook_user_to_basic_info(
+    user: "notebook_contracts.NotebookUserInfo | None",
+) -> contracts.UserBasicInfo | None:
+    if user is None:
+        return None
+    return contracts.UserBasicInfo(
+        id=user.id,
+        uuid=user.uuid,
+        distinct_id=user.distinct_id,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        email=user.email,
+        is_email_verified=user.is_email_verified,
+        hedgehog_config=user.hedgehog_config,
+        role_at_organization=user.role_at_organization,
+    )
+
+
+def _to_account_notebook_view(notebook: "notebook_contracts.AccountNotebook") -> contracts.AccountNotebookView:
     return contracts.AccountNotebookView(
         id=notebook.id,
         short_id=notebook.short_id,
@@ -980,9 +1146,9 @@ def _to_account_notebook_view(notebook: Notebook) -> contracts.AccountNotebookVi
         content=notebook.content,
         text_content=notebook.text_content,
         created_at=notebook.created_at,
-        created_by=_to_user_basic_info(notebook.created_by),
+        created_by=_notebook_user_to_basic_info(notebook.created_by),
         last_modified_at=notebook.last_modified_at,
-        last_modified_by=_to_user_basic_info(notebook.last_modified_by),
+        last_modified_by=_notebook_user_to_basic_info(notebook.last_modified_by),
     )
 
 
@@ -999,22 +1165,21 @@ def get_accessible_account_id(team_id: int, account_id: str, user_access_control
 
 
 def list_account_notebooks(
-    team_id: int, account_id: str, user_access_control: "UserAccessControl"
+    team_id: int,
+    account_id: str,
+    user_access_control: "UserAccessControl",
+    *,
+    search: str | None = None,
+    order: str | None = None,
 ) -> list[contracts.AccountNotebookView] | None:
-    """Internal notebooks linked to an accessible account, newest first. None when the
-    parent account isn't accessible (→ 404)."""
+    """Internal notebooks linked to an accessible account. Optionally full-text filtered by
+    ``search`` (title + content) and sorted by ``order`` (creation date or author); defaults to
+    newest first. None when the parent account isn't accessible (→ 404)."""
     if get_accessible_account_id(team_id, account_id, user_access_control) is None:
         return None
-    notebooks = (
-        Notebook.objects.filter(
-            deleted=False,
-            visibility=Notebook.Visibility.INTERNAL,
-            resources__account_id=account_id,
-        )
-        .select_related("created_by", "last_modified_by")
-        .order_by("-last_modified_at")
-    )
-    return [_to_account_notebook_view(n) for n in notebooks]
+    return [
+        _to_account_notebook_view(n) for n in notebooks.list_account_notebooks(account_id, search=search, order=order)
+    ]
 
 
 def get_account_notebook(
@@ -1024,16 +1189,7 @@ def get_account_notebook(
     accessible or no such linked notebook exists (→ 404)."""
     if get_accessible_account_id(team_id, account_id, user_access_control) is None:
         return None
-    notebook = (
-        Notebook.objects.filter(
-            deleted=False,
-            visibility=Notebook.Visibility.INTERNAL,
-            resources__account_id=account_id,
-            short_id=short_id,
-        )
-        .select_related("created_by", "last_modified_by")
-        .first()
-    )
+    notebook = notebooks.get_account_notebook(account_id, short_id)
     return _to_account_notebook_view(notebook) if notebook is not None else None
 
 
@@ -1051,22 +1207,30 @@ def create_account_notebook(
     (markdown→tiptap) so the ``ee.hogai`` helper stays off the facade import path."""
     if get_accessible_account_id(team_id, account_id, user_access_control) is None:
         return None
-    save_kwargs: dict[str, Any] = {
-        "team": team,
-        "created_by": user,
-        "last_modified_by": user,
-        "visibility": Notebook.Visibility.INTERNAL,
-        "title": input.title,
-        "text_content": input.text_content,
-    }
-    if input.synthesized_content is not None:
-        save_kwargs["content"] = input.synthesized_content
-    elif input.content is not None:
-        save_kwargs["content"] = input.content
-    with transaction.atomic():
-        notebook = Notebook.objects.create(**save_kwargs)
-        ResourceNotebook.objects.create(notebook=notebook, account_id=account_id)
-    return _to_account_notebook_view(notebook)
+    content = input.synthesized_content if input.synthesized_content is not None else input.content
+    created = notebooks.create_account_notebook(
+        team_id,
+        account_id,
+        title=input.title,
+        content=content,
+        text_content=input.text_content,
+        created_by_id=user.id,
+        last_modified_by_id=user.id,
+    )
+    # The creator is also the (only) modifier of a just-created notebook, so the user the
+    # caller already holds is both `created_by` and `last_modified_by` — no extra fetch.
+    author = _to_user_basic_info(user)
+    return contracts.AccountNotebookView(
+        id=created.id,
+        short_id=created.short_id,
+        title=created.title,
+        content=created.content,
+        text_content=created.text_content,
+        created_at=created.created_at,
+        created_by=author,
+        last_modified_at=created.last_modified_at,
+        last_modified_by=author,
+    )
 
 
 def delete_account_notebook(
@@ -1076,17 +1240,7 @@ def delete_account_notebook(
     isn't accessible or no such notebook exists (→ 404)."""
     if get_accessible_account_id(team_id, account_id, user_access_control) is None:
         return False
-    notebook = Notebook.objects.filter(
-        deleted=False,
-        visibility=Notebook.Visibility.INTERNAL,
-        resources__account_id=account_id,
-        short_id=short_id,
-    ).first()
-    if notebook is None:
-        return False
-    with transaction.atomic():
-        notebook.delete()
-    return True
+    return notebooks.delete_account_notebook(account_id, short_id)
 
 
 # --- shared resolution / access helpers for the CRUD paths ---
@@ -1123,3 +1277,47 @@ def _enforce_object_access(obj, user_access_control: "UserAccessControl", requir
         return
     if not user_access_control.check_access_level_for_object(obj, required_level=required_level):  # type: ignore[arg-type]
         raise ResourceForbiddenError()
+
+
+# --- Custom property values ---
+
+# Re-exported from logic so the presentation layer can catch them — the import-linter forbids
+# presentation importing logic directly, so these errors are part of the facade's surface.
+CustomPropertyDefinitionNotFound = _custom_property_values_logic.CustomPropertyDefinitionNotFound
+CustomPropertyValueConflict = _custom_property_values_logic.CustomPropertyValueConflict
+InvalidCustomPropertyValue = _custom_property_values_logic.InvalidCustomPropertyValue
+
+
+def _to_custom_property_value(row: "CustomPropertyValue") -> contracts.CustomPropertyValue:
+    return contracts.CustomPropertyValue(
+        id=row.id,
+        account_id=row.account_id,
+        definition_id=row.definition_id,
+        value=_custom_property_values_logic.value_of(row),
+        created_at=row.created_at,
+        created_by_id=row.created_by_id,
+    )
+
+
+def set_custom_property_value(
+    team_id: int,
+    account_id: str | UUID,
+    definition_id: str | UUID,
+    value: Any,
+    *,
+    created_by_id: int | None = None,
+) -> contracts.CustomPropertyValue:
+    row = _custom_property_values_logic.set_custom_property_value(
+        team_id=team_id,
+        account_id=account_id,
+        definition_id=definition_id,
+        value=value,
+        created_by_id=created_by_id,
+    )
+    return _to_custom_property_value(row)
+
+
+def list_active_custom_property_values(team_id: int, account_id: str | UUID) -> list[contracts.CustomPropertyValue]:
+    """The account's current (non-deleted) custom property values as contracts, newest first."""
+    rows = _custom_property_values_logic.list_active_custom_property_values(team_id=team_id, account_id=account_id)
+    return [_to_custom_property_value(row) for row in rows]

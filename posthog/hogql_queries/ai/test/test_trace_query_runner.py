@@ -6,7 +6,6 @@ from uuid import UUID
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, snapshot_clickhouse_queries
-from unittest.mock import patch
 
 from posthog.schema import (
     DateRange,
@@ -1491,8 +1490,7 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(response.results[0].totalLatency, 300.0)
 
     @freeze_time("2025-01-15T12:00:00Z")
-    @patch("posthog.hogql_queries.ai.ai_table_resolver.is_ai_events_enabled", return_value=True)
-    def test_fallback_to_events_when_ai_events_empty(self, _mock_flag):
+    def test_fallback_to_events_when_ai_events_empty(self):
         """When ai_events has no data, the fallback to events returns correct results with proper numeric types."""
         trace_id = "fallback-test-trace"
         _create_person(distinct_ids=["person1"], team=self.team)
